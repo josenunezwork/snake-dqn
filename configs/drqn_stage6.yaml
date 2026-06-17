@@ -1,0 +1,55 @@
+# DRQN (recurrent) training — Stage 6 (2026-06-15).
+#
+# Recurrent memory (GRU) so the agent can track enemy trajectories / off-screen
+# threats over time — the credible path toward trapping/kills and better survival
+# under partial observability. This is a FROM-SCRATCH run: the recurrent
+# architecture cannot warm-start from the feedforward champion.
+#
+# Trains on the LOCAL/headless path (main.py --headless): the distributed
+# apex_train.py actors do NOT support GRU hidden state, but ApexPolicy + the game
+# loop do (SequenceReplayBuffer + per-snake hidden state).
+#
+# Keeps the boost-abuse fix (rewards.boost_segment=3.0) so DRQN does not relearn
+# the eat-then-burn exploit.
+
+network:
+  input_size: 58
+  hidden_size: 512
+  output_size: 6
+  use_gru: true
+  gru_hidden_size: 256
+  sequence_length: 20
+  burn_in_length: 5
+
+rewards:
+  boost_segment: 3.0
+
+game:
+  width: 1450
+  height: 830
+  num_snakes: 8
+  initial_food: 250
+  max_food: 300
+  max_frames: 6000
+  frame_rate: 1
+  max_length: 150
+
+training:
+  batch_size: 32                 # sequence batches are heavier than transitions
+  learning_rate: 0.0005
+  gamma: 0.99
+  target_update_frequency: 2500
+  train_frequency: 4
+  checkpoint_frequency: 2000
+  save_interval: 2000
+
+apex:
+  batch_size: 32
+  buffer_size: 50000
+  min_buffer_size: 2000
+  target_update_freq: 2500
+  learning_rate: 0.0005
+  gamma: 0.99
+  n_step: 3
+  use_compile: false
+  pin_memory: false

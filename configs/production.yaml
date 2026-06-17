@@ -1,0 +1,26 @@
+# Production configuration (for best performance)
+# Only overrides that differ from configs/default.yaml are listed here.
+
+# Game settings
+game:
+  initial_food: 300
+  max_food: 400
+  max_frames: 2000000
+  frame_rate: 1
+  max_length: 150                     # Larger snakes allowed in production
+
+# Neural network (larger for better capacity)
+network:
+  hidden_size: 1024
+
+# Training (conservative for stability)
+training:
+  batch_size: 256
+  memory_size: 200000
+  learning_rate: 0.001
+  epsilon_end: 0.01
+  target_update_frequency: 1000
+  train_frequency: 4
+  checkpoint_frequency: 2000
+  save_interval: 2000
+

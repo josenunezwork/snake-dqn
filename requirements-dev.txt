@@ -1,0 +1,21 @@
+# Development dependencies
+-r requirements.txt
+
+# Testing
+pytest>=7.4.0,<8.0.0
+pytest-cov>=4.1.0,<5.0.0
+pytest-mock>=3.11.0,<4.0.0
+pytest-xdist>=3.3.0,<4.0.0  # Parallel test execution
+
+# Code quality
+black>=23.7.0,<24.0.0
+
+# CLI enhancement
+rich>=13.5.0,<14.0.0
+
+# Configuration management
+pyyaml>=6.0.1,<7.0.0
+pydantic>=2.3.0,<3.0.0
+
+# Type stubs
+types-PyYAML>=6.0.12,<7.0.0

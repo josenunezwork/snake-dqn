@@ -1,0 +1,167 @@
+# Default configuration for Snake RL Game
+# Uses Ape-X DQN algorithm
+#
+# This file is the SINGLE SOURCE OF TRUTH for all config settings.
+# Values here must match the dataclass defaults in src/core/game_config.py.
+# When loading via AppConfig.from_yaml(), these values override dataclass defaults.
+
+# Game settings (GameSettings dataclass)
+game:
+  width: 1450
+  height: 830
+  num_snakes: 4
+  segment_size: 10
+  wall_thickness: 10
+  initial_food: 250
+  max_food: 300
+  max_frames: 5000
+  frame_rate: 100
+  max_length: 100
+  num_sectors: 16
+  min_boost_length: 5              # Minimum snake length required to use boost
+  boost_length_cost_frames: 3      # Lose 1 segment every N boost frames
+  arena_type: rectangular          # Arena shape: "rectangular" or "circular"
+  arena_radius: 400                # Radius for circular arena (pixels)
+  arena_center_x: 725              # Center X for circular arena (WIDTH // 2)
+  arena_center_y: 415              # Center Y for circular arena (HEIGHT // 2)
+
+# Neural network architecture (NetworkSettings dataclass)
+network:
+  input_size: 58              # 58D state: direction(4) + length(1) + food(19) + danger(16) + boundary(4) + enemy(10) + per-action-danger(3) + boost(1)
+  hidden_size: 512
+  output_size: 6              # 6 actions: 3 relative dirs × 2 speed modes (normal/boost)
+  danger_max_distance: 30
+  use_boundary_as_danger: true
+  vision_cone_radius: 80
+  vision_cone_opacity: 100
+  use_gru: false                # Enable GRU/DRQN recurrent mode
+  gru_hidden_size: 256          # GRU hidden state dimension
+  sequence_length: 20           # Sequence length for DRQN training
+  burn_in_length: 5             # Burn-in steps for GRU hidden state warmup
+
+# Training hyperparameters (TrainingSettings dataclass)
+training:
+  batch_size: 128
+  memory_size: 100000
+  learning_rate: 0.005
+  gamma: 0.99
+  epsilon_start: 1.0
+  epsilon_end: 0.02
+  epsilon_decay: 0.99995
+  epsilon_eval: 0.0
+  target_update_frequency: 2500
+  train_frequency: 8
+  checkpoint_frequency: 1000
+  grad_clip_norm: 10.0
+  default_iterations: 10000
+  save_interval: 1000
+  log_interval: 100
+  gameplay_epsilon: 0.02
+  priority_alpha: 0.6
+  priority_beta_start: 0.4
+  priority_beta_increment: 0.000001
+
+# Reward settings (RewardSettings dataclass)
+rewards:
+  # Terminal death penalty outweighs clamped positive rewards inside the n-step horizon.
+  death: -11.0
+  food_base: 3.0
+
+  # Shaping rewards (scaled down for unified system)
+  toward_food: 0.1
+  away_food: -0.1
+
+  # Survival reward per step
+  survival: 0.01
+
+  # Wall proximity penalty (continuous gradient from threshold to wall)
+  wall_danger: -0.15
+  wall_danger_threshold: 0.02
+  wall_awareness_threshold: 0.15
+
+  # Danger proximity penalties
+  danger_critical: -0.5
+  danger_high: -0.2
+  danger_medium: -0.05
+
+  # Danger thresholds
+  danger_critical_threshold: 0.9
+  danger_high_threshold: 0.7
+  danger_medium_threshold: 0.5
+
+  # Starvation mechanic
+  starvation_start_frame: 100
+  starvation_max_frames: 500
+  starvation_max_penalty: 0.1
+
+  # Kill attribution rewards (scaled by victim size)
+  kill_base: 1.0
+  kill_length_scale: 0.05
+  kill_max: 5.0
+
+  # Reward clamping
+  reward_max: 5.0
+  reward_min: -12.0
+
+# Curriculum learning (CurriculumSettings dataclass)
+curriculum:
+  enabled: false                   # Enable curriculum learning for progressive difficulty
+  window_size: 50                  # Episodes to average for phase transitions
+  phase1_threshold: 200.0          # Avg episode length to exit Phase 1
+  phase2_threshold: 500.0          # Avg episode length to exit Phase 2
+  phase3_threshold: 300.0          # Avg episode length to exit Phase 3
+  phase4_threshold: 0.5            # Kill/death ratio to exit Phase 4
+
+# Checkpoint settings (CheckpointSettings dataclass)
+checkpoint:
+  checkpoint_dir: saved_snakes
+  best_model_name: best_snake.pth
+
+# Policy/Algorithm selection
+policy:
+  default: apex
+
+# Ape-X DQN settings (ApexSettings dataclass)
+# Top-level key so AppConfig._from_dict() can parse it correctly.
+# For distributed training on H100/multi-GPU, use src/scripts/apex_train.py.
+# For single-agent training, uses default DQN settings with Dueling architecture.
+apex:
+  # Actor configuration
+  num_actors: 64              # Number of actor processes (scale with CPU cores)
+  actor_update_freq: 400      # Steps between weight syncs from learner
+  epsilon_base: 0.4           # Base epsilon for exploration
+  epsilon_alpha: 7.0          # Controls epsilon distribution across actors
+  actor_env_num_snakes: 6     # Snakes per actor environment for terminal-rich replay
+  actor_board_scale: 0.2      # Smaller actor arena for collision-dense executable replay
+  actor_food_multiplier: 0.5  # Actor food density multiplier for dense replay
+
+  # Learner configuration
+  batch_size: 512             # Larger batch size for GPU efficiency
+  buffer_size: 1000000        # Replay buffer capacity
+  min_buffer_size: 50000      # Min experiences before learning starts
+  target_update_freq: 2500    # Target network update frequency
+  learning_rate: 0.00025      # Learning rate for Adam optimizer
+  gamma: 0.99                 # Discount factor
+  n_step: 3                   # N-step return horizon for actor-generated replay
+
+  # Priority parameters
+  priority_alpha: 0.6         # Priority exponent
+  priority_beta_start: 0.4    # Initial importance sampling
+  priority_beta_end: 1.0      # Final importance sampling
+  priority_epsilon: 0.000001  # Small constant for priorities
+
+  # H100 optimizations
+  use_compile: true           # Use torch.compile for faster training
+  pin_memory: true            # Pin memory for faster GPU transfer
+
+# Logging and monitoring (not in AppConfig dataclass, used by other subsystems)
+logging:
+  level: INFO
+  log_dir: logs
+  tensorboard_dir: logs/tensorboard
+
+# Hardware (not in AppConfig dataclass, used by other subsystems)
+hardware:
+  device: auto                # auto, cpu, cuda, mps
+  num_threads: 4
+  num_parallel_envs: 4

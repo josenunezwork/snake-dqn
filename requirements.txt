@@ -1,0 +1,19 @@
+# Core dependencies for Snake DQN Game
+torch>=2.0.0,<3.0.0
+numpy>=1.24.0,<2.0.0
+PyQt5>=5.15.0,<6.0.0
+psutil>=5.9.0,<6.0.0
+
+# Database
+# SQLite is built into Python, no external dependency needed
+
+# For future ML tracking
+tensorboard>=2.14.0,<3.0.0
+
+# Configuration management
+pyyaml>=6.0.1,<7.0.0
+
+# Runtime utilities
+matplotlib
+tqdm
+

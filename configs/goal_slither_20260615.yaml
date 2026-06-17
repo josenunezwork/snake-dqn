@@ -1,0 +1,54 @@
+# Slither.io-competence fine-tuning run (2026-06-15).
+#
+# Resumes from saved_snakes/best_apex.pth, so it MUST preserve that checkpoint's
+# TD-target contract: gamma=0.99, n_step=3, hidden_size=512, input=58, output=6.
+# (configs/goal_default_train.yaml uses gamma=0.95 and is therefore incompatible
+#  with the current best_apex.pth — do not resume that checkpoint with it.)
+#
+# Geometry exposes actors to full default-arena, multi-snake slither.io play:
+# food-seeking + enemy awareness + kill optimization all in one environment.
+# Sized for an 18-core Apple Silicon Mac running on CPU (the fast path here).
+
+game:
+  width: 1450
+  height: 830
+  num_snakes: 6                 # crowded board -> enemy awareness + kill opportunities
+  initial_food: 250
+  max_food: 300
+  max_frames: 5000
+  frame_rate: 1
+  max_length: 150
+
+network:
+  input_size: 58
+  hidden_size: 512              # must match best_apex.pth
+  output_size: 6
+  use_gru: false
+
+apex:
+  # Actors (leave cores for the learner + buffer process on an 18-core box)
+  num_actors: 12
+  actor_update_freq: 400
+  epsilon_base: 0.4
+  epsilon_alpha: 7.0
+  actor_env_num_snakes: 6       # terminal-rich, kill-dense replay
+  actor_board_scale: 0.35       # collision-dense but not cramped
+  actor_food_multiplier: 0.6
+
+  # Learner (CPU-appropriate batch; small MLP so this is launch-overhead bound)
+  batch_size: 256
+  buffer_size: 300000
+  min_buffer_size: 20000        # checkpoint does not bundle buffer; refills on resume
+  target_update_freq: 2500
+  learning_rate: 0.00025        # modest LR for stable fine-tuning of a strong model
+  gamma: 0.99                   # must match best_apex.pth
+  n_step: 3                     # must match best_apex.pth
+
+  # Priority replay
+  priority_alpha: 0.6
+  priority_beta_start: 0.4
+  priority_beta_end: 1.0
+  priority_epsilon: 0.000001
+
+  use_compile: false            # CPU run
+  pin_memory: false

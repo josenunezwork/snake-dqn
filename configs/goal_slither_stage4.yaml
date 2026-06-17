@@ -1,0 +1,57 @@
+# Slither.io fine-tune Stage 4 (2026-06-15) — fix boost-abuse.
+#
+# Tier-0 tournament eval showed the policy boosts ~89% of the time, burning every
+# segment it eats (mass stays ~15). Root cause: boost was reward-free. This stage
+# adds rewards.boost_segment so each boost-burned segment costs ~food_base,
+# making "eat then boost it away" net ~zero.
+#
+# Warm-starts the S3 champion via saved_snakes/best_apex_rebased_stage4.pth (same
+# weights as best_apex.pth, with reward_contract.boost_segment=3.0 added so the
+# new reward contract is allowed to resume). All other contract params unchanged:
+# gamma=0.99, n_step=3, hidden=512, geometry 8 snakes / board_scale 0.6.
+
+game:
+  width: 1450
+  height: 830
+  num_snakes: 8
+  initial_food: 250
+  max_food: 300
+  max_frames: 6000
+  frame_rate: 1
+  max_length: 150
+
+network:
+  input_size: 58
+  hidden_size: 512
+  output_size: 6
+  use_gru: false
+
+rewards:
+  boost_segment: 3.0           # NEW: per-segment penalty for boost-burned mass
+
+apex:
+  # contract-locked: must match the rebased checkpoint
+  actor_env_num_snakes: 8
+  actor_board_scale: 0.6
+  actor_food_multiplier: 0.6
+  gamma: 0.99
+  n_step: 3
+
+  # Stage 4 levers (same as Stage 3 — keep exploration up)
+  num_actors: 12
+  actor_update_freq: 400
+  epsilon_base: 0.40
+  epsilon_alpha: 7.0
+  batch_size: 256
+  buffer_size: 300000
+  min_buffer_size: 20000
+  target_update_freq: 2500
+  learning_rate: 0.00025
+
+  priority_alpha: 0.6
+  priority_beta_start: 0.4
+  priority_beta_end: 1.0
+  priority_epsilon: 0.000001
+
+  use_compile: false
+  pin_memory: false

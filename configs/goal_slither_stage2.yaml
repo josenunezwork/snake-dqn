@@ -1,0 +1,54 @@
+# Slither.io fine-tune Stage 2 (2026-06-15) — push past the easy gains.
+#
+# Resumes the current champion (saved_snakes/best_apex.pth). The Apex resume
+# contract LOCKS the TD-target params AND the actor geometry + reward contract:
+#   gamma=0.99, n_step=3, hidden=512, input=58, output=6,
+#   actor_env_num_snakes=6, actor_board_scale=0.35, actor_food_multiplier=0.6.
+# These MUST match the checkpoint or the resume aborts. So Stage 2 keeps the
+# training distribution identical and instead pushes the policy via the UNLOCKED
+# levers: more steps, lower LR (fine convergence), and less exploration
+# (exploit/refine the strong policy rather than re-explore). Stage 1 ended with
+# reward and Q still rising, so the policy was not yet converged.
+
+game:
+  width: 1450
+  height: 830
+  num_snakes: 6
+  initial_food: 250
+  max_food: 300
+  max_frames: 5000
+  frame_rate: 1
+  max_length: 150
+
+network:
+  input_size: 58
+  hidden_size: 512
+  output_size: 6
+  use_gru: false
+
+apex:
+  # --- contract-locked: must match champion checkpoint ---
+  actor_env_num_snakes: 6
+  actor_board_scale: 0.35
+  actor_food_multiplier: 0.6
+  gamma: 0.99
+  n_step: 3
+
+  # --- free to tune: the actual Stage 2 levers ---
+  num_actors: 12
+  actor_update_freq: 400
+  epsilon_base: 0.25            # down from 0.40 (stage 1): exploit/refine
+  epsilon_alpha: 7.0
+  batch_size: 256
+  buffer_size: 300000
+  min_buffer_size: 20000
+  target_update_freq: 2500
+  learning_rate: 0.00012        # down from 0.00025: finer convergence
+
+  priority_alpha: 0.6
+  priority_beta_start: 0.4
+  priority_beta_end: 1.0
+  priority_epsilon: 0.000001
+
+  use_compile: false
+  pin_memory: false

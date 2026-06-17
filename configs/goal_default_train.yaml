@@ -1,0 +1,41 @@
+# Default-arena fine-tuning config for the active "great at the game" goal.
+#
+# Keeps the selected checkpoint's TD-target contract (gamma/n-step/network size)
+# so training can resume safely, while exposing actors to default-sized geometry.
+
+game:
+  width: 1450
+  height: 830
+  num_snakes: 4
+  initial_food: 250
+  max_food: 300
+  max_frames: 50000
+  frame_rate: 1
+
+network:
+  hidden_size: 512
+
+training:
+  batch_size: 64
+  memory_size: 8192
+  learning_rate: 0.0005
+  gamma: 0.95
+  target_update_frequency: 500
+  train_frequency: 1
+  checkpoint_frequency: 1000
+  save_interval: 1000
+
+apex:
+  num_actors: 4
+  actor_update_freq: 200
+  actor_env_num_snakes: 4
+  actor_board_scale: 0.2
+  actor_food_multiplier: 0.5
+  batch_size: 64
+  buffer_size: 8192
+  min_buffer_size: 2048
+  target_update_freq: 500
+  learning_rate: 0.0005
+  gamma: 0.95
+  n_step: 3
+  use_compile: false

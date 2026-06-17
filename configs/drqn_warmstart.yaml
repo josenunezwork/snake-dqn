@@ -1,0 +1,40 @@
+# Warm-started DRQN: reuse champion's feature_layer + dueling streams, learn only
+# the GRU. Trains on the champion's arena (~board 0.8 = 1160x664, 8 snakes) so the
+# warm-started features transfer cleanly and the eval gap to the full arena stays small.
+network:
+  input_size: 58
+  hidden_size: 512
+  output_size: 6
+  use_gru: true
+  gru_hidden_size: 256
+  sequence_length: 20
+  burn_in_length: 5
+rewards:
+  boost_segment: 3.0
+game:
+  width: 1160
+  height: 664
+  num_snakes: 8
+  initial_food: 230
+  max_food: 290
+  max_frames: 6000
+  frame_rate: 1
+  max_length: 150
+training:
+  batch_size: 32
+  learning_rate: 0.0003
+  gamma: 0.99
+  target_update_frequency: 2500
+  train_frequency: 4
+  checkpoint_frequency: 5000
+  save_interval: 5000
+apex:
+  batch_size: 32
+  buffer_size: 60000
+  min_buffer_size: 3000
+  target_update_freq: 2500
+  learning_rate: 0.0003
+  gamma: 0.99
+  n_step: 3
+  use_compile: false
+  pin_memory: false

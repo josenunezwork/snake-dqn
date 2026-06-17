@@ -1,0 +1,41 @@
+# DRQN on a DENSE arena (fix for why earlier DRQN failed: local path trained on
+# the full sparse 1450x830 arena, terminal-poor -> recurrent from-scratch couldn't
+# learn). Smaller arena + many snakes = terminal-rich replay for the GRU to learn
+# opponent-tracking/kills. Arena ~board-0.8-equivalent to limit train/test gap.
+network:
+  input_size: 58
+  hidden_size: 512
+  output_size: 6
+  use_gru: true
+  gru_hidden_size: 256
+  sequence_length: 20
+  burn_in_length: 5
+rewards:
+  boost_segment: 3.0
+game:
+  width: 820
+  height: 520
+  num_snakes: 8
+  initial_food: 220
+  max_food: 280
+  max_frames: 6000
+  frame_rate: 1
+  max_length: 150
+training:
+  batch_size: 32
+  learning_rate: 0.0005
+  gamma: 0.99
+  target_update_frequency: 2500
+  train_frequency: 4
+  checkpoint_frequency: 5000
+  save_interval: 5000
+apex:
+  batch_size: 32
+  buffer_size: 60000
+  min_buffer_size: 3000
+  target_update_freq: 2500
+  learning_rate: 0.0005
+  gamma: 0.99
+  n_step: 3
+  use_compile: false
+  pin_memory: false

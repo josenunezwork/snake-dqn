@@ -1,0 +1,36 @@
+# Fast training configuration (for quick experiments)
+# Only overrides that differ from configs/default.yaml are listed here.
+
+# Game settings
+game:
+  width: 800
+  height: 600
+  num_snakes: 2
+  initial_food: 100
+  max_food: 150
+  max_frames: 50000
+  frame_rate: 1
+
+# Training
+training:
+  batch_size: 64
+  memory_size: 50000
+  learning_rate: 0.01
+  gamma: 0.95
+  epsilon_end: 0.05
+  target_update_frequency: 200
+  train_frequency: 1
+  checkpoint_frequency: 500
+  save_interval: 500
+
+# Ape-X DQN settings for quick local distributed smoke runs.
+apex:
+  num_actors: 4
+  actor_update_freq: 200
+  batch_size: 128
+  buffer_size: 50000
+  min_buffer_size: 2048
+  target_update_freq: 500
+  learning_rate: 0.0005
+  gamma: 0.95
+  n_step: 3

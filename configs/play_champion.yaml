@@ -1,0 +1,16 @@
+# Watch the slither.io champion (saved_snakes/best_apex.pth) play in the GUI.
+#
+# The champion was trained with the boost-abuse fix, so its reward contract has
+# rewards.boost_segment=3.0. The GUI loads models in TRAINING mode, which validates
+# the reward contract against the active config — so this file must declare the same
+# value, otherwise the load fails with:
+#   "Checkpoint reward_contract.boost_segment=3 does not match current ...=0"
+#
+# Run (greedy play so you watch the trained policy, not random exploration):
+#   ./venv/bin/python src/main.py --eval --config configs/play_champion.yaml
+
+rewards:
+  boost_segment: 3.0           # MUST match the champion checkpoint's reward contract
+
+game:
+  num_snakes: 6                # a lively board for viewing (champion generalizes)

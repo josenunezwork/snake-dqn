@@ -1,0 +1,40 @@
+# Exp1: arena-alignment board_scale 0.6 -> 0.8 (warm-start S4 champion).
+# Closes more of the train/test gap to the full-board benchmark. Same contract as
+# S4 except board_scale; keeps boost-fix reward.
+game:
+  width: 1450
+  height: 830
+  num_snakes: 8
+  initial_food: 250
+  max_food: 300
+  max_frames: 6000
+  frame_rate: 1
+  max_length: 150
+network:
+  input_size: 58
+  hidden_size: 512
+  output_size: 6
+  use_gru: false
+rewards:
+  boost_segment: 3.0
+apex:
+  actor_env_num_snakes: 12
+  actor_board_scale: 0.8
+  actor_food_multiplier: 0.6
+  gamma: 0.99
+  n_step: 3
+  num_actors: 12
+  actor_update_freq: 400
+  epsilon_base: 0.40
+  epsilon_alpha: 7.0
+  batch_size: 256
+  buffer_size: 300000
+  min_buffer_size: 20000
+  target_update_freq: 2500
+  learning_rate: 0.00025
+  priority_alpha: 0.6
+  priority_beta_start: 0.4
+  priority_beta_end: 1.0
+  priority_epsilon: 0.000001
+  use_compile: false
+  pin_memory: false
