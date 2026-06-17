@@ -55,6 +55,10 @@ htmlcov/
 *~
 .DS_Store
 
+# Agent instruction files (local only)
+AGENTS.md
+CLAUDE.md
+
 # Project specific
 saved_snakes/
 snake_memories.db
