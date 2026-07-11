@@ -166,6 +166,21 @@ class ObsInputs:
 # ---------------------------------------------------------------------------
 # Heading rotation
 # ---------------------------------------------------------------------------
+# Per-heading rotation coefficients (indexed by cardinal heading 0=up, 1=right,
+# 2=down, 3=left). ``ahead`` / ``lateral`` are linear combinations of the world
+# offsets ``(dcol, drow)``; the coefficients below reproduce the per-heading
+# closed form exactly with plain (bit-exact) integer arithmetic — no np.select
+# evaluating every branch into a full array.
+#   up    (0): ahead=-drow, lateral=+dcol
+#   right (1): ahead=+dcol, lateral=+drow
+#   down  (2): ahead=+drow, lateral=-dcol
+#   left  (3): ahead=-dcol, lateral=-drow
+_AHEAD_DCOL = np.array([0, 1, 0, -1], dtype=np.int64)
+_AHEAD_DROW = np.array([-1, 0, 1, 0], dtype=np.int64)
+_LAT_DCOL = np.array([1, 0, -1, 0], dtype=np.int64)
+_LAT_DROW = np.array([0, 1, 0, -1], dtype=np.int64)
+
+
 def _ego_offsets(
     dcol: np.ndarray, drow: np.ndarray, heading: np.ndarray
 ) -> "tuple[np.ndarray, np.ndarray]":
@@ -188,20 +203,11 @@ def _ego_offsets(
         ``(ahead, lateral)`` integer offset arrays in the heading frame.
     """
     h = heading
-    # forward unit vector f = CARDINAL[h]; right = f rotated 90 deg clockwise.
-    # ahead = -(offset . f_row_down) ... derive per-heading closed form:
-    #   up    (0): forward=-row, right=+col  -> ahead=-drow, lateral=+dcol
-    #   right (1): forward=+col, right=+row  -> ahead=+dcol, lateral=+drow
-    #   down  (2): forward=+row, right=-col  -> ahead=+drow, lateral=-dcol
-    #   left  (3): forward=-col, right=-row  -> ahead=-dcol, lateral=-drow
-    ahead = np.select(
-        [h == 0, h == 1, h == 2, h == 3],
-        [-drow, dcol, drow, -dcol],
-    )
-    lateral = np.select(
-        [h == 0, h == 1, h == 2, h == 3],
-        [dcol, drow, -dcol, -drow],
-    )
+    # Coefficient lookup + linear combination is bit-identical to the old
+    # np.select (each branch is one of {0, +1, -1}) but avoids materializing all
+    # four candidate arrays. The 0-coefficient terms vanish exactly for ints.
+    ahead = _AHEAD_DCOL[h] * dcol + _AHEAD_DROW[h] * drow
+    lateral = _LAT_DCOL[h] * dcol + _LAT_DROW[h] * drow
     return ahead, lateral
 
 
@@ -250,8 +256,8 @@ def _paint(
     si: np.ndarray,
     row: np.ndarray,
     col: np.ndarray,
-    code: np.ndarray,
-    value: np.ndarray,
+    code: "np.ndarray | int",
+    value: "np.ndarray | int",
     size: int,
 ) -> None:
     """Priority-scatter ``(code, value)`` into ego rasters at ``(row, col)``.
@@ -261,41 +267,42 @@ def _paint(
     priority). Sorting by code ascending and using last-write-wins scatter makes
     the higher-priority code land last for any contested cell.
 
+    ``code`` (and ``value``) may be a scalar when every point shares one code:
+    that fast path skips the argsort/reindex because uniform codes leave the
+    stable sort a no-op, so plain last-write-wins scatter is bit-identical.
+
     Args:
         code_plane: ``(E, S, size, size)`` uint16 type-code accumulator.
         val_plane: ``(E, S, size, size)`` uint16 value accumulator.
         ei, si: Flat env/snake indices for each point.
         row, col: Flat ego raster row/col for each point.
-        code: Flat type code for each point.
-        value: Flat value byte for each point.
+        code: Flat type code per point, or a scalar shared by all points.
+        value: Flat value byte per point, or a scalar shared by all points.
         size: Raster edge length.
     """
+    scalar_code = np.ndim(code) == 0
     inb = (row >= 0) & (row < size) & (col >= 0) & (col < size)
-    if not np.any(inb):
+    if not inb.all():
+        if not inb.any():
+            return
+        ei, si, row, col = ei[inb], si[inb], row[inb], col[inb]
+        if not scalar_code:
+            code = code[inb]
+        if np.ndim(value):
+            value = value[inb]
+    if scalar_code:
+        # Uniform code: last-write-wins by position is identical to the old
+        # stable-sort-then-scatter (the sort left equal codes in place), so skip
+        # the argsort/reindex entirely.
+        code_plane[ei, si, row, col] = code
+        val_plane[ei, si, row, col] = value
         return
-    ei, si, row, col, code, value = (
-        ei[inb],
-        si[inb],
-        row[inb],
-        col[inb],
-        code[inb],
-        value[inb],
-    )
-    # Stable sort by code ascending so highest-priority code writes last.
+    # Mixed codes (food): stable sort by code ascending so the highest-priority
+    # code writes last. Because we scatter last-wins, the final code and value
+    # written for a contested cell are the highest code's.
     order = np.argsort(code, kind="stable")
-    ei, si, row, col, code, value = (
-        ei[order],
-        si[order],
-        row[order],
-        col[order],
-        code[order],
-        value[order],
-    )
-    # Guard the value write: a cell contested by a lower code must not keep the
-    # lower code's value. Because we sort ascending and scatter last-wins, the
-    # final code and value written for a contested cell are the highest code's.
-    code_plane[ei, si, row, col] = code
-    val_plane[ei, si, row, col] = value
+    code_plane[ei[order], si[order], row[order], col[order]] = code[order]
+    val_plane[ei[order], si[order], row[order], col[order]] = value[order]
 
 
 def _build_tactical(inp: ObsInputs) -> np.ndarray:
@@ -337,18 +344,19 @@ def _build_tactical(inp: ObsInputs) -> np.ndarray:
     #   left:  dcol=-ahead,drow=-lat
     ncell = size * size
     n_agents = E * S
-    # Broadcast: (n_agents, ncell)
-    h_col = heading_flat[:, None]
-    a = ego_ahead[None, :]
+    # Broadcast: (n_agents, ncell). Invert ego->world per heading via coefficient
+    # lookup (bit-identical to the old np.select, each coeff in {0, +1, -1}):
+    #   dcol_w: up=lat,  right=ahead, down=-lat, left=-ahead
+    #   drow_w: up=-ahead, right=lat, down=ahead, left=-lat
+    h_col = heading_flat[:, None]  # (n_agents, 1)
+    a = ego_ahead[None, :]  # (1, ncell)
     lat = ego_lat[None, :]
-    dcol_w = np.select(
-        [h_col == 0, h_col == 1, h_col == 2, h_col == 3],
-        [np.broadcast_to(lat, (n_agents, ncell)), a, -lat, -a],
-    )
-    drow_w = np.select(
-        [h_col == 0, h_col == 1, h_col == 2, h_col == 3],
-        [-a, lat, a, -lat],
-    )
+    _dcol_a = np.array([0, 1, 0, -1], dtype=np.int64)
+    _dcol_l = np.array([1, 0, -1, 0], dtype=np.int64)
+    _drow_a = np.array([-1, 0, 1, 0], dtype=np.int64)
+    _drow_l = np.array([0, 1, 0, -1], dtype=np.int64)
+    dcol_w = _dcol_a[h_col] * a + _dcol_l[h_col] * lat  # (n_agents, ncell)
+    drow_w = _drow_a[h_col] * a + _drow_l[h_col] * lat
     world_col = head_col[:, None] + dcol_w
     world_row = head_row[:, None] + drow_w
     outside = (
@@ -365,8 +373,8 @@ def _build_tactical(inp: ObsInputs) -> np.ndarray:
             si_grid[ai],
             rr.reshape(-1)[ci],  # ego row
             cc.reshape(-1)[ci],  # ego col
-            np.full(ai.shape, CODE_WALL, dtype=np.uint16),
-            np.full(ai.shape, _FOOD_VALUE, dtype=np.uint16),
+            CODE_WALL,
+            _FOOD_VALUE,
             size,
         )
 
@@ -490,7 +498,7 @@ def _paint_snakes_tactical(inp, code_plane, val_plane, heads, heading, alive, le
                 si[own_body],
                 row[own_body],
                 col[own_body],
-                np.full(int(own_body.sum()), CODE_OWN_BODY, np.uint16),
+                CODE_OWN_BODY,
                 ttl_b[own_body],
                 size,
             )
@@ -505,7 +513,7 @@ def _paint_snakes_tactical(inp, code_plane, val_plane, heads, heading, alive, le
                 si[own_head],
                 row[own_head],
                 col[own_head],
-                np.full(int(own_head.sum()), CODE_OWN_HEAD, np.uint16),
+                CODE_OWN_HEAD,
                 hv[own_head],
                 size,
             )
@@ -522,7 +530,7 @@ def _paint_snakes_tactical(inp, code_plane, val_plane, heads, heading, alive, le
                 si[enemy_body],
                 row[enemy_body],
                 col[enemy_body],
-                np.full(int(enemy_body.sum()), CODE_ENEMY_BODY, np.uint16),
+                CODE_ENEMY_BODY,
                 ttl_b[enemy_body],
                 size,
             )
@@ -540,7 +548,7 @@ def _paint_snakes_tactical(inp, code_plane, val_plane, heads, heading, alive, le
                 si[enemy_head],
                 row[enemy_head],
                 col[enemy_head],
-                np.full(int(enemy_head.sum()), CODE_ENEMY_HEAD, np.uint16),
+                CODE_ENEMY_HEAD,
                 rb[enemy_head],
                 size,
             )
@@ -617,8 +625,8 @@ def _paint_enemy_pred(
             si[active],
             row[active],
             col[active],
-            np.full(int(active.sum()), CODE_ENEMY_PRED, np.uint16),
-            np.full(int(active.sum()), _FOOD_VALUE, np.uint16),
+            CODE_ENEMY_PRED,
+            _FOOD_VALUE,
             size,
         )
 
@@ -749,19 +757,15 @@ def _build_scalars(inp: ObsInputs) -> np.ndarray:
     #   right: ahead=right,right=down, behind=left, left=up
     #   down:  ahead=down, right=left, behind=up,   left=right
     #   left:  ahead=left, right=up,   behind=right,left=down
+    # Gather the four world wall distances per heading via one indexed pick each
+    # (bit-identical to the old np.select — a pure permutation by heading).
     h = heading
-    ego_ahead = np.select(
-        [h == 0, h == 1, h == 2, h == 3], [dist_up, dist_right, dist_down, dist_left]
-    )
-    ego_right = np.select(
-        [h == 0, h == 1, h == 2, h == 3], [dist_right, dist_down, dist_left, dist_up]
-    )
-    ego_behind = np.select(
-        [h == 0, h == 1, h == 2, h == 3], [dist_down, dist_left, dist_up, dist_right]
-    )
-    ego_left = np.select(
-        [h == 0, h == 1, h == 2, h == 3], [dist_left, dist_up, dist_right, dist_down]
-    )
+    wall_dists = np.stack([dist_up, dist_right, dist_down, dist_left], axis=0)  # (4,E,S)
+    ei_s, si_s = np.indices(h.shape)
+    ego_ahead = wall_dists[h, ei_s, si_s]
+    ego_right = wall_dists[(h + 1) % 4, ei_s, si_s]
+    ego_behind = wall_dists[(h + 2) % 4, ei_s, si_s]
+    ego_left = wall_dists[(h + 3) % 4, ei_s, si_s]
     put(np.clip(ego_ahead / _WALL_DIST_NORM, 0, 1))  # 8
     put(np.clip(ego_right / _WALL_DIST_NORM, 0, 1))  # 9
     put(np.clip(ego_behind / _WALL_DIST_NORM, 0, 1))  # 10
