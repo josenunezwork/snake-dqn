@@ -32,6 +32,63 @@ CORPSE_DROP_FRACTION_V2: float = 1.0
 # baseline food spawns.
 CORPSE_EXEMPT_FROM_CAP_V2: bool = True
 
+# v2: corpse-class food is exempt from the AMBIENT cap but is NOT unbounded.
+# Total corpse pellets on the board are capped at ``corpse_food_cap(max_food)``;
+# when a new corpse add would exceed the cap, the OLDEST corpse pellet (first in
+# board append order — "oldest rots first") is evicted. Unbounded corpse
+# accumulation otherwise (a) floods the board with free food, removing any
+# incentive to hunt (kills collapse to ~0), and (b) makes both the sim's food
+# ops and the ego-raster featurizer scale with a monotonically growing pellet
+# count F, collapsing training throughput as the board fills. The cap keeps F
+# bounded (total food <= (1 + multiple) x max_food) so those costs stay flat.
+# BOTH simulators MUST import this so the eviction target — and the resulting
+# ordered food list — stay byte-identical (the parity gate depends on it).
+#
+# Sizing: featurizer/sim cost scales with the TOTAL live pellet count (ambient +
+# corpse) summed across the batch, so the per-env cap must hold the corpse MEAN
+# low, not just clip the max. At 0.5 the training board (max_food=300) settles at
+# total food ~450 and a flat ~8.5k agent-steps/s, versus an unbounded slide from
+# ~12k to <5k. Lower it for more speed / scarcer food (which also pressures the
+# kills-0 pathology); raise it for a richer corpse economy.
+CORPSE_FOOD_CAP_MULTIPLE_V2: float = 0.5
+# Floor so low-``max_food`` configs still admit a normal-size corpse drop instead
+# of instantly trimming it to near-nothing: sparse-food arenas and the small
+# hand-checkable unit-test configs. A no-op for the training board (max_food=300
+# -> 150) and for every parity config (all already >= this floor), so it changes
+# only degenerate small-``max_food`` cases — never the shipped mechanics.
+CORPSE_FOOD_CAP_FLOOR_V2: int = 10
+
+
+def corpse_food_cap(max_food: int) -> int:
+    """Max simultaneous corpse-class pellets under v2 (see the constants above)."""
+    return max(int(max_food * CORPSE_FOOD_CAP_MULTIPLE_V2), CORPSE_FOOD_CAP_FLOOR_V2)
+
+
+def evict_oldest_corpse(food, corpse_positions) -> object:
+    """Evict the oldest corpse pellet from an ordered food list in place.
+
+    Removes the first cell in ``food`` (append/board order) that is a member of
+    ``corpse_positions`` from BOTH structures and returns it, or ``None`` if no
+    corpse pellet is present. Shared by the live :class:`FoodManager` and the
+    vectorized ``BatchSim`` so the eviction target is identical on both — a
+    prerequisite for bit-exact food-list parity under the corpse cap. Callers
+    holding extra membership indexes (e.g. the sim's ``food_set``) must discard
+    the returned cell from those too.
+
+    Args:
+        food: Ordered list of ``(col, row)`` (or pixel) food cells; mutated.
+        corpse_positions: Set of corpse-class cells; mutated.
+
+    Returns:
+        The evicted cell, or ``None`` when there is no corpse pellet to evict.
+    """
+    for cell in food:
+        if cell in corpse_positions:
+            food.remove(cell)
+            corpse_positions.discard(cell)
+            return cell
+    return None
+
 # v2: each boost segment burn drops a corpse-class pellet at the vacated tail
 # cell (boost becomes a mass transfer instead of mass destruction).
 BOOST_DROPS_TRAIL_V2: bool = True

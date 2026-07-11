@@ -37,6 +37,8 @@ from src.core.mechanics_constants import (
     HEADON_SIZE_RATIO,
     POPULATION_FLOOR_V2,
     cell_index,
+    corpse_food_cap,
+    evict_oldest_corpse,
 )
 from src.core.reward_events import (
     DEATH_REWARD,
@@ -182,6 +184,15 @@ class BatchSim:
         # corpse-class cells (v2). Parallel ambient bookkeeping via the set.
         self.food_cells: List[List[Tuple[int, int]]] = [[] for _ in range(E)]
         self.corpse_cells: List[set] = [set() for _ in range(E)]
+        # Incremental membership index mirroring ``food_cells`` exactly (one pellet
+        # per cell, so ``food_set[e] == set(food_cells[e])`` is an invariant kept
+        # in lockstep at every mutation). It exists purely so the hot food paths
+        # do O(1) ``in`` tests / ambient counting instead of rebuilding
+        # ``set(food_cells[e])`` — an O(F) scan — several times per step. Because
+        # corpse-class food is cap-exempt and never decays, F grows unbounded over
+        # a long run, so those rebuilds were the dominant training-throughput sink
+        # (byte-exact accelerator: ``food_cells`` stays the load-bearing list).
+        self.food_set: List[set] = [set() for _ in range(E)]
 
         self.frame = np.zeros((E,), dtype=np.int64)
 
@@ -282,7 +293,9 @@ class BatchSim:
             self.food_cells[e] = []
             self.corpse_cells[e] = set()
             snake_cells = self._all_snake_cells(e)
-            fset: set = set()
+            # Build directly into the maintained membership set (fset IS food_set).
+            self.food_set[e] = set()
+            fset = self.food_set[e]
             for _ in range(self.cfg.initial_food):
                 pos = rng.find_spawn_position(snake_cells, fset)
                 if pos is None:
@@ -544,7 +557,9 @@ class BatchSim:
     # ------------------------------------------------------------------
     def _ambient_count(self, e: int) -> int:
         """Ambient (cap-subject) pellet count for env ``e``."""
-        return len(self.food_cells[e]) - len(self.corpse_cells[e] & set(self.food_cells[e]))
+        # corpse_cells[e] is a subset of food_set[e]; intersecting against the
+        # maintained set is O(len(corpse)) instead of rebuilding set(food_cells).
+        return len(self.food_cells[e]) - len(self.corpse_cells[e] & self.food_set[e])
 
     def _maintain_food(self) -> None:
         """Top ambient food up to ``max_food`` per env (spec §4.4, RNG)."""
@@ -557,7 +572,7 @@ class BatchSim:
         """Spawn up to ``count`` pellets in env ``e`` via nested rejection RNG."""
         rng = self._rngs[e]
         snake_cells = self._all_snake_cells(e)
-        fset = set(self.food_cells[e])
+        fset = self.food_set[e]  # maintained set; find_spawn_position only reads it
         spawned = 0
         for _ in range(count):
             pos = rng.find_spawn_position(snake_cells, fset)
@@ -583,7 +598,7 @@ class BatchSim:
         ate = np.zeros((E, S), dtype=bool)
         any_ate = np.zeros(E, dtype=bool)
         for e in range(E):
-            fset = set(self.food_cells[e])
+            fset = self.food_set[e]  # maintained membership index (== set(food_cells))
             if not fset:
                 pass
             for sidx in range(S):
@@ -595,8 +610,10 @@ class BatchSim:
                         continue
                     cell = (int(self._trav[e, sidx, t, 0]), int(self._trav[e, sidx, t, 1]))
                     if cell in fset:
-                        # consume_at removes every pellet in that cell (<=1).
-                        self.food_cells[e] = [f for f in self.food_cells[e] if f != cell]
+                        # consume_at removes every pellet in that cell (<=1). One
+                        # pellet per cell -> list.remove drops the single occurrence
+                        # in place (same surviving order as the old comprehension).
+                        self.food_cells[e].remove(cell)
                         self.corpse_cells[e].discard(cell)
                         fset.discard(cell)
                         self.length[e, sidx] += 1
@@ -628,11 +645,21 @@ class BatchSim:
 
     def _add_food(self, e: int, cell: Tuple[int, int], corpse: bool) -> bool:
         """Cell-exact add_food (de-dup by cell); tag corpse-class under v2."""
-        if cell in set(self.food_cells[e]):
+        if cell in self.food_set[e]:
             return False
         self.food_cells[e].append(cell)
+        self.food_set[e].add(cell)
         if corpse:
             self.corpse_cells[e].add(cell)
+            # Bound corpse accumulation (identical rule/target as FoodManager):
+            # keeps total food <= (1 + multiple) x max_food so the sim's food ops
+            # and the ego-raster featurizer stop scaling with an unbounded F.
+            cap = corpse_food_cap(self.cfg.max_food)
+            while len(self.corpse_cells[e]) > cap:
+                evicted = evict_oldest_corpse(self.food_cells[e], self.corpse_cells[e])
+                if evicted is None:
+                    break
+                self.food_set[e].discard(evicted)
         return True
 
     def _cell_in_arena(self, cell: Tuple[int, int]) -> bool:

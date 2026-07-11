@@ -8,8 +8,9 @@ import random
 from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
 from src.core.game_config import GameConfig
-from src.core.mechanics_constants import (CORPSE_EXEMPT_FROM_CAP_V2, same_cell,
-                                          snap_to_cell)
+from src.core.mechanics_constants import (CORPSE_EXEMPT_FROM_CAP_V2,
+                                          corpse_food_cap, evict_oldest_corpse,
+                                          same_cell, snap_to_cell)
 from src.game.game_logic import GameLogic
 
 if TYPE_CHECKING:
@@ -140,6 +141,13 @@ class FoodManager:
         self.food.append(position)
         if corpse and CORPSE_EXEMPT_FROM_CAP_V2:
             self._corpse_positions.add(position)
+            # Bound corpse accumulation: once over the cap, evict the oldest
+            # corpse pellet(s). Same rule + target as BatchSim._add_food, so the
+            # ordered food list stays byte-identical (parity gate depends on it).
+            cap = corpse_food_cap(self.max_food)
+            while len(self._corpse_positions) > cap:
+                if evict_oldest_corpse(self.food, self._corpse_positions) is None:
+                    break
         return True
 
     def _find_spawn_position(

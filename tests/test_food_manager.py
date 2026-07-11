@@ -74,3 +74,44 @@ class TestFoodSpawnPositions:
 
         assert spawned == 1
         assert food_manager.food == [(50, 50), (80, 50)]
+
+
+class TestCorpseFoodCap:
+    """Corpse-class food is cap-exempt from the ambient budget but bounded."""
+
+    def test_add_food_corpse_cap_evicts_oldest(self):
+        from src.core.mechanics_constants import corpse_food_cap
+
+        fm = FoodManager(
+            game_width=400,
+            game_height=400,
+            max_food=6,
+            initial_food=0,
+            segment_size=10,
+            wall_thickness=10,
+        )
+        cap = corpse_food_cap(fm.max_food)
+        assert cap >= 2
+        # Drop cap+3 distinct corpse pellets in a known order (all non-overlapping).
+        cells = [(10 * (i + 1), 50) for i in range(cap + 3)]
+        for c in cells:
+            assert fm.add_food(c, corpse=True) is True
+        # Bounded at the cap; the oldest were evicted, newest `cap` remain in order.
+        assert fm.corpse_count == cap
+        corpses = [f for f in fm.food if f in fm._corpse_positions]
+        assert corpses == cells[-cap:]
+
+    def test_ambient_food_is_not_capped_by_corpse_rule(self):
+        # Corpse cap must not evict ambient pellets, only corpse-class ones.
+        fm = FoodManager(
+            game_width=400,
+            game_height=400,
+            max_food=4,
+            initial_food=0,
+            segment_size=10,
+            wall_thickness=10,
+        )
+        for i in range(6):
+            fm.add_food((10 * (i + 1), 50), corpse=False)  # ambient, no corpse cap
+        assert len(fm.food) == 6  # ambient adds are never corpse-evicted
+        assert fm.corpse_count == 0

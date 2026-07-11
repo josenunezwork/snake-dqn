@@ -61,6 +61,7 @@ def _clear_food(sim):
     for e in range(sim.E):
         sim.food_cells[e] = []
         sim.corpse_cells[e] = set()
+        sim.food_set[e] = set()  # keep the membership index in sync (invariant)
 
 
 # ===========================================================================
@@ -201,6 +202,7 @@ def test_food_consumption_grows_snake():
     _place_snake(sim, 0, 0, [(5, 5)], direction=1, length=1)  # moving right
     # Put food at the cell the head will move into: (6,5).
     sim.food_cells[0] = [(6, 5)]
+    sim.food_set[0] = {(6, 5)}  # keep the membership index in sync (invariant)
     sim.step(np.array([[1]], dtype=np.int64))
     assert sim.get_lengths()[0, 0] == 2
     # Pellet consumed.
@@ -213,6 +215,7 @@ def test_growth_timing_body_fills_next_frame():
     _clear_food(sim)
     _place_snake(sim, 0, 0, [(5, 5)], direction=1, length=1)
     sim.food_cells[0] = [(6, 5)]
+    sim.food_set[0] = {(6, 5)}  # keep the membership index in sync (invariant)
     sim.step(np.array([[1]], dtype=np.int64))  # eats, length -> 2, body still 1
     assert sim.get_lengths()[0, 0] == 2
     assert len(sim.get_bodies(0, 0)) == 1  # body fills in next frame
@@ -236,8 +239,8 @@ def test_boost_two_step_moves_two_cells():
 
 def test_boost_burn_drops_trail_pellet_v2():
     cfg = _small_cfg(
-        num_snakes=1, initial_food=0, max_food=0, boost_length_cost_frames=1
-    )  # burn every boosting frame
+        num_snakes=1, initial_food=0, max_food=5, boost_length_cost_frames=1
+    )  # burn every boosting frame; max_food>0 so the corpse cap admits the trail pellet
     sim = BatchSim(cfg, seeds=[0], train_mode=True)
     _clear_food(sim)
     body = [(10 - i, 5) for i in range(6)]  # length 6, head (10,5)
@@ -468,7 +471,9 @@ def test_corpse_food_dropped_in_resolution_order_not_id_order():
     the food list first. An id-order drop would append snake 2 first, desyncing
     the ordered food list from the live game.
     """
-    cfg = _small_cfg(num_snakes=4, game_width=300, game_height=300, initial_food=0, max_food=0)
+    # max_food>0 so the corpse cap (= max_food) admits both dropped corpses; the
+    # assertion below filters to corpse food, so ambient top-up does not intrude.
+    cfg = _small_cfg(num_snakes=4, game_width=300, game_height=300, initial_food=0, max_food=5)
     sim = BatchSim(cfg, seeds=[0], train_mode=True)
     _clear_food(sim)
     # Snake 0: body used as the wall snake 2 dies into (row 20).
@@ -487,7 +492,46 @@ def test_corpse_food_dropped_in_resolution_order_not_id_order():
     assert not alive[2] and not alive[3]  # both die this frame
     # Resolution order is snake3 (head-on loser) then snake2 (body death), so the
     # corpses are appended in that order: (11,5) [snake3 head after move] first.
-    assert sim.get_food(0) == [(11, 5), (6, 20)]
+    # (Filter to corpse food so the ambient maintain top-up is excluded.)
+    assert sim.get_corpse_food(0) == [(11, 5), (6, 20)]
+
+
+def test_corpse_food_cap_evicts_oldest_v2():
+    """Corpse food is bounded at ``corpse_food_cap(max_food)``; oldest evicted FIFO.
+
+    Cap-exempt corpse food is exempt from the AMBIENT budget but not unbounded;
+    once the per-env corpse count exceeds the cap, the oldest corpse pellet (first
+    in board order) is dropped. Uses the shared helper so this bound is identical
+    in the live game (validated cross-engine by the parity suite).
+    """
+    from src.core.mechanics_constants import corpse_food_cap
+
+    cfg = _small_cfg(num_snakes=1, initial_food=0, max_food=6)
+    sim = BatchSim(cfg, seeds=[0], train_mode=True)
+    _clear_food(sim)
+    cap = corpse_food_cap(cfg.max_food)
+    assert cap >= 2  # need a meaningful cap for the FIFO check
+    # Drop cap+3 distinct corpse pellets in a known board order (all in-arena).
+    cells = [(c, 1) for c in range(cap + 3)]
+    for c in cells:
+        sim._add_food(0, c, corpse=True)
+    corpse = sim.get_corpse_food(0)
+    assert len(corpse) == cap  # bounded at the cap, not cap+3
+    assert corpse == cells[-cap:]  # FIFO: the newest `cap` survive, in board order
+    # The membership index stays consistent with the ordered list after evictions.
+    assert sim.food_set[0] == set(sim.food_cells[0])
+
+
+def test_evict_oldest_corpse_helper():
+    """The shared eviction helper drops the first corpse in list order, or None."""
+    from src.core.mechanics_constants import evict_oldest_corpse
+
+    food = [(0, 0), (1, 1), (2, 2), (3, 3)]
+    corpse = {(1, 1), (3, 3)}
+    assert evict_oldest_corpse(food, corpse) == (1, 1)  # first corpse in order
+    assert food == [(0, 0), (2, 2), (3, 3)]
+    assert corpse == {(3, 3)}
+    assert evict_oldest_corpse([(0, 0)], set()) is None  # no corpse -> None
 
 
 def test_ring_buffer_overflow_raises_before_corruption():
