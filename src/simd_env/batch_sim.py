@@ -99,6 +99,11 @@ class BatchSimConfig:
     gamma: float = 0.99
     max_capacity: int = 400
     arena_type: str = "rectangular"
+    # Reward-v2 knobs (sweepable). Defaults match src.core.reward_events so the
+    # golden-replay parity (which uses defaults) stays bit-exact; a sweep varies
+    # these to probe the kills-0 / boost-drift pathology.
+    kill_scale: float = KILL_REWARD_PER_VICTIM_LENGTH
+    death_value: float = DEATH_REWARD
 
 
 class BatchSim:
@@ -974,10 +979,11 @@ class BatchSim:
         - ``3.0`` on death. Unclamped.
         """
         gamma = self.cfg.gamma
+        kill_scale = self.cfg.kill_scale
         phi_prev = prev_length / PHI_LENGTH_DIVISOR
         phi_new = np.where(died, 0.0, self.length / PHI_LENGTH_DIVISOR)
         potential = gamma * phi_new - phi_prev
-        death = np.where(died, DEATH_REWARD, 0.0)
+        death = np.where(died, self.cfg.death_value, 0.0)
         kill = np.zeros_like(potential)
         for e in range(self.E):
             for sidx in range(self.S):
@@ -991,7 +997,7 @@ class BatchSim:
                 # multi-kills, which the exact-``!=`` parity gate would flag.
                 kill_term = 0.0
                 for v in victims:
-                    kill_term += KILL_REWARD_PER_VICTIM_LENGTH * float(v)
+                    kill_term += kill_scale * float(v)
                 kill[e, sidx] = kill_term
         return potential + death + kill
 

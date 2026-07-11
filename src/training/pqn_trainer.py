@@ -39,7 +39,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.core.reward_events import DEATH_REWARD
+from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES
 from src.model.raster_network import (
     SCALARS_DIM,
@@ -134,6 +134,7 @@ class PQNConfig:
     pool_capacity: int = 10
     pool_add_interval: int = 50
     death_value: float = DEATH_REWARD
+    kill_scale: float = KILL_REWARD_PER_VICTIM_LENGTH
     flip_augment: bool = True
     max_frames: int = 5000
     max_abs_q_alarm: float = 1e3
@@ -253,6 +254,8 @@ class PQNTrainer:
             mechanics_version=config.mechanics_version,
             gamma=config.gamma,
             arena_type=config.arena_type,
+            kill_scale=config.kill_scale,
+            death_value=config.death_value,
         )
         self.sim = BatchSim(
             sim_cfg,

@@ -144,6 +144,8 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         "arena_type": args.arena_type,
         "mechanics_version": args.mechanics_version,
         "profile": args.profile or None,
+        "kill_scale": args.kill_scale,
+        "death_value": args.death_value,
     }
     for key, value in cli_map.items():
         if value is not None:
@@ -353,6 +355,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     flip.add_argument("--no-flip-augment", dest="flip_augment", action="store_const", const=False)
     p.add_argument("--max-abs-q-alarm", type=float, default=None, help="Tripwire max|Q| threshold.")
+    p.add_argument(
+        "--kill-scale",
+        type=float,
+        default=None,
+        help="Reward per victim-length for a kill (default 0.3). Sweep to probe kills-0.",
+    )
+    p.add_argument(
+        "--death-value",
+        type=float,
+        default=None,
+        help="Death reward AND trapped-state bootstrap value (default -3.0). Sweepable.",
+    )
     p.add_argument(
         "--profile",
         action="store_true",
