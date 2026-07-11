@@ -50,6 +50,7 @@ from src.model.raster_network import (
 )
 from src.simd_env.batch_sim import BatchSim, BatchSimConfig
 from src.simd_env.featurizer import build_observations, obs_inputs_from_batch_sim
+from src.simd_env.gpu_featurizer import build_observations_gpu, obs_inputs_to_torch
 from src.training.pqn_selfplay import (
     HERO_POLICY_ID,
     OpponentPool,
@@ -284,16 +285,30 @@ class PQNTrainer:
             ``(E, S, 6)`` bool tensor on ``device``.
         """
         E, S = self.cfg.num_envs, self.cfg.num_snakes
-        inp = obs_inputs_from_batch_sim(self.sim, max_frames=self.cfg.max_frames)
         mask_np = self.sim.get_action_mask()  # (E, S, 6)
-        obs = build_observations(inp, mask=mask_np)
-        tensors = raster_tensors_from_obs(obs, device=self.device)
-        # Reshape flat (E*S, ...) back to (E, S, ...).
-        obs_es = {
-            "tactical": tensors["tactical"].reshape(E, S, *TACTICAL_SHAPE),
-            "strategic": tensors["strategic"].reshape(E, S, *STRATEGIC_SHAPE),
-            "scalars": tensors["scalars"].reshape(E, S, SCALARS_DIM),
-        }
+        if self.device.type == "cuda":
+            # GPU featurizer: transfer only the compact sim state, build the
+            # rasters on the (idle) GPU. Byte-identical tactical/strategic planes
+            # and <=1e-4 scalars vs the NumPy path (parity-tested), so a
+            # GPU-trained policy sees the same inputs the web app serves via the
+            # NumPy featurizer. Returns (E, S, ...) tensors directly.
+            state = obs_inputs_to_torch(self.sim, self.device, max_frames=self.cfg.max_frames)
+            obs_es = build_observations_gpu(state)
+            obs_es = {
+                "tactical": obs_es["tactical"],
+                "strategic": obs_es["strategic"],
+                "scalars": obs_es["scalars"],
+            }
+        else:
+            inp = obs_inputs_from_batch_sim(self.sim, max_frames=self.cfg.max_frames)
+            obs = build_observations(inp, mask=mask_np)
+            tensors = raster_tensors_from_obs(obs, device=self.device)
+            # Reshape flat (E*S, ...) back to (E, S, ...).
+            obs_es = {
+                "tactical": tensors["tactical"].reshape(E, S, *TACTICAL_SHAPE),
+                "strategic": tensors["strategic"].reshape(E, S, *STRATEGIC_SHAPE),
+                "scalars": tensors["scalars"].reshape(E, S, SCALARS_DIM),
+            }
         mask = torch.as_tensor(mask_np, dtype=torch.bool, device=self.device)
         return obs_es, mask
 
