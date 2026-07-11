@@ -108,32 +108,34 @@ class DeviceManager:
 
     @property
     def device(self) -> torch.device:
-        """Get the current device."""
+        """Get the current device (honors a test override if one is set)."""
+        if self._override_device is not None:
+            return self._override_device
         return self._device
 
     @property
     def device_type(self) -> str:
-        """Get the device type as string."""
-        return self._device_type
+        """Get the device type as string (honors a test override if one is set)."""
+        return self.device.type
 
     @property
     def is_mps(self) -> bool:
         """Check if using MPS (M1)."""
-        return self._device_type == "mps"
+        return self.device_type == "mps"
 
     @property
     def is_cuda(self) -> bool:
         """Check if using CUDA."""
-        return self._device_type == "cuda"
+        return self.device_type == "cuda"
 
     @property
     def is_cpu(self) -> bool:
         """Check if using CPU."""
-        return self._device_type == "cpu"
+        return self.device_type == "cpu"
 
     def to_device(self, tensor: torch.Tensor) -> torch.Tensor:
-        """Move tensor to the managed device."""
-        return tensor.to(self._device)
+        """Move tensor to the managed device (honors a test override if one is set)."""
+        return tensor.to(self.device)
 
     @classmethod
     def get_device(cls) -> torch.device:

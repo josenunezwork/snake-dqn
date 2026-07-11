@@ -1,0 +1,20 @@
+[flake8]
+max-line-length = 100
+# Black compatibility: E203 (slice whitespace) and W503 (line break before binary
+# operator) conflict with Black's formatting.
+extend-ignore = E203, W503
+exclude =
+    .git,
+    __pycache__,
+    venv,
+    .venv,
+    */venv/*,
+    web/frontend/node_modules,
+    web/frontend/dist,
+    build,
+    dist,
+    .eggs,
+    *.egg-info
+per-file-ignores =
+    # main.py sets PYTORCH_ENABLE_MPS_FALLBACK before importing torch by design.
+    src/main.py: E402

@@ -589,9 +589,9 @@ class TestWeightSync:
 
 
 class TestNStepReturn:
-    """Tests for n-step return computation."""
+    """Tests for n-step return computation (legacy "td" priority mode)."""
 
-    def _make_actor(self, gamma=0.99, n_step=3):
+    def _make_actor(self, gamma=0.99, n_step=3, actor_priority_mode="td"):
         from src.core.game_config import GameConfig
 
         net = MagicMock()
@@ -610,6 +610,7 @@ class TestNStepReturn:
             stop_event=stop,
             gamma=gamma,
             n_step=n_step,
+            actor_priority_mode=actor_priority_mode,
         )
         actor.device = torch.device("cpu")
         # Create simple mock networks that return fixed Q-values
@@ -841,6 +842,158 @@ class TestNStepReturn:
 
         assert exp is None
         assert actor.dropped_missing_next_state_count == 1
+
+
+# ============================================================================
+# Actor Priority Mode
+# ============================================================================
+
+
+class TestActorPriorityMode:
+    """Tests for actor_priority_mode: "max" (default) vs legacy "td"."""
+
+    def _make_actor(self, **kwargs):
+        net = MagicMock()
+        net.state_dict.return_value = {}
+        client = MagicMock(spec=ActorBufferClient)
+        weight_q = MagicMock(spec=mp.Queue)
+        stats_q = MagicMock(spec=mp.Queue)
+        stop = SimpleNamespace(is_set=MagicMock(return_value=False))
+        actor = ApexActor(
+            actor_id=0,
+            num_actors=1,
+            shared_network=net,
+            buffer_client=client,
+            weight_queue=weight_q,
+            stats_queue=stats_q,
+            stop_event=stop,
+            **kwargs,
+        )
+        actor.device = torch.device("cpu")
+        return actor
+
+    def _nonterminal_buffer(self):
+        return deque(
+            [
+                {
+                    "state": torch.zeros(58),
+                    "action": 1,
+                    "reward": 1.0,
+                    "next_state": torch.ones(58),
+                    "next_action_mask": None,
+                    "done": False,
+                }
+            ]
+        )
+
+    def test_default_mode_is_max(self):
+        actor = self._make_actor()
+
+        assert actor.actor_priority_mode == "max"
+
+    def test_explicit_td_mode(self):
+        actor = self._make_actor(actor_priority_mode="td")
+
+        assert actor.actor_priority_mode == "td"
+
+    def test_config_knob_drives_default_mode(self):
+        """apex.actor_priority_mode in the global config is honored when the
+        constructor kwarg is omitted (no silently-dead YAML knob)."""
+        from src.core.game_config import (
+            ApexSettings,
+            AppConfig,
+            get_config,
+            initialize_config,
+        )
+
+        original = get_config()
+        try:
+            initialize_config(AppConfig(apex=ApexSettings(actor_priority_mode="td")))
+            actor = self._make_actor()
+            assert actor.actor_priority_mode == "td"
+        finally:
+            initialize_config(original)
+
+    def test_invalid_mode_rejected(self):
+        with pytest.raises(ValueError, match="actor_priority_mode"):
+            self._make_actor(actor_priority_mode="bogus")
+
+    def test_max_mode_skips_network_forwards(self):
+        actor = self._make_actor()
+        forbidden = MagicMock(
+            side_effect=AssertionError("max priority mode must not run actor-side forwards")
+        )
+        actor.local_network = forbidden
+        actor.target_network = forbidden
+
+        exp = actor._compute_n_step_experience(self._nonterminal_buffer())
+
+        assert exp is not None
+        assert exp.td_error is None
+        assert exp.reward == pytest.approx(1.0)
+        assert exp.done is False
+        assert exp.bootstrap_steps == 1
+        forbidden.assert_not_called()
+
+    def test_td_mode_computes_td_error_with_forwards(self):
+        actor = self._make_actor(actor_priority_mode="td")
+        mock_net = MagicMock()
+        mock_net.return_value = torch.tensor([[1.0] * GameConfig.OUTPUT_SIZE])
+        actor.local_network = mock_net
+        actor.target_network = mock_net
+
+        exp = actor._compute_n_step_experience(self._nonterminal_buffer())
+
+        assert exp is not None
+        assert exp.td_error is not None
+        assert exp.td_error >= 0.0
+        assert mock_net.called
+
+    def test_max_mode_sends_none_priorities(self):
+        actor = self._make_actor()
+        experiences = [
+            Experience(
+                state=np.zeros(58, dtype=np.float32),
+                action=0,
+                reward=1.0,
+                next_state=np.ones(58, dtype=np.float32),
+                done=False,
+                bootstrap_steps=1,
+                td_error=None,
+            )
+        ]
+
+        actor._send_experience_batch(experiences)
+
+        call_kwargs = actor.buffer_client.add_batch.call_args[1]
+        assert call_kwargs["priorities"] == [None]
+
+    def test_max_mode_none_priorities_use_buffer_max_priority(self):
+        """End-to-end: None priorities insert at the buffer's max priority."""
+        from src.training.apex_buffer import SharedPrioritizedBuffer
+
+        buffer = SharedPrioritizedBuffer(capacity=16, state_size=58)
+        buffer.add_batch(
+            states=[np.zeros(58, dtype=np.float32)],
+            actions=[0],
+            rewards=[0.0],
+            next_states=[np.zeros(58, dtype=np.float32)],
+            dones=[True],
+            priorities=[0.25],
+        )
+        max_priority_before = buffer._tree.max_priority
+
+        buffer.add_batch(
+            states=[np.ones(58, dtype=np.float32)],
+            actions=[1],
+            rewards=[1.0],
+            next_states=[np.ones(58, dtype=np.float32)],
+            dones=[True],
+            priorities=[None],
+        )
+
+        stored_priority = float(buffer._tree.tree[buffer._tree._leaf_index(1)])
+        assert stored_priority == pytest.approx(max_priority_before)
 
 
 # ============================================================================

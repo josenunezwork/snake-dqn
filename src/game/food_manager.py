@@ -5,9 +5,11 @@ logic including spawning, consumption, and maintaining food count.
 """
 
 import random
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
 from src.core.game_config import GameConfig
+from src.core.mechanics_constants import (CORPSE_EXEMPT_FROM_CAP_V2, same_cell,
+                                          snap_to_cell)
 from src.game.game_logic import GameLogic
 
 if TYPE_CHECKING:
@@ -22,6 +24,14 @@ class FoodManager:
     - Maintain food count at configured level
     - Handle food consumption detection
     - Provide food positions for game state
+
+    Food pools: pellets are either ambient (subject to the max_food cap that
+    maintain_count() tops up to) or corpse-class (kill corpses + boost trail
+    pellets, added with ``add_food(..., corpse=True)``). Corpse-class food is
+    exempt from the ambient cap: maintain_count() ignores it when computing the
+    spawn deficit, so a large corpse never suppresses baseline food spawns.
+    Callers only pass ``corpse=True`` under mechanics v2; at v1 every pellet is
+    ambient and behavior is unchanged.
 
     Usage:
         fm = FoodManager(1450, 830, 300, 250, segment_size=10, wall_thickness=10)
@@ -55,6 +65,10 @@ class FoodManager:
         self.segment_size = segment_size
         self.wall_thickness = wall_thickness
         self.food: List[Tuple[int, int]] = []
+        # Positions of corpse-class pellets (exempt from the ambient cap).
+        # Membership is checked against the live food list when counting, so
+        # external trims of self.food cannot inflate the corpse count.
+        self._corpse_positions: Set[Tuple[int, int]] = set()
         self._spawn_initial(initial_food)
 
     def _spawn_initial(self, count: int, snakes: Optional[List["Snake"]] = None) -> None:
@@ -65,6 +79,7 @@ class FoodManager:
             snakes: Optional list of snakes to avoid when spawning
         """
         self.food.clear()
+        self._corpse_positions.clear()
         for _ in range(count):
             pos = self._find_spawn_position(snakes)
             if pos:
@@ -84,29 +99,52 @@ class FoodManager:
                 self.game_height,
                 self.wall_thickness,
             )
-        return (
-            random.randint(
-                self.wall_thickness, self.game_width - self.wall_thickness - self.segment_size
+        # Snap to the segment lattice so cell-exact pickup matches the legacy
+        # radius test (see mechanics_constants.snap_to_cell).
+        return snap_to_cell(
+            (
+                random.randint(
+                    self.wall_thickness, self.game_width - self.wall_thickness - self.segment_size
+                ),
+                random.randint(
+                    self.wall_thickness, self.game_height - self.wall_thickness - self.segment_size
+                ),
             ),
-            random.randint(
-                self.wall_thickness, self.game_height - self.wall_thickness - self.segment_size
-            ),
+            self.segment_size,
         )
 
     def _position_overlaps_food(self, position: Tuple[int, int]) -> bool:
-        """Return whether a position overlaps existing food."""
-        return any(
-            GameLogic.distance(position, food_pos) < self.segment_size for food_pos in self.food
-        )
+        """Return whether a position occupies the same cell as existing food.
 
-    def add_food(self, position: Tuple[int, int]) -> bool:
-        """Add food if it does not overlap existing food."""
+        Cell-exact (matches the pickup/collision predicate). On the shared
+        segment lattice this equals the legacy ``distance < segment_size`` test,
+        but it never over-suppresses corpse/trail pellets that merely land near
+        (but not on) an existing pellet.
+        """
+        return any(same_cell(position, food_pos, self.segment_size) for food_pos in self.food)
+
+    def add_food(self, position: Tuple[int, int], corpse: bool = False) -> bool:
+        """Add food if it does not overlap existing food.
+
+        Args:
+            position: (x, y) position for the new pellet
+            corpse: Mark the pellet corpse-class (kill corpse / boost trail).
+                Corpse-class food is exempt from the ambient max_food cap.
+                Callers only pass True under mechanics v2.
+
+        Returns:
+            True if the pellet was added
+        """
         if self._position_overlaps_food(position):
             return False
         self.food.append(position)
+        if corpse and CORPSE_EXEMPT_FROM_CAP_V2:
+            self._corpse_positions.add(position)
         return True
 
-    def _find_spawn_position(self, snakes: Optional[List["Snake"]] = None) -> Optional[Tuple[int, int]]:
+    def _find_spawn_position(
+        self, snakes: Optional[List["Snake"]] = None
+    ) -> Optional[Tuple[int, int]]:
         """Find a spawn position that avoids snakes and existing food."""
         for _ in range(100):
             if snakes:
@@ -141,9 +179,13 @@ class FoodManager:
         return spawned
 
     def maintain_count(self, snakes: List["Snake"]) -> int:
-        """Ensure food count stays at max_food level.
+        """Ensure the AMBIENT food count stays at max_food level.
 
         This should be called each game frame to maintain food supply.
+        Corpse-class pellets are ignored when computing the deficit, so a
+        large corpse never suppresses baseline spawns (only relevant under
+        mechanics v2; at v1 all food is ambient and this is the legacy
+        ``max_food - len(food)`` top-up).
 
         Args:
             snakes: List of snakes to avoid when spawning
@@ -151,7 +193,7 @@ class FoodManager:
         Returns:
             Number of new food items spawned
         """
-        deficit = self.max_food - len(self.food)
+        deficit = self.max_food - self.ambient_count
         if deficit > 0:
             return self.spawn(deficit, snakes)
         return 0
@@ -159,18 +201,55 @@ class FoodManager:
     def consume_at(self, position: Tuple[int, int], radius: int) -> bool:
         """Check and consume food at position.
 
+        Cell-exact: a pellet is eaten iff it occupies the same integer cell
+        (position // radius) as the given position. Equivalent to the legacy
+        radius test on the segment lattice.
+
         Args:
             position: (x, y) position to check for food
-            radius: Collision radius (typically segment_size)
+            radius: Cell size for the pickup check (typically segment_size)
 
         Returns:
             True if food was consumed, False otherwise
         """
-        eaten = [f for f in self.food if GameLogic.distance(f, position) < radius]
+        eaten = [f for f in self.food if same_cell(f, position, radius)]
         if eaten:
             self.food = [f for f in self.food if f not in eaten]
+            self._corpse_positions.difference_update(eaten)
             return True
         return False
+
+    def trim_ambient(self, target: int) -> int:
+        """Trim ambient (cap-subject) pellets down to ``target``, keeping corpse food.
+
+        The canonical way for external callers (e.g. the web food-target control)
+        to shrink the board: it removes the newest ambient pellets only, never
+        corpse-class food (kill corpses / boost trail), so mechanics-v2 kill
+        economics stay visible. Keeps ``_corpse_positions`` consistent with the
+        live list, so it does not leak the way a raw ``del food[...]`` does.
+
+        Args:
+            target: Desired ambient pellet count.
+
+        Returns:
+            Number of ambient pellets removed.
+        """
+        overage = self.ambient_count - target
+        if overage <= 0:
+            return 0
+        removed = 0
+        result = list(self.food)
+        i = len(result) - 1
+        while i >= 0 and removed < overage:
+            if result[i] not in self._corpse_positions:
+                result.pop(i)
+                removed += 1
+            i -= 1
+        self.food = result
+        # Drop any corpse positions no longer on the board (defensive: keeps the
+        # set from leaking across long sessions).
+        self._corpse_positions.intersection_update(self.food)
+        return removed
 
     def reset(self, initial_count: int, snakes: Optional[List["Snake"]] = None) -> None:
         """Reset food for a new episode.
@@ -184,11 +263,28 @@ class FoodManager:
     def clear(self) -> None:
         """Remove all food from the game."""
         self.food.clear()
+        self._corpse_positions.clear()
 
     @property
     def count(self) -> int:
         """Get current food count."""
         return len(self.food)
+
+    @property
+    def corpse_count(self) -> int:
+        """Number of corpse-class pellets currently on the board.
+
+        Counted against the live food list so external trims of ``food``
+        (e.g. the web session's food-target control) stay consistent.
+        """
+        if not self._corpse_positions:
+            return 0
+        return sum(1 for f in self.food if f in self._corpse_positions)
+
+    @property
+    def ambient_count(self) -> int:
+        """Number of ambient (cap-subject) pellets currently on the board."""
+        return len(self.food) - self.corpse_count
 
     def __len__(self) -> int:
         """Get current food count."""

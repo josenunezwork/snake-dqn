@@ -6,12 +6,19 @@ pytest>=7.4.0,<8.0.0
 pytest-cov>=4.1.0,<5.0.0
 pytest-mock>=3.11.0,<4.0.0
 pytest-xdist>=3.3.0,<4.0.0  # Parallel test execution
+httpx>=0.27                 # FastAPI TestClient (web backend endpoint tests)
 
-# Code quality
-black>=23.7.0,<24.0.0
+# Code quality (line length 100; see pyproject.toml + .flake8)
+black>=24.1.0,<27.0.0
+isort>=5.12.0,<6.0.0
+flake8>=6.0.0,<8.0.0
+pre-commit>=3.5.0,<5.0.0
 
 # CLI enhancement
 rich>=13.5.0,<14.0.0
+
+# Evaluation / pool ratings (src/scripts/rate_pool.py)
+openskill>=6.0.0,<7.0.0
 
 # Configuration management
 pyyaml>=6.0.1,<7.0.0

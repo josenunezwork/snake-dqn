@@ -539,17 +539,10 @@ def create_policy() -> ApexPolicy:
     """Create the feedforward Apex policy used by generated transition replay."""
     from src.training.apex_policy import ApexPolicy
 
-    if GameConfig.USE_GRU:
-        raise RuntimeError(
-            "SQLite offline training expects flat transition replay, but use_gru is enabled. "
-            "Use a feedforward config for generated replay or add sequence export first."
-        )
-
     return ApexPolicy(
         input_size=GameConfig.INPUT_SIZE,
         hidden_size=GameConfig.HIDDEN_SIZE,
         output_size=GameConfig.OUTPUT_SIZE,
-        use_gru=False,
         training=True,
     )
 
@@ -571,7 +564,6 @@ def validate_offline_resume_checkpoint_config(
             "reward_contract": current_reward_contract(),
             "reward_death": float(GameConfig.REWARD_DEATH),
             "reward_food_base": float(GameConfig.REWARD_FOOD_BASE),
-            "use_gru": bool(getattr(policy, "use_gru", False)),
         },
         checkpoint_path=checkpoint_path,
         float_keys=("gamma", "reward_death", "reward_food_base"),

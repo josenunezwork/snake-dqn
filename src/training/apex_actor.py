@@ -11,7 +11,8 @@ Reference: Horgan et al., "Distributed Prioritized Experience Replay" (2018)
 Key Features:
 - Runs in separate process using torch.multiprocessing
 - Diverse exploration via actor-specific epsilon values
-- Local TD error calculation for prioritization
+- Configurable insert priorities (actor_priority_mode): "max"-priority inserts
+  (default; no actor-side forwards) or legacy local TD-error estimates ("td")
 - Periodic weight synchronization from learner
 - Sends experiences to BufferProcess via ActorBufferClient (IPC)
 
@@ -24,7 +25,8 @@ import queue
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
@@ -34,6 +36,7 @@ from torch.multiprocessing import Queue
 from src.core.game_config import GameConfig, StateIndices
 from src.game.game_state import GameState
 from src.model.apex_network import ApexNetwork
+from src.model.inference_agent import InferenceAgent
 from src.training.action_mask import has_valid_actions, mask_invalid_q_values
 from src.training.apex_buffer import ActorBufferClient, BufferProcess
 from src.training.base_buffer import compute_priority
@@ -42,6 +45,120 @@ from src.utils.tensor_utils import ensure_tensor_on_device, tensor_to_numpy
 ACTION_DANGER_COLLISION_THRESHOLD = 1.0
 DEFAULT_ACTOR_BOOST_EXPLORATION_RATE = 0.25
 DEFAULT_ACTOR_DANGER_EXPLORATION_RATE = 0.0
+
+# Actor-side priority modes for new transitions:
+# - "max": insert with the buffer's current max priority (no actor-side
+#   forwards). Actors hold identical local/target weights, so their TD
+#   estimate barely differs from max-priority insertion that the learner
+#   corrects on first sample anyway; skipping it removes 3 batch-1 forwards
+#   per transition from the actor hot path. Default.
+# - "td": legacy behavior — compute a local TD-error estimate per transition
+#   (3 batch-1 forwards) and insert with the derived priority.
+ACTOR_PRIORITY_MODES = ("max", "td")
+DEFAULT_ACTOR_PRIORITY_MODE = "max"
+
+# Opponent-pool self-play (blueprint §3.3): probability that a non-hero snake
+# slot runs the shared latest policy (vs a frozen pool checkpoint) per episode.
+DEFAULT_POOL_LATEST_FRACTION = 0.8
+
+
+def _resolve_actor_priority_mode(value: Optional[str]) -> str:
+    """Return a validated actor priority mode ("max" or "td").
+
+    Args:
+        value: Explicit mode, or None to use the config-driven default
+            (GameConfig.APEX_ACTOR_PRIORITY_MODE, i.e. the
+            ``apex.actor_priority_mode`` YAML knob; defaults to "max").
+
+    Returns:
+        The resolved mode string.
+
+    Raises:
+        ValueError: If the mode is not one of ACTOR_PRIORITY_MODES.
+    """
+    if value is None:
+        value = GameConfig.APEX_ACTOR_PRIORITY_MODE
+    mode = str(value).lower()
+    if mode not in ACTOR_PRIORITY_MODES:
+        raise ValueError(
+            f"actor_priority_mode must be one of {ACTOR_PRIORITY_MODES}, got {value!r}"
+        )
+    return mode
+
+
+def _resolve_opponent_pool_dir(value: Optional[str]) -> Optional[str]:
+    """Return the opponent pool directory, or None for pure mirror self-play.
+
+    Args:
+        value: Explicit directory, or None to use the config-driven default
+            (GameConfig.APEX_OPPONENT_POOL_DIR, i.e. the
+            ``apex.opponent_pool_dir`` YAML knob; defaults to None).
+
+    Returns:
+        A non-empty directory string, or None when the pool is disabled.
+    """
+    if value is None:
+        value = GameConfig.APEX_OPPONENT_POOL_DIR
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _resolve_pool_latest_fraction(value: Optional[float]) -> float:
+    """Return a validated latest-policy slot probability in [0, 1].
+
+    Args:
+        value: Explicit fraction, or None to use the config-driven default
+            (GameConfig.APEX_POOL_LATEST_FRACTION, i.e. the
+            ``apex.pool_latest_fraction`` YAML knob; defaults to 0.8).
+
+    Returns:
+        The resolved fraction.
+
+    Raises:
+        ValueError: If the fraction is not finite or outside [0, 1].
+    """
+    if value is None:
+        value = GameConfig.APEX_POOL_LATEST_FRACTION
+    fraction = float(value)
+    if not np.isfinite(fraction) or fraction < 0.0 or fraction > 1.0:
+        raise ValueError(f"pool_latest_fraction must be finite and in [0, 1], got {value!r}")
+    return fraction
+
+
+class FrozenOpponentPolicy:
+    """Forward-only opponent policy driving a non-hero snake slot.
+
+    Wraps an :class:`InferenceAgent` loaded from a pool checkpoint so it can
+    drive an ``AISnake`` through the standard ``update()`` path (which reads
+    ``policy.dqn`` for greedy Q-values). Exposes only the policy surface the
+    snake touches, and is tagged ``is_frozen_opponent`` so the actor's weight
+    syncs and replay collection skip it: frozen-driven snakes never receive
+    latest weights and never contribute transitions to the replay buffer.
+    """
+
+    is_frozen_opponent = True
+
+    def __init__(self, agent: InferenceAgent, checkpoint_path: str) -> None:
+        """Wrap a loaded inference agent.
+
+        Args:
+            agent: Forward-only agent holding the frozen network.
+            checkpoint_path: Source checkpoint path (for logging/provenance).
+        """
+        self.agent = agent
+        self.checkpoint_path = checkpoint_path
+        self.dqn = agent.network
+        self.device = agent.device
+        self.epsilon = 0.0
+        self.training = False
+        self.memory = None
+        self.total_reward = 0.0
+
+    def select_action(self, state, action_mask=None) -> int:
+        """Return the frozen network's greedy (optionally masked) action."""
+        return self.agent.act(state, action_mask=action_mask)
 
 
 def _clamp_actor_exploration_rate(value: float, name: str) -> float:
@@ -81,7 +198,9 @@ class Experience:
     next_state: np.ndarray
     done: bool
     bootstrap_steps: int
-    td_error: float  # Pre-computed TD error for prioritization
+    # Pre-computed TD error for prioritization ("td" mode); None in "max"
+    # priority mode, which requests a max-priority insert from the buffer.
+    td_error: Optional[float]
     next_action_mask: Optional[np.ndarray] = None
 
 
@@ -198,6 +317,10 @@ class ApexActor(mp.Process):
         danger_exploration_rate: float = DEFAULT_ACTOR_DANGER_EXPLORATION_RATE,
         max_episodes: Optional[int] = None,
         log_interval: int = 100,
+        actor_priority_mode: Optional[str] = None,
+        opponent_pool_dir: Optional[str] = None,
+        pool_latest_fraction: Optional[float] = None,
+        config_path: Optional[str] = None,
     ):
         """
         Initialize Ape-X Actor.
@@ -231,6 +354,18 @@ class ApexActor(mp.Process):
                 collision examples in distributed replay.
             max_episodes: Maximum episodes to run (None = unlimited)
             log_interval: Log stats every N episodes
+            actor_priority_mode: "max" (insert with the buffer's max priority,
+                skipping actor-side TD forwards) or "td" (legacy local TD-error
+                priorities). None uses GameConfig.APEX_ACTOR_PRIORITY_MODE
+                (the ``apex.actor_priority_mode`` YAML knob; default "max").
+            opponent_pool_dir: Directory of frozen opponent checkpoints for
+                pool self-play (blueprint §3.3). None uses
+                GameConfig.APEX_OPPONENT_POOL_DIR (default None = pure mirror
+                self-play, the legacy behavior).
+            pool_latest_fraction: Per-episode probability that each non-hero
+                snake slot runs the shared latest policy instead of a frozen
+                pool checkpoint. None uses GameConfig.APEX_POOL_LATEST_FRACTION
+                (default 0.8). The hero slot always runs the latest policy.
         """
         super(ApexActor, self).__init__()
 
@@ -275,6 +410,26 @@ class ApexActor(mp.Process):
         )
         self.max_episodes = max_episodes
         self.log_interval = log_interval
+        # YAML config path, re-initialized inside run() so this spawned process
+        # sees the same GameConfig (INPUT_SIZE, USE_FREE_SPACE, MECHANICS_VERSION,
+        # REWARD_VERSION, ...) as the main process. Under the "spawn" start method
+        # the module-level config singleton does NOT cross the process boundary.
+        self.config_path = config_path
+        self.actor_priority_mode = _resolve_actor_priority_mode(actor_priority_mode)
+        self.opponent_pool_dir = _resolve_opponent_pool_dir(opponent_pool_dir)
+        self.pool_latest_fraction = _resolve_pool_latest_fraction(pool_latest_fraction)
+        # Opponent-pool bookkeeping. Checkpoint paths are scanned in run()
+        # (child process); frozen policies are cached per checkpoint path.
+        self._pool_checkpoint_paths: List[str] = []
+        self._frozen_policies: Dict[str, FrozenOpponentPolicy] = {}
+        self._latest_policy: Optional[object] = None
+        self._episode_frozen_snake_ids: Set[int] = set()
+        self._episode_frozen_opponent_count = 0
+        self.pool_assigned_latest_slot_count = 0
+        self.pool_assigned_frozen_slot_count = 0
+        # Realized opponent-exposure mix: collected transitions keyed by the
+        # number of frozen opponents present in their episode.
+        self.collected_count_by_frozen_opponents: Dict[int, int] = {}
         self.sent_experience_count = 0
         self.sent_terminal_count = 0
         self.sent_exact_mask_count = 0
@@ -313,6 +468,15 @@ class ApexActor(mp.Process):
 
     def run(self) -> None:
         """Main actor loop - runs in separate process."""
+        # Re-initialize the config in this spawned process. Under the "spawn"
+        # start method the child does NOT inherit the main process's mutated
+        # config singleton, so without this GameConfig falls back to defaults
+        # (58-D, free-space off, mechanics v1) and diverges from the run's config.
+        if self.config_path:
+            from src.core.config_loader import load_and_initialize_config
+
+            load_and_initialize_config(self.config_path)
+
         # Set unique random seed for this actor
         seed = self.actor_id + int(time.time() * 1000) % 10000
         torch.manual_seed(seed)
@@ -321,15 +485,19 @@ class ApexActor(mp.Process):
         # Initialize device (CPU for actors to save GPU for learner)
         self.device = torch.device("cpu")
 
-        # Create local network (copy of shared network)
-        self.local_network = ApexNetwork(
-            GameConfig.INPUT_SIZE, GameConfig.HIDDEN_SIZE, GameConfig.OUTPUT_SIZE
-        ).to(self.device)
+        # Create local network (a copy of the shared network). Size it from the
+        # shared network's own dimensions, NOT GameConfig: under the "spawn" start
+        # method this actor process re-imports modules fresh, so GameConfig falls
+        # back to defaults (58-D) and would mismatch a 61-D free-space shared
+        # network on the first weight sync. The local net is a copy of the shared
+        # net by definition, so mirror its shape.
+        net_input = getattr(self.shared_network, "input_size", GameConfig.INPUT_SIZE)
+        net_hidden = getattr(self.shared_network, "hidden_size", GameConfig.HIDDEN_SIZE)
+        net_output = getattr(self.shared_network, "output_size", GameConfig.OUTPUT_SIZE)
+        self.local_network = ApexNetwork(net_input, net_hidden, net_output).to(self.device)
 
         # Create target network for TD error calculation
-        self.target_network = ApexNetwork(
-            GameConfig.INPUT_SIZE, GameConfig.HIDDEN_SIZE, GameConfig.OUTPUT_SIZE
-        ).to(self.device)
+        self.target_network = ApexNetwork(net_input, net_hidden, net_output).to(self.device)
 
         # Sync initial weights from shared network
         self._sync_weights_from_shared()
@@ -349,13 +517,19 @@ class ApexActor(mp.Process):
         # Sync local network weights into the snake's policy
         self._sync_snake_policy_weights()
 
+        # Scan the opponent pool once at startup (child process). An empty or
+        # missing pool falls back to pure mirror self-play.
+        self._pool_checkpoint_paths = self._scan_opponent_pool()
+
         print(
             f"[Actor {self.actor_id}] Started | epsilon={self.epsilon:.4f} | "
             f"env_snakes={self.env_num_snakes} | "
             f"board_scale={self.env_board_scale:.2f} | "
             f"food_multiplier={self.env_food_multiplier:.2f} | "
             f"boost_explore={self.boost_exploration_rate:.2f} | "
-            f"danger_explore={self.danger_exploration_rate:.2f}"
+            f"danger_explore={self.danger_exploration_rate:.2f} | "
+            f"opponent_pool={len(self._pool_checkpoint_paths)} ckpts | "
+            f"pool_latest_fraction={self.pool_latest_fraction:.2f}"
         )
 
         # Training loop
@@ -391,7 +565,17 @@ class ApexActor(mp.Process):
                     experience_buffer = experience_buffer[batch_size:]
                     self._send_experience_batch(batch)
 
-                # Periodic weight sync
+                # Periodic weight sync.
+                #
+                # NOTE: This post-episode check is effectively dead/redundant.
+                # ``total_steps`` advances by a variable ``episode_steps`` amount
+                # each iteration, so ``total_steps % weight_sync_interval == 0``
+                # almost never aligns to a multiple of the interval. Weight syncs
+                # already happen reliably elsewhere: at the top of the loop
+                # (``_check_weight_queue`` before each episode) and inside
+                # ``_run_episode`` every ``weight_sync_interval`` env steps. It is
+                # kept as a harmless best-effort backstop; removing it would not
+                # change sync behavior.
                 if total_steps % self.weight_sync_interval == 0:
                     self._check_weight_queue()
 
@@ -411,7 +595,15 @@ class ApexActor(mp.Process):
         except KeyboardInterrupt:
             pass
         finally:
-            # Flush any buffered experiences in the client
+            # Flush any buffered experiences in the client.
+            #
+            # NOTE: For actors this is currently a no-op. The actor send path
+            # (``_send_experience_batch`` -> ``ActorBufferClient.add_batch``)
+            # enqueues each batch to the IPC queue immediately and never uses the
+            # client's ``_local_buffer``, so there is nothing buffered to flush
+            # here. The call is kept defensively in case a future code path
+            # routes actor experiences through the buffered ``add()`` API. Do not
+            # assume actor experiences are buffered client-side.
             self.buffer_client.flush()
             self._send_shutdown_stats(episode, rewards_history, total_steps)
             print(
@@ -442,17 +634,131 @@ class ApexActor(mp.Process):
                     policy.memory.clear()
 
     def _sync_snake_policy_weights(self) -> None:
-        """Sync local network weights into each actor policy network."""
+        """Sync local network weights into each actor policy network.
+
+        Frozen opponent policies are skipped: their whole point is to keep the
+        pool checkpoint's weights, so latest-weight syncs must not touch them.
+        """
         synced_policies = set()
         for snake in self._get_replay_snakes():
             policy = getattr(snake, "policy", None)
             policy_id = id(policy)
             if policy is None or policy_id in synced_policies or not hasattr(policy, "dqn"):
                 continue
+            if getattr(policy, "is_frozen_opponent", False):
+                continue
             synced_policies.add(policy_id)
             policy.dqn.load_state_dict(self.local_network.state_dict())
             if hasattr(policy, "target_dqn"):
                 policy.target_dqn.load_state_dict(self.target_network.state_dict())
+
+    def _scan_opponent_pool(self) -> List[str]:
+        """Return the sorted opponent-pool checkpoint paths (may be empty).
+
+        Returns:
+            Sorted list of ``.pth`` paths under ``opponent_pool_dir``; empty
+            when the pool is disabled, missing, or contains no checkpoints
+            (all of which fall back to pure mirror self-play).
+        """
+        if not self.opponent_pool_dir:
+            return []
+        pool_dir = Path(self.opponent_pool_dir)
+        if not pool_dir.is_dir():
+            print(
+                f"[Actor {self.actor_id}] Opponent pool dir not found: {pool_dir} | "
+                f"falling back to pure mirror self-play"
+            )
+            return []
+        return sorted(str(path) for path in pool_dir.glob("*.pth"))
+
+    def _get_frozen_policy(self, checkpoint_path: str) -> FrozenOpponentPolicy:
+        """Return the cached frozen policy for a pool checkpoint, loading once.
+
+        Args:
+            checkpoint_path: Path to a pool ``.pth`` checkpoint.
+
+        Returns:
+            The cached :class:`FrozenOpponentPolicy` for that checkpoint.
+
+        Raises:
+            ValueError: If the checkpoint's input size does not match the
+                configured state size (mixed 58-D/61-D pools are not runnable).
+        """
+        policy = self._frozen_policies.get(checkpoint_path)
+        if policy is None:
+            agent = InferenceAgent.from_checkpoint(checkpoint_path, device=torch.device("cpu"))
+            if agent.input_size != GameConfig.INPUT_SIZE:
+                raise ValueError(
+                    f"Opponent pool checkpoint {checkpoint_path} has input size "
+                    f"{agent.input_size}, but this run uses {GameConfig.INPUT_SIZE}. "
+                    f"Widen the pool checkpoints (see src/scripts/widen_input.py)."
+                )
+            policy = FrozenOpponentPolicy(agent, checkpoint_path)
+            self._frozen_policies[checkpoint_path] = policy
+        return policy
+
+    @staticmethod
+    def _snake_is_frozen(snake: object) -> bool:
+        """Return whether a snake slot is driven by a frozen opponent policy."""
+        return bool(getattr(getattr(snake, "policy", None), "is_frozen_opponent", False))
+
+    @staticmethod
+    def _set_snake_policy(snake: object, policy: object) -> None:
+        """Install a policy on a snake slot and drop stale selection state."""
+        snake.policy = policy
+        if hasattr(snake, "ai"):
+            snake.ai = policy  # Backward-compatibility alias kept in lockstep
+        invalidate = getattr(snake, "invalidate_selection_cache", None)
+        if callable(invalidate):
+            invalidate()
+
+    def _assign_episode_policies(self) -> None:
+        """Assign latest/frozen policies to env snake slots for one episode.
+
+        No-op (pure mirror self-play) when the opponent pool is empty. With a
+        pool, the hero slot (first replay snake) always runs the shared latest
+        policy; every other slot independently runs latest with
+        p=pool_latest_fraction, otherwise a frozen policy loaded from a
+        uniformly sampled pool checkpoint. Frozen slots play greedily
+        (epsilon 0) and are excluded from replay collection.
+        """
+        self._episode_frozen_snake_ids = set()
+        self._episode_frozen_opponent_count = 0
+        if not self._pool_checkpoint_paths:
+            return
+        replay_snakes = self._get_replay_snakes()
+        if not replay_snakes:
+            return
+
+        hero = replay_snakes[0]
+        if self._latest_policy is None:
+            # All snakes start on the shared latest policy, so the hero's
+            # policy at first assignment IS the latest policy.
+            self._latest_policy = getattr(hero, "policy", None)
+        if self._latest_policy is None:
+            return
+
+        for snake in replay_snakes:
+            is_hero = snake is hero
+            if is_hero or np.random.random() < self.pool_latest_fraction:
+                self._set_snake_policy(snake, self._latest_policy)
+                if hasattr(snake, "actor_epsilon"):
+                    snake.actor_epsilon = self.epsilon
+                    snake.current_epsilon = self.epsilon
+                if not is_hero:
+                    self.pool_assigned_latest_slot_count += 1
+            else:
+                checkpoint_path = self._pool_checkpoint_paths[
+                    int(np.random.randint(len(self._pool_checkpoint_paths)))
+                ]
+                self._set_snake_policy(snake, self._get_frozen_policy(checkpoint_path))
+                if hasattr(snake, "actor_epsilon"):
+                    snake.actor_epsilon = 0.0
+                    snake.current_epsilon = 0.0
+                self._episode_frozen_snake_ids.add(int(getattr(snake, "id", -1)))
+                self.pool_assigned_frozen_slot_count += 1
+
+        self._episode_frozen_opponent_count = len(self._episode_frozen_snake_ids)
 
     def _run_episode(self, stream_to_buffer: bool = False) -> Tuple[float, int, List[Experience]]:
         """
@@ -474,6 +780,11 @@ class ApexActor(mp.Process):
         # Ensure epsilon override persists across resets
         self._override_snake_epsilon()
 
+        # Opponent-pool self-play: (re)assign latest/frozen policies per slot.
+        # Runs after the epsilon override so frozen slots keep epsilon 0.
+        self._assign_episode_policies()
+        episode_frozen_opponents = self._episode_frozen_opponent_count
+
         episode_reward = 0.0
         episode_steps = 0
         experiences: List[Experience] = []
@@ -486,6 +797,9 @@ class ApexActor(mp.Process):
             if experience is None:
                 return
             experiences.append(experience)
+            self.collected_count_by_frozen_opponents[episode_frozen_opponents] = (
+                self.collected_count_by_frozen_opponents.get(episode_frozen_opponents, 0) + 1
+            )
             if stream_to_buffer and len(experiences) >= self.batch_send_size:
                 self._send_experience_batch(experiences)
                 experiences.clear()
@@ -507,6 +821,11 @@ class ApexActor(mp.Process):
 
             frame = getattr(self.env, "frame", None)
             for snake in self._get_replay_snakes():
+                # Frozen-opponent slots exist to shape the hero's data, not to
+                # generate it: their transitions never reach the replay buffer.
+                if self._snake_is_frozen(snake):
+                    continue
+
                 # Collect only transitions produced by this update. Dead snakes
                 # retain their last transition until respawn, so frame freshness
                 # avoids duplicate terminal replay rows.
@@ -555,6 +874,13 @@ class ApexActor(mp.Process):
                 episode_reward += reward
             episode_steps += 1
 
+            # Mechanics-v2 population floor (blueprint §1.7): end the episode
+            # once too few snakes remain, instead of farming lone-survivor
+            # frames. The strict `is True` guard keeps environments without
+            # the property (or mocks) on the legacy all-dead break above.
+            if getattr(self.env, "population_floor_reached", False) is True:
+                break
+
         # Process remaining live tails in each n-step buffer.
         for n_step_buffer in n_step_buffers.values():
             while len(n_step_buffer) > 0:
@@ -569,7 +895,12 @@ class ApexActor(mp.Process):
         buffer: deque,
     ) -> Optional[Experience]:
         """
-        Compute n-step return and TD error for prioritization.
+        Compute the n-step return (and, in "td" priority mode, a TD error).
+
+        In "max" priority mode the actor performs NO network forwards here:
+        the experience carries td_error=None, which requests a max-priority
+        insert from the buffer (the learner recomputes real priorities on
+        first sample).
 
         Args:
             buffer: N-step transition buffer. Terminal status is taken from
@@ -577,7 +908,8 @@ class ApexActor(mp.Process):
                 remains a nonterminal truncated replay row.
 
         Returns:
-            Experience with computed TD error, or None if buffer is empty
+            Experience (td_error is None in "max" mode), or None if buffer
+            is empty
         """
         if len(buffer) == 0:
             return None
@@ -613,6 +945,70 @@ class ApexActor(mp.Process):
             self.dropped_missing_next_state_count += 1
             return None
 
+        td_error: Optional[float] = None
+        if self.actor_priority_mode == "td":
+            td_error = self._compute_td_error_estimate(
+                state=state,
+                action=action,
+                n_step_return=n_step_return,
+                gamma_power=gamma_power,
+                final_done=final_done,
+                final_next_state=final_next_state,
+                final_next_action_mask=final_next_action_mask,
+            )
+
+        # Convert to numpy for buffer storage
+        state_np = _to_numpy(first["state"])
+
+        if final_next_state is None or final_done:
+            next_state_np = np.zeros_like(state_np)
+            next_action_mask_np = None
+        else:
+            next_state_np = _to_numpy(final_next_state)
+            if next_state_np.ndim > 1:
+                next_state_np = next_state_np.squeeze(0)
+            next_action_mask_np = (
+                None if final_next_action_mask is None else _to_bool_numpy(final_next_action_mask)
+            )
+
+        return Experience(
+            state=state_np,
+            action=action,
+            reward=n_step_return,  # Store n-step return as reward
+            next_state=next_state_np,
+            done=final_done,
+            bootstrap_steps=bootstrap_steps,
+            td_error=td_error,
+            next_action_mask=next_action_mask_np,
+        )
+
+    def _compute_td_error_estimate(
+        self,
+        state: torch.Tensor,
+        action: int,
+        n_step_return: float,
+        gamma_power: float,
+        final_done: bool,
+        final_next_state: Optional[torch.Tensor],
+        final_next_action_mask: Optional[torch.Tensor],
+    ) -> float:
+        """Compute the legacy actor-side TD-error priority estimate ("td" mode).
+
+        Costs up to 3 batch-1 forwards per transition (online next-Q, target
+        next-Q, current Q); "max" priority mode skips this entirely.
+
+        Args:
+            state: Transition's first state.
+            action: Action taken at ``state``.
+            n_step_return: Discounted n-step reward sum.
+            gamma_power: Discount factor for the bootstrap term.
+            final_done: Whether the n-step window hit a terminal.
+            final_next_state: Bootstrap state (None when terminal).
+            final_next_action_mask: Optional exact mask for the bootstrap state.
+
+        Returns:
+            Absolute TD error estimate.
+        """
         target_for_priority = n_step_return
 
         # If not done, bootstrap from final next state
@@ -628,6 +1024,15 @@ class ApexActor(mp.Process):
                         action_mask = action_mask.unsqueeze(0)
 
                 # Double DQN: select a valid action with local, evaluate with target.
+                #
+                # NOTE: On an actor, ``target_network`` always holds the same
+                # weights as ``local_network`` (both are loaded from the same
+                # learner ``state_dict`` in ``_check_weight_queue`` /
+                # ``_sync_weights_from_shared``). Actors deliberately do not keep
+                # a lagged target network, so this bootstrap is an intentional
+                # approximation: it produces an initial priority for the
+                # transition, which the learner later recomputes with its real
+                # lagged target during training. This is not a bug.
                 next_q_online = self.local_network(ns)
                 masked_next_q_online = mask_invalid_q_values(
                     next_q_online,
@@ -657,32 +1062,7 @@ class ApexActor(mp.Process):
                 .item()
             )
 
-        td_error = abs(target_for_priority - current_q)
-
-        # Convert to numpy for buffer storage
-        state_np = _to_numpy(first["state"])
-
-        if final_next_state is None or final_done:
-            next_state_np = np.zeros_like(state_np)
-            next_action_mask_np = None
-        else:
-            next_state_np = _to_numpy(final_next_state)
-            if next_state_np.ndim > 1:
-                next_state_np = next_state_np.squeeze(0)
-            next_action_mask_np = (
-                None if final_next_action_mask is None else _to_bool_numpy(final_next_action_mask)
-            )
-
-        return Experience(
-            state=state_np,
-            action=action,
-            reward=n_step_return,  # Store n-step return as reward
-            next_state=next_state_np,
-            done=final_done,
-            bootstrap_steps=bootstrap_steps,
-            td_error=td_error,
-            next_action_mask=next_action_mask_np,
-        )
+        return abs(target_for_priority - current_q)
 
     def _send_experience_batch(self, experiences: List[Experience]) -> None:
         """Send a batch of experiences to the shared buffer via ActorBufferClient."""
@@ -695,8 +1075,17 @@ class ApexActor(mp.Process):
         next_states = [e.next_state for e in experiences]
         dones_list = [bool(e.done) for e in experiences]
         bootstrap_steps = [int(e.bootstrap_steps) for e in experiences]
+        # td_error=None ("max" priority mode) requests a max-priority insert:
+        # both ActorBufferClient.add_batch and the buffer process pass None
+        # through to SharedPrioritizedBuffer, which substitutes its current
+        # max priority per row.
         priorities = [
-            compute_priority(e.td_error, self.alpha, self.priority_eps) for e in experiences
+            (
+                None
+                if e.td_error is None
+                else compute_priority(e.td_error, self.alpha, self.priority_eps)
+            )
+            for e in experiences
         ]
         next_action_masks = [e.next_action_mask for e in experiences]
         self._record_sent_experience_stats(experiences)
@@ -800,6 +1189,18 @@ class ApexActor(mp.Process):
             except Exception:
                 buffer_client_stats = {}
         dropped_experience_count = int(buffer_client_stats.get("dropped_experience_count", 0))
+        # Realized opponent-exposure mix: fraction of collected transitions by
+        # episode opponent composition (key = number of frozen opponent slots,
+        # "0" = pure latest self-play). Telemetered against the nominal
+        # pool_latest_fraction (blueprint §3.3 / §5 dashboards).
+        collected_by_mix_total = sum(self.collected_count_by_frozen_opponents.values())
+        pool_exposure_mix = {
+            str(frozen_count): count / collected_by_mix_total
+            for frozen_count, count in sorted(self.collected_count_by_frozen_opponents.items())
+        }
+        pool_assigned_slot_count = (
+            self.pool_assigned_latest_slot_count + self.pool_assigned_frozen_slot_count
+        )
         stats = {
             "actor_id": self.actor_id,
             "episode": episode,
@@ -843,6 +1244,14 @@ class ApexActor(mp.Process):
             "buffer_dropped_experience_count": dropped_experience_count,
             "buffer_dropped_experience_fraction": dropped_experience_count / sent_count,
             "buffer_last_drop_error": buffer_client_stats.get("last_drop_error"),
+            "opponent_pool_size": len(self._pool_checkpoint_paths),
+            "pool_latest_fraction": self.pool_latest_fraction,
+            "pool_assigned_latest_slot_count": self.pool_assigned_latest_slot_count,
+            "pool_assigned_frozen_slot_count": self.pool_assigned_frozen_slot_count,
+            "pool_assigned_frozen_slot_fraction": (
+                self.pool_assigned_frozen_slot_count / max(1, pool_assigned_slot_count)
+            ),
+            "pool_exposure_mix": pool_exposure_mix,
         }
         put_nowait = getattr(self.stats_queue, "put_nowait", None)
         put = getattr(self.stats_queue, "put", None)

@@ -116,14 +116,15 @@ def _validate_batch_field_lengths(states: List, **fields: List) -> int:
     return row_count
 
 
-def compute_priority(td_error: float, alpha: float, eps: float = 1e-5) -> float:
+def compute_priority(td_error: float, alpha: float, eps: float = 1e-6) -> float:
     """
     Compute priority from TD error.
 
     Args:
         td_error: Temporal difference error
         alpha: Priority exponent (0 = uniform, 1 = full prioritization)
-        eps: Small constant to prevent zero priorities
+        eps: Small constant to prevent zero priorities. Defaults to 1e-6 to match
+            the buffers' priority_eps; live callers pass it explicitly regardless.
 
     Returns:
         Priority value

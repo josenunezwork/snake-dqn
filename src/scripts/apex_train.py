@@ -54,7 +54,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig  # noqa: E402
 from src.core.reward_contract import current_reward_contract  # noqa: E402
-from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
+from src.training.checkpoint_contract import \
+    validate_checkpoint_contract  # noqa: E402
 
 if TYPE_CHECKING:
     import torch
@@ -258,7 +259,6 @@ def build_apex_checkpoint_config(
         "reward_food_base": float(reward_food_base),
         "target_update_freq": int(target_update_freq),
         "total_steps": int(total_steps),
-        "use_gru": False,
         "weight_broadcast_interval": int(weight_broadcast_interval),
     }
 
@@ -307,8 +307,18 @@ def validate_apex_resume_checkpoint_config(
     checkpoint: dict,
     expected_config: dict,
     checkpoint_path: str = "checkpoint",
+    *,
+    override_reward_contract: bool = False,
 ) -> None:
-    """Reject resume checkpoints with known-incompatible Apex training contracts."""
+    """Reject resume checkpoints with known-incompatible Apex training contracts.
+
+    Args:
+        override_reward_contract: When True, reward-economics mismatches
+            (reward_contract and reward_* fields) log a loud warning instead of
+            aborting — for a deliberate reward-migration fine-tune such as the P1
+            3-arm reward-v2 experiment on champion_a5. Non-reward contract
+            violations (shapes, gamma, n_step, board scale) still abort.
+    """
     validate_checkpoint_contract(
         checkpoint,
         expected_config,
@@ -330,6 +340,7 @@ def validate_apex_resume_checkpoint_config(
         mapping_keys=("reward_contract",),
         required_keys=("reward_contract", "reward_death", "reward_food_base"),
         error_type=ValueError,
+        override_reward_contract=override_reward_contract,
     )
 
 
@@ -337,6 +348,8 @@ def load_validated_apex_resume_checkpoint(
     resume_checkpoint: Optional[str],
     expected_config: dict,
     map_location: Any = None,
+    *,
+    override_reward_contract: bool = False,
 ) -> Optional[dict]:
     """Load a requested resume checkpoint or fail before runtime processes start."""
     if not resume_checkpoint:
@@ -356,6 +369,7 @@ def load_validated_apex_resume_checkpoint(
             checkpoint,
             expected_config,
             checkpoint_path=str(checkpoint_path),
+            override_reward_contract=override_reward_contract,
         )
         for key in ("dqn_state_dict", "target_dqn_state_dict", "optimizer_state_dict"):
             if key not in checkpoint:
@@ -989,7 +1003,11 @@ def train_apex(
     actor_food_multiplier: Optional[float] = None,
     actor_boost_exploration_rate: Optional[float] = None,
     actor_danger_exploration_rate: Optional[float] = None,
+    actor_priority_mode: Optional[str] = None,
+    opponent_pool_dir: Optional[str] = None,
+    pool_latest_fraction: Optional[float] = None,
     min_actor_terminal_fraction: Optional[float] = None,
+    override_reward_contract: bool = False,
     stagger_delay: float = 0.5,
 ) -> None:
     """Run distributed Ape-X DQN training.
@@ -1014,6 +1032,16 @@ def train_apex(
             samples a safe boost action when one is available.
         actor_danger_exploration_rate: Probability that actor random exploration
             samples a known-unsafe legal action when one is available.
+        actor_priority_mode: Insert priority for new actor transitions: "max"
+            (buffer max priority, no actor-side TD forwards) or "td" (legacy
+            local TD-error priorities). None uses config
+            apex.actor_priority_mode (default "max").
+        opponent_pool_dir: Directory of frozen opponent checkpoints for actor
+            pool self-play (blueprint §3.3). None uses config
+            apex.opponent_pool_dir (default None = pure mirror self-play).
+        pool_latest_fraction: Per-episode probability that each non-hero actor
+            snake slot runs the latest policy instead of a frozen pool
+            checkpoint. None uses config apex.pool_latest_fraction (default 0.8).
         min_actor_terminal_fraction: Optional final actor replay-quality gate.
             Fails after cleanup when terminal actor replay is below this fraction.
         stagger_delay: Seconds between starting each actor
@@ -1086,13 +1114,10 @@ def train_apex(
 
     from src.core.device_manager import DeviceManager
     from src.model.apex_network import ApexNetwork
-    from src.training.apex_actor import (
-        DEFAULT_ACTOR_BOOST_EXPLORATION_RATE,
-        DEFAULT_ACTOR_DANGER_EXPLORATION_RATE,
-        spawn_actors,
-        start_actors,
-        stop_actors,
-    )
+    from src.training.apex_actor import (DEFAULT_ACTOR_BOOST_EXPLORATION_RATE,
+                                         DEFAULT_ACTOR_DANGER_EXPLORATION_RATE,
+                                         spawn_actors, start_actors,
+                                         stop_actors)
     from src.training.apex_buffer import BufferProcess
     from src.training.apex_learner import create_apex_learner
 
@@ -1133,6 +1158,28 @@ def train_apex(
             actor_food_multiplier,
             GameConfig.APEX_ACTOR_FOOD_MULTIPLIER,
             GameConfig.APEX_ACTOR_FOOD_MULTIPLIER,
+            use_config,
+        )
+    )
+    actor_priority_mode = str(
+        _resolve_configurable(
+            actor_priority_mode,
+            GameConfig.APEX_ACTOR_PRIORITY_MODE,
+            GameConfig.APEX_ACTOR_PRIORITY_MODE,
+            use_config,
+        )
+    )
+    opponent_pool_dir = _resolve_configurable(
+        opponent_pool_dir,
+        GameConfig.APEX_OPPONENT_POOL_DIR,
+        GameConfig.APEX_OPPONENT_POOL_DIR,
+        use_config,
+    )
+    pool_latest_fraction = float(
+        _resolve_configurable(
+            pool_latest_fraction,
+            GameConfig.APEX_POOL_LATEST_FRACTION,
+            GameConfig.APEX_POOL_LATEST_FRACTION,
             use_config,
         )
     )
@@ -1218,6 +1265,9 @@ def train_apex(
     print(f"  Actor food multiplier: {actor_food_multiplier:.2f}")
     print(f"  Actor boost exploration:  {actor_boost_exploration_rate:.2f}")
     print(f"  Actor danger exploration: {actor_danger_exploration_rate:.2f}")
+    print(f"  Actor priority mode: {actor_priority_mode}")
+    print(f"  Opponent pool dir: {opponent_pool_dir or '(disabled: pure mirror self-play)'}")
+    print(f"  Pool latest fraction: {pool_latest_fraction:.2f}")
     print(f"  Gamma:           {gamma}")
     print(f"  Learning rate:   {learning_rate}")
     print(f"  Target update:   {target_update_freq}")
@@ -1227,6 +1277,17 @@ def train_apex(
         resume_checkpoint,
         apex_checkpoint_config,
         map_location=device,
+        override_reward_contract=override_reward_contract,
+    )
+
+    # Resumed learner step, used both to start the training loop and to seed the
+    # buffer's beta-annealing clock below. The BufferProcess is created fresh each
+    # launch and its beta clock is NOT persisted, so without this seed a resumed
+    # run would re-anneal IS-weight beta from beta_start over a full fresh window.
+    resume_start_step = (
+        int(resume_checkpoint_state.get("step_count", 0))
+        if resume_checkpoint_state is not None
+        else 0
     )
 
     # ── Multiprocessing setup ─────────────────────────────────────────
@@ -1247,6 +1308,10 @@ def train_apex(
         beta_end=GameConfig.APEX_PRIORITY_BETA_END,
         beta_frames=total_steps,
         state_size=input_size,
+        # Seed beta annealing from the resumed step (0 for fresh runs). beta_frames
+        # stays absolute (total_steps); do not also subtract start_step or the
+        # offset would be double-counted.
+        initial_frame_count=resume_start_step,
     )
     buffer_process.start()
     print("  BufferProcess running.")
@@ -1291,7 +1356,7 @@ def train_apex(
     if resume_checkpoint_state is not None:
         print(f"Resuming from: {resume_checkpoint}")
         learner.load_state_dict(resume_checkpoint_state)
-        start_step = resume_checkpoint_state.get("step_count", 0)
+        start_step = resume_start_step
         # Re-sync shared network
         shared_network.load_state_dict({k: v.cpu() for k, v in learner.dqn.state_dict().items()})
         print(f"  Resumed at step {start_step:,}")
@@ -1319,6 +1384,10 @@ def train_apex(
         env_food_multiplier=actor_food_multiplier,
         boost_exploration_rate=actor_boost_exploration_rate,
         danger_exploration_rate=actor_danger_exploration_rate,
+        actor_priority_mode=actor_priority_mode,
+        opponent_pool_dir=opponent_pool_dir,
+        pool_latest_fraction=pool_latest_fraction,
+        config_path=config_path,
     )
 
     # ── Checkpoint manager ────────────────────────────────────────────
@@ -1472,9 +1541,16 @@ def train_apex(
                 )
                 torch.save(state, ckpt_path)
 
-                # Also save as best_apex.pth
-                best_path = os.path.join(checkpoint_dir, "best_apex.pth")
-                torch.save(state, best_path)
+                # Also save as latest_apex.pth: a rolling pointer to the most
+                # recent snapshot, written unconditionally with NO metric gate.
+                # This is deliberately NOT named best_apex.pth — that file is the
+                # CI-promoted champion living in the default checkpoint_dir
+                # (saved_snakes/), and overwriting it from here would silently
+                # clobber the curated model with a possibly-regressed late
+                # snapshot. Champion promotion is owned by the tournament_eval
+                # workflow, gated on a fixed benchmark.
+                latest_path = os.path.join(checkpoint_dir, "latest_apex.pth")
+                torch.save(state, latest_path)
 
                 print(f"  Checkpoint saved: {ckpt_path}")
                 last_save_step = step
@@ -1686,12 +1762,54 @@ Examples:
         ),
     )
     parser.add_argument(
+        "--actor-priority-mode",
+        type=str,
+        choices=("max", "td"),
+        default=None,
+        help=(
+            "Insert priority for new actor transitions: 'max' (buffer max priority, no "
+            "actor-side TD forwards) or 'td' (legacy local TD-error priorities) "
+            "(default: config apex.actor_priority_mode)"
+        ),
+    )
+    parser.add_argument(
+        "--opponent-pool-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory of frozen opponent .pth checkpoints for actor pool self-play. "
+            "Each episode, non-hero actor snake slots run a uniformly sampled frozen "
+            "pool checkpoint with probability 1 - pool_latest_fraction "
+            "(default: config apex.opponent_pool_dir; unset = pure mirror self-play)"
+        ),
+    )
+    parser.add_argument(
+        "--pool-latest-fraction",
+        type=float,
+        default=None,
+        help=(
+            "Per-episode probability that each non-hero actor snake slot runs the latest "
+            "policy instead of a frozen pool checkpoint, in [0, 1] "
+            "(default: config apex.pool_latest_fraction, 0.8)"
+        ),
+    )
+    parser.add_argument(
         "--min-actor-terminal-fraction",
         type=float,
         default=None,
         help=(
             "Optional final actor replay-quality gate. Fail the run when terminal actor "
             "replay is below this fraction, e.g. 0.005 for 0.5%%."
+        ),
+    )
+    parser.add_argument(
+        "--override-reward-contract",
+        action="store_true",
+        help=(
+            "Allow resuming a checkpoint whose reward economics differ from the current "
+            "config (logs a loud warning instead of aborting). For deliberate reward "
+            "migrations only — e.g. the P1 3-arm reward-v2 fine-tune of champion_a5. "
+            "Non-reward mismatches (shapes, gamma, n_step, board scale) still abort."
         ),
     )
 
@@ -1714,7 +1832,11 @@ Examples:
         actor_food_multiplier=args.actor_food_multiplier,
         actor_boost_exploration_rate=args.actor_boost_exploration_rate,
         actor_danger_exploration_rate=args.actor_danger_exploration_rate,
+        actor_priority_mode=args.actor_priority_mode,
+        opponent_pool_dir=args.opponent_pool_dir,
+        pool_latest_fraction=args.pool_latest_fraction,
         min_actor_terminal_fraction=args.min_actor_terminal_fraction,
+        override_reward_contract=args.override_reward_contract,
     )
 
 

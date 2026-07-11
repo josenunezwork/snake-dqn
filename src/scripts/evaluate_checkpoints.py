@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import shutil
 import sys
@@ -83,6 +84,30 @@ def summarize_rollouts(checkpoint: str, rollouts: Sequence[Dict[str, Any]]) -> D
     }
 
 
+def _failed_summary(checkpoint: str, error: Exception) -> Dict[str, Any]:
+    """Build a sentinel summary for a checkpoint that could not be evaluated.
+
+    The sentinel scores -inf on every ranked metric so it sorts last, while still
+    exposing the keys ``format_summary_table`` reads and recording the error so a
+    JSON dump preserves why the checkpoint was skipped.
+    """
+    return {
+        "checkpoint": checkpoint,
+        "avg_reward": -math.inf,
+        "avg_food": -math.inf,
+        "avg_length": -math.inf,
+        "avg_deaths": math.inf,
+        "avg_kills": 0.0,
+        "rewards": [],
+        "food": [],
+        "deaths": [],
+        "lengths": [],
+        "kills": [],
+        "rollouts": [],
+        "error": str(error),
+    }
+
+
 def checkpoint_rank_key(summary: Dict[str, Any]) -> tuple[float, float, float, float]:
     """Return the sort key for choosing the best greedy gameplay checkpoint."""
     return (
@@ -121,16 +146,26 @@ def evaluate_checkpoints(
     seeds: Sequence[int],
     smoke_runner: SmokeRunner = run_learning_health_smoke,
 ) -> List[Dict[str, Any]]:
-    """Evaluate and rank checkpoints from best to worst."""
-    summaries = [
-        evaluate_checkpoint(
-            checkpoint,
-            frames=frames,
-            seeds=seeds,
-            smoke_runner=smoke_runner,
-        )
-        for checkpoint in checkpoints
-    ]
+    """Evaluate and rank checkpoints from best to worst.
+
+    A checkpoint that fails to load or roll out (e.g. a contract/shape mismatch)
+    must NOT abort the whole sweep: log a warning, record a sentinel that sorts
+    last, and keep ranking the rest.
+    """
+    summaries = []
+    for checkpoint in checkpoints:
+        try:
+            summaries.append(
+                evaluate_checkpoint(
+                    checkpoint,
+                    frames=frames,
+                    seeds=seeds,
+                    smoke_runner=smoke_runner,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - one bad checkpoint must not stop ranking
+            print(f"WARNING: skipping {checkpoint}: {exc}", file=sys.stderr)
+            summaries.append(_failed_summary(checkpoint, exc))
     return sorted(summaries, key=checkpoint_rank_key, reverse=True)
 
 
@@ -173,7 +208,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Evaluate Apex checkpoints with greedy headless rollouts.",
     )
     parser.add_argument("checkpoints", nargs="+", help="Checkpoint files to evaluate")
-    parser.add_argument("--config", default="configs/training_fast.yaml", help="YAML config path")
+    # free_space_v2.yaml matches current 61-D checkpoints AND their training
+    # reward contract (the health-smoke loader enforces it). The old
+    # training_fast.yaml default built a 58-D arena that rejected every
+    # current checkpoint; eval_free_space.yaml fails the reward contract.
+    parser.add_argument("--config", default="configs/free_space_v2.yaml", help="YAML config path")
     parser.add_argument("--frames", type=int, default=1000, help="Frames per rollout")
     parser.add_argument(
         "--seeds",

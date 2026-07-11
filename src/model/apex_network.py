@@ -11,16 +11,18 @@ Key features:
 
 Reference: Horgan et al., "Distributed Prioritized Experience Replay" (2018)
 """
+
+from typing import Dict, Tuple
+
 import torch
 import torch.nn as nn
-from typing import Tuple, Dict, Any, Optional
 
 from .base_network import (
     BaseDQNVisualization,
     WeightManagementMixin,
     dueling_q,
-    init_weights_xavier,
     init_dueling_weights_orthogonal,
+    init_weights_xavier,
 )
 
 
@@ -55,7 +57,7 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
         input_size: int = 58,
         hidden_size: int = 512,
         output_size: int = 6,
-        init_type: str = "orthogonal"
+        init_type: str = "orthogonal",
     ):
         """
         Initialize Ape-X DQN Network.
@@ -83,22 +85,18 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
             nn.Linear(input_size, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, self.stream_size),
-            nn.ReLU()
+            nn.ReLU(),
         )
 
         # Dueling streams (split from shared features)
         # Value stream: estimates V(s) - how good is this state
         self.value_stream = nn.Sequential(
-            nn.Linear(self.stream_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, 1)
+            nn.Linear(self.stream_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, 1)
         )
 
         # Advantage stream: estimates A(s,a) - relative advantage of each action
         self.advantage_stream = nn.Sequential(
-            nn.Linear(self.stream_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, output_size)
+            nn.Linear(self.stream_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, output_size)
         )
 
         # Apply weight initialization
@@ -136,7 +134,7 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
         features = self.feature_layer(x)
 
         # Compute value and advantages
-        value = self.value_stream(features)          # (batch, 1)
+        value = self.value_stream(features)  # (batch, 1)
         advantages = self.advantage_stream(features)  # (batch, 6)
 
         # Combine using dueling formula: Q = V + (A - mean(A))
@@ -153,10 +151,7 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
     # =========================================================================
 
     def get_compiled_version(
-        self,
-        mode: str = "reduce-overhead",
-        fullgraph: bool = False,
-        dynamic: bool = False
+        self, mode: str = "reduce-overhead", fullgraph: bool = False, dynamic: bool = False
     ) -> "ApexNetwork":
         """
         Get a torch.compile() optimized version of this network.
@@ -174,17 +169,12 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
         Returns:
             Compiled network (or self if torch.compile not available)
         """
-        if not hasattr(torch, 'compile'):
+        if not hasattr(torch, "compile"):
             # PyTorch < 2.0, return self
             return self
 
         try:
-            compiled = torch.compile(
-                self,
-                mode=mode,
-                fullgraph=fullgraph,
-                dynamic=dynamic
-            )
+            compiled = torch.compile(self, mode=mode, fullgraph=fullgraph, dynamic=dynamic)
             return compiled
         except Exception as e:
             # Fallback if compilation fails
@@ -205,7 +195,7 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
         Returns:
             Compiled forward function
         """
-        if not hasattr(torch, 'compile'):
+        if not hasattr(torch, "compile"):
             return network.forward
 
         return torch.compile(network.forward, **compile_kwargs)
@@ -225,14 +215,15 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
             - 'value_stream': Value stream parameters
             - 'advantage_stream': Advantage stream parameters
         """
+
         def count_params(module):
             return sum(p.numel() for p in module.parameters())
 
         return {
-            'total': count_params(self),
-            'feature_layer': count_params(self.feature_layer),
-            'value_stream': count_params(self.value_stream),
-            'advantage_stream': count_params(self.advantage_stream)
+            "total": count_params(self),
+            "feature_layer": count_params(self.feature_layer),
+            "value_stream": count_params(self.value_stream),
+            "advantage_stream": count_params(self.advantage_stream),
         }
 
     def reset_parameters(self) -> None:
@@ -281,18 +272,12 @@ def create_apex_network_pair(
 
     # Create main network
     main_network = ApexNetwork(
-        input_size=input_size,
-        hidden_size=hidden_size,
-        output_size=output_size,
-        init_type=init_type
+        input_size=input_size, hidden_size=hidden_size, output_size=output_size, init_type=init_type
     ).to(device)
 
     # Create target network with same weights
     target_network = ApexNetwork(
-        input_size=input_size,
-        hidden_size=hidden_size,
-        output_size=output_size,
-        init_type=init_type
+        input_size=input_size, hidden_size=hidden_size, output_size=output_size, init_type=init_type
     ).to(device)
 
     # Initialize target with same weights as main
@@ -307,7 +292,7 @@ def create_apex_actor_network(
     hidden_size: int = 512,
     output_size: int = 6,
     device: torch.device = None,
-    init_type: str = "orthogonal"
+    init_type: str = "orthogonal",
 ) -> ApexNetwork:
     """
     Create a single Ape-X network for actor processes.
@@ -329,10 +314,7 @@ def create_apex_actor_network(
         device = torch.device("cpu")  # Actors typically run on CPU
 
     network = ApexNetwork(
-        input_size=input_size,
-        hidden_size=hidden_size,
-        output_size=output_size,
-        init_type=init_type
+        input_size=input_size, hidden_size=hidden_size, output_size=output_size, init_type=init_type
     ).to(device)
 
     network.eval()  # Actors only do inference

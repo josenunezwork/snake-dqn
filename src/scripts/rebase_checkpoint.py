@@ -21,12 +21,44 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
-def set_in_apex_config(ck: dict, key: str, value: float) -> None:
-    """Set key in every contract location the validator inspects."""
+def parse_value(v: str):
+    """Coerce an override string to int, then float, else keep the raw string.
+
+    Contract overrides are usually numeric (board_scale, num_snakes, reward floats)
+    but some are non-numeric (e.g. arena_type). Try int -> float -> str so an
+    integer like num_snakes=8 stays an int and a label stays a string instead of
+    crashing float().
+    """
+    try:
+        return int(v)
+    except ValueError:
+        pass
+    try:
+        return float(v)
+    except ValueError:
+        return v
+
+
+def set_in_apex_config(ck: dict, key: str, value) -> None:
+    """Set key in every contract location the validator inspects.
+
+    The resume validator reads contract values from three locations -- the
+    checkpoint top level, ``apex_config``, and the learner's separate ``config``
+    blob (see ``checkpoint_contract.checkpoint_contract_values``). We must keep all
+    three consistent or a rebased key (gamma/hidden/board_scale/...) desyncs: the
+    validator would compare the stale ``config`` copy and reject the resume. We
+    update ``apex_config`` unconditionally and the top-level / ``config`` copies
+    only where the key already exists, so we never invent keys in a blob that did
+    not declare them.
+    """
     ac = ck.setdefault("apex_config", {})
+    cfg = ck.get("config")
     if key.startswith("reward_contract."):
         child = key.split(".", 1)[1]
-        for loc in (ck, ac):
+        locs = [ck, ac]
+        if isinstance(cfg, dict):
+            locs.append(cfg)
+        for loc in locs:
             rc = loc.get("reward_contract")
             if isinstance(rc, dict):
                 rc[child] = value
@@ -34,6 +66,8 @@ def set_in_apex_config(ck: dict, key: str, value: float) -> None:
         ac[key] = value
         if key in ck:
             ck[key] = value
+        if isinstance(cfg, dict) and key in cfg:
+            cfg[key] = value
 
 
 def main(argv) -> int:
@@ -43,8 +77,11 @@ def main(argv) -> int:
     src, dst = argv[0], argv[1]
     overrides = {}
     for kv in argv[2:]:
+        if "=" not in kv:
+            print(f"ERROR: override {kv!r} is not of the form key=value")
+            return 1
         k, v = kv.split("=", 1)
-        overrides[k] = float(v)
+        overrides[k] = parse_value(v)
     ck = torch.load(src, map_location="cpu", weights_only=False)
     for k, v in overrides.items():
         set_in_apex_config(ck, k, v)

@@ -3,10 +3,12 @@
 Provides reusable building blocks for constructing neural network
 architectures with less code duplication.
 """
+
+from collections import OrderedDict
+from typing import Dict, List, Optional, Tuple, Type
+
 import torch
 import torch.nn as nn
-from typing import List, Dict, Tuple, Any, Optional, Type
-from collections import OrderedDict
 
 
 def dueling_q(
@@ -26,15 +28,11 @@ def dueling_q(
     Returns:
         Q-values tensor with shape matching ``advantage_stream``.
     """
-    return value_stream + (
-        advantage_stream - advantage_stream.mean(dim=-1, keepdim=True)
-    )
+    return value_stream + (advantage_stream - advantage_stream.mean(dim=-1, keepdim=True))
 
 
 def build_mlp(
-    sizes: List[int],
-    activation: Type[nn.Module] = nn.ReLU,
-    output_activation: bool = False
+    sizes: List[int], activation: Type[nn.Module] = nn.ReLU, output_activation: bool = False
 ) -> nn.Sequential:
     """
     Build a Multi-Layer Perceptron (MLP) from a list of layer sizes.
@@ -82,7 +80,7 @@ def build_feature_layer(
         nn.Linear(input_size, hidden_size),
         nn.ReLU(),
         nn.Linear(hidden_size, hidden_size // 2),
-        nn.ReLU()
+        nn.ReLU(),
     )
 
 
@@ -123,7 +121,7 @@ def init_dueling_weights_orthogonal(
     """Initialize dueling network weights using orthogonal initialization.
 
     Applies sqrt(2) gain for ReLU layers and gain=1.0 for output layers.
-    Used by both ApexNetwork and GruApexNetwork.
+    Used by ApexNetwork.
 
     Args:
         feature_layer: Shared feature extraction sequential module
@@ -134,7 +132,7 @@ def init_dueling_weights_orthogonal(
         for i, layer in enumerate(module):
             if isinstance(layer, nn.Linear):
                 is_output = i == len(module) - 1
-                gain = 1.0 if is_output else 2.0 ** 0.5
+                gain = 1.0 if is_output else 2.0**0.5
                 nn.init.orthogonal_(layer.weight, gain=gain)
                 if layer.bias is not None:
                     nn.init.constant_(layer.bias, 0.0)
@@ -143,9 +141,7 @@ def init_dueling_weights_orthogonal(
 class WeightManagementMixin:
     """Mixin providing weight copy, sync, and sharing methods for DQN networks.
 
-    Eliminates duplicated weight management code between ApexNetwork and
-    GruApexNetwork. Both networks share identical implementations of these
-    methods.
+    Provides weight management methods for ApexNetwork.
 
     Requires the class to be an nn.Module (provides state_dict, parameters, etc.).
     """
@@ -168,9 +164,7 @@ class WeightManagementMixin:
             tau: Interpolation parameter (0 < tau <= 1)
         """
         with torch.no_grad():
-            for target_param, source_param in zip(
-                self.parameters(), source_network.parameters()
-            ):
+            for target_param, source_param in zip(self.parameters(), source_network.parameters()):
                 target_param.data.mul_(1.0 - tau).add_(source_param.data, alpha=tau)
 
     def get_shareable_state_dict(self) -> OrderedDict:
@@ -183,8 +177,7 @@ class WeightManagementMixin:
             OrderedDict containing model weights on CPU
         """
         return OrderedDict(
-            (key, value.detach().cpu().clone())
-            for key, value in self.state_dict().items()
+            (key, value.detach().cpu().clone()) for key, value in self.state_dict().items()
         )
 
     def load_shareable_state_dict(
@@ -228,8 +221,7 @@ class BaseDQNVisualization(VisualizationMixin):
     output_size: int
 
     def forward_with_activations(
-        self,
-        x: torch.Tensor
+        self, x: torch.Tensor
     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Forward pass that also returns intermediate activations.
@@ -245,17 +237,26 @@ class BaseDQNVisualization(VisualizationMixin):
         activations = {}
 
         # Capture input
-        activations['input'] = x.detach().cpu()
+        activations["input"] = x.detach().cpu()
 
         # Feature layer
         features = self.feature_layer(x)
-        activations['hidden'] = features.detach().cpu()
+        activations["hidden"] = features.detach().cpu()
 
-        # Compute Q-values (subclass implements _compute_q_values)
-        q_values = self._compute_q_values_for_viz(features)
+        # Compute Q-values. For a dueling head, also surface the value/advantage
+        # decomposition (V(s) + per-action A(s,a)) so the UI can show *why* the
+        # Q-values look the way they do, not just the fused result.
+        if hasattr(self, "value_stream") and hasattr(self, "advantage_stream"):
+            value = self.value_stream(features)
+            advantages = self.advantage_stream(features)
+            q_values = value + (advantages - advantages.mean(dim=-1, keepdim=True))
+            activations["value"] = value.detach().cpu()
+            activations["advantages"] = advantages.detach().cpu()
+        else:
+            q_values = self._compute_q_values_for_viz(features)
 
         # Capture output
-        activations['output'] = q_values.detach().cpu()
+        activations["output"] = q_values.detach().cpu()
 
         return q_values, activations
 

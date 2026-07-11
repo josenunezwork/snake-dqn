@@ -11,6 +11,10 @@ import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 from src.core.game_config import GameConfig
+from src.core.mechanics_constants import (CORPSE_DROP_FRACTION_V1,
+                                          CORPSE_DROP_FRACTION_V2,
+                                          HEADON_SIZE_RATIO,
+                                          POPULATION_FLOOR_V2, snap_to_cell)
 from src.game.food_manager import FoodManager
 from src.game.game_logic import GameLogic
 from src.game.snake_factory import SnakeFactory
@@ -19,6 +23,17 @@ if TYPE_CHECKING:
     from src.game.ai_snake import AISnake
     from src.game.human_snake import HumanSnake
     from src.game.snake import Snake
+
+# Maps internal collision types to death causes for telemetry/probes
+# (blueprint §5.3 deaths-by-cause). "starvation" is reserved for a future
+# starvation-death mechanic; unknown collision types map to "other".
+DEATH_CAUSE_BY_COLLISION: Dict[str, str] = {
+    "wall": "wall",
+    "self": "self",
+    "head": "head_on",
+    "body": "enemy_body",
+    "starvation": "starvation",
+}
 
 
 class GameState:
@@ -70,8 +85,11 @@ class GameState:
         self.human_mode: bool = human_mode
         self.snake_policies: List[str] = snake_policies or ["apex"] * self.num_snakes
         self._shared_policy = shared_policy  # May be set here or by _create_snakes()
+        self._train_mode: bool = False  # Last update()'s train_mode (population floor)
         self.frame_collisions: dict = {}  # snake_id → collision_type per frame
         self.frame_kills: dict = {}  # killer_snake_id → [victim_snake_ids] per frame
+        self.frame_death_causes: Dict[int, str] = {}  # snake_id → death_cause per frame
+        self.frame_ate_food: Dict[int, bool] = {}  # snake_id → ate food this frame
         self.episode_food_eaten: int = 0
         self.episode_deaths: int = 0
         self.episode_kills: int = 0
@@ -138,6 +156,8 @@ class GameState:
         self.alive_snakes = self.num_snakes
         self.frame_collisions = {}
         self.frame_kills = {}
+        self.frame_death_causes = {}
+        self.frame_ate_food = {}
         self.episode_food_eaten = 0
         self.episode_deaths = 0
         self.episode_kills = 0
@@ -271,6 +291,7 @@ class GameState:
         """
         if allow_respawn is None:
             allow_respawn = not train_mode
+        self._train_mode = bool(train_mode)
 
         for snake in self.snakes:
             if hasattr(snake, "last_move_positions"):
@@ -292,14 +313,31 @@ class GameState:
                 if not snake.is_alive and snake.respawn_timer > 0:
                     snake.respawn_timer -= 1
 
+            any_respawned = False
             for snake in self.snakes:
                 if not snake.is_alive and snake.respawn_timer <= 0:
+                    # Opt-out hook: a snake with auto_respawn=False stays dead until
+                    # an explicit reset. Used by the web Play mode so a human's death
+                    # ends their scored run while AI opponents keep respawning.
+                    if not getattr(snake, "auto_respawn", True):
+                        continue
                     new_pos = GameLogic.find_empty_position(
                         self._game_width, self._game_height, self.snakes
                     )
                     if new_pos:
                         snake.respawn(new_pos)
                         self.alive_snakes += 1
+                        any_respawned = True
+
+            # A respawn changes the world AFTER last frame's carried selection
+            # state/mask were captured (step 9), so those caches are blind to
+            # the respawned snake. Drop them so this frame's action selection
+            # rebuilds state and safe actions against the current roster.
+            if any_respawned:
+                for snake in self.snakes:
+                    invalidate = getattr(snake, "invalidate_selection_cache", None)
+                    if invalidate is not None:
+                        invalidate()
 
         # 6. All living snakes select actions from the same pre-frame world,
         # then move. Passing snapshots avoids order bias where later snakes
@@ -312,6 +350,18 @@ class GameState:
                 if hasattr(snake, "record_q_values"):
                     snake.record_q_values = not self.headless
                 snake.update(observation_snakes, self.food)
+
+        # 6b. Mechanics v2: boost segment burns drop corpse-class trail pellets
+        # at the vacated tail cell (snakes only record pellets when
+        # MECHANICS_VERSION == 2, so this is a no-op at v1).
+        for snake in self.snakes:
+            pellets = getattr(snake, "pending_trail_pellets", None)
+            if not pellets:
+                continue
+            for pellet in pellets:
+                if self._segment_inside_arena(pellet):
+                    self.food_manager.add_food(pellet, corpse=True)
+            snake.pending_trail_pellets = []
 
         # 7. Check food consumption AFTER movement (uses new head positions)
         ate_food_map: dict = {}
@@ -326,6 +376,10 @@ class GameState:
                     self.episode_best_length = max(self.episode_best_length, len(snake.segments))
                 if ate and not train_mode:
                     self.food_manager.spawn(1, self.snakes)
+        # Publish per-frame food consumption for pull-based telemetry
+        # (BehaviorProbes): unlike the reward breakdown, this exists for every
+        # snake type, including scripted/human snakes with no learning path.
+        self.frame_ate_food = ate_food_map
 
         if train_mode and ate_any_food:
             # Replay next_state is captured below. Keep food count in the same
@@ -383,6 +437,25 @@ class GameState:
             )
         self.alive_snakes = sum(1 for snake in self.snakes if snake.is_alive)
 
+    @property
+    def population_floor_reached(self) -> bool:
+        """Whether the mechanics-v2 training population floor has been hit.
+
+        True iff the last update ran in train mode, mechanics v2 is active,
+        the episode started with at least POPULATION_FLOOR_V2 snakes, and
+        fewer than POPULATION_FLOOR_V2 are still alive. Training loops use
+        this as an episode-end condition to avoid lone-survivor replay skew
+        (blueprint §1.7). Always False at mechanics v1 and outside train mode,
+        so watch/play behavior is unchanged.
+        """
+        if GameConfig.MECHANICS_VERSION != 2:
+            return False
+        if not getattr(self, "_train_mode", False):
+            return False
+        if self.num_snakes < POPULATION_FLOOR_V2:
+            return False
+        return self.alive_snakes < POPULATION_FLOOR_V2
+
     # =========================================================================
     # Food Management (delegated to FoodManager)
     # =========================================================================
@@ -439,15 +512,20 @@ class GameState:
             width = getattr(self, "_game_width", GameConfig.WIDTH)
             height = getattr(self, "_game_height", GameConfig.HEIGHT)
             return GameLogic.get_random_circular_position(width, height, GameConfig.WALL_THICKNESS)
-        return (
-            random.randint(
-                GameConfig.WALL_THICKNESS,
-                self._game_width - GameConfig.WALL_THICKNESS - GameConfig.SEGMENT_SIZE,
+        # Snap to the segment lattice so cell-exact collision matches the legacy
+        # radius test (see mechanics_constants.snap_to_cell).
+        return snap_to_cell(
+            (
+                random.randint(
+                    GameConfig.WALL_THICKNESS,
+                    self._game_width - GameConfig.WALL_THICKNESS - GameConfig.SEGMENT_SIZE,
+                ),
+                random.randint(
+                    GameConfig.WALL_THICKNESS,
+                    self._game_height - GameConfig.WALL_THICKNESS - GameConfig.SEGMENT_SIZE,
+                ),
             ),
-            random.randint(
-                GameConfig.WALL_THICKNESS,
-                self._game_height - GameConfig.WALL_THICKNESS - GameConfig.SEGMENT_SIZE,
-            ),
+            GameConfig.SEGMENT_SIZE,
         )
 
     # =========================================================================
@@ -457,21 +535,53 @@ class GameState:
     def _drop_food_from_snake(self, snake: "Snake") -> None:
         """Convert dead snake's body segments into food items.
 
-        Drops food at every other segment position (50% density)
-        to reward aggressive play and create strategic hotspots.
+        Mechanics v1: drops food at every other segment position (50% density,
+        ambient pool — counts against the max_food cap). Mechanics v2: drops
+        the full corpse (100% density) as corpse-class food, exempt from the
+        ambient cap so kills pay in mass without suppressing baseline spawns.
 
         Args:
             snake: The snake about to die (must still be alive when called)
         """
         if not snake.is_alive:
             return  # Already processed
-        # Drop food at every other segment position (50% density)
+        mechanics_v2 = GameConfig.MECHANICS_VERSION == 2
+        drop_fraction = CORPSE_DROP_FRACTION_V2 if mechanics_v2 else CORPSE_DROP_FRACTION_V1
+        stride = max(1, round(1.0 / drop_fraction))
         for i, segment in enumerate(snake.segments):
-            if i % 2 == 0:
+            if i % stride == 0:
+                # Skip segments outside the arena (e.g. a head past the wall on
+                # a wall death); food_manager never bounds-checks, so otherwise
+                # permanently-unreachable food accumulates and skews the economy.
+                if not self._segment_inside_arena(segment):
+                    continue
                 if hasattr(self.food_manager, "add_food"):
-                    self.food_manager.add_food(segment)
+                    if mechanics_v2:
+                        self.food_manager.add_food(segment, corpse=True)
+                    else:
+                        self.food_manager.add_food(segment)
                 elif segment not in self.food_manager.food:
                     self.food_manager.food.append(segment)
+
+    def _segment_inside_arena(self, segment: Tuple[int, int]) -> bool:
+        """Return True if a (x, y) position lies inside the playable arena.
+
+        Mirrors wall-collision bounds: rectangular arenas use [0, width) x
+        [0, height); circular arenas use the inscribed radius.
+        """
+        x, y = segment
+        width = getattr(self, "_game_width", None)
+        height = getattr(self, "_game_height", None)
+        if width is None or height is None:
+            # Arena dimensions unknown (e.g. a partially-constructed instance) —
+            # don't bounds-skip; fall back to the pre-bounds-check behavior.
+            return True
+        if GameConfig.ARENA_TYPE == "circular":
+            cx, cy, radius = GameLogic.get_circular_arena(width, height)
+            dx = x - cx
+            dy = y - cy
+            return (dx * dx + dy * dy) <= radius**2
+        return 0 <= x < width and 0 <= y < height
 
     def handle_collisions(self) -> dict:
         """Process all collision events for this frame.
@@ -479,12 +589,17 @@ class GameState:
         Single source of truth for all collision detection and death handling.
         Ensures _drop_food_from_snake is called for ALL death types.
 
+        Side effects: each dying snake is tagged with ``last_death_cause``
+        (see DEATH_CAUSE_BY_COLLISION) and ``self.frame_death_causes`` maps
+        snake.id → death_cause for this frame.
+
         Returns:
             Dict mapping snake.id → collision_type ('wall', 'self', 'head', 'body')
             for snakes that collided this frame. Snakes not in the dict did not collide.
         """
         frame_collisions: dict = {}
         frame_kills: dict = {}  # killer_id → [victim_ids]
+        frame_death_causes: Dict[int, str] = {}
         dead_snake_ids: set = set()
 
         def record_death(snake: "Snake", collision_type: str) -> bool:
@@ -495,6 +610,11 @@ class GameState:
             self.episode_collision_counts[collision_type] = (
                 self.episode_collision_counts.get(collision_type, 0) + 1
             )
+            # Tag the dying snake with a death cause for telemetry/probes.
+            # (setattr: the attribute is telemetry-only and not declared on Snake.)
+            cause = DEATH_CAUSE_BY_COLLISION.get(collision_type, "other")
+            setattr(snake, "last_death_cause", cause)
+            frame_death_causes[snake.id] = cause
             return True
 
         collisions = GameLogic.check_collisions(self.snakes)
@@ -510,16 +630,49 @@ class GameState:
             elif collision_type == "head":
                 if other_snake is None or other_snake.id in dead_snake_ids:
                     continue
-                self._drop_food_from_snake(snake)
-                self._drop_food_from_snake(other_snake)
-                GameLogic.head_on_collision(snake, other_snake, self)
-                if record_death(snake, collision_type):
-                    frame_collisions[snake.id] = collision_type
-                if record_death(other_snake, collision_type):
-                    frame_collisions[other_snake.id] = collision_type
-                # Head-on: mutual destruction, no killer
+                # Mechanics v2: size-resolved head-ons. A snake whose logical
+                # length is >= HEADON_SIZE_RATIO x the other's survives and
+                # receives kill credit; near-equal stays mutual death.
+                winner: Optional["Snake"] = None
+                if GameConfig.MECHANICS_VERSION == 2:
+                    length_a = snake._logical_length()
+                    length_b = other_snake._logical_length()
+                    if length_a >= HEADON_SIZE_RATIO * length_b:
+                        winner = snake
+                    elif length_b >= HEADON_SIZE_RATIO * length_a:
+                        winner = other_snake
+                if winner is not None:
+                    loser = other_snake if winner is snake else snake
+                    self._drop_food_from_snake(loser)
+                    loser.die()
+                    if record_death(loser, collision_type):
+                        frame_collisions[loser.id] = collision_type
+                        # Credit stays in frame_kills even if the winner dies
+                        # later this frame from a different collision — the
+                        # reward side reads frame_kills, not survival.
+                        frame_kills.setdefault(winner.id, []).append(loser.id)
+                else:
+                    self._drop_food_from_snake(snake)
+                    self._drop_food_from_snake(other_snake)
+                    GameLogic.head_on_collision(snake, other_snake, self)
+                    if record_death(snake, collision_type):
+                        frame_collisions[snake.id] = collision_type
+                    if record_death(other_snake, collision_type):
+                        frame_collisions[other_snake.id] = collision_type
+                    # Head-on (v1 always; v2 near-equal): mutual destruction, no killer
             elif collision_type == "body":
-                if other_snake is None or other_snake.id in dead_snake_ids:
+                # Mechanics v2: deliberately do NOT skip when ``other_snake`` (the
+                # killer) is already dead. In a mutual same-frame body collision
+                # both snakes hit each other's body, so the second pair's victim
+                # death and the killer's kill-credit must still be attributed even
+                # though the killer died from the first pair. ``snake.id`` (the
+                # snake that dies here) is guarded above.
+                # Mechanics v1: restore the legacy skip so behavior is bit-identical
+                # to the pre-P1 baseline (only the lower-index snake dies; the
+                # already-dead killer gets no credit).
+                if other_snake is None:
+                    continue
+                if GameConfig.MECHANICS_VERSION != 2 and other_snake.id in dead_snake_ids:
                     continue
                 self._drop_food_from_snake(snake)
                 GameLogic.body_collision(snake, other_snake, self)
@@ -531,6 +684,7 @@ class GameState:
                     frame_kills[other_snake.id].append(snake.id)
         self.frame_collisions = frame_collisions
         self.frame_kills = frame_kills
+        self.frame_death_causes = frame_death_causes
         self.episode_kills = getattr(self, "episode_kills", 0) + sum(
             len(victims) for victims in frame_kills.values()
         )

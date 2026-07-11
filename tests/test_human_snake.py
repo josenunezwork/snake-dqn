@@ -1,10 +1,11 @@
 """Tests for human_snake module."""
+
 import pytest
 import torch
-from src.game.human_snake import HumanSnake
+
 from src.core.game_config import GameConfig
-from src.game.game_logic import TURN_LEFT, TURN_STRAIGHT
-from PyQt5.QtCore import Qt
+from src.game.game_logic import TURN_LEFT, TURN_RIGHT, TURN_STRAIGHT
+from src.game.human_snake import HumanSnake
 
 
 class TestHumanSnake:
@@ -27,55 +28,120 @@ class TestHumanSnake:
         snake2 = HumanSnake(1, (0, 255, 0), (400, 300), 10, 800, 600)
         assert snake2.color_name == "Green"
 
-    def test_set_direction_from_key_up(self):
-        """Test setting direction from up arrow key."""
+    def test_apply_direction_input_up(self):
+        """Test setting direction from the 'up' named input."""
         snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
         snake.direction = (1, 0)  # Moving right
 
-        result = snake.set_direction_from_key(Qt.Key_Up)
+        result = snake.apply_direction_input("up")
 
         assert result is True
         assert snake.direction == (0, -1)
 
-    def test_set_direction_from_key_down(self):
-        """Test setting direction from down arrow key."""
+    def test_apply_direction_input_down(self):
+        """Test setting direction from the 'down' named input."""
         snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
         snake.direction = (1, 0)
 
-        result = snake.set_direction_from_key(Qt.Key_Down)
+        result = snake.apply_direction_input("down")
 
         assert result is True
         assert snake.direction == (0, 1)
 
-    def test_set_direction_from_key_left(self):
-        """Test setting direction from left arrow key."""
+    def test_apply_direction_input_left(self):
+        """Test setting direction from the 'left' named input."""
         snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
         snake.direction = (0, 1)  # Moving down
 
-        result = snake.set_direction_from_key(Qt.Key_Left)
+        result = snake.apply_direction_input("left")
 
         assert result is True
         assert snake.direction == (-1, 0)
 
-    def test_set_direction_from_key_right(self):
-        """Test setting direction from right arrow key."""
+    def test_apply_direction_input_right(self):
+        """Test setting direction from the 'right' named input."""
         snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
         snake.direction = (0, 1)
 
-        result = snake.set_direction_from_key(Qt.Key_Right)
+        result = snake.apply_direction_input("right")
 
         assert result is True
         assert snake.direction == (1, 0)
 
-    def test_set_direction_prevents_180_turn(self):
+    def test_apply_direction_input_wasd_alias(self):
+        """WASD names are accepted as arrow-key aliases (case-insensitive)."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)
+
+        assert snake.apply_direction_input("W") is True
+        assert snake.direction == (0, -1)
+
+    def test_apply_direction_input_unknown_name(self):
+        """Unknown direction names are ignored."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)
+
+        assert snake.apply_direction_input("diagonal") is False
+        assert snake.direction == (1, 0)
+
+    def test_apply_direction_input_prevents_180_turn(self):
         """Test that 180-degree turns are prevented."""
         snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
         snake.direction = (1, 0)  # Moving right
 
-        result = snake.set_direction_from_key(Qt.Key_Left)  # Try to go left
+        result = snake.apply_direction_input("left")  # Try to reverse
 
         assert result is False
         assert snake.direction == (1, 0)  # Direction unchanged
+
+    def test_apply_direction_input_same_direction_is_noop(self):
+        """Pressing toward the current heading is a rejected no-op."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)
+
+        assert snake.apply_direction_input("right") is False
+        assert snake.direction == (1, 0)
+
+    def test_turn_relative_actions(self):
+        """turn() mirrors the Apex relative action space."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)  # right
+
+        assert snake.turn(TURN_STRAIGHT) is False
+        assert snake.direction == (1, 0)
+
+        assert snake.turn(TURN_LEFT) is True
+        assert snake.direction == (0, -1)  # right -> up
+
+        snake.direction = (1, 0)
+        assert snake.turn(TURN_RIGHT) is True
+        assert snake.direction == (0, 1)  # right -> down
+
+    def test_set_boost_gated_on_min_length(self):
+        """A sub-min-length human cannot actually boost, so is_boosting stays False.
+
+        ``Snake.move`` only takes the second step when ``length >=
+        MIN_BOOST_LENGTH``, and the raster featurizer treats ``is_boosting`` as
+        "boosted this step" — painting a boost bit and a 2-cell-ahead enemy
+        prediction into every AI opponent's served raster. Leaving is_boosting
+        True for a short snake would inject a phantom threat the trainer never
+        produced for a sub-min-length snake, so set_boost must gate on length.
+        """
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+
+        # Too short to boost: request is honored as a no-op.
+        snake.length = GameConfig.MIN_BOOST_LENGTH - 1
+        snake.set_boost(True)
+        assert snake.is_boosting is False
+
+        # Long enough: boost engages.
+        snake.length = GameConfig.MIN_BOOST_LENGTH
+        snake.set_boost(True)
+        assert snake.is_boosting is True
+
+        # Releasing always clears it regardless of length.
+        snake.set_boost(False)
+        assert snake.is_boosting is False
 
     def test_add_experience(self):
         """Test adding experience to buffer."""
@@ -88,16 +154,16 @@ class TestHumanSnake:
 
         assert len(snake.experience_buffer) == 1
         exp = snake.experience_buffer[0]
-        assert exp['action'] == 1
-        assert exp['reward'] == 10.0
-        assert exp['done'] is False
+        assert exp["action"] == 1
+        assert exp["reward"] == 10.0
+        assert exp["done"] is False
 
     def test_human_turn_records_current_relative_transition(self):
         """Human replay should match Apex relative actions, not absolute directions."""
         snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
         snake.direction = (1, 0)
 
-        assert snake.set_direction_from_key(Qt.Key_Up) is True
+        assert snake.apply_direction_input("up") is True
         snake.update([snake], [])
         snake.compute_reward_and_train([snake], [], ate_food=False, collided=False)
 

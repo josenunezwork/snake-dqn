@@ -29,15 +29,12 @@ from ..core.device_manager import DeviceManager
 from ..core.game_config import GameConfig
 from ..model.apex_network import ApexNetwork
 from ..utils import clip_gradients, hard_update
-from .action_mask import (
-    has_valid_actions,
-    mask_invalid_q_values,
-    summarize_next_action_quality,
-)
+from .action_mask import summarize_next_action_quality
 from .apex_buffer import LearnerBufferClient, LocalApexBuffer
 from .base_buffer import BatchDict
 from .checkpoint_contract import validate_checkpoint_contract
 from .metrics_tracker import MetricsTracker
+from .td_targets import double_dqn_next_q, n_step_td_target
 from .tensorboard_logger import TensorBoardLogger
 
 
@@ -182,7 +179,12 @@ class ApexLearner:
             weight_decay=config.weight_decay,
         )
 
-        # Buffer client (beta annealing is handled inside the buffer)
+        # Buffer client (beta annealing is handled inside the buffer).
+        # NOTE: config.priority_alpha / priority_eps are consumed ONLY by the
+        # LocalApexBuffer fallback below. In the distributed path a buffer_client
+        # connected to the separate BufferProcess is injected, and that process
+        # owns alpha/eps — so those two learner-config knobs are inert in
+        # distributed training. apex_train.py configures the BufferProcess directly.
         if buffer_client is not None:
             self.buffer_client = buffer_client
         else:
@@ -325,41 +327,22 @@ class ApexLearner:
             TD targets (batch_size,)
         """
         with torch.no_grad():
-            # Double DQN: Use online network for valid action selection
-            next_q_online = self._online_forward(next_states)
-            masked_next_q_online = mask_invalid_q_values(
-                next_q_online,
+            # Double DQN: online net selects valid actions, target net evaluates;
+            # then the clamped per-sample n-step target. Shared with the local policy.
+            next_q_values = double_dqn_next_q(
+                self._online_forward(next_states),
+                self.target_dqn(next_states),
                 next_states,
-                action_masks=next_action_masks,
+                next_action_masks,
             )
-            valid_next_actions = has_valid_actions(
-                next_q_online,
-                next_states,
-                action_masks=next_action_masks,
-            )
-            next_actions = masked_next_q_online.argmax(dim=1, keepdim=True)
-
-            # Use target network for value estimation
-            next_q_target = self.target_dqn(next_states)
-            next_q_values = next_q_target.gather(1, next_actions).squeeze(1)
-            next_q_values = torch.where(
-                valid_next_actions,
+            td_targets = n_step_td_target(
+                rewards,
+                dones,
                 next_q_values,
-                torch.zeros_like(next_q_values),
-            )
-
-            # Compute targets with per-sample n-step horizons.
-            if bootstrap_steps is None:
-                bootstrap_steps = torch.full_like(rewards, float(self.config.n_step))
-            discounts = torch.pow(
-                torch.full_like(rewards, self.config.gamma),
-                bootstrap_steps.to(rewards.device),
-            )
-            td_targets = rewards + (1.0 - dones) * discounts * next_q_values
-
-            # Clamp to prevent extreme values
-            td_targets = torch.clamp(
-                td_targets, min=-self.config.q_value_clip, max=self.config.q_value_clip
+                bootstrap_steps,
+                self.config.gamma,
+                self.config.n_step,
+                self.config.q_value_clip,
             )
 
         return td_targets
@@ -588,7 +571,6 @@ class ApexLearner:
             "output_size": self.config.output_size,
             "n_step": self.config.n_step,
             "gamma": self.config.gamma,
-            "use_gru": False,
         }
 
     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
@@ -695,6 +677,11 @@ class ApexLearner:
 
         self._training_start_time = time.time()
 
+        # In this standalone loop each iteration performs exactly one train_step(),
+        # so the loop index `step` advances 1:1 with self.step_count (starting from
+        # 0 — there is no resume offset here). The distributed coordinator in
+        # apex_train.py drives cadence from absolute learner steps instead, so it
+        # can resume mid-run; do not copy this loop-index cadence into that path.
         for step in range(total_steps):
             # Training step
             metrics = self.train_step()

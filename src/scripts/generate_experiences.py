@@ -54,6 +54,7 @@ DEFAULT_GENERATION_ENV_PRESET = "collision_dense"
 DEFAULT_GENERATION_REPLAY_QUALITY_PRESET = "training"
 DEFAULT_BOOST_EXPLORATION_RATE = 0.25
 DEFAULT_DANGER_EXPLORATION_RATE = 0.02
+DEFAULT_GENERATION_SEED = 0
 GENERATION_APPEND_CONTRACT_KEYS = (
     "generation.policy_type",
     "generation.state_size",
@@ -115,6 +116,20 @@ def get_optimal_env_count():
 
     optimal = min(memory_based, cpu_based, 8)  # Cap at 8
     return max(1, optimal)
+
+
+def ensure_spawn_start_method() -> None:
+    """Force the 'spawn' multiprocessing start method for generator workers.
+
+    Workers must not inherit the parent's global RNG state or an already-imported
+    torch runtime (a 'fork' deadlock hazard), so 'spawn' is required. Re-entry is
+    guarded because the start method can only be set once per process.
+    """
+    try:
+        mp.set_start_method("spawn", force=True)
+    except RuntimeError:
+        # Start method already configured for this process; nothing to do.
+        pass
 
 
 def configure_optional_torch_runtime() -> bool:
@@ -813,7 +828,10 @@ def configure_generation_exploration(
     if len(ai_snakes) <= 1:
         epsilon = max(base_epsilon, min_epsilon)
         for snake in ai_snakes:
-            snake.actor_epsilon = None
+            # Use the floored epsilon as a fixed actor override so the exploration
+            # floor is honored. Leaving actor_epsilon=None falls back to the raw
+            # policy epsilon (base_epsilon), silently dropping min_epsilon.
+            snake.actor_epsilon = epsilon
             snake.current_epsilon = epsilon
             snake.boost_exploration_rate = boost_exploration_rate
             snake.danger_exploration_rate = danger_exploration_rate
@@ -935,7 +953,6 @@ def validate_generation_checkpoint_contract(
             "reward_contract": current_reward_contract(),
             "reward_death": float(GameConfig.REWARD_DEATH),
             "reward_food_base": float(GameConfig.REWARD_FOOD_BASE),
-            "use_gru": bool(getattr(policy, "use_gru", False)),
         },
         checkpoint_path=checkpoint_path,
         float_keys=("gamma", "reward_death", "reward_food_base"),
@@ -1209,10 +1226,23 @@ def generate_single_env(
     """Generate Apex-DQN experiences in a single environment (for parallel execution)."""
     db_handler = None
     try:
+        import random
+
         import numpy as np
+        import torch
 
         from src.data.memory_db_handler import MemoryDBHandler
         from src.game.game_state import GameState
+
+        # Seed every RNG deterministically per worker so food spawning, epsilon
+        # exploration, and action selection diverge across workers instead of
+        # replaying the parent's inherited global state (correlated trajectories
+        # under the Linux 'fork' default). Per-worker seed = base_seed + env_id
+        # keeps runs reproducible while diverse across environments.
+        worker_seed = DEFAULT_GENERATION_SEED + int(env_id)
+        random.seed(worker_seed)
+        np.random.seed(worker_seed)
+        torch.manual_seed(worker_seed)
 
         apply_generation_config(config_path, env_id=env_id)
         frame_limit = resolve_generation_frame_limit(max_frames)
@@ -1440,239 +1470,263 @@ def generate_experiences_parallel(
     print(f"   Output DB: {output_db_path}")
     print(f"   Output mode: {'append' if append else 'overwrite'}")
 
+    ensure_spawn_start_method()
     manager = mp.Manager()
     return_dict = manager.dict()
     process_entries = []
 
     start_time = time.time()
 
-    for env_id, env_episodes in active_envs:
-        p = mp.Process(
-            target=generate_single_env,
-            args=(
-                env_id,
-                env_episodes,
-                save_interval,
-                load_model,
-                return_dict,
-                exploration_epsilon,
-                exploration_min_epsilon,
-                config_path,
-                max_frames,
-                output_db_path,
-                checkpoint_path,
-                boost_exploration_rate,
-                danger_exploration_rate,
-                env_settings["num_snakes"],
-                env_settings["board_scale"],
-                env_settings["food_multiplier"],
-            ),
+    try:
+        for env_id, env_episodes in active_envs:
+            p = mp.Process(
+                target=generate_single_env,
+                args=(
+                    env_id,
+                    env_episodes,
+                    save_interval,
+                    load_model,
+                    return_dict,
+                    exploration_epsilon,
+                    exploration_min_epsilon,
+                    config_path,
+                    max_frames,
+                    output_db_path,
+                    checkpoint_path,
+                    boost_exploration_rate,
+                    danger_exploration_rate,
+                    env_settings["num_snakes"],
+                    env_settings["board_scale"],
+                    env_settings["food_multiplier"],
+                ),
+            )
+            process_entries.append((env_id, p))
+            p.start()
+            time.sleep(0.5)  # Stagger to prevent memory spikes
+
+        for _, p in process_entries:
+            p.join()
+
+        failures = collect_parallel_worker_failures(process_entries, active_envs, return_dict)
+        if failures:
+            for env_id, _ in active_envs:
+                remove_sqlite_files(get_env_database_path(output_db_path, env_id))
+            raise RuntimeError("Parallel generation failed:\n  - " + "\n  - ".join(failures))
+
+        merge_failures = collect_parallel_merge_failures(active_envs, output_db_path)
+        if merge_failures:
+            for env_id, _ in active_envs:
+                remove_sqlite_files(get_env_database_path(output_db_path, env_id))
+            raise RuntimeError(
+                "Parallel generation merge failed:\n  - " + "\n  - ".join(merge_failures)
+            )
+
+        # Merge all environment databases into main database
+        import numpy as np
+
+        print(f"\n💾 Merging databases from {len(active_envs)} active environments...")
+        main_db = MemoryDBHandler(db_name=output_db_path)
+        replay_gates = build_generation_replay_quality_gates(
+            min_terminal_fraction=min_terminal_fraction,
+            min_immediate_terminal_fraction=min_immediate_terminal_fraction,
+            min_exact_mask_fraction=min_exact_mask_fraction,
+            min_boost_mask_fraction=min_boost_mask_fraction,
+            min_action_coverage_fraction=min_action_coverage_fraction,
+            min_positive_reward_fraction=min_positive_reward_fraction,
+            min_negative_reward_fraction=min_negative_reward_fraction,
+            min_multistep_fraction=min_multistep_fraction,
+            max_dominant_action_fraction=max_dominant_action_fraction,
+            max_invalid_current_action_fraction=max_invalid_current_action_fraction,
+            max_nonterminal_trapped_next_fraction=max_nonterminal_trapped_next_fraction,
+            max_exact_mask_state_mismatch_fraction=max_exact_mask_state_mismatch_fraction,
+            max_malformed_state_feature_fraction=max_malformed_state_feature_fraction,
         )
-        process_entries.append((env_id, p))
-        p.start()
-        time.sleep(0.5)  # Stagger to prevent memory spikes
-
-    for _, p in process_entries:
-        p.join()
-
-    failures = collect_parallel_worker_failures(process_entries, active_envs, return_dict)
-    if failures:
-        for env_id, _ in active_envs:
-            remove_sqlite_files(get_env_database_path(output_db_path, env_id))
-        raise RuntimeError("Parallel generation failed:\n  - " + "\n  - ".join(failures))
-
-    merge_failures = collect_parallel_merge_failures(active_envs, output_db_path)
-    if merge_failures:
-        for env_id, _ in active_envs:
-            remove_sqlite_files(get_env_database_path(output_db_path, env_id))
-        raise RuntimeError(
-            "Parallel generation merge failed:\n  - " + "\n  - ".join(merge_failures)
+        main_db.update_metadata(
+            build_generation_metadata(
+                mode="parallel",
+                episodes=episodes,
+                save_interval=save_interval,
+                frame_limit=frame_limit,
+                env_settings=env_settings,
+                load_model=load_model,
+                model_loaded=None,
+                checkpoint_path=checkpoint_path,
+                resolved_checkpoint_path=str(resolved_checkpoint) if resolved_checkpoint else None,
+                exploration_epsilon=exploration_epsilon,
+                exploration_min_epsilon=resolve_generation_min_epsilon(
+                    resolved_checkpoint is not None,
+                    exploration_min_epsilon,
+                ),
+                epsilon_min=None,
+                epsilon_max=None,
+                boost_exploration_rate=boost_exploration_rate,
+                danger_exploration_rate=danger_exploration_rate,
+                replay_quality_preset=replay_quality_preset,
+                replay_gates=replay_gates,
+                min_row_count=min_row_count,
+                append=append,
+                config_path=config_path,
+                num_envs=num_envs,
+            )
         )
+        total_merged = 0
+        policy_type = "apex"
+        merge_errors = []
 
-    # Merge all environment databases into main database
-    import numpy as np
+        for env_id, _ in active_envs:
+            env_db_path = get_env_database_path(output_db_path, env_id)
+            if os.path.exists(env_db_path):
+                env_db = None
+                try:
+                    env_db = MemoryDBHandler(db_name=env_db_path)
 
-    print(f"\n💾 Merging databases from {len(active_envs)} active environments...")
-    main_db = MemoryDBHandler(db_name=output_db_path)
-    replay_gates = build_generation_replay_quality_gates(
-        min_terminal_fraction=min_terminal_fraction,
-        min_immediate_terminal_fraction=min_immediate_terminal_fraction,
-        min_exact_mask_fraction=min_exact_mask_fraction,
-        min_boost_mask_fraction=min_boost_mask_fraction,
-        min_action_coverage_fraction=min_action_coverage_fraction,
-        min_positive_reward_fraction=min_positive_reward_fraction,
-        min_negative_reward_fraction=min_negative_reward_fraction,
-        min_multistep_fraction=min_multistep_fraction,
-        max_dominant_action_fraction=max_dominant_action_fraction,
-        max_invalid_current_action_fraction=max_invalid_current_action_fraction,
-        max_nonterminal_trapped_next_fraction=max_nonterminal_trapped_next_fraction,
-        max_exact_mask_state_mismatch_fraction=max_exact_mask_state_mismatch_fraction,
-        max_malformed_state_feature_fraction=max_malformed_state_feature_fraction,
-    )
-    main_db.update_metadata(
-        build_generation_metadata(
-            mode="parallel",
-            episodes=episodes,
-            save_interval=save_interval,
-            frame_limit=frame_limit,
-            env_settings=env_settings,
-            load_model=load_model,
-            model_loaded=None,
-            checkpoint_path=checkpoint_path,
-            resolved_checkpoint_path=str(resolved_checkpoint) if resolved_checkpoint else None,
-            exploration_epsilon=exploration_epsilon,
-            exploration_min_epsilon=resolve_generation_min_epsilon(
-                resolved_checkpoint is not None,
-                exploration_min_epsilon,
-            ),
-            epsilon_min=None,
-            epsilon_max=None,
-            boost_exploration_rate=boost_exploration_rate,
-            danger_exploration_rate=danger_exploration_rate,
-            replay_quality_preset=replay_quality_preset,
-            replay_gates=replay_gates,
+                    # Load and merge Apex memories. Use limit=None so large
+                    # generation runs do not silently drop rows during merge, and
+                    # order_by=id preserves each worker's generated data sequence.
+                    loaded_rows = load_generated_memories_for_merge(env_db, policy_type)
+                    if len(loaded_rows) == 9:
+                        (
+                            states,
+                            actions,
+                            rewards,
+                            next_states,
+                            dones,
+                            priorities,
+                            bootstrap_steps,
+                            next_action_masks,
+                            snake_ids,
+                        ) = loaded_rows
+                    elif len(loaded_rows) == 8:
+                        (
+                            states,
+                            actions,
+                            rewards,
+                            next_states,
+                            dones,
+                            priorities,
+                            bootstrap_steps,
+                            next_action_masks,
+                        ) = loaded_rows
+                        snake_ids = None
+                    else:
+                        (
+                            states,
+                            actions,
+                            rewards,
+                            next_states,
+                            dones,
+                            priorities,
+                            bootstrap_steps,
+                        ) = loaded_rows
+                        next_action_masks = None
+                        snake_ids = None
+                    if len(states) > 0:
+                        memories = []
+                        snakes_per_env = env_settings["num_snakes"]
+                        for i in range(len(states)):
+                            memory = {
+                                "state": states[i],
+                                "action": actions[i],
+                                "reward": rewards[i],
+                                "next_state": next_states[i],
+                                "done": dones[i],
+                                "priority": priorities[i],
+                                "bootstrap_steps": bootstrap_steps[i],
+                            }
+                            if next_action_masks is not None and next_action_masks[i] is not None:
+                                memory["next_action_mask"] = next_action_masks[i]
+                            if snake_ids is not None:
+                                memory["snake_id"] = get_parallel_memory_snake_id(
+                                    env_id,
+                                    snake_ids[i],
+                                    snakes_per_env,
+                                )
+                            memories.append(memory)
+                        save_memories_by_snake_id(
+                            main_db,
+                            memories,
+                            default_snake_id=env_id,
+                            policy_type=policy_type,
+                        )
+                        total_merged += len(memories)
+                        print(f"   Merged {len(memories):,} apex memories from env {env_id}")
+
+                    remove_sqlite_files(env_db_path)
+                except Exception as e:
+                    merge_errors.append(f"env {env_id}: {e}")
+                finally:
+                    if env_db is not None:
+                        env_db.close()
+
+        quality = {
+            "count": 0,
+            "terminal_fraction": 0.0,
+            "done_count": 0,
+            "nonterminal_count": 0,
+            "nonterminal_mask_count": 0,
+            "nonterminal_mask_fraction": 0.0,
+        }
+        if not merge_errors:
+            quality = print_replay_quality_summary(main_db, policy_type=policy_type)
+            main_db.update_metadata(build_generation_quality_metadata(quality))
+
+        main_db.close()
+        if merge_errors:
+            # Clean every env's sidecars (not just successfully-merged ones) so a
+            # mid-merge failure does not leak failed-env .db/-wal/-shm files.
+            for env_id, _ in active_envs:
+                remove_sqlite_files(get_env_database_path(output_db_path, env_id))
+            raise RuntimeError(
+                "Parallel generation merge failed:\n  - " + "\n  - ".join(merge_errors)
+            )
+        validate_replay_quality_gates(
+            quality,
             min_row_count=min_row_count,
-            append=append,
-            config_path=config_path,
-            num_envs=num_envs,
+            min_terminal_fraction=min_terminal_fraction,
+            min_immediate_terminal_fraction=min_immediate_terminal_fraction,
+            min_exact_mask_fraction=min_exact_mask_fraction,
+            min_boost_mask_fraction=min_boost_mask_fraction,
+            min_action_coverage_fraction=min_action_coverage_fraction,
+            min_positive_reward_fraction=min_positive_reward_fraction,
+            min_negative_reward_fraction=min_negative_reward_fraction,
+            min_multistep_fraction=min_multistep_fraction,
+            max_dominant_action_fraction=max_dominant_action_fraction,
+            max_invalid_current_action_fraction=max_invalid_current_action_fraction,
+            max_nonterminal_trapped_next_fraction=max_nonterminal_trapped_next_fraction,
+            max_exact_mask_state_mismatch_fraction=max_exact_mask_state_mismatch_fraction,
+            max_malformed_state_feature_fraction=max_malformed_state_feature_fraction,
         )
-    )
-    total_merged = 0
-    policy_type = "apex"
-    merge_errors = []
+        total_exp = sum(r["experiences"] for r in return_dict.values())
+        validate_parallel_merge_counts(total_exp, total_merged)
 
-    for env_id, _ in active_envs:
-        env_db_path = get_env_database_path(output_db_path, env_id)
-        if os.path.exists(env_db_path):
-            env_db = None
-            try:
-                env_db = MemoryDBHandler(db_name=env_db_path)
+        print(f"   ✅ Total merged: {total_merged:,} memories")
 
-                # Load and merge Apex memories. Use limit=None so large
-                # generation runs do not silently drop rows during merge, and
-                # order_by=id preserves each worker's generated data sequence.
-                loaded_rows = load_generated_memories_for_merge(env_db, policy_type)
-                if len(loaded_rows) == 9:
-                    (
-                        states,
-                        actions,
-                        rewards,
-                        next_states,
-                        dones,
-                        priorities,
-                        bootstrap_steps,
-                        next_action_masks,
-                        snake_ids,
-                    ) = loaded_rows
-                elif len(loaded_rows) == 8:
-                    (
-                        states,
-                        actions,
-                        rewards,
-                        next_states,
-                        dones,
-                        priorities,
-                        bootstrap_steps,
-                        next_action_masks,
-                    ) = loaded_rows
-                    snake_ids = None
-                else:
-                    states, actions, rewards, next_states, dones, priorities, bootstrap_steps = (
-                        loaded_rows
-                    )
-                    next_action_masks = None
-                    snake_ids = None
-                if len(states) > 0:
-                    memories = []
-                    snakes_per_env = env_settings["num_snakes"]
-                    for i in range(len(states)):
-                        memory = {
-                            "state": states[i],
-                            "action": actions[i],
-                            "reward": rewards[i],
-                            "next_state": next_states[i],
-                            "done": dones[i],
-                            "priority": priorities[i],
-                            "bootstrap_steps": bootstrap_steps[i],
-                        }
-                        if next_action_masks is not None and next_action_masks[i] is not None:
-                            memory["next_action_mask"] = next_action_masks[i]
-                        if snake_ids is not None:
-                            memory["snake_id"] = get_parallel_memory_snake_id(
-                                env_id,
-                                snake_ids[i],
-                                snakes_per_env,
-                            )
-                        memories.append(memory)
-                    save_memories_by_snake_id(
-                        main_db,
-                        memories,
-                        default_snake_id=env_id,
-                        policy_type=policy_type,
-                    )
-                    total_merged += len(memories)
-                    print(f"   Merged {len(memories):,} apex memories from env {env_id}")
+        # Summarize results
+        total_time = time.time() - start_time
+        avg_reward = np.mean([r["avg_reward"] for r in return_dict.values()]) if return_dict else 0
 
-                remove_sqlite_files(env_db_path)
-            except Exception as e:
-                merge_errors.append(f"env {env_id}: {e}")
-            finally:
-                if env_db is not None:
-                    env_db.close()
-
-    quality = {
-        "count": 0,
-        "terminal_fraction": 0.0,
-        "done_count": 0,
-        "nonterminal_count": 0,
-        "nonterminal_mask_count": 0,
-        "nonterminal_mask_fraction": 0.0,
-    }
-    if not merge_errors:
-        quality = print_replay_quality_summary(main_db, policy_type=policy_type)
-        main_db.update_metadata(build_generation_quality_metadata(quality))
-
-    main_db.close()
-    if merge_errors:
-        raise RuntimeError("Parallel generation merge failed:\n  - " + "\n  - ".join(merge_errors))
-    validate_replay_quality_gates(
-        quality,
-        min_row_count=min_row_count,
-        min_terminal_fraction=min_terminal_fraction,
-        min_immediate_terminal_fraction=min_immediate_terminal_fraction,
-        min_exact_mask_fraction=min_exact_mask_fraction,
-        min_boost_mask_fraction=min_boost_mask_fraction,
-        min_action_coverage_fraction=min_action_coverage_fraction,
-        min_positive_reward_fraction=min_positive_reward_fraction,
-        min_negative_reward_fraction=min_negative_reward_fraction,
-        min_multistep_fraction=min_multistep_fraction,
-        max_dominant_action_fraction=max_dominant_action_fraction,
-        max_invalid_current_action_fraction=max_invalid_current_action_fraction,
-        max_nonterminal_trapped_next_fraction=max_nonterminal_trapped_next_fraction,
-        max_exact_mask_state_mismatch_fraction=max_exact_mask_state_mismatch_fraction,
-        max_malformed_state_feature_fraction=max_malformed_state_feature_fraction,
-    )
-    total_exp = sum(r["experiences"] for r in return_dict.values())
-    validate_parallel_merge_counts(total_exp, total_merged)
-
-    print(f"   ✅ Total merged: {total_merged:,} memories")
-
-    # Summarize results
-    total_time = time.time() - start_time
-    avg_reward = np.mean([r["avg_reward"] for r in return_dict.values()]) if return_dict else 0
-
-    print("\n✅ Parallel generation complete!")
-    print(f"   Total experiences: {total_exp:,}")
-    print(f"   Combined FPS: {total_exp / total_time:.0f}")
-    print(f"   Avg reward: {avg_reward:.2f}")
-    print(f"   Time: {total_time/60:.1f} minutes")
-    print_generation_next_steps(
-        output_db_path,
-        replay_quality_preset,
-        replay_gates,
-        min_row_count=min_row_count,
-        config_path=config_path,
-    )
+        print("\n✅ Parallel generation complete!")
+        print(f"   Total experiences: {total_exp:,}")
+        print(f"   Combined FPS: {total_exp / total_time:.0f}")
+        print(f"   Avg reward: {avg_reward:.2f}")
+        print(f"   Time: {total_time/60:.1f} minutes")
+        print_generation_next_steps(
+            output_db_path,
+            replay_quality_preset,
+            replay_gates,
+            min_row_count=min_row_count,
+            config_path=config_path,
+        )
+    finally:
+        # Never orphan non-daemon workers or leak the Manager/sidecars on an
+        # exception or KeyboardInterrupt during spawn/join/merge.
+        for _, p in process_entries:
+            if p.is_alive():
+                p.terminate()
+                p.join()
+        manager.shutdown()
+        for env_id, _ in active_envs:
+            remove_sqlite_files(get_env_database_path(output_db_path, env_id))
 
 
 def generate_experiences(

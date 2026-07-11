@@ -197,6 +197,49 @@ class TestMultiStepBufferStreams:
         assert "next_action_masks" in batch
         assert torch.equal(batch["next_action_masks"][0], final_mask)
 
+
+class TestMultiStepBufferDiscount:
+    """Exercise the geometric n-step discount (the rest of the suite uses gamma=1.0,
+    which collapses gamma**i * r to a plain sum and never tests the discount math)."""
+
+    def test_full_window_applies_geometric_discount(self):
+        """A full n-step window discounts each reward by gamma**i, i = step index."""
+        gamma = 0.9
+        buffer = MultiStepBuffer(capacity=100, n_step=3, gamma=gamma)
+
+        buffer.add(_state(0), 0, 1.0, _state(100), False, stream_id="s")
+        buffer.add(_state(1), 0, 2.0, _state(101), False, stream_id="s")
+        buffer.add(_state(2), 0, 3.0, _state(102), False, stream_id="s")
+
+        assert len(buffer) == 1
+        memory = buffer.get_all_memories()[0]
+        reward, bootstrap_steps = memory[2], memory[6]
+
+        expected = 1.0 + gamma * 2.0 + gamma**2 * 3.0  # 5.23
+        assert reward == pytest.approx(expected)
+        assert bootstrap_steps == 3
+        # Guard against the gamma=1.0 plain-sum collapse used elsewhere.
+        assert reward != pytest.approx(6.0)
+
+    def test_terminal_partial_window_applies_geometric_discount(self):
+        """A short terminal episode discounts its partial-window tail correctly."""
+        gamma = 0.9
+        buffer = MultiStepBuffer(capacity=100, n_step=3, gamma=gamma)
+
+        buffer.add(_state(0), 0, 1.0, _state(100), False, stream_id="s")
+        buffer.add(_state(1), 0, -10.0, _state(101), True, stream_id="s")
+
+        assert len(buffer) == 2
+        memories = buffer.get_all_memories()
+        assert [memory[2] for memory in memories] == [
+            pytest.approx(1.0 + gamma * (-10.0)),  # -8.0
+            pytest.approx(-10.0),
+        ]
+        assert [memory[6] for memory in memories] == [2, 1]
+        assert all(memory[4] is True for memory in memories)
+
+
+class TestMultiStepRestore:
     def test_restore_replay_memories_preserves_materialized_entries(self):
         """Reloaded replay should not be routed back through n-step accumulation."""
         buffer = MultiStepBuffer(capacity=100, n_step=3, gamma=1.0)

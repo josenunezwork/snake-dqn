@@ -34,10 +34,7 @@ network:
   use_boundary_as_danger: true
   vision_cone_radius: 80
   vision_cone_opacity: 100
-  use_gru: false                # Enable GRU/DRQN recurrent mode
-  gru_hidden_size: 256          # GRU hidden state dimension
-  sequence_length: 20           # Sequence length for DRQN training
-  burn_in_length: 5             # Burn-in steps for GRU hidden state warmup
+  use_free_space: false         # Append 3 "don't-trap-yourself" features -> 61-D state (set input_size: 61)
 
 # Training hyperparameters (TrainingSettings dataclass)
 training:
@@ -134,6 +131,7 @@ apex:
   actor_env_num_snakes: 6     # Snakes per actor environment for terminal-rich replay
   actor_board_scale: 0.2      # Smaller actor arena for collision-dense executable replay
   actor_food_multiplier: 0.5  # Actor food density multiplier for dense replay
+  actor_priority_mode: max    # Insert priority for new transitions: max (no actor TD forwards) or td
 
   # Learner configuration
   batch_size: 512             # Larger batch size for GPU efficiency
@@ -154,13 +152,20 @@ apex:
   use_compile: true           # Use torch.compile for faster training
   pin_memory: true            # Pin memory for faster GPU transfer
 
-# Logging and monitoring (not in AppConfig dataclass, used by other subsystems)
+# Logging and monitoring.
+# NOTE: advisory only — these keys are validated but NOT consumed at runtime.
+# The live log/tensorboard directories come from CLI flags, not from here.
 logging:
   level: INFO
   log_dir: logs
   tensorboard_dir: logs/tensorboard
 
-# Hardware (not in AppConfig dataclass, used by other subsystems)
+# Hardware.
+# device: honored at startup — when --device is NOT passed on the CLI, this drives
+#   device selection (sets SNAKE_DQN_DEVICE, which DeviceManager reads). CLI --device
+#   and an explicitly exported SNAKE_DQN_DEVICE both take precedence over this.
+# num_threads / num_parallel_envs: advisory only — validated but NOT consumed;
+#   parallelism is controlled by the --num-envs CLI flag.
 hardware:
   device: auto                # auto, cpu, cuda, mps
   num_threads: 4

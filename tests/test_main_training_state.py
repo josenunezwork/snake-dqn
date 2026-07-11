@@ -13,15 +13,17 @@ from src.core.game_config import (
 )
 from src.core.reward_contract import current_reward_contract
 from src.data.memory_db_handler import MemoryDBHandler
+from src.game.game_state_factory import (
+    create_training_game_state,
+    get_training_game_settings,
+)
 from src.main import (
     apply_training_batch_size_override,
     collect_training_worker_failures,
-    create_training_game_state,
     format_learning_health_smoke_report,
     get_best_env_model_path,
     get_checkpoint_path,
     get_episode_stats,
-    get_training_game_settings,
     load_checkpoint_into_game_state,
     load_prefill_replay_rows,
     load_replay_db_into_game_state,
@@ -691,7 +693,6 @@ class TestHeadlessCheckpointLoad:
         output_size = GameConfig.OUTPUT_SIZE
         n_step = GameConfig.APEX_N_STEP
         gamma = GameConfig.APEX_GAMMA
-        use_gru = False
         epsilon = 0.1
 
         def __init__(self):
@@ -725,7 +726,6 @@ class TestHeadlessCheckpointLoad:
                 "reward_contract": current_reward_contract(),
                 "reward_death": GameConfig.REWARD_DEATH,
                 "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                "use_gru": False,
             }
         }
 
@@ -748,7 +748,6 @@ class TestHeadlessCheckpointLoad:
                 "reward_contract": current_reward_contract(),
                 "reward_death": GameConfig.REWARD_DEATH,
                 "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                "use_gru": False,
             }
         }
         checkpoint_path = tmp_path / "bad_n_step.pth"
@@ -771,7 +770,6 @@ class TestHeadlessCheckpointLoad:
                 "reward_contract": current_reward_contract(),
                 "reward_death": GameConfig.REWARD_DEATH,
                 "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                "use_gru": False,
             }
         }
         checkpoint_path = tmp_path / "inference_contract_drift.pth"
@@ -802,7 +800,6 @@ class TestHeadlessCheckpointLoad:
                 "n_step": GameConfig.APEX_N_STEP,
                 "reward_death": GameConfig.REWARD_DEATH,
                 "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                "use_gru": False,
             }
         }
         checkpoint_path = tmp_path / "legacy_reward.pth"
@@ -825,7 +822,6 @@ class TestHeadlessCheckpointLoad:
                 "reward_contract": current_reward_contract(),
                 "reward_death": -3.0,
                 "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                "use_gru": False,
             }
         }
         checkpoint_path = tmp_path / "stale_reward.pth"
@@ -850,7 +846,6 @@ class TestHeadlessCheckpointLoad:
                 "reward_contract": stale_contract,
                 "reward_death": GameConfig.REWARD_DEATH,
                 "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                "use_gru": False,
             }
         }
         checkpoint_path = tmp_path / "stale_reward_contract.pth"
@@ -873,7 +868,6 @@ class TestHeadlessCheckpointLoad:
                 "reward_contract": current_reward_contract(),
                 "reward_death": GameConfig.REWARD_DEATH,
                 "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                "use_gru": False,
             },
             "memories": [("too", "short")],
         }
@@ -1044,8 +1038,6 @@ class TestReplayPrefill:
                 self.add_bulk_kwargs = kwargs
 
         class PolicyStub:
-            use_gru = False
-
             def __init__(self):
                 self.memory = MemoryStub()
 
@@ -1095,7 +1087,6 @@ class TestReplayPrefill:
                 self.add_bulk_kwargs = kwargs
 
         class PolicyStub:
-            use_gru = False
             gamma = GameConfig.APEX_GAMMA
             n_step = GameConfig.APEX_N_STEP + 1
 
@@ -1149,8 +1140,6 @@ class TestReplayPrefill:
                 pass
 
         class PolicyStub:
-            use_gru = False
-
             def __init__(self):
                 self.memory = MemoryStub()
 
@@ -1201,8 +1190,6 @@ class TestReplayPrefill:
                 self.add_bulk_kwargs = kwargs
 
         class PolicyStub:
-            use_gru = False
-
             def __init__(self):
                 self.memory = MemoryStub()
 
@@ -1232,8 +1219,6 @@ class TestReplayPrefill:
                 self.add_bulk_kwargs = kwargs
 
         class PolicyStub:
-            use_gru = False
-
             def __init__(self):
                 self.memory = MemoryStub()
 
@@ -1285,8 +1270,6 @@ class TestReplayPrefill:
                 self.add_bulk_kwargs = kwargs
 
         class PolicyStub:
-            use_gru = False
-
             def __init__(self):
                 self.memory = MemoryStub()
 
@@ -1337,8 +1320,6 @@ class TestReplayPrefill:
                 self.add_bulk_kwargs = kwargs
 
         class PolicyStub:
-            use_gru = False
-
             def __init__(self):
                 self.memory = MemoryStub()
 
@@ -1391,8 +1372,6 @@ class TestReplayPrefill:
                 self.add_bulk_kwargs = kwargs
 
         class PolicyStub:
-            use_gru = False
-
             def __init__(self):
                 self.memory = MemoryStub()
 

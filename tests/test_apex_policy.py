@@ -477,54 +477,6 @@ def test_local_train_step_records_target_action_quality_metrics():
         initialize_config()
 
 
-def test_gru_train_step_records_target_action_quality_metrics():
-    """DRQN metrics should ignore padded sequence slots after burn-in."""
-    DeviceManager.override_device(torch.device("cpu"))
-    initialize_config(
-        AppConfig(
-            network=NetworkSettings(
-                input_size=58,
-                hidden_size=32,
-                output_size=6,
-                use_gru=True,
-                gru_hidden_size=16,
-                sequence_length=5,
-                burn_in_length=1,
-            ),
-            training=TrainingSettings(batch_size=1, memory_size=1000),
-            apex=ApexSettings(batch_size=1, min_buffer_size=1, learning_rate=0.001),
-        )
-    )
-
-    try:
-        policy = ApexPolicy(input_size=58, hidden_size=32, output_size=6, use_gru=True, n_step=1)
-        exact_trapped_mask = torch.zeros(6, dtype=torch.bool)
-        terminal_valid_mask = torch.tensor([True, False, False, False, False, False])
-        loss = None
-
-        for step in range(3):
-            state = torch.full((58,), float(step))
-            next_state = torch.full((58,), float(step + 1))
-            next_action_mask = terminal_valid_mask if step == 2 else exact_trapped_mask
-            loss, _epsilon = policy.update(
-                state=state,
-                action=0,
-                reward=0.0,
-                next_state=next_state,
-                done=step == 2,
-                snake_id=0,
-                next_action_mask=next_action_mask,
-            )
-
-        assert loss is not None
-        assert policy._last_train_metrics["valid_next_action_fraction"] == pytest.approx(0.0)
-        assert policy._last_train_metrics["trapped_next_state_fraction"] == pytest.approx(1.0)
-        assert policy._last_train_metrics["exact_next_action_mask_fraction"] == pytest.approx(1.0)
-    finally:
-        DeviceManager.reset_for_testing()
-        initialize_config()
-
-
 def test_get_priorities_prefers_exact_replay_action_mask():
     """Policy-side priority estimates should use exact masks when replay has them."""
     DeviceManager.override_device(torch.device("cpu"))
@@ -601,38 +553,6 @@ def test_local_policy_replay_uses_apex_priority_settings():
         initialize_config()
 
 
-def test_gru_replay_uses_apex_priority_settings():
-    """GRU Apex replay should follow Apex PER config, not sequence defaults."""
-    DeviceManager.override_device(torch.device("cpu"))
-    initialize_config(
-        AppConfig(
-            network=NetworkSettings(input_size=4, hidden_size=64, output_size=3),
-            training=TrainingSettings(batch_size=2, memory_size=1000),
-            apex=ApexSettings(
-                batch_size=2,
-                buffer_size=32,
-                min_buffer_size=2,
-                learning_rate=0.001,
-                priority_alpha=0.5,
-                priority_beta_start=0.2,
-                priority_beta_end=0.7,
-                priority_epsilon=0.03,
-            ),
-        )
-    )
-
-    try:
-        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3, use_gru=True)
-
-        assert policy.memory.alpha == pytest.approx(0.5)
-        assert policy.memory.beta_start == pytest.approx(0.2)
-        assert policy.memory.beta_end == pytest.approx(0.7)
-        assert policy.memory.priority_eps == pytest.approx(0.03)
-    finally:
-        DeviceManager.reset_for_testing()
-        initialize_config()
-
-
 def test_checkpoint_records_effective_apex_config_snapshot():
     """Apex checkpoints should preserve the replay/training contract used for learning."""
     DeviceManager.override_device(torch.device("cpu"))
@@ -693,45 +613,7 @@ def test_checkpoint_records_effective_apex_config_snapshot():
             "reward_death": -40.0,
             "reward_food_base": 2.0,
             "target_update_freq": 11,
-            "use_gru": False,
         }
-    finally:
-        DeviceManager.reset_for_testing()
-        initialize_config()
-
-
-def test_gru_checkpoint_records_sequence_replay_config():
-    """GRU Apex checkpoints should include sequence replay dimensions."""
-    DeviceManager.override_device(torch.device("cpu"))
-    initialize_config(
-        AppConfig(
-            network=NetworkSettings(
-                input_size=4,
-                hidden_size=64,
-                output_size=3,
-                sequence_length=12,
-                burn_in_length=3,
-                gru_hidden_size=48,
-            ),
-            training=TrainingSettings(batch_size=1, memory_size=1000),
-            apex=ApexSettings(
-                batch_size=2,
-                buffer_size=32,
-                min_buffer_size=2,
-                learning_rate=0.001,
-            ),
-        )
-    )
-
-    try:
-        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3, use_gru=True)
-
-        apex_config = policy.get_state_dict()["apex_config"]
-
-        assert apex_config["use_gru"] is True
-        assert apex_config["sequence_length"] == 12
-        assert apex_config["burn_in_length"] == 3
-        assert apex_config["gru_hidden_size"] == 48
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()
@@ -800,7 +682,7 @@ def test_gru_replay_capacity_uses_apex_buffer_size():
     )
 
     try:
-        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3, use_gru=True)
+        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3)
 
         assert policy.memory.capacity == 32
     finally:
@@ -847,41 +729,6 @@ def test_feedforward_train_step_uses_apex_batch_size(monkeypatch):
 
         assert sampled_batch_sizes == [2]
         assert policy.update_counter == 1
-    finally:
-        DeviceManager.reset_for_testing()
-        initialize_config()
-
-
-def test_gru_train_step_uses_apex_batch_size(monkeypatch):
-    """Local GRU Apex readiness checks should ignore generic training.batch_size."""
-    DeviceManager.override_device(torch.device("cpu"))
-    initialize_config(
-        AppConfig(
-            network=NetworkSettings(input_size=4, hidden_size=64, output_size=3),
-            training=TrainingSettings(batch_size=1, memory_size=1000),
-            apex=ApexSettings(
-                batch_size=2,
-                buffer_size=32,
-                min_buffer_size=2,
-                learning_rate=0.001,
-            ),
-        )
-    )
-
-    try:
-        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3, use_gru=True)
-        checked_batch_sizes = []
-
-        def is_ready_with_recording(batch_size):
-            checked_batch_sizes.append(batch_size)
-            return False
-
-        monkeypatch.setattr(policy.memory, "is_ready", is_ready_with_recording)
-
-        loss, _epsilon = policy.train_step()
-
-        assert loss is None
-        assert checked_batch_sizes == [2]
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()
@@ -953,7 +800,7 @@ def test_gru_target_sync_helper_uses_apex_frequency(monkeypatch):
     )
 
     try:
-        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3, use_gru=True)
+        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3)
         sync_calls = []
         monkeypatch.setattr(
             "src.training.apex_policy.hard_update",

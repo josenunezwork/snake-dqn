@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import List, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.game_config import (
     ApexSettings,
@@ -28,7 +28,9 @@ from src.core.game_config import (
     NetworkSettings,
     RewardSettings,
     TrainingSettings,
+    assert_reward_return_invariant,
     initialize_config,
+    validate_network_contract,
 )
 
 _TRAINING_TO_APEX_RECONCILIATION = (
@@ -46,7 +48,20 @@ _TRAINING_TO_APEX_RECONCILIATION = (
 # =============================================================================
 
 
-class GameSettingsSchema(BaseModel):
+class _StrictModel(BaseModel):
+    """Base schema that rejects unknown keys.
+
+    pydantic v2 defaults to ``extra='ignore'``, which silently drops misspelled
+    keys (e.g. ``apex.gamaa``) and whole misspelled sections (``trainning:``) at
+    load time — the run then proceeds on default hyperparameters with no error.
+    ``extra='forbid'`` surfaces typos immediately instead. This is the same class
+    of silent-dead-config bug previously fixed for the training.* vs apex.* split.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GameSettingsSchema(_StrictModel):
     """Game configuration schema for YAML loading with validation."""
 
     width: int = Field(default=1450, ge=100)
@@ -66,9 +81,10 @@ class GameSettingsSchema(BaseModel):
     arena_radius: int = Field(default=400, ge=50)
     arena_center_x: int = Field(default=725, ge=0)
     arena_center_y: int = Field(default=415, ge=0)
+    mechanics_version: int = Field(default=1, ge=1, le=2)
 
 
-class NetworkSettingsSchema(BaseModel):
+class NetworkSettingsSchema(_StrictModel):
     """Neural network configuration with validation."""
 
     input_size: int = Field(default=58, ge=1)
@@ -78,13 +94,26 @@ class NetworkSettingsSchema(BaseModel):
     use_boundary_as_danger: bool = Field(default=True)
     vision_cone_radius: int = Field(default=80, ge=10)
     vision_cone_opacity: int = Field(default=100, ge=0, le=255)
-    use_gru: bool = Field(default=False)
-    gru_hidden_size: int = Field(default=256, ge=32)
-    sequence_length: int = Field(default=20, ge=1)
-    burn_in_length: int = Field(default=5, ge=0)
+    use_free_space: bool = Field(default=False)
+
+    @model_validator(mode="after")
+    def _check_state_mode(self) -> "NetworkSettingsSchema":
+        """Validate input_size against the active state mode.
+
+        Delegates to the authoritative game_config.validate_network_contract so the
+        state-mode <-> input_size rule has a single source of truth. use_free_space
+        appends 3 features (61-D); otherwise the 58-D base contract applies.
+        """
+        validate_network_contract(
+            NetworkSettings(
+                input_size=self.input_size,
+                use_free_space=self.use_free_space,
+            )
+        )
+        return self
 
 
-class TrainingSettingsSchema(BaseModel):
+class TrainingSettingsSchema(_StrictModel):
     """Training hyperparameters with validation."""
 
     batch_size: int = Field(default=128, ge=1)
@@ -108,7 +137,7 @@ class TrainingSettingsSchema(BaseModel):
     priority_beta_increment: float = Field(default=0.000001, ge=0)
 
 
-class RewardSettingsSchema(BaseModel):
+class RewardSettingsSchema(_StrictModel):
     """Reward configuration with validation."""
 
     death: float = Field(default=-11.0)
@@ -135,16 +164,17 @@ class RewardSettingsSchema(BaseModel):
     death_length_scale: float = Field(default=0.0, ge=0)
     reward_max: float = Field(default=5.0)
     reward_min: float = Field(default=-12.0)
+    version: int = Field(default=1, ge=1, le=2)
 
 
-class CheckpointSettingsSchema(BaseModel):
+class CheckpointSettingsSchema(_StrictModel):
     """Checkpoint configuration."""
 
     checkpoint_dir: str = Field(default="saved_snakes")
     best_model_name: str = Field(default="best_snake.pth")
 
 
-class ApexSettingsSchema(BaseModel):
+class ApexSettingsSchema(_StrictModel):
     """Ape-X DQN configuration with validation."""
 
     num_actors: int = Field(default=64, ge=1)
@@ -154,6 +184,9 @@ class ApexSettingsSchema(BaseModel):
     actor_env_num_snakes: int = Field(default=6, ge=1)
     actor_board_scale: float = Field(default=0.2, gt=0)
     actor_food_multiplier: float = Field(default=0.5, gt=0)
+    actor_priority_mode: Literal["max", "td"] = Field(default="max")
+    opponent_pool_dir: Optional[str] = Field(default=None)
+    pool_latest_fraction: float = Field(default=0.8, ge=0, le=1)
     batch_size: int = Field(default=512, ge=1)
     buffer_size: int = Field(default=1_000_000, ge=1000)
     min_buffer_size: int = Field(default=50000, ge=1)
@@ -169,7 +202,7 @@ class ApexSettingsSchema(BaseModel):
     pin_memory: bool = Field(default=True)
 
 
-class CurriculumSettingsSchema(BaseModel):
+class CurriculumSettingsSchema(_StrictModel):
     """Curriculum learning configuration with validation."""
 
     enabled: bool = Field(default=False)
@@ -180,7 +213,7 @@ class CurriculumSettingsSchema(BaseModel):
     phase4_threshold: float = Field(default=0.5, gt=0)
 
 
-class PolicyConfig(BaseModel):
+class PolicyConfig(_StrictModel):
     """Policy/Algorithm configuration (Apex-only)."""
 
     default: str = Field(default="apex")
@@ -193,7 +226,7 @@ class PolicyConfig(BaseModel):
         return [self.default] * num_snakes
 
 
-class LoggingConfig(BaseModel):
+class LoggingConfig(_StrictModel):
     """Logging configuration."""
 
     level: str = Field(default="INFO")
@@ -201,7 +234,7 @@ class LoggingConfig(BaseModel):
     tensorboard_dir: str = Field(default="logs/tensorboard")
 
 
-class HardwareConfig(BaseModel):
+class HardwareConfig(_StrictModel):
     """Hardware configuration."""
 
     device: str = Field(default="auto")
@@ -209,7 +242,7 @@ class HardwareConfig(BaseModel):
     num_parallel_envs: int = Field(default=4, ge=1)
 
 
-class ConfigSchema(BaseModel):
+class ConfigSchema(_StrictModel):
     """Complete configuration schema with validation."""
 
     game: GameSettingsSchema = Field(default_factory=GameSettingsSchema)
@@ -226,8 +259,15 @@ class ConfigSchema(BaseModel):
 
 def validate_config_invariants(schema: ConfigSchema) -> None:
     """Validate cross-field invariants that individual schema fields cannot express."""
-    if schema.network.input_size != 58:
-        raise ValueError("network.input_size must remain 58 for the current state contract")
+    # State-mode <-> input_size contract: 58 = base; 61 = base + 3 free-space.
+    # Delegated to the single authoritative rule in game_config so all load
+    # paths stay consistent.
+    validate_network_contract(
+        NetworkSettings(
+            input_size=schema.network.input_size,
+            use_free_space=schema.network.use_free_space,
+        )
+    )
     if schema.network.output_size != 6:
         raise ValueError("network.output_size must remain 6 for the relative action space")
     if schema.game.max_food < schema.game.initial_food:
@@ -238,25 +278,29 @@ def validate_config_invariants(schema: ConfigSchema) -> None:
         )
     if schema.training.epsilon_end > schema.training.epsilon_start:
         raise ValueError("training.epsilon_end must not exceed training.epsilon_start")
-    if schema.network.use_gru and schema.network.burn_in_length >= schema.network.sequence_length:
-        raise ValueError("network.burn_in_length must be smaller than network.sequence_length")
-    if schema.rewards.reward_max < schema.rewards.food_base:
-        raise ValueError("rewards.reward_max must be at least rewards.food_base")
-    if schema.rewards.reward_max < schema.rewards.kill_max:
-        raise ValueError("rewards.reward_max must be at least rewards.kill_max")
-    if schema.rewards.reward_min > schema.rewards.death:
-        raise ValueError("rewards.reward_min must be less than or equal to rewards.death")
-    max_positive_then_death_return = sum(
-        (schema.apex.gamma**step) * schema.rewards.reward_max
-        for step in range(max(schema.apex.n_step - 1, 0))
+    # Reward bounds + n-step-return safety contract (shared with AppConfig validation).
+    assert_reward_return_invariant(
+        reward_max=schema.rewards.reward_max,
+        food_base=schema.rewards.food_base,
+        kill_max=schema.rewards.kill_max,
+        reward_min=schema.rewards.reward_min,
+        death=schema.rewards.death,
+        gamma=schema.apex.gamma,
+        n_step=schema.apex.n_step,
     )
-    max_positive_then_death_return += (schema.apex.gamma ** max(schema.apex.n_step - 1, 0)) * (
-        schema.rewards.death
-    )
-    if max_positive_then_death_return >= 0.0:
+    # Danger thresholds are consumed in a fixed tier order (critical > high > medium);
+    # out-of-order thresholds would make higher tiers unreachable.
+    if not (
+        schema.rewards.danger_critical_threshold
+        >= schema.rewards.danger_high_threshold
+        >= schema.rewards.danger_medium_threshold
+    ):
         raise ValueError(
-            "rewards.death must make max-positive-then-death n-step returns negative "
-            "for apex.gamma, apex.n_step, and rewards.reward_max"
+            "rewards.danger_critical_threshold >= danger_high_threshold >= "
+            "danger_medium_threshold is required (thresholds are consumed in that tier order); "
+            f"got critical={schema.rewards.danger_critical_threshold}, "
+            f"high={schema.rewards.danger_high_threshold}, "
+            f"medium={schema.rewards.danger_medium_threshold}"
         )
     if schema.apex.batch_size > schema.apex.buffer_size:
         raise ValueError("apex.batch_size must not exceed apex.buffer_size")
@@ -325,6 +369,33 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     return _schema_to_appconfig(validated)
 
 
+def resolve_yaml_device(config_path: Optional[str]) -> Optional[str]:
+    """Return the ``hardware.device`` requested by a YAML config, or ``None``.
+
+    Lets a config's ``hardware.device`` drive device selection by feeding the
+    ``SNAKE_DQN_DEVICE`` env var that ``DeviceManager`` reads, instead of being a
+    silent no-op. Returns ``None`` when no config is given, the ``hardware`` section
+    is absent, or the value is ``"auto"`` (fall back to auto-detection). The caller
+    is expected to apply this only when the CLI ``--device`` flag is unset, so the
+    precedence stays CLI > YAML > auto-detect.
+
+    Args:
+        config_path: Path to a YAML config file, or None.
+
+    Returns:
+        A concrete device string (e.g. ``"cuda"``) or ``None`` to mean auto.
+    """
+    if not config_path:
+        return None
+    path = Path(config_path)
+    if not path.exists():
+        return None
+    with open(path, "r") as f:
+        data = yaml.safe_load(f) or {}
+    hardware = HardwareConfig(**(data.get("hardware") or {}))
+    return hardware.device if hardware.device != "auto" else None
+
+
 def load_and_initialize_config(config_path: Optional[str] = None) -> AppConfig:
     """Load configuration and initialize it globally.
 
@@ -343,121 +414,22 @@ def load_and_initialize_config(config_path: Optional[str] = None) -> AppConfig:
 
 
 def _schema_to_appconfig(schema: ConfigSchema) -> AppConfig:
-    """Convert validated pydantic schema to AppConfig dataclasses."""
+    """Convert the validated pydantic schema to AppConfig dataclasses.
+
+    Each *Schema's field names match its dataclass 1:1 (locked by
+    test_config_schema_dataclass_field_parity), so ``model_dump()`` maps straight
+    into the dataclass constructor. A name drift raises TypeError loudly at load
+    time instead of silently dropping a YAML value — the failure mode this
+    project has been burned by before (dead training.* / apex.* knobs).
+    """
     return AppConfig(
-        game=GameSettings(
-            width=schema.game.width,
-            height=schema.game.height,
-            num_snakes=schema.game.num_snakes,
-            segment_size=schema.game.segment_size,
-            wall_thickness=schema.game.wall_thickness,
-            initial_food=schema.game.initial_food,
-            max_food=schema.game.max_food,
-            max_frames=schema.game.max_frames,
-            frame_rate=schema.game.frame_rate,
-            max_length=schema.game.max_length,
-            num_sectors=schema.game.num_sectors,
-            min_boost_length=schema.game.min_boost_length,
-            boost_length_cost_frames=schema.game.boost_length_cost_frames,
-            arena_type=schema.game.arena_type,
-            arena_radius=schema.game.arena_radius,
-            arena_center_x=schema.game.arena_center_x,
-            arena_center_y=schema.game.arena_center_y,
-        ),
-        network=NetworkSettings(
-            input_size=schema.network.input_size,
-            hidden_size=schema.network.hidden_size,
-            output_size=schema.network.output_size,
-            danger_max_distance=schema.network.danger_max_distance,
-            use_boundary_as_danger=schema.network.use_boundary_as_danger,
-            vision_cone_radius=schema.network.vision_cone_radius,
-            vision_cone_opacity=schema.network.vision_cone_opacity,
-            use_gru=schema.network.use_gru,
-            gru_hidden_size=schema.network.gru_hidden_size,
-            sequence_length=schema.network.sequence_length,
-            burn_in_length=schema.network.burn_in_length,
-        ),
-        training=TrainingSettings(
-            batch_size=schema.training.batch_size,
-            memory_size=schema.training.memory_size,
-            learning_rate=schema.training.learning_rate,
-            gamma=schema.training.gamma,
-            epsilon_start=schema.training.epsilon_start,
-            epsilon_end=schema.training.epsilon_end,
-            epsilon_decay=schema.training.epsilon_decay,
-            epsilon_eval=schema.training.epsilon_eval,
-            target_update_frequency=schema.training.target_update_frequency,
-            train_frequency=schema.training.train_frequency,
-            checkpoint_frequency=schema.training.checkpoint_frequency,
-            grad_clip_norm=schema.training.grad_clip_norm,
-            default_iterations=schema.training.default_iterations,
-            save_interval=schema.training.save_interval,
-            log_interval=schema.training.log_interval,
-            gameplay_epsilon=schema.training.gameplay_epsilon,
-            priority_alpha=schema.training.priority_alpha,
-            priority_beta_start=schema.training.priority_beta_start,
-            priority_beta_increment=schema.training.priority_beta_increment,
-        ),
-        rewards=RewardSettings(
-            death=schema.rewards.death,
-            food_base=schema.rewards.food_base,
-            toward_food=schema.rewards.toward_food,
-            away_food=schema.rewards.away_food,
-            survival=schema.rewards.survival,
-            wall_danger=schema.rewards.wall_danger,
-            wall_danger_threshold=schema.rewards.wall_danger_threshold,
-            wall_awareness_threshold=schema.rewards.wall_awareness_threshold,
-            danger_critical=schema.rewards.danger_critical,
-            danger_high=schema.rewards.danger_high,
-            danger_medium=schema.rewards.danger_medium,
-            danger_critical_threshold=schema.rewards.danger_critical_threshold,
-            danger_high_threshold=schema.rewards.danger_high_threshold,
-            danger_medium_threshold=schema.rewards.danger_medium_threshold,
-            starvation_start_frame=schema.rewards.starvation_start_frame,
-            starvation_max_frames=schema.rewards.starvation_max_frames,
-            starvation_max_penalty=schema.rewards.starvation_max_penalty,
-            kill_base=schema.rewards.kill_base,
-            kill_length_scale=schema.rewards.kill_length_scale,
-            kill_max=schema.rewards.kill_max,
-            boost_segment=schema.rewards.boost_segment,
-            death_length_scale=schema.rewards.death_length_scale,
-            reward_max=schema.rewards.reward_max,
-            reward_min=schema.rewards.reward_min,
-        ),
-        checkpoint=CheckpointSettings(
-            checkpoint_dir=schema.checkpoint.checkpoint_dir,
-            best_model_name=schema.checkpoint.best_model_name,
-        ),
-        apex=ApexSettings(
-            num_actors=schema.apex.num_actors,
-            actor_update_freq=schema.apex.actor_update_freq,
-            epsilon_base=schema.apex.epsilon_base,
-            epsilon_alpha=schema.apex.epsilon_alpha,
-            actor_env_num_snakes=schema.apex.actor_env_num_snakes,
-            actor_board_scale=schema.apex.actor_board_scale,
-            actor_food_multiplier=schema.apex.actor_food_multiplier,
-            batch_size=schema.apex.batch_size,
-            buffer_size=schema.apex.buffer_size,
-            min_buffer_size=schema.apex.min_buffer_size,
-            target_update_freq=schema.apex.target_update_freq,
-            learning_rate=schema.apex.learning_rate,
-            gamma=schema.apex.gamma,
-            n_step=schema.apex.n_step,
-            priority_alpha=schema.apex.priority_alpha,
-            priority_beta_start=schema.apex.priority_beta_start,
-            priority_beta_end=schema.apex.priority_beta_end,
-            priority_epsilon=schema.apex.priority_epsilon,
-            use_compile=schema.apex.use_compile,
-            pin_memory=schema.apex.pin_memory,
-        ),
-        curriculum=CurriculumSettings(
-            enabled=schema.curriculum.enabled,
-            window_size=schema.curriculum.window_size,
-            phase1_threshold=schema.curriculum.phase1_threshold,
-            phase2_threshold=schema.curriculum.phase2_threshold,
-            phase3_threshold=schema.curriculum.phase3_threshold,
-            phase4_threshold=schema.curriculum.phase4_threshold,
-        ),
+        game=GameSettings(**schema.game.model_dump()),
+        network=NetworkSettings(**schema.network.model_dump()),
+        training=TrainingSettings(**schema.training.model_dump()),
+        rewards=RewardSettings(**schema.rewards.model_dump()),
+        checkpoint=CheckpointSettings(**schema.checkpoint.model_dump()),
+        apex=ApexSettings(**schema.apex.model_dump()),
+        curriculum=CurriculumSettings(**schema.curriculum.model_dump()),
     )
 
 

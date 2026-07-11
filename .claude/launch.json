@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "snake-web",
+      "runtimeExecutable": "./venv/bin/python",
+      "runtimeArgs": ["web/serve.py"],
+      "port": 8000
+    },
+    {
+      "name": "snake-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--host", "127.0.0.1", "--port", "5199", "--strictPort"],
+      "cwd": "web/frontend",
+      "port": 5199
+    }
+  ]
+}

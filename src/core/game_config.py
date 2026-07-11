@@ -49,6 +49,11 @@ class GameSettings:
     arena_radius: int = 400
     arena_center_x: int = 725  # WIDTH // 2
     arena_center_y: int = 415  # HEIGHT // 2
+    # Game-mechanics version. 1 = legacy mechanics (bit-identical to the
+    # pre-blueprint behavior); 2 = blueprint §1 mechanics (boost trail pellets,
+    # full cap-exempt corpse drops, size-resolved head-ons, training population
+    # floor). See src/core/mechanics_constants.py for the v2 constants.
+    mechanics_version: int = 1
 
 
 @dataclass(frozen=True)
@@ -62,10 +67,10 @@ class NetworkSettings:
     use_boundary_as_danger: bool = True
     vision_cone_radius: int = 80
     vision_cone_opacity: int = 100
-    use_gru: bool = False  # Enable GRU/DRQN recurrent mode
-    gru_hidden_size: int = 256  # GRU hidden state dimension
-    sequence_length: int = 20  # Sequence length for DRQN training
-    burn_in_length: int = 5  # Burn-in steps for GRU hidden state warmup
+    # Append 3 free-space ("don't trap yourself") features. Opt-in for backward
+    # compatibility: False keeps the 58-D state; True makes get_state emit 61-D
+    # (set input_size: 61 to match). See StateIndices.FREE_SPACE_*.
+    use_free_space: bool = False
 
 
 @dataclass(frozen=True)
@@ -155,6 +160,10 @@ class RewardSettings:
     reward_max: float = 5.0
     reward_min: float = -12.0
 
+    # Reward-function version (blueprint §3.2). 1 = legacy reward; 2 = event-based
+    # reward v2 (consumed by the reward implementation, not by config plumbing).
+    version: int = 1
+
 
 @dataclass(frozen=True)
 class CheckpointSettings:
@@ -180,6 +189,14 @@ class ApexSettings:
     actor_env_num_snakes: int = 6  # Snakes per actor environment for terminal-rich replay
     actor_board_scale: float = 0.2  # Actor arena scale for collision-dense replay
     actor_food_multiplier: float = 0.5  # Actor food density multiplier
+    actor_priority_mode: str = "max"  # Insert priority for new transitions: "max" or "td"
+
+    # Opponent-pool self-play (blueprint §3.3). When opponent_pool_dir is set and
+    # contains checkpoints, each actor episode assigns every non-hero snake slot
+    # to the shared latest policy with p=pool_latest_fraction, otherwise to a
+    # frozen policy sampled uniformly from the pool. None = pure mirror self-play.
+    opponent_pool_dir: Optional[str] = None  # Directory of frozen opponent .pth checkpoints
+    pool_latest_fraction: float = 0.8  # P(non-hero slot runs the latest policy)
 
     # Learner parameters
     learning_rate: float = 0.00025
@@ -256,7 +273,14 @@ class AppConfig:
 
     @classmethod
     def from_yaml(cls, path: str) -> "AppConfig":
-        """Load configuration from YAML file.
+        """Load configuration from YAML file through the validated loader.
+
+        Delegates to ``config_loader.load_config`` so that file-based loading shares
+        a single validated pipeline with the rest of the app: pydantic range/type
+        checks, unknown-key rejection (``extra='forbid'``), training.* -> apex.*
+        reconciliation, and all cross-field invariants.
+
+        The import is local to avoid a config_loader <-> game_config import cycle.
 
         Args:
             path: Path to YAML configuration file
@@ -266,54 +290,11 @@ class AppConfig:
 
         Raises:
             FileNotFoundError: If config file doesn't exist
+            ValueError: If validation or a cross-field invariant fails
         """
-        config_path = Path(path)
-        if not config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {path}")
+        from src.core.config_loader import load_config
 
-        with open(config_path, "r") as f:
-            yaml_data = yaml.safe_load(f) or {}
-
-        return cls._from_dict(yaml_data)
-
-    @classmethod
-    def _from_dict(cls, data: dict) -> "AppConfig":
-        """Create configuration from dictionary."""
-        game = GameSettings(**data.get("game", {})) if "game" in data else GameSettings()
-        network = (
-            NetworkSettings(**data.get("network", {})) if "network" in data else NetworkSettings()
-        )
-        training = (
-            TrainingSettings(**data.get("training", {}))
-            if "training" in data
-            else TrainingSettings()
-        )
-        rewards = (
-            RewardSettings(**data.get("rewards", {})) if "rewards" in data else RewardSettings()
-        )
-        checkpoint = (
-            CheckpointSettings(**data.get("checkpoint", {}))
-            if "checkpoint" in data
-            else CheckpointSettings()
-        )
-        apex = ApexSettings(**data.get("apex", {})) if "apex" in data else ApexSettings()
-        curriculum = (
-            CurriculumSettings(**data.get("curriculum", {}))
-            if "curriculum" in data
-            else CurriculumSettings()
-        )
-
-        config = cls(
-            game=game,
-            network=network,
-            training=training,
-            rewards=rewards,
-            checkpoint=checkpoint,
-            apex=apex,
-            curriculum=curriculum,
-        )
-        _validate_reward_return_contract(config)
-        return config
+        return load_config(path)
 
     def to_dict(self) -> dict:
         """Convert configuration to dictionary for serialization."""
@@ -338,26 +319,51 @@ class AppConfig:
             yaml.dump(self.to_dict(), f, default_flow_style=False)
 
 
-def _validate_reward_return_contract(config: AppConfig) -> None:
-    """Reject reward settings that can make terminal n-step targets non-negative."""
-    rewards = config.rewards
-    apex = config.apex
-    if rewards.reward_max < rewards.food_base:
+def assert_reward_return_invariant(
+    *,
+    reward_max: float,
+    food_base: float,
+    kill_max: float,
+    reward_min: float,
+    death: float,
+    gamma: float,
+    n_step: int,
+) -> None:
+    """Reject reward settings that can make terminal n-step targets non-negative.
+
+    Pure (plain values) so both config-load paths — AppConfig validation and the
+    pydantic-schema validation in config_loader — share one source of truth and
+    can never disagree about what's a valid reward contract.
+    """
+    if reward_max < food_base:
         raise ValueError("rewards.reward_max must be at least rewards.food_base")
-    if rewards.reward_max < rewards.kill_max:
+    if reward_max < kill_max:
         raise ValueError("rewards.reward_max must be at least rewards.kill_max")
-    if rewards.reward_min > rewards.death:
+    if reward_min > death:
         raise ValueError("rewards.reward_min must be less than or equal to rewards.death")
 
     max_positive_then_death_return = sum(
-        (apex.gamma**step) * rewards.reward_max for step in range(max(apex.n_step - 1, 0))
+        (gamma**step) * reward_max for step in range(max(n_step - 1, 0))
     )
-    max_positive_then_death_return += (apex.gamma ** max(apex.n_step - 1, 0)) * rewards.death
+    max_positive_then_death_return += (gamma ** max(n_step - 1, 0)) * death
     if max_positive_then_death_return >= 0.0:
         raise ValueError(
             "rewards.death must make max-positive-then-death n-step returns negative "
             "for apex.gamma, apex.n_step, and rewards.reward_max"
         )
+
+
+def _validate_reward_return_contract(config: AppConfig) -> None:
+    """Reject reward settings that can make terminal n-step targets non-negative."""
+    assert_reward_return_invariant(
+        reward_max=config.rewards.reward_max,
+        food_base=config.rewards.food_base,
+        kill_max=config.rewards.kill_max,
+        reward_min=config.rewards.reward_min,
+        death=config.rewards.death,
+        gamma=config.apex.gamma,
+        n_step=config.apex.n_step,
+    )
 
 
 # =============================================================================
@@ -441,6 +447,43 @@ class StateIndices:
 
     # Boost availability
     BOOST_AVAILABLE = 57
+
+    # Free-space ("don't trap yourself") features — reachable open area per
+    # relative action (left/straight/right). Appended at the END so indices
+    # 0-57 are unchanged and 58-D checkpoints stay column-aligned for widening.
+    # Only emitted when network.use_free_space is enabled (input_size 61).
+    FREE_SPACE_START = 58
+    FREE_SPACE_LEFT = 58
+    FREE_SPACE_STRAIGHT = 59
+    FREE_SPACE_RIGHT = 60
+    FREE_SPACE_END = 61  # 3 values
+
+
+def expected_input_size(network: NetworkSettings) -> int:
+    """Authoritative input_size for the active state mode.
+
+    Free-space adds 3 features to the 58-D base (61); otherwise the 58-D base
+    contract applies.
+    """
+    return 61 if network.use_free_space else 58
+
+
+def validate_network_contract(network: NetworkSettings) -> None:
+    """Enforce the state-mode <-> input_size contract (single source of truth).
+
+    input_size must equal the size the active state mode emits: 61 for
+    free-space, else 58.
+
+    Raises:
+        ValueError: If the invariant is violated.
+    """
+    expected = expected_input_size(network)
+    if network.input_size != expected:
+        raise ValueError(
+            f"network.input_size must be {expected} "
+            f"(use_free_space={network.use_free_space}); "
+            f"got {network.input_size}"
+        )
 
 
 # =============================================================================
@@ -532,10 +575,18 @@ class GameConfig:
     def ARENA_CENTER_Y(self) -> int:
         return get_config().game.arena_center_y
 
+    @property
+    def MECHANICS_VERSION(self) -> int:
+        return get_config().game.mechanics_version
+
     # Network settings
     @property
     def INPUT_SIZE(self) -> int:
         return get_config().network.input_size
+
+    @property
+    def USE_FREE_SPACE(self) -> bool:
+        return get_config().network.use_free_space
 
     @property
     def HIDDEN_SIZE(self) -> int:
@@ -560,22 +611,6 @@ class GameConfig:
     @property
     def VISION_CONE_OPACITY(self) -> int:
         return get_config().network.vision_cone_opacity
-
-    @property
-    def USE_GRU(self) -> bool:
-        return get_config().network.use_gru
-
-    @property
-    def GRU_HIDDEN_SIZE(self) -> int:
-        return get_config().network.gru_hidden_size
-
-    @property
-    def SEQUENCE_LENGTH(self) -> int:
-        return get_config().network.sequence_length
-
-    @property
-    def BURN_IN_LENGTH(self) -> int:
-        return get_config().network.burn_in_length
 
     # Training settings
     @property
@@ -752,6 +787,10 @@ class GameConfig:
     def REWARD_MIN(self) -> float:
         return get_config().rewards.reward_min
 
+    @property
+    def REWARD_VERSION(self) -> int:
+        return get_config().rewards.version
+
     # Checkpoint settings
     @property
     def CHECKPOINT_DIR(self) -> str:
@@ -797,6 +836,18 @@ class GameConfig:
     @property
     def APEX_ACTOR_FOOD_MULTIPLIER(self) -> float:
         return get_config().apex.actor_food_multiplier
+
+    @property
+    def APEX_ACTOR_PRIORITY_MODE(self) -> str:
+        return get_config().apex.actor_priority_mode
+
+    @property
+    def APEX_OPPONENT_POOL_DIR(self) -> Optional[str]:
+        return get_config().apex.opponent_pool_dir
+
+    @property
+    def APEX_POOL_LATEST_FRACTION(self) -> float:
+        return get_config().apex.pool_latest_fraction
 
     @property
     def APEX_LEARNING_RATE(self) -> float:

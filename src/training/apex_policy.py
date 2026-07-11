@@ -5,7 +5,6 @@ Ape-X DQN combines:
 - Prioritized Experience Replay (PER) with importance sampling
 - Double DQN (action selection vs evaluation)
 - Support for distributed actors with centralized learner (optional)
-- Optional GRU/DRQN mode for temporal memory
 
 Key difference from Rainbow: Uses epsilon-greedy instead of noisy networks,
 and does not use distributional RL (C51) for simplicity.
@@ -37,7 +36,6 @@ from .action_mask import (
     mask_invalid_q_values,
     resolve_action_mask,
     summarize_next_action_quality,
-    valid_action_mask_from_states,
 )
 from .base_buffer import compute_priority
 from .base_dqn_policy import BaseDQNPolicy
@@ -45,6 +43,7 @@ from .checkpoint_contract import (
     checkpoint_contract_values,
     validate_checkpoint_contract,
 )
+from .td_targets import double_dqn_next_q, n_step_td_target
 
 
 class ApexPolicy(BaseDQNPolicy):
@@ -54,16 +53,12 @@ class ApexPolicy(BaseDQNPolicy):
     2. Prioritized Experience Replay (PER)
     3. Double DQN (action selection vs evaluation)
     4. Support for distributed training mode
-    5. Optional GRU/DRQN mode for temporal memory
 
     In single-process mode (for Mac inference), this works like a
     standard DQN with dueling architecture and PER.
 
     In distributed mode, actors send experiences to a shared buffer
     and the learner pulls batches for training.
-
-    When use_gru=True, the policy uses GruApexNetwork with
-    SequenceReplayBuffer for DRQN-style training with burn-in.
 
     When training=False, operates as a lightweight inference-only policy:
     no optimizer, no replay buffer, and update() is a no-op.
@@ -77,7 +72,6 @@ class ApexPolicy(BaseDQNPolicy):
         n_step: Optional[int] = None,
         distributed: bool = False,
         actor_id: Optional[int] = None,
-        use_gru: bool = False,
         training: bool = True,
         checkpoint_path: Optional[str] = None,
         inference_epsilon: float = 0.0,
@@ -95,7 +89,6 @@ class ApexPolicy(BaseDQNPolicy):
                 GameConfig.APEX_N_STEP.
             distributed: Whether to run in distributed mode
             actor_id: Actor identifier for distributed training
-            use_gru: Whether to use GRU/DRQN mode with sequence replay
             training: If False, skip optimizer/replay buffer setup and run
                 inference-only (update() is a no-op).
             checkpoint_path: Optional path to checkpoint to auto-load (inference mode).
@@ -115,52 +108,27 @@ class ApexPolicy(BaseDQNPolicy):
         self.gamma = GameConfig.APEX_GAMMA
         self.distributed = distributed
         self.actor_id = actor_id
-        self.use_gru = use_gru
         self.training = training
         self.init_type = init_type
         self._last_train_metrics: Dict[str, float] = {}
 
-        if use_gru:
-            from src.model.gru_network import GruApexNetwork
+        # Create Dueling DQN models (ApexNetwork)
+        self.dqn = ApexNetwork(
+            input_size,
+            hidden_size,
+            output_size,
+            init_type=init_type,
+        ).to(self.device)
 
-            gru_hidden_size = GameConfig.GRU_HIDDEN_SIZE
-
-            self.dqn = GruApexNetwork(
+        if training:
+            self.target_dqn = ApexNetwork(
                 input_size,
                 hidden_size,
                 output_size,
-                gru_hidden_size=gru_hidden_size,
                 init_type=init_type,
             ).to(self.device)
-
-            if training:
-                self.target_dqn = GruApexNetwork(
-                    input_size,
-                    hidden_size,
-                    output_size,
-                    gru_hidden_size=gru_hidden_size,
-                    init_type=init_type,
-                ).to(self.device)
-            else:
-                self.target_dqn = None
         else:
-            # Create Dueling DQN models (ApexNetwork)
-            self.dqn = ApexNetwork(
-                input_size,
-                hidden_size,
-                output_size,
-                init_type=init_type,
-            ).to(self.device)
-
-            if training:
-                self.target_dqn = ApexNetwork(
-                    input_size,
-                    hidden_size,
-                    output_size,
-                    init_type=init_type,
-                ).to(self.device)
-            else:
-                self.target_dqn = None
+            self.target_dqn = None
 
         if training:
             hard_update(self.target_dqn, self.dqn)
@@ -176,41 +144,21 @@ class ApexPolicy(BaseDQNPolicy):
                 weight_decay=1e-5,
             )
 
-            if use_gru:
-                from .sequence_buffer import SequenceReplayBuffer
+            from .multistep_buffer import MultiStepBuffer
 
-                self.memory = SequenceReplayBuffer(
-                    capacity=self._replay_capacity(),
-                    sequence_length=GameConfig.SEQUENCE_LENGTH,
-                    burn_in_length=GameConfig.BURN_IN_LENGTH,
-                    alpha=GameConfig.APEX_PRIORITY_ALPHA,
-                    beta_start=GameConfig.APEX_PRIORITY_BETA_START,
-                    beta_end=GameConfig.APEX_PRIORITY_BETA_END,
-                    priority_eps=GameConfig.APEX_PRIORITY_EPSILON,
-                )
-                # Per-snake hidden state tracking: snake_id -> hidden tensor
-                self._hidden_states: Dict[int, torch.Tensor] = {}
-                # Per-snake episode transition buffers
-                self._episode_buffers: Dict[int, List[Tuple]] = {}
-            else:
-                from .multistep_buffer import MultiStepBuffer
-
-                self.memory = MultiStepBuffer(
-                    capacity=self._replay_capacity(),
-                    n_step=self.n_step,
-                    gamma=self.gamma,
-                    alpha=GameConfig.APEX_PRIORITY_ALPHA,
-                    beta_start=GameConfig.APEX_PRIORITY_BETA_START,
-                    beta_end=GameConfig.APEX_PRIORITY_BETA_END,
-                    beta_increment=GameConfig.PRIORITY_BETA_INCREMENT,
-                    priority_eps=GameConfig.APEX_PRIORITY_EPSILON,
-                )
+            self.memory = MultiStepBuffer(
+                capacity=self._replay_capacity(),
+                n_step=self.n_step,
+                gamma=self.gamma,
+                alpha=GameConfig.APEX_PRIORITY_ALPHA,
+                beta_start=GameConfig.APEX_PRIORITY_BETA_START,
+                beta_end=GameConfig.APEX_PRIORITY_BETA_END,
+                beta_increment=GameConfig.PRIORITY_BETA_INCREMENT,
+                priority_eps=GameConfig.APEX_PRIORITY_EPSILON,
+            )
         else:
             self.optimizer = None
             self.memory = None
-            if use_gru:
-                self._hidden_states: Dict[int, torch.Tensor] = {}
-                self._episode_buffers: Dict[int, List[Tuple]] = {}
 
         # Epsilon-greedy exploration (Ape-X uses varied epsilon per actor)
         if training:
@@ -259,11 +207,9 @@ class ApexPolicy(BaseDQNPolicy):
         In Ape-X, different actors use different epsilon values
         to balance exploration vs exploitation across the system.
 
-        In GRU mode, uses and updates per-snake hidden state.
-
         Args:
             state: Current state tensor.
-            snake_id: Snake identifier for GRU hidden state tracking.
+            snake_id: Snake identifier for per-stream replay bookkeeping.
             action_mask: Optional exact simulator-valid action mask. When supplied,
                 it overrides the approximate compact-state mask so safe boost
                 actions can be selected.
@@ -287,13 +233,7 @@ class ApexPolicy(BaseDQNPolicy):
                     selection_action_mask = selection_action_mask.unsqueeze(0)
             explore = np.random.random() < self._epsilon
 
-            if self.use_gru and snake_id is not None:
-                hidden = self._get_hidden(snake_id)
-                q_values, new_hidden = self.dqn(state, hidden)
-                self._hidden_states[snake_id] = new_hidden
-            elif self.use_gru:
-                q_values, _ = self.dqn(state)
-            elif explore:
+            if explore:
                 q_values = None
             else:
                 q_values = self.dqn(state)
@@ -365,9 +305,6 @@ class ApexPolicy(BaseDQNPolicy):
         """
         Update Ape-X policy with transition.
 
-        In GRU mode, accumulates transitions per-snake and adds
-        completed episodes to the sequence buffer.
-
         In distributed mode, this would push to shared buffer.
         In single-process mode, this trains locally.
 
@@ -377,7 +314,7 @@ class ApexPolicy(BaseDQNPolicy):
             reward: Reward received
             next_state: Next state (None if terminal)
             done: Whether episode ended
-            snake_id: Snake identifier for GRU episode tracking
+            snake_id: Snake identifier for per-stream replay bookkeeping
             next_action_mask: Optional exact valid-action mask for next_state.
                 Feedforward replay stores this for target action selection.
 
@@ -399,54 +336,30 @@ class ApexPolicy(BaseDQNPolicy):
         else:
             next_state_tensor = ensure_tensor_on_device(next_state, self.device)
 
-        if self.use_gru:
-            # Accumulate transitions in per-snake episode buffer
-            sid = snake_id if snake_id is not None else 0
-            if sid not in self._episode_buffers:
-                self._episode_buffers[sid] = []
-            self._episode_buffers[sid].append(
-                (state_tensor, action, reward, next_state_tensor, done, next_action_mask)
-            )
-            self.total_reward += reward
+        # Add transition to replay buffer
+        self.memory.add(
+            state_tensor,
+            action,
+            reward,
+            next_state_tensor,
+            done,
+            priority=None,
+            stream_id=snake_id,
+            next_action_mask=next_action_mask,
+        )
+        self.total_reward += reward
 
-            if done:
-                # Episode finished — add to sequence buffer and reset
-                self.memory.add_episode(self._episode_buffers[sid])
-                self._episode_buffers[sid] = []
-                self.reset_hidden(sid)
-
-            if not self.distributed:
-                return self.train_step()
-            else:
-                return None, self._epsilon
+        # In single-process mode, train immediately
+        # In distributed mode, learner would pull from shared buffer
+        if not self.distributed:
+            return self.train_step()
         else:
-            # Standard feedforward mode — add to replay buffer
-            self.memory.add(
-                state_tensor,
-                action,
-                reward,
-                next_state_tensor,
-                done,
-                priority=None,
-                stream_id=snake_id,
-                next_action_mask=next_action_mask,
-            )
-            self.total_reward += reward
-
-            # In single-process mode, train immediately
-            # In distributed mode, learner would pull from shared buffer
-            if not self.distributed:
-                return self.train_step()
-            else:
-                # Actors don't train, only collect experiences
-                return None, self._epsilon
+            # Actors don't train, only collect experiences
+            return None, self._epsilon
 
     def train_step(self, num_iterations: int = 1) -> Tuple[Optional[float], float]:
         """
         Perform training update by sampling from buffer.
-
-        Dispatches to _drqn_train_step in GRU mode or standard
-        feedforward training otherwise.
 
         Args:
             num_iterations: Number of gradient updates
@@ -454,8 +367,6 @@ class ApexPolicy(BaseDQNPolicy):
         Returns:
             Tuple of (average_loss, epsilon)
         """
-        if self.use_gru:
-            return self._drqn_train_step(num_iterations)
         return self._ff_train_step(num_iterations)
 
     def _min_replay_size(self) -> int:
@@ -572,219 +483,6 @@ class ApexPolicy(BaseDQNPolicy):
             sample_mask=sample_mask,
         )
 
-    def _drqn_train_step(self, num_iterations: int = 1) -> Tuple[Optional[float], float]:
-        """
-        DRQN training step with sequence replay and burn-in.
-
-        Samples sequences from the SequenceReplayBuffer, runs burn-in
-        steps through the GRU to warm up hidden state, then computes
-        Double DQN loss only on post-burn-in timesteps.
-
-        Args:
-            num_iterations: Number of gradient updates
-
-        Returns:
-            Tuple of (average_loss, epsilon)
-        """
-        batch_size = self._batch_size()
-        if not self.memory.is_ready(batch_size):
-            return None, self._epsilon
-
-        burn_in = self.memory.burn_in_length
-        total_loss = 0.0
-
-        for _ in range(num_iterations):
-            batch, indices, weights = self.memory.sample(batch_size, self.device)
-
-            # batch['states'] shape: (B, T, input_size)
-            states = batch["states"]
-            actions = batch["actions"]  # (B, T)
-            rewards = batch["rewards"]  # (B, T)
-            next_states = batch["next_states"]  # (B, T, input_size)
-            dones = batch["dones"]  # (B, T)
-            masks = batch["masks"]  # (B, T) — 1.0 for post-burn-in valid steps
-
-            # Initialize hidden state
-            hidden = self.dqn.init_hidden(batch_size).to(self.device)
-            target_hidden = self.target_dqn.init_hidden(batch_size).to(self.device)
-
-            # Burn-in: run first burn_in steps without computing loss
-            if burn_in > 0:
-                burn_in_states = states[:, :burn_in, :]
-                with torch.no_grad():
-                    _, hidden = self.dqn(burn_in_states, hidden)
-                    _, target_hidden = self.target_dqn(burn_in_states, target_hidden)
-                # Re-enable grads for hidden going forward
-                hidden = hidden.detach().requires_grad_(False)
-
-            # Training portion: compute Q-values for remaining steps
-            train_states = states[:, burn_in:, :]
-            train_next_states = next_states[:, burn_in:, :]
-            train_actions = actions[:, burn_in:]  # (B, T')
-            train_rewards = rewards[:, burn_in:]  # (B, T')
-            train_dones = dones[:, burn_in:]  # (B, T')
-            train_masks = masks[:, burn_in:]  # (B, T')
-            train_next_action_masks = None
-            train_next_action_mask_present = None
-            if "next_action_masks" in batch:
-                exact_next_action_masks = batch["next_action_masks"][:, burn_in:, :]
-                exact_mask_present = batch["next_action_mask_present"][:, burn_in:].bool()
-                state_derived_masks = valid_action_mask_from_states(train_next_states)
-                train_next_action_masks = torch.where(
-                    exact_mask_present.unsqueeze(-1),
-                    exact_next_action_masks,
-                    state_derived_masks,
-                )
-                train_next_action_mask_present = exact_mask_present
-
-            self._last_train_metrics = self._compute_next_action_quality_metrics(
-                train_next_states,
-                next_action_masks=train_next_action_masks,
-                next_action_mask_present=train_next_action_mask_present,
-                sample_mask=train_masks * (1.0 - train_dones),
-            )
-
-            T_train = train_states.shape[1]
-
-            # We need per-step Q-values, so process step-by-step.
-            q_values_list = []
-            h = hidden
-            for t in range(T_train):
-                q_t, h = self.dqn(train_states[:, t, :], h)
-                q_values_list.append(q_t)
-            # q_values_per_step: (B, T', output_size)
-            q_values_per_step = torch.stack(q_values_list, dim=1)
-
-            with torch.no_grad():
-                next_q_online, next_q_target = self._compute_drqn_next_q_values(
-                    train_states,
-                    train_next_states,
-                    hidden,
-                    target_hidden,
-                )
-                # Double DQN: online network selects valid actions, target evaluates.
-                masked_next_q_online = mask_invalid_q_values(
-                    next_q_online,
-                    train_next_states,
-                    action_masks=train_next_action_masks,
-                )
-                valid_next_actions = has_valid_actions(
-                    next_q_online,
-                    train_next_states,
-                    action_masks=train_next_action_masks,
-                )
-                next_actions = masked_next_q_online.argmax(dim=-1)  # (B, T')
-                next_q_values = next_q_target.gather(2, next_actions.unsqueeze(-1)).squeeze(
-                    -1
-                )  # (B, T')
-                next_q_values = torch.where(
-                    valid_next_actions,
-                    next_q_values,
-                    torch.zeros_like(next_q_values),
-                )
-
-                expected_q = train_rewards + (1 - train_dones) * self.gamma * next_q_values
-                expected_q = torch.clamp(expected_q, min=-50.0, max=50.0)
-
-            # Current Q-values for taken actions: (B, T')
-            current_q = q_values_per_step.gather(2, train_actions.unsqueeze(-1)).squeeze(-1)
-
-            # Per-step TD errors
-            td_errors_per_step = (current_q - expected_q).abs()
-
-            # Masked Huber loss
-            element_wise_loss = nn.functional.smooth_l1_loss(
-                current_q, expected_q, reduction="none"
-            )
-            # Apply mask (only valid, post-burn-in steps contribute to loss)
-            masked_loss = element_wise_loss * train_masks
-
-            # Average over valid timesteps per sequence, then weight by IS weights
-            valid_counts = train_masks.sum(dim=1).clamp(min=1.0)
-            per_sequence_loss = masked_loss.sum(dim=1) / valid_counts
-            weighted_loss = (per_sequence_loss * weights).mean()
-
-            # Backward pass
-            self.optimizer.zero_grad()
-            weighted_loss.backward()
-            clip_gradients(self.dqn)
-            self.optimizer.step()
-
-            # Update priorities: use max TD error across sequence for each sample
-            td_np = (td_errors_per_step * train_masks).detach().cpu().numpy()
-            self.memory.update_priorities(indices, td_np)
-
-            total_loss += weighted_loss.item()
-
-            # Periodic target network update
-            self.update_counter += 1
-            self._maybe_sync_target_network()
-
-        avg_loss = total_loss / num_iterations
-        self._losses.append(avg_loss)
-
-        if not self.distributed:
-            self._epsilon = max(GameConfig.EPSILON_END, self._epsilon * GameConfig.EPSILON_DECAY)
-
-        return avg_loss, self._epsilon
-
-    def _compute_drqn_next_q_values(
-        self,
-        train_states: torch.Tensor,
-        train_next_states: torch.Tensor,
-        online_hidden: torch.Tensor,
-        target_hidden: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Compute recurrent next-state Q-values with aligned hidden state.
-
-        For a transition from s_t to s_{t+1}, the recurrent Q-value for
-        s_{t+1} must use the hidden state after consuming s_t. Advancing hidden
-        directly over next_states shifts memory one step ahead and drops the
-        current observation from the target context.
-        """
-        next_q_online_list = []
-        next_q_target_list = []
-        h_online = online_hidden.detach()
-        h_target = target_hidden.detach()
-
-        for t in range(train_states.shape[1]):
-            _, h_online = self.dqn(train_states[:, t, :], h_online)
-            _, h_target = self.target_dqn(train_states[:, t, :], h_target)
-
-            nq_online, _ = self.dqn(train_next_states[:, t, :], h_online)
-            nq_target, _ = self.target_dqn(train_next_states[:, t, :], h_target)
-            next_q_online_list.append(nq_online)
-            next_q_target_list.append(nq_target)
-
-        return (
-            torch.stack(next_q_online_list, dim=1),
-            torch.stack(next_q_target_list, dim=1),
-        )
-
-    def _get_hidden(self, snake_id: int) -> torch.Tensor:
-        """
-        Get hidden state for a snake, creating zeros if not tracked.
-
-        Args:
-            snake_id: Snake identifier
-
-        Returns:
-            Hidden state tensor on the correct device
-        """
-        if snake_id not in self._hidden_states:
-            self._hidden_states[snake_id] = self.dqn.init_hidden(1).to(self.device)
-        return self._hidden_states[snake_id]
-
-    def reset_hidden(self, snake_id: int) -> None:
-        """
-        Reset hidden state for a snake (call on episode reset/respawn).
-
-        Args:
-            snake_id: Snake identifier
-        """
-        if hasattr(self, "_hidden_states"):
-            self._hidden_states[snake_id] = self.dqn.init_hidden(1).to(self.device)
-
     def _compute_double_dqn_loss(
         self,
         states: torch.Tensor,
@@ -827,34 +525,19 @@ class ApexPolicy(BaseDQNPolicy):
         current_q = self.dqn(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
         with torch.no_grad():
-            # Double DQN: use online network for valid action selection.
-            next_q_online = self.dqn(next_states)
-            masked_next_q_online = mask_invalid_q_values(
-                next_q_online,
+            # Double DQN: online net selects valid actions, target net evaluates;
+            # then the clamped per-sample n-step target. Shared with the learner.
+            # Partial tail flushes / offline replay can have shorter horizons than
+            # self.n_step (handled via per-sample bootstrap_steps).
+            next_q = double_dqn_next_q(
+                self.dqn(next_states),
+                self.target_dqn(next_states),
                 next_states,
-                action_masks=next_action_masks,
+                next_action_masks,
             )
-            valid_next_actions = has_valid_actions(
-                next_q_online,
-                next_states,
-                action_masks=next_action_masks,
+            expected_q = n_step_td_target(
+                rewards, dones, next_q, bootstrap_steps, self.gamma, self.n_step, 50.0
             )
-            next_actions = masked_next_q_online.argmax(dim=1)
-
-            # Use target network for value estimation
-            next_q = self.target_dqn(next_states).gather(1, next_actions.unsqueeze(1)).squeeze(1)
-            next_q = torch.where(valid_next_actions, next_q, torch.zeros_like(next_q))
-
-            # N-step target with per-sample discount. Partial tail flushes and
-            # restored/offline replay can have shorter horizons than self.n_step.
-            if bootstrap_steps is None:
-                bootstrap_steps = torch.full_like(rewards, float(self.n_step))
-            discounts = torch.pow(
-                torch.full_like(rewards, self.gamma),
-                bootstrap_steps.to(rewards.device),
-            )
-            expected_q = rewards + (1 - dones) * discounts * next_q
-            expected_q = torch.clamp(expected_q, min=-50.0, max=50.0)
 
         # TD errors for priority update
         td_errors = (current_q - expected_q).abs().detach().cpu().numpy()
@@ -869,7 +552,7 @@ class ApexPolicy(BaseDQNPolicy):
         """Keep local replay wrapper aligned with checkpoint/config policy state."""
         self._local_buffer = deque(self._local_buffer, maxlen=self.n_step)
 
-        if self.memory is None or self.use_gru:
+        if self.memory is None:
             return
 
         replay_n_step = getattr(self.memory, "n_step", self.n_step)
@@ -920,17 +603,7 @@ class ApexPolicy(BaseDQNPolicy):
             "reward_death": float(reward_contract["death"]),
             "reward_food_base": float(reward_contract["food_base"]),
             "target_update_freq": self._target_update_frequency(),
-            "use_gru": bool(self.use_gru),
         }
-
-        if self.use_gru:
-            snapshot.update(
-                {
-                    "burn_in_length": int(GameConfig.BURN_IN_LENGTH),
-                    "gru_hidden_size": int(GameConfig.GRU_HIDDEN_SIZE),
-                    "sequence_length": int(GameConfig.SEQUENCE_LENGTH),
-                }
-            )
 
         return snapshot
 
@@ -946,7 +619,6 @@ class ApexPolicy(BaseDQNPolicy):
                 "gamma": self.gamma,
                 "distributed": self.distributed,
                 "actor_id": self.actor_id,
-                "use_gru": self.use_gru,
                 "hidden_size": self.hidden_size,
                 "input_size": self.input_size,
                 "output_size": self.output_size,
@@ -976,7 +648,6 @@ class ApexPolicy(BaseDQNPolicy):
             "output_size": first_contract_value("output_size", self.output_size, int),
             "n_step": first_contract_value("n_step", self.n_step, int),
             "gamma": first_contract_value("gamma", self.gamma, float),
-            "use_gru": first_contract_value("use_gru", self.use_gru, bool),
             "reward_contract": current_reward_contract(),
             "reward_death": float(GameConfig.REWARD_DEATH),
             "reward_food_base": float(GameConfig.REWARD_FOOD_BASE),
@@ -985,7 +656,7 @@ class ApexPolicy(BaseDQNPolicy):
         # only matters when this policy will be TRAINED further. For inference
         # (training=False: eval, GUI --load, tournament), skip it so checkpoints
         # from a different reward contract (e.g. pre-boost-fix models) still load.
-        # Shape compatibility (input/output/use_gru) is still enforced below.
+        # Shape compatibility (input/output) is still enforced below.
         if self.training:
             validate_checkpoint_contract(
                 state_dict,
@@ -1017,15 +688,6 @@ class ApexPolicy(BaseDQNPolicy):
                 f"Checkpoint output_size={ckpt_output} does not match "
                 f"current policy output_size={self.output_size}. "
                 f"Cannot load mismatched weights."
-            )
-
-        # Validate use_gru mode matches
-        ckpt_use_gru = checkpoint_contract["use_gru"]
-        if ckpt_use_gru is not None and ckpt_use_gru != self.use_gru:
-            raise ValueError(
-                f"Checkpoint use_gru={ckpt_use_gru} does not match "
-                f"current policy use_gru={self.use_gru}. "
-                f"Cannot load mismatched architecture."
             )
 
         # Validate hidden_size matches
@@ -1079,14 +741,14 @@ class ApexPolicy(BaseDQNPolicy):
 
     def get_all_memories(self) -> list:
         """Get all stored memories."""
-        if self.memory is None or self.use_gru:
-            return []  # Inference mode or sequence buffer — no raw memory retrieval
+        if self.memory is None:
+            return []  # Inference mode — no raw memory retrieval
         return self.memory.get_all_memories()
 
     def prepare_memories_for_saving(self) -> list:
         """Prepare memories for database storage."""
-        if self.memory is None or self.use_gru:
-            return []  # Inference mode or sequence buffer — no raw memory retrieval
+        if self.memory is None:
+            return []  # Inference mode — no raw memory retrieval
         return memories_to_dicts(self.get_all_memories())
 
     def get_priorities(self, experiences: List[Tuple]) -> np.ndarray:
@@ -1162,40 +824,21 @@ class ApexPolicy(BaseDQNPolicy):
 
                 # Compute TD error using the same Double DQN target shape as
                 # learner updates, then convert it to PER tree priority once.
-                if self.use_gru:
-                    current_q_all, _ = self.dqn(state_t)
-                    current_q = current_q_all.gather(1, action_t).squeeze(1)
-                    next_q_online, _ = self.dqn(next_state_t)
-                    masked_next_q_online = mask_invalid_q_values(
-                        next_q_online,
-                        next_state_t,
-                        action_masks=next_action_mask_t,
-                    )
-                    valid_next_action = has_valid_actions(
-                        next_q_online,
-                        next_state_t,
-                        action_masks=next_action_mask_t,
-                    )
-                    next_action = masked_next_q_online.argmax(dim=1, keepdim=True)
-                    next_q_target, _ = target_network(next_state_t)
-                    next_q = next_q_target.gather(1, next_action).squeeze(1)
-                    next_q = torch.where(valid_next_action, next_q, torch.zeros_like(next_q))
-                else:
-                    current_q = self.dqn(state_t).gather(1, action_t).squeeze(1)
-                    next_q_online = self.dqn(next_state_t)
-                    masked_next_q_online = mask_invalid_q_values(
-                        next_q_online,
-                        next_state_t,
-                        action_masks=next_action_mask_t,
-                    )
-                    valid_next_action = has_valid_actions(
-                        next_q_online,
-                        next_state_t,
-                        action_masks=next_action_mask_t,
-                    )
-                    next_action = masked_next_q_online.argmax(dim=1, keepdim=True)
-                    next_q = target_network(next_state_t).gather(1, next_action).squeeze(1)
-                    next_q = torch.where(valid_next_action, next_q, torch.zeros_like(next_q))
+                current_q = self.dqn(state_t).gather(1, action_t).squeeze(1)
+                next_q_online = self.dqn(next_state_t)
+                masked_next_q_online = mask_invalid_q_values(
+                    next_q_online,
+                    next_state_t,
+                    action_masks=next_action_mask_t,
+                )
+                valid_next_action = has_valid_actions(
+                    next_q_online,
+                    next_state_t,
+                    action_masks=next_action_mask_t,
+                )
+                next_action = masked_next_q_online.argmax(dim=1, keepdim=True)
+                next_q = target_network(next_state_t).gather(1, next_action).squeeze(1)
+                next_q = torch.where(valid_next_action, next_q, torch.zeros_like(next_q))
 
                 gamma_n = self.gamma ** int(bootstrap_steps)
                 target_q = float(reward) + (1 - float(done)) * gamma_n * next_q.item()
@@ -1236,10 +879,6 @@ class ApexPolicy(BaseDQNPolicy):
             self.memory.clear()
         self._local_buffer.clear()
         self._losses.clear()
-        if hasattr(self, "_hidden_states"):
-            self._hidden_states.clear()
-        if hasattr(self, "_episode_buffers"):
-            self._episode_buffers.clear()
         super().cleanup()
 
     def load_checkpoint(self, checkpoint_path: str) -> bool:
@@ -1327,9 +966,6 @@ class ApexPolicy(BaseDQNPolicy):
                 state = state.unsqueeze(0)
             state = state.to(self.device)
 
-            if self.use_gru:
-                q_values, _ = self.dqn(state)
-            else:
-                q_values = self.dqn(state)
+            q_values = self.dqn(state)
 
             return q_values.squeeze().cpu().tolist()

@@ -42,7 +42,14 @@ def valid_action_mask_from_states(states: torch.Tensor) -> torch.Tensor:
     """
     output_size = GameConfig.OUTPUT_SIZE
     mask_shape = (*states.shape[:-1], output_size)
-    if states.shape[-1] <= StateIndices.BOOST_AVAILABLE or output_size != 6:
+    # Per-action danger lives at indices 54-56 ONLY in the named vector layout
+    # (58-D base, or 61-D with free-space appended after index 57). The CNN grid
+    # state is a flat image+globals vector of a different length where 54-56 are
+    # binary pixel occupancy, not danger; slicing it yields garbage masks. So only
+    # derive a mask for the known vector layouts; otherwise return all-valid and
+    # rely on simulator-provided exact masks.
+    vector_lengths = (StateIndices.BOOST_AVAILABLE + 1, StateIndices.FREE_SPACE_END)  # 58, 61
+    if states.shape[-1] not in vector_lengths or output_size != 6:
         return torch.ones(mask_shape, dtype=torch.bool, device=states.device)
 
     danger_start = StateIndices.PER_ACTION_DANGER_START

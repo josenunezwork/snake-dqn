@@ -26,13 +26,19 @@ def setup_config():
     """
     import torch
 
+    from src.core import game_config
     from src.core.device_manager import DeviceManager
     from src.core.game_config import initialize_config
 
+    # Capture and restore the global config singleton so a test that initializes a
+    # non-default config here cannot leak it into a later test that reads the global
+    # without going through this fixture.
+    prev_config = game_config._current_config
     initialize_config()
     DeviceManager.override_device(torch.device("cpu"))
     yield
     DeviceManager.reset_for_testing()
+    game_config._current_config = prev_config
 
 
 def make_test_snake(sid, pos, direction=(1, 0), segments=None):

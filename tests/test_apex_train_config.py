@@ -138,7 +138,6 @@ def test_build_apex_checkpoint_config_records_distributed_training_contract():
         "reward_food_base": 3.0,
         "target_update_freq": 2000,
         "total_steps": 10_000,
-        "use_gru": False,
         "weight_broadcast_interval": 300,
     }
 
@@ -381,6 +380,32 @@ def test_validate_apex_resume_checkpoint_config_rejects_gamma_mismatch():
     checkpoint = {"apex_config": {**expected_config, "gamma": 0.95}}
 
     with pytest.raises(ValueError, match="gamma"):
+        validate_apex_resume_checkpoint_config(
+            checkpoint,
+            expected_config,
+            checkpoint_path="apex_checkpoint.pth",
+        )
+
+
+def test_validate_apex_resume_checkpoint_config_rejects_hidden_size_mismatch():
+    """Resume must reject a network-width change (loaded weights would not fit)."""
+    expected_config = {"input_size": 58, "hidden_size": 512, "output_size": 6}
+    checkpoint = {"apex_config": {**expected_config, "hidden_size": 256}}
+
+    with pytest.raises(ValueError, match="hidden_size"):
+        validate_apex_resume_checkpoint_config(
+            checkpoint,
+            expected_config,
+            checkpoint_path="apex_checkpoint.pth",
+        )
+
+
+def test_validate_apex_resume_checkpoint_config_rejects_input_size_mismatch():
+    """Resume must reject a state-dimension change (e.g. 58-D vs 61-D free-space)."""
+    expected_config = {"input_size": 58, "hidden_size": 512, "output_size": 6}
+    checkpoint = {"apex_config": {**expected_config, "input_size": 61}}
+
+    with pytest.raises(ValueError, match="input_size"):
         validate_apex_resume_checkpoint_config(
             checkpoint,
             expected_config,
@@ -1320,7 +1345,6 @@ def test_train_apex_incompatible_resume_checkpoint_fails_before_runtime_setup(tm
                 "reward_contract": current_reward_contract(),
                 "reward_death": GameConfig.REWARD_DEATH,
                 "reward_food_base": 3.0,
-                "use_gru": False,
             },
             "dqn_state_dict": {},
             "target_dqn_state_dict": {},

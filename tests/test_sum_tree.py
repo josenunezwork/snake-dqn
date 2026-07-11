@@ -1,9 +1,9 @@
 """Tests for SumTree data structure."""
+
 import numpy as np
 import pytest
 
 from src.training.sum_tree import SumTree
-
 
 # ============================================================================
 # Basic Construction
@@ -201,12 +201,12 @@ class TestSumTreeUpdate:
 
 
 # ============================================================================
-# Total and Min/Max Priority
+# Total and Max Priority
 # ============================================================================
 
 
 class TestSumTreeAggregates:
-    """Tests for total(), min_priority(), max_priority."""
+    """Tests for total() and max_priority."""
 
     def test_total_matches_sum_of_priorities(self):
         tree = SumTree(capacity=8)
@@ -214,37 +214,6 @@ class TestSumTreeAggregates:
         for i, p in enumerate(priorities):
             tree.add(p, i)
         assert tree.total() == pytest.approx(sum(priorities))
-
-    def test_min_priority_empty(self):
-        tree = SumTree(capacity=4)
-        assert tree.min_priority() == 0.0
-
-    def test_min_priority_single(self):
-        tree = SumTree(capacity=4)
-        tree.add(3.0, "a")
-        assert tree.min_priority() == pytest.approx(3.0)
-
-    def test_min_priority_tracks_minimum(self):
-        tree = SumTree(capacity=4)
-        tree.add(5.0, "a")
-        tree.add(2.0, "b")
-        tree.add(8.0, "c")
-        assert tree.min_priority() == pytest.approx(2.0)
-
-    def test_min_priority_after_update(self):
-        tree = SumTree(capacity=4)
-        tree.add(5.0, "a")
-        tree.add(2.0, "b")
-        tree.update(1, 10.0)
-        assert tree.min_priority() == pytest.approx(5.0)
-
-    def test_min_priority_with_overwrite(self):
-        tree = SumTree(capacity=2)
-        tree.add(1.0, "a")
-        tree.add(5.0, "b")
-        assert tree.min_priority() == pytest.approx(1.0)
-        tree.add(10.0, "c")  # overwrites "a" (priority 1.0)
-        assert tree.min_priority() == pytest.approx(5.0)
 
     def test_max_priority_tracks_max_seen(self):
         tree = SumTree(capacity=4)
@@ -397,17 +366,6 @@ class TestSumTreeEdgeCases:
         assert len(tree) == 4
         # Last 4 items added: 97, 98, 99, 100
         assert tree.total() == pytest.approx(97.0 + 98.0 + 99.0 + 100.0)
-
-    def test_min_priority_with_unfilled_buffer(self):
-        """Min should only consider actual entries, not empty slots."""
-        tree = SumTree(capacity=8)
-        tree.add(5.0, "a")
-        tree.add(3.0, "b")
-        # Empty slots have inf in min-tree; but they also have 0.0 priority.
-        # Min of actual entries should be 3.0
-        # However, empty leaf slots might have 0 priority in sum-tree...
-        # The min-tree was initialized with inf, and only written slots get real values
-        assert tree.min_priority() == pytest.approx(3.0)
 
     def test_get_returns_valid_data_index(self):
         """Data index from get() should be usable with update()."""

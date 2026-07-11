@@ -74,6 +74,12 @@ training_metrics.png
 saved_memories/
 .cursorignore
 
+# Node / web frontend
+node_modules/
+web/frontend/dist/
+web/frontend/.vite/
+*.tsbuildinfo
+
 # Jupyter Notebook
 .ipynb_checkpoints
 *.ipynb

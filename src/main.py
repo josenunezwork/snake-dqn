@@ -1,7 +1,15 @@
-import argparse
 import os
+
+# Enable CPU fallback for unsupported MPS ops BEFORE torch is imported: the
+# fallback handler registers at torch import time, so this must precede the
+# torch import below (otherwise --device mps crashes on unsupported ops).
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
+import argparse
+import pickle
 import shutil
 import sys
+import tempfile
 import time
 import traceback
 from collections import deque
@@ -13,15 +21,18 @@ import numpy as np
 import psutil
 import torch
 import torch.multiprocessing as mp
-from PyQt5.QtWidgets import QApplication
+
+# The interactive UI is the web app (web/serve.py). This module is headless-only:
+# training, evaluation, and health-smoke. There is no GUI import here.
 
 # Add project root to sys.path to allow imports from src when run as a script.
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.core.config_loader import (  # noqa: E402
-    apply_config_to_game_config,
+from src.core.config_loader import apply_config_to_game_config  # noqa: E402
+from src.core.config_loader import (
     get_config_summary,
     load_config,
+    resolve_yaml_device,
 )
 from src.core.device_manager import DeviceManager  # noqa: E402
 from src.core.game_config import GameConfig, get_config, initialize_config  # noqa: E402
@@ -44,10 +55,13 @@ from src.data.memory_db_handler import (  # noqa: E402
 )
 from src.game.ai_snake import AISnake  # noqa: E402
 from src.game.game_state import GameState  # noqa: E402
+from src.game.game_state_factory import (  # noqa: E402
+    configure_eval_game_state,
+    create_training_game_state,
+)
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
 from src.training.replay_buffer import restore_replay_memories  # noqa: E402
 from src.training.tensorboard_logger import TensorBoardLogger  # noqa: E402
-from src.ui.slitherio import SlitherIOGame  # noqa: E402
 
 
 def get_optimal_env_count():
@@ -198,13 +212,32 @@ def validate_headless_checkpoint_contract(
             "reward_contract": current_reward_contract(),
             "reward_death": float(GameConfig.REWARD_DEATH),
             "reward_food_base": float(GameConfig.REWARD_FOOD_BASE),
-            "use_gru": bool(getattr(policy, "use_gru", False)),
         },
         checkpoint_path=checkpoint_path,
         float_keys=("gamma", "reward_death", "reward_food_base"),
         mapping_keys=("reward_contract",),
         required_keys=("reward_contract", "reward_death", "reward_food_base"),
     )
+
+
+def save_curriculum_state_atomic(curriculum, curriculum_path: Path) -> None:
+    """Save curriculum state atomically (temp file + os.replace) to avoid truncation.
+
+    A direct torch.save to the final path leaves a half-written file if the worker
+    dies mid-save; resuming workers then crash on the truncated pickle. Writing to a
+    temp file in the same directory and renaming makes the swap atomic.
+    """
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(curriculum_path.parent), prefix=f"{curriculum_path.name}.", suffix=".tmp"
+    )
+    os.close(fd)
+    try:
+        torch.save(curriculum.get_state(), tmp_name)
+        os.replace(tmp_name, curriculum_path)
+    except BaseException:
+        if os.path.exists(tmp_name):
+            os.remove(tmp_name)
+        raise
 
 
 def save_training_checkpoint(
@@ -229,7 +262,7 @@ def save_training_checkpoint(
     if curriculum is not None and env_id is not None:
         curriculum_path = get_env_curriculum_checkpoint_path(env_id)
         curriculum_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(curriculum.get_state(), curriculum_path)
+        save_curriculum_state_atomic(curriculum, curriculum_path)
 
     return checkpoint_path
 
@@ -363,8 +396,6 @@ def load_replay_db_into_game_state(
     memory = getattr(policy, "memory", None) if policy is not None else None
     if memory is None:
         raise RuntimeError(f"No replay buffer available for database load: {db_path}")
-    if getattr(policy, "use_gru", False):
-        raise RuntimeError("SQLite replay prefill is incompatible with GRU sequence policies")
 
     if limit is None:
         limit = getattr(memory, "capacity", GameConfig.MEMORY_SIZE)
@@ -632,66 +663,6 @@ def get_episode_stats(game_state: GameState, episode_length: int) -> Dict[str, A
     }
 
 
-def get_training_game_settings(curriculum=None) -> Dict[str, Any]:
-    """Resolve the game settings for the current training phase."""
-    if curriculum is None:
-        return {
-            "num_snakes": GameConfig.NUM_SNAKES,
-            "food_multiplier": 1.0,
-            "board_scale": 1.0,
-        }
-    return curriculum.get_game_settings()
-
-
-def configure_eval_game_state(game_state: GameState) -> None:
-    """Make a headless GameState greedy and inference-only for evaluation."""
-    policies = []
-    shared_policy = getattr(game_state, "_shared_policy", None)
-    if shared_policy is not None:
-        policies.append(shared_policy)
-
-    for snake in getattr(game_state, "snakes", []):
-        policy = getattr(snake, "policy", None)
-        if policy is not None and policy not in policies:
-            policies.append(policy)
-        if hasattr(snake, "actor_epsilon"):
-            snake.actor_epsilon = 0.0
-        if hasattr(snake, "current_epsilon"):
-            snake.current_epsilon = 0.0
-
-    for policy in policies:
-        if hasattr(policy, "epsilon"):
-            policy.epsilon = 0.0
-        if hasattr(policy, "training"):
-            policy.training = False
-        network = getattr(policy, "dqn", None)
-        if hasattr(network, "eval"):
-            network.eval()
-        target_network = getattr(policy, "target_dqn", None)
-        if hasattr(target_network, "eval"):
-            target_network.eval()
-
-
-def create_training_game_state(
-    curriculum=None, shared_policy=None, eval_mode: bool = False
-) -> GameState:
-    """Create a headless training GameState using the active curriculum settings."""
-    settings = get_training_game_settings(curriculum)
-    num_snakes = int(settings["num_snakes"])
-
-    game_state = GameState(
-        headless=True,
-        snake_policies=["apex"] * num_snakes,
-        num_snakes=num_snakes,
-        shared_policy=shared_policy,
-        food_multiplier=float(settings["food_multiplier"]),
-        board_scale=float(settings["board_scale"]),
-    )
-    if eval_mode:
-        configure_eval_game_state(game_state)
-    return game_state
-
-
 def collect_training_worker_failures(process_entries, active_envs, return_dict) -> list[str]:
     """Collect headless training worker failures before summarizing results."""
     failures = []
@@ -921,14 +892,23 @@ def train_environment(
     replay_quality_gates: Optional[Dict[str, float]] = None,
     eval_mode: bool = False,
 ):
+    game_state = None
+    tb_logger = None
     try:
         # Spawned workers don't inherit the parent's initialized config (mp
         # 'spawn' re-imports the module but never runs main()). Re-initialize from
-        # the config path the parent stashed in the environment, so overrides like
-        # network.use_gru reach this worker's policy.
+        # the config path the parent stashed in the environment, so config
+        # overrides reach this worker's policy.
         _worker_config_path = os.environ.get("SNAKE_DQN_CONFIG")
         if _worker_config_path:
             initialize_config(load_config(_worker_config_path))
+
+        # Re-apply the parent's --batch-size override: it mutated only the parent
+        # config, but mp 'spawn' workers re-init config above and would otherwise
+        # drop it. The parent stashes the resolved value in the environment.
+        _worker_batch_size = os.environ.get("SNAKE_DQN_BATCH_SIZE")
+        if _worker_batch_size:
+            apply_training_batch_size_override(int(_worker_batch_size))
 
         # Set different seeds for each environment
         torch.manual_seed(env_id)
@@ -941,6 +921,9 @@ def train_environment(
         avg_reward = 0.0
         frames_processed = 0
         last_save_time = time.time()
+        # Separate timer for the unconditional periodic "latest" snapshot so the
+        # current policy is always on disk (the best-reward save above can stall).
+        last_latest_save_time = 0.0
         last_print_time = time.time()
         best_checkpoint_path = None
         active_replay_gates = (
@@ -957,7 +940,13 @@ def train_environment(
         if GameConfig.CURRICULUM_ENABLED:
             from src.training.curriculum import CurriculumManager
 
-            curriculum = CurriculumManager(window_size=GameConfig.CURRICULUM_WINDOW_SIZE)
+            curriculum = CurriculumManager(
+                window_size=GameConfig.CURRICULUM_WINDOW_SIZE,
+                phase1_threshold=GameConfig.CURRICULUM_PHASE1_THRESHOLD,
+                phase2_threshold=GameConfig.CURRICULUM_PHASE2_THRESHOLD,
+                phase3_threshold=GameConfig.CURRICULUM_PHASE3_THRESHOLD,
+                phase4_threshold=GameConfig.CURRICULUM_PHASE4_THRESHOLD,
+            )
             # Try to load curriculum state from previous run
             curriculum_path = get_env_curriculum_checkpoint_path(env_id)
             if curriculum_path.exists():
@@ -968,7 +957,7 @@ def train_environment(
                         f"Env {env_id} | Curriculum resumed at phase: "
                         f"{curriculum.phase_name} (episode {curriculum.total_episodes})"
                     )
-                except (RuntimeError, EOFError) as e:
+                except (RuntimeError, EOFError, OSError, pickle.UnpicklingError) as e:
                     print(
                         f"Env {env_id} | Could not load curriculum state: {e}, " f"starting fresh"
                     )
@@ -1015,7 +1004,14 @@ def train_environment(
             episode_reward = 0.0
             frame = 0
 
-            while frame < GameConfig.MAX_FRAMES and game_state.alive_snakes > 0:
+            while (
+                frame < GameConfig.MAX_FRAMES
+                and game_state.alive_snakes > 0
+                # Mechanics v2 (train-mode only): end the episode once fewer
+                # than POPULATION_FLOOR_V2 snakes remain, to avoid
+                # lone-survivor replay skew. Always False at mechanics v1.
+                and not game_state.population_floor_reached
+            ):
                 game_state.update(train_mode=True, learn=not eval_mode)
                 frame += 1
                 frames_processed += 1
@@ -1054,6 +1050,23 @@ def train_environment(
             rewards_history.append(float(episode_reward))
             avg_reward = sum(rewards_history) / len(rewards_history) if rewards_history else 0
 
+            # Unconditional periodic snapshot of the CURRENT policy (every 30s),
+            # so the latest weights are always retrievable even if the best-reward
+            # save stalls. This is the file to download for evaluation.
+            now = time.time()
+            if now - last_latest_save_time >= 30:
+                latest_path = save_training_checkpoint(
+                    game_state,
+                    f"env_{env_id}_latest_snake.pth",
+                    env_id=env_id,
+                    curriculum=curriculum,
+                )
+                last_latest_save_time = now
+                print(
+                    f"Env {env_id} | Episode {episode} | Saved LATEST policy to "
+                    f"{latest_path or f'env_{env_id}_latest_snake.pth'}"
+                )
+
             # Curriculum: record episode and check for promotion
             if curriculum is not None:
                 curriculum.record_episode(
@@ -1084,10 +1097,7 @@ def train_environment(
                     )
                     # Save curriculum state on promotion
                     curriculum_path.parent.mkdir(parents=True, exist_ok=True)
-                    torch.save(
-                        curriculum.get_state(),
-                        curriculum_path,
-                    )
+                    save_curriculum_state_atomic(curriculum, curriculum_path)
 
             # TensorBoard episode logging
             if tb_logger:
@@ -1158,13 +1168,6 @@ def train_environment(
 
         final_policy_stats = get_policy_stats(game_state)
 
-        # Release GPU memory and game resources on shutdown
-        game_state.full_cleanup()
-
-        # Close TensorBoard logger
-        if tb_logger:
-            tb_logger.close()
-
         return_dict[env_id] = {
             "best_reward": float(best_reward),
             "final_avg_reward": float(avg_reward),
@@ -1189,6 +1192,13 @@ def train_environment(
             "training_time": 0,
             "error": str(e),
         }
+    finally:
+        # Always release GPU memory, game resources, and the TensorBoard logger,
+        # even if a resume-contract error, CUDA OOM, or mid-loop error fired above.
+        if game_state is not None and hasattr(game_state, "full_cleanup"):
+            game_state.full_cleanup()
+        if tb_logger is not None:
+            tb_logger.close()
 
 
 def train_headless(
@@ -1362,10 +1372,14 @@ Examples:
             "this small model."
         ),
     )
-    parser.add_argument(
+    # --headless (training) and --human (interactive play) are mutually exclusive
+    # modes; argparse rejects passing both instead of silently letting --headless
+    # win over a --human that the user explicitly asked for.
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--headless", action="store_true", help="Run in headless mode for faster training"
     )
-    parser.add_argument(
+    mode_group.add_argument(
         "--human", action="store_true", help="Enable human control mode with arrow keys"
     )
 
@@ -1583,6 +1597,11 @@ Examples:
     args = parser.parse_args()
     if args.device != "auto":
         os.environ["SNAKE_DQN_DEVICE"] = args.device
+    # Validate at the parser boundary: a non-positive --num-envs would otherwise
+    # spin up an mp.Manager and then crash deep in train_headless with a raw
+    # traceback (and leak the Manager).
+    if args.num_envs is not None and args.num_envs <= 0:
+        parser.error("--num-envs must be a positive integer")
 
     try:
         resolve_training_batch_size(args.batch_size)
@@ -1597,7 +1616,7 @@ Examples:
     if args.config:
         # Propagate the config path to spawned headless workers (mp 'spawn' does
         # NOT re-run main(), so workers would otherwise fall back to default
-        # config and ignore overrides like network.use_gru). Workers read this
+        # config and ignore config overrides). Workers read this
         # env var and re-initialize config themselves.
         os.environ["SNAKE_DQN_CONFIG"] = args.config
         try:
@@ -1614,15 +1633,25 @@ Examples:
             print(f"Error loading config: {e}")
             sys.exit(1)
 
+        # Honor hardware.device from the YAML when --device was not given on the
+        # CLI. The CLI flag (set above) and an explicitly exported SNAKE_DQN_DEVICE
+        # both take precedence; YAML only fills an otherwise-unset device. Spawned
+        # headless workers inherit SNAKE_DQN_DEVICE via the environment.
+        if args.device == "auto" and not os.environ.get("SNAKE_DQN_DEVICE"):
+            yaml_device = resolve_yaml_device(args.config)
+            if yaml_device:
+                os.environ["SNAKE_DQN_DEVICE"] = yaml_device
+
     batch_size = apply_training_batch_size_override(args.batch_size)
+    # Spawned headless workers re-init config from SNAKE_DQN_CONFIG and would
+    # otherwise drop this CLI override; stash it so the worker can re-apply it.
+    if args.batch_size is not None:
+        os.environ["SNAKE_DQN_BATCH_SIZE"] = str(resolve_training_batch_size(args.batch_size))
 
     # Show config summary and exit if requested
     if args.show_config:
         print(get_config_summary(get_config()))
         sys.exit(0)
-
-    # All snakes use Apex DQN
-    snake_policies = ["apex"] * GameConfig.NUM_SNAKES
 
     # Print startup info
     print("\n" + "=" * 50)
@@ -1662,7 +1691,8 @@ Examples:
                 print(f"Learning health smoke failed: {e}")
                 sys.exit(1)
     elif args.headless:
-        # Critical for macOS + PyQt5: must use 'spawn' start method
+        # macOS + PyTorch multiprocessing requires the 'spawn' start method
+        # (fork is unsafe with CUDA/Accelerate-backed tensors across processes).
         mp.set_start_method("spawn", force=True)
         print("Starting optimized headless training...")
         if args.tensorboard:
@@ -1679,19 +1709,28 @@ Examples:
             eval_mode=args.eval,
         )
     else:
-        mode = "Human control" if args.human else "AI"
-        print(f"Starting UI mode ({mode})...")
-        if args.tensorboard:
-            print("TensorBoard: Run 'tensorboard --logdir=logs/tensorboard' to view")
-        app = QApplication(sys.argv)
-        app.game = SlitherIOGame(
-            human_mode=args.human,
-            snake_policies=snake_policies,
-            use_tensorboard=args.tensorboard,
-            load_model_path=args.load,
-            eval_mode=args.eval,
-        )
-        sys.exit(app.exec_())
+        # The desktop PyQt5 GUI has been retired. The interactive UI — including
+        # human play — is now the web app (FastAPI backend + React frontend) that
+        # reuses this same engine: live game view, state inspector, network
+        # visualizer, eval dashboard, controls, and a scored human Play mode with
+        # a SQLite leaderboard.
+        if args.human:
+            print(
+                "Human play has moved to the web app's Play tab:\n"
+                "  build once:  cd web/frontend && npm install && npm run build\n"
+                "  run:         ./venv/bin/python web/serve.py   ->  http://localhost:8000\n"
+                "  then open the 'Play' tab, steer with arrows/WASD, and submit your score.\n"
+            )
+        else:
+            print(
+                "The desktop GUI has moved to the web app:\n"
+                "  build once:  cd web/frontend && npm install && npm run build\n"
+                "  run:         ./venv/bin/python web/serve.py   ->  http://localhost:8000\n\n"
+                "Headless training / eval / health-smoke still run here:\n"
+                "  python src/main.py --headless --episodes 100000\n"
+                "  python src/main.py --health-smoke --config configs/free_space_v2.yaml\n"
+            )
+        sys.exit(0)
 
 
 if __name__ == "__main__":

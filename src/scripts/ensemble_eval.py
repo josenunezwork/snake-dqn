@@ -18,11 +18,11 @@ Usage:
     --opponent saved_snakes/best_apex_stage1_20260615.bak.pth \
     --frames 2500 --seeds 0-19
 """
+
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -31,10 +31,20 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config_loader import apply_config_to_game_config, load_config  # noqa: E402
+from src.core.config_loader import (  # noqa: E402
+    apply_config_to_game_config,
+    load_config,
+)
 from src.core.game_config import initialize_config  # noqa: E402
-from src.main import configure_eval_game_state, create_training_game_state  # noqa: E402
-from src.scripts.tournament_eval import build_policy_from_checkpoint, set_seed  # noqa: E402
+from src.game.game_state_factory import (  # noqa: E402
+    configure_eval_game_state,
+    create_training_game_state,
+)
+from src.scripts.tournament_eval import (  # noqa: E402
+    build_policy_from_checkpoint,
+    ci95,
+    set_seed,
+)
 from src.training.action_mask import (  # noqa: E402
     coerce_action_mask,
     mask_invalid_q_values,
@@ -51,7 +61,6 @@ class EnsemblePolicy:
             m.eval()
         self.output_size = output_size
         self.device = device
-        self.use_gru = False
         self.epsilon = 0.0
         self.training = False
         self.memory = None
@@ -65,11 +74,14 @@ class EnsemblePolicy:
             state = state.to(self.device)
             sel_mask = None
             if action_mask is not None:
-                probe = torch.empty((state.shape[0], self.output_size), dtype=torch.float32, device=state.device)
+                probe = torch.empty(
+                    (state.shape[0], self.output_size), dtype=torch.float32, device=state.device
+                )
                 sel_mask = coerce_action_mask(action_mask, probe)
                 if sel_mask.dim() == 1:
                     sel_mask = sel_mask.unsqueeze(0)
-            q = torch.stack([m(state) for m in self.members], dim=0).mean(dim=0)
+            member_qs = [m(state) for m in self.members]
+            q = torch.stack(member_qs, dim=0).mean(dim=0)
             resolved = resolve_action_mask(q, state, action_masks=sel_mask)
             if resolved.shape == q.shape and not bool(resolved.any()):
                 fb = torch.zeros_like(resolved)
@@ -77,10 +89,6 @@ class EnsemblePolicy:
                 resolved = fb
             masked = mask_invalid_q_values(q, state, action_masks=resolved)
             return int(masked.argmax(dim=-1).item())
-
-    # no-ops the game/eval may call
-    def reset_hidden(self, *a, **k):
-        pass
 
 
 def parse_seeds(v):
@@ -100,19 +108,30 @@ def hero_rollout(make_hero_policy, opponent_path, frames, seed):
     gs._shared_policy = None
     configure_eval_game_state(gs)
     hero = gs.snakes[0]
-    max_mass = len(hero.segments); mass_sum = 0.0; alive = 0; deaths = 0; kills = 0
+    max_mass = len(hero.segments)
+    mass_sum = 0.0
+    alive = 0
+    deaths = 0
+    kills = 0
     prev = hero.is_alive
     for _ in range(frames):
         gs.update(train_mode=True, learn=False)
         if hero.is_alive:
-            m = len(hero.segments); max_mass = max(max_mass, m); mass_sum += m; alive += 1
+            m = len(hero.segments)
+            max_mass = max(max_mass, m)
+            mass_sum += m
+            alive += 1
         if prev and not hero.is_alive:
             deaths += 1
         prev = hero.is_alive
         kills += len(gs.frame_kills.get(hero.id, []))
     gs.full_cleanup()
-    return {"mean_mass": mass_sum / alive if alive else 0.0, "max_mass": float(max_mass),
-            "kills": float(kills), "deaths": float(deaths)}
+    return {
+        "mean_mass": mass_sum / alive if alive else 0.0,
+        "max_mass": float(max_mass),
+        "kills": float(kills),
+        "deaths": float(deaths),
+    }
 
 
 def main():
@@ -126,36 +145,59 @@ def main():
     p.add_argument("--json-output", default=None)
     args = p.parse_args()
 
-    cfg = load_config(args.config); initialize_config(cfg); apply_config_to_game_config(cfg)
+    cfg = load_config(args.config)
+    initialize_config(cfg)
+    apply_config_to_game_config(cfg)
     device = torch.device("cpu")
-    out = None
 
     def make_ensemble():
         nets = [build_policy_from_checkpoint(m).dqn for m in args.members]
-        return EnsemblePolicy(nets, nets[0].state_dict()["advantage_stream.2.weight"].shape[0], device)
+        return EnsemblePolicy(
+            nets, nets[0].state_dict()["advantage_stream.2.weight"].shape[0], device
+        )
 
     def make_baseline():
         return build_policy_from_checkpoint(args.baseline)
 
-    print(f"Ensemble ({len(args.members)} members) vs baseline {Path(args.baseline).name} | opp {Path(args.opponent).name}")
+    print(
+        f"Ensemble ({len(args.members)} members) vs baseline {Path(args.baseline).name} "
+        f"| opp {Path(args.opponent).name}"
+    )
     ens, base = [], []
     for sd in args.seeds:
         e = hero_rollout(make_ensemble, args.opponent, args.frames, sd)
         b = hero_rollout(make_baseline, args.opponent, args.frames, sd)
-        ens.append(e); base.append(b)
-        print(f"  seed {sd}: ensemble {e['mean_mass']:.1f} (k{e['kills']:.0f}) | baseline {b['mean_mass']:.1f} (k{b['kills']:.0f})")
+        ens.append(e)
+        base.append(b)
+        print(
+            f"  seed {sd}: ensemble {e['mean_mass']:.1f} (k{e['kills']:.0f}) "
+            f"| baseline {b['mean_mass']:.1f} (k{b['kills']:.0f})"
+        )
 
     diffs = [e["mean_mass"] - b["mean_mass"] for e, b in zip(ens, base)]
-    n = len(diffs); m = sum(diffs) / n
-    sd_ = (sum((x - m) ** 2 for x in diffs) / (n - 1)) ** 0.5
-    ci = 1.96 * sd_ / math.sqrt(n)
-    em = float(np.mean([e["mean_mass"] for e in ens])); bm = float(np.mean([b["mean_mass"] for b in base]))
-    ek = float(np.mean([e["kills"] for e in ens])); bk = float(np.mean([b["kills"] for b in base]))
-    sig = "SIGNIFICANT" if (m - ci) > 0 else "ns"
+    n = len(diffs)
+    m = sum(diffs) / n if n else 0.0
+    # ci95 guards n<2 (returns 0.0) so a single seed never raises ZeroDivisionError.
+    ci = ci95(diffs)
+    em = float(np.mean([e["mean_mass"] for e in ens]))
+    bm = float(np.mean([b["mean_mass"] for b in base]))
+    ek = float(np.mean([e["kills"] for e in ens]))
+    bk = float(np.mean([b["kills"] for b in base]))
+    if n < 2:
+        sig = "ns (insufficient samples)"
+    elif (m - ci) > 0:
+        sig = "SIGNIFICANT"
+    else:
+        sig = "ns"
     print(f"\nENSEMBLE mean_mass {em:.1f} (kills {ek:.2f}) vs BASELINE {bm:.1f} (kills {bk:.2f})")
-    print(f"paired Δ = {m:+.2f} ± {ci:.2f}  [{m-ci:+.2f}, {m+ci:+.2f}]  wins {sum(1 for x in diffs if x>0)}/{n}  -> {sig}")
+    wins = sum(1 for x in diffs if x > 0)
+    print(
+        f"paired Δ = {m:+.2f} ± {ci:.2f}  [{m-ci:+.2f}, {m+ci:+.2f}]  " f"wins {wins}/{n}  -> {sig}"
+    )
     if args.json_output:
-        Path(args.json_output).write_text(json.dumps({"ens": ens, "base": base, "delta": m, "ci": ci}, indent=2))
+        Path(args.json_output).write_text(
+            json.dumps({"ens": ens, "base": base, "delta": m, "ci": ci}, indent=2)
+        )
 
 
 if __name__ == "__main__":

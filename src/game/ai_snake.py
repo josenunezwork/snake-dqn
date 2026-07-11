@@ -21,6 +21,83 @@ if TYPE_CHECKING:
     from src.training.apex_policy import ApexPolicy
 
 
+def simulate_relative_action_fatality(
+    snake: "Snake",
+    other_snakes: Optional[List["Snake"]] = None,
+) -> Tuple[List[bool], List[bool]]:
+    """Simulate each candidate relative action ONCE and report per-action fatality.
+
+    This is the single shared candidate-move simulation used for mask building
+    (see :meth:`AISnake._get_safe_actions`). It is a module-level function (not a
+    method) so classes that borrow ``_get_safe_actions`` from ``AISnake`` (e.g.
+    ``ScriptedSnake``) resolve it without inheriting extra attributes.
+
+    Per relative direction the normal 1-step move is simulated and scanned once.
+    The boosted 2-step variant reuses the normal result for the shared first
+    traversed head: the arena bounds and every other snake are static within a
+    frame, so the first head's bounds/enemy scans are identical to the normal
+    pass and are skipped. Only the snake's own post-boost body layout (which
+    differs from the normal layout) is re-checked for the first head, then the
+    second head gets the full scan. This eliminates the repeated segment scans
+    the old per-action loops performed within a frame while producing exactly
+    the same fatality verdicts.
+
+    Args:
+        snake: The snake to simulate. Any Snake exposing the AISnake simulation
+            helpers works (AISnake, or ScriptedSnake which borrows them).
+        other_snakes: Other snakes treated as obstacles (may include ``snake``).
+
+    Returns:
+        Tuple of ``(normal_fatal, boost_fatal)``, each a 3-element list indexed
+        by relative action (0=left, 1=straight, 2=right). ``boost_fatal[i]`` is
+        True when boosting is unavailable (length < MIN_BOOST_LENGTH), the
+        normal move is fatal, or the 2-step boosted move collides.
+    """
+    normal_fatal = [True, True, True]
+    boost_fatal = [True, True, True]
+    can_boost = snake.length >= GameConfig.MIN_BOOST_LENGTH
+
+    for relative_action in range(3):  # 0=left, 1=straight, 2=right
+        abs_dir = GameLogic.relative_to_absolute_direction(snake.direction, relative_action)
+        normal_segments, normal_heads = snake._simulate_move_after_action(abs_dir, steps=1)
+        if snake._segments_collide_after_move(
+            normal_segments,
+            other_snakes,
+            traversed_heads=normal_heads,
+        ):
+            continue
+        normal_fatal[relative_action] = False
+
+        if not can_boost:
+            continue
+        boost_segments, boost_heads = snake._simulate_move_after_action(
+            abs_dir,
+            steps=2,
+            is_boost=True,
+        )
+        # The first boosted head equals the normal head just proven safe against
+        # the bounds and all other snakes (static within the frame); re-check it
+        # only against the snake's own post-boost body layout.
+        first_head = boost_heads[0]
+        first_head_hits_own_body = False
+        if len(boost_segments) > 3:
+            for segment in boost_segments[3:]:
+                if GameLogic.distance(first_head, segment) < snake.segment_size:
+                    first_head_hits_own_body = True
+                    break
+        if first_head_hits_own_body:
+            continue
+        if snake._segments_collide_after_move(
+            boost_segments,
+            other_snakes,
+            traversed_heads=boost_heads[1:],
+        ):
+            continue
+        boost_fatal[relative_action] = False
+
+    return normal_fatal, boost_fatal
+
+
 class AISnake(Snake):
     """Snake controlled by the Apex distributed reinforcement learning policy.
 
@@ -131,6 +208,15 @@ class AISnake(Snake):
         self.last_q_values = None
         self.record_q_values = True
 
+        # Carry-forward selection cache. The next_state/next-mask captured in
+        # compute_reward_and_train() at frame t is byte-identical (by design) to
+        # the state the snake would rebuild for action selection at frame t+1,
+        # so it is carried forward and reused instead of recomputing get_state()
+        # and _get_safe_actions() twice per frame. Disable via the public flag
+        # (used by benchmarks and as a safety hatch).
+        self.carry_forward_selection = True
+        self._carried_selection: Optional[dict] = None
+
     # =========================================================================
     # Action Selection
     # =========================================================================
@@ -231,32 +317,13 @@ class AISnake(Snake):
         Returns:
             List of safe action indices (subset of [0, 1, 2, 3, 4, 5])
         """
+        normal_fatal, boost_fatal = simulate_relative_action_fatality(self, other_snakes)
         safe = []
-        can_boost = self.length >= GameConfig.MIN_BOOST_LENGTH
-
         for relative_action in range(3):  # 0=left, 1=straight, 2=right
-            abs_dir = GameLogic.relative_to_absolute_direction(self.direction, relative_action)
-            normal_segments, normal_heads = self._simulate_move_after_action(abs_dir, steps=1)
-
-            if not self._segments_collide_after_move(
-                normal_segments,
-                other_snakes,
-                traversed_heads=normal_heads,
-            ):
+            if not normal_fatal[relative_action]:
                 safe.append(relative_action)  # Normal version
-
-                if can_boost:
-                    boost_segments, boost_heads = self._simulate_move_after_action(
-                        abs_dir,
-                        steps=2,
-                        is_boost=True,
-                    )
-                    if not self._segments_collide_after_move(
-                        boost_segments,
-                        other_snakes,
-                        traversed_heads=boost_heads,
-                    ):
-                        safe.append(relative_action + 3)  # Boost version
+                if not boost_fatal[relative_action]:
+                    safe.append(relative_action + 3)  # Boost version
         if safe or not allow_fallback:
             return safe
         # Fallback: if somehow all actions are unsafe, return all normal actions
@@ -302,8 +369,27 @@ class AISnake(Snake):
         if not self.is_alive:
             return
 
-        current_state = self.get_state(other_snakes, food)
-        safe_actions = self._get_safe_actions(other_snakes)
+        # Reuse the carried next_state/next-mask captured by the previous
+        # frame's compute_reward_and_train() as this frame's selection state.
+        # The frame guard rejects stale caches (episode resets, skipped frames,
+        # or snakes driven without a frame callback), falling back to a fresh
+        # rebuild. The carried safe list is the exact (no-fallback) mask, so the
+        # live-selection fallback to all normal actions is applied here.
+        current_state = None
+        safe_actions = None
+        carried = self._carried_selection
+        self._carried_selection = None
+        if (
+            self.carry_forward_selection
+            and carried is not None
+            and carried["frame"] == self._get_frame()
+        ):
+            current_state = carried["state"]
+            exact_safe = carried["safe_actions"]
+            safe_actions = list(exact_safe) if exact_safe else list(range(3))
+        if current_state is None:
+            current_state = self.get_state(other_snakes, food)
+            safe_actions = self._get_safe_actions(other_snakes)
         effective_epsilon = self._get_effective_epsilon()
         num_actions = GameConfig.OUTPUT_SIZE  # 6
         record_q_values = kwargs.get("record_q_values", self.record_q_values)
@@ -313,18 +399,11 @@ class AISnake(Snake):
 
         # Get Q-values from policy network (6 outputs: 3 dirs × 2 speed modes)
         q_values = None
-        _is_gru = getattr(self.policy, "use_gru", False)
-        should_compute_q = not (explore and not record_q_values and not _is_gru)
+        should_compute_q = not (explore and not record_q_values)
         if should_compute_q:
             with torch.no_grad():
                 if hasattr(self.policy, "dqn"):
-                    if _is_gru:
-                        hidden = self.policy._get_hidden(self.id)
-                        q_out, new_hidden = self.policy.dqn(current_state.unsqueeze(0), hidden)
-                        self.policy._hidden_states[self.id] = new_hidden
-                        q_values = q_out.squeeze()
-                    else:
-                        q_values = self.policy.dqn(current_state.unsqueeze(0)).squeeze()
+                    q_values = self.policy.dqn(current_state.unsqueeze(0)).squeeze()
                     if record_q_values:
                         self.last_q_values = q_values.cpu().numpy().tolist()
                 elif hasattr(self.policy, "trainer") and hasattr(self.policy.trainer, "dqn"):
@@ -437,10 +516,19 @@ class AISnake(Snake):
         if collided:
             next_state = None
         else:
+            # Single per-frame state/mask build: this next_state is also carried
+            # forward as the action-selection state at frame t+1 (see update()).
+            # With carry-forward the enemy-trend baseline must advance HERE —
+            # exactly once per frame, at the only get_state() call — which is
+            # what selection at t+1 would otherwise have done; the stored
+            # next_state and the next selection state are the same tensor, so
+            # the replay trend-consistency contract still holds. With the flag
+            # off, keep the legacy recompute semantics (baseline advances at
+            # the next selection instead).
             next_state = self.get_state(
                 other_snakes,
                 food,
-                update_enemy_memory=False,
+                update_enemy_memory=self.carry_forward_selection,
             )
 
             exact_safe_actions = self._get_safe_actions(other_snakes, allow_fallback=False)
@@ -448,6 +536,12 @@ class AISnake(Snake):
                 exact_safe_actions,
                 device=self.device,
             )
+            if self.carry_forward_selection:
+                self._carried_selection = {
+                    "frame": self._get_frame() + 1,
+                    "state": next_state,
+                    "safe_actions": exact_safe_actions,
+                }
         reward = self.calculate_reward(
             ate_food,
             collided,
@@ -502,9 +596,6 @@ class AISnake(Snake):
     ):
         """Add experience to the shared replay buffer without training.
 
-        In GRU mode, uses policy.update() which accumulates transitions
-        per-snake and handles episode completion automatically.
-
         Args:
             state: Current state tensor
             action: Action taken
@@ -524,48 +615,24 @@ class AISnake(Snake):
 
         from src.utils import ensure_tensor_on_device
 
-        _is_gru = getattr(self.policy, "use_gru", False)
-
-        if _is_gru:
-            # GRU mode: use policy.update() for episode-level buffering
-            state_tensor = ensure_tensor_on_device(state, self.policy.device)
-            if next_state is None:
-                next_state_tensor = torch.zeros_like(state_tensor)
-                done = True
-            else:
-                next_state_tensor = ensure_tensor_on_device(next_state, self.policy.device)
-
-            sid = self.id if self.id is not None else 0
-            if sid not in self.policy._episode_buffers:
-                self.policy._episode_buffers[sid] = []
-            self.policy._episode_buffers[sid].append(
-                (state_tensor, action, reward, next_state_tensor, done, next_action_mask)
-            )
-            self.policy.total_reward += reward
-
-            if done:
-                self.policy.memory.add_episode(self.policy._episode_buffers[sid])
-                self.policy._episode_buffers[sid] = []
-                self.policy.reset_hidden(sid)
+        state_tensor = ensure_tensor_on_device(state, self.policy.device)
+        if next_state is None:
+            next_state_tensor = torch.zeros_like(state_tensor)
+            done = True
         else:
-            state_tensor = ensure_tensor_on_device(state, self.policy.device)
-            if next_state is None:
-                next_state_tensor = torch.zeros_like(state_tensor)
-                done = True
-            else:
-                next_state_tensor = ensure_tensor_on_device(next_state, self.policy.device)
+            next_state_tensor = ensure_tensor_on_device(next_state, self.policy.device)
 
-            self.policy.memory.add(
-                state_tensor,
-                action,
-                reward,
-                next_state_tensor,
-                done,
-                priority=None,
-                stream_id=self.id,
-                next_action_mask=next_action_mask,
-            )
-            self.policy.total_reward += reward
+        self.policy.memory.add(
+            state_tensor,
+            action,
+            reward,
+            next_state_tensor,
+            done,
+            priority=None,
+            stream_id=self.id,
+            next_action_mask=next_action_mask,
+        )
+        self.policy.total_reward += reward
 
     def flush_pending_experience(self):
         """Flush live-episode replay tails before resetting the snake."""
@@ -574,17 +641,6 @@ class AISnake(Snake):
             or not getattr(self.policy, "training", True)
             or getattr(self.policy, "memory", None) is None
         ):
-            return
-
-        _is_gru = getattr(self.policy, "use_gru", False)
-        sid = self.id if self.id is not None else 0
-
-        if _is_gru:
-            episode_buffers = getattr(self.policy, "_episode_buffers", {})
-            pending_episode = episode_buffers.get(sid)
-            if pending_episode:
-                self.policy.memory.add_episode(pending_episode)
-                episode_buffers[sid] = []
             return
 
         if hasattr(self.policy.memory, "flush_n_step_buffer"):
@@ -607,6 +663,18 @@ class AISnake(Snake):
         """Handle snake death."""
         super().die()
 
+    def invalidate_selection_cache(self) -> None:
+        """Drop the carried selection state/mask captured last frame.
+
+        Called by GameState when the world changes outside the per-frame
+        contract — e.g. another snake respawns between this snake's
+        compute_reward_and_train() (frame t) and its next action selection
+        (frame t+1). The carried state and safe-action mask were computed in a
+        world without the respawned snake, so update() must fall back to a
+        fresh get_state()/_get_safe_actions() rebuild for that frame.
+        """
+        self._carried_selection = None
+
     def respawn(self, new_pos: Tuple[int, int]):
         """Handle snake respawn with AI-specific cleanup."""
         super().respawn(new_pos)
@@ -620,10 +688,7 @@ class AISnake(Snake):
         self.last_next_action_mask = None
         self.last_done = False
         self.last_transition_frame = None
-        # Reset GRU hidden state on respawn
-        if hasattr(self, "policy") and self.policy is not None:
-            if hasattr(self.policy, "reset_hidden"):
-                self.policy.reset_hidden(self.id)
+        self._carried_selection = None
 
     def soft_reset(self, new_pos: Tuple[int, int]):
         """Reset snake position for new episode WITHOUT destroying policy or buffer.
@@ -661,6 +726,7 @@ class AISnake(Snake):
         self.last_next_action_mask = None
         self.last_done = False
         self.last_transition_frame = None
+        self._carried_selection = None
 
         # Reset this snake's pending n-step stream between episodes to prevent
         # stale transitions while preserving other snakes' active streams.
@@ -669,11 +735,6 @@ class AISnake(Snake):
                 self.policy.memory, "reset_n_step_buffer"
             ):
                 self.policy.memory.reset_n_step_buffer(self.id)
-
-        # Reset GRU hidden state on soft_reset
-        if hasattr(self, "policy") and self.policy is not None:
-            if hasattr(self.policy, "reset_hidden"):
-                self.policy.reset_hidden(self.id)
 
     def cleanup(self):
         """Release resources and clear memory.
@@ -703,6 +764,7 @@ class AISnake(Snake):
         self.last_transition_frame = None
         self.action_history = []
         self.last_q_values = None
+        self._carried_selection = None
 
     # =========================================================================
     # Checkpoint Management
@@ -795,18 +857,9 @@ class AISnake(Snake):
         try:
             with torch.no_grad():
                 if hasattr(self.policy, "dqn"):
-                    result = self.policy.dqn(self.last_state.unsqueeze(0))
-                    # GRU network returns (q_values, hidden), feedforward returns tensor
-                    if isinstance(result, tuple):
-                        q_values = result[0].squeeze()
-                    else:
-                        q_values = result.squeeze()
+                    q_values = self.policy.dqn(self.last_state.unsqueeze(0)).squeeze()
                 elif hasattr(self.policy, "trainer") and hasattr(self.policy.trainer, "dqn"):
-                    result = self.policy.trainer.dqn(self.last_state.unsqueeze(0))
-                    if isinstance(result, tuple):
-                        q_values = result[0].squeeze()
-                    else:
-                        q_values = result.squeeze()
+                    q_values = self.policy.trainer.dqn(self.last_state.unsqueeze(0)).squeeze()
                 else:
                     return None
                 return q_values.cpu().numpy().tolist()

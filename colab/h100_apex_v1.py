@@ -693,6 +693,13 @@ class TensorSnakeEnv:
         )
 
         # Death penalty (death already computed above for death drops)
+        # NOTE: this standalone Colab trainer uses a reward scale (death=-3.0, final
+        # clamp [-5, 5] below) that DIVERGES from the in-repo contract (death=-11.0,
+        # reward_min=-12.0). It also stamps no reward metadata on its checkpoints, so
+        # checkpoints produced here are NOT resume-compatible with the in-repo Apex
+        # trainer — the resume contract's reward_death / reward_contract checks will
+        # reject them. Keep these scales in sync (or re-stamp metadata) before trying
+        # to fine-tune a Colab checkpoint in-repo.
         death_penalty = -3.0  # Flat penalty, no length scaling
         death_penalty = torch.where(death, death_penalty, torch.zeros(n, device=self.device))
 
@@ -1812,7 +1819,6 @@ class ApexTrainer:
             'input_size': self.cfg.state_dim,
             'hidden_size': self.cfg.hidden_dim,
             'output_size': self.cfg.num_actions,
-            'use_gru': False,
             'policy_type': 'apex',
             'config': {
                 'state_dim': self.cfg.state_dim,
@@ -1877,7 +1883,6 @@ def export_for_simulator(trainer: ApexTrainer, path: str):
         'input_size': trainer.cfg.state_dim,
         'hidden_size': trainer.cfg.hidden_dim,
         'output_size': trainer.cfg.num_actions,
-        'use_gru': False,
         'config': {
             'input_size': trainer.cfg.state_dim,
             'hidden_size': trainer.cfg.hidden_dim,

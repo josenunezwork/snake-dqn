@@ -1,0 +1,9 @@
+# GPU/headless deps — torch is preinstalled on the RunPod PyTorch image (don't reinstall).
+# (PyQt5 intentionally omitted: headless training no longer imports it.)
+numpy>=1.24.0,<2.0.0
+psutil>=5.9.0,<6.0.0
+pyyaml>=6.0.1,<7.0.0
+pydantic>=2.0.0,<3.0.0
+tensorboard>=2.14.0,<3.0.0
+matplotlib
+tqdm

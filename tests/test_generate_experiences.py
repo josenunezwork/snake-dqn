@@ -462,7 +462,6 @@ class TestGenerationCheckpointResolution:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         validate_generation_checkpoint_contract(
             {
@@ -475,7 +474,6 @@ class TestGenerationCheckpointResolution:
                     "reward_contract": current_reward_contract(),
                     "reward_death": GameConfig.REWARD_DEATH,
                     "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                    "use_gru": False,
                 }
             },
             PolicyStub(),
@@ -489,7 +487,6 @@ class TestGenerationCheckpointResolution:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         with pytest.raises(RuntimeError, match="missing required reward_contract"):
             validate_generation_checkpoint_contract(
@@ -502,7 +499,6 @@ class TestGenerationCheckpointResolution:
                         "gamma": GameConfig.APEX_GAMMA,
                         "reward_death": GameConfig.REWARD_DEATH,
                         "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                        "use_gru": False,
                     }
                 },
                 PolicyStub(),
@@ -516,7 +512,6 @@ class TestGenerationCheckpointResolution:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         with pytest.raises(RuntimeError, match="reward_death=-3"):
             validate_generation_checkpoint_contract(
@@ -530,7 +525,6 @@ class TestGenerationCheckpointResolution:
                         "reward_contract": current_reward_contract(),
                         "reward_death": -3.0,
                         "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                        "use_gru": False,
                     }
                 },
                 PolicyStub(),
@@ -544,7 +538,6 @@ class TestGenerationCheckpointResolution:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         stale_contract = current_reward_contract()
         stale_contract["survival"] = float(stale_contract["survival"]) + 1.0
@@ -561,7 +554,6 @@ class TestGenerationCheckpointResolution:
                         "reward_contract": stale_contract,
                         "reward_death": GameConfig.REWARD_DEATH,
                         "reward_food_base": GameConfig.REWARD_FOOD_BASE,
-                        "use_gru": False,
                     }
                 },
                 PolicyStub(),
@@ -1570,7 +1562,6 @@ class TestGenerationExploration:
 
         class PolicyStub:
             epsilon = 1.0
-            use_gru = False
 
         snake = SimpleNamespace(
             actor_epsilon=None,

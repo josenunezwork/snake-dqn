@@ -1,0 +1,4 @@
+# Eval arena for 61-D free-space models: benchmark geometry, free-space ON so all
+# snakes (hero + widened frozen opponents) produce 61-D states.
+network: {input_size: 61, hidden_size: 512, output_size: 6, use_free_space: true}
+game: {width: 1450, height: 830, num_snakes: 6, initial_food: 250, max_food: 300, max_frames: 5000}

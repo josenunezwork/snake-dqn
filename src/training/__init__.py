@@ -14,17 +14,6 @@ __all__ = [
     "OnlineTrainer",
     # Ape-X Policy
     "ApexPolicy",
-    # Ape-X priority utilities
-    "compute_td_error",
-    "compute_td_error_double_dqn",
-    "td_error_to_priority",
-    "compute_importance_weights",
-    "update_priorities_batch",
-    "compute_priority_statistics",
-    "BetaScheduler",
-    "PriorityStatistics",
-    "compute_actor_priorities",
-    "compute_learner_priorities",
     # Ape-X Learner
     "ApexLearner",
     "ApexLearnerConfig",
@@ -42,9 +31,10 @@ __all__ = [
     # Curriculum learning
     "CurriculumManager",
     "CurriculumPhase",
-    # SumTree and Sequence Buffer
+    # SumTree
     "SumTree",
-    "SequenceReplayBuffer",
+    # Behavioral probes
+    "BehaviorProbes",
 ]
 
 _LAZY_EXPORTS = {
@@ -57,25 +47,6 @@ _LAZY_EXPORTS = {
     "MultiStepBuffer": ("src.training.multistep_buffer", "MultiStepBuffer"),
     "OnlineTrainer": ("src.training.online_trainer", "OnlineTrainer"),
     "ApexPolicy": ("src.training.apex_policy", "ApexPolicy"),
-    "compute_td_error": ("src.training.apex_priorities", "compute_td_error"),
-    "compute_td_error_double_dqn": (
-        "src.training.apex_priorities",
-        "compute_td_error_double_dqn",
-    ),
-    "td_error_to_priority": ("src.training.apex_priorities", "td_error_to_priority"),
-    "compute_importance_weights": (
-        "src.training.apex_priorities",
-        "compute_importance_weights",
-    ),
-    "update_priorities_batch": ("src.training.apex_priorities", "update_priorities_batch"),
-    "compute_priority_statistics": (
-        "src.training.apex_priorities",
-        "compute_priority_statistics",
-    ),
-    "BetaScheduler": ("src.training.apex_priorities", "BetaScheduler"),
-    "PriorityStatistics": ("src.training.apex_priorities", "PriorityStatistics"),
-    "compute_actor_priorities": ("src.training.apex_priorities", "compute_actor_priorities"),
-    "compute_learner_priorities": ("src.training.apex_priorities", "compute_learner_priorities"),
     "ApexLearner": ("src.training.apex_learner", "ApexLearner"),
     "ApexLearnerConfig": ("src.training.apex_learner", "ApexLearnerConfig"),
     "create_apex_learner": ("src.training.apex_learner", "create_apex_learner"),
@@ -90,7 +61,7 @@ _LAZY_EXPORTS = {
     "CurriculumManager": ("src.training.curriculum", "CurriculumManager"),
     "CurriculumPhase": ("src.training.curriculum", "CurriculumPhase"),
     "SumTree": ("src.training.sum_tree", "SumTree"),
-    "SequenceReplayBuffer": ("src.training.sequence_buffer", "SequenceReplayBuffer"),
+    "BehaviorProbes": ("src.training.behavior_probes", "BehaviorProbes"),
 }
 
 

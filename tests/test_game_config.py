@@ -157,10 +157,6 @@ class TestGameConfig:
             ("game:\n  initial_food: 200\n  max_food: 100\n", "game.max_food"),
             ("training:\n  batch_size: 2000\n  memory_size: 1000\n", "training.memory_size"),
             ("training:\n  epsilon_start: 0.1\n  epsilon_end: 0.2\n", "training.epsilon_end"),
-            (
-                "network:\n  use_gru: true\n  sequence_length: 5\n  burn_in_length: 5\n",
-                "network.burn_in_length",
-            ),
             ("rewards:\n  food_base: 3.0\n  reward_max: 2.0\n", "rewards.reward_max"),
             ("rewards:\n  kill_max: 5.0\n  reward_max: 4.0\n", "rewards.reward_max"),
             ("rewards:\n  death: -3.0\n  reward_min: -2.0\n", "rewards.reward_min"),

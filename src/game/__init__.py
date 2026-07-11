@@ -8,6 +8,7 @@ __all__ = [
     "Snake",
     "AISnake",
     "HumanSnake",
+    "ScriptedSnake",
     # Game logic and state
     "GameLogic",
     "GameState",
@@ -23,6 +24,7 @@ _LAZY_EXPORTS = {
     "Snake": ("src.game.snake", "Snake"),
     "AISnake": ("src.game.ai_snake", "AISnake"),
     "HumanSnake": ("src.game.human_snake", "HumanSnake"),
+    "ScriptedSnake": ("src.game.scripted_snake", "ScriptedSnake"),
     "GameLogic": ("src.game.game_logic", "GameLogic"),
     "GameState": ("src.game.game_state", "GameState"),
     "FoodManager": ("src.game.food_manager", "FoodManager"),
@@ -41,6 +43,7 @@ if TYPE_CHECKING:
     from src.game.game_logic import GameLogic as GameLogic
     from src.game.game_state import GameState as GameState
     from src.game.human_snake import HumanSnake as HumanSnake
+    from src.game.scripted_snake import ScriptedSnake as ScriptedSnake
     from src.game.snake import Snake as Snake
     from src.game.snake_factory import SnakeFactory as SnakeFactory
 

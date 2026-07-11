@@ -1,4 +1,5 @@
 import random
+from collections import deque
 from typing import Optional
 
 import numpy as np
@@ -53,8 +54,16 @@ class OnlineTrainer:
             self.dqn.parameters(), lr=GameConfig.APEX_LEARNING_RATE, weight_decay=1e-5
         )
 
+        # Floor the LR at 1% of the configured initial LR via the scheduler's own
+        # min_lr. This scales with config so the floor can never exceed the
+        # configured LR — unlike the old hardcoded 1e-4 post-step clamp, which
+        # could silently raise a lower configured LR back up to 1e-4.
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode="max", factor=0.5, patience=1000
+            self.optimizer,
+            mode="max",
+            factor=0.5,
+            patience=1000,
+            min_lr=GameConfig.APEX_LEARNING_RATE * 1e-2,
         )
 
         self.best_reward = float("-inf")
@@ -68,6 +77,10 @@ class OnlineTrainer:
 
         self.epsilon = GameConfig.EPSILON_START
         self.total_reward = 0.0
+        # Recent per-step rewards for a meaningful LR-plateau signal. The previous
+        # metric (lifetime reward sum / gradient-step count) divided two unrelated
+        # quantities and was not a usable signal for the scheduler.
+        self._recent_rewards: deque = deque(maxlen=1000)
         self.update_counter = 0
         self.current_loss = 0.0  # Track last training loss
         self._last_train_metrics = {}
@@ -111,6 +124,7 @@ class OnlineTrainer:
             next_action_mask=next_action_mask,
         )
         self.total_reward += reward_tensor.item()
+        self._recent_rewards.append(reward_tensor.item())
 
     def train(self, num_iterations=1):
         """
@@ -191,13 +205,14 @@ class OnlineTrainer:
                 hard_update(self.target_dqn, self.dqn)
 
         self.epsilon = max(GameConfig.EPSILON_END, self.epsilon * GameConfig.EPSILON_DECAY)
-        avg_reward = self.total_reward / (self.update_counter + 1)
+        # Windowed mean of recent per-step rewards — a meaningful plateau signal.
+        avg_reward = (
+            sum(self._recent_rewards) / len(self._recent_rewards) if self._recent_rewards else 0.0
+        )
+        # The LR floor is enforced inside the scheduler via min_lr (configured in
+        # __init__), so no manual post-step clamp is needed — and a manual clamp
+        # could push the LR above a low configured value, which min_lr never does.
         self.scheduler.step(avg_reward)
-
-        MIN_LR = 1e-4
-        for param_group in self.optimizer.param_groups:
-            if param_group["lr"] < MIN_LR:
-                param_group["lr"] = MIN_LR
 
         avg_loss = total_loss / num_iterations
         self.current_loss = avg_loss  # Store for external access

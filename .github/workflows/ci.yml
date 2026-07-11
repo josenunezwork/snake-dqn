@@ -2,28 +2,48 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  test:
+  quality:
+    name: lint + tests
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Lint (black, isort, flake8)
+        run: |
+          black --check --line-length 100 src web/backend
+          isort --profile black --check-only src web/backend
+          flake8 src web/backend
+      - name: Run tests
+        run: pytest -q -m "not slow"
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.11"
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
-
-    - name: Run tests
-      run: |
-        pytest -m "not slow"
+  frontend:
+    name: frontend build + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+      - name: Install
+        working-directory: web/frontend
+        run: npm ci
+      - name: Unit tests (vitest)
+        working-directory: web/frontend
+        run: npm test
+      - name: Build
+        working-directory: web/frontend
+        run: npm run build

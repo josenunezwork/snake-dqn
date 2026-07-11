@@ -5,8 +5,8 @@ from solo easy (small board, lots of food) to full competitive play.
 """
 
 from collections import deque
-from dataclasses import dataclass
-from typing import Tuple
+from dataclasses import dataclass, replace
+from typing import Optional, Tuple
 
 
 @dataclass
@@ -77,7 +77,32 @@ class CurriculumManager:
         ),
     ]
 
-    def __init__(self, window_size: int = 50):
+    def __init__(
+        self,
+        window_size: int = 50,
+        phase1_threshold: Optional[float] = None,
+        phase2_threshold: Optional[float] = None,
+        phase3_threshold: Optional[float] = None,
+        phase4_threshold: Optional[float] = None,
+    ):
+        # Per-instance phase table. Defaults to the class PHASES template, but the
+        # first four (promotable) phases' thresholds can be overridden from config
+        # (GameConfig.CURRICULUM_PHASE{1..4}_THRESHOLD). Previously these YAML knobs
+        # were plumbed all the way to GameConfig yet never read here, so editing them
+        # silently did nothing. The terminal "advanced" phase keeps float('inf')
+        # (no config knob). Passing None for a threshold keeps the template default.
+        overrides = (phase1_threshold, phase2_threshold, phase3_threshold, phase4_threshold)
+        self.phases = [
+            (
+                replace(phase, promotion_threshold=override)
+                if i < len(overrides) and override is not None
+                else replace(phase)
+            )
+            for i, (phase, override) in enumerate(
+                zip(self.PHASES, list(overrides) + [None] * (len(self.PHASES) - len(overrides)))
+            )
+        ]
+
         self.current_phase_idx: int = 0
         self.window_size = window_size
         self.episode_lengths: deque = deque(maxlen=window_size)
@@ -88,8 +113,8 @@ class CurriculumManager:
 
     @property
     def current_phase(self) -> CurriculumPhase:
-        """Return the current curriculum phase."""
-        return self.PHASES[self.current_phase_idx]
+        """Return the current curriculum phase (from the per-instance table)."""
+        return self.phases[self.current_phase_idx]
 
     @property
     def phase_name(self) -> str:
@@ -106,14 +131,18 @@ class CurriculumManager:
 
     def should_promote(self) -> bool:
         """Check if current metrics warrant promotion to next phase."""
-        if self.current_phase_idx >= len(self.PHASES) - 1:
+        if self.current_phase_idx >= len(self.phases) - 1:
             return False
 
         phase = self.current_phase
         if self.phase_episodes < phase.min_episodes:
             return False
 
-        if len(self.episode_lengths) < self.window_size:
+        # Require a full window of CURRENT-phase episodes before averaging. The
+        # metric deque is not cleared on promotion (to carry momentum), so when
+        # window_size > min_episodes the window could otherwise blend in stale
+        # episodes from the easier previous phase and trigger premature promotion.
+        if self.phase_episodes < self.window_size or len(self.episode_lengths) < self.window_size:
             return False
 
         if phase.promotion_metric == "avg_length":
@@ -129,7 +158,7 @@ class CurriculumManager:
 
     def promote(self) -> CurriculumPhase:
         """Advance to next phase. Returns new phase."""
-        if self.current_phase_idx < len(self.PHASES) - 1:
+        if self.current_phase_idx < len(self.phases) - 1:
             self.current_phase_idx += 1
             self.phase_episodes = 0
             # Don't clear metric windows - let the agent carry momentum
@@ -176,12 +205,6 @@ class CurriculumManager:
         self.current_phase_idx = state.get("current_phase_idx", 0)
         self.total_episodes = state.get("total_episodes", 0)
         self.phase_episodes = state.get("phase_episodes", 0)
-        self.episode_lengths = deque(
-            state.get("episode_lengths", []), maxlen=self.window_size
-        )
-        self.episode_kills = deque(
-            state.get("episode_kills", []), maxlen=self.window_size
-        )
-        self.episode_deaths = deque(
-            state.get("episode_deaths", []), maxlen=self.window_size
-        )
+        self.episode_lengths = deque(state.get("episode_lengths", []), maxlen=self.window_size)
+        self.episode_kills = deque(state.get("episode_kills", []), maxlen=self.window_size)
+        self.episode_deaths = deque(state.get("episode_deaths", []), maxlen=self.window_size)

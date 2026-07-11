@@ -307,6 +307,7 @@ class SharedPrioritizedBuffer:
         beta_frames: int = 1_000_000,
         priority_eps: float = 1e-6,
         state_size: int = GameConfig.INPUT_SIZE,
+        initial_frame_count: int = 0,
     ):
         """
         Initialize the shared prioritized buffer.
@@ -318,6 +319,9 @@ class SharedPrioritizedBuffer:
             beta_end: Final importance sampling weight
             beta_frames: Number of frames to anneal beta
             priority_eps: Small constant to prevent zero priorities
+            initial_frame_count: Seed for the beta-annealing clock. On resume this
+                is set to the learner's resumed step so beta does not restart from
+                beta_start; defaults to 0 for fresh runs.
         """
         self.capacity = capacity
         self.alpha = alpha
@@ -327,9 +331,11 @@ class SharedPrioritizedBuffer:
         self.priority_eps = priority_eps
         self.state_size = int(state_size)
 
-        # Current beta (annealed over time)
-        self._beta = beta_start
-        self._frame_count = 0
+        # Beta-annealing clock. Seeded from initial_frame_count so a resumed run
+        # continues annealing from where it left off instead of from beta_start.
+        self._frame_count = int(initial_frame_count)
+        _fraction = min(1.0, self._frame_count / self.beta_frames) if self.beta_frames else 1.0
+        self._beta = self.beta_start + _fraction * (self.beta_end - self.beta_start)
 
         # SumTree for O(log N) prioritized sampling
         self._tree = SumTree(capacity)
@@ -703,6 +709,7 @@ class BufferProcess:
         beta_frames: int = 1_000_000,
         max_queue_size: int = 1000,
         state_size: int = GameConfig.INPUT_SIZE,
+        initial_frame_count: int = 0,
     ):
         """
         Initialize buffer process manager.
@@ -715,6 +722,9 @@ class BufferProcess:
             beta_frames: Frames to anneal beta
             max_queue_size: Maximum size for communication queues
             state_size: Expected flat state vector size.
+            initial_frame_count: Seed for the buffer's beta-annealing clock. On
+                resume, pass the learner's resumed step so beta continues annealing
+                instead of restarting from beta_start; defaults to 0 for fresh runs.
         """
         self.capacity = capacity or get_default_capacity()
         self.alpha = alpha
@@ -723,6 +733,7 @@ class BufferProcess:
         self.beta_frames = beta_frames
         self.max_queue_size = max_queue_size
         self.state_size = int(state_size)
+        self.initial_frame_count = int(initial_frame_count)
 
         # Create multiprocessing queues
         self._experience_queue: mp.Queue = mp.Queue(maxsize=max_queue_size)
@@ -752,6 +763,7 @@ class BufferProcess:
                 self.beta_end,
                 self.beta_frames,
                 self.state_size,
+                self.initial_frame_count,
                 self._experience_queue,
                 self._sample_request_queue,
                 self._sample_response_queue,
@@ -772,6 +784,7 @@ class BufferProcess:
         beta_end: float,
         beta_frames: int,
         state_size: int,
+        initial_frame_count: int,
         experience_queue: mp.Queue,
         sample_request_queue: mp.Queue,
         sample_response_queue: mp.Queue,
@@ -793,6 +806,7 @@ class BufferProcess:
             beta_end=beta_end,
             beta_frames=beta_frames,
             state_size=state_size,
+            initial_frame_count=initial_frame_count,
         )
 
         poll_interval = 0.001  # 1ms polling interval
@@ -895,6 +909,14 @@ class BufferProcess:
                         except ValueError:
                             # Not enough samples
                             response = BufferMessage(MessageType.SAMPLE_RESPONSE, data=None)
+                        # Blocking put (no timeout) is intentional and cannot
+                        # deadlock here: the learner issues a single sample
+                        # request and then blocks reading the response before
+                        # sending the next one (synchronous, single-in-flight
+                        # request design). The response queue therefore holds at
+                        # most one item, so it is never full when we put, and the
+                        # consumer is guaranteed to be waiting. Do not switch to
+                        # put_nowait: dropping a response would hang the learner.
                         sample_response_queue.put(response)
             except Empty:
                 pass
@@ -1300,6 +1322,16 @@ class LearnerBufferClient:
         self._priority_update_queue = priority_update_queue
         self._control_queue = control_queue
         self._response_queue = response_queue
+        # Observability only: count priority updates dropped at the IPC boundary
+        # when the queue is full. Dropping is acceptable in Ape-X (stale
+        # priorities self-correct on the next visit), but should not be silent.
+        self._dropped_priority_update_count = 0
+        self._last_priority_drop_error: Optional[str] = None
+        # Observability: distinguish "queue empty within timeout" (expected, the
+        # buffer just isn't ready) from a real failure decoding a response. The
+        # latter used to be swallowed as a silent None and read as "not ready".
+        self._client_read_error_count = 0
+        self._last_client_read_error: Optional[str] = None
 
     def sample(
         self, batch_size: int, device: Optional[torch.device] = None, timeout: float = 5.0
@@ -1367,7 +1399,14 @@ class LearnerBufferClient:
 
             return batch, indices, weights
 
-        except Exception:
+        except Empty:
+            return None  # no batch ready within timeout — expected "not ready"
+        except Exception as exc:
+            # A real failure (e.g. malformed response / tensor conversion) — return
+            # the not-ready sentinel so the learner loop survives, but record it so
+            # it is not silently misread as an empty buffer.
+            self._client_read_error_count += 1
+            self._last_client_read_error = f"sample: {exc}"
             return None
 
     def update_priorities(self, indices: List[int], td_errors: np.ndarray) -> None:
@@ -1385,8 +1424,11 @@ class LearnerBufferClient:
 
         try:
             self._priority_update_queue.put_nowait(msg)
-        except Exception:
-            pass  # Queue full, skip update
+        except Exception as exc:
+            # Queue full, skip update (acceptable in Ape-X), but make it
+            # observable instead of silently dropping. Behavior is unchanged.
+            self._dropped_priority_update_count += 1
+            self._last_priority_drop_error = str(exc)
 
     def get_size(self, timeout: float = 1.0) -> int:
         """Get current buffer size."""
@@ -1394,17 +1436,30 @@ class LearnerBufferClient:
         try:
             response = self._response_queue.get(timeout=timeout)
             return response.data
-        except Exception:
+        except Empty:
+            return 0
+        except Exception as exc:
+            self._client_read_error_count += 1
+            self._last_client_read_error = f"get_size: {exc}"
             return 0
 
     def get_stats(self, timeout: float = 1.0) -> Dict[str, Any]:
-        """Get buffer statistics."""
+        """Get buffer statistics.
+
+        Merges in client-side IPC drop counters (priority updates dropped at the
+        queue boundary) so they are observable alongside the buffer-process stats.
+        """
         self._control_queue.put(BufferMessage(MessageType.GET_STATS))
         try:
             response = self._response_queue.get(timeout=timeout)
-            return response.data
+            stats = dict(response.data) if isinstance(response.data, dict) else {}
         except Exception:
-            return {}
+            stats = {}
+        stats["dropped_priority_update_count"] = self._dropped_priority_update_count
+        stats["last_priority_drop_error"] = self._last_priority_drop_error
+        stats["client_read_error_count"] = self._client_read_error_count
+        stats["last_client_read_error"] = self._last_client_read_error
+        return stats
 
 
 # =============================================================================

@@ -12,6 +12,7 @@ from src.core.game_config import GameConfig
 if TYPE_CHECKING:
     from src.game.ai_snake import AISnake
     from src.game.human_snake import HumanSnake
+    from src.game.scripted_snake import ScriptedSnake
     from src.training.apex_policy import ApexPolicy
 
 
@@ -88,7 +89,6 @@ class SnakeFactory:
                 GameConfig.INPUT_SIZE,
                 GameConfig.HIDDEN_SIZE,
                 GameConfig.OUTPUT_SIZE,
-                use_gru=GameConfig.USE_GRU,
             )
 
         # Import here to avoid circular imports
@@ -205,6 +205,59 @@ class SnakeFactory:
         )
 
     @staticmethod
+    def create_scripted_snake(
+        snake_id: int,
+        color: Tuple[int, int, int],
+        start_pos: Tuple[int, int],
+        kind: str,
+        game_width: int,
+        game_height: int,
+        seed: Optional[int] = None,
+        segment_size: Optional[int] = None,
+        food_capacity: Optional[int] = None,
+    ) -> "ScriptedSnake":
+        """Create a non-learning scripted snake (evaluation anchor).
+
+        Scripted snakes never call a neural policy and are skipped by every
+        learning path (they define no ``compute_reward_and_train``). Given the
+        same seed and world, their behavior is deterministic.
+
+        Args:
+            snake_id: Unique identifier for the snake
+            color: RGB color tuple for the snake
+            start_pos: (x, y) starting position
+            kind: Scripted behavior, one of ``"greedy_food"`` or ``"random_safe"``
+            game_width: Game area width
+            game_height: Game area height
+            seed: RNG seed for ``random_safe`` action sampling
+            segment_size: Size of snake segments (defaults to GameConfig.SEGMENT_SIZE)
+            food_capacity: Effective max food count for state density features
+
+        Returns:
+            Configured ScriptedSnake instance
+
+        Raises:
+            ValueError: If ``kind`` is not a known scripted behavior
+        """
+        segment_size = segment_size or GameConfig.SEGMENT_SIZE
+        food_capacity = GameConfig.MAX_FOOD if food_capacity is None else food_capacity
+
+        # Import here to avoid circular imports
+        from src.game.scripted_snake import ScriptedSnake
+
+        return ScriptedSnake(
+            id=snake_id,
+            color=color,
+            start_pos=start_pos,
+            segment_size=segment_size,
+            game_width=game_width,
+            game_height=game_height,
+            kind=kind,
+            seed=seed,
+            food_capacity=food_capacity,
+        )
+
+    @staticmethod
     def create_snakes_for_game(
         num_snakes: int,
         position_generator: Callable[[], Tuple[int, int]],
@@ -266,7 +319,6 @@ class SnakeFactory:
                 GameConfig.INPUT_SIZE,
                 GameConfig.HIDDEN_SIZE,
                 GameConfig.OUTPUT_SIZE,
-                use_gru=GameConfig.USE_GRU,
             )
 
         ai_index = 0

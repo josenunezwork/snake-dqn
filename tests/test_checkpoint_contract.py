@@ -10,7 +10,6 @@ EXPECTED_CONFIG = {
     "output_size": 6,
     "n_step": 3,
     "gamma": 0.99,
-    "use_gru": False,
 }
 EXPECTED_REWARD_CONTRACT = {
     "survival": 0.01,
@@ -26,9 +25,8 @@ def test_validate_checkpoint_contract_accepts_matching_values_from_all_locations
             "hidden_size": 512,
             "output_size": 6,
             "n_step": 3,
-            "gamma": 0.99,
         },
-        "config": {"use_gru": False},
+        "config": {"gamma": 0.99},
     }
 
     validate_checkpoint_contract(

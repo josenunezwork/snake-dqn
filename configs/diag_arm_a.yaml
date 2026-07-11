@@ -1,0 +1,53 @@
+# 3-arm kill-diagnosis — ARM A (economics only). Blueprint §0.9 / P1.
+#
+# Warm-start champion_a5 under mechanics v2 + reward v2 (kills pay in mass:
+# 100% cap-exempt corpse, boost trail pellets, size-resolved head-ons; PBRS
+# reward with an unclamped kill event), with NO opponent pool (pure mirror
+# self-play). Isolates whether reward/mechanics economics alone move median
+# kills/episode off zero. Resume needs --override-reward-contract (v1 -> v2
+# reward economics on the champion checkpoint).
+#
+# Identical to configs/mechanics_v2.yaml; kept as a named arm for clarity.
+network:
+  input_size: 61
+  hidden_size: 512
+  output_size: 6
+  use_free_space: true
+rewards:
+  version: 2
+  death: -11.0
+  food_base: 3.0
+  survival: 0.01
+  death_length_scale: 0.0
+  boost_segment: 3.0
+  reward_max: 5.0
+  reward_min: -12.0
+  kill_max: 5.0
+game:
+  mechanics_version: 2
+  width: 1450
+  height: 830
+  num_snakes: 6
+  initial_food: 250
+  max_food: 300
+  max_frames: 5000
+  frame_rate: 1
+  max_length: 150
+training:
+  batch_size: 256
+  learning_rate: 0.0001
+  gamma: 0.99
+  target_update_frequency: 2500
+  train_frequency: 4
+  checkpoint_frequency: 5000
+  save_interval: 5000
+apex:
+  batch_size: 256
+  buffer_size: 200000
+  min_buffer_size: 10000
+  target_update_freq: 2500
+  learning_rate: 0.0001
+  gamma: 0.99
+  n_step: 3
+  use_compile: false
+  pin_memory: false

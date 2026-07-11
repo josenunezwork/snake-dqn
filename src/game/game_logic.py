@@ -5,6 +5,7 @@ import random
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from src.core.game_config import GameConfig
+from src.core.mechanics_constants import same_cell, snap_to_cell
 
 if TYPE_CHECKING:
     from src.game.game_state import GameState
@@ -87,7 +88,12 @@ class GameLogic:
         spawn_radius = max(0.0, radius - margin)
         angle = random.uniform(0, 2 * math.pi)
         r = spawn_radius * math.sqrt(random.uniform(0, 1))
-        return (int(cx + r * math.cos(angle)), int(cy + r * math.sin(angle)))
+        # Snap to the segment lattice so cell-exact collision matches the legacy
+        # radius test (see mechanics_constants.snap_to_cell).
+        return snap_to_cell(
+            (int(cx + r * math.cos(angle)), int(cy + r * math.sin(angle))),
+            GameConfig.SEGMENT_SIZE,
+        )
 
     @staticmethod
     def relative_to_absolute_direction(
@@ -223,6 +229,10 @@ class GameLogic:
         """
         Check if snake's head collides with its own body.
 
+        Cell-exact: head and segment collide iff they occupy the same integer
+        cell (position // segment_size). Equivalent to the legacy radius test
+        on the segment lattice.
+
         Only checks if snake is long enough to self-collide (length > 3).
         Skips first 3 segments (head + 2 adjacent) since they can't overlap.
 
@@ -236,7 +246,7 @@ class GameLogic:
             return False
         for head in GameLogic._collision_positions(snake):
             for segment in snake.segments[3:]:
-                if GameLogic.distance(head, segment) < snake.segment_size:
+                if same_cell(head, segment, snake.segment_size):
                     return True
         return False
 
@@ -245,15 +255,18 @@ class GameLogic:
         """
         Check if two snake heads are colliding.
 
+        Cell-exact: heads collide iff they occupy the same integer cell
+        (position // segment_size), plus the head-swap path check.
+
         Args:
             snake1: First snake
             snake2: Second snake
 
         Returns:
-            True if heads are within collision distance
+            True if heads share a cell (or swapped cells this frame)
         """
         if any(
-            GameLogic.distance(head1, head2) < snake1.segment_size
+            same_cell(head1, head2, snake1.segment_size)
             for head1 in GameLogic._collision_positions(snake1)
             for head2 in GameLogic._collision_positions(snake2)
         ):
@@ -265,6 +278,9 @@ class GameLogic:
         """
         Check if snake1's head collides with snake2's body.
 
+        Cell-exact: head and body segment collide iff they occupy the same
+        integer cell (position // segment_size).
+
         Args:
             snake1: Snake whose head might be colliding
             snake2: Snake whose body might be hit
@@ -273,7 +289,7 @@ class GameLogic:
             True if snake1's head hits snake2's body
         """
         return any(
-            GameLogic.distance(head, segment) < snake1.segment_size
+            same_cell(head, segment, snake1.segment_size)
             for head in GameLogic._collision_positions(snake1)
             for segment in snake2.segments[1:]
         )
@@ -317,8 +333,15 @@ class GameLogic:
             if is_circular:
                 x, y = GameLogic.get_random_circular_position(width, height, margin)
             else:
-                x = random.randint(margin, width - margin - 1)
-                y = random.randint(margin, height - margin - 1)
+                # Snap to the segment lattice so cell-exact collision matches the
+                # legacy radius test (see mechanics_constants.snap_to_cell).
+                x, y = snap_to_cell(
+                    (
+                        random.randint(margin, width - margin - 1),
+                        random.randint(margin, height - margin - 1),
+                    ),
+                    GameConfig.SEGMENT_SIZE,
+                )
             if not GameLogic.position_overlaps_snakes((x, y), snakes):
                 return (x, y)
             attempts += 1

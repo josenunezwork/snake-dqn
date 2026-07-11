@@ -161,7 +161,6 @@ class TestAISnake:
 
         class DqnPolicyStub:
             epsilon = 1.0
-            use_gru = False
 
             def dqn(self, state):
                 return torch.tensor([[0.0, 100.0, 0.0, 0.0, 0.0, 0.0]])
@@ -203,7 +202,6 @@ class TestAISnake:
 
         class DqnPolicyStub:
             epsilon = 1.0
-            use_gru = False
 
             def dqn(self, state):
                 return torch.zeros((1, GameConfig.OUTPUT_SIZE))
@@ -245,7 +243,6 @@ class TestAISnake:
 
         class DqnPolicyStub:
             epsilon = 1.0
-            use_gru = False
 
             def dqn(self, state):
                 return torch.zeros((1, GameConfig.OUTPUT_SIZE))
@@ -288,7 +285,6 @@ class TestAISnake:
 
         class DqnPolicyStub:
             epsilon = 0.0
-            use_gru = False
 
             def dqn(self, state):
                 return torch.tensor([[1.0, 10_000.0, 2.0, 3_000.0, 4_000.0, 5_000.0]])
@@ -318,7 +314,6 @@ class TestAISnake:
 
         class DqnPolicyStub:
             epsilon = 0.0
-            use_gru = False
 
             def __init__(self):
                 self.dqn_calls = 0
@@ -353,7 +348,6 @@ class TestAISnake:
 
         class DqnPolicyStub:
             epsilon = 1.0
-            use_gru = False
 
             def dqn(self, state):
                 raise AssertionError("random headless exploration should skip DQN inference")
@@ -386,7 +380,6 @@ class TestAISnake:
 
         class PolicyStub:
             epsilon = 0.0
-            use_gru = False
 
             def __init__(self):
                 self.seen_action_mask = None
@@ -427,7 +420,6 @@ class TestAISnake:
 
         class PolicyStub:
             epsilon = 0.0
-            use_gru = False
             training = True
             device = torch.device("cpu")
 
@@ -471,7 +463,6 @@ class TestAISnake:
 
         class PolicyStub:
             epsilon = 0.0
-            use_gru = False
             training = True
             device = torch.device("cpu")
 
@@ -508,54 +499,6 @@ class TestAISnake:
         assert snake.last_next_action_mask.tolist() == [False, False, False, False, False, False]
         _, kwargs = policy_stub.memory.add_calls[0]
         assert torch.equal(kwargs["next_action_mask"], snake.last_next_action_mask)
-
-    def test_gru_replay_buffer_keeps_exact_next_action_mask(self):
-        """GRU snake replay should keep simulator masks in the episode buffer."""
-
-        class MemoryStub:
-            def add_episode(self, episode):
-                raise AssertionError("nonterminal transition should stay pending")
-
-        class PolicyStub:
-            epsilon = 0.0
-            use_gru = True
-            training = True
-            device = torch.device("cpu")
-
-            def __init__(self):
-                self.memory = MemoryStub()
-                self._episode_buffers = {}
-                self.total_reward = 0.0
-
-            def reset_hidden(self, snake_id):
-                pass
-
-        policy_stub = PolicyStub()
-        snake = AISnake(
-            id=0,
-            color=(255, 0, 0),
-            start_pos=(100, 100),
-            segment_size=10,
-            game_width=800,
-            game_height=600,
-            policy=policy_stub,
-        )
-        state = snake.get_state([snake], [(200, 200)])
-        next_state = snake.get_state([snake], [(210, 200)])
-        next_action_mask = torch.tensor([False, True, False, False, True, False])
-
-        snake._add_experience(
-            state,
-            action=1,
-            reward=0.5,
-            next_state=next_state,
-            done=False,
-            next_action_mask=next_action_mask,
-        )
-
-        stored_transition = policy_stub._episode_buffers[0][0]
-        assert len(stored_transition) == 6
-        assert torch.equal(stored_transition[5], next_action_mask)
 
     def test_calculate_reward_death(self, policy):
         """Test death returns large negative reward."""

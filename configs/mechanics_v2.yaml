@@ -1,0 +1,54 @@
+# Mechanics v2 + reward v2 training config (blueprint §1 / §3.2).
+#
+# Copy of configs/free_space_v2.yaml (the champion_a5 61-D free-space contract)
+# with the two version switches flipped:
+#   game.mechanics_version: 2 — boost trail pellets, 100% cap-exempt corpse
+#     drops, size-resolved head-ons (>=1.15x survives with kill credit),
+#     training population floor (<3 alive ends the episode in train mode).
+#   rewards.version: 2 — event-based reward v2 (consumed by the reward code).
+#
+# Version 1 (the default everywhere else) keeps legacy behavior bit-identical;
+# see src/core/mechanics_constants.py for the v2 constants.
+network:
+  input_size: 61
+  hidden_size: 512
+  output_size: 6
+  use_free_space: true
+rewards:
+  version: 2
+  death: -11.0
+  food_base: 3.0
+  survival: 0.01
+  death_length_scale: 0.0
+  boost_segment: 3.0
+  reward_max: 5.0
+  reward_min: -12.0
+  kill_max: 5.0
+game:
+  mechanics_version: 2
+  width: 1450
+  height: 830
+  num_snakes: 6
+  initial_food: 250
+  max_food: 300
+  max_frames: 5000
+  frame_rate: 1
+  max_length: 150
+training:
+  batch_size: 256
+  learning_rate: 0.0001
+  gamma: 0.99
+  target_update_frequency: 2500
+  train_frequency: 4
+  checkpoint_frequency: 5000
+  save_interval: 5000
+apex:
+  batch_size: 256
+  buffer_size: 200000
+  min_buffer_size: 10000
+  target_update_freq: 2500
+  learning_rate: 0.0001
+  gamma: 0.99
+  n_step: 3
+  use_compile: false
+  pin_memory: false

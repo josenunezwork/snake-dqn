@@ -400,7 +400,6 @@ class TestCheckpointReplayProvenance:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         validate_offline_resume_checkpoint_config(
             self._checkpoint(),
@@ -415,7 +414,6 @@ class TestCheckpointReplayProvenance:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         checkpoint = self._checkpoint()
         checkpoint["apex_config"].pop("reward_contract")
@@ -434,7 +432,6 @@ class TestCheckpointReplayProvenance:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         checkpoint = self._checkpoint()
         checkpoint["apex_config"]["reward_death"] = -3.0
@@ -453,7 +450,6 @@ class TestCheckpointReplayProvenance:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         checkpoint = self._checkpoint()
         stale_contract = dict(checkpoint["apex_config"]["reward_contract"])
@@ -474,7 +470,6 @@ class TestCheckpointReplayProvenance:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
         checkpoint = self._checkpoint()
         checkpoint["apex_config"]["n_step"] = GameConfig.APEX_N_STEP + 1
@@ -496,7 +491,6 @@ class TestCheckpointReplayProvenance:
             output_size = GameConfig.OUTPUT_SIZE
             n_step = GameConfig.APEX_N_STEP
             gamma = GameConfig.APEX_GAMMA
-            use_gru = False
 
             def __init__(self):
                 self.loaded_checkpoint = None

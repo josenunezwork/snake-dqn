@@ -1,0 +1,53 @@
+# 3-arm kill-diagnosis — ARM B (economics + opponent pool). Blueprint §0.9 / P1.
+#
+# Arm A (mechanics v2 + reward v2) PLUS 80/20 opponent-pool self-play: each
+# episode, non-hero actor slots run a frozen pool checkpoint with probability
+# 1 - pool_latest_fraction. Isolates whether opponent QUALITY (something worth
+# hunting) adds kills on top of the economics fix. The pool dir is passed by
+# run_kill_diagnosis.py (--opponent-pool-dir, built from the frozen 61-D
+# champions); apex.pool_latest_fraction below is the 80/20 default.
+# Resume needs --override-reward-contract (v1 -> v2 reward economics).
+network:
+  input_size: 61
+  hidden_size: 512
+  output_size: 6
+  use_free_space: true
+rewards:
+  version: 2
+  death: -11.0
+  food_base: 3.0
+  survival: 0.01
+  death_length_scale: 0.0
+  boost_segment: 3.0
+  reward_max: 5.0
+  reward_min: -12.0
+  kill_max: 5.0
+game:
+  mechanics_version: 2
+  width: 1450
+  height: 830
+  num_snakes: 6
+  initial_food: 250
+  max_food: 300
+  max_frames: 5000
+  frame_rate: 1
+  max_length: 150
+training:
+  batch_size: 256
+  learning_rate: 0.0001
+  gamma: 0.99
+  target_update_frequency: 2500
+  train_frequency: 4
+  checkpoint_frequency: 5000
+  save_interval: 5000
+apex:
+  batch_size: 256
+  buffer_size: 200000
+  min_buffer_size: 10000
+  target_update_freq: 2500
+  learning_rate: 0.0001
+  gamma: 0.99
+  n_step: 3
+  use_compile: false
+  pin_memory: false
+  pool_latest_fraction: 0.8
