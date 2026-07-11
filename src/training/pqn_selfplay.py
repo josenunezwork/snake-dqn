@@ -227,17 +227,25 @@ def batched_act(
         actions[idx] = greedy_np
 
     # --- Frozen slots: greedy masked, one forward per resident policy id ---
-    for pid in np.unique(flat_ids):
-        if pid == HERO_POLICY_ID:
-            continue
-        sel = flat_ids == pid
-        idx = np.nonzero(sel)[0]
-        idx_t = torch.as_tensor(idx, device=device)
-        net = pool.get(int(pid))
-        with torch.no_grad():
-            q = net(tac[idx_t], strat[idx_t], scal[idx_t])
-        greedy = _greedy_masked_actions(q, mask_flat[idx_t])
-        actions[idx] = greedy.cpu().numpy()
+    # Each frozen forward runs on-device and scatters its greedy actions into a
+    # shared device buffer; the host sync happens ONCE for all frozen slots
+    # rather than once per policy id. The old per-pid ``.cpu().numpy()`` was an
+    # O(pool_size) blocking GPU->CPU sync every step: with a self-play pool that
+    # grows to 10 and several actors sharing one GPU it serialized the pipeline
+    # and came to dominate step time (throughput fell ~5x as the pool filled).
+    # Chosen actions are identical to the per-pid version; only the sync defers.
+    frozen_ids = [pid for pid in np.unique(flat_ids) if pid != HERO_POLICY_ID]
+    if frozen_ids:
+        frozen_actions = torch.full((E * S,), -1, dtype=torch.long, device=device)
+        for pid in frozen_ids:
+            idx_t = torch.as_tensor(np.nonzero(flat_ids == pid)[0], device=device)
+            net = pool.get(int(pid))
+            with torch.no_grad():
+                q = net(tac[idx_t], strat[idx_t], scal[idx_t])
+            frozen_actions[idx_t] = _greedy_masked_actions(q, mask_flat[idx_t])
+        fa = frozen_actions.cpu().numpy()  # single host sync for all frozen slots
+        fsel = fa >= 0
+        actions[fsel] = fa[fsel]
 
     return actions.reshape(E, S), hero_q_flat.reshape(E, S, 6)
 

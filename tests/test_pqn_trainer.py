@@ -425,6 +425,62 @@ def test_batched_act_2policy_pool_correct_per_slot():
     assert actions[0, 1] != 5
 
 
+def test_batched_act_multi_frozen_matches_per_slot_reference():
+    """Deferred-sync frozen path routes every slot through the net its id names.
+
+    Exercises >1 distinct frozen policy id (the path the single-sync accumulation
+    optimizes) and checks the chosen action for every slot against an independent
+    per-slot greedy-masked recomputation. epsilon=0 makes hero slots greedy too,
+    so the whole output is deterministic and must match exactly.
+    """
+    from src.training.pqn_selfplay import _greedy_masked_actions
+
+    device = torch.device("cpu")
+    hero = RasterDuelingNetwork().eval()
+    pool = OpponentPool(capacity=4, device=device)
+    torch.manual_seed(0)
+    for _ in range(3):  # frozen ids 0,1,2, each a distinct perturbed snapshot
+        with torch.no_grad():
+            for p in hero.parameters():
+                p.add_(torch.randn_like(p) * 0.1)
+        pool.add_snapshot(hero)
+
+    E, S = 2, 6
+    policy_ids = np.array(
+        [HERO_POLICY_ID, 0, 1, 2, 0, HERO_POLICY_ID, 1, 2, HERO_POLICY_ID, 0, 1, 2]
+    ).reshape(E, S)
+    torch.manual_seed(1)
+    obs = {
+        "tactical": torch.rand((E, S, *TACTICAL_SHAPE)),
+        "strategic": torch.rand((E, S, *STRATEGIC_SHAPE)),
+        "scalars": torch.rand((E, S, SCALARS_DIM)),
+    }
+    mask = torch.ones((E, S, 6), dtype=torch.bool)
+    mask[0, 1, 0] = False  # a couple masked bits; valid actions still remain
+    mask[1, 3, 2] = False
+
+    actions, _ = batched_act(
+        hero, pool, policy_ids, obs, mask, epsilon=0.0,
+        rng=np.random.default_rng(0), device=device,
+    )
+
+    # Independent per-slot reference: run each slot through its named net.
+    flat_ids = policy_ids.reshape(-1)
+    tac = obs["tactical"].reshape(E * S, *hero.tactical_shape)
+    strat = obs["strategic"].reshape(E * S, *hero.strategic_shape)
+    scal = obs["scalars"].reshape(E * S, hero.scalars_dim)
+    mask_flat = mask.reshape(E * S, 6)
+    ref = np.zeros(E * S, dtype=np.int64)
+    for i in range(E * S):
+        pid = int(flat_ids[i])
+        net = hero if pid == HERO_POLICY_ID else pool.get(pid)
+        with torch.no_grad():
+            q = net(tac[i : i + 1], strat[i : i + 1], scal[i : i + 1])
+        ref[i] = int(_greedy_masked_actions(q, mask_flat[i : i + 1]).item())
+
+    assert np.array_equal(actions.reshape(-1), ref)
+
+
 def test_batched_act_respects_mask():
     """Greedy acting never picks a masked-out action for hero slots."""
     device = torch.device("cpu")
