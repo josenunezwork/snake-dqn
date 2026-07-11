@@ -1103,6 +1103,38 @@ class BatchSim:
         """Ordered food cells (ambient + corpse) for one env."""
         return list(self.food_cells[env])
 
+    def get_food_batched(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Padded food arrays for ALL envs at once (fast obs extraction).
+
+        Equivalent to stacking ``get_food`` + the corpse flag per env, but built
+        with direct list access and per-env vectorized assignment (no per-call
+        list copies, no ``O(E*F)`` element-wise Python loop). Read-only and
+        value-identical to the per-env accessors, so it does not affect parity —
+        it only makes the GPU-featurizer state extraction cheaper.
+
+        Returns:
+            ``(cells, mass, is_corpse)``: ``cells`` ``(E, Fmax, 2)`` int64 cell
+            coords in food (append) order; ``mass`` ``(E, Fmax)`` float64 (1.0
+            for a real pellet, 0.0 for padding); ``is_corpse`` ``(E, Fmax)``
+            bool. ``Fmax`` is the max pellet count across envs (>= 1).
+        """
+        counts = [len(fc) for fc in self.food_cells]
+        fmax = max(max(counts, default=0), 1)
+        cells = np.zeros((self.E, fmax, 2), dtype=np.int64)
+        mass = np.zeros((self.E, fmax), dtype=np.float64)
+        is_corpse = np.zeros((self.E, fmax), dtype=bool)
+        for e in range(self.E):
+            n = counts[e]
+            if not n:
+                continue
+            fl = self.food_cells[e]
+            cells[e, :n] = fl
+            mass[e, :n] = 1.0
+            cs = self.corpse_cells[e]
+            if cs:
+                is_corpse[e, :n] = [c in cs for c in fl]
+        return cells, mass, is_corpse
+
     def get_corpse_food(self, env: int) -> List[Tuple[int, int]]:
         """Corpse-class food cells currently on the board for one env."""
         return [c for c in self.food_cells[env] if c in self.corpse_cells[env]]

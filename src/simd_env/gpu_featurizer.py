@@ -209,19 +209,9 @@ def obs_inputs_to_torch(sim, device: torch.device, max_frames: int = 5000) -> Gp
     # Boost-engaged flag (persistent accessor); AND with alive like NumPy.
     boosting = sim.get_boosted_this_step().astype(bool) & alive
 
-    # Food: pad per-env lists (mass 1 ambient; corpse flag from the corpse set).
-    food_lists = [sim.get_food(e) for e in range(E)]
-    corpse_sets = [set(sim.get_corpse_food(e)) for e in range(E)]
-    F = max((len(f) for f in food_lists), default=0)
-    F = max(F, 1)
-    food_cells = np.zeros((E, F, 2), dtype=np.int64)
-    food_mass = np.zeros((E, F), dtype=np.float64)
-    food_is_corpse = np.zeros((E, F), dtype=bool)
-    for e in range(E):
-        for i, cell in enumerate(food_lists[e]):
-            food_cells[e, i] = cell
-            food_mass[e, i] = 1.0
-            food_is_corpse[e, i] = cell in corpse_sets[e]
+    # Food: padded (E, Fmax, 2) cells + mass + corpse flag, built in one batched
+    # pass by the sim (no per-call list copies / element-wise Python loop).
+    food_cells, food_mass, food_is_corpse = sim.get_food_batched()
 
     def t(arr, dtype):
         return torch.as_tensor(arr, dtype=dtype, device=device)
