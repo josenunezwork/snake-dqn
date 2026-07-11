@@ -30,6 +30,7 @@ action-collapse) are emitted per update so an outer loop can halt-and-flag.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -139,6 +140,7 @@ class PQNConfig:
     arena_type: str = "rectangular"
     mechanics_version: int = 2
     reward_version: int = 2
+    profile: bool = False  # print a CUDA-synced per-phase time breakdown each update
 
 
 @dataclass
@@ -267,6 +269,12 @@ class PQNTrainer:
         return self.cfg.eps_start + frac * (self.cfg.eps_end - self.cfg.eps_start)
 
     # -- observation --------------------------------------------------------
+    def _sync(self) -> float:
+        """Return a timestamp after flushing pending CUDA work (accurate timing)."""
+        if self.device.type == "cuda":
+            torch.cuda.synchronize()
+        return time.perf_counter()
+
     def _current_obs(self) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
         """Featurize the sim's current state into device float tensors + mask.
 
@@ -324,11 +332,22 @@ class PQNTrainer:
         boost_buf = np.zeros((T, E, S), dtype=bool)
         kills_total = 0
 
+        prof = self.cfg.profile
+        feat_t = fwd_t = sim_t = 0.0
+
         for t in range(T):
+            if prof:
+                t0 = self._sync()
             obs, mask = self._current_obs()
+            if prof:
+                t1 = self._sync()
+                feat_t += t1 - t0
             actions, _ = batched_act(
                 self.network, self.pool, policy_ids, obs, mask, eps, self.rng, self.device
             )
+            if prof:
+                t2 = self._sync()
+                fwd_t += t2 - t1
 
             tac_buf[t] = obs["tactical"]
             strat_buf[t] = obs["strategic"]
@@ -341,7 +360,11 @@ class PQNTrainer:
             no_valid = ~mask.any(dim=2).cpu().numpy()
             trapped_buf[t] = no_valid & alive
 
+            if prof:
+                t3 = self._sync()
             self.sim.step(actions)
+            if prof:
+                sim_t += self._sync() - t3
 
             rew_buf[t] = self.sim.get_reward()
             done_buf[t] = self.sim.get_done()
@@ -356,6 +379,9 @@ class PQNTrainer:
 
         # Final observation (s_T) for truncation bootstrap of the last step.
         final_obs, final_mask = self._current_obs()
+
+        if prof:
+            self._rollout_prof = {"featurize": feat_t, "forward": fwd_t, "sim": sim_t}
 
         return {
             "tactical": tac_buf,
@@ -606,9 +632,28 @@ class PQNTrainer:
             TripwireError: If a tripwire fires (caller may halt-and-flag).
         """
         cfg = self.cfg
-        roll = self._rollout()
-        targets = self._compute_targets(roll)
-        loss, gnorm, mean_abs_q, max_abs_q, entropy = self._sgd(roll, targets)
+        if cfg.profile:
+            p0 = self._sync()
+            roll = self._rollout()
+            p1 = self._sync()
+            targets = self._compute_targets(roll)
+            p2 = self._sync()
+            loss, gnorm, mean_abs_q, max_abs_q, entropy = self._sgd(roll, targets)
+            p3 = self._sync()
+            rp = self._rollout_prof
+            total = p3 - p0
+            steps = cfg.num_envs * cfg.num_snakes * cfg.rollout_len
+            print(
+                f"[profile] total {total*1e3:6.0f}ms ({steps/total:7.0f} step/s) | "
+                f"rollout {(p1-p0)*1e3:5.0f}ms [featurize {rp['featurize']*1e3:5.0f} "
+                f"forward {rp['forward']*1e3:5.0f} sim {rp['sim']*1e3:5.0f}] | "
+                f"targets {(p2-p1)*1e3:5.0f}ms | sgd {(p3-p2)*1e3:5.0f}ms",
+                flush=True,
+            )
+        else:
+            roll = self._rollout()
+            targets = self._compute_targets(roll)
+            loss, gnorm, mean_abs_q, max_abs_q, entropy = self._sgd(roll, targets)
 
         E, S, T = cfg.num_envs, cfg.num_snakes, cfg.rollout_len
         hero_es = roll["policy_ids"] == HERO_POLICY_ID
