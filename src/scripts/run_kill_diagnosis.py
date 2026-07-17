@@ -43,7 +43,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHAMPION = "saved_snakes/champion_a5_freespace_20260621.pth"
@@ -147,19 +147,41 @@ def _eval_command(checkpoint: Path, frames: int, seeds: str, out_json: Path) -> 
     ]
 
 
-def _summarize_eval(eval_json: Path) -> Dict[str, float]:
-    """Pull kills/ep, kill-opportunities, and mass-integral delta from a gate JSON."""
-    data = json.loads(eval_json.read_text())
-    cand = data["candidates"][0]
-    kills: List[float] = []
-    opps: List[float] = []
-    deltas: List[float] = []
-    for mix in cand["per_mix"].values():
-        summary = mix["summary"]
-        probes = summary.get("probes", {})
-        kills.append(float(summary.get("kills", 0.0)))
-        opps.append(float(probes.get("kill_opportunity_count", 0.0)))
-        deltas.append(float(mix["paired"]["mean_delta"]))
+def _summarize_eval(eval_json: Path) -> Dict[str, object]:
+    """Pull kills/ep, kill-opportunities, and mass-integral delta from a gate JSON.
+
+    tournament_eval catches a per-candidate failure, emits ``{"candidate", "error",
+    "decision"}`` with no ``per_mix``, still writes the JSON and still exits 0. The
+    arm's training already cost hours by this point, so a failed eval must land in
+    the verdict as an error rather than raise KeyError over the top of it.
+
+    Args:
+        eval_json: Path to the gate JSON tournament_eval wrote.
+
+    Returns:
+        The arm's metrics, or ``{"error": <reason>}`` if the gate recorded a failure
+        for this candidate or the JSON is unusable. Never raises.
+    """
+    try:
+        data = json.loads(eval_json.read_text())
+        candidates = data.get("candidates") or []
+        if not candidates:
+            return {"error": "gate json has no candidates"}
+        cand = candidates[0]
+        per_mix = cand.get("per_mix")
+        if not per_mix:
+            return {"error": f"eval failed: {cand.get('error', 'gate json has no per_mix')}"}
+        kills: List[float] = []
+        opps: List[float] = []
+        deltas: List[float] = []
+        for mix in per_mix.values():
+            summary = mix["summary"]
+            probes = summary.get("probes", {})
+            kills.append(float(summary.get("kills", 0.0)))
+            opps.append(float(probes.get("kill_opportunity_count", 0.0)))
+            deltas.append(float(mix["paired"]["mean_delta"]))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        return {"error": f"unreadable gate json: {exc}"}
     n = max(len(kills), 1)
     return {
         "kills_per_episode": sum(kills) / n,
@@ -208,12 +230,15 @@ def run_arm(
     }
     verdict_path = out_dir / "verdict.json"
     verdict_path.write_text(json.dumps(verdict, indent=2))
+    if "error" in metrics:
+        print(f"=== ARM {arm}: EVAL FAILED: {metrics['error']} ===", file=sys.stderr, flush=True)
     print(f"=== ARM {arm} verdict -> {verdict_path} ===", flush=True)
     print(json.dumps(verdict, indent=2), flush=True)
     return verdict
 
 
-def main() -> None:
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Run one diagnosis arm; returns 1 if the arm's gate recorded an error."""
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -234,7 +259,7 @@ def main() -> None:
         action="store_true",
         help="Tiny end-to-end wiring check (overrides steps/actors/frames/seeds).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     arm = args.arm.upper()
     if args.smoke:
@@ -248,8 +273,9 @@ def main() -> None:
         )
     out_dir = Path(args.out_dir) if args.out_dir else REPO_ROOT / "logs" / "diag" / arm
 
-    run_arm(arm, total_steps, num_actors, out_dir, frames, seeds)
+    verdict = run_arm(arm, total_steps, num_actors, out_dir, frames, seeds)
+    return 1 if "error" in verdict else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
