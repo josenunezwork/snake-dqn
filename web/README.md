@@ -33,7 +33,9 @@ cd web/frontend && npm run dev            # UI on :5173 (proxies /api + /ws to :
 cd web/frontend && npm test               # frontend unit tests (vitest)
 ```
 
-## What's in it (the tabs)
+## What's in it (the panels)
+
+The arena is always on screen; the other six are tabs beside it.
 
 - **Game** — live arena rendered on a `<canvas>` from the streamed frame; hero snake outlined.
 - **Play** — *you* steer a snake against the trained AI (arrows/WASD, space to boost) with a
@@ -42,6 +44,9 @@ cd web/frontend && npm test               # frontend unit tests (vitest)
   length/food/kills/survival (can't be spoofed), and you pick the opponent count for difficulty.
 - **Inspector** — the hero's 61-D state vector (grouped + labeled), live Q-values → chosen
   action, and the free-space "don't trap yourself" features.
+- **Raster** — what a `raster31v2` snake sees: the heading-rotated ego-centric 31×31 tactical
+  stack (head centred, facing up), as a colour-coded composite or a single isolated channel
+  (brightness = the value byte). Shows a placeholder when the served policy is the 61-D vector.
 - **Network** — live APEX DQN activations (input / hidden / output) heat-mapped, with
   top-action / margin / activity, computed by the real network's `forward_with_activations`.
 - **Dashboard** — eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.
@@ -69,7 +74,8 @@ web/
     metrics.py          dashboard data from saved_snakes/ + logs/eval_*.json
     state_labels.py     58-/61-D feature grouping for the inspector
   frontend/             Vite + React + TypeScript (canvas view, no extra UI deps)
-    src/components/     GameCanvas, Play, Controls, Inspector, NetworkVisualizer, ...
+    src/components/     GameCanvas, Play, Controls, Inspector, EgoRasterViewer,
+                        NetworkVisualizer, Dashboard, ...
     src/*.test.ts(x)    vitest unit tests (api error paths, Play flow, keys, Slider)
 ```
 

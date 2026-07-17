@@ -37,11 +37,11 @@ Reward v2 gamma = `GameConfig.APEX_GAMMA` = `apex.gamma` = `0.99`.
 - Positions are integer pixel `(x, y)`. Movement is cardinal in steps of
   `segment_size` (`s`, =10). `direction ∈ {(0,-1),(1,0),(0,1),(-1,0)}` = up,right,down,left.
 - **Cell index** = floor division: `cell(p) = (p.x // s, p.y // s)`
-  (`mechanics_constants.cell_index`, l.70-83). Floor division, so negative
+  (`mechanics_constants.cell_index`, l.128-141). Floor division, so negative
   (out-of-bounds) coords map to negative cells — they do **not** alias to cell 0.
-- **`same_cell(a,b,s)`** = `cell(a)==cell(b)` (l.86-106). This is THE collision /
+- **`same_cell(a,b,s)`** = `cell(a)==cell(b)` (l.144-164). This is THE collision /
   pickup predicate at all mechanics versions.
-- **`snap_to_cell(p,s)`** = `((p.x//s)*s, (p.y//s)*s)` (l.45-67). Every random
+- **`snap_to_cell(p,s)`** = `((p.x//s)*s, (p.y//s)*s)` (l.103-125). Every random
   spawn (food + snake) is snapped so all entities share one lattice; on that
   lattice `same_cell` is exactly equivalent to the legacy `distance < s` radius
   test. **The batched sim must store snapped integer positions and compare by cell
@@ -50,62 +50,62 @@ Reward v2 gamma = `GameConfig.APEX_GAMMA` = `apex.gamma` = `0.99`.
 
 ---
 
-## 1. Per-frame STEP ORDER (`GameState.update`, game_state.py l.263-438)
+## 1. Per-frame STEP ORDER (`GameState.update`, game_state.py l.266-441)
 
 Executed once per `update()` call. Numbered exactly as the code runs (the
 docstring's 1–9 numbering is slightly reordered vs. actual execution; the list
 below is the **actual** order).
 
 **Inputs:** `train_mode: bool`, `learn: bool`, `allow_respawn: Optional[bool]`.
-- `allow_respawn` defaults to `not train_mode` (l.292-293).
-- `self._train_mode = bool(train_mode)` (l.294).
+- `allow_respawn` defaults to `not train_mode` (l.295-296).
+- `self._train_mode = bool(train_mode)` (l.297).
 
-0. **Clear per-snake move traces** (l.296-298): for every snake with
+0. **Clear per-snake move traces** (l.299-301): for every snake with
    `last_move_positions`, set `snake.last_move_positions = []`. (Note: `move()`
    also clears these; this pre-clear matters for snakes that will NOT move this
    frame, e.g. dead ones, so a stale trace can't leak into collision checks.)
 
-1. **Increment frame** (l.301): `self.frame += 1`.
+1. **Increment frame** (l.304): `self.frame += 1`.
 
-2. **Maintain food count** (l.304): `food_manager.maintain_count(self.snakes)`.
+2. **Maintain food count** (l.307): `food_manager.maintain_count(self.snakes)`.
    Tops ambient food up to `max_food` (see §4.4). **RNG is drawn here** (§5).
 
-3. **Count alive** (l.307): `alive_snakes = sum(is_alive)`.
+3. **Count alive** (l.310): `alive_snakes = sum(is_alive)`.
 
-4. **Respawn handling** — only if `allow_respawn` (l.311-340):
-   a. Decrement `respawn_timer` for each dead snake with `timer > 0` (l.312-314).
+4. **Respawn handling** — only if `allow_respawn` (l.314-343):
+   a. Decrement `respawn_timer` for each dead snake with `timer > 0` (l.315-317).
    b. For each dead snake with `timer <= 0` and `auto_respawn != False`
-      (l.317-330): `new_pos = GameLogic.find_empty_position(...)`; if found,
+      (l.320-333): `new_pos = GameLogic.find_empty_position(...)`; if found,
       `snake.respawn(new_pos)`, `alive_snakes += 1`, `any_respawned = True`.
       **RNG is drawn inside `find_empty_position`** (§5). Iteration is over
       `self.snakes` in list order.
    c. If any respawned, invalidate every snake's carried selection cache
-      (l.336-340). (No world effect; only affects neural selection — irrelevant
+      (l.339-343). (No world effect; only affects neural selection — irrelevant
       to a replayed-action harness.)
    > For a **training/replay parity harness** `train_mode=True` ⇒ `allow_respawn=False`,
    > so step 4 is a no-op and no respawn RNG is drawn. **Recommended: parity runs
    > use `allow_respawn=False` (terminal deaths).**
 
-5. **Action selection + MOVE ALL** (l.342-352):
+5. **Action selection + MOVE ALL** (l.345-355):
    - Build `pre_move_snapshots` = shallow copies of every snake (segments +
-     `last_move_positions` copied) BEFORE anyone moves (l.345, via
-     `_snapshot_snake_for_observation`, l.255-261). This makes all snakes observe
+     `last_move_positions` copied) BEFORE anyone moves (l.348, via
+     `_snapshot_snake_for_observation`, l.258-264). This makes all snakes observe
      the same pre-frame world (no order bias).
-   - For each **alive** snake in list order (l.346-352): call
+   - For each **alive** snake in list order (l.349-355): call
      `snake.update(observation_snakes, self.food)`. In a replayed-action harness
      this reduces to: decode the logged action → set direction → set boost flag →
      `snake.move()` (see §2, §6a). **Movement mutates segment lists in place; the
      order is list order but movement is independent per snake, so order does not
      affect the world** (collisions are resolved later in step 8).
 
-6. **v2 boost trail pellets** (l.357-364): for each snake, for each cell in
+6. **v2 boost trail pellets** (l.360-367): for each snake, for each cell in
    `snake.pending_trail_pellets` (populated by `move()` under v2 only), if the
    cell is inside the arena (`_segment_inside_arena`), `food_manager.add_food(cell,
    corpse=True)`; then clear `pending_trail_pellets`. **No RNG.** At v1 the list is
    always empty ⇒ no-op.
 
-7. **FOOD consumption** (l.366-388): for each **alive** snake in list order:
-   - `ate = check_food_consumption(snake)` (l.480-495): checks every position in
+7. **FOOD consumption** (l.369-391): for each **alive** snake in list order:
+   - `ate = check_food_consumption(snake)` (l.483-498): checks every position in
      `snake.last_move_positions` (or `[snake.head]` if empty) via
      `food_manager.consume_at(pos, segment_size)`; on the **first** cell that has
      food, `snake.grow()` and return True. (So a boost 2-step that passes over two
@@ -115,8 +115,8 @@ below is the **actual** order).
      update `episode_best_length`.
    - **If `ate and not train_mode`**: `food_manager.spawn(1, self.snakes)` — spawns
      one replacement pellet immediately (**RNG**, §5).
-   - `self.frame_ate_food = ate_food_map` (l.382).
-   - **If `train_mode and any snake ate`** (l.384-388): a single
+   - `self.frame_ate_food = ate_food_map` (l.385).
+   - **If `train_mode and any snake ate`** (l.387-391): a single
      `food_manager.maintain_count(self.snakes)` (**RNG**, §5) to keep post-eat food
      count in the same world the snake will next observe.
    > **Food replacement RNG differs by mode.** Not-train: one `spawn(1)` per eating
@@ -124,24 +124,24 @@ below is the **actual** order).
    > `maintain_count` after the loop iff anyone ate. The batched sim MUST branch on
    > `train_mode` here to match the RNG draw sequence.
 
-8. **Collision detection + resolution** (l.391): `frame_collisions = self.handle_collisions()`
+8. **Collision detection + resolution** (l.394): `frame_collisions = self.handle_collisions()`
    — the single source of truth (see §3). Sets `self.frame_collisions`,
    `self.frame_kills`, `self.frame_death_causes`, updates `episode_deaths`,
    `episode_kills`, `episode_collision_counts`. **Corpse food dropped here** (§4.5).
    **No RNG** in collision handling itself (food drops are deterministic cell copies).
 
-9. **REWARD** (l.394-404): for each snake with `compute_reward_and_train`, compute
+9. **REWARD** (l.397-407): for each snake with `compute_reward_and_train`, compute
    reward from `ate_food_map[id]`, `collided = id in frame_collisions`, and
    `self.frame_kills`. See §6. (For non-AI snakes with no such method, skipped.)
 
-10. **Centralized training** (l.406-425): every `TRAIN_FREQUENCY` frames, one
+10. **Centralized training** (l.409-428): every `TRAIN_FREQUENCY` frames, one
     `shared_policy.train_step()`. **Irrelevant to world dynamics / parity of the
     environment** (only mutates network weights). A dynamics harness ignores this.
 
-11. **Episode bookkeeping** (l.427-438): update `episode_current_reward`,
+11. **Episode bookkeeping** (l.430-441): update `episode_current_reward`,
     `episode_best_reward`, `episode_best_length`, recompute `alive_snakes`.
 
-**`population_floor_reached`** (l.440-457): property, not a step. True iff
+**`population_floor_reached`** (l.443-460): property, not a step. True iff
 `MECHANICS_VERSION==2` AND last update was train_mode AND `num_snakes >=
 POPULATION_FLOOR_V2(=3)` AND `alive_snakes < 3`. Training loops use it as an
 episode-end signal. No world mutation.
@@ -267,42 +267,42 @@ the swap condition still reduces to exact cell coincidence of the swapped endpoi
 so the batched sim can implement it as: "head A's start-cell == head B's end-cell
 AND head B's start-cell == head A's end-cell" over the consecutive path segments.
 
-### 3.3 Resolution (`GameState.handle_collisions`, game_state.py l.586-691)
+### 3.3 Resolution (`GameState.handle_collisions`, game_state.py l.589-694)
 
 State: `dead_snake_ids: set`, `frame_collisions: dict`, `frame_kills: dict`,
-`frame_death_causes: dict`. Helper `record_death(snake, type)` (l.605-618): if
+`frame_death_causes: dict`. Helper `record_death(snake, type)` (l.608-621): if
 already dead → return False; else add to `dead_snake_ids`, `episode_deaths += 1`,
 bump `episode_collision_counts[type]`, tag `snake.last_death_cause`, record cause,
 return True.
 
 Iterate the `collisions` list **in the order produced by `check_collisions`**
-(l.621). For each `(snake, other, type)`; if `snake.id in dead_snake_ids` → skip.
+(l.624). For each `(snake, other, type)`; if `snake.id in dead_snake_ids` → skip.
 
-- **`"wall"` / `"self"`** (l.625-629): `_drop_food_from_snake(snake)` (§4.5),
+- **`"wall"` / `"self"`** (l.628-632): `_drop_food_from_snake(snake)` (§4.5),
   `snake.die()`, `record_death`, `frame_collisions[snake.id]=type`.
 
-- **`"head"`** (l.630-661):
-  - If `other is None` or `other.id in dead_snake_ids` → skip (l.631).
-  - **v2 size resolution** (l.636-643): `length_a=snake._logical_length()`,
+- **`"head"`** (l.633-664):
+  - If `other is None` or `other.id in dead_snake_ids` → skip (l.634).
+  - **v2 size resolution** (l.639-646): `length_a=snake._logical_length()`,
     `length_b=other._logical_length()` (`_logical_length = max(1, int(length))`,
     snake.py l.130-132). If `length_a >= 1.15 * length_b` → `winner=snake`; elif
     `length_b >= 1.15 * length_a` → `winner=other`; else `winner=None`. **v1: winner
     always None** (block gated on `MECHANICS_VERSION==2`).
-  - If **winner** (l.644-653): `loser = other if winner is snake else snake`;
+  - If **winner** (l.647-656): `loser = other if winner is snake else snake`;
     drop loser's food, `loser.die()`, `record_death(loser,"head")`,
     `frame_collisions[loser.id]="head"`,
     `frame_kills[winner.id].append(loser.id)`. **Kill credit stays even if the
     winner later dies this frame** from another collision.
-  - Else **mutual** (l.654-661): drop food for BOTH, `head_on_collision` (kills
+  - Else **mutual** (l.657-664): drop food for BOTH, `head_on_collision` (kills
     both, game_logic.py l.198-210), `record_death` both, mark both in
     `frame_collisions`. **No killer credited.**
 
-- **`"body"`** (l.663-684): snake `i` hit `other`'s body.
-  - If `other is None` → skip (l.673).
-  - **v1 de-dup** (l.675): if `MECHANICS_VERSION != 2` AND `other.id in dead_snake_ids`
+- **`"body"`** (l.666-687): snake `i` hit `other`'s body.
+  - If `other is None` → skip (l.676).
+  - **v1 de-dup** (l.678): if `MECHANICS_VERSION != 2` AND `other.id in dead_snake_ids`
     → skip. (Legacy: the already-dead killer gets no credit; only the lower-index
     snake dies in a mutual body clash.)
-  - **v2 does NOT skip** on a dead `other` (l.663-672 comment): in a mutual
+  - **v2 does NOT skip** on a dead `other` (l.666-675 comment): in a mutual
     same-frame body collision both snakes hit each other's body; the second pair's
     victim death and killer credit must still land even though the killer died from
     the first pair.
@@ -312,17 +312,17 @@ Iterate the `collisions` list **in the order produced by `check_collisions`**
     (**`other` = the snake whose body was hit = the killer**).
 
 Finally set `self.frame_collisions/frame_kills/frame_death_causes`; add
-`sum(len(victims))` to `episode_kills` (l.688-690). Returns `frame_collisions`.
+`sum(len(victims))` to `episode_kills` (l.691-693). Returns `frame_collisions`.
 
 **Parity-critical resolution invariants:**
 - A snake is resolved at most once (first collision tuple where it's the dying
   `snake`, guarded by `dead_snake_ids`).
 - Because a wall/self `continue`s in detection, a snake that hit a wall NEVER also
   appears as a head/body victim → wall/self strictly dominates.
-- v1 vs v2 body branch differs ONLY in the dead-killer skip (l.675). This changes
+- v1 vs v2 body branch differs ONLY in the dead-killer skip (l.678). This changes
   both which snakes die and kill attribution in simultaneous mutual body clashes.
 - `_drop_food_from_snake` is called **before** `die()` and asserts the snake is
-  still alive (l.546-547: early return if already dead) — so drop order = death
+  still alive (l.549-550: early return if already dead) — so drop order = death
   resolution order, and each snake drops exactly once.
 
 ---
@@ -332,25 +332,29 @@ Finally set `self.frame_collisions/frame_kills/frame_death_causes`; add
 Two pools tracked in one `self.food: List[Tuple[int,int]]` plus a
 `self._corpse_positions: Set` of positions that are corpse-class (v2 only).
 `ambient_count = len(food) - corpse_count` where `corpse_count` counts live food
-positions that are in `_corpse_positions` (l.268-287).
+positions that are in `_corpse_positions` (l.285-299).
 
-### 4.1 Consume (`consume_at`, l.201-220)
+### 4.1 Consume (`consume_at`, l.213-232)
 `eaten = [f for f in food if same_cell(f, position, radius)]`. If non-empty:
 `food = [f for f in food if f not in eaten]`, drop those from `_corpse_positions`,
 return True. **Cell-exact, radius = segment_size.** A single call removes **every**
 pellet sharing the head's cell (normally ≤1 because `add_food` de-dups by cell).
-`check_food_consumption` (game_state.py l.480-495) calls `consume_at` per traversed
+`check_food_consumption` (game_state.py l.483-498) calls `consume_at` per traversed
 head **and returns on the first True** — so a boost frame passing two occupied cells
 eats only the first (step-1 head checked before step-2 head, matching
 `last_move_positions` order), and `grow()` is called once.
 
-### 4.2 add_food (l.126-143)
+### 4.2 add_food (l.131-155)
 `if _position_overlaps_food(position): return False` (cell-exact overlap vs existing
-food, l.116-124). Else append; if `corpse and CORPSE_EXEMPT_FROM_CAP_V2` add to
-`_corpse_positions`. **Two pellets never share a cell.** Corpse flag passed True
-only under v2 (kill corpses + boost trail).
+food, l.121-129). Else append; if `corpse and CORPSE_EXEMPT_FROM_CAP_V2` add to
+`_corpse_positions` **and then enforce the corpse cap, which may evict older corpse
+pellets from `self.food` before this call returns — see §4.7.** **Two pellets never
+share a cell.** Corpse flag passed True only under v2 (kill corpses + boost trail).
+Returns True whenever the new pellet was appended, **even if the cap eviction then
+removed a different (older) pellet** — the return value reports the add, not the net
+board delta.
 
-### 4.3 Spawn (`spawn`, l.161-179) & `_find_spawn_position` (l.145-159)
+### 4.3 Spawn (`spawn`, l.173-191) & `_find_spawn_position` (l.157-171)
 `spawn(count, snakes)`: loop `count` times; `pos = _find_spawn_position(snakes)`;
 if `pos and add_food(pos)`: `spawned+=1`, else `break` (stop on first failure).
 `_find_spawn_position`: up to **100 attempts**; if `snakes` given,
@@ -358,26 +362,77 @@ if `pos and add_food(pos)`: `spawned+=1`, else `break` (stop on first failure).
 returns None, return None immediately; else `pos = _get_random_position()`. Accept
 first `pos` that doesn't overlap existing food (cell-exact). **RNG per §5.**
 
-### 4.4 Maintain (`maintain_count`, l.181-199)
+### 4.4 Maintain (`maintain_count`, l.193-211)
 `deficit = max_food - ambient_count`; if `deficit > 0`: `return spawn(deficit, snakes)`,
 else 0. **Only ambient food is counted** — corpse-class food never suppresses baseline
 spawns (v2). At v1 all food is ambient ⇒ this is the legacy `max_food - len(food)` top-up.
 
-### 4.5 Corpse drop (`_drop_food_from_snake`, game_state.py l.535-564)
+### 4.5 Corpse drop (`_drop_food_from_snake`, game_state.py l.538-567)
 On any death (called from `handle_collisions`, before `die()`):
 `mechanics_v2 = MECHANICS_VERSION==2`; `drop_fraction = 1.0 (v2) | 0.5 (v1)`;
 `stride = max(1, round(1.0/drop_fraction))` → **v1 stride=2, v2 stride=1**.
 For `i, segment in enumerate(snake.segments)`: if `i % stride == 0`: skip if segment
-outside arena (`_segment_inside_arena`, l.566-584); else `add_food(segment, corpse=True)`
+outside arena (`_segment_inside_arena`, l.569-587); else `add_food(segment, corpse=True)`
 (v2) or `add_food(segment)` (v1). **So v1 drops every-other segment as ambient food;
 v2 drops the whole corpse as corpse-class food.** Order = `segments` order (head→tail).
 **No RNG** (positions are the snake's own cells). Overlaps with existing food are
-silently dropped by `add_food`'s de-dup.
+silently dropped by `add_food`'s de-dup. At v2 each segment's add also runs the corpse
+cap (§4.7), so a corpse large enough to cross the cap evicts the oldest corpse pellets
+segment-by-segment as it drops — a long corpse can even evict its own earlier segments.
 
 ### 4.6 Boost trail pellet (v2)
 `move()` records burned tail cells in `pending_trail_pellets`; `GameState.update`
-step 6 (l.357-364) turns each in-arena cell into `add_food(cell, corpse=True)`.
+step 6 (l.360-367) turns each in-arena cell into `add_food(cell, corpse=True)`.
 Position = the exact vacated tail cell. No RNG.
+
+### 4.7 Corpse cap (v2) — `corpse_food_cap` / `evict_oldest_corpse`
+Corpse-class food is exempt from the **ambient** cap (§4.4) but is **not unbounded**.
+Both engines share one helper pair in `mechanics_constants.py` so the eviction target —
+and therefore the ordered food list — stays byte-identical; **the parity gate depends on
+this. A reimplementation MUST use the same rule, not merely a similar one.**
+
+**Cap formula** (`corpse_food_cap`, l.62-64):
+```
+cap = max(int(max_food * CORPSE_FOOD_CAP_MULTIPLE_V2), CORPSE_FOOD_CAP_FLOOR_V2)
+    = max(int(max_food * 0.5), 10)
+```
+`int()` truncates toward zero (these are non-negative, so it's floor). The floor keeps
+low-`max_food` configs (sparse arenas, small unit-test boards) able to hold a normal
+corpse drop. Training board: `max_food=300` → **cap = 150**, total food bounded at
+`(1 + 0.5) x max_food = 450`.
+
+**Trigger point:** *inside* `add_food` (l.148-154), immediately after the new position
+is appended to `self.food` and added to `_corpse_positions` — **not** at frame end and
+**not** batched per corpse drop. A whole-corpse drop (§4.5) therefore evicts
+incrementally, once per over-cap segment, as each segment is added:
+```python
+cap = corpse_food_cap(self.max_food)
+while len(self._corpse_positions) > cap:
+    if evict_oldest_corpse(self.food, self._corpse_positions) is None:
+        break
+```
+The condition is `> cap` (strictly over), so the steady state holds **exactly `cap`**
+corpse pellets. The `while` (not `if`) plus the `None` break makes it total: it drains
+any pre-existing overage and cannot spin when no corpse pellet remains.
+
+**Eviction order (FIFO by board order):** `evict_oldest_corpse` (l.67-90) scans the
+**ordered `food` list front-to-back and removes the FIRST cell that is a member of
+`corpse_positions`**, from both structures, returning it. This is "oldest rots first" —
+oldest in **food-list append order**, which is *not* necessarily corpse-insertion order,
+since ambient pellets are interleaved and `consume_at`/`trim_ambient` remove from the
+middle. **The scan order over `self.food` (a list) is load-bearing; `_corpse_positions`
+is only membership-tested, never iterated — do not reimplement this by iterating the
+set** (§7.1 hazard 1).
+
+**Only corpse-class pellets are ever evicted** — ambient food is untouched by this rule
+and an ambient `add_food` never triggers it (the cap is checked only on the
+`corpse and CORPSE_EXEMPT_FROM_CAP_V2` branch).
+
+**Batched mirror:** `BatchSim._add_food` (batch_sim.py l.646-663) applies the identical
+rule per env against `corpse_cells[e]` / `food_cells[e]` via the same helper. It
+additionally maintains a `food_set[e]` membership index, so it must `discard` each
+evicted cell from that index too (`food_set[e] == set(food_cells[e])` is an invariant).
+A reimplementation carrying any such side index owes it the same discard.
 
 ---
 
@@ -387,7 +442,7 @@ All draws use the **global `random` module** (`import random`). To reproduce foo
 spawn positions the batched sim must reproduce the **exact sequence and count** of
 `random.randint` / `random.uniform` calls, then `snap_to_cell` the result.
 
-### 5.1 Rectangular ambient/food spawn — `FoodManager._get_random_position` (l.88-114)
+### 5.1 Rectangular ambient/food spawn — `FoodManager._get_random_position` (l.93-119)
 Per call, **in this order**:
 1. `random.randint(wall_thickness, game_width - wall_thickness - segment_size)`  → x
 2. `random.randint(wall_thickness, game_height - wall_thickness - segment_size)`  → y
@@ -428,12 +483,12 @@ Within a frame the order is exactly: (respawns, in snake list order) →
 (one train-mode maintain_count). **Reproduce this exact call order.**
 
 ### 5.4 Episode reset draws (`GameState.reset` → `FoodManager.reset` → `_spawn_initial`)
-`reset()` (game_state.py l.130-172): on soft-reset it repositions each existing snake
-via `_get_non_overlapping_snake_position` (l.204-215): first `get_random_position()`
-(game_state.py l.501-529: **2 `randint`, x then y**, then snap), and if it overlaps
+`reset()` (game_state.py l.133-175): on soft-reset it repositions each existing snake
+via `_get_non_overlapping_snake_position` (l.207-218): first `get_random_position()`
+(game_state.py l.504-532: **2 `randint`, x then y**, then snap), and if it overlaps
 already-placed snakes, `find_empty_position` (5.2). Snakes placed in list order.
 Then `food_manager.reset(initial_food, self.snakes)` → `_spawn_initial(count, snakes)`
-(l.74-87): clears food; loops `count` times, `_find_spawn_position(snakes)` (nested
+(l.79-91): clears food; loops `count` times, `_find_spawn_position(snakes)` (nested
 rejection, 5.2). **On the very first construction** `FoodManager.__init__` calls
 `_spawn_initial(initial_food)` with `snakes=None` → routes to `_get_random_position`
 (5.1) — but `GameState` then calls `reset()` which re-spawns food WITH snakes, so the
@@ -486,7 +541,7 @@ death     = -3.0 if died else 0.0
 kill      = sum(0.3 * victim_length for victim_length in kills)   # UNCLAMPED
 total     = potential + death + kill                  # accum order fixed
 ```
-Constants (reward_events.py l.29-33): `PHI_LENGTH_DIVISOR=10.0`,
+Constants (reward_events.py l.29-35): `PHI_LENGTH_DIVISOR=10.0`,
 `KILL_REWARD_PER_VICTIM_LENGTH=0.3`, `DEATH_REWARD=-3.0`. **No clamping at v2.**
 Breakdown keys `("potential","death","kill")` sum bit-exactly to total.
 
@@ -514,11 +569,28 @@ needs no state tensor.
    `_corpse_positions` are dicts/sets. `frame_kills`/`frame_collisions` are built by
    ordered appends and only *read by key* (never iterated for world effect), so order
    doesn't affect dynamics. `_corpse_positions` is a `set` but is only membership-
-   tested (never iterated to produce positions), EXCEPT `trim_ambient` (l.222-252) and
-   `corpse_count` iterate `self.food` (a list, ordered) and test set membership — safe.
-   **No load-bearing set/dict iteration in the hot path.** Keep the batched sim's food
-   as an ordered array to match `self.food` append order (which determines
-   `trim_ambient` victims and, indirectly, nothing in the core loop).
+   tested (never iterated to produce positions), EXCEPT `trim_ambient` (l.234-264),
+   `corpse_count` (l.285-294) and `evict_oldest_corpse` (§4.7), which all iterate
+   `self.food` (a list, ordered) and test set membership — safe. **No load-bearing
+   set/dict iteration in the hot path** — but note this is a *consequence* of those
+   three scanning the list rather than the set. A reimplementation that iterates
+   `_corpse_positions` directly to pick an eviction victim would be
+   **nondeterministic and break parity**.
+
+   The **complete inventory of `self.food` mutations** (the ordered list is the
+   load-bearing structure — mirror it exactly):
+
+   | Mutation | Site | Order effect |
+   |---|---|---|
+   | append | `add_food` (§4.2) | tail append, after cell-exact de-dup |
+   | **remove oldest corpse** | **`evict_oldest_corpse` via `add_food` (§4.7)** | **removes the FIRST corpse-class cell in list order; v2 only, hot path** |
+   | remove eaten | `consume_at` (§4.1) | removes every cell sharing the head's cell |
+   | remove newest ambient | `trim_ambient` (l.234-264) | back-to-front, ambient only; external callers (web food-target control), not the core loop |
+   | clear | `_spawn_initial` / `clear` | resets list + `_corpse_positions` |
+
+   Append order is therefore **load-bearing in the core loop under v2**: it selects the
+   corpse-cap eviction victim (§4.7). (Before the corpse cap landed, order affected only
+   `trim_ambient` victims outside the core loop — that is no longer true.)
 
 2. **Floating point in circular arena.** Wall check (`dx²+dy² > radius²`),
    `_segment_inside_arena`, `get_circular_arena` (scaled center/radius), and

@@ -2,13 +2,13 @@
 
 Multi-agent reinforcement learning that teaches snakes to play a slither.io-style game with a
 distributed **Apex DQN** built from scratch — a hand-rolled actor/learner/buffer system, a
-disciplined frozen-opponent evaluation harness, and a live web app to watch the trained policy
-think in real time.
+disciplined paired-seed promotion gate, and a live web app to watch the trained policy think in
+real time.
 
 ![architecture](docs/architecture.svg)
 
 ![python](https://img.shields.io/badge/python-3.12-blue)
-![tests](https://img.shields.io/badge/tests-1235%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-1600%2B%20passing-brightgreen)
 ![code style](https://img.shields.io/badge/code%20style-black-000000)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -22,17 +22,19 @@ reward problem: the snake **couldn't see the trap in its observation**. Adding t
 BFS flood-fill **"free-space"** features (reachable open area for turn-left / straight / turn-right)
 gave it that signal.
 
-On the promotion benchmark — a candidate hero vs **frozen** opponents, **paired seeds**, greedy
-rollouts, scoring *stored mass* (not food flow):
+Measured on the **pre-repair** gate (candidate hero vs **frozen** opponents, **paired seeds**, greedy
+rollouts, scoring alive-conditioned *stored mass*):
 
 | model | mean mass | vs frozen champ | result |
 |---|---:|---:|---|
 | **61-D free-space (champion)** | **139.5** | **41.4** | 8/8 paired wins · CI-separated |
 | 58-D baseline | ~56 | — | the free-space model's warm-start parent |
 
-The model is a single feedforward Dueling DQN. The win comes from **observation design**, validated
-by an eval harness built specifically to resist self-play inflation (see
-[Evaluation](#evaluation-the-promotion-gate)).
+The model is a feedforward Dueling DQN. The win comes from **observation design**, validated by an
+eval harness built specifically to resist self-play inflation. That harness has since been rebuilt
+around a **mass integral** metric (see [Evaluation](#evaluation-the-promotion-gate)), so these
+numbers are historical and not directly comparable to what the current gate prints; the champion
+remains the incumbent baseline and permanent anchor.
 
 ## Quickstart
 
@@ -48,17 +50,21 @@ python web/serve.py            # -> http://localhost:8000   (or: make web)
 # Train headless (no GUI needed)
 python src/main.py --headless --episodes 100000
 
-# Evaluate a checkpoint against frozen opponents (the promotion gate)
-python src/scripts/tournament_eval.py saved_snakes/champion_a5_freespace_20260621.pth \
-  --opponent saved_snakes/best_apex_stage1_fs.pth \
-  --config configs/eval_free_space.yaml --frames 1500 --seeds 0-15
+# Gate a candidate against the incumbent champion (paired seeds, all 3 opponent mixes).
+# --gate exits 0 iff the candidate passes the promotion rule, so CI can branch on it.
+SNAKE_DQN_DEVICE=cpu python src/scripts/tournament_eval.py saved_snakes/best_apex_fs.pth \
+  --gate --frames 3000 --seeds 0,1,2,3,4,5,6,7,8,9 \
+  --json-output logs/gate_candidate.json
+
+# How many seeds do you actually need? (power analysis on the baseline)
+python src/scripts/tournament_eval.py --pilot --frames 3000
 ```
 
 ## The web app
 
 A **server-authoritative** UI: the Python engine is the single source of truth, and the React
 frontend is a pure view that renders frames streamed over a WebSocket — no game logic or model
-inference runs in the browser. Six panels:
+inference runs in the browser. Seven panels — the arena is always on screen, with six tabs beside it:
 
 - **Game** — the live arena; the hero snake is outlined.
 - **Play** — *take the controls yourself.* Steer a snake with the arrow keys / WASD against the
@@ -66,6 +72,10 @@ inference runs in the browser. Six panels:
   (see [Human play](#human-play--leaderboard)).
 - **Inspector** — the hero's 58-/61-D state vector (grouped + labeled), live Q-values → chosen
   action, and the free-space features.
+- **Raster** — what a `raster31v2` snake actually sees: the heading-rotated **ego-centric 31×31
+  tactical stack** (head centred, facing up), as a colour-coded composite or one isolated channel.
+  The redesign's candidate observation (`src/simd_env/featurizer.py`); shows a placeholder for the
+  61-D vector champion.
 - **Network** — live `forward_with_activations` heat-mapped across input / hidden / output layers.
 - **Dashboard** — the eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.
 - **Controls** — play/pause, speed, ε, hero selector, checkpoint loader, watch↔train toggle.
@@ -100,13 +110,23 @@ n-step returns) → one GPU learner; weights broadcast back to actors. Implement
 A `Policy` ABC and a `BaseReplayBuffer` ABC keep the pieces swappable; `SnakeFactory` injects the
 shared policy into snakes via DI; configuration is immutable frozen dataclasses.
 
-### One model, one state representation
+### Models and state representations
 
-The project ships a **single** network — the feedforward Dueling DQN `ApexNetwork`. (GRU/DRQN and
-CNN variants were evaluated and removed: across paired, frozen-opponent benchmarks the feedforward
-+ 61-D free-space model strictly dominated them.) The state is selectable via `use_free_space`: the
-58-D hand-crafted vector, or the 61-D variant that appends the three free-space features
+The **production** model is the feedforward Dueling DQN `ApexNetwork` (`src/model/apex_network.py`)
+— the only one with a promoted checkpoint. Its state is selectable via `use_free_space`: the 58-D
+hand-crafted vector, or the 61-D variant that appends the three free-space features
 (`input_size: 61`, `use_free_space: true`).
+
+Alongside it, the in-progress redesign adds `RasterDuelingNetwork` (`src/model/raster_network.py`),
+a conv encoder over the ego-raster observation. It is **not** yet promoted — the gate decides.
+
+A note on history, since earlier docs (including this README) got it wrong: **GRU/DRQN** was trained
+and genuinely lost paired frozen-opponent benchmarks to the feedforward + 61-D free-space model, and
+stays excluded. The oft-repeated claim that **CNN** variants "were evaluated and lost" is **false** —
+git archaeology found the CNN code was written and deleted within a week, never trained, with zero
+checkpoints ever produced. The CNN question is genuinely open, which is why the redesign re-tests it
+against an MLP control arm rather than assuming the answer
+([blueprint](docs/ml_redesign_blueprint_2026-07.md) Appendix B, claims 1 and 10).
 
 The `Snake` class is split by concern: entity/lifecycle (`snake.py`), observation
 (`snake_state.py` → `SnakeStateMixin`), and reward (`snake_reward.py` → `SnakeRewardMixin`).
@@ -114,11 +134,34 @@ The `Snake` class is split by concern: entity/lifecycle (`snake.py`), observatio
 ### Evaluation: the promotion gate
 
 `src/scripts/tournament_eval.py` is the differentiator. Naïve self-play eval inflates skill (a Red
-Queen effect — opponents improve too, and survival saturates at the frame cap). Instead this harness
-pits the candidate against opponents running a **fixed frozen checkpoint**, on **paired seeds**
-(identical RNG per candidate), greedy (ε=0, deterministic), scoring **stored mass** (which doesn't
-saturate the way episode length does). Promotion requires a **CI-separated** win on mean mass with
-survival held. This is what caught a mislabeled reward contract during development.
+Queen effect — opponents improve too, and survival saturates at the frame cap). This harness runs
+greedy (ε=0, deterministic) rollouts on **paired seeds** — every candidate plays the identical
+worlds as a `--baseline` (default: the incumbent champion) — and reports per-seed deltas with a
+t-distribution 95% CI.
+
+The headline metric is the **mass integral**: mean per-frame mass over the **total** horizon, with
+dead frames contributing **0**. This replaced an alive-conditioned mean mass under which *dying rich
+outranked surviving* — that metric survives only as the `mean_mass_alive` legacy diagnostic.
+
+Opponents are **diverse** rather than five clones of one checkpoint. The candidate is evaluated
+round-robin over three mixes:
+
+| mix | opponent slots |
+|---|---|
+| `frozen` | cycled over the `--opponents` checkpoint pool |
+| `scripted` | all `greedy_food` scripted anchors — ungameable, and it can't drift |
+| `mixed` | alternating frozen-pool checkpoints and `random_safe` scripted slots |
+
+The scripted anchors are why the gate can calibrate *itself* (champion > greedy anchor > random_safe)
+and why its tests run hermetically with no checkpoints at all.
+
+**Promotion rule** (printed always, machine-enforced with `--gate`, which exits 0 iff it passes):
+promote iff the paired mass-integral delta is **> 0 at 95% CI on ≥ 2 mixes** *and* there is **no
+regression vs the scripted anchor mix**. `--pilot` runs the baseline alone and recommends a seed
+count for a 3% minimum detectable effect. Behavioral probes (boost fraction, death causes, kills,
+entrapment) ride along on every run.
+
+This harness is what caught a mislabeled reward contract during development.
 
 ## Train your own on an H100
 
@@ -131,24 +174,41 @@ config, and gating recipe.
 ```
 src/
 ├── core/        immutable config, device manager
-├── model/       ApexNetwork (Dueling DQN) + mixins
-├── training/    Apex policy, actor, learner, SumTree/PER buffers, curriculum
+├── model/       ApexNetwork (Dueling DQN) + mixins, RasterDuelingNetwork, InferenceAgent
+├── training/    Apex policy, actor, learner, SumTree/PER buffers, curriculum, PQN trainer
 ├── game/        snake entity + state/reward mixins, game loop, factory (DI)
-└── scripts/     apex_train, tournament_eval (promotion gate), warm-start tooling
+├── simd_env/    the vectorized redesign env:
+│                  batch_sim      NumPy-vectorized, cell-exact batch simulator
+│                  featurizer     dual-scale ego-raster observation (raster31v2)
+│                  gpu_featurizer the same featurizer in torch, built on-device
+│                  eval_engine    batched rollouts for the gate
+│                  parity         golden-replay harness: live game vs batch sim
+│                  live_adapter   live GameState -> ObsInputs bridge
+└── scripts/     apex_train, train_pqn, sweep, tournament_eval (promotion gate),
+                 bench_simd, widen_input + warm-start tooling
 web/             FastAPI backend + React/TS frontend (the live UI)
 configs/         YAML configs (free_space_v2 = production; eval_free_space = the gate arena)
-docs/            architecture, H100 recipe, history
+docs/            architecture, redesign blueprint, SIMD env spec, H100 recipe, history
 saved_snakes/    champion + frozen eval opponents
 ```
+
+### Redesign in progress
+
+This branch is mid-way through a planned overhaul: a repaired promotion gate (done — above), a
+NumPy-vectorized parity-tested simulator, an ego-raster observation, and a PQN trainer to replace
+the Apex loop. The plan, the evidence behind it, and an audit of which long-standing claims survived
+verification live in **[docs/ml_redesign_blueprint_2026-07.md](docs/ml_redesign_blueprint_2026-07.md)**
+(env contract: [docs/simd_env_spec.md](docs/simd_env_spec.md)). The champion stays incumbent until
+something beats it under the repaired gate.
 
 ## Development
 
 ```bash
 make install-dev    # deps + pre-commit hooks
-make test           # pytest (1235 tests)
+make test           # pytest (1600+ tests)
 make lint           # black --check + isort --check + flake8
 make format         # auto-format
-cd web/frontend && npm test    # frontend unit tests (vitest, 23 tests)
+cd web/frontend && npm test    # frontend unit tests (vitest, 50+ tests)
 ```
 
 CI runs lint + Python tests + the frontend build **and its vitest suite** on every push

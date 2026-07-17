@@ -6,11 +6,27 @@ reference — no training is required to read or use anything here. For running
 trained models see [`InferenceAgent`](../src/model/inference_agent.py); for the
 state-vector layout see [CLAUDE.md](../CLAUDE.md).
 
-The codebase deliberately ships **one** algorithm and **one** network. GRU/DRQN
-and CNN variants were evaluated and removed after they lost every paired,
-frozen-opponent benchmark to the feedforward model. Consolidating to a single
-winner is itself a design choice: it keeps the surface area small enough to
+**Scope.** This document covers the **Apex vector stack**: `ApexNetwork` +
+the 58/61-D hand-crafted state. That stack is no longer the whole codebase —
+the redesign branch adds a second, independent track (`PQNTrainer`,
+`RasterDuelingNetwork` on the vectorized `BatchSim`) built around ego-raster
+observations. For that design and the rationale for re-opening architecture
+questions, see
+[`docs/ml_redesign_blueprint_2026-07.md`](ml_redesign_blueprint_2026-07.md).
+Within *this* stack the consolidation to a single algorithm and network still
+holds, and is itself a design choice: it keeps the surface area small enough to
 reason about and tune.
+
+**Historical record — read before citing "we already tested that."** GRU/DRQN
+was trained and did lose paired, frozen-opponent benchmarks to the feedforward
+model. The **CNN was never trained**: it was written and then deleted during
+consolidation, with zero checkpoints ever produced, so it lost nothing. Earlier
+drafts of this file claimed both variants "lost every benchmark" — refuted by
+this repo's own verification appendix (blueprint Appendix B, claims 1 and 10).
+The **CNN question is open**, and the raster/PQN stack is re-testing it. Note
+also that the GRU/DRQN elimination was judged under the *old* promotion gate,
+which has since been repaired (see §8) — so it carries less evidential weight
+than a clean result would.
 
 ---
 
@@ -78,9 +94,12 @@ keeps the decomposition identifiable. The dueling combine lives in one helper,
 **Why feedforward (not recurrent/convolutional).** The state vector is already a
 hand-engineered, egocentric summary (danger sectors, nearest-enemy features,
 free-space) — the temporal and spatial structure a GRU or CNN would have to
-rediscover is pre-baked. Across frozen-opponent, paired-seed benchmarks the
-feedforward + 61-D model strictly dominated the recurrent and convolutional
-variants, so they were deleted.
+rediscover is pre-baked. That is the *a priori* argument. The *empirical* support
+covers the recurrent case only: the feedforward + 61-D model beat GRU/DRQN on
+frozen-opponent, paired-seed benchmarks, and DRQN was deleted. The convolutional
+variant was deleted **untested** (never trained, no checkpoints), so nothing here
+should be read as a CNN result — the raster/PQN track is running that experiment
+properly.
 
 ---
 
@@ -244,8 +263,21 @@ needed to *use* a trained snake. Two options:
   ```
 
 Promotion is gated by [`tournament_eval.py`](../src/scripts/tournament_eval.py)
-(hero vs. frozen opponents, paired seeds, mass + CI) — **not** by training
-reward, which self-play inflates (Red Queen effect).
+— **not** by training reward, which self-play inflates (Red Queen effect).
+
+The gate's headline metric is the **mass integral**: mean per-frame mass over the
+**total** episode horizon, dead frames contributing **0**. It replaced an
+alive-frames-only `mean_mass` under which dying rich outranked surviving — i.e.
+the old gate could promote regressions, so results judged under it (including the
+GRU/DRQN elimination) are weaker evidence than they look. `mean_mass_alive`
+survives as a legacy diagnostic; nothing gates on it.
+
+The rule, enforced in `promotion_decision()` and reported through the `--gate`
+exit code (0 = promote, 1 = reject): promote iff the **paired** per-seed
+mass-integral delta vs `--baseline` is **> 0 at 95% CI on ≥ 2 distinct opponent
+mixes** AND shows **no regression vs the scripted anchor mix**. Candidate and
+baseline share seeds (common random numbers); opponents are drawn from three
+mixes (`frozen` / `scripted` / `mixed`) rather than clones of one checkpoint.
 
 ---
 
@@ -261,8 +293,8 @@ training runs:
    already anticipates this (currently 1).
 2. **Learned free-space features.** The 61-D free-space features are a hand-coded
    flood-fill proxy. A tiny auxiliary head predicting reachable area could learn a
-   sharper signal — but only if it beats the handcrafted version on the frozen
-   benchmark (the bar that killed GRU/CNN).
+   sharper signal — but only if it clears the repaired promotion gate (§8), the
+   same bar GRU/DRQN failed (under the gate's older, weaker form).
 3. **Munchausen DQN.** A one-line target augmentation (add a scaled log-policy
    term) that is cheap to implement and frequently a free win for discrete DQN.
 4. **Opponent-aware evaluation heads.** Currently every snake shares one policy;

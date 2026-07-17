@@ -2,9 +2,13 @@
 #
 # Copy of configs/free_space_v2.yaml (the champion_a5 61-D free-space contract)
 # with the two version switches flipped:
-#   game.mechanics_version: 2 — boost trail pellets, 100% cap-exempt corpse
-#     drops, size-resolved head-ons (>=1.15x survives with kill credit),
-#     training population floor (<3 alive ends the episode in train mode).
+#   game.mechanics_version: 2 — boost trail pellets, 100% corpse drops that are
+#     exempt from the ambient max_food cap but hard-bounded at
+#     corpse_food_cap(max_food) = max(0.5*max_food, 10) pellets, evicting the
+#     oldest corpse FIFO once over (so kills never suppress ambient spawns, yet
+#     corpse food cannot accumulate without bound); size-resolved head-ons
+#     (>=1.15x survives with kill credit), training population floor (<3 alive
+#     ends the episode in train mode).
 #   rewards.version: 2 — event-based reward v2 (consumed by the reward code).
 #
 # Version 1 (the default everywhere else) keeps legacy behavior bit-identical;
