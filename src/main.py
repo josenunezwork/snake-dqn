@@ -1355,10 +1355,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python src/main.py                             # Run UI with Apex DQN
-  python src/main.py --headless --episodes 10000 # Headless training
-  python src/main.py --human                     # Human play mode
-  python src/main.py --load saved_snakes/best.pth  # Load trained model
+  python src/main.py                              # Print where the interactive UI moved
+  python src/main.py --headless --episodes 10000  # Headless training
+  python src/main.py --headless --load saved_snakes/best_apex.pth
+                                                  # Headless training from a checkpoint
+  python src/main.py --health-smoke --load saved_snakes/best_apex.pth
+                                                  # Bounded learning-health check
+
+The interactive UI (watch / train / human play) is the web app:
+  cd web/frontend && npm install && npm run build
+  ./venv/bin/python web/serve.py   ->  http://localhost:8000
         """,
     )
 
@@ -1602,6 +1608,27 @@ Examples:
     # traceback (and leak the Manager).
     if args.num_envs is not None and args.num_envs <= 0:
         parser.error("--num-envs must be a positive integer")
+
+    # --load / --eval / --load-memory-db are only consumed by the --headless and
+    # --health-smoke paths. Without a mode this module just prints where the web
+    # UI lives and exits 0, so these flags would be silently dropped and a bad
+    # checkpoint path would look like a successful validation.
+    if not (args.headless or args.health_smoke):
+        unusable = [
+            flag
+            for flag, value in (
+                ("--load", args.load),
+                ("--eval", args.eval),
+                ("--load-memory-db", args.load_memory_db),
+            )
+            if value
+        ]
+        if unusable:
+            parser.error(
+                f"{', '.join(unusable)}: only usable with --headless or --health-smoke. "
+                "Add one of those modes (the interactive UI is the web app: "
+                "./venv/bin/python web/serve.py)."
+            )
 
     try:
         resolve_training_batch_size(args.batch_size)
