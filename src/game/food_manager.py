@@ -8,9 +8,13 @@ import random
 from typing import TYPE_CHECKING, List, Optional, Set, Tuple
 
 from src.core.game_config import GameConfig
-from src.core.mechanics_constants import (CORPSE_EXEMPT_FROM_CAP_V2,
-                                          corpse_food_cap, evict_oldest_corpse,
-                                          same_cell, snap_to_cell)
+from src.core.mechanics_constants import (
+    CORPSE_EXEMPT_FROM_CAP_V2,
+    corpse_food_cap,
+    evict_oldest_corpse,
+    same_cell,
+    snap_to_cell,
+)
 from src.game.game_logic import GameLogic
 
 if TYPE_CHECKING:

@@ -89,6 +89,7 @@ def evict_oldest_corpse(food, corpse_positions) -> object:
             return cell
     return None
 
+
 # v2: each boost segment burn drops a corpse-class pellet at the vacated tail
 # cell (boost becomes a mass transfer instead of mass destruction).
 BOOST_DROPS_TRAIL_V2: bool = True

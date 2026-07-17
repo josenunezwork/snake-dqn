@@ -11,10 +11,13 @@ import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 from src.core.game_config import GameConfig
-from src.core.mechanics_constants import (CORPSE_DROP_FRACTION_V1,
-                                          CORPSE_DROP_FRACTION_V2,
-                                          HEADON_SIZE_RATIO,
-                                          POPULATION_FLOOR_V2, snap_to_cell)
+from src.core.mechanics_constants import (
+    CORPSE_DROP_FRACTION_V1,
+    CORPSE_DROP_FRACTION_V2,
+    HEADON_SIZE_RATIO,
+    POPULATION_FLOOR_V2,
+    snap_to_cell,
+)
 from src.game.food_manager import FoodManager
 from src.game.game_logic import GameLogic
 from src.game.snake_factory import SnakeFactory

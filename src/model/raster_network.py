@@ -36,9 +36,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from src.simd_env.featurizer import (SCALARS_DIM, STRATEGIC_CHANNELS,
-                                     STRATEGIC_SIZE, TACTICAL_CHANNELS,
-                                     TACTICAL_SIZE, expand_tactical)
+from src.simd_env.featurizer import (
+    SCALARS_DIM,
+    STRATEGIC_CHANNELS,
+    STRATEGIC_SIZE,
+    TACTICAL_CHANNELS,
+    TACTICAL_SIZE,
+    expand_tactical,
+)
 
 from .base_network import dueling_q, init_weights_orthogonal
 

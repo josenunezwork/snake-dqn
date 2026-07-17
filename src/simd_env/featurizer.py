@@ -342,9 +342,7 @@ def _build_tactical(inp: ObsInputs) -> np.ndarray:
     #   right: dcol=ahead,drow=lat
     #   down:  dcol=-lat, drow=ahead
     #   left:  dcol=-ahead,drow=-lat
-    ncell = size * size
-    n_agents = E * S
-    # Broadcast: (n_agents, ncell). Invert ego->world per heading via coefficient
+    # Broadcast: (n_agents = E*S, ncell = size*size). Invert ego->world per heading via coefficient
     # lookup (bit-identical to the old np.select, each coeff in {0, +1, -1}):
     #   dcol_w: up=lat,  right=ahead, down=-lat, left=-ahead
     #   drow_w: up=-ahead, right=lat, down=ahead, left=-lat

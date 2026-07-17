@@ -54,8 +54,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig  # noqa: E402
 from src.core.reward_contract import current_reward_contract  # noqa: E402
-from src.training.checkpoint_contract import \
-    validate_checkpoint_contract  # noqa: E402
+from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
 
 if TYPE_CHECKING:
     import torch
@@ -1114,10 +1113,13 @@ def train_apex(
 
     from src.core.device_manager import DeviceManager
     from src.model.apex_network import ApexNetwork
-    from src.training.apex_actor import (DEFAULT_ACTOR_BOOST_EXPLORATION_RATE,
-                                         DEFAULT_ACTOR_DANGER_EXPLORATION_RATE,
-                                         spawn_actors, start_actors,
-                                         stop_actors)
+    from src.training.apex_actor import (
+        DEFAULT_ACTOR_BOOST_EXPLORATION_RATE,
+        DEFAULT_ACTOR_DANGER_EXPLORATION_RATE,
+        spawn_actors,
+        start_actors,
+        stop_actors,
+    )
     from src.training.apex_buffer import BufferProcess
     from src.training.apex_learner import create_apex_learner
 
