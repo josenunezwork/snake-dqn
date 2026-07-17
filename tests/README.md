@@ -1,92 +1,155 @@
 # Test Suite
 
-This directory contains tests for the Snake Apex project.
+Tests for the Snake Apex project. Every command below is run from the **repo root**.
+
+`pytest.ini` sets `testpaths = tests`, so a bare `pytest` already collects this
+directory — you rarely need to pass a path.
 
 ## Running Tests
 
-### Option 1: With pytest (Recommended)
+Use the project venv interpreter so you get the pinned toolchain:
+
 ```bash
-# Install dev dependencies
-pip install -r requirements-dev.txt
-
-# Run all tests
-pytest tests/ -v
-
-# Run specific test file
-pytest tests/test_policy.py -v
-
-# Run with coverage
-pytest tests/ --cov=src --cov-report=html
+./venv/bin/python -m pytest -m "not slow" -q
 ```
 
-### Option 2: Standalone (No pytest required)
+That is the gate. It is exactly what CI runs (`.github/workflows/ci.yml`), and it
+must stay green.
+
+Narrower selections while iterating:
+
 ```bash
-# Run simple policy system tests
-python test_policy_simple.py
+# One file
+./venv/bin/python -m pytest tests/test_apex_policy.py
+
+# One test
+./venv/bin/python -m pytest tests/test_apex_policy.py::test_local_policy_uses_small_replay_warmup
+
+# Everything matching a keyword
+./venv/bin/python -m pytest -k parity
 ```
 
-## Test Files
+`pytest.ini` already sets `-v`, `-ra`, and `--showlocals` via `addopts`, so there is
+no need to add them yourself.
 
-### Core Game Tests
-- `test_snake.py` - Base Snake class tests
-- `test_game_logic.py` - Game logic and collision tests
-- `test_game_config.py` - Configuration tests
-- `test_human_snake.py` - Human-controlled snake tests
+## Markers
 
-### Model Tests
-- `test_apex_network.py` - Apex neural network architecture tests
+`pytest.ini` sets `strict_markers = true`: an unregistered marker is a collection
+**error**, not a warning. To use a new marker, register it in `pytest.ini` first.
+This has to be the ini key — `--strict-markers` in `addopts` alone is silently
+inert on pytest 9, and warns instead of failing.
 
-### Data Tests
-- `test_memory_db_handler.py` - Database handler tests
+Registered markers: `slow`, `integration`, `unit`, `requires_gpu`. Only `slow`
+currently has tests attached to it — the other three are reserved, and selecting on
+them today deselects everything.
 
-### Policy System Tests
-- `test_policy.py` - Policy factory and Apex policy tests
-- `test_ai_snake.py` - AISnake integration with Apex policy
+`slow` is the one that matters, because CI and the documented gate both filter on it:
 
-## What's Tested
+```bash
+# The gate: skip slow tests
+./venv/bin/python -m pytest -m "not slow" -q
 
-### Apex Policy System
-- ApexPolicy creation via PolicyFactory
-- ApexPolicy implements all interface methods
-- AISnake integrates with Apex Policy interface
-- GameState assigns Apex policy to snakes
-- Checkpoint save/load includes policy metadata
-- Backward compatibility with old checkpoints
-- Policy loading from saved models
+# Only the slow tests
+./venv/bin/python -m pytest -m "slow" -q
+```
 
-### Core Functionality
-- Snake movement and collisions
-- Game logic and food consumption
-- Neural network forward/backward passes
-- Database operations
-- Human snake controls
+Mark a test `slow` when it trains, or otherwise costs seconds rather than
+milliseconds, so the default gate stays fast.
+
+## Coverage
+
+Coverage is **not** part of the gate and `pytest-cov` is not installed in `./venv`,
+so `--cov` flags fail with `unrecognized arguments` as-is. Install it into the venv
+first if you want a report; `[tool.coverage.*]` in `pyproject.toml` configures the
+output. The same applies to `pytest-xdist` (`-n auto`) — listed in
+`requirements-dev.txt` but absent from the venv.
+
+## Test Groups
+
+The suite is large and grows steadily, so this is a structural map rather than a
+file list — run `ls tests/` for the current inventory.
+
+- **Game & mechanics** — the core simulation: snake movement, collisions, food,
+  kill attribution, speed boost, relative actions, circular arena, curriculum, and
+  the v2 mechanics/reward surface (`test_mechanics_v2.py`, `test_reward_v2.py`,
+  `test_reward_events.py`, `test_behavior_probes.py`).
+- **State & features** — the observation vector: the 58-D/61-D featurizer, the GPU
+  featurizer, free-space features, enemy features, per-action danger, action masking.
+- **Apex stack** — the distributed trainer: policy, actor, buffer, learner, the
+  actor hot path, replay structures (`test_sum_tree.py`, `test_base_buffer.py`,
+  `test_multistep_buffer.py`), n-step targets, and the opponent pool.
+- **SIMD env & parity** — the vectorized sim and the parity checks that pin it to
+  the reference implementation (`test_simd_env.py`, `test_simd_parity.py`,
+  `test_obs_parity.py`). Most of these run under the default gate; the only `slow`
+  tests in the suite are the 3 parametrizations of
+  `test_simd_parity.py::test_parity_bit_exact_full_battery`.
+- **PQN & raster** — the raster network, PQN trainer, raster inference/serving, and
+  the online/offline training paths.
+- **Inference, eval & promotion** — `InferenceAgent`, tournament eval (the promotion
+  gate), eval stats, checkpoint evaluation, and the checkpoint contract.
+- **Data & persistence** — replay DB handler, score store, replay audit/quality, and
+  experience generation.
+- **Web-adjacent** — human play and raster serving through the web backend
+  (`test_web_play.py`, `test_web_raster_serving.py`).
+- **Config & infra** — config schema parity, reconciliation, PQN config block,
+  device selection, and CLI guards.
+
+Shared fixtures and helpers live in `tests/conftest.py` (`temp_db`, `setup_config`,
+`make_test_snake`).
 
 ## Adding New Tests
 
-When extending Apex functionality, add tests in `test_policy.py`:
+Add tests next to the group they belong to, or add a new `test_*.py` file.
+
+Policies are constructed **directly** — there is no policy factory. `ApexPolicy`
+reads global config, so initialize config and pin the device first, then restore
+both in a `finally` so state cannot leak into later tests. `AISnake` receives a
+policy via `SnakeFactory` (see `src/game/snake_factory.py`).
 
 ```python
-def test_apex_policy_creation():
-    """Test Apex policy creation."""
-    policy = PolicyFactory.create_policy('apex', 58, 128, 6)
-    assert policy.get_policy_name() == 'apex'
+import torch
 
-def test_apex_checkpoint_save_load():
-    """Test Apex checkpoint serialization."""
-    policy = PolicyFactory.create_policy('apex', 58, 128, 6)
-    state_dict = policy.get_state_dict()
+from src.core.device_manager import DeviceManager
+from src.core.game_config import (
+    ApexSettings,
+    AppConfig,
+    NetworkSettings,
+    TrainingSettings,
+    initialize_config,
+)
+from src.training.apex_policy import ApexPolicy
 
-    new_policy = PolicyFactory.create_policy('apex', 58, 128, 6)
-    new_policy.load_state_dict(state_dict)
 
-    assert new_policy.get_policy_name() == 'apex'
+def test_apex_policy_learns_from_replay():
+    """ApexPolicy trains once the replay warmup is satisfied."""
+    DeviceManager.override_device(torch.device("cpu"))
+    initialize_config(
+        AppConfig(
+            network=NetworkSettings(input_size=4, hidden_size=64, output_size=3),
+            training=TrainingSettings(batch_size=2, memory_size=1000),
+            apex=ApexSettings(batch_size=2, min_buffer_size=50, learning_rate=0.001),
+        )
+    )
+    try:
+        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3, n_step=1)
+        loss = None
+        for i in range(8):
+            loss, _ = policy.update(
+                state=torch.full((4,), float(i)),
+                action=i % 3,
+                reward=0.1,
+                next_state=torch.full((4,), float(i + 1)),
+                done=False,
+                snake_id=0,
+            )
+        assert loss is not None
+        assert policy.update_counter > 0
+    finally:
+        DeviceManager.reset_for_testing()
+        initialize_config()
 ```
 
-## Continuous Integration
-
-If using CI/CD, run:
-```bash
-pytest tests/ --cov=src --cov-report=xml
-```
-
-This generates coverage reports compatible with most CI systems.
+Tiny `input_size`/`hidden_size` values keep unit tests fast; use the real 58-D/61-D
+sizes only when the test is actually about the production state layout. See
+`tests/test_apex_policy.py` for more of this pattern and `tests/test_ai_snake.py`
+for policy-plus-snake integration.
