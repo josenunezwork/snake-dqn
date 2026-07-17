@@ -12,10 +12,10 @@ baseline; opponents (snakes 1..N-1) share one frozen policy. Paired per-seed
 
 Usage:
   ./venv/bin/python src/scripts/ensemble_eval.py \
-    --members saved_snakes/best_apex.pth saved_snakes/exp_arena08_long/apex_final.pth \
-              saved_snakes/exp_snakes12/apex_final.pth \
-    --baseline saved_snakes/best_apex.pth \
-    --opponent saved_snakes/best_apex_stage1_20260615.bak.pth \
+    --members saved_snakes/champion_a5_freespace_20260621.pth saved_snakes/best_apex_fs.pth \
+              saved_snakes/best_apex_stage1_fs.pth \
+    --baseline saved_snakes/champion_a5_freespace_20260621.pth \
+    --opponent saved_snakes/best_apex_pre_fs.pth \
     --frames 2500 --seeds 0-19
 """
 
@@ -40,10 +40,11 @@ from src.game.game_state_factory import (  # noqa: E402
     configure_eval_game_state,
     create_training_game_state,
 )
+from src.scripts.eval_cli import parse_seed_list, set_seed  # noqa: E402
 from src.scripts.tournament_eval import (  # noqa: E402
+    DEFAULT_CONFIG,
     build_policy_from_checkpoint,
     ci95,
-    set_seed,
 )
 from src.training.action_mask import (  # noqa: E402
     coerce_action_mask,
@@ -91,11 +92,9 @@ class EnsemblePolicy:
             return int(masked.argmax(dim=-1).item())
 
 
-def parse_seeds(v):
-    if "-" in v and "," not in v:
-        a, b = v.split("-")
-        return list(range(int(a), int(b) + 1))
-    return [int(x) for x in v.split(",") if x.strip()]
+# Historical name for this script's --seeds type; the shared parser is a strict
+# superset of the range-only form it used to implement.
+parse_seeds = parse_seed_list
 
 
 def hero_rollout(make_hero_policy, opponent_path, frames, seed):
@@ -139,9 +138,9 @@ def main():
     p.add_argument("--members", nargs="+", required=True)
     p.add_argument("--baseline", required=True)
     p.add_argument("--opponent", required=True)
-    p.add_argument("--config", default="configs/goal_slither_20260615.yaml")
+    p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--frames", type=int, default=2500)
-    p.add_argument("--seeds", type=parse_seeds, default=list(range(20)))
+    p.add_argument("--seeds", type=parse_seed_list, default=list(range(20)))
     p.add_argument("--json-output", default=None)
     args = p.parse_args()
 

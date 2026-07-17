@@ -6,14 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import random
 import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
-
-import numpy as np
 
 # Add project root to path when run as a script.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -27,21 +24,9 @@ from src.main import (  # noqa: E402
     apply_training_batch_size_override,
     run_learning_health_smoke,
 )
+from src.scripts.eval_cli import parse_seed_list, set_seed  # noqa: E402
 
 SmokeRunner = Callable[..., Dict[str, Any]]
-
-
-def parse_seed_list(value: str) -> List[int]:
-    """Parse a comma-separated seed list."""
-    seeds = []
-    for raw_seed in value.split(","):
-        raw_seed = raw_seed.strip()
-        if not raw_seed:
-            continue
-        seeds.append(int(raw_seed))
-    if not seeds:
-        raise argparse.ArgumentTypeError("at least one seed is required")
-    return seeds
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -49,15 +34,6 @@ def _mean(values: Sequence[float]) -> float:
     if not values:
         return 0.0
     return float(sum(values) / len(values))
-
-
-def _set_eval_seed(seed: int) -> None:
-    """Reset random generators before one deterministic rollout."""
-    import torch
-
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
 
 def summarize_rollouts(checkpoint: str, rollouts: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -108,6 +84,29 @@ def _failed_summary(checkpoint: str, error: Exception) -> Dict[str, Any]:
     }
 
 
+def json_safe(value: Any) -> Any:
+    """Recursively replace non-finite floats with ``None`` for a strict JSON dump.
+
+    ``_failed_summary`` scores ``-inf`` so it sorts last, but ``json.dumps``
+    renders that as the JavaScript literal ``-Infinity``, which strict parsers
+    (``jq``, ``json.loads(..., parse_constant=...)``) reject. Sanitizing on the
+    way out keeps the dump valid without perturbing the in-memory ranking.
+
+    Args:
+        value: Any JSON-encodable structure.
+
+    Returns:
+        The same structure with every non-finite float replaced by ``None``.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    return value
+
+
 def checkpoint_rank_key(summary: Dict[str, Any]) -> tuple[float, float, float, float]:
     """Return the sort key for choosing the best greedy gameplay checkpoint."""
     return (
@@ -128,7 +127,7 @@ def evaluate_checkpoint(
     """Evaluate one checkpoint across seeded greedy rollouts."""
     rollouts = []
     for seed in seeds:
-        _set_eval_seed(int(seed))
+        set_seed(int(seed))
         stats = smoke_runner(
             max_frames=frames,
             checkpoint_filename=None,
@@ -218,7 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--seeds",
         type=parse_seed_list,
         default=parse_seed_list("0,1,2"),
-        help="Comma-separated rollout seeds",
+        help="Rollout seeds: comma-separated (0,1,2) and/or inclusive ranges (0-15)",
     )
     parser.add_argument("--batch-size", type=int, default=None, help="Optional batch override")
     parser.add_argument(
@@ -242,22 +241,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     summaries = evaluate_checkpoints(args.checkpoints, frames=args.frames, seeds=args.seeds)
 
     print(format_summary_table(summaries))
+    # Failures sort last, so an "error" on the top-ranked entry means EVERY
+    # candidate failed and there is no checkpoint worth promoting.
     best = summaries[0]
-    print(f"\nBest checkpoint: {best['checkpoint']}")
+    all_failed = "error" in best
 
-    if args.copy_best_to:
-        target = Path(args.copy_best_to)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(best["checkpoint"], target)
-        print(f"Copied best checkpoint to: {target}")
+    if all_failed:
+        print(
+            f"ERROR: no checkpoint evaluated successfully ({len(summaries)} attempted); "
+            "not selecting or copying a best checkpoint.",
+            file=sys.stderr,
+        )
+    else:
+        print(f"\nBest checkpoint: {best['checkpoint']}")
+        if args.copy_best_to:
+            target = Path(args.copy_best_to)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(best["checkpoint"], target)
+            print(f"Copied best checkpoint to: {target}")
 
     if args.json_output:
         output_path = Path(args.json_output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(summaries, indent=2), encoding="utf-8")
+        output_path.write_text(json.dumps(json_safe(summaries), indent=2), encoding="utf-8")
         print(f"Wrote JSON summary to: {output_path}")
 
-    return 0
+    return 1 if all_failed else 0
 
 
 if __name__ == "__main__":

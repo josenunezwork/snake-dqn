@@ -48,12 +48,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
-
-import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -66,6 +63,7 @@ from src.game.game_state_factory import (  # noqa: E402
 )
 from src.game.scripted_snake import SCRIPTED_KINDS  # noqa: E402
 from src.game.snake_factory import SnakeFactory  # noqa: E402
+from src.scripts.eval_cli import parse_seed_list, set_seed  # noqa: E402
 from src.scripts.eval_stats import (  # noqa: E402
     ci95_halfwidth,
     mass_integral,
@@ -100,14 +98,6 @@ METRIC_KEYS = ("mass_integral", "max_mass", "kills", "deaths", "survival_fractio
 AgentSpec = Tuple[str, str]
 
 
-def parse_seed_list(value: str) -> List[int]:
-    """Parse a comma-separated seed list."""
-    seeds = [int(s) for s in value.split(",") if s.strip()]
-    if not seeds:
-        raise argparse.ArgumentTypeError("at least one seed is required")
-    return seeds
-
-
 def parse_mix_list(value: str) -> List[str]:
     """Parse a comma-separated opponent-mix list (deduplicated, order-preserving).
 
@@ -140,15 +130,6 @@ def agent_label(spec: AgentSpec) -> str:
     """Human-readable label for an agent spec."""
     kind, ref = spec
     return f"scripted:{ref}" if kind == "scripted" else ref
-
-
-def set_seed(seed: int) -> None:
-    """Seed all RNGs so paired rollouts share world construction."""
-    import torch
-
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
 
 
 def _ckpt_value(ck: dict, key, default):
@@ -571,7 +552,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     p.add_argument("--frames", type=int, default=3000)
-    p.add_argument("--seeds", type=parse_seed_list, default=parse_seed_list("0,1,2,3,4,5,6,7,8,9"))
+    p.add_argument(
+        "--seeds",
+        type=parse_seed_list,
+        default=parse_seed_list("0-9"),
+        help="Seeds: comma-separated (0,1,2) and/or inclusive ranges (0-15)",
+    )
     p.add_argument("--json-output", default=None)
     p.add_argument(
         "--gate",
