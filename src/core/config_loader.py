@@ -213,6 +213,60 @@ class CurriculumSettingsSchema(_StrictModel):
     phase4_threshold: float = Field(default=0.5, gt=0)
 
 
+class PQNSettingsSchema(_StrictModel):
+    """PQN trainer knobs (``src/scripts/train_pqn.py``).
+
+    ``train_pqn.py`` reads this block itself via raw ``yaml.safe_load`` and maps it
+    onto ``PQNConfig``; nothing here reaches :class:`AppConfig`. The section exists
+    on this schema so that one mechanics-v2 config can drive both the vector
+    pipeline (``load_config`` -> tournament_eval / main / apex_train) and PQN
+    without ``extra='forbid'`` rejecting the file.
+
+    Fields mirror ``PQNConfig`` by name so a typo is still rejected, but every one
+    is optional and defaults to ``None`` ("not set here"): ``PQNConfig`` owns the
+    defaults, and duplicating them would let the two drift apart silently.
+    Field-name parity with ``PQNConfig`` is locked by test_config_pqn_block.
+    """
+
+    num_envs: Optional[int] = Field(default=None, ge=1)
+    num_snakes: Optional[int] = Field(default=None, ge=1)
+    rollout_len: Optional[int] = Field(default=None, ge=1)
+    gamma: Optional[float] = Field(default=None, gt=0, le=1)
+    lambda_: Optional[float] = Field(default=None, ge=0, le=1)
+    lr: Optional[float] = Field(default=None, gt=0)
+    adam_eps: Optional[float] = Field(default=None, gt=0)
+    grad_clip: Optional[float] = Field(default=None, gt=0)
+    minibatches: Optional[int] = Field(default=None, ge=1)
+    minibatch_size: Optional[int] = Field(default=None, ge=1)
+    eps_start: Optional[float] = Field(default=None, ge=0, le=1)
+    eps_end: Optional[float] = Field(default=None, ge=0, le=1)
+    eps_decay_steps: Optional[int] = Field(default=None, ge=1)
+    hero_frac: Optional[float] = Field(default=None, ge=0, le=1)
+    pool_capacity: Optional[int] = Field(default=None, ge=0)
+    pool_add_interval: Optional[int] = Field(default=None, ge=1)
+    death_value: Optional[float] = Field(default=None)
+    kill_scale: Optional[float] = Field(default=None)
+    flip_augment: Optional[bool] = Field(default=None)
+    max_frames: Optional[int] = Field(default=None, ge=1)
+    max_abs_q_alarm: Optional[float] = Field(default=None, gt=0)
+    seed: Optional[int] = Field(default=None)
+    arena_type: Optional[Literal["rectangular", "circular"]] = Field(default=None)
+    mechanics_version: Optional[int] = Field(default=None, ge=1, le=2)
+    reward_version: Optional[int] = Field(default=None, ge=1, le=2)
+    profile: Optional[bool] = Field(default=None)
+
+    @model_validator(mode="after")
+    def _check_epsilon_order(self) -> "PQNSettingsSchema":
+        """Reject an ε schedule that decays upward."""
+        if (
+            self.eps_start is not None
+            and self.eps_end is not None
+            and self.eps_end > self.eps_start
+        ):
+            raise ValueError("pqn.eps_end must not exceed pqn.eps_start")
+        return self
+
+
 class PolicyConfig(_StrictModel):
     """Policy/Algorithm configuration (Apex-only)."""
 
@@ -252,6 +306,7 @@ class ConfigSchema(_StrictModel):
     checkpoint: CheckpointSettingsSchema = Field(default_factory=CheckpointSettingsSchema)
     apex: ApexSettingsSchema = Field(default_factory=ApexSettingsSchema)
     curriculum: CurriculumSettingsSchema = Field(default_factory=CurriculumSettingsSchema)
+    pqn: PQNSettingsSchema = Field(default_factory=PQNSettingsSchema)
     policy: PolicyConfig = Field(default_factory=PolicyConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     hardware: HardwareConfig = Field(default_factory=HardwareConfig)
