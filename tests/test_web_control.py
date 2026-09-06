@@ -17,7 +17,6 @@ pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from web.backend import metrics  # noqa: E402
 from web.backend.session import GameSession  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -213,14 +212,35 @@ class TestLoadCheckpointContainment:
         assert session.checkpoint_path == before
         assert "does_not_exist.pth" in session.last_error
 
-    def test_real_basename_still_loads(self, session):
-        names = [c["name"] for c in metrics.list_checkpoints()]
-        if not names:
-            pytest.skip("no checkpoints in saved_snakes/")
-        name = os.path.basename(session.checkpoint_path or names[0])
-        session.load_checkpoint(name)
+    def test_advertised_basename_and_nested_raster_still_load(self, session, tmp_path, monkeypatch):
+        """Exercise both catalog namespaces without relying on checked-in artifacts."""
+        import torch
+
+        from src.training.pqn_trainer import PQNConfig, PQNTrainer
+        from web.backend import session as session_mod
+
+        repo = tmp_path / "repo"
+        saved = repo / "saved_snakes"
+        raster = repo / "runs" / "diagnostic"
+        saved.mkdir(parents=True)
+        raster.mkdir(parents=True)
+        monkeypatch.setattr(session_mod, "REPO_ROOT", str(repo))
+        monkeypatch.setattr(session_mod, "SAVED_DIR", str(saved))
+
+        basename = session.save_weights()
+        raster_name = "runs/diagnostic/latest_pqn.pth"
+        torch.save(
+            PQNTrainer(PQNConfig(num_envs=1, num_snakes=2, rollout_len=1)).checkpoint_state(),
+            raster / "latest_pqn.pth",
+        )
+
+        session.load_checkpoint(basename)
         assert session.last_error is None
-        assert session.control_state()["checkpoint"] == name
+        assert session.control_state()["checkpoint"] == basename
+
+        session.load_checkpoint(raster_name)
+        assert session.last_error is None
+        assert session.checkpoint_path == str(raster / "latest_pqn.pth")
 
 
 @pytest.fixture()

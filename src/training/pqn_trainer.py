@@ -360,11 +360,22 @@ class PQNTrainer:
             kept per-slot; termination bookkeeping is per (t, e, s).
         """
         cfg = self.cfg
-        E, S, T = cfg.num_envs, cfg.num_snakes, cfg.rollout_len
+        E, S = cfg.num_envs, cfg.num_snakes
         eps = self.epsilon()
 
         if self._episode_over():
             self.sim.reset()
+
+        # A rollout may not cross the frame-cap episode boundary.  In
+        # particular, when ``max_frames`` is not divisible by ``rollout_len``,
+        # collect the shorter tail here rather than stepping once past the cap
+        # and repairing the buffers afterwards.  The latter leaks an
+        # episode-progress scalar above 1 and creates a transition that belongs
+        # to neither episode.
+        remaining_frames = cfg.max_frames - int(self.sim.frame.max())
+        T = min(cfg.rollout_len, remaining_frames)
+        if T <= 0:
+            raise RuntimeError("rollout started at or beyond the episode frame cap")
 
         policy_ids = assign_policy_ids(
             E, S, self.pool.policy_ids(), cfg.hero_frac, self.rng, hero_slot0=True
@@ -507,7 +518,8 @@ class PQNTrainer:
             ``(T, E, S)`` float tensor of Q(lambda) targets on ``device``.
         """
         cfg = self.cfg
-        E, S, T = cfg.num_envs, cfg.num_snakes, cfg.rollout_len
+        E, S = cfg.num_envs, cfg.num_snakes
+        T = int(np.asarray(roll["rewards"]).shape[0])
         gamma, lam = cfg.gamma, cfg.lambda_
         neg_inf = torch.finfo(torch.float32).min
 
@@ -594,7 +606,8 @@ class PQNTrainer:
             ``(mean_loss, mean_grad_norm, mean_abs_q, max_abs_q, entropy)``.
         """
         cfg = self.cfg
-        E, S, T = cfg.num_envs, cfg.num_snakes, cfg.rollout_len
+        E, S = cfg.num_envs, cfg.num_snakes
+        T = int(np.asarray(roll["actions"]).shape[0])
         policy_ids = roll["policy_ids"]  # (E, S)
 
         # Flatten hero transitions across (T, E, S). A slot is a hero transition
@@ -708,7 +721,7 @@ class PQNTrainer:
             p3 = self._sync()
             rp = self._rollout_prof
             total = p3 - p0
-            steps = cfg.num_envs * cfg.num_snakes * cfg.rollout_len
+            steps = cfg.num_envs * cfg.num_snakes * int(np.asarray(roll["actions"]).shape[0])
             print(
                 f"[profile] total {total*1e3:6.0f}ms ({steps/total:7.0f} step/s) | "
                 f"rollout {(p1-p0)*1e3:5.0f}ms [featurize {rp['featurize']*1e3:5.0f} "
@@ -721,7 +734,8 @@ class PQNTrainer:
             targets = self._compute_targets(roll)
             loss, gnorm, mean_abs_q, max_abs_q, entropy = self._sgd(roll, targets)
 
-        E, S, T = cfg.num_envs, cfg.num_snakes, cfg.rollout_len
+        E, S = cfg.num_envs, cfg.num_snakes
+        T = int(np.asarray(roll["actions"]).shape[0])
         hero_es = roll["policy_ids"] == HERO_POLICY_ID
         # Only alive-at-entry hero steps are real transitions (zombie steps of a
         # dead hero slot are excluded, matching the loss/target selection).

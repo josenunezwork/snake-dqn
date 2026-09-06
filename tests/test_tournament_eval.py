@@ -252,6 +252,236 @@ class TestEndToEndMiniature:
         assert mix["recommended_seeds"] is None or mix["recommended_seeds"] >= 2
 
 
+def _save_eval_checkpoints(tmp_path):
+    """Write minimal vector and raster31v2 inference checkpoints."""
+    import torch
+
+    from src.model.apex_network import ApexNetwork
+    from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES
+    from src.model.raster_network import RasterDuelingNetwork
+
+    vector_path = tmp_path / "vector.pth"
+    # The tiny live config keeps the legacy 58-D state builder. The evaluator
+    # must preserve that vector path while routing only raster checkpoints to
+    # RasterServingPolicy.
+    vector = ApexNetwork(input_size=58, hidden_size=32, output_size=6)
+    torch.save(
+        {
+            "dqn_state_dict": vector.state_dict(),
+            "input_size": 58,
+            "hidden_size": 32,
+            "output_size": 6,
+        },
+        vector_path,
+    )
+
+    raster_path = tmp_path / "raster.pth"
+    raster = RasterDuelingNetwork(output_size=6)
+    torch.save(
+        {
+            "dqn_state_dict": raster.state_dict(),
+            OBS_SPEC_KEY: RASTER31V2,
+            "output_size": 6,
+            **RASTER31V2_SHAPES.to_metadata(),
+        },
+        raster_path,
+    )
+    return vector_path, raster_path
+
+
+class TestLiveRasterEval:
+    """The live bridge supports raster only for the separately rolled-out hero."""
+
+    @pytest.fixture
+    def tiny_config(self, tmp_path):
+        cfg = tmp_path / "tiny_live_raster.yaml"
+        cfg.write_text(
+            "game:\n"
+            "  width: 400\n"
+            "  height: 300\n"
+            "  num_snakes: 3\n"
+            "  initial_food: 12\n"
+            "  max_food: 12\n"
+        )
+        return cfg
+
+    def test_raster_candidate_and_vector_baseline_share_live_cli(
+        self, setup_config, tiny_config, tmp_path
+    ):
+        vector, raster = _save_eval_checkpoints(tmp_path)
+        out = tmp_path / "raster_candidate.json"
+
+        assert (
+            main(
+                [
+                    str(raster),
+                    "--baseline",
+                    str(vector),
+                    "--opponents",
+                    "scripted:random_safe",
+                    "--mixes",
+                    "scripted,mixed",
+                    "--frames",
+                    "1",
+                    "--seeds",
+                    "0",
+                    "--config",
+                    str(tiny_config),
+                    "--json-output",
+                    str(out),
+                ]
+            )
+            == 0
+        )
+        data = json.loads(out.read_text())
+        assert data["engine"] == "live"
+        assert "error" not in data["candidates"][0]
+
+    def test_raster_baseline_rolls_out_separately_from_vector_candidate(
+        self, setup_config, tiny_config, tmp_path
+    ):
+        vector, raster = _save_eval_checkpoints(tmp_path)
+        out = tmp_path / "raster_baseline.json"
+
+        assert (
+            main(
+                [
+                    str(vector),
+                    "--baseline",
+                    str(raster),
+                    "--opponents",
+                    "scripted:random_safe",
+                    "--mixes",
+                    "scripted,mixed",
+                    "--frames",
+                    "1",
+                    "--seeds",
+                    "0",
+                    "--config",
+                    str(tiny_config),
+                    "--json-output",
+                    str(out),
+                ]
+            )
+            == 0
+        )
+        assert "error" not in json.loads(out.read_text())["candidates"][0]
+
+    def test_live_raster_opponent_fails_before_evaluation(
+        self, setup_config, tiny_config, tmp_path
+    ):
+        vector, raster = _save_eval_checkpoints(tmp_path)
+
+        with pytest.raises(SystemExit) as exc:
+            main(
+                [
+                    str(vector),
+                    "--baseline",
+                    str(vector),
+                    "--opponents",
+                    str(raster),
+                    "--mixes",
+                    "frozen,scripted",
+                    "--frames",
+                    "1",
+                    "--seeds",
+                    "0",
+                    "--config",
+                    str(tiny_config),
+                ]
+            )
+        assert exc.value.code == 2
+
+    def test_unused_raster_pool_entry_is_allowed_for_scripted_only_mix(
+        self, setup_config, tiny_config, tmp_path
+    ):
+        vector, raster = _save_eval_checkpoints(tmp_path)
+
+        # The raw pool includes raster, but the requested scripted mix expands
+        # only to scripted opponents, so no raster policy is ever installed in
+        # a non-hero slot.
+        assert (
+            main(
+                [
+                    str(vector),
+                    "--baseline",
+                    str(vector),
+                    "--opponents",
+                    str(raster),
+                    "--mixes",
+                    "scripted",
+                    "--frames",
+                    "1",
+                    "--seeds",
+                    "0",
+                    "--config",
+                    str(tiny_config),
+                ]
+            )
+            == 0
+        )
+
+    def test_raster_hero_keeps_identity_and_masks_unsafe_q_across_frames(
+        self, setup_config, monkeypatch, tmp_path
+    ):
+        """Hero consumes its own Q row and never executes an unsafe Q argmax."""
+        import torch
+
+        from src.game.game_state_factory import (
+            configure_eval_game_state,
+            create_training_game_state,
+        )
+        from src.scripts.tournament_eval import _attach_agent
+
+        _, raster = _save_eval_checkpoints(tmp_path)
+        gs = create_training_game_state(eval_mode=False)
+        try:
+            cache = {}
+            _attach_agent(gs, 0, ("checkpoint", str(raster)), seed=0, policy_cache=cache)
+            for slot in range(1, len(gs.snakes)):
+                _attach_agent(gs, slot, ("scripted", "random_safe"), seed=0, policy_cache=cache)
+            gs._shared_policy = None
+            configure_eval_game_state(gs)
+
+            hero = gs.snakes[0]
+            policy = hero.policy
+            assert hero.ai is policy
+
+            # The serving bridge sees a batch row per roster snake. Give row 0
+            # an unsafe boost-right argmax (5) and a safe straight fallback (1);
+            # other rows intentionally carry different Q values. This exposes a
+            # queue shift as a returned non-hero row rather than merely checking
+            # that a raster forward pass occurred.
+            def fixed_rows(tensors):
+                rows = torch.zeros((tensors["tactical"].shape[0], 6), dtype=torch.float32)
+                rows[0] = torch.tensor([0.0, 10.0, 0.0, 0.0, 0.0, 100.0])
+                if rows.shape[0] > 1:
+                    rows[1:] = torch.tensor([80.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                return rows
+
+            policy.agent.network = fixed_rows
+            returned_rows = []
+            original_next_q = policy._next_dispatch_q
+
+            def record_next_q(state):
+                q = original_next_q(state)
+                returned_rows.append(q.detach().cpu().squeeze(0).tolist())
+                return q
+
+            policy._next_dispatch_q = record_next_q
+            monkeypatch.setattr(hero, "_get_safe_actions", lambda other_snakes, **kwargs: [1])
+            initial_direction = hero.direction
+
+            gs.update(train_mode=True, learn=False, allow_respawn=True)
+            gs.update(train_mode=True, learn=False, allow_respawn=True)
+
+            assert returned_rows == [[0.0, 10.0, 0.0, 0.0, 0.0, 100.0]] * 2
+            assert hero.direction == initial_direction  # action 1 is straight, not unsafe action 5.
+            assert hero.is_boosting is False
+        finally:
+            gs.full_cleanup()
+
+
 # ---------------------------------------------------------------------------
 # --engine simd: batched eval engine (blueprint §5.4)
 # ---------------------------------------------------------------------------
@@ -319,7 +549,11 @@ class TestSimdEvalEngine:
         from src.core.game_config import initialize_config
         from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2
         from src.model.raster_network import RasterDuelingNetwork
-        from src.simd_env.eval_engine import NetworkSimdPolicy, build_simd_policy, run_simd_eval
+        from src.simd_env.eval_engine import (
+            NetworkSimdPolicy,
+            build_simd_policy,
+            run_simd_eval,
+        )
 
         cfg = load_config(str(tiny_v2_config))
         initialize_config(cfg)
@@ -523,10 +757,11 @@ class TestSimdEngineEndToEnd:
     ):
         # A checkpoint CANDIDATE (not baseline/opponent) is recorded as a
         # per-candidate error under --engine simd; the run still completes.
+        vector, _ = _save_eval_checkpoints(tmp_path)
         out = tmp_path / "simd_ckpt_cand.json"
         rc = main(
             [
-                "saved_snakes/champion_a5_freespace_20260621.pth",
+                str(vector),
                 "--baseline",
                 "scripted:random_safe",
                 "--opponents",

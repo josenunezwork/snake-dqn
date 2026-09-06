@@ -526,6 +526,47 @@ def test_rollout_enforces_the_frame_cap():
     assert int(tr.sim.frame.max()) == 2
 
 
+def test_nondivisible_frame_cap_shortens_tail_rollouts_across_updates():
+    """The cap cuts a real rollout short before an out-of-episode sim step.
+
+    This exercises two complete updates, where a 3-frame episode and a 4-step
+    rollout length previously allowed frame 4 to be acted, featurized, and
+    trained.  It also checks the odometer against the real hero transitions,
+    rather than the configured rollout length.
+    """
+    tr = _make_trainer(
+        rollout_len=4,
+        max_frames=3,
+        minibatches=1,
+        minibatch_size=8,
+        eps_start=1.0,
+        eps_end=1.0,
+        pool_capacity=0,
+        flip_augment=False,
+    )
+    seen_frames = []
+    original_step = tr.sim.step
+
+    def record_step(actions):
+        seen_frames.append(int(tr.sim.frame.max()))
+        original_step(actions)
+        seen_frames.append(int(tr.sim.frame.max()))
+
+    tr.sim.step = record_step
+    first = tr.update()
+    assert first.agent_steps == 3
+    assert seen_frames == [0, 1, 1, 2, 2, 3]
+    assert int(tr.sim.frame.max()) == 3
+
+    second = tr.update()
+    assert second.agent_steps == 6
+    assert seen_frames == [0, 1, 1, 2, 2, 3, 0, 1, 1, 2, 2, 3]
+    assert int(tr.sim.frame.max()) == 3
+    # Frames are the numerator of the episode-progress feature, so this is the
+    # direct runtime guarantee that no observation saw progress above one.
+    assert max(seen_frames) <= tr.cfg.max_frames
+
+
 def test_steps_after_the_population_floor_are_not_transitions():
     """An env past its floor is past its episode end: its later steps never train.
 

@@ -190,7 +190,7 @@ Synchronous Q(λ) on vectorized envs (ICLR 2025 recipe): no replay buffer, no ta
 - Hyperparameter starting points: γ 0.997 (kill-setup horizon ~330 frames), λ 0.65, Adam lr 5e-4 linearly annealed, adam_eps 1.5e-4 (single config source), wd 0. Sweep axes: lr {2.5e-4, 5e-4, 1e-3}, λ {0.5, 0.65, 0.8}, kill scale {0.15, 0.3, 0.6}.
 
 ### 3.2 Reward (v2)
-- Shaped: `r_pot = γ·Φ(s′) − Φ(s)`, Φ = length/10, **Φ(death) = 0** — dying forfeits accumulated potential, so dying rich is intrinsically penalized. (Acknowledged deviation from strict PBRS — the forfeiture is deliberate shaping equivalent to a mass-at-death penalty.)
+- Shaped: `r_pot = γ·Φ(s′) − Φ(s)`, Φ = length/10, **Φ(death) = 0** — this is strict episodic PBRS: under the learner's discounted return, shaping telescopes to a start-state constant. It changes credit assignment without independently rewarding sustained mass or imposing a mass-at-death penalty.
 - Sparse: kill **+0.3 × victim_length, unclamped**, paid on same-frame death; death −3.
 - Nothing else: no food term (mass flows through Φ), no boost term (mechanics), no hunger term (observed scalar). Per-term reward accounting in telemetry is mandatory.
 

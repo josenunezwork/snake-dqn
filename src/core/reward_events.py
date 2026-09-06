@@ -8,10 +8,11 @@ same function, so the two can never drift on reward semantics.
 Semantics (all constants are load-bearing; change only with a rewards.version bump):
 
 - Potential-based shaping: ``r_pot = gamma * Phi(s') - Phi(s)`` with
-  ``Phi = length / 10`` and ``Phi(death) = 0`` — dying forfeits all accumulated
-  potential, so dying rich is intrinsically penalized. (Acknowledged deviation
-  from strict PBRS: the forfeiture is deliberate shaping equivalent to a
-  mass-at-death penalty.)
+  ``Phi = length / 10`` and ``Phi(death) = 0``. Setting the terminal potential
+  to zero is strict episodic PBRS: when discounted by the learner's gamma, the
+  shaping terms telescope to a start-state constant. It changes credit
+  assignment, not the optimized episodic objective, and is not an independent
+  mass-at-death penalty.
 - Sparse kill event: ``+0.3 * victim_length`` per victim, UNCLAMPED, paid on the
   kill frame even if the killer dies on that same frame.
 - Sparse death event: ``-3.0``.

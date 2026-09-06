@@ -170,6 +170,29 @@ def build_policy_from_checkpoint(checkpoint_path: str):
     return policy
 
 
+def checkpoint_obs_spec(checkpoint_path: str) -> str:
+    """Return a checkpoint's declared observation contract.
+
+    Legacy Apex checkpoints do not record ``obs_spec`` and therefore resolve
+    to ``vector61``. This header read lets the CLI reject an unsafe live roster
+    before creating a GameState or beginning a costly paired evaluation.
+    """
+    import torch
+
+    from src.model.inference_agent import InferenceAgent
+
+    blob = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    return InferenceAgent._detect_obs_spec(blob)
+
+
+def _checkpoint_obs_spec_or_unknown(checkpoint_path: str) -> str:
+    """Read an obs spec without hiding the SIMD CLI's current error behavior."""
+    try:
+        return checkpoint_obs_spec(checkpoint_path)
+    except Exception:
+        return "unknown"
+
+
 def build_mix_specs(
     mix: str, num_opponents: int, opponent_pool: Sequence[AgentSpec]
 ) -> List[AgentSpec]:
@@ -212,13 +235,39 @@ def _attach_agent(gs, slot: int, spec: AgentSpec, seed: int, policy_cache: Dict[
 
     Checkpoint agents keep the roster's AISnake and get the frozen policy;
     scripted agents replace the roster snake in place (same id/color/spawn).
+
+    A raster serving policy is valid only for the hero (slot 0). It computes
+    every snake's raster Q rows once, then dispatches rows in ``GameState``'s
+    pre-move, alive-roster order. If a raster policy were attached to an
+    opponent, earlier vector snakes would not consume its dispatch queue and
+    that opponent could receive another snake's Q row. The CLI rejects this
+    roster before rollout; retain this guard for direct callers too.
     """
     snake = gs.snakes[slot]
     kind, ref = spec
     if kind == "checkpoint":
+        from src.model.obs_spec import RASTER31V2
+
+        obs_spec = checkpoint_obs_spec(ref)
+        if obs_spec == RASTER31V2 and slot != 0:
+            raise ValueError(
+                "live raster checkpoints are supported only as the hero (slot 0); "
+                "raster opponents are unsafe because RasterServingPolicy dispatches "
+                "Q rows in pre-move roster order"
+            )
         if ref not in policy_cache:
-            policy_cache[ref] = build_policy_from_checkpoint(ref)
+            if obs_spec == RASTER31V2:
+                from src.model.inference_agent import InferenceAgent
+                from web.backend.raster_policy import RasterServingPolicy
+
+                policy_cache[ref] = RasterServingPolicy(InferenceAgent.from_checkpoint(ref))
+            else:
+                policy_cache[ref] = build_policy_from_checkpoint(ref)
         snake.policy = policy_cache[ref]
+        snake.ai = snake.policy  # AISnake's compatibility alias follows policy replacement.
+        attach_game = getattr(snake.policy, "attach_game", None)
+        if attach_game is not None:
+            attach_game(gs)
         return
     gs.snakes[slot] = SnakeFactory.create_scripted_snake(
         snake_id=snake.id,
@@ -606,22 +655,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.engine == "simd":
         from src.model.obs_spec import RASTER31V2
 
-        def _ckpt_obs_spec(path: str) -> str:
-            try:
-                import torch
-
-                from src.model.inference_agent import InferenceAgent
-
-                return InferenceAgent._detect_obs_spec(
-                    torch.load(path, map_location="cpu", weights_only=False)
-                )
-            except Exception:
-                return "unknown"
-
         offenders = [
             agent_label(s)
             for s in [baseline_spec, *opponent_pool]
-            if s[0] == "checkpoint" and _ckpt_obs_spec(s[1]) != RASTER31V2
+            if s[0] == "checkpoint" and _checkpoint_obs_spec_or_unknown(s[1]) != RASTER31V2
         ]
         if offenders:
             p.error(
@@ -638,6 +675,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         p.error(f"config num_snakes={GameConfig.NUM_SNAKES}; need >= 2 for opponents")
 
     mix_specs = {mix: build_mix_specs(mix, num_opponents, opponent_pool) for mix in args.mixes}
+
+    # RasterServingPolicy chooses a Q row from the full pre-move roster by
+    # dispatch order. It is therefore safe for the slot-0 hero only. Check the
+    # expanded, requested mixes rather than the raw pool: a raster checkpoint
+    # passed in --opponents is harmless when every requested mix is scripted
+    # and thus never places it in the arena. This still runs before any game
+    # construction or paired rollout; the SIMD engine has an identity-safe
+    # batched policy implementation and supports raster opponents.
+    if args.engine == "live":
+        from src.model.obs_spec import RASTER31V2
+
+        raster_opponents = []
+        for specs in mix_specs.values():
+            for spec in specs:
+                if spec[0] != "checkpoint":
+                    continue
+                try:
+                    if checkpoint_obs_spec(spec[1]) == RASTER31V2:
+                        raster_opponents.append(agent_label(spec))
+                except Exception:
+                    # Preserve the normal policy-loading error for corrupt or
+                    # absent vector checkpoints rather than changing it here.
+                    pass
+        raster_opponents = list(dict.fromkeys(raster_opponents))
+        if raster_opponents:
+            p.error(
+                "--engine live supports raster ('raster31v2') checkpoints only as the "
+                "candidate/baseline hero (slot 0); raster opponents are unsafe because "
+                "their serving policy dispatches Q rows in pre-move roster order. "
+                f"Offending opponents: {raster_opponents}"
+            )
 
     print(
         f"Arena: {args.config} | engine={args.engine} | frames={args.frames} | seeds={args.seeds}"
