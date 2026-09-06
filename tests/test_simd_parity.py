@@ -7,8 +7,10 @@ positions, alive/deaths, kill attribution, the ordered food set, per-snake
 rewards, and per-agent action masks.
 
 Parity milestone achieved (see ``src/simd_env/parity.py`` and the module
-docstring): rectangular arena, mechanics v2 + reward v2, ``train_mode=True``
-(terminal deaths, ``allow_respawn=False`` so the respawn RNG branch never fires).
+docstring): rectangular arena, mechanics v2 + reward v2, on BOTH respawn arms —
+``allow_respawn=False`` (terminal deaths) and the live gate's
+``train_mode=True, allow_respawn=True`` pair, where dead snakes serve
+``frame_rate`` frames and respawn from the shared RNG stream.
 The scripted-action and mask-following ``survivor`` policies together exercise
 growth (with the body fill-in lag), boost 2-step + burn cadence + v2 trail
 pellets, corpse food drops, head-on size resolution AND body-kill attribution,
@@ -19,6 +21,8 @@ smaller multi-config sweep runs by default.
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import pytest
 
@@ -92,6 +96,58 @@ def test_survivor_policy_deterministic():
     assert a1.shape == (4,)
 
 
+@pytest.mark.parametrize("frame_rate", [1, 3])
+def test_parity_bit_exact_with_respawn(frame_rate):
+    """Bit-exact on the RESPAWN arm -- the branch ``run_simd_eval`` ships.
+
+    The default arm keeps deaths terminal, so ``_respawn_dead`` never runs and
+    the whole respawn surface (its RNG draws, its phase within the frame, and the
+    timer cadence) reached the promotion gate uncovered. This runs both sims with
+    the live gate's ``train_mode=True, allow_respawn=True`` pair on the tight
+    kill-heavy config, so snakes die, serve ``frame_rate`` frames and respawn
+    from the shared Mersenne-Twister stream.
+    """
+    result = run_parity(
+        list(range(5)),
+        num_frames=1000,
+        cfg=replace(_CFG_TIGHT, frame_rate=frame_rate),
+        policy="scripted",
+        allow_respawn=True,
+    )
+    assert result.divergence is None, f"Respawn parity divergence: {result.divergence}"
+    assert result.frames_tested >= 5000
+
+
+def test_respawn_arm_actually_respawns():
+    """Guard against a vacuous respawn parity pass.
+
+    If no snake ever respawned, ``test_parity_bit_exact_with_respawn`` would be
+    green while covering exactly nothing -- which is how the branch reached the
+    gate untested in the first place.
+    """
+    import random
+
+    from src.core.game_config import get_config, initialize_config
+    from src.simd_env.parity import PyRefGame, _install_v2_config
+
+    cfg = replace(_CFG_TIGHT, frame_rate=1)
+    saved = get_config()
+    _install_v2_config(cfg)
+    try:
+        respawns = 0
+        for seed in range(3):
+            actions = scripted_actions(seed, 400, cfg.num_snakes)
+            random.seed(seed)
+            ref = PyRefGame(cfg, allow_respawn=True)
+            for f in range(400):
+                before = [s.is_alive for s in ref.snakes]
+                ref.step(actions[f])
+                respawns += sum(1 for b, s in zip(before, ref.snakes) if not b and s.is_alive)
+        assert respawns > 0, "no respawns exercised — respawn parity is vacuous"
+    finally:
+        initialize_config(saved)
+
+
 def test_parity_exercises_kills_and_growth():
     """The tight config actually produces kills and growth (not just deaths).
 
@@ -120,6 +176,53 @@ def test_parity_exercises_kills_and_growth():
                 max_len = max(max_len, max(s.length for s in ref.snakes))
         assert total_kills > 0, "no kills exercised — kill parity is vacuous"
         assert max_len > 1, "no growth exercised — growth parity is vacuous"
+    finally:
+        initialize_config(saved)
+
+
+def test_batch_mask_matches_live_mask_implementation():
+    """BatchSim's mask must equal the LIVE mask the serve path actually acts on.
+
+    Calls ``simulate_relative_action_fatality`` -- the exact function
+    ``AISnake._get_safe_actions`` builds its mask from -- directly on the
+    reference's real ``Snake`` objects, deliberately bypassing
+    ``PyRefGame.action_masks``. This is the mask field's independent reference:
+    while the harness compared BatchSim against a re-implementation that shared
+    BatchSim's own convention, the mask was the one parity field checked only
+    against a copy of itself, and a train/serve divergence sat there unnoticed.
+    """
+    import random
+    from dataclasses import replace
+
+    from src.core.game_config import get_config, initialize_config
+    from src.game.ai_snake import simulate_relative_action_fatality
+    from src.simd_env.batch_sim import BatchSim
+    from src.simd_env.parity import PyRefGame, _install_v2_config
+
+    cfg = _CFG_TIGHT
+    num_frames = 300
+    saved = get_config()
+    _install_v2_config(cfg)
+    try:
+        for seed in range(5):
+            actions = scripted_actions(seed, num_frames, cfg.num_snakes)
+            random.seed(seed)
+            ref = PyRefGame(cfg)
+            bat = BatchSim(replace(cfg, num_envs=1), seeds=[seed], train_mode=True)
+            for f in range(num_frames):
+                ref.step(actions[f])
+                bat.step(actions[f].reshape(1, cfg.num_snakes))
+                bat_mask = bat.get_action_mask()[0]
+                for sidx, snake in enumerate(ref.snakes):
+                    if not snake.is_alive:
+                        assert not bat_mask[sidx].any()
+                        continue
+                    normal_fatal, boost_fatal = simulate_relative_action_fatality(snake, ref.snakes)
+                    live = [not x for x in normal_fatal] + [not x for x in boost_fatal]
+                    assert list(bat_mask[sidx]) == live, (
+                        f"batch mask != live mask at seed={seed} frame={f} snake={sidx}: "
+                        f"batch={list(bat_mask[sidx])} live={live}"
+                    )
     finally:
         initialize_config(saved)
 

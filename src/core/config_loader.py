@@ -489,17 +489,17 @@ def _schema_to_appconfig(schema: ConfigSchema) -> AppConfig:
 
 
 def apply_config_to_game_config(config: AppConfig) -> None:
-    """Apply configuration to GameConfig (no-op for backward compatibility).
+    """Initialize a supplied config for legacy callers.
 
     With the new GameConfig implementation that dynamically reads from AppConfig
     via get_config(), this function is no longer needed. It's kept for backward
     compatibility with code that still calls it.
 
     Args:
-        config: AppConfig instance (will be used via initialize_config instead)
+        config: AppConfig instance to initialize.
     """
-    # GameConfig now dynamically reads from get_config(), so no explicit
-    # application is needed. Just ensure the config is initialized.
+    # GameConfig dynamically reads from get_config(); this compatibility helper
+    # remains for external callers that predate load_and_initialize_config().
     initialize_config(config)
 
 

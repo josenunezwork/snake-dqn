@@ -344,13 +344,11 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Lazy imports so `import rate_pool` never drags in torch/the game (and so
     # the module loads even while SnakeFactory.create_scripted_snake is landing).
-    from src.core.config_loader import apply_config_to_game_config, load_config
-    from src.core.game_config import GameConfig, initialize_config
+    from src.core.config_loader import load_and_initialize_config
+    from src.core.game_config import GameConfig
     from src.model.inference_agent import InferenceAgent
 
-    cfg = load_config(args.config)
-    initialize_config(cfg)
-    apply_config_to_game_config(cfg)
+    load_and_initialize_config(args.config)
 
     participants = discover_participants(args.pool_dir, args.anchors)
     if len(participants) < 2:

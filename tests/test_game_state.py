@@ -426,6 +426,86 @@ class TestGameStateActionSelectionOrder:
             initialize_config(original_config)
 
 
+class TestGameStateAmbientFoodBound:
+    """Tests that non-train food replacement respects the ambient max_food cap."""
+
+    MAX_FOOD = 10
+
+    def _make_game(self):
+        config = AppConfig(
+            game=GameSettings(
+                width=200,
+                height=200,
+                num_snakes=1,
+                initial_food=self.MAX_FOOD,
+                max_food=self.MAX_FOOD,
+                frame_rate=1,
+            )
+        )
+        initialize_config(config)
+        return GameState(headless=True, num_snakes=1, shared_policy=FakePolicy())
+
+    def _run(self, corpse: bool, frames: int = 200):
+        """Drop a pellet and eat it every frame in non-train mode.
+
+        ``corpse=True`` models mechanics v2 (kill corpses / boost trail are
+        corpse-class); ``corpse=False`` models v1, where corpse drops are ambient.
+        Returns the peak ambient count observed at end-of-frame.
+        """
+        game_state = self._make_game()
+        snake = game_state.snakes[0]
+        snake.segments = [(100, 100)]
+        snake.length = 1
+        target = {"cell": None}
+
+        def fake_update(*args, **kwargs):
+            # Stands in for move(): the head lands on the pellet dropped below.
+            snake.last_move_positions = [target["cell"]] if target["cell"] else []
+
+        snake.update = fake_update
+
+        peak = 0
+        eaten = 0
+        for frame in range(frames):
+            # A fresh, non-overlapping cell well away from the snake.
+            cell = (10 + (frame % 17) * 10, 10 + ((frame // 17) % 17) * 10)
+            target["cell"] = cell if game_state.food_manager.add_food(cell, corpse=corpse) else None
+            before = len(game_state.food_manager.food)
+            game_state.update(train_mode=False, learn=False)
+            if target["cell"] and len(game_state.food_manager.food) < before + 1:
+                eaten += 1
+            peak = max(peak, game_state.food_manager.ambient_count)
+        return peak, eaten
+
+    def test_eating_corpse_food_does_not_ratchet_ambient_past_max_food(self):
+        """v2: corpse-class pellets never decrement the ambient count.
+
+        Replacing every eaten pellet 1:1 therefore adds an ambient pellet for each
+        corpse eaten, and ``maintain_count`` only ever tops up — so the ambient
+        pool climbs monotonically and never comes back down.
+        """
+        original_config = get_config()
+        try:
+            peak, eaten = self._run(corpse=True)
+            assert eaten > 50, "test did not actually exercise the eat path"
+            assert peak <= self.MAX_FOOD
+        finally:
+            initialize_config(original_config)
+
+    def test_ambient_corpse_drops_do_not_ratchet_ambient_past_max_food(self):
+        """v1: corpse drops are ambient, so a death pushes the pool over the cap.
+
+        A 1:1 replacement then locks the overage in permanently.
+        """
+        original_config = get_config()
+        try:
+            peak, eaten = self._run(corpse=False)
+            assert eaten > 50, "test did not actually exercise the eat path"
+            assert peak <= self.MAX_FOOD
+        finally:
+            initialize_config(original_config)
+
+
 class TestGameStateFoodConsumption:
     """Tests for food checks owned by GameState."""
 

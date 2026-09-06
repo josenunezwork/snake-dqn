@@ -103,7 +103,7 @@ class TestHumanSnake:
         assert snake.direction == (1, 0)
 
     def test_turn_relative_actions(self):
-        """turn() mirrors the Apex relative action space."""
+        """turn() mirrors the Apex relative action space (one turn per tick)."""
         snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
         snake.direction = (1, 0)  # right
 
@@ -113,9 +113,86 @@ class TestHumanSnake:
         assert snake.turn(TURN_LEFT) is True
         assert snake.direction == (0, -1)  # right -> up
 
+        snake.update([], [])  # a tick passes, freeing the next turn slot
         snake.direction = (1, 0)
         assert snake.turn(TURN_RIGHT) is True
         assert snake.direction == (0, 1)  # right -> down
+
+    def test_second_press_same_tick_is_queued_not_applied(self):
+        """Only one direction change is accepted per tick; extras are queued.
+
+        A fast corner (Up then Left while travelling right, both within one
+        ~83ms server tick) used to fold the snake 180° into its own body — the
+        reversal guard compared against the already-mutated facing. The second
+        press must wait for the next tick.
+        """
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)  # travelling right
+
+        assert snake.apply_direction_input("up") is True
+        assert snake.direction == (0, -1)
+        # Same tick: accepted-for-later, but the facing must not change yet.
+        assert snake.apply_direction_input("left") is True
+        assert snake.direction == (0, -1)
+
+        # Tick 1 moves up (with the first press)…
+        snake.update([], [])
+        assert snake.direction == (0, -1)
+        # …tick 2 drains the queue and turns left — after a real move, so the
+        # head can never run back down the body.
+        snake.update([], [])
+        assert snake.direction == (-1, 0)
+
+    def test_queued_press_is_revalidated_against_new_facing(self):
+        """A queued press that becomes a 180° reversal by apply time is dropped."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)  # travelling right
+
+        assert snake.apply_direction_input("up") is True
+        snake.apply_direction_input("down")  # queued; reverse of "up" at drain time
+
+        snake.update([], [])
+        snake.update([], [])
+        # The queued reversal was rejected on drain; the snake keeps going up.
+        assert snake.direction == (0, -1)
+
+    def test_direct_press_supersedes_stale_queue(self):
+        """The latest press wins: a new-tick press replaces last tick's queue."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)
+
+        snake.apply_direction_input("up")  # applied
+        snake.apply_direction_input("left")  # queued for a later tick
+        snake.update([], [])  # tick with "up"
+
+        # New tick, new key: applies immediately and drops the stale "left".
+        assert snake.apply_direction_input("right") is True
+        assert snake.direction == (1, 0)
+        snake.update([], [])
+        snake.update([], [])
+        assert snake.direction == (1, 0)  # "left" never resurfaces
+
+    def test_rejected_press_does_not_consume_the_tick_slot(self):
+        """A rejected reversal must not queue-block the next valid press."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)
+
+        assert snake.apply_direction_input("left") is False  # 180°: rejected
+        assert snake.apply_direction_input("up") is True  # still applies now
+        assert snake.direction == (0, -1)
+
+    def test_respawn_clears_queued_direction(self):
+        """A queued press from the previous life must not steer the new one."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        snake.direction = (1, 0)
+        snake.apply_direction_input("up")
+        snake.apply_direction_input("left")  # queued
+
+        snake.die()
+        snake.respawn((400, 300))
+
+        snake.update([], [])
+        assert snake.direction == (1, 0)  # spawn facing, not the stale "left"
 
     def test_set_boost_gated_on_min_length(self):
         """A sub-min-length human cannot actually boost, so is_boosting stays False.
@@ -141,6 +218,83 @@ class TestHumanSnake:
 
         # Releasing always clears it regardless of length.
         snake.set_boost(False)
+        assert snake.is_boosting is False
+
+    def test_held_boost_disarms_once_burn_drops_below_min_length(self):
+        """Boosting below MIN_BOOST_LENGTH must clear is_boosting, not strand it True.
+
+        ``set_boost`` only fires on a key event, but boosting burns a segment every
+        ``BOOST_LENGTH_COST_FRAMES`` inside ``move()``. A player who presses boost
+        once while long and holds the key burns below MIN_BOOST_LENGTH, at which
+        point ``move()`` silently stops double-stepping. Without a per-frame
+        re-gate the flag stays True, painting a phantom boost (and its 2-cell-ahead
+        enemy prediction) into the raster served to every AI opponent.
+        """
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        while snake.length < 8:
+            snake.grow()
+
+        snake.set_boost(True)
+        assert snake.is_boosting is True
+
+        # Hold the key: no further input, only frames.
+        for _ in range(60):
+            snake.update([], [])
+            if snake.length < GameConfig.MIN_BOOST_LENGTH:
+                break
+
+        assert snake.length < GameConfig.MIN_BOOST_LENGTH
+        # Flag and mechanics must agree: no double-step, so no boost bit.
+        snake.update([], [])
+        assert snake.is_boosting is False
+        assert len(snake.last_move_positions) == 1
+
+        # And it stays disarmed while still too short.
+        for _ in range(20):
+            snake.update([], [])
+        assert snake.is_boosting is False
+
+    def test_held_boost_rearms_when_food_lifts_length_back_over_min(self):
+        """Re-gating must not be sticky-off: regrowing re-arms a still-held key.
+
+        Guards against a one-way ``is_boosting and length >= MIN`` gate, which
+        would force the player to release and re-press after any burn.
+        """
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        while snake.length < 8:
+            snake.grow()
+
+        snake.set_boost(True)
+        for _ in range(60):
+            snake.update([], [])
+            if snake.length < GameConfig.MIN_BOOST_LENGTH:
+                break
+        snake.update([], [])
+        assert snake.is_boosting is False
+
+        # Eat back over the threshold with the key still held.
+        while snake.length < GameConfig.MIN_BOOST_LENGTH + 2:
+            snake.grow()
+        snake.update([], [])
+
+        assert snake.is_boosting is True
+        assert len(snake.last_move_positions) == 2
+
+    def test_respawn_clears_a_held_boost_request(self):
+        """A key held across death must not re-arm boost on the new run."""
+        snake = HumanSnake(0, (255, 0, 0), (400, 300), 10, 800, 600)
+        while snake.length < 8:
+            snake.grow()
+        snake.set_boost(True)
+        snake.update([], [])
+        assert snake.is_boosting is True
+
+        snake.die()
+        snake.respawn((400, 300))
+        while snake.length < 8:
+            snake.grow()
+        snake.update([], [])
+
         assert snake.is_boosting is False
 
     def test_add_experience(self):

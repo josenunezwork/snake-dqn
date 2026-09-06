@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { HeroRasterDTO } from "../types";
 
 // "Ego-raster viewer" — renders what the raster31v2 snake actually sees: the
@@ -42,13 +42,98 @@ const rgba = ([r, g, b]: [number, number, number], a: number) => `rgba(${r},${g}
 // Canvas backing size (device-independent CSS px); grid is drawn to fill it.
 const CANVAS = 248;
 
+// Strategic density plane colours, keyed by the channel names the backend
+// serves (src/simd_env/featurizer.py STRATEGIC_CHANNEL_NAMES).
+const STRATEGIC_COLORS: Record<string, [number, number, number]> = {
+  enemy_mass_density: [248, 113, 113],
+  food_mass_density: [74, 222, 128],
+  own_body_density: [56, 189, 248],
+};
+const STRATEGIC_FALLBACK: [number, number, number] = [148, 163, 184];
+
+// Scalar-band grouping fallback. Mirrors web/backend/serialize.py
+// RASTER31V2_SCALAR_GROUPS (the per-index contract of
+// src.simd_env.featurizer._build_scalars); used when the payload does not ship
+// its own labels (`scalar_groups`).
+const SCALAR_GROUPS_FALLBACK: { name: string; start: number; end: number }[] = [
+  { name: "Length (norm + log)", start: 0, end: 2 },
+  { name: "Boost (available + cost phase)", start: 2, end: 4 },
+  { name: "Hunger (frames since food)", start: 4, end: 5 },
+  { name: "Episode progress", start: 5, end: 6 },
+  { name: "Snakes alive (fraction)", start: 6, end: 7 },
+  { name: "Mass rank percentile", start: 7, end: 8 },
+  { name: "Wall dist ego (A/R/B/L)", start: 8, end: 12 },
+  { name: "Nearest food ego (dx/dy/dist)", start: 12, end: 15 },
+  { name: "Nearest enemy (dx/dy/size/boost)", start: 15, end: 19 },
+  { name: "2nd enemy (dx/dy/size/boost)", start: 19, end: 23 },
+  { name: "World pos (x/y)", start: 23, end: 25 },
+  { name: "Arena type", start: 25, end: 26 },
+];
+
+// Action labels for the 6-bit legality mask (0 L, 1 S, 2 R, 3-5 boost variants).
+const MASK_LABELS = ["L", "S", "R", "B-L", "B-S", "B-R"];
+
+// One 25x25 strategic density plane, painted to a small canvas: brightness =
+// density byte, tinted per channel.
+function StrategicPlane({
+  plane,
+  name,
+  size,
+}: {
+  plane: number[][];
+  name: string;
+  size: number;
+}) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  const PX = 76;
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const S = size || plane.length || 25;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    canvas.width = PX * dpr;
+    canvas.height = PX * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, PX, PX);
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    ctx.fillRect(0, 0, PX, PX);
+    const color = STRATEGIC_COLORS[name] ?? STRATEGIC_FALLBACK;
+    const cell = PX / S;
+    for (let y = 0; y < S; y++) {
+      const row = plane[y] || [];
+      for (let x = 0; x < S; x++) {
+        const v = (row[x] ?? 0) / 255;
+        if (v <= 0) continue;
+        ctx.fillStyle = rgba(color, 0.15 + 0.85 * v);
+        ctx.fillRect(x * cell, y * cell, Math.ceil(cell), Math.ceil(cell));
+      }
+    }
+  }, [plane, name, size]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+      <canvas
+        ref={ref}
+        className="raster-canvas"
+        style={{ width: PX, height: PX }}
+        role="img"
+        aria-label={`Strategic plane ${prettyChannel(name)}`}
+      />
+      <span className="muted" style={{ fontSize: 10, textAlign: "center" }}>
+        {prettyChannel(name)}
+      </span>
+    </div>
+  );
+}
+
 interface Props {
   raster: HeroRasterDTO | null;
   obsSpec?: string;
   labels?: boolean; // View-menu "labels" toggle: annotate the centre/axes
 }
 
-export default function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
+function EgoRasterViewer({ raster, obsSpec, labels = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // "composite" or a channel index (0-based into tactical_channels).
   const [mode, setMode] = useState<"composite" | number>("composite");
@@ -157,7 +242,9 @@ export default function EgoRasterViewer({ raster, obsSpec, labels = false }: Pro
           <div className="muted" style={{ fontSize: 12 }}>
             The served policy is <span className="mono">{obsSpec ?? "vector61"}</span> — a
             hand-crafted feature vector, not a spatial raster. Load a{" "}
-            <span className="mono">raster31v2</span> checkpoint to watch what the snake sees.
+            <span className="mono">raster31v2</span> checkpoint (Controls → Model — raster
+            training outputs appear there as <span className="mono">runs/…/latest_pqn.pth</span>)
+            to watch what the snake sees.
           </div>
         </div>
       </div>
@@ -273,6 +360,85 @@ export default function EgoRasterViewer({ raster, obsSpec, labels = false }: Pro
           regardless of which way it points in the arena.
         </div>
       </div>
+
+      {raster.mask && raster.mask.length > 0 && (
+        <div className="card">
+          <div className="section-title">Action mask · which moves are legal</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} role="group" aria-label="Legal actions">
+            {raster.mask.map((legal, i) => (
+              <span
+                key={i}
+                className="mono"
+                aria-label={`${MASK_LABELS[i] ?? i}: ${legal ? "legal" : "masked"}`}
+                style={{
+                  flex: "1 0 auto",
+                  textAlign: "center",
+                  fontSize: 11,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                  color: legal ? "var(--text)" : "var(--muted)",
+                  opacity: legal ? 1 : 0.45,
+                  textDecoration: legal ? "none" : "line-through",
+                }}
+              >
+                {MASK_LABELS[i] ?? i}
+              </span>
+            ))}
+          </div>
+          <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>
+            Struck-out actions are masked before the argmax — the network cannot pick them.
+          </div>
+        </div>
+      )}
+
+      {raster.strategic && raster.strategic.length > 0 && (
+        <div className="card">
+          <div className="section-title">
+            Strategic · {raster.strategic_size}×{raster.strategic_size} density planes
+          </div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
+            {raster.strategic.map((plane, i) => (
+              <StrategicPlane
+                key={raster.strategic_channels[i] ?? i}
+                plane={plane}
+                name={raster.strategic_channels[i] ?? `plane_${i}`}
+                size={raster.strategic_size}
+              />
+            ))}
+          </div>
+          <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>
+            Coarser, wider view than the tactical grid — mass density per region, also
+            heading-rotated. Brightness = density.
+          </div>
+        </div>
+      )}
+
+      {raster.scalars && raster.scalars.length > 0 && (
+        <details className="state-details">
+          <summary>
+            <span className="section-title" style={{ margin: 0, display: "inline" }}>
+              Scalars ({raster.scalars.length}-D)
+            </span>
+          </summary>
+          {scalarGroupsFor(raster).map((grp) => (
+            <div className="card" key={grp.name} style={{ padding: "8px 12px" }}>
+              <div className="muted" style={{ fontSize: 11, marginBottom: 4 }}>
+                {grp.name}{" "}
+                <span className="mono">
+                  [{grp.start}–{grp.end - 1}]
+                </span>
+              </div>
+              <div className="mono" style={{ fontSize: 12 }}>
+                {raster.scalars
+                  .slice(grp.start, grp.end)
+                  .map((v) => v.toFixed(2))
+                  .join("  ")}
+              </div>
+            </div>
+          ))}
+        </details>
+      )}
     </div>
   );
 }
@@ -301,3 +467,14 @@ function prettyChannel(name: string): string {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
+
+// Scalar-band labels: prefer names served in the payload (state_labels-style
+// group dicts under `scalar_groups`, when the backend ships them), falling back
+// to the local mirror of serialize.py's RASTER31V2_SCALAR_GROUPS.
+function scalarGroupsFor(raster: HeroRasterDTO): { name: string; start: number; end: number }[] {
+  const served = raster.scalar_groups;
+  const groups = served && served.length > 0 ? served : SCALAR_GROUPS_FALLBACK;
+  return groups.filter((g) => g.end <= raster.scalars.length);
+}
+
+export default memo(EgoRasterViewer);

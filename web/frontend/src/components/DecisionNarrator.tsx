@@ -7,8 +7,16 @@ import { narrate } from "../lib/narrate";
 // held for a beat, so it reads calmly instead of strobing at the frame rate.
 const MIN_HOLD_MS = 260;
 
-export default function DecisionNarrator({ inspector }: { inspector: InspectorDTO | null }) {
-  const next = narrate(inspector);
+interface Props {
+  inspector: InspectorDTO | null;
+  // Served obs contract ("vector61" | "raster31v2") — gates which feature
+  // indices narrate() may read. Callers should pass frame.obs_spec; when
+  // absent narrate() infers conservatively from the state length.
+  obsSpec?: string;
+}
+
+export default function DecisionNarrator({ inspector, obsSpec }: Props) {
+  const next = narrate(inspector, obsSpec);
   const [shown, setShown] = useState<typeof next>(null);
   const committedAt = useRef(0);
 

@@ -6,6 +6,7 @@ background loop and broadcasts serialized frames; control messages mutate it.
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -19,12 +20,18 @@ from src.data.score_store import compute_score
 from src.game.game_state import GameState
 from src.model.obs_spec import DEFAULT_OBS_SPEC, RASTER31V2, VECTOR61
 from src.training.apex_policy import ApexPolicy
+from web.backend.checkpoints import resolve_checkpoint_name
 
 # The three ways to drive the shared game.
 MODE_WATCH = "watch"  # AI plays itself; we observe.
 MODE_TRAIN = "train"  # AI learns online.
 MODE_PLAY = "play"  # A human controls snake 0 against the AI (scored).
 VALID_MODES = (MODE_WATCH, MODE_TRAIN, MODE_PLAY)
+
+# Version of the frame/control protocol the backend speaks. Serialized into
+# every state frame (serialize.py reads it off the session) so the client can
+# detect a stale UI build talking to a newer backend.
+PROTOCOL_VERSION = 2
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SAVED_DIR = os.path.join(REPO_ROOT, "saved_snakes")
@@ -47,6 +54,43 @@ def _read_input_size(checkpoint_path: str) -> int:
     except Exception:
         pass
     return 61
+
+
+def _reward_contract_mismatch(checkpoint_path: str) -> bool:
+    """Whether a checkpoint's recorded reward economics differ from the active config's.
+
+    Mirrors the semantics of ``validate_checkpoint_contract``'s reward check: a
+    checkpoint with no recorded version is implicitly v1, and any field-level
+    difference counts. Used to (a) refuse a doomed train-mode build up front and
+    (b) tell the client the refusal is overridable (deliberate fine-tune), not
+    fatal. Best-effort: unreadable metadata reports no mismatch and the real
+    validator stays authoritative during the build.
+    """
+    try:
+        from src.core.reward_contract import current_reward_contract
+        from src.training.checkpoint_contract import checkpoint_contract_values
+
+        blob = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        current = current_reward_contract()
+        recorded_maps = [
+            m for m in checkpoint_contract_values(blob, "reward_contract") if isinstance(m, dict)
+        ]
+        if not recorded_maps:
+            # Pre-contract checkpoints are implicitly reward v1.
+            return float(current.get("version", 1)) != 1.0
+        for recorded in recorded_maps:
+            for key, expected in current.items():
+                raw = recorded.get(key, 1 if key == "version" else None)
+                if raw is None:
+                    return True
+                try:
+                    if not math.isclose(float(raw), float(expected), rel_tol=1e-7, abs_tol=1e-9):
+                        return True
+                except (TypeError, ValueError):
+                    return True
+        return False
+    except Exception:
+        return False
 
 
 def _read_obs_spec(checkpoint_path: str) -> str:
@@ -103,6 +147,25 @@ class GameSession:
         self.config_path: str = CONFIG_61
         self.obs_spec: str = VECTOR61
         self.last_error: Optional[str] = None
+        # True when last_error can be resolved by re-issuing the action with the
+        # reward-contract override (deliberate v1->v2 fine-tune), so the client
+        # can offer "Fine-tune anyway" instead of a dead-end error.
+        self.last_error_overridable: bool = False
+        # True while the live training policy was built with the reward override
+        # active (surfaced in the Train blurb: warm start, not a resume).
+        self.reward_override_active: bool = False
+
+        # Protocol/connection bookkeeping. viewer_count is maintained by the
+        # web app (number of connected WebSocket clients). raster_subscribers
+        # (count of connections that asked for the raster block, letting the
+        # serializer skip the ~3.8k-int payload nobody is looking at) is
+        # intentionally NOT initialized here: the serializer defaults a missing
+        # attr to "on" (getattr(session, 'raster_subscribers', 1)), so
+        # standalone sessions (tests, scripts) keep serving the raster block.
+        # It appears once the first set_raster_stream control arrives.
+        self.protocol_version: int = PROTOCOL_VERSION
+        self.viewer_count: int = 0
+        self._raster_conns: set = set()
 
         # Human-play run state (only meaningful in MODE_PLAY).
         self.human_id: Optional[int] = None
@@ -113,18 +176,29 @@ class GameSession:
         self.run_over: bool = False
         self.last_run: Optional[dict] = None  # finalized, server-authoritative stats
         self.submitted: bool = False
+        # Connection that owns the current scored run (set by the web app on
+        # new_game / first accepted input); other connections may watch but not
+        # steer or destroy the run while it is live.
+        self.run_owner: Optional[object] = None
 
         ckpt = checkpoint or (DEFAULT_CHECKPOINT if os.path.exists(DEFAULT_CHECKPOINT) else None)
         self._build(ckpt, mode=MODE_WATCH)
 
     # -- construction -------------------------------------------------------
-    def _build(self, checkpoint: Optional[str], mode: str) -> None:
+    def _build(
+        self, checkpoint: Optional[str], mode: str, override_reward_contract: bool = False
+    ) -> None:
         obs_spec = _read_obs_spec(checkpoint) if checkpoint else VECTOR61
         # Raster checkpoints are served forward-only (no online training path
         # through AISnake's vector replay). A train request on a raster champion
-        # falls back to watch so the mode switch still succeeds.
+        # falls back to watch so the build still succeeds — but say so, instead
+        # of silently dropping out of train mode (e.g. when a raster checkpoint
+        # is loaded while training).
         if obs_spec == RASTER31V2 and mode == MODE_TRAIN:
             mode = MODE_WATCH
+            self.last_error = (
+                "Raster (raster31v2) checkpoints are served forward-only; " "dropped to watch mode."
+            )
         training = mode == MODE_TRAIN
         human = mode == MODE_PLAY
         input_size = _read_input_size(checkpoint) if checkpoint else 61
@@ -143,11 +217,22 @@ class GameSession:
                 hidden_size=GameConfig.HIDDEN_SIZE,
                 output_size=GameConfig.OUTPUT_SIZE,
                 training=training,
+                override_reward_contract=training and override_reward_contract,
             )
             if checkpoint:
                 if not policy.load_checkpoint(checkpoint):
                     raise RuntimeError(f"Failed to load checkpoint: {checkpoint}")
         policy.epsilon = 0.1 if training else 0.0
+        # Record whether this build actually leaned on the reward escape hatch,
+        # so the UI can label the run "fine-tune under current rewards", and
+        # clear any stale overridable-error flag from the failed attempt.
+        self.reward_override_active = bool(
+            training
+            and override_reward_contract
+            and checkpoint
+            and _reward_contract_mismatch(checkpoint)
+        )
+        self.last_error_overridable = False
 
         # In play mode the arena is 1 human + N AI opponents; N is adjustable for
         # difficulty. Watch/train use the config's snake count.
@@ -284,6 +369,82 @@ class GameSession:
             if self.mode == MODE_PLAY:
                 self._start_run()
 
+    def save_weights(self) -> str:
+        """Persist the live policy's weights to a fresh checkpoint in SAVED_DIR.
+
+        The safe counterpart to the destructive rebuild paths (set_mode /
+        load_checkpoint), which construct a fresh policy from the on-disk
+        checkpoint and would otherwise silently discard everything learned in
+        train mode.
+
+        Returns:
+            The written checkpoint's basename (``web_train_YYYYMMDD_HHMMSS.pth``).
+
+        Raises:
+            RuntimeError: If the served policy is forward-only (raster serving).
+        """
+        with self._lock:
+            get_state_dict = getattr(self.policy, "get_state_dict", None)
+            if not callable(get_state_dict):
+                raise RuntimeError("the served policy is forward-only and cannot be saved")
+            os.makedirs(SAVED_DIR, exist_ok=True)
+            stem = time.strftime("web_train_%Y%m%d_%H%M%S")
+            for suffix in range(10_000):
+                name = f"{stem}{'' if suffix == 0 else f'_{suffix}'}.pth"
+                path = os.path.join(SAVED_DIR, name)
+                try:
+                    # Exclusive creation also protects two GameSession instances
+                    # saving in the same second.
+                    checkpoint_file = open(path, "xb")
+                except FileExistsError:
+                    continue
+                try:
+                    with checkpoint_file:
+                        torch.save(get_state_dict(), checkpoint_file)
+                    return name
+                except BaseException:
+                    # A failed torch.save can leave a partial .pth file.  It
+                    # must not enter the catalog as a corrupt checkpoint.
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+                    raise
+            raise RuntimeError("could not allocate a unique checkpoint filename")
+
+    # -- per-connection state -----------------------------------------------
+    def set_raster_stream(self, conn_id: object, value: object) -> None:
+        """Record one connection's raster-stream subscription.
+
+        ``raster_subscribers`` is the count of connections that currently want
+        the raster block; the serializer skips the ~3.8k-int payload when it is
+        zero. ``value`` is ``{"on": bool}`` (or a bare bool) per the control
+        contract. Idempotent per connection — repeated ``on`` messages from the
+        same connection count once.
+        """
+        on = value.get("on") if isinstance(value, dict) else value
+        with self._lock:
+            if bool(on):
+                self._raster_conns.add(conn_id)
+            else:
+                self._raster_conns.discard(conn_id)
+            self.raster_subscribers = len(self._raster_conns)
+
+    def drop_connection(self, conn_id: object) -> None:
+        """Forget a disconnected websocket's per-connection state.
+
+        Clears its raster subscription and, if it owned the live scored run,
+        releases ownership so the shared session cannot be locked by a ghost.
+        """
+        with self._lock:
+            self._raster_conns.discard(conn_id)
+            # Only maintain the counter once a subscription message has ever
+            # materialized it — sessions without the attr default to "on".
+            if hasattr(self, "raster_subscribers"):
+                self.raster_subscribers = len(self._raster_conns)
+            if self.run_owner == conn_id:
+                self.run_owner = None
+
     # -- human play ---------------------------------------------------------
     def _find_human(self):
         """Return the human-controlled snake, or None if not in play mode."""
@@ -307,6 +468,7 @@ class GameSession:
         self.run_over = False
         self.last_run = None
         self.submitted = False
+        self.run_owner = None
 
     def _finalize_run(self) -> None:
         """Capture the just-ended human run as the server-authoritative result."""
@@ -333,15 +495,18 @@ class GameSession:
     def human_input(self, direction_name: str) -> None:
         """Apply a named absolute-direction input to the human snake.
 
-        The first input of a run also un-freezes the world (see _step_play) and
-        starts the clock, so duration reflects actual play time.
+        The first ACCEPTED input of a run also un-freezes the world (see
+        _step_play) and starts the clock, so duration reflects actual play
+        time. A rejected input (unknown name, or a 180° reversal of the spawn
+        facing) must not launch the snake in a direction the player didn't
+        choose.
         """
         with self._lock:
             human = self._find_human()
             if human is None or not human.is_alive or self.run_over:
                 return
-            human.apply_direction_input(direction_name)
-            if not self.run_started:
+            accepted = human.apply_direction_input(direction_name)
+            if accepted and not self.run_started:
                 self.run_started = True
                 self.run_started_at = time.time()
 
@@ -384,50 +549,153 @@ class GameSession:
                 return dict(self.last_run)
             return None
 
-    def set_mode(self, mode: str) -> None:
-        """Switch between watch / train / play, rebuilding the game as needed."""
+    def release_submission(self) -> None:
+        """Un-claim a run whose persistence failed, so submission can be retried.
+
+        The claim/write/latch order matters: ``claim_submission`` latches
+        ``submitted`` up front (double-submit guard), so if the DB write then
+        fails the caller must release the claim — otherwise the finished run
+        would be permanently unsubmittable and the UI would show a false
+        "submitted" state.
+        """
+        with self._lock:
+            if self.run_over and self.last_run is not None:
+                self.submitted = False
+
+    def set_mode(self, mode: str, override_reward_contract: bool = False) -> None:
+        """Switch between watch / train / play, rebuilding the game as needed.
+
+        A no-op (no rebuild, no arena reset) when the requested mode equals the
+        current mode, or when it could not take effect anyway (train on a
+        forward-only raster checkpoint, or train on a checkpoint whose reward
+        economics predate the active config — both report why via last_error
+        instead of silently resetting the arena). The reward case is
+        overridable: re-issuing with ``override_reward_contract=True`` performs
+        a deliberate fine-tune under the current rewards (warm start, not a
+        resume) via the contract validator's escape hatch.
+        """
         mode = str(mode) if str(mode) in VALID_MODES else MODE_WATCH
         with self._lock:
             if mode == self.mode:
                 return
+            if mode == MODE_TRAIN and self.obs_spec == RASTER31V2:
+                # Forward-only checkpoint: the rebuild would coerce back to
+                # watch, destroying the current game for nothing. Skip it and
+                # surface the reason through the existing error pipeline.
+                self.last_error = (
+                    "Raster (raster31v2) checkpoints are served forward-only; "
+                    "train mode is unavailable for this model."
+                )
+                self.last_error_overridable = False
+                return
+            if (
+                mode == MODE_TRAIN
+                and not override_reward_contract
+                and self.checkpoint_path
+                and _reward_contract_mismatch(self.checkpoint_path)
+            ):
+                # Refuse up front (no doomed build, arena preserved) and mark the
+                # refusal overridable so the client offers "Fine-tune anyway".
+                self.last_error = (
+                    "This checkpoint was trained under different reward economics "
+                    "(reward contract v1) than the arena is running (v2). "
+                    "Training would be a fine-tune under the new rewards, not a resume."
+                )
+                self.last_error_overridable = True
+                return
             try:
                 self.last_error = None
-                self._build(self.checkpoint_path, mode=mode)
+                self.last_error_overridable = False
+                self._build(
+                    self.checkpoint_path,
+                    mode=mode,
+                    override_reward_contract=override_reward_contract,
+                )
             except Exception as exc:  # contract mismatch etc. -> fall back to watch
                 self.last_error = f"Cannot enter {mode} mode: {exc}"
+                self.last_error_overridable = False
                 if self.mode != MODE_WATCH:
                     self._build(self.checkpoint_path, mode=MODE_WATCH)
 
-    def load_checkpoint(self, name: str) -> None:
-        path = name if os.path.isabs(name) else os.path.join(SAVED_DIR, name)
+    def load_checkpoint(self, name: str, override_reward_contract: bool = False) -> None:
+        """Load a checkpoint named by an untrusted client (a WebSocket control).
+
+        The name reaches ``torch.load``, which unpickles, so only two shapes are
+        accepted (matching what ``metrics.list_checkpoints`` advertises):
+
+        * a plain basename naming a real ``.pth`` directly inside SAVED_DIR;
+        * a repo-relative ``runs/**/latest_pqn.pth`` training output.
+
+        ``basename``/``realpath`` containment defeats ``..``, absolute paths,
+        and symlinks pointing outside the allowed roots. Report only the
+        sanitized name, so a rejection cannot confirm arbitrary paths back to
+        the client.
+
+        Loading while in train mode enforces the reward contract like
+        ``set_mode``; a mismatch is refused with an overridable error unless
+        ``override_reward_contract`` is set (deliberate fine-tune).
+        """
+        raw = name if isinstance(name, str) else ""
+        safe = os.path.basename(raw)
+        entry = resolve_checkpoint_name(raw, REPO_ROOT, SAVED_DIR, os.path.join(REPO_ROOT, "runs"))
+        path = entry.path if entry is not None else ""
+        if entry is not None:
+            safe = entry.name
         with self._lock:
+            if not path or not safe.endswith(".pth"):
+                self.last_error = f"Unknown checkpoint: {safe or '(none)'}"
+                self.last_error_overridable = False
+                return
+            if (
+                self.mode == MODE_TRAIN
+                and not override_reward_contract
+                and _reward_contract_mismatch(path)
+            ):
+                self.last_error = (
+                    f"{safe} was trained under different reward economics than the "
+                    "arena is running. Loading it in train mode would be a fine-tune "
+                    "under the new rewards, not a resume."
+                )
+                self.last_error_overridable = True
+                return
             try:
                 self.last_error = None
-                self._build(path, mode=self.mode)
+                self.last_error_overridable = False
+                self._build(path, mode=self.mode, override_reward_contract=override_reward_contract)
             except Exception as exc:
-                self.last_error = f"Failed to load {os.path.basename(path)}: {exc}"
+                self.last_error = f"Failed to load {safe}: {exc}"
+                self.last_error_overridable = False
                 # fall back to a clean watch build of the previous/default ckpt
                 self._build(self.checkpoint_path, mode=MODE_WATCH)
 
     # -- state report -------------------------------------------------------
     def control_state(self) -> Dict[str, object]:
-        return {
-            "playing": self.playing,
-            "speed": self.speed,
-            "mode": self.mode,
-            "training": bool(getattr(self.policy, "training", False)),
-            "hero_id": self.hero_id,
-            "checkpoint": os.path.basename(self.checkpoint_path) if self.checkpoint_path else None,
-            "config": os.path.basename(self.config_path),
-            "mechanics_version": int(GameConfig.MECHANICS_VERSION),
-            "obs_spec": str(self.obs_spec),
-            "input_size": int(GameConfig.INPUT_SIZE),
-            "num_snakes": int(len(self.game.snakes)),
-            "epsilon": float(getattr(self.policy, "epsilon", 0.0)),
-            "food_target": int(self.game.food_manager.max_food),
-            "food_count": int(len(self.game.food_manager.food)),
-            "error": self.last_error,
-        }
+        with self._lock:
+            return {
+                "playing": self.playing,
+                "speed": self.speed,
+                "mode": self.mode,
+                "training": bool(getattr(self.policy, "training", False)),
+                "hero_id": self.hero_id,
+                "checkpoint": (
+                    os.path.basename(self.checkpoint_path) if self.checkpoint_path else None
+                ),
+                "config": os.path.basename(self.config_path),
+                "mechanics_version": int(GameConfig.MECHANICS_VERSION),
+                "obs_spec": str(self.obs_spec),
+                "input_size": int(GameConfig.INPUT_SIZE),
+                "num_snakes": int(len(self.game.snakes)),
+                "epsilon": float(getattr(self.policy, "epsilon", 0.0)),
+                "food_target": int(self.game.food_manager.max_food),
+                "food_count": int(len(self.game.food_manager.food)),
+                "error": self.last_error,
+                # True when re-issuing the failed action with the reward-contract
+                # override would succeed (client offers "Fine-tune anyway").
+                "error_overridable": bool(self.last_error_overridable),
+                # True while the live training run leans on the reward override
+                # (fine-tune under current rewards, not a resume).
+                "reward_override_active": bool(self.reward_override_active),
+            }
 
     def play_state(self) -> Optional[Dict[str, object]]:
         """Per-frame human-play status, or None when not in play mode.
@@ -435,26 +703,27 @@ class GameSession:
         Reports live run stats and, once the human has died, the finalized
         server-authoritative result awaiting name submission.
         """
-        if self.mode != MODE_PLAY:
-            return None
-        human = self._find_human()
-        alive = bool(getattr(human, "is_alive", False)) if human else False
-        length = int(getattr(human, "length", 1)) if human else 1
-        food = int(getattr(human, "run_food_eaten", 0)) if human else 0
-        kills = int(getattr(human, "run_kills", 0)) if human else 0
-        live_score = compute_score(length, food, kills, self.run_frames)
-        return {
-            "active": True,
-            "human_id": self.human_id,
-            "opponents": max(0, len(self.game.snakes) - 1),
-            "human_alive": alive,
-            "length": length,
-            "food_eaten": food,
-            "kills": kills,
-            "frames": int(self.run_frames),
-            "score": live_score,
-            "run_started": bool(self.run_started),
-            "run_over": bool(self.run_over),
-            "submitted": bool(self.submitted),
-            "pending": self.last_run if (self.run_over and not self.submitted) else None,
-        }
+        with self._lock:
+            if self.mode != MODE_PLAY:
+                return None
+            human = self._find_human()
+            alive = bool(getattr(human, "is_alive", False)) if human else False
+            length = int(getattr(human, "length", 1)) if human else 1
+            food = int(getattr(human, "run_food_eaten", 0)) if human else 0
+            kills = int(getattr(human, "run_kills", 0)) if human else 0
+            live_score = compute_score(length, food, kills, self.run_frames)
+            return {
+                "active": True,
+                "human_id": self.human_id,
+                "opponents": max(0, len(self.game.snakes) - 1),
+                "human_alive": alive,
+                "length": length,
+                "food_eaten": food,
+                "kills": kills,
+                "frames": int(self.run_frames),
+                "score": live_score,
+                "run_started": bool(self.run_started),
+                "run_over": bool(self.run_over),
+                "submitted": bool(self.submitted),
+                "pending": self.last_run if (self.run_over and not self.submitted) else None,
+            }

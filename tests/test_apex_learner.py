@@ -68,6 +68,28 @@ def _fill_buffer(buffer: LocalApexBuffer, n: int, input_size: int = 8) -> None:
         buffer.add(state, action, reward, next_state, done)
 
 
+class _CountingBufferClient:
+    """Wrap a real buffer, counting the size reads that cost an IPC round-trip."""
+
+    def __init__(self, buffer: LocalApexBuffer):
+        self._buffer = buffer
+        self.get_size_calls = 0
+        self.on_get_size = None
+
+    def get_size(self) -> int:
+        self.get_size_calls += 1
+        size = len(self._buffer)
+        if self.on_get_size is not None:
+            self.on_get_size()
+        return size
+
+    def sample(self, batch_size, device):
+        return self._buffer.sample(batch_size, device)
+
+    def update_priorities(self, indices, td_errors) -> None:
+        self._buffer.update_priorities(indices, td_errors)
+
+
 class FixedQ(torch.nn.Module):
     """Return deterministic Q-values for target-selection tests."""
 
@@ -232,6 +254,50 @@ class TestTrainStep:
             metrics = learner.train_step()
         assert learner.step_count == 5
         assert "loss" in metrics
+
+    def test_train_step_reads_buffer_size_once(self):
+        """Each buffer-size read is a blocking IPC round-trip in distributed mode."""
+        config = _small_config(min_buffer_size=32)
+        buf = LocalApexBuffer(capacity=1000, alpha=0.6, state_size=config.input_size)
+        _fill_buffer(buf, 64, input_size=8)
+        client = _CountingBufferClient(buf)
+        learner = ApexLearner(config, buffer_client=client, device=torch.device("cpu"))
+
+        metrics = learner.train_step()
+
+        assert "loss" in metrics
+        assert client.get_size_calls == 1
+        assert metrics["buffer_size"] == 64
+
+    def test_waiting_train_step_reads_buffer_size_once(self):
+        """The under-filled path must not pay for a second round-trip either."""
+        config = _small_config(min_buffer_size=100)
+        buf = LocalApexBuffer(capacity=1000, alpha=0.6, state_size=config.input_size)
+        _fill_buffer(buf, 10, input_size=8)
+        client = _CountingBufferClient(buf)
+        learner = ApexLearner(config, buffer_client=client, device=torch.device("cpu"))
+
+        metrics = learner.train_step()
+
+        assert metrics["status"] == "waiting"
+        assert client.get_size_calls == 1
+        assert metrics["buffer_size"] == 10
+
+    def test_reported_buffer_size_matches_the_gated_snapshot(self):
+        """The reported size must be the snapshot the min_buffer_size gate used."""
+        config = _small_config(min_buffer_size=32)
+        buf = LocalApexBuffer(capacity=1000, alpha=0.6, state_size=config.input_size)
+        _fill_buffer(buf, 64, input_size=8)
+        client = _CountingBufferClient(buf)
+        learner = ApexLearner(config, buffer_client=client, device=torch.device("cpu"))
+
+        # Actors keep filling the buffer while the step runs, so a second read
+        # would report a different number than the one the gate accepted.
+        client.on_get_size = lambda: _fill_buffer(buf, 5, input_size=8)
+
+        metrics = learner.train_step()
+
+        assert metrics["buffer_size"] == 64
 
     def test_td_targets_mask_invalid_next_actions(self):
         """Distributed learner targets should ignore invalid high-Q next actions."""

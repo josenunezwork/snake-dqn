@@ -24,7 +24,7 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
-from queue import Empty
+from queue import Empty, Full
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -283,6 +283,60 @@ class BufferMessage:
     sender_id: Optional[int] = None
 
 
+# Bound on how long the buffer loop will wait to hand a reply to a client. The
+# loop is single-threaded and also services the experience, priority and control
+# queues, so it must never block on a reply indefinitely. Kept short: a full
+# response queue means the client is not consuming, so waiting longer only stalls
+# the queues this loop still has to service. The client re-requests on timeout.
+RESPONSE_PUT_TIMEOUT = 0.1
+
+
+def _await_typed_response(
+    response_queue: "mp.Queue",
+    expected: MessageType,
+    timeout: float,
+) -> BufferMessage:
+    """Return the next reply of type ``expected``, discarding replies of other types.
+
+    Control RPCs share one response queue and carry no correlation id, so a reply
+    to a request that already timed out can still be sitting there. Returning it to
+    the next caller hands a caller another RPC's payload (e.g. a stats dict where an
+    int size is expected).
+
+    The deadline is absolute: a stream of stale replies must not be able to extend
+    the wait past ``timeout`` and stall the learner's hot loop. Once the deadline
+    passes, queued replies are still inspected non-blockingly, so an answer that is
+    already present is returned rather than discarded.
+
+    Raises:
+        Empty: If no matching reply arrived before the deadline.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = max(deadline - time.monotonic(), 0.0)
+        response = response_queue.get(timeout=remaining)
+        if response.msg_type == expected:
+            return response
+
+
+def _deliver_response(
+    response_queue: "mp.Queue",
+    response: BufferMessage,
+    buffer: "SharedPrioritizedBuffer",
+    kind: str,
+) -> None:
+    """Hand a reply to a client without letting a full queue stall the buffer loop.
+
+    Dropping a reply is recoverable — every client treats a missing reply as
+    "not ready" and re-requests — whereas blocking here stops the single buffer
+    loop from servicing every other queue, which wedges the whole run silently.
+    """
+    try:
+        response_queue.put(response, timeout=RESPONSE_PUT_TIMEOUT)
+    except Full:
+        buffer.record_dropped_response(kind)
+
+
 # =============================================================================
 # Shared Prioritized Replay Buffer (Core Implementation)
 # =============================================================================
@@ -350,6 +404,8 @@ class SharedPrioritizedBuffer:
         self._last_rejected_actor_message: Optional[str] = None
         self._total_rejected_priority_updates = 0
         self._last_rejected_priority_update: Optional[str] = None
+        self._total_dropped_responses = 0
+        self._last_dropped_response: Optional[str] = None
 
     @property
     def beta(self) -> float:
@@ -508,6 +564,12 @@ class SharedPrioritizedBuffer:
             self._total_rejected_priority_updates += 1
             self._last_rejected_priority_update = str(exc)
 
+    def record_dropped_response(self, kind: str) -> None:
+        """Record a reply the buffer could not deliver because the client queue was full."""
+        with self._lock:
+            self._total_dropped_responses += 1
+            self._last_dropped_response = kind
+
     def sample(self, batch_size: int) -> Tuple[Dict[str, np.ndarray], List[int], np.ndarray]:
         """
         Sample a batch of experiences with stratified prioritized sampling.
@@ -664,6 +726,8 @@ class SharedPrioritizedBuffer:
                 "last_rejected_actor_message": self._last_rejected_actor_message,
                 "total_rejected_priority_updates": self._total_rejected_priority_updates,
                 "last_rejected_priority_update": self._last_rejected_priority_update,
+                "total_dropped_responses": self._total_dropped_responses,
+                "last_dropped_response": self._last_dropped_response,
                 "max_priority": self._tree.max_priority,
                 "current_beta": self._beta,
                 "alpha": self.alpha,
@@ -909,15 +973,10 @@ class BufferProcess:
                         except ValueError:
                             # Not enough samples
                             response = BufferMessage(MessageType.SAMPLE_RESPONSE, data=None)
-                        # Blocking put (no timeout) is intentional and cannot
-                        # deadlock here: the learner issues a single sample
-                        # request and then blocks reading the response before
-                        # sending the next one (synchronous, single-in-flight
-                        # request design). The response queue therefore holds at
-                        # most one item, so it is never full when we put, and the
-                        # consumer is guaranteed to be waiting. Do not switch to
-                        # put_nowait: dropping a response would hang the learner.
-                        sample_response_queue.put(response)
+                        # A timed-out sample() returns without consuming its reply,
+                        # so this queue is not guaranteed to be empty and a blocking
+                        # put here can wedge the whole loop once it fills.
+                        _deliver_response(sample_response_queue, response, buffer, "sample")
             except Empty:
                 pass
 
@@ -944,13 +1003,13 @@ class BufferProcess:
 
                     if msg.msg_type == MessageType.GET_SIZE:
                         response = BufferMessage(MessageType.SIZE_RESPONSE, data=len(buffer))
-                        response_queue.put(response)
+                        _deliver_response(response_queue, response, buffer, "size")
 
                     elif msg.msg_type == MessageType.GET_STATS:
                         response = BufferMessage(
                             MessageType.STATS_RESPONSE, data=buffer.get_stats()
                         )
-                        response_queue.put(response)
+                        _deliver_response(response_queue, response, buffer, "stats")
 
                     elif msg.msg_type == MessageType.CLEAR:
                         buffer.clear()
@@ -1029,7 +1088,9 @@ class BufferProcess:
         """
         self._control_queue.put(BufferMessage(MessageType.GET_SIZE))
         try:
-            response = self._response_queue.get(timeout=timeout)
+            response = _await_typed_response(
+                self._response_queue, MessageType.SIZE_RESPONSE, timeout
+            )
             return response.data
         except Exception:
             return 0
@@ -1046,7 +1107,9 @@ class BufferProcess:
         """
         self._control_queue.put(BufferMessage(MessageType.GET_STATS))
         try:
-            response = self._response_queue.get(timeout=timeout)
+            response = _await_typed_response(
+                self._response_queue, MessageType.STATS_RESPONSE, timeout
+            )
             return response.data
         except Exception:
             return {}
@@ -1332,6 +1395,32 @@ class LearnerBufferClient:
         # latter used to be swallowed as a silent None and read as "not ready".
         self._client_read_error_count = 0
         self._last_client_read_error: Optional[str] = None
+        # Observability: replies to sample requests that already timed out and were
+        # discarded before issuing a new request.
+        self._orphaned_sample_response_count = 0
+
+    def _record_read_error(self, reason: str) -> None:
+        """Record a control RPC that did not yield a usable reply."""
+        self._client_read_error_count += 1
+        self._last_client_read_error = reason
+
+    def _drain_stale_sample_responses(self) -> None:
+        """Discard replies to sample requests that already timed out.
+
+        A timed-out sample() returns "not ready" but leaves its request in flight,
+        so the eventual reply belongs to nobody. Anything queued before a new request
+        is by definition stale, and left alone these accumulate until the buffer
+        process can no longer deliver a reply at all.
+        """
+        while True:
+            try:
+                self._sample_response_queue.get_nowait()
+            except Empty:
+                return
+            except Exception as exc:
+                self._record_read_error(f"drain_sample_responses: {exc}")
+                return
+            self._orphaned_sample_response_count += 1
 
     def sample(
         self, batch_size: int, device: Optional[torch.device] = None, timeout: float = 5.0
@@ -1352,6 +1441,7 @@ class LearnerBufferClient:
             - weights: Importance sampling weights
         """
         # Send sample request
+        self._drain_stale_sample_responses()
         msg = BufferMessage(MessageType.SAMPLE_REQUEST, data=batch_size)
         self._sample_request_queue.put(msg)
 
@@ -1431,34 +1521,49 @@ class LearnerBufferClient:
             self._last_priority_drop_error = str(exc)
 
     def get_size(self, timeout: float = 1.0) -> int:
-        """Get current buffer size."""
+        """Get current buffer size.
+
+        Returns 0 if the buffer did not answer in time. That is indistinguishable
+        from a genuinely empty buffer, so the failure is recorded rather than left
+        to masquerade as one.
+        """
         self._control_queue.put(BufferMessage(MessageType.GET_SIZE))
         try:
-            response = self._response_queue.get(timeout=timeout)
+            response = _await_typed_response(
+                self._response_queue, MessageType.SIZE_RESPONSE, timeout
+            )
             return response.data
         except Empty:
+            self._record_read_error("get_size: timed out awaiting SIZE_RESPONSE")
             return 0
         except Exception as exc:
-            self._client_read_error_count += 1
-            self._last_client_read_error = f"get_size: {exc}"
+            self._record_read_error(f"get_size: {exc}")
             return 0
 
     def get_stats(self, timeout: float = 1.0) -> Dict[str, Any]:
         """Get buffer statistics.
 
         Merges in client-side IPC drop counters (priority updates dropped at the
-        queue boundary) so they are observable alongside the buffer-process stats.
+        queue boundary, unanswered control RPCs) so they are observable alongside
+        the buffer-process stats.
         """
         self._control_queue.put(BufferMessage(MessageType.GET_STATS))
         try:
-            response = self._response_queue.get(timeout=timeout)
+            response = _await_typed_response(
+                self._response_queue, MessageType.STATS_RESPONSE, timeout
+            )
             stats = dict(response.data) if isinstance(response.data, dict) else {}
-        except Exception:
+        except Empty:
+            self._record_read_error("get_stats: timed out awaiting STATS_RESPONSE")
+            stats = {}
+        except Exception as exc:
+            self._record_read_error(f"get_stats: {exc}")
             stats = {}
         stats["dropped_priority_update_count"] = self._dropped_priority_update_count
         stats["last_priority_drop_error"] = self._last_priority_drop_error
         stats["client_read_error_count"] = self._client_read_error_count
         stats["last_client_read_error"] = self._last_client_read_error
+        stats["orphaned_sample_response_count"] = self._orphaned_sample_response_count
         return stats
 
 
@@ -1595,65 +1700,3 @@ class LocalApexBuffer(BaseReplayBuffer):
     def get_stats(self) -> Dict[str, Any]:
         """Get buffer statistics."""
         return self._buffer.get_stats()
-
-
-# =============================================================================
-# Factory Function
-# =============================================================================
-
-
-def create_apex_buffer(
-    distributed: bool = True,
-    capacity: Optional[int] = None,
-    alpha: float = 0.6,
-    beta_start: float = 0.4,
-    beta_end: float = 1.0,
-    beta_frames: int = 1_000_000,
-    state_size: int = GameConfig.INPUT_SIZE,
-    **kwargs,
-) -> Tuple[Any, Optional[ActorBufferClient], Optional[LearnerBufferClient]]:
-    """
-    Factory function to create an Ape-X buffer.
-
-    Args:
-        distributed: If True, creates distributed buffer with process
-                    If False, creates local single-process buffer
-        capacity: Buffer capacity (auto-detected if None)
-        alpha: Priority exponent
-        beta_start: Initial importance sampling weight
-        beta_end: Final importance sampling weight
-        beta_frames: Frames to anneal beta
-        state_size: Expected flat state vector size.
-        **kwargs: Additional arguments for BufferProcess
-
-    Returns:
-        Tuple of (buffer, actor_client, learner_client)
-        - For distributed: (BufferProcess, ActorBufferClient, LearnerBufferClient)
-        - For local: (LocalApexBuffer, None, None)
-    """
-    if distributed:
-        buffer = BufferProcess(
-            capacity=capacity,
-            alpha=alpha,
-            beta_start=beta_start,
-            beta_end=beta_end,
-            beta_frames=beta_frames,
-            state_size=state_size,
-            **kwargs,
-        )
-        buffer.start()
-
-        actor_client = buffer.get_actor_client()
-        learner_client = buffer.get_learner_client()
-
-        return buffer, actor_client, learner_client
-    else:
-        buffer = LocalApexBuffer(
-            capacity=capacity,
-            alpha=alpha,
-            beta_start=beta_start,
-            beta_end=beta_end,
-            beta_frames=beta_frames,
-            state_size=state_size,
-        )
-        return buffer, None, None

@@ -4,8 +4,7 @@ Provides reusable building blocks for constructing neural network
 architectures with less code duplication.
 """
 
-from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Dict, Tuple
 
 import torch
 import torch.nn as nn
@@ -29,59 +28,6 @@ def dueling_q(
         Q-values tensor with shape matching ``advantage_stream``.
     """
     return value_stream + (advantage_stream - advantage_stream.mean(dim=-1, keepdim=True))
-
-
-def build_mlp(
-    sizes: List[int], activation: Type[nn.Module] = nn.ReLU, output_activation: bool = False
-) -> nn.Sequential:
-    """
-    Build a Multi-Layer Perceptron (MLP) from a list of layer sizes.
-
-    Args:
-        sizes: List of layer sizes. E.g., [64, 128, 64, 4] creates
-               a network with layers: 64->128, 128->64, 64->4
-        activation: Activation function class (default: nn.ReLU)
-        output_activation: Whether to add activation after final layer
-
-    Returns:
-        nn.Sequential containing the MLP layers
-
-    Example:
-        >>> mlp = build_mlp([58, 512, 256, 6])
-        >>> # Creates: Linear(58,512) -> ReLU -> Linear(512,256) -> ReLU -> Linear(256,6)
-    """
-    layers = []
-    for i in range(len(sizes) - 1):
-        layers.append(nn.Linear(sizes[i], sizes[i + 1]))
-        # Add activation after each layer except the last (unless output_activation=True)
-        if i < len(sizes) - 2 or output_activation:
-            layers.append(activation())
-    return nn.Sequential(*layers)
-
-
-def build_feature_layer(
-    input_size: int,
-    hidden_size: int,
-) -> nn.Sequential:
-    """
-    Build a standard feature extraction layer.
-
-    Creates the common pattern: Linear -> ReLU -> Linear -> ReLU
-    with sizes: input_size -> hidden_size -> hidden_size // 2
-
-    Args:
-        input_size: Input dimension
-        hidden_size: First hidden layer size (second will be hidden_size // 2)
-
-    Returns:
-        nn.Sequential containing the feature layer
-    """
-    return nn.Sequential(
-        nn.Linear(input_size, hidden_size),
-        nn.ReLU(),
-        nn.Linear(hidden_size, hidden_size // 2),
-        nn.ReLU(),
-    )
 
 
 def init_weights_xavier(module: nn.Module) -> None:
@@ -138,76 +84,7 @@ def init_dueling_weights_orthogonal(
                     nn.init.constant_(layer.bias, 0.0)
 
 
-class WeightManagementMixin:
-    """Mixin providing weight copy, sync, and sharing methods for DQN networks.
-
-    Provides weight management methods for ApexNetwork.
-
-    Requires the class to be an nn.Module (provides state_dict, parameters, etc.).
-    """
-
-    def copy_weights_from(self, source_network: nn.Module) -> None:
-        """Copy weights from another network (hard update for target network).
-
-        Args:
-            source_network: Network to copy weights from
-        """
-        self.load_state_dict(source_network.state_dict())
-
-    def soft_update_from(self, source_network: nn.Module, tau: float = 0.005) -> None:
-        """Soft update weights from source network (Polyak averaging).
-
-        Updates: target = tau * source + (1 - tau) * target
-
-        Args:
-            source_network: Network to copy weights from
-            tau: Interpolation parameter (0 < tau <= 1)
-        """
-        with torch.no_grad():
-            for target_param, source_param in zip(self.parameters(), source_network.parameters()):
-                target_param.data.mul_(1.0 - tau).add_(source_param.data, alpha=tau)
-
-    def get_shareable_state_dict(self) -> OrderedDict:
-        """Get state dict optimized for sharing with actors.
-
-        Returns a CPU state dict that can be efficiently serialized
-        and sent to actor processes.
-
-        Returns:
-            OrderedDict containing model weights on CPU
-        """
-        return OrderedDict(
-            (key, value.detach().cpu().clone()) for key, value in self.state_dict().items()
-        )
-
-    def load_shareable_state_dict(
-        self,
-        state_dict: OrderedDict,
-        device: Optional[torch.device] = None,
-    ) -> None:
-        """Load state dict received from learner (for actor synchronization).
-
-        Args:
-            state_dict: State dict (typically from get_shareable_state_dict())
-            device: Device to move weights to (uses current device if None)
-        """
-        if device is None:
-            device = next(self.parameters()).device
-
-        self.load_state_dict(state_dict)
-        self.to(device)
-
-
-class VisualizationMixin:
-    """
-    Mixin that adds forward_with_activations() for network visualization.
-
-    Provides a standardized way to capture intermediate activations
-    during forward pass for debugging and visualization purposes.
-    """
-
-
-class BaseDQNVisualization(VisualizationMixin):
+class BaseDQNVisualization:
     """
     Specialized visualization mixin for DQN-style networks.
 

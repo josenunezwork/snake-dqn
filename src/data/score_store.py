@@ -47,7 +47,13 @@ DEFAULT_SCORES_DB = os.environ.get("SNAKE_SCORES_DB", os.path.join(_REPO_ROOT, "
 # leaderboard can be versioned — v1 scores stay readable (historical, read-only
 # by convention) while v2 sessions rank on a fresh board. Migration is additive
 # (ALTER TABLE with DEFAULT 1); existing rows are never rewritten or dropped.
-SCHEMA_VERSION = 2
+# Schema v3: games gained a nullable ``client_id`` column (an opaque,
+# browser-generated id) so "me" highlighting and personal stats survive name
+# changes. Also purely additive; historical rows keep NULL.
+SCHEMA_VERSION = 3
+
+# Opaque client ids are capped so a hostile client can't bloat rows.
+_CLIENT_ID_MAX_LEN = 64
 
 # Score weights. Snake length is the headline number; food and kills add flavor,
 # and a small survival term rewards staying alive without dominating the score.
@@ -97,6 +103,7 @@ class GameResult:
     checkpoint: Optional[str]
     created_at: str
     mechanics_version: int = 1
+    client_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Return a JSON-serializable dict (used by the web API)."""
@@ -116,6 +123,7 @@ class LeaderboardEntry:
     frames: int
     created_at: str
     mechanics_version: int = 1
+    client_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -186,6 +194,14 @@ def _sanitize_name(name: str) -> str:
     return cleaned[:32]
 
 
+def _sanitize_client_id(client_id: Optional[str]) -> Optional[str]:
+    """Normalize an opaque client id: trimmed and length-capped, or None."""
+    if client_id is None:
+        return None
+    cleaned = str(client_id).strip()[:_CLIENT_ID_MAX_LEN]
+    return cleaned or None
+
+
 class ScoreStore:
     """Persistent leaderboard for human play sessions.
 
@@ -244,7 +260,8 @@ class ScoreStore:
                 mode             TEXT    NOT NULL DEFAULT 'play',
                 checkpoint       TEXT,
                 created_at       TEXT    NOT NULL,
-                mechanics_version INTEGER NOT NULL DEFAULT 1
+                mechanics_version INTEGER NOT NULL DEFAULT 1,
+                client_id        TEXT
             )
             """)
         # v1 -> v2 migration: purely additive. Pre-existing databases lack the
@@ -253,6 +270,10 @@ class ScoreStore:
         cols = {row["name"] for row in cur.execute("PRAGMA table_info(games)").fetchall()}
         if "mechanics_version" not in cols:
             cur.execute("ALTER TABLE games ADD COLUMN mechanics_version INTEGER NOT NULL DEFAULT 1")
+        # v2 -> v3 migration: additive nullable client_id (historical rows stay
+        # NULL — they simply never match a "me" lookup).
+        if "client_id" not in cols:
+            cur.execute("ALTER TABLE games ADD COLUMN client_id TEXT")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_games_score ON games(score DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_games_player ON games(player_id)")
         cur.execute(
@@ -277,6 +298,7 @@ class ScoreStore:
         score: Optional[int] = None,
         created_at: Optional[str] = None,
         mechanics_version: Optional[int] = None,
+        client_id: Optional[str] = None,
     ) -> GameResult:
         """Persist one completed game and update the player's aggregates.
 
@@ -296,11 +318,14 @@ class ScoreStore:
             created_at: ISO timestamp; defaults to now (UTC).
             mechanics_version: Game-mechanics version the run was played under;
                 defaults to the active config's version (1 when no config).
+            client_id: Opaque browser-generated id (trimmed, capped at 64
+                chars) used to recognize "me" across name changes; optional.
 
         Returns:
             The stored :class:`GameResult`.
         """
         name = _sanitize_name(player_name)
+        client_id = _sanitize_client_id(client_id)
         when = created_at or _utc_now_iso()
         length = max(1, int(length))
         food_eaten = max(0, int(food_eaten))
@@ -326,8 +351,8 @@ class ScoreStore:
 
             cursor = cur.execute(
                 "INSERT INTO games (player_id, score, length, food_eaten, kills, frames, "
-                "duration_seconds, mode, checkpoint, created_at, mechanics_version) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "duration_seconds, mode, checkpoint, created_at, mechanics_version, client_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     player_id,
                     score,
@@ -340,6 +365,7 @@ class ScoreStore:
                     checkpoint,
                     when,
                     mechanics_version,
+                    client_id,
                 ),
             )
             game_id = int(cursor.lastrowid)
@@ -366,6 +392,7 @@ class ScoreStore:
             checkpoint=checkpoint,
             created_at=when,
             mechanics_version=mechanics_version,
+            client_id=client_id,
         )
 
     # -- reads --------------------------------------------------------------
@@ -401,7 +428,7 @@ class ScoreStore:
             rows = self._conn.execute(
                 """
                 SELECT p.name AS player_name, g.score, g.length, g.food_eaten,
-                       g.kills, g.frames, g.created_at, g.mechanics_version
+                       g.kills, g.frames, g.created_at, g.mechanics_version, g.client_id
                 FROM (
                     SELECT *, ROW_NUMBER() OVER (
                         PARTITION BY player_id
@@ -428,6 +455,7 @@ class ScoreStore:
                 frames=int(r["frames"]),
                 created_at=r["created_at"],
                 mechanics_version=int(r["mechanics_version"]),
+                client_id=r["client_id"],
             )
             for i, r in enumerate(rows)
         ]
@@ -456,7 +484,7 @@ class ScoreStore:
                 f"""
                 SELECT g.id, p.name AS player_name, g.score, g.length, g.food_eaten,
                        g.kills, g.frames, g.duration_seconds, g.mode, g.checkpoint,
-                       g.created_at, g.mechanics_version
+                       g.created_at, g.mechanics_version, g.client_id
                 FROM games g JOIN players p ON p.id = g.player_id
                 {where}
                 ORDER BY g.id DESC LIMIT ?
@@ -465,15 +493,33 @@ class ScoreStore:
             ).fetchall()
         return [self._row_to_result(r) for r in rows]
 
-    def player_stats(self, name: str) -> Optional[PlayerStats]:
-        """Return aggregates for one player, or ``None`` if unknown."""
+    def player_stats(self, name: str, client_id: Optional[str] = None) -> Optional[PlayerStats]:
+        """Return aggregates for one player, or ``None`` if unknown.
+
+        Args:
+            name: Display name to look up (used as the fallback match).
+            client_id: When given, the player who most recently submitted a
+                game with this opaque id is preferred over the name match, so
+                personal stats survive a rename.
+        """
         clean = _sanitize_name(name)
+        client_id = _sanitize_client_id(client_id)
         with self._lock:
-            row = self._conn.execute(
-                "SELECT name, games_played, best_score, total_score, created_at, "
-                "last_played_at FROM players WHERE name = ?",
-                (clean,),
-            ).fetchone()
+            row = None
+            if client_id is not None:
+                row = self._conn.execute(
+                    "SELECT p.name, p.games_played, p.best_score, p.total_score, "
+                    "p.created_at, p.last_played_at "
+                    "FROM games g JOIN players p ON p.id = g.player_id "
+                    "WHERE g.client_id = ? ORDER BY g.id DESC LIMIT 1",
+                    (client_id,),
+                ).fetchone()
+            if row is None:
+                row = self._conn.execute(
+                    "SELECT name, games_played, best_score, total_score, created_at, "
+                    "last_played_at FROM players WHERE name = ?",
+                    (clean,),
+                ).fetchone()
         if row is None:
             return None
         return PlayerStats(
@@ -534,4 +580,5 @@ class ScoreStore:
             checkpoint=r["checkpoint"],
             created_at=r["created_at"],
             mechanics_version=int(r["mechanics_version"]),
+            client_id=r["client_id"],
         )

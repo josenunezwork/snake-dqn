@@ -51,6 +51,18 @@ class HumanSnake(Snake):
         # recover the actual turn when a player reverses across two keypresses (a net
         # 180), which is otherwise mislabeled as STRAIGHT.
         self._direction_before_last_key = None
+        # One accepted direction change per game tick. Extra presses within the
+        # same tick are queued (latest wins) and applied — re-validated — on a
+        # subsequent tick. Without this, two quick presses in one ~83ms tick
+        # (e.g. Up then Left while travelling right) fold the snake 180° into
+        # its own body and kill it.
+        self._turn_accepted_this_tick = False
+        self._pending_direction = None
+        # Latched key state: what the player is asking for. ``is_boosting`` is the
+        # effective flag, re-derived from this every frame in update(), because
+        # boosting burns segments (dropping the player below MIN_BOOST_LENGTH while
+        # the key is still held) and eating food lifts them back above it.
+        self._boost_requested = False
 
         # Memory buffer to store experiences before saving to DB
         self.experience_buffer = []
@@ -144,12 +156,26 @@ class HumanSnake(Snake):
         if not self.is_alive:
             return
 
+        # Apply at most one direction change queued by an extra keypress on an
+        # earlier tick. It re-validates against the direction the snake faces
+        # NOW (post-move), so a queued net-180 can never fold the snake.
+        if not self._turn_accepted_this_tick and self._pending_direction is not None:
+            pending, self._pending_direction = self._pending_direction, None
+            self._apply_direction_vector(pending)
+
         # Store pre-collision state for reward computation
         previous_direction = self._direction_before_action or self.direction
         current_state = self._get_state_for_direction(previous_direction, other_snakes, food)
         action = self._relative_action_from_directions(
             previous_direction, self.direction, self._direction_before_last_key
         )
+
+        # Re-derived every frame (mirroring AISnake.update): set_boost only fires
+        # on a key event, but length changes between events. Evaluated BEFORE
+        # move() so the flag equals the condition move() itself gates the second
+        # step on — i.e. it means "double-steps this frame" for every observer
+        # that reads it after the move.
+        self.is_boosting = self._boost_requested and self.length >= GameConfig.MIN_BOOST_LENGTH
 
         self.move()
 
@@ -158,6 +184,8 @@ class HumanSnake(Snake):
         self._pre_collision_action = action
         self._direction_before_action = None
         self._direction_before_last_key = None
+        # End of tick: the next input window may accept one new turn.
+        self._turn_accepted_this_tick = False
 
     def compute_reward_and_train(
         self, other_snakes, food, ate_food=False, collided=False, frame_kills=None
@@ -252,18 +280,29 @@ class HumanSnake(Snake):
     def _apply_direction_vector(self, new_direction) -> bool:
         """Turn to face an absolute direction, rejecting 180° reversals and no-ops.
 
-        Shared by every input path. Records the pre-turn direction so a net-180
-        reversal spread across two inputs in one frame can still be decoded as a
-        real single turn (see ``_relative_action_from_directions``).
+        Shared by every input path. At most one direction change is accepted per
+        game tick: an extra press within the same tick is queued (latest press
+        wins) and applied — re-validated — at the start of a subsequent tick's
+        ``update()``. This prevents the classic fast-corner death where two
+        quick presses (a net 180 across one tick) fold the snake into its own
+        body before it has moved. Records the pre-turn direction so a net-180
+        reversal spread across two ticks can still be decoded as a real single
+        turn (see ``_relative_action_from_directions``).
 
         Args:
             new_direction: Target ``(dx, dy)`` unit vector, or ``None``.
 
         Returns:
-            True if the facing changed, False if the input was rejected.
+            True if the facing changed (or the press was queued for the next
+            tick), False if the input was rejected.
         """
         if new_direction is None:
             return False
+        if self._turn_accepted_this_tick:
+            # This tick's turn is already spent: queue the press for the next
+            # tick instead of mutating the facing again mid-tick.
+            self._pending_direction = new_direction
+            return True
         # Reject 180-degree reversals (would fold the snake onto itself).
         if (new_direction[0] * -1, new_direction[1] * -1) == self.direction:
             return False
@@ -276,6 +315,9 @@ class HumanSnake(Snake):
         # across two inputs can be decoded as a real turn.
         self._direction_before_last_key = self.direction
         self.direction = new_direction
+        self._turn_accepted_this_tick = True
+        # A directly-applied press supersedes any stale queued one.
+        self._pending_direction = None
         return True
 
     def apply_direction_input(self, direction_name: str) -> bool:
@@ -318,14 +360,22 @@ class HumanSnake(Snake):
         the served raster of every AI opponent (the featurizer treats
         ``is_boosting`` as "boosted this step"), diverging from the training
         distribution the AI opponents were trained on.
+
+        The request is latched so ``update`` can re-derive ``is_boosting`` every
+        frame; the gate is applied here too so a press made while too short reads
+        correctly before the next frame.
         """
-        self.is_boosting = bool(boosting) and self.length >= GameConfig.MIN_BOOST_LENGTH
+        self._boost_requested = bool(boosting)
+        self.is_boosting = self._boost_requested and self.length >= GameConfig.MIN_BOOST_LENGTH
 
     def start_run(self) -> None:
         """Reset per-run scoreboard counters at the start of a scored game."""
         self.run_food_eaten = 0
         self.run_kills = 0
         self._total_reward = 0
+        # A stale queued turn must not steer the new run's first move.
+        self._turn_accepted_this_tick = False
+        self._pending_direction = None
 
     def get_experiences(self):
         """Get all stored experiences and clear buffer."""
@@ -351,6 +401,10 @@ class HumanSnake(Snake):
         self.run_kills = 0
         self._direction_before_action = None
         self._direction_before_last_key = None
+        self._turn_accepted_this_tick = False
+        self._pending_direction = None
+        # A key held across the death must not re-arm boost on the new run.
+        self._boost_requested = False
         # Keep experiences in buffer when respawning
         # Clear action history on respawn
         self.action_history = []

@@ -378,7 +378,13 @@ class GameState:
                     self.episode_food_eaten += 1
                     self.episode_best_length = max(self.episode_best_length, len(snake.segments))
                 if ate and not train_mode:
-                    self.food_manager.spawn(1, self.snakes)
+                    # Clamp ambient food to max_food instead of replacing the
+                    # eaten pellet 1:1. Pellets that never counted against the
+                    # ambient cap (corpse-class at v2; corpse drops pushing the
+                    # count over the cap at v1) would otherwise ratchet ambient
+                    # food up by one every time one is eaten — permanently, since
+                    # maintain_count only ever tops up and never trims.
+                    self.food_manager.maintain_count(self.snakes)
         # Publish per-frame food consumption for pull-based telemetry
         # (BehaviorProbes): unlike the reward breakdown, this exists for every
         # snake type, including scripted/human snakes with no learning path.

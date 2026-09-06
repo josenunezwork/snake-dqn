@@ -2,7 +2,7 @@
 PY ?= ./venv/bin/python
 SRC := src web/backend
 
-.PHONY: help install install-dev test test-fast test-web lint format web build-web eval clean
+.PHONY: help install install-dev test test-fast test-web lint format web build-web clean
 
 help:
 	@echo "make install      install runtime deps"
@@ -14,7 +14,7 @@ help:
 	@echo "make format       auto-format (isort + black)"
 	@echo "make build-web    build the React frontend"
 	@echo "make web          build + serve the web app on :8000"
-	@echo "make clean        remove __pycache__ and the frontend build"
+	@echo "make clean        remove project caches and generated builds"
 
 install:
 	$(PY) -m pip install -r requirements.txt
@@ -48,5 +48,6 @@ web: build-web
 	$(PY) web/serve.py
 
 clean:
-	find . -path ./venv -prune -o -name __pycache__ -type d -print | xargs rm -rf
-	rm -rf web/frontend/dist
+	find src tests web/backend -type d -name __pycache__ -prune -exec rm -rf {} +
+	rm -rf __pycache__ web/__pycache__ .pytest_cache .mypy_cache build snake_dqn.egg-info \
+		web/frontend/dist web/frontend/.vite web/frontend/node_modules/.vite node_modules/.vite

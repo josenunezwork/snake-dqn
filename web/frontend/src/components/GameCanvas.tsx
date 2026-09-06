@@ -77,18 +77,21 @@ function makeFoodSprite(seg: number): HTMLCanvasElement {
 }
 
 // Cache the static backdrop (board fill + grid + vignette) so we blit it each
-// frame instead of re-stroking hundreds of grid lines every rAF tick.
+// frame instead of re-stroking hundreds of grid lines every rAF tick. Rendered
+// at dpr resolution (drawing in arena coords) so the grid stays crisp on HiDPI.
 function makeBackdrop(
   W: number,
   H: number,
   seg: number,
+  dpr = 1,
   grid = true,
   vignette = true
 ): HTMLCanvasElement {
   const c = document.createElement("canvas");
-  c.width = W;
-  c.height = H;
+  c.width = Math.round(W * dpr);
+  c.height = Math.round(H * dpr);
   const ctx = c.getContext("2d")!;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = "#080b11";
   ctx.fillRect(0, 0, W, H);
   if (grid) {
@@ -132,6 +135,12 @@ export default function GameCanvas({
   const curr = useRef<Frame | null>(null);
   const prev = useRef<Frame | null>(null);
   const arrivedAt = useRef<number>(0);
+  // Measured inter-frame arrival cadence (EMA, ms). The nominal 1000/speed is
+  // only a lower bound — the server sleeps AFTER step+snapshot+broadcast, so
+  // real gaps are always nominal + work + network. Interpolating against the
+  // measured gap keeps motion continuous instead of move-then-freeze.
+  const gapEma = useRef<number>(0);
+  const lastSpeed = useRef<number>(0);
   const foodSprite = useRef<HTMLCanvasElement | null>(null);
   const backdrop = useRef<HTMLCanvasElement | null>(null);
   const bdKey = useRef<string>("");
@@ -181,7 +190,24 @@ export default function GameCanvas({
     detectEvents(old, frame, particles.current, pops.current, shake.current, flash);
     prev.current = old;
     curr.current = frame;
-    arrivedAt.current = performance.now();
+    const now = performance.now();
+    // Update the arrival-cadence EMA from real frames only: skip paused
+    // heartbeats, non-advancing frames, and stall outliers (tab hidden, network
+    // hiccup). A speed change resets the EMA so it re-converges immediately.
+    const speed = Math.max(1, Math.min(120, frame.session?.speed ?? 12));
+    if (speed !== lastSpeed.current) {
+      lastSpeed.current = speed;
+      gapEma.current = 0;
+    }
+    const advanced = !old || frame.frame > old.frame;
+    if (old && advanced && frame.session?.playing !== false && arrivedAt.current > 0) {
+      const gap = now - arrivedAt.current;
+      const nominal = 1000 / speed;
+      if (gap > 0 && gap < nominal * 3 + 250) {
+        gapEma.current = gapEma.current > 0 ? gapEma.current * 0.8 + gap * 0.2 : gap;
+      }
+    }
+    arrivedAt.current = now;
   }, [frame]);
 
   useEffect(() => {
@@ -204,27 +230,46 @@ export default function GameCanvas({
       const seg = arena.segment;
       const W = arena.width;
       const H = arena.height;
-      if (canvas.width !== W) canvas.width = W;
-      if (canvas.height !== H) canvas.height = H;
+      // HiDPI: back the canvas at devicePixelRatio (clamped to bound memory)
+      // while keeping the CSS size at the arena dimensions, so the board stays
+      // sharp on retina screens and in fullscreen. Reading dpr each tick makes
+      // monitor moves / zoom changes take effect without a reload.
+      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+      const bw = Math.round(W * dpr);
+      const bh = Math.round(H * dpr);
+      if (canvas.width !== bw) canvas.width = bw;
+      if (canvas.height !== bh) canvas.height = bh;
+      // Pin the CSS width to the arena size (what the intrinsic size was before
+      // dpr scaling); height stays auto so max-width/max-height shrinking keeps
+      // the aspect ratio exactly as it did pre-dpr.
+      const cssW = `${W}px`;
+      if (canvas.style.width !== cssW) canvas.style.width = cssW;
 
       if (foodSprite.current === null || (foodSprite.current as any)._seg !== seg) {
         foodSprite.current = makeFoodSprite(seg);
         (foodSprite.current as any)._seg = seg;
       }
-      const key = `${W}x${H}x${seg}x${v.grid ? 1 : 0}x${v.vignette ? 1 : 0}`;
+      const key = `${W}x${H}x${seg}x${dpr}x${v.grid ? 1 : 0}x${v.vignette ? 1 : 0}`;
       if (bdKey.current !== key) {
-        backdrop.current = makeBackdrop(W, H, seg, v.grid, v.vignette);
+        backdrop.current = makeBackdrop(W, H, seg, dpr, v.grid, v.vignette);
         bdKey.current = key;
       }
 
       const speed = Math.max(1, Math.min(120, c.session?.speed ?? 12));
-      const interval = 1000 / speed;
+      // Tween over the measured arrival cadence (EMA), not the nominal period —
+      // the server always runs slower than nominal (it sleeps after doing the
+      // work), so the nominal window makes every glide finish early and dwell.
+      const nominal = 1000 / speed;
+      const measured = gapEma.current;
+      const interval =
+        measured > 0 ? Math.max(nominal * 0.5, Math.min(nominal * 4, measured)) : nominal;
       const paused = c.session?.playing === false;
       const alpha = reduced || paused ? 1 : Math.max(0, Math.min(1, (now - arrivedAt.current) / interval));
       const t = now / 1000;
 
       // base fill so screen-shake never reveals an empty gap at the edges
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      // (all drawing below happens in arena coordinates under the dpr transform)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = "#080b11";
       ctx.fillRect(0, 0, W, H);
 
@@ -240,7 +285,7 @@ export default function GameCanvas({
       ctx.save();
       ctx.translate(sx, sy);
 
-      if (backdrop.current) ctx.drawImage(backdrop.current, 0, 0);
+      if (backdrop.current) ctx.drawImage(backdrop.current, 0, 0, W, H);
 
       // --- food (with spawn-pop) -----------------------------------------
       const sprite = foodSprite.current;
@@ -334,16 +379,16 @@ export default function GameCanvas({
   }, []);
 
   // Click a snake to make it the hero/inspected one. Maps the click through the
-  // CSS downscale (canvas renders at native arena resolution) into arena pixels,
-  // then hit-tests against the live segment centres. Disabled in Play mode where
-  // the hero is always "you".
+  // CSS scale into arena pixels (the backing store is dpr-scaled, so use the
+  // arena dims, not canvas.width), then hit-tests against the live segment
+  // centres. Disabled in Play mode where the hero is always "you".
   const onClick = (e: ReactMouseEvent<HTMLCanvasElement>) => {
     const c = curr.current;
     const canvas = ref.current;
     if (!c || !canvas || !onPickHero || c.session?.mode === "play") return;
     const rect = canvas.getBoundingClientRect();
-    const nx = ((e.clientX - rect.left) / rect.width) * canvas.width;
-    const ny = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    const nx = ((e.clientX - rect.left) / rect.width) * c.arena.width;
+    const ny = ((e.clientY - rect.top) / rect.height) * c.arena.height;
     const seg = c.arena.segment;
     let best: number | null = null;
     let bestD = (seg * 2.2) ** 2;
@@ -381,6 +426,24 @@ export default function GameCanvas({
   };
 
   const pickable = !!onPickHero && frame?.session?.mode !== "play";
+
+  // Text alternative for the canvas: a short frame summary used as both the
+  // accessible name and a visually-hidden description line. Deliberately NOT an
+  // aria-live region — frames arrive ~12x/sec and announcing each would be noise;
+  // screen readers read it on demand instead.
+  let ariaSummary = "Live snake arena — waiting for the server";
+  if (frame) {
+    const aliveSnakes = frame.snakes.filter((s) => s.alive);
+    let leader: SnakeDTO | null = null;
+    for (const s of aliveSnakes) if (!leader || s.length > leader.length) leader = s;
+    const mode = frame.session?.mode ?? "watch";
+    const paused = frame.session?.playing === false;
+    ariaSummary =
+      `Live snake arena, ${mode} mode${paused ? " (paused)" : ""}: ` +
+      `${aliveSnakes.length} of ${frame.snakes.length} snakes alive` +
+      (leader ? `, leader ${leader.name} at ${leader.length}` : "");
+  }
+
   return (
     <div className="stage">
       <canvas
@@ -388,7 +451,26 @@ export default function GameCanvas({
         onClick={onClick}
         className={pickable ? "pickable" : undefined}
         title={pickable ? "Click a snake to inspect it" : undefined}
+        role="img"
+        aria-label={ariaSummary}
       />
+      <p
+        className="visually-hidden"
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: "hidden",
+          clip: "rect(0 0 0 0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      >
+        {ariaSummary}
+        {pickable ? " Use the roster in Controls, or the [ and ] keys, to inspect a snake." : ""}
+      </p>
       <div className="stage-controls">
         <button
           className={"stage-btn" + (showLegend ? " on" : "")}
@@ -419,7 +501,9 @@ export default function GameCanvas({
           mode={frame.session?.mode ?? "watch"}
         />
       )}
-      {frame?.session?.mode !== "play" && <DecisionNarrator inspector={frame?.inspector ?? null} />}
+      {frame?.session?.mode !== "play" && (
+        <DecisionNarrator inspector={frame?.inspector ?? null} obsSpec={frame?.obs_spec} />
+      )}
       {frame?.session?.playing === false && frame?.session?.mode !== "play" && (
         <div className="pause-scrim" role="status">
           <div className="pause-card">

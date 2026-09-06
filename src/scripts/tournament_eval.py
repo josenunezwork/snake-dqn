@@ -54,9 +54,8 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config_loader import apply_config_to_game_config  # noqa: E402
-from src.core.config_loader import load_config  # noqa: E402
-from src.core.game_config import GameConfig, initialize_config  # noqa: E402
+from src.core.config_loader import load_and_initialize_config  # noqa: E402
+from src.core.game_config import GameConfig  # noqa: E402
 from src.game.game_state_factory import (  # noqa: E402
     configure_eval_game_state,
     create_training_game_state,
@@ -632,9 +631,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"raster/scripted opponents). Offending baseline/opponents: {offenders}"
             )
 
-    cfg = load_config(args.config)
-    initialize_config(cfg)
-    apply_config_to_game_config(cfg)
+    load_and_initialize_config(args.config)
 
     num_opponents = int(GameConfig.NUM_SNAKES) - 1
     if num_opponents < 1:

@@ -24,9 +24,16 @@ Examples:
     # No self-play (hero-only rollouts, useful for isolating the learner)
     ./venv/bin/python src/scripts/train_pqn.py --no-self-play --total-steps 100000
 
+    # Resume a preempted spot run (same out-dir; --total-steps is the same target)
+    ./venv/bin/python src/scripts/train_pqn.py \\
+        --total-steps 5000000 --out-dir runs/pqn_local \\
+        --resume runs/pqn_local/latest_pqn.pth
+
 ``--total-steps`` counts HERO agent-steps (transitions the learner trains on),
 matching the trainer's ``agent_steps`` odometer and the ε schedule — the loop
-runs updates until that budget is met.
+runs updates until that budget is met. ``--resume`` restores that odometer, so
+the budget is a TARGET rather than a per-invocation delta: a resumed run trains
+until the same total, and the ε ladder picks up where it left off.
 """
 
 from __future__ import annotations
@@ -35,7 +42,7 @@ import argparse
 import json
 import sys
 import time
-from dataclasses import asdict, fields
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -44,6 +51,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.core.device_manager import DeviceManager  # noqa: E402
+from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES  # noqa: E402
+from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
 from src.training.pqn_trainer import (  # noqa: E402
     PQNConfig,
     PQNTelemetry,
@@ -51,10 +60,9 @@ from src.training.pqn_trainer import (  # noqa: E402
     TripwireError,
 )
 
-# YAML keys under which PQN knobs may be nested in a --config file. We read a
-# flat ``pqn:`` block plus a few shared ``game:``/``rewards:`` switches so the
-# same mechanics-v2 config the vector pipeline uses also drives PQN.
-_PQN_FIELDS = {f.name for f in fields(PQNConfig)}
+# A --config file carries a flat ``pqn:`` block plus a few shared ``game:``/
+# ``rewards:`` switches, so the same mechanics-v2 config the vector pipeline uses
+# also drives PQN.
 
 
 def _load_config_overrides(path: str) -> Dict[str, Any]:
@@ -65,16 +73,27 @@ def _load_config_overrides(path: str) -> Dict[str, Any]:
       * ``game.mechanics_version`` / ``game.arena_type`` (shared sim switches);
       * ``rewards.version`` -> ``reward_version``.
 
-    Unknown keys are ignored (with a warning) so a full training config can be
-    passed without erroring on vector-only knobs.
+    The ``pqn:`` block is parsed by :class:`PQNSettingsSchema` — the same schema
+    the vector loader validates it with — so values are coerced (YAML 1.1 parses
+    ``lr: 5e-4`` as a *string*) and range/ordering constraints are enforced here
+    rather than surfacing as a ``TypeError`` from inside torch. A key that is not
+    a ``PQNConfig`` field, or a value out of range, raises ``ValidationError``.
+    Sections other than ``game:``/``rewards:``/``pqn:`` are ignored, so a full
+    training config can be passed without erroring on vector-only knobs.
 
     Args:
         path: Path to a YAML config file.
 
     Returns:
         A dict of ``PQNConfig`` field -> value overrides.
+
+    Raises:
+        pydantic.ValidationError: If the ``pqn:`` block has an unknown key or a
+            value that violates the schema.
     """
     import yaml  # local import: only needed when --config is used
+
+    from src.core.config_loader import PQNSettingsSchema
 
     with open(path, "r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
@@ -95,14 +114,151 @@ def _load_config_overrides(path: str) -> Dict[str, Any]:
     if "version" in rewards:
         overrides["reward_version"] = int(rewards["version"])
 
-    pqn = raw.get("pqn", {}) or {}
-    for key, value in pqn.items():
-        if key in _PQN_FIELDS:
-            overrides[key] = value
-        else:
-            print(f"[train_pqn] warning: ignoring unknown pqn config key {key!r}", file=sys.stderr)
+    # Every schema field defaults to None ("not set here"), so only the ones the
+    # file actually carries may reach PQNConfig — PQNConfig owns the defaults.
+    pqn = PQNSettingsSchema(**(raw.get("pqn") or {}))
+    overrides.update(pqn.model_dump(exclude_none=True))
 
     return overrides
+
+
+# -- resume (blueprint §4.4 spot-preemption contract) -----------------------
+#: Checkpoint entries a resume needs on top of the contract metadata.
+_RESUME_REQUIRED_STATE = ("dqn_state_dict", "optimizer_state_dict")
+
+
+def resume_contract(config: PQNConfig) -> Dict[str, Any]:
+    """The contract-v2 values a resume checkpoint must agree with.
+
+    Blueprint §6 scopes contract v2 to "obs spec hash, channel list, scales,
+    action semantics, mechanics version, γ/λ, algo id". Everything here is
+    already recorded by :meth:`PQNTrainer.checkpoint_state`, so this is a
+    comparison rather than new plumbing.
+
+    Args:
+        config: The resolved config the resumed run will train under.
+
+    Returns:
+        Mapping of checkpoint-metadata key -> expected value.
+    """
+    contract: Dict[str, Any] = {
+        OBS_SPEC_KEY: RASTER31V2,
+        "algo": "pqn",
+        "gamma": config.gamma,
+        "lambda": config.lambda_,
+        "mechanics_version": int(config.mechanics_version),
+        "reward_version": int(config.reward_version),
+    }
+    contract.update(RASTER31V2_SHAPES.to_metadata())
+    return contract
+
+
+def validate_pqn_resume_checkpoint_config(
+    checkpoint: Dict[str, Any],
+    config: PQNConfig,
+    checkpoint_path: str = "checkpoint",
+) -> None:
+    """Reject a resume checkpoint whose training contract differs from ``config``.
+
+    Resuming across a changed γ/λ, mechanics version, reward version or obs spec
+    would silently continue optimizing a DIFFERENT objective from the one the
+    weights were trained under — the failure this refuses to make quietly.
+
+    Args:
+        checkpoint: The loaded checkpoint mapping.
+        config: The resolved config the resumed run will train under.
+        checkpoint_path: Identifier used in error messages.
+
+    Raises:
+        ValueError: On any contract disagreement or missing contract metadata.
+    """
+    validate_checkpoint_contract(
+        checkpoint,
+        resume_contract(config),
+        checkpoint_path=checkpoint_path,
+        integer_keys=(
+            "mechanics_version",
+            "reward_version",
+            "tactical_channels",
+            "tactical_size",
+            "strategic_channels",
+            "strategic_size",
+            "scalars",
+        ),
+        float_keys=("gamma", "lambda"),
+        str_keys=(OBS_SPEC_KEY, "algo"),
+        # obs_spec is deliberately NOT required: validate_checkpoint_contract
+        # backfills a missing one to 'vector61', which then mismatches raster31v2
+        # with a clearer message than "missing metadata".
+        required_keys=("algo", "gamma", "lambda", "mechanics_version", "reward_version"),
+        error_type=ValueError,
+    )
+
+
+def load_pqn_resume_checkpoint(
+    resume_checkpoint: Optional[str],
+    config: PQNConfig,
+    map_location: Any = None,
+) -> Optional[Dict[str, Any]]:
+    """Load and contract-check a resume checkpoint, or return ``None``.
+
+    Called BEFORE the trainer is built so a bad ``--resume`` fails in under a
+    second rather than after the sim and network are up.
+
+    Args:
+        resume_checkpoint: Path to a PQN checkpoint, or ``None``/empty to skip.
+        config: The resolved config the resumed run will train under.
+        map_location: ``torch.load`` map_location (usually the target device).
+
+    Returns:
+        The validated checkpoint mapping, or ``None`` when no resume was asked.
+
+    Raises:
+        FileNotFoundError: If the path does not exist.
+        RuntimeError: If the payload is unreadable, is not a checkpoint dict,
+            lacks the state needed to resume, or violates the contract.
+    """
+    if not resume_checkpoint:
+        return None
+
+    checkpoint_path = Path(resume_checkpoint).expanduser()
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Resume checkpoint not found: {resume_checkpoint}")
+
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=map_location, weights_only=False)
+        if not isinstance(checkpoint, dict):
+            raise ValueError(f"checkpoint payload must be a dict, got {type(checkpoint).__name__}")
+        validate_pqn_resume_checkpoint_config(
+            checkpoint, config, checkpoint_path=str(checkpoint_path)
+        )
+        for key in _RESUME_REQUIRED_STATE:
+            if key not in checkpoint:
+                raise KeyError(key)
+    except (OSError, RuntimeError, EOFError, KeyError, ValueError) as e:
+        raise RuntimeError(f"Failed to load resume checkpoint {checkpoint_path}: {e}") from e
+
+    return checkpoint
+
+
+def apply_resume_checkpoint(trainer: PQNTrainer, checkpoint: Dict[str, Any]) -> None:
+    """Restore weights, optimizer state and both odometers onto ``trainer``.
+
+    Restoring ``agent_steps`` is load-bearing, not bookkeeping: the ε ladder is
+    derived from it (:meth:`PQNTrainer.epsilon`), so a resume that only reloaded
+    weights would snap exploration back to ``eps_start`` and re-randomize a
+    converged policy. ``update_counter`` likewise drives the self-play pool's
+    snapshot cadence.
+
+    Args:
+        trainer: A freshly built trainer to restore onto.
+        checkpoint: A checkpoint already validated by
+            :func:`load_pqn_resume_checkpoint`.
+    """
+    trainer.network.load_state_dict(checkpoint["dqn_state_dict"])
+    trainer.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    trainer.update_idx = int(checkpoint.get("update_counter", 0))
+    trainer.agent_steps = int(checkpoint.get("agent_steps", 0))
 
 
 def build_config(args: argparse.Namespace) -> PQNConfig:
@@ -211,6 +367,7 @@ def train_loop(
     log_every: int,
     ckpt_every: int,
     out_dir: Path,
+    append_history: bool = False,
 ) -> Tuple[List[PQNTelemetry], Optional[str]]:
     """Run updates until ``total_steps`` hero agent-steps are reached.
 
@@ -219,12 +376,18 @@ def train_loop(
     telemetry history to ``out_dir/history.jsonl``. A :class:`TripwireError`
     halts the loop, still saving a final checkpoint and flagging the run.
 
+    ``total_steps`` is compared against the trainer's odometer, so a resumed
+    trainer counts its restored steps toward the same target.
+
     Args:
         trainer: The configured :class:`PQNTrainer`.
         total_steps: Target hero agent-step budget.
         log_every: Print cadence (updates).
         ckpt_every: Checkpoint cadence (updates); ``0`` disables periodic saves.
         out_dir: Directory for checkpoints and the history file.
+        append_history: Append to an existing ``history.jsonl`` instead of
+            truncating it — set when resuming, so a preemption does not erase the
+            telemetry of the run being continued.
 
     Returns:
         ``(history, tripped)``: the telemetry list collected before the
@@ -237,9 +400,12 @@ def train_loop(
 
     history: List[PQNTelemetry] = []
     start = time.time()
+    # Steps/s must measure THIS session's work: a resumed trainer starts with a
+    # non-zero odometer that was earned before this process existed.
+    start_steps = trainer.agent_steps
     tripped: Optional[str] = None
 
-    with history_path.open("w", encoding="utf-8") as hist_fh:
+    with history_path.open("a" if append_history else "w", encoding="utf-8") as hist_fh:
         while trainer.agent_steps < total_steps:
             try:
                 tel = trainer.update()
@@ -254,7 +420,7 @@ def train_loop(
 
             if tel.update % log_every == 0:
                 elapsed = time.time() - start
-                sps = tel.agent_steps / elapsed if elapsed > 0 else 0.0
+                sps = (tel.agent_steps - start_steps) / elapsed if elapsed > 0 else 0.0
                 print(f"{_format_row(tel)} | {sps:,.0f} steps/s")
 
             if ckpt_every and tel.update > 0 and tel.update % ckpt_every == 0:
@@ -263,10 +429,12 @@ def train_loop(
     # Always leave a final checkpoint (even on a tripwire halt).
     trainer.save_checkpoint(str(latest_path))
     elapsed = time.time() - start
+    session_steps = trainer.agent_steps - start_steps
     print(
         f"\n[train_pqn] done: {len(history)} updates, "
-        f"{trainer.agent_steps:,} agent-steps in {elapsed:.1f}s "
-        f"({trainer.agent_steps / elapsed:,.0f} steps/s)"
+        f"{session_steps:,} agent-steps this session "
+        f"({trainer.agent_steps:,} total) in {elapsed:.1f}s "
+        f"({session_steps / elapsed if elapsed > 0 else 0.0:,.0f} steps/s)"
     )
     print(f"[train_pqn] checkpoint: {latest_path}")
     if tripped:
@@ -320,6 +488,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--out-dir", default="runs/pqn", help="Directory for checkpoints + history.")
     p.add_argument("--config", default=None, help="Optional YAML config with a pqn: block.")
     p.add_argument("--device", default=None, help="cpu / cuda / mps (default: auto-select).")
+    p.add_argument(
+        "--resume",
+        default=None,
+        help=(
+            "Resume from a PQN checkpoint (e.g. OUT_DIR/latest_pqn.pth) after a spot "
+            "preemption: restores weights, optimizer state and the agent-step/update "
+            "odometers, appends to history.jsonl, and refuses a checkpoint whose "
+            "gamma/lambda/mechanics/reward/obs_spec contract differs from this config."
+        ),
+    )
 
     # Sim shape.
     p.add_argument("--envs", type=int, default=None, help="E parallel envs.")
@@ -393,9 +571,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print("[train_pqn] device:", device)
     print("[train_pqn] config:", json.dumps(asdict(config), indent=2, sort_keys=True))
 
+    # Load + contract-check before building the trainer so a bad --resume fails
+    # immediately rather than after the sim and network are up.
+    resume_blob = load_pqn_resume_checkpoint(args.resume, config, map_location=device)
+
     trainer = PQNTrainer(config, device=device)
     print("[train_pqn] network:", repr(trainer.network))
     print("[train_pqn] params:", f"{trainer.network.get_num_parameters()['total']:,}")
+
+    if resume_blob is not None:
+        apply_resume_checkpoint(trainer, resume_blob)
+        print(
+            f"[train_pqn] resumed {args.resume}: update {trainer.update_idx:,}, "
+            f"{trainer.agent_steps:,} agent-steps, eps {trainer.epsilon():.4f} "
+            f"(target {args.total_steps:,})"
+        )
+        if config.pool_capacity > 0:
+            print(
+                "[train_pqn] WARNING: the opponent pool is not part of the checkpoint, "
+                "so self-play restarts against an EMPTY pool and refills with copies of "
+                "the current hero; pool diversity is reduced for roughly "
+                f"{config.pool_capacity * config.pool_add_interval:,} updates.",
+                file=sys.stderr,
+            )
 
     history, tripped = train_loop(
         trainer,
@@ -403,6 +601,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         log_every=args.log_every,
         ckpt_every=args.ckpt_every,
         out_dir=out_dir,
+        append_history=resume_blob is not None,
     )
     _print_curve_summary(history)
 

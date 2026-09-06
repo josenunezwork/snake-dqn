@@ -478,9 +478,9 @@ and then re-checks food-overlap. **Draw budget per accepted food pellet is varia
 4. **Step 4 (respawn, allow_respawn only)** per respawning snake:
    `find_empty_position` draws (5.2). (Skipped when `allow_respawn=False`.)
 
-Within a frame the order is exactly: (respawns, in snake list order) →
-(maintain_count spawns) → (per-eating-snake replacement spawns in snake order) OR
-(one train-mode maintain_count). **Reproduce this exact call order.**
+Within a frame the order is exactly: (initial `maintain_count` spawns) →
+(respawns, in snake list order) → (per-eating-snake replacement spawns in snake
+order) OR (one train-mode `maintain_count`). **Reproduce this exact call order.**
 
 ### 5.4 Episode reset draws (`GameState.reset` → `FoodManager.reset` → `_spawn_initial`)
 `reset()` (game_state.py l.133-175): on soft-reset it repositions each existing snake
@@ -642,7 +642,7 @@ To make bit-exact parity achievable, impose:
 3. **Seed `random` exactly once per env at reset**, then let the recorded run and the
    batched sim both draw from a Python-`random.Random(seed)`-compatible stream. The
    simplest correct approach: the batched sim, for spawn positions, calls a real
-   `random.Random(seed)` and reproduces the draw ORDER in §5 (respawns → maintain →
+   `random.Random(seed)` and reproduces the draw ORDER in §5 (maintain → respawns →
    per-eat spawns), each draw being `randint(x)` then `randint(y)` with the same
    rejection loops (snake-overlap then food-overlap). Do NOT try to vectorize the RNG
    away — the rejection sampling makes draw counts data-dependent.

@@ -6,12 +6,9 @@ __all__ = [
     # Base infrastructure
     "BaseReplayBuffer",
     "PrioritizedReplayBuffer",
-    "UniformReplayBuffer",
-    "MetricsTracker",
     "TensorBoardLogger",
     "BaseDQNPolicy",
     "MultiStepBuffer",
-    "OnlineTrainer",
     # Ape-X Policy
     "ApexPolicy",
     # Ape-X Learner
@@ -26,7 +23,6 @@ __all__ = [
     "LearnerBufferClient",
     "LocalApexBuffer",
     "SharedPrioritizedBuffer",
-    "create_apex_buffer",
     "get_default_capacity",
     # Curriculum learning
     "CurriculumManager",
@@ -40,12 +36,9 @@ __all__ = [
 _LAZY_EXPORTS = {
     "BaseReplayBuffer": ("src.training.base_buffer", "BaseReplayBuffer"),
     "PrioritizedReplayBuffer": ("src.training.replay_buffer", "PrioritizedReplayBuffer"),
-    "UniformReplayBuffer": ("src.training.replay_buffer", "UniformReplayBuffer"),
-    "MetricsTracker": ("src.training.metrics_tracker", "MetricsTracker"),
     "TensorBoardLogger": ("src.training.tensorboard_logger", "TensorBoardLogger"),
     "BaseDQNPolicy": ("src.training.base_dqn_policy", "BaseDQNPolicy"),
     "MultiStepBuffer": ("src.training.multistep_buffer", "MultiStepBuffer"),
-    "OnlineTrainer": ("src.training.online_trainer", "OnlineTrainer"),
     "ApexPolicy": ("src.training.apex_policy", "ApexPolicy"),
     "ApexLearner": ("src.training.apex_learner", "ApexLearner"),
     "ApexLearnerConfig": ("src.training.apex_learner", "ApexLearnerConfig"),
@@ -56,7 +49,6 @@ _LAZY_EXPORTS = {
     "LearnerBufferClient": ("src.training.apex_buffer", "LearnerBufferClient"),
     "LocalApexBuffer": ("src.training.apex_buffer", "LocalApexBuffer"),
     "SharedPrioritizedBuffer": ("src.training.apex_buffer", "SharedPrioritizedBuffer"),
-    "create_apex_buffer": ("src.training.apex_buffer", "create_apex_buffer"),
     "get_default_capacity": ("src.training.apex_buffer", "get_default_capacity"),
     "CurriculumManager": ("src.training.curriculum", "CurriculumManager"),
     "CurriculumPhase": ("src.training.curriculum", "CurriculumPhase"),

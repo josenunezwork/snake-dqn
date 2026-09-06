@@ -12,21 +12,20 @@ Key features:
 Reference: Horgan et al., "Distributed Prioritized Experience Replay" (2018)
 """
 
-from typing import Dict, Tuple
+from typing import Dict
 
 import torch
 import torch.nn as nn
 
 from .base_network import (
     BaseDQNVisualization,
-    WeightManagementMixin,
     dueling_q,
     init_dueling_weights_orthogonal,
     init_weights_xavier,
 )
 
 
-class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
+class ApexNetwork(nn.Module, BaseDQNVisualization):
     """
     Ape-X DQN Network with Dueling Architecture.
 
@@ -181,25 +180,6 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
             print(f"Warning: torch.compile() failed: {e}. Using uncompiled network.")
             return self
 
-    @staticmethod
-    def compile_forward_only(network: "ApexNetwork", **compile_kwargs) -> callable:
-        """
-        Compile only the forward method for maximum compatibility.
-
-        Useful when full network compilation causes issues.
-
-        Args:
-            network: Network instance to compile forward for
-            **compile_kwargs: Arguments passed to torch.compile()
-
-        Returns:
-            Compiled forward function
-        """
-        if not hasattr(torch, "compile"):
-            return network.forward
-
-        return torch.compile(network.forward, **compile_kwargs)
-
     # =========================================================================
     # Utility Methods
     # =========================================================================
@@ -226,10 +206,6 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
             "advantage_stream": count_params(self.advantage_stream),
         }
 
-    def reset_parameters(self) -> None:
-        """Reset all parameters to initial values."""
-        self._init_weights(self._init_type)
-
     def __repr__(self) -> str:
         """String representation with architecture details."""
         params = self.get_num_parameters()
@@ -242,81 +218,3 @@ class ApexNetwork(nn.Module, WeightManagementMixin, BaseDQNVisualization):
             f"  total_params={params['total']:,}\n"
             f")"
         )
-
-
-def create_apex_network_pair(
-    input_size: int = 58,
-    hidden_size: int = 512,
-    output_size: int = 6,
-    device: torch.device = None,
-    init_type: str = "orthogonal",
-) -> Tuple[ApexNetwork, ApexNetwork]:
-    """
-    Create main and target Ape-X network pair.
-
-    Convenience function for creating the standard DQN network pair
-    with proper initialization.
-
-    Args:
-        input_size: State dimension (default: 58 for Snake)
-        hidden_size: Hidden layer size (default: 512)
-        output_size: Number of actions (default: 6, 3 dirs × 2 speed modes)
-        device: Device to place networks on (defaults to CUDA if available)
-        init_type: Weight initialization type
-
-    Returns:
-        Tuple of (main_network, target_network)
-    """
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Create main network
-    main_network = ApexNetwork(
-        input_size=input_size, hidden_size=hidden_size, output_size=output_size, init_type=init_type
-    ).to(device)
-
-    # Create target network with same weights
-    target_network = ApexNetwork(
-        input_size=input_size, hidden_size=hidden_size, output_size=output_size, init_type=init_type
-    ).to(device)
-
-    # Initialize target with same weights as main
-    target_network.copy_weights_from(main_network)
-    target_network.eval()  # Target network is always in eval mode
-
-    return main_network, target_network
-
-
-def create_apex_actor_network(
-    input_size: int = 58,
-    hidden_size: int = 512,
-    output_size: int = 6,
-    device: torch.device = None,
-    init_type: str = "orthogonal",
-) -> ApexNetwork:
-    """
-    Create a single Ape-X network for actor processes.
-
-    Actors only need one network (no target network) and typically
-    run on CPU.
-
-    Args:
-        input_size: State dimension
-        hidden_size: Hidden layer size
-        output_size: Number of actions
-        device: Device to place network on (defaults to CPU for actors)
-        init_type: Weight initialization type
-
-    Returns:
-        ApexNetwork configured for actor use
-    """
-    if device is None:
-        device = torch.device("cpu")  # Actors typically run on CPU
-
-    network = ApexNetwork(
-        input_size=input_size, hidden_size=hidden_size, output_size=output_size, init_type=init_type
-    ).to(device)
-
-    network.eval()  # Actors only do inference
-
-    return network

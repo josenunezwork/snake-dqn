@@ -208,8 +208,8 @@ class TestLeaderboardEndpoints:
     def test_submit_without_run_is_rejected(self, client):
         c, _ = client
         resp = c.post("/api/scores", json={"name": "ada"})
-        assert resp.status_code == 200
-        assert resp.json()["ok"] is False
+        assert resp.status_code == 409
+        assert "No finished run" in resp.json()["detail"]
 
     def test_submit_records_finalized_run(self, client):
         c, hub = client
@@ -250,8 +250,10 @@ class TestLeaderboardEndpoints:
 
         first = c.post("/api/scores", json={"name": "Bo"})
         second = c.post("/api/scores", json={"name": "Bo"})
+        assert first.status_code == 200
         assert first.json()["ok"] is True
-        assert second.json()["ok"] is False
+        # Idempotent per run: the second submit is rejected with a structured 409.
+        assert second.status_code == 409
         # Only one game recorded.
         stats = c.get("/api/players/Bo").json()
         assert stats["found"] is True

@@ -1,5 +1,7 @@
 """Tests for the distributed Ape-X replay buffer."""
 
+import queue
+import threading
 import time
 
 import numpy as np
@@ -14,6 +16,7 @@ from src.training.apex_buffer import (
     LocalApexBuffer,
     MessageType,
     SharedPrioritizedBuffer,
+    _deliver_response,
 )
 from src.training.base_buffer import compute_priority
 from src.training.replay_buffer import PrioritizedReplayBuffer
@@ -22,6 +25,23 @@ from src.training.replay_buffer import PrioritizedReplayBuffer
 def _state(value: float = 0.0) -> np.ndarray:
     """Create a fixed-size replay state."""
     return np.full(58, value, dtype=np.float32)
+
+
+def _reply_to_sample_request(request_queue, response_queue, message) -> None:
+    """Answer one SAMPLE_REQUEST, mimicking the buffer loop's ordering."""
+    request_queue.get(timeout=5.0)
+    response_queue.put(message)
+
+
+def _make_client(control_queue, response_queue) -> LearnerBufferClient:
+    """Build a learner client whose control RPCs use the given queue pair."""
+    return LearnerBufferClient(
+        sample_request_queue=queue.Queue(),
+        sample_response_queue=queue.Queue(),
+        priority_update_queue=queue.Queue(),
+        control_queue=control_queue,
+        response_queue=response_queue,
+    )
 
 
 class TestSharedPrioritizedBufferPriorityScale:
@@ -732,11 +752,22 @@ class TestApexBufferClientsActionMasks:
             "next_action_masks": mask,
             "next_action_mask_present": np.array([True], dtype=np.bool_),
         }
-        response_queue.put(
-            BufferMessage(MessageType.SAMPLE_RESPONSE, data=(batch, [0], np.ones(1)))
+        # The reply must be sent in answer to the request: sample() discards
+        # anything already queued as a stale reply to an earlier request.
+        responder = threading.Thread(
+            target=_reply_to_sample_request,
+            args=(
+                sample_queue,
+                response_queue,
+                BufferMessage(MessageType.SAMPLE_RESPONSE, data=(batch, [0], np.ones(1))),
+            ),
         )
+        responder.start()
 
-        result = client.sample(1, device=torch.device("cpu"), timeout=1.0)
+        try:
+            result = client.sample(1, device=torch.device("cpu"), timeout=5.0)
+        finally:
+            responder.join(timeout=5.0)
 
         assert result is not None
         sampled_batch, indices, weights = result
@@ -784,6 +815,261 @@ class TestApexBufferClientsActionMasks:
             client.update_priorities([0], np.array([float("nan")], dtype=np.float32))
 
         assert priority_queue.empty()
+
+
+class TestControlResponseCorrelation:
+    """Control RPCs share one response queue, so each must read only its own reply type."""
+
+    def test_get_size_ignores_reply_orphaned_by_timed_out_get_stats(self):
+        """A late STATS_RESPONSE must not be returned to get_size as a buffer size."""
+        control, response = queue.Queue(), queue.Queue()
+        client = _make_client(control, response)
+
+        # get_stats gives up, but its request stays in flight.
+        assert client.get_stats(timeout=0.01) == {
+            "dropped_priority_update_count": 0,
+            "last_priority_drop_error": None,
+            "client_read_error_count": 1,
+            "last_client_read_error": "get_stats: timed out awaiting STATS_RESPONSE",
+            "orphaned_sample_response_count": 0,
+        }
+        assert control.qsize() == 1
+
+        # The buffer answers the abandoned request late.
+        response.put(
+            BufferMessage(MessageType.STATS_RESPONSE, data={"size": 12345, "current_beta": 0.4})
+        )
+
+        size = client.get_size(timeout=0.05)
+
+        # Returning the stats dict here made ApexLearner.train_step raise
+        # TypeError on `buffer_size < min_buffer_size`.
+        assert isinstance(size, int)
+        assert size == 0
+        assert size < 50_000
+
+    def test_get_size_returns_size_queued_behind_an_orphaned_stats_reply(self):
+        """A stale reply of another type must be discarded, not block the real one."""
+        control, response = queue.Queue(), queue.Queue()
+        client = _make_client(control, response)
+
+        response.put(BufferMessage(MessageType.STATS_RESPONSE, data={"size": 1}))
+        response.put(BufferMessage(MessageType.SIZE_RESPONSE, data=77))
+
+        assert client.get_size(timeout=0.5) == 77
+        assert response.empty()
+
+    def test_get_stats_ignores_reply_orphaned_by_timed_out_get_size(self):
+        """The symmetric desync: a late SIZE_RESPONSE must not become the stats dict."""
+        control, response = queue.Queue(), queue.Queue()
+        client = _make_client(control, response)
+
+        assert client.get_size(timeout=0.01) == 0
+        response.put(BufferMessage(MessageType.SIZE_RESPONSE, data=999))
+
+        stats = client.get_stats(timeout=0.05)
+
+        assert isinstance(stats, dict)
+        assert "size" not in stats
+        assert stats["client_read_error_count"] == 2
+
+    def test_get_size_records_unanswered_request_instead_of_reporting_empty(self):
+        """A timed-out size RPC returns 0, which must not silently look like an empty buffer."""
+        control, response = queue.Queue(), queue.Queue()
+        client = _make_client(control, response)
+
+        assert client.get_size(timeout=0.01) == 0
+
+        stats = client.get_stats(timeout=0.01)
+        assert stats["client_read_error_count"] == 2
+        assert stats["last_client_read_error"] == "get_stats: timed out awaiting STATS_RESPONSE"
+
+    def test_control_rpc_round_trip_returns_own_reply(self):
+        """Normal in-order replies are still returned unchanged."""
+        control, response = queue.Queue(), queue.Queue()
+        client = _make_client(control, response)
+
+        response.put(BufferMessage(MessageType.SIZE_RESPONSE, data=42))
+        assert client.get_size(timeout=0.5) == 42
+
+        response.put(BufferMessage(MessageType.STATS_RESPONSE, data={"size": 42, "alpha": 0.6}))
+        stats = client.get_stats(timeout=0.5)
+        assert stats["size"] == 42
+        assert stats["alpha"] == 0.6
+        assert stats["client_read_error_count"] == 0
+
+    def test_stale_reply_stream_cannot_extend_the_deadline(self):
+        """Discarding mismatched replies must respect an absolute deadline.
+
+        A per-message timeout would let a steady trickle of stale replies stall the
+        learner's hot loop indefinitely - worse than the desync being fixed.
+        """
+        control, response = queue.Queue(), queue.Queue()
+        client = _make_client(control, response)
+
+        stop = threading.Event()
+
+        def flood_stale_replies():
+            while not stop.is_set():
+                response.put(BufferMessage(MessageType.STATS_RESPONSE, data={"size": 1}))
+                time.sleep(0.005)
+
+        flooder = threading.Thread(target=flood_stale_replies)
+        flooder.start()
+        try:
+            start = time.monotonic()
+            size = client.get_size(timeout=0.2)
+            elapsed = time.monotonic() - start
+        finally:
+            stop.set()
+            flooder.join(timeout=5.0)
+
+        assert size == 0
+        assert elapsed < 2.0
+
+    def test_buffer_process_get_size_ignores_orphaned_stats_reply(self):
+        """BufferProcess reuses the same queue pair and needs the same correlation."""
+        buffer_process = BufferProcess(capacity=8, max_queue_size=8)
+
+        buffer_process._response_queue = queue.Queue()
+        buffer_process._control_queue = queue.Queue()
+        buffer_process._response_queue.put(
+            BufferMessage(MessageType.STATS_RESPONSE, data={"size": 5})
+        )
+        buffer_process._response_queue.put(BufferMessage(MessageType.SIZE_RESPONSE, data=5))
+
+        assert buffer_process.get_size(timeout=0.5) == 5
+
+    def test_buffer_process_get_stats_ignores_orphaned_size_reply(self):
+        """BufferProcess.get_stats must not return an int where a dict is expected."""
+        buffer_process = BufferProcess(capacity=8, max_queue_size=8)
+
+        buffer_process._response_queue = queue.Queue()
+        buffer_process._control_queue = queue.Queue()
+        buffer_process._response_queue.put(BufferMessage(MessageType.SIZE_RESPONSE, data=5))
+
+        assert buffer_process.get_stats(timeout=0.05) == {}
+
+
+class TestBufferLoopResponseDelivery:
+    """The single buffer loop must never block forever handing back a reply."""
+
+    def test_full_response_queue_drops_reply_instead_of_blocking(self):
+        buffer = SharedPrioritizedBuffer(capacity=8, state_size=58)
+        full_queue = queue.Queue(maxsize=1)
+        full_queue.put(BufferMessage(MessageType.SAMPLE_RESPONSE, data=None))
+
+        start = time.monotonic()
+        _deliver_response(
+            full_queue,
+            BufferMessage(MessageType.SAMPLE_RESPONSE, data=None),
+            buffer,
+            "sample",
+        )
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 2.0
+        stats = buffer.get_stats()
+        assert stats["total_dropped_responses"] == 1
+        assert stats["last_dropped_response"] == "sample"
+
+    def test_deliverable_reply_is_not_dropped(self):
+        buffer = SharedPrioritizedBuffer(capacity=8, state_size=58)
+        response_queue = queue.Queue(maxsize=1)
+
+        _deliver_response(
+            response_queue,
+            BufferMessage(MessageType.SIZE_RESPONSE, data=3),
+            buffer,
+            "size",
+        )
+
+        assert response_queue.get_nowait().data == 3
+        assert buffer.get_stats()["total_dropped_responses"] == 0
+
+
+class TestBufferProcessSampleTimeoutOrphans:
+    """Timed-out sample requests must not accumulate replies that wedge the buffer."""
+
+    def test_timed_out_samples_do_not_wedge_the_buffer_process(self):
+        """Drive more timed-out samples than the response queue can hold, then recover.
+
+        Every timed-out sample() leaves its reply unclaimed. Once enough of those
+        accumulate the buffer process used to block forever delivering one, which
+        silently stopped it servicing every other queue for the rest of the run.
+        """
+        buffer_process = BufferProcess(capacity=5000, max_queue_size=200)
+        buffer_process.start()
+
+        try:
+            actor_client = buffer_process.get_actor_client()
+            learner_client = buffer_process.get_learner_client()
+
+            for i in range(256):
+                actor_client.add(_state(float(i % 7)), i % 6, 1.0, _state(1.0), False, priority=1.0)
+            actor_client.flush()
+
+            deadline = time.time() + 10.0
+            while time.time() < deadline and learner_client.get_size(timeout=1.0) < 256:
+                time.sleep(0.05)
+            assert learner_client.get_size(timeout=2.0) == 256
+
+            # More timeouts than _sample_response_queue's maxsize of 100.
+            timeouts = 0
+            for _ in range(160):
+                if learner_client.sample(32, timeout=0.0) is None:
+                    timeouts += 1
+            assert timeouts > 100
+
+            # The buffer must still answer, and still serve a real batch.
+            size = 0
+            deadline = time.time() + 30.0
+            while time.time() < deadline:
+                size = learner_client.get_size(timeout=1.0)
+                if size == 256:
+                    break
+                time.sleep(0.05)
+            assert size == 256, "buffer process wedged: it stopped answering control messages"
+
+            result = None
+            deadline = time.time() + 30.0
+            while time.time() < deadline:
+                result = learner_client.sample(32, timeout=5.0)
+                if result is not None:
+                    break
+            assert result is not None
+            batch, indices, _ = result
+            assert len(indices) == 32
+            assert batch["states"].shape[0] == 32
+        finally:
+            buffer_process.shutdown()
+
+    def test_sample_drains_replies_orphaned_by_an_earlier_timeout(self):
+        """A stale reply must be discarded rather than answer the next request."""
+        sample_request_queue = queue.Queue()
+        sample_response_queue = queue.Queue()
+        client = LearnerBufferClient(
+            sample_request_queue=sample_request_queue,
+            sample_response_queue=sample_response_queue,
+            priority_update_queue=queue.Queue(),
+            control_queue=queue.Queue(),
+            response_queue=queue.Queue(),
+        )
+
+        stale_batch = {
+            "states": np.zeros((1, 58), dtype=np.float32),
+            "actions": np.array([0], dtype=np.int64),
+            "rewards": np.array([0.0], dtype=np.float32),
+            "next_states": np.zeros((1, 58), dtype=np.float32),
+            "dones": np.array([0.0], dtype=np.float32),
+        }
+        sample_response_queue.put(
+            BufferMessage(MessageType.SAMPLE_RESPONSE, data=(stale_batch, [7], np.ones(1)))
+        )
+
+        assert client.sample(1, timeout=0.01) is None
+        assert sample_response_queue.empty()
+        assert client.get_stats(timeout=0.01)["orphaned_sample_response_count"] == 1
 
 
 class TestBufferProcessActorRejections:

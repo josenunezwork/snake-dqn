@@ -24,10 +24,7 @@ from typing import TYPE_CHECKING, Optional, Sequence
 # Add project root to path when run as a script.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config_loader import (  # noqa: E402
-    apply_config_to_game_config,
-    load_config,
-)
+from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig, get_config, initialize_config  # noqa: E402
 from src.core.reward_contract import current_reward_contract  # noqa: E402
 from src.data.memory_db_handler import (  # noqa: E402
@@ -1112,8 +1109,7 @@ Examples:
     min_row_count = resolve_min_row_count(args.min_row_count)
 
     if args.config:
-        config_obj = load_config(args.config)
-        apply_config_to_game_config(config_obj)
+        load_and_initialize_config(args.config)
         print(f"Loaded config: {args.config}")
     batch_size = apply_offline_batch_size_override(args.batch_size)
 

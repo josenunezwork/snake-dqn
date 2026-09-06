@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from src.training.base_buffer import build_batch_dict
-from src.training.replay_buffer import PrioritizedReplayBuffer, UniformReplayBuffer
+from src.training.replay_buffer import PrioritizedReplayBuffer
 
 
 def _state(value: float = 0.0) -> torch.Tensor:
@@ -225,8 +225,8 @@ class TestReplayBufferActionMaskValidation:
 
         assert len(buffer) == 0
 
-    def test_uniform_buffer_rejects_non_binary_exact_mask_on_add(self):
-        buffer = UniformReplayBuffer(capacity=4)
+    def test_prioritized_buffer_rejects_non_binary_exact_mask_on_add(self):
+        buffer = PrioritizedReplayBuffer(capacity=4)
 
         with pytest.raises(ValueError, match="next_action_mask values must be 0/1 or bool"):
             buffer.add(

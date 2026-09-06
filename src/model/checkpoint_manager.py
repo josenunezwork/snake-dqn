@@ -1,16 +1,11 @@
 """Centralized checkpoint management for Apex DQN model save/load."""
 
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import torch
 
-# Standard state dict key names for Apex DQN architecture
-MODEL_STATE_KEYS = {
-    "apex": ["dqn_state_dict", "target_dqn_state_dict"],
-}
+from .checkpoint_io import atomic_torch_save
 
 
 class CheckpointManager:
@@ -60,15 +55,7 @@ class CheckpointManager:
             **metadata,
         }
 
-        # Atomic write: write to temp file, then rename
-        with tempfile.NamedTemporaryFile(
-            mode="wb", delete=False, dir=self.checkpoint_dir, suffix=".tmp"
-        ) as tmp_file:
-            tmp_path = tmp_file.name
-            torch.save(checkpoint_data, tmp_path)
-
-        # Atomic rename
-        shutil.move(tmp_path, checkpoint_path)
+        atomic_torch_save(checkpoint_data, checkpoint_path)
 
         if self.verbose:
             print(f"Saved Apex checkpoint: {checkpoint_path}")
@@ -96,18 +83,9 @@ class CheckpointManager:
         """
         checkpoint_path = self.checkpoint_dir / filename
 
-        # Ensure policy_type is set to apex
-        checkpoint_data["policy_type"] = "apex"
-
-        # Atomic write: write to temp file, then rename
-        with tempfile.NamedTemporaryFile(
-            mode="wb", delete=False, dir=self.checkpoint_dir, suffix=".tmp"
-        ) as tmp_file:
-            tmp_path = tmp_file.name
-            torch.save(checkpoint_data, tmp_path)
-
-        # Atomic rename
-        shutil.move(tmp_path, checkpoint_path)
+        # Preserve the Apex envelope without mutating a caller-owned dictionary.
+        checkpoint_data = {**checkpoint_data, "policy_type": "apex"}
+        atomic_torch_save(checkpoint_data, checkpoint_path)
 
         if self.verbose:
             print(f"Saved Apex checkpoint: {checkpoint_path}")
@@ -168,22 +146,3 @@ class CheckpointManager:
             if self.verbose:
                 print(f"Could not load checkpoint: {e}")
             return None
-
-    def get_best_checkpoint(self) -> Optional[str]:
-        """
-        Get the best Apex checkpoint filename.
-
-        Returns:
-            Checkpoint filename or None if not found
-        """
-        # Check for apex-specific best checkpoint first
-        apex_best = "best_apex.pth"
-        if (self.checkpoint_dir / apex_best).exists():
-            return apex_best
-
-        # Fallback to generic best_snake.pth
-        generic_best = "best_snake.pth"
-        if (self.checkpoint_dir / generic_best).exists():
-            return generic_best
-
-        return None

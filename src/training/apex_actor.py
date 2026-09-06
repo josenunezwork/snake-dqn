@@ -55,11 +55,6 @@ DEFAULT_ACTOR_DANGER_EXPLORATION_RATE = 0.0
 # - "td": legacy behavior — compute a local TD-error estimate per transition
 #   (3 batch-1 forwards) and insert with the derived priority.
 ACTOR_PRIORITY_MODES = ("max", "td")
-DEFAULT_ACTOR_PRIORITY_MODE = "max"
-
-# Opponent-pool self-play (blueprint §3.3): probability that a non-hero snake
-# slot runs the shared latest policy (vs a frozen pool checkpoint) per episode.
-DEFAULT_POOL_LATEST_FRACTION = 0.8
 
 
 def _resolve_actor_priority_mode(value: Optional[str]) -> str:

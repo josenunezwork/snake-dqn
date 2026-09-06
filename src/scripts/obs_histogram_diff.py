@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 DEFAULT_THRESHOLD = 0.25
 
-# Known 58/61-D feature layout (see CLAUDE.md "State Representation"); used to
+# Known 58/61-D feature layout (see src/game/snake_state.py); used to
 # label report rows. Anything outside these ranges falls back to "dim_<i>".
 _FEATURE_RANGES = (
     (0, 4, "direction"),
@@ -219,13 +219,10 @@ def collect_observations(
     Returns:
         Array of shape ``(num_samples, state_dims)``.
     """
-    from src.core.config_loader import apply_config_to_game_config, load_config
-    from src.core.game_config import initialize_config
+    from src.core.config_loader import load_and_initialize_config
     from src.game.game_state import GameState
 
-    cfg = load_config(config_path)
-    initialize_config(cfg)
-    apply_config_to_game_config(cfg)
+    load_and_initialize_config(config_path)
 
     random.seed(seed)
     np.random.seed(seed)

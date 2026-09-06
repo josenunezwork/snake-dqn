@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { InspectorDTO, StateGroup } from "../types";
 import SectorRadar from "./SectorRadar";
 import SteeringWheel from "./SteeringWheel";
@@ -36,9 +37,13 @@ interface Props {
   inspector: InspectorDTO | null;
   tick?: number;
   heroId?: number;
+  // Name of the loaded checkpoint (frame.checkpoint_name / session.checkpoint).
+  // Part of the DecisionTrace reset key so loading a different checkpoint of
+  // the same obs spec clears the trace instead of splicing two models' histories.
+  checkpointName?: string | null;
 }
 
-export default function Inspector({ inspector, tick = 0, heroId = 0 }: Props) {
+function Inspector({ inspector, tick = 0, heroId = 0, checkpointName = null }: Props) {
   if (!inspector) {
     return (
       <div className="panel">
@@ -57,6 +62,16 @@ export default function Inspector({ inspector, tick = 0, heroId = 0 }: Props) {
   const sorted = [...q_values].sort((a, b) => b - a);
   const margin = sorted.length > 1 ? sorted[0] - sorted[1] : 0;
 
+  // The action the hero ACTUALLY took last step (post-masking / exploration),
+  // when the backend serves it. Display it as "action taken"; the raw greedy
+  // argmax (`chosen`) is shown separately when it differs.
+  const executedRaw = inspector.executed_action;
+  const acted =
+    typeof executedRaw === "number" && executedRaw >= 0 && executedRaw < q_values.length
+      ? executedRaw
+      : chosen;
+  const greedyDiffers = acted !== chosen;
+
   const foodGroup = groups.find((g) => isSectorGroup(g) && g.name.toLowerCase().includes("food"));
   const dangerGroup = groups.find((g) => isSectorGroup(g) && g.name.toLowerCase().includes("danger"));
   const heading = state.slice(0, 4);
@@ -71,27 +86,43 @@ export default function Inspector({ inspector, tick = 0, heroId = 0 }: Props) {
           Steering · Q-values → action
           <InfoDot term="qvalue" />
           <InfoDot term="margin" />
+          {greedyDiffers && <InfoDot term="actiontaken" />}
         </div>
         <div className="decision">
-          <SteeringWheel q={q_values} chosen={chosen} labels={action_labels} />
+          <SteeringWheel
+            q={q_values}
+            chosen={acted}
+            greedy={greedyDiffers ? chosen : null}
+            labels={action_labels}
+          />
           <div className="qgrid">
             {q_values.map((q, i) => (
-              <div key={i} className={"qcell" + (i === chosen ? " chosen" : "")}>
+              <div key={i} className={"qcell" + (i === acted ? " chosen" : "")}>
                 <span className="qcell-k">
-                  {i === chosen ? "▸ " : ""}
+                  {i === acted ? "▸ " : ""}
                   {action_labels[i]}
+                  {greedyDiffers && i === chosen && (
+                    <span className="muted" style={{ fontSize: 9 }}> greedy</span>
+                  )}
                 </span>
                 <span className="qcell-v mono">{q.toFixed(2)}</span>
               </div>
             ))}
           </div>
         </div>
+        {greedyDiffers && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            Action taken: <span className="mono">{action_labels[acted]}</span> · greedy pick:{" "}
+            <span className="mono">{action_labels[chosen]}</span> (exploration or masking
+            overrode the argmax).
+          </div>
+        )}
         <DecisionTrace
           tick={tick}
-          chosen={chosen}
+          chosen={acted}
           margin={margin}
           labels={action_labels}
-          resetKey={`${heroId}:${inspector.input_size}`}
+          resetKey={`${checkpointName ?? ""}:${heroId}:${inspector.input_size}`}
         />
       </div>
 
@@ -171,3 +202,5 @@ export default function Inspector({ inspector, tick = 0, heroId = 0 }: Props) {
     </div>
   );
 }
+
+export default memo(Inspector);

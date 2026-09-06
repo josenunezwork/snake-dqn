@@ -46,7 +46,12 @@ export interface InspectorDTO {
   groups: StateGroup[];
   q_values: number[];
   action_labels: string[];
+  // Raw greedy argmax over the Q-values (kept for compatibility). Display
+  // executed_action as "action taken" when present; this is the "greedy pick".
   chosen: number;
+  // The action the hero ACTUALLY took last step (post-masking, post-exploration).
+  // Null/absent on older backends.
+  executed_action?: number | null;
   free_space: number[] | null;
 }
 
@@ -64,6 +69,9 @@ export interface HeroRasterDTO {
   strategic_channels: string[]; // (3,) names
   scalars: number[]; // (26,)
   mask: boolean[]; // (6,) legal-action mask
+  // Named index ranges into `scalars` (mirrors the inspector state groups);
+  // lets the viewer label scalar clusters. Absent on older backends.
+  scalar_groups?: StateGroup[];
 }
 
 export interface NetvizSummary {
@@ -106,6 +114,14 @@ export interface SessionState {
   food_target: number;
   food_count: number;
   error: string | null;
+  // True when re-issuing the failed action with the reward-contract override
+  // would succeed — the UI offers "Fine-tune anyway" instead of a dead end.
+  error_overridable?: boolean;
+  // True while the live training run leans on the reward-contract override
+  // (fine-tune under current rewards, not a resume).
+  reward_override_active?: boolean;
+  // Observation contract of the served policy ("vector61" | "raster31v2").
+  obs_spec?: string;
 }
 
 export interface PendingRun {
@@ -137,6 +153,19 @@ export interface PlayState {
 export interface Frame {
   type: string;
   frame: number;
+  // Wire-format version (currently 2). The client shows a one-time warning
+  // toast for versions it doesn't know; absent on pre-versioned backends.
+  protocol_version?: number;
+  // Number of connected WebSocket clients.
+  viewer_count?: number;
+  // Honest architecture label derived from the served policy's obs spec, e.g.
+  // "Apex DQN (vector61)" or "Raster Dueling (raster31v2)".
+  architecture?: string;
+  // Basename of the loaded checkpoint (stable key for trace resets).
+  checkpoint_name?: string;
+  // True on the single post-pause frame and the ~1 Hz heartbeats that follow;
+  // clients must not append telemetry/trace history for these frames.
+  paused?: boolean;
   // Observation contract of the served policy: "vector61" (hand-crafted 61-D
   // champions) or "raster31v2" (ego-raster stack). Drives the raster viewer.
   obs_spec?: string;
@@ -166,7 +195,34 @@ export type ControlAction =
   | "load_checkpoint"
   | "human_input"
   | "human_boost"
-  | "set_play_opponents";
+  | "set_play_opponents"
+  // Saves the live policy weights to saved_snakes/web_train_<ts>.pth; the
+  // server replies with an {type:"info"} frame that the client toasts.
+  | "save_weights"
+  // Per-connection raster streaming subscription: value is {on: boolean}.
+  // Sent on Raster tab enter/leave and re-sent on reconnect.
+  | "set_raster_stream";
+
+// Non-frame server messages pushed over the stream socket. Both are surfaced
+// as toasts (error styling vs neutral).
+export interface ErrorMessage {
+  type: "error";
+  message: string;
+}
+
+export interface InfoMessage {
+  type: "info";
+  message: string;
+}
+
+// A toast-worthy server notice, deduped by useGameSocket (a wedged engine
+// re-broadcasts the same error every tick). `seq` increments per new notice so
+// consumers can effect on identity.
+export interface ServerNotice {
+  tone: "error" | "info";
+  message: string;
+  seq: number;
+}
 
 export interface LeaderboardEntry {
   rank: number;
@@ -177,6 +233,12 @@ export interface LeaderboardEntry {
   kills: number;
   frames: number;
   created_at: string;
+  // Opaque per-browser id recorded with the game (schema v3); preferred over
+  // the name match for the "me" highlight. Null/absent on older rows.
+  client_id?: string | null;
+  // True when the row belongs to this browser's client_id (preferred over the
+  // name match for the "me" highlight). Absent on older backends.
+  is_me?: boolean;
 }
 
 export interface GlobalStats {
@@ -204,6 +266,7 @@ export interface RecentGame {
   mode: string;
   checkpoint: string | null;
   created_at: string;
+  client_id?: string | null;
 }
 
 export interface RecentData {
@@ -256,6 +319,11 @@ export interface MetricSample {
 export interface CheckpointInfo {
   name: string;
   size_mb: number;
+  // Observation contract detected from the checkpoint ("vector61" |
+  // "raster31v2" | "unknown"); cached server-side by (path, mtime).
+  obs_spec?: string;
+  // Repo-relative path (saved_snakes/... or runs/.../latest_pqn.pth).
+  path?: string;
 }
 
 export interface EvalRow {
@@ -264,10 +332,20 @@ export interface EvalRow {
   opponent: string;
   frames: number | null;
   n: number;
+  // Headline mass for BOTH schemas (mass_integral value on repaired-gate rows,
+  // legacy alive-frames mean on old rows); `metric` disambiguates.
   mean_mass: number;
   max_mass: number;
   survival: number;
   kills: number;
+  // "mass_integral" (repaired gate) | "legacy_mean_mass" (old gate). Absent on
+  // very old backends.
+  metric?: string;
+  // ISO date of the eval file's mtime.
+  date?: string;
+  // 95% CI half-width for the paired mass delta, when the repaired gate wrote one.
+  mass_ci?: number | null;
+  mean_mass_alive?: number | null;
 }
 
 export interface DashboardData {

@@ -1,12 +1,13 @@
 # snake-dqn web app
 
 The interactive UI for snake-dqn — a **server-authoritative** web app that replaced
-the retired PyQt5 desktop GUI. The Python engine (`GameState` + `ApexPolicy`) is the
+the retired PyQt5 desktop GUI. The Python engine (`GameState` plus the selected
+vector or raster policy) is the
 single source of truth; the React frontend is a pure view that renders frames streamed
 over a WebSocket. No game logic or model inference runs in the browser.
 
 ```
-React + TS (canvas)  ──WebSocket──►  FastAPI  ──►  GameState · ApexPolicy (champion)
+React + TS (canvas)  ──WebSocket──►  FastAPI  ──►  GameState · selected policy
    (pure view)          frames /         (web/backend)      (reused src/, unchanged)
                         controls
 ```
@@ -42,13 +43,13 @@ The arena is always on screen; the other six are tabs beside it.
   **SQLite leaderboard**. Server-authoritative: the run freezes until your first key, your death
   ends the run (AI opponents keep respawning), the score is computed on the server from
   length/food/kills/survival (can't be spoofed), and you pick the opponent count for difficulty.
-- **Inspector** — the hero's 61-D state vector (grouped + labeled), live Q-values → chosen
-  action, and the free-space "don't trap yourself" features.
+- **Inspector** — the active policy's state and Q-values; vector checkpoints expose the 61-D
+  free-space features and raster checkpoints expose their ego-raster observation.
 - **Raster** — what a `raster31v2` snake sees: the heading-rotated ego-centric 31×31 tactical
   stack (head centred, facing up), as a colour-coded composite or a single isolated channel
   (brightness = the value byte). Shows a placeholder when the served policy is the 61-D vector.
-- **Network** — live APEX DQN activations (input / hidden / output) heat-mapped, with
-  top-action / margin / activity, computed by the real network's `forward_with_activations`.
+- **Network** — live dueling-Q details and, where the served policy exposes them, activation
+  views with top action, margin, and activity.
 - **Dashboard** — eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.
 - **Controls** — play/pause, reset, speed, epsilon, hero selector, checkpoint loader, and a
   watch/train toggle (train rebuilds the policy in training mode).
@@ -69,10 +70,10 @@ web/
   serve.py              single-port launcher (backend + built frontend)
   backend/
     app.py              FastAPI: /ws/stream broadcast loop + REST + static serve
-    session.py          GameSession: owns GameState + ApexPolicy, controls
+    session.py          GameSession: owns GameState + selected policy, controls
     serialize.py        GameState -> frame DTO (the wire contract); PyQt-free
     metrics.py          dashboard data from saved_snakes/ + logs/eval_*.json
-    state_labels.py     58-/61-D feature grouping for the inspector
+    state_labels.py     vector feature grouping for the inspector
   frontend/             Vite + React + TypeScript (canvas view, no extra UI deps)
     src/components/     GameCanvas, Play, Controls, Inspector, EgoRasterViewer,
                         NetworkVisualizer, Dashboard, ...

@@ -55,7 +55,10 @@ dev = [
 ]
 
 [project.scripts]
-snake-train = "main:main"
+snake-train = "src.main:main"
+
+[tool.setuptools.packages.find]
+include = ["src", "src.*"]
 
 [tool.black]
 line-length = 100
@@ -100,5 +103,4 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@abstractmethod",
 ]
-
 

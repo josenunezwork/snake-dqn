@@ -18,7 +18,6 @@ STATE_SIZE = 58
 PER_ACTION_DANGER_START = 54
 PER_ACTION_DANGER_END = 57
 BOOST_AVAILABLE_INDEX = 57
-BOOST_ACTION_MASK_BITS = sum(1 << action for action in range(3, ACTION_SIZE))
 ACTION_DANGER_COLLISION_THRESHOLD = 1.0
 STATE_RANGE_EPSILON = 1e-5
 STATE_BLOB_FORMAT = f"<{STATE_SIZE}f"
@@ -829,18 +828,6 @@ def _decode_action_mask(value: object) -> tuple[bool, ...] | None:
     if mask_bits < 0 or mask_bits > max_mask:
         raise ValueError("next_action_mask contains unknown bits")
     return tuple(bool(mask_bits & (1 << idx)) for idx in range(ACTION_MASK_SIZE))
-
-
-def next_action_mask_has_valid_action(mask: object) -> bool | None:
-    """Return whether an exact next-action mask contains any legal action.
-
-    None means no exact mask was captured, which is different from a captured
-    all-false mask that proves the sampled next state cannot bootstrap.
-    """
-    mask_bits = _coerce_action_mask(mask)
-    if mask_bits is None:
-        return None
-    return mask_bits != 0
 
 
 def _encode_state_blob(value, field_name: str) -> bytes:

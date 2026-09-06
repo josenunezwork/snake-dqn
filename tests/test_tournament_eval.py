@@ -469,8 +469,11 @@ class TestSimdEngineEndToEnd:
                 "scripted,mixed",
                 "--frames",
                 "150",
+                # A terminal hero makes the mass integral heavy-tailed (a seed
+                # where the hero dies early scores ~0), so the t-interval needs
+                # more than 4 paired seeds to resolve even this large an effect.
                 "--seeds",
-                "0,1,2,3",
+                "0,1,2,3,4,5,6,7",
                 "--config",
                 str(tiny_v2_config),
                 "--engine",
@@ -487,7 +490,7 @@ class TestSimdEngineEndToEnd:
         assert set(candidate["per_mix"]) == {"scripted", "mixed"}
         for mix in ("scripted", "mixed"):
             runs = candidate["per_mix"][mix]["runs"]
-            assert [r["seed"] for r in runs] == [0, 1, 2, 3]
+            assert [r["seed"] for r in runs] == [0, 1, 2, 3, 4, 5, 6, 7]
         # greedy_food should decisively beat random_safe -> promote.
         assert candidate["decision"]["promote"] is True
 

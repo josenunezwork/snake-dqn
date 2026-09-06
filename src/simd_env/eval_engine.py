@@ -278,6 +278,31 @@ def _config_from_game_config(num_snakes: int, gamma: float) -> BatchSimConfig:
     )
 
 
+class _TerminalHeroBatchSim(BatchSim):
+    """Eval sim where arena slot 0 is terminal but opponents still respawn.
+
+    The live gate makes the hero terminal per-snake (``hero.auto_respawn = False``,
+    honoured by :meth:`~src.game.game_state.GameState.update`). :class:`BatchSim`
+    only exposes the sim-wide ``allow_respawn``, so slot 0 is exempted from the
+    respawn sweep here instead.
+    """
+
+    # Parked into a terminal hero's respawn timer: large enough that the base
+    # sweep's per-frame decrement can never reach zero within an eval horizon.
+    _NEVER = 1 << 40
+
+    def _respawn_dead(self) -> None:
+        hero_timer = self.respawn_timer[:, 0].copy()
+        # A timer above zero makes the base sweep skip slot 0 before it draws a
+        # respawn position, so a dead hero perturbs neither the env RNG nor the
+        # world; restoring it afterwards keeps the hero from burning the timer.
+        self.respawn_timer[:, 0] = self._NEVER
+        try:
+            super()._respawn_dead()
+        finally:
+            self.respawn_timer[:, 0] = hero_timer
+
+
 def run_simd_eval(
     hero_spec: AgentSpec,
     opponent_specs: Sequence[AgentSpec],
@@ -322,11 +347,11 @@ def run_simd_eval(
     E = len(seeds)
     cfg = BatchSimConfig(**{**cfg.__dict__, "num_envs": E})
 
-    # Deaths terminal for everyone in train_mode, but the gate wants opponents to
-    # respawn — so run in eval (non-train) mode and make the HERO terminal by
-    # simply not feeding it actions once dead (dead-snake actions are ignored by
-    # the sim, and non-train respawn is what keeps opponents alive).
-    sim = BatchSim(cfg, seeds=seeds, train_mode=False)
+    # train_mode would make deaths terminal for everyone, but the gate wants
+    # opponents to respawn — so run in eval (non-train) mode, where only slot 0
+    # is held terminal (withholding a dead hero's actions would NOT do it: the
+    # non-train respawn sweep resurrects any dead slot).
+    sim = _TerminalHeroBatchSim(cfg, seeds=seeds, train_mode=False)
 
     # Build one policy per (spec, env-seed): scripted RNG policies must be seeded
     # per seed so paired heroes are deterministic given the seed, exactly like
@@ -393,8 +418,8 @@ def run_simd_eval(
         max_mass = np.where(alive0, np.maximum(max_mass, len0), max_mass)
         peak_length = np.maximum(peak_length, np.where(alive0, len0, peak_length))
 
-        # Deaths: alive -> dead transition (hero death is terminal in practice;
-        # but non-train respawn CAN bring it back — count each death event).
+        # Deaths: alive -> dead transition. The hero is terminal, so this can
+        # fire at most once, matching the live rollout's deaths <= 1.
         died_now = prev_alive & (cause0 != DEATH_NONE)
         deaths += died_now.astype(np.int64)
         # Record the most recent death cause for the probe label.
@@ -407,7 +432,7 @@ def run_simd_eval(
 
         # Food eaten: a length increase while staying alive is a pellet (boost
         # burns DECREASE length; growth is monotone +1 per pellet). Count
-        # positive length deltas on frames the hero neither died nor respawned.
+        # positive length deltas on frames the hero survived.
         grew = alive0 & prev_alive & (len0 > prev_len)
         food_eaten += np.where(grew, len0 - prev_len, 0)
 

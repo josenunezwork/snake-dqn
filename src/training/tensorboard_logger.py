@@ -1,7 +1,6 @@
 """TensorBoard logging utilities for training visualization."""
 
 from pathlib import Path
-from typing import Any, Dict
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -41,17 +40,6 @@ class TensorBoardLogger:
         """
         self.writer.add_scalar(tag, value, step)
 
-    def log_scalars(self, main_tag: str, tag_scalar_dict: Dict[str, float], step: int):
-        """
-        Log multiple scalar values.
-
-        Args:
-            main_tag: Parent name (e.g., 'losses')
-            tag_scalar_dict: Dictionary of scalar values
-            step: Training step/iteration
-        """
-        self.writer.add_scalars(main_tag, tag_scalar_dict, step)
-
     def log_histogram(self, tag: str, values: torch.Tensor, step: int):
         """
         Log histogram of values.
@@ -62,39 +50,6 @@ class TensorBoardLogger:
             step: Training step/iteration
         """
         self.writer.add_histogram(tag, values, step)
-
-    def log_model_graph(self, model: torch.nn.Module, input_tensor: torch.Tensor):
-        """
-        Log model architecture graph.
-
-        Args:
-            model: PyTorch model
-            input_tensor: Sample input tensor
-        """
-        self.writer.add_graph(model, input_tensor)
-
-    def log_training_metrics(
-        self, step: int, loss: float, reward: float, epsilon: float, learning_rate: float, **kwargs
-    ):
-        """
-        Log common training metrics.
-
-        Args:
-            step: Training step
-            loss: Training loss
-            reward: Average reward
-            epsilon: Current epsilon value
-            learning_rate: Current learning rate
-            **kwargs: Additional metrics to log
-        """
-        self.log_scalar("training/loss", loss, step)
-        self.log_scalar("training/reward", reward, step)
-        self.log_scalar("training/epsilon", epsilon, step)
-        self.log_scalar("training/learning_rate", learning_rate, step)
-
-        # Log additional metrics
-        for key, value in kwargs.items():
-            self.log_scalar(f"training/{key}", value, step)
 
     def log_episode_metrics(
         self,
@@ -123,27 +78,6 @@ class TensorBoardLogger:
 
         for key, value in kwargs.items():
             self.log_scalar(f"episode/{key}", value, episode)
-
-    def log_text(self, tag: str, text: str, step: int = 0):
-        """
-        Log text information.
-
-        Args:
-            tag: Tag name
-            text: Text to log
-            step: Step number
-        """
-        self.writer.add_text(tag, text, step)
-
-    def log_hyperparameters(self, hparam_dict: Dict[str, Any], metric_dict: Dict[str, float]):
-        """
-        Log hyperparameters and their resulting metrics.
-
-        Args:
-            hparam_dict: Dictionary of hyperparameters
-            metric_dict: Dictionary of metrics
-        """
-        self.writer.add_hparams(hparam_dict, metric_dict)
 
     def flush(self):
         """Flush pending logs to disk."""

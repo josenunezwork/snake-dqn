@@ -31,11 +31,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config_loader import (  # noqa: E402
-    apply_config_to_game_config,
-    load_config,
-)
-from src.core.game_config import initialize_config  # noqa: E402
+from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.game.game_state_factory import (  # noqa: E402
     configure_eval_game_state,
     create_training_game_state,
@@ -144,9 +140,7 @@ def main():
     p.add_argument("--json-output", default=None)
     args = p.parse_args()
 
-    cfg = load_config(args.config)
-    initialize_config(cfg)
-    apply_config_to_game_config(cfg)
+    load_and_initialize_config(args.config)
     device = torch.device("cpu")
 
     def make_ensemble():

@@ -25,6 +25,32 @@ describe("Sparkline", () => {
     expect((d.match(/M/g) || []).length).toBe(2);
   });
 
+  it("shows min/max range labels only when showRange is set", () => {
+    const withRange = render(<Sparkline values={[1, 2, 10]} showRange />);
+    const texts = [...withRange.container.querySelectorAll(".spark-range text")].map(
+      (t) => t.textContent
+    );
+    expect(texts).toContain("10");
+    expect(texts).toContain("1");
+
+    const without = render(<Sparkline values={[1, 2, 10]} />);
+    expect(without.container.querySelector(".spark-range")).toBeNull();
+  });
+
+  it("collapses to a single range label when the window is flat", () => {
+    const { container } = render(<Sparkline values={[3, 3, 3]} showRange />);
+    expect(container.querySelectorAll(".spark-range text").length).toBe(1);
+  });
+
+  it("formats range labels with the provided formatter", () => {
+    const { container } = render(
+      <Sparkline values={[0.101, 0.103]} showRange format={(v) => v.toFixed(3)} />
+    );
+    const texts = [...container.querySelectorAll(".spark-range text")].map((t) => t.textContent);
+    expect(texts).toContain("0.103");
+    expect(texts).toContain("0.101");
+  });
+
   it("omits the area fill when the series has gaps", () => {
     const { container } = render(<Sparkline values={[1, null, 3, 4]} fill />);
     // only the stroked line path should exist, not a filled area path

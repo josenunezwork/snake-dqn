@@ -10,13 +10,19 @@ interface Props {
   value: number;
   advantages: number[];
   labels: string[];
+  // The greedy argmax (highest-Q action).
   chosen: number;
+  // The action actually executed last step, when the backend serves it and it
+  // differs from the greedy pick — that row is marked "taken" and the greedy
+  // row keeps its ▸ with a "greedy" tag.
+  executed?: number | null;
 }
 
-export default function DuelingSplit({ value, advantages, labels, chosen }: Props) {
+export default function DuelingSplit({ value, advantages, labels, chosen, executed = null }: Props) {
   const mean = advantages.reduce((a, b) => a + b, 0) / (advantages.length || 1);
   const centered = advantages.map((a) => a - mean);
   const maxAbs = Math.max(...centered.map(Math.abs), 1e-6);
+  const executedDiffers = executed != null && executed !== chosen;
 
   return (
     <div className="card dueling">
@@ -38,10 +44,19 @@ export default function DuelingSplit({ value, advantages, labels, chosen }: Prop
           const left = a >= 0 ? 50 : 50 - w;
           const pos = a >= 0;
           return (
-            <div className={"adv-row" + (i === chosen ? " chosen" : "")} key={i}>
+            <div
+              className={"adv-row" + (i === (executedDiffers ? executed : chosen) ? " chosen" : "")}
+              key={i}
+            >
               <span className="adv-label">
-                {i === chosen ? "▸ " : ""}
+                {i === (executedDiffers ? executed : chosen) ? "▸ " : ""}
                 {labels[i]}
+                {executedDiffers && i === executed && (
+                  <span className="muted" style={{ fontSize: 9 }}> taken</span>
+                )}
+                {executedDiffers && i === chosen && (
+                  <span className="muted" style={{ fontSize: 9 }}> greedy</span>
+                )}
               </span>
               <div className="adv-track">
                 <span className="adv-zero" />

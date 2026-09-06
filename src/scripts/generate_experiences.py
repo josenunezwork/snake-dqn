@@ -25,10 +25,7 @@ from typing import TYPE_CHECKING
 # Add parent directory to path (root of project)
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config_loader import (  # noqa: E402
-    apply_config_to_game_config,
-    load_config,
-)
+from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig  # noqa: E402
 from src.core.reward_contract import current_reward_contract  # noqa: E402
 from src.data.memory_db_handler import (  # noqa: E402
@@ -754,8 +751,7 @@ def apply_generation_config(config_path, env_id=None) -> None:
     if not config_path:
         return
 
-    config_obj = load_config(config_path)
-    apply_config_to_game_config(config_obj)
+    load_and_initialize_config(config_path)
     prefix = f"   [Env {env_id}] " if env_id is not None else ""
     print(f"{prefix}Loaded config from {config_path}")
 
@@ -2285,8 +2281,7 @@ def main():
 
     # Load YAML configuration if specified
     if args.config:
-        config_obj = load_config(args.config)
-        apply_config_to_game_config(config_obj)
+        load_and_initialize_config(args.config)
         worker_config_path = args.config
         print(f"📁 Loaded config from {args.config}")
 

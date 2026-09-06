@@ -6,6 +6,8 @@ environments — **no replay buffer, no target network, no PER**. Each update:
 1. Roll out ``T`` steps on :class:`~src.simd_env.batch_sim.BatchSim` (E envs x S
    snakes) with pool self-play (:mod:`src.training.pqn_selfplay`), collecting
    per-slot ``(obs, action, reward, mask, done, trapped)`` and the hero Q-values.
+   Episodes end at the v2 train-mode population floor or ``max_frames``; steps
+   taken after an env's episode ends are not transitions and never train.
 2. After the rollout, boot the network once more on the final observation to get
    the bootstrap Q(s') for the truncation case.
 3. Compute the per-agent Q(lambda) return **backward** over each hero slot's
@@ -13,8 +15,8 @@ environments — **no replay buffer, no target network, no PER**. Each update:
      - **DEATH** (``done``): return is the reward alone (no bootstrap).
      - **TRAPPED** non-terminal (no valid next action, but not dead this step):
        bootstrap to the DEATH VALUE (a config constant), not 0.
-     - **TRUNCATION** (rollout edge, or a mid-rollout reset): bootstrap from the
-       masked-max Q(s') over valid next actions.
+     - **TRUNCATION** (rollout edge, or the last step of an episode): bootstrap
+       from the masked-max Q(s') over valid next actions.
      - Interior alive steps: standard Q(lambda) mixing
        ``G_t = r_t + gamma * ((1-lambda) * max_a' Q(s',a') + lambda * G_{t+1})``.
 4. Take several minibatch SGD steps (Huber loss on ``Q(s,a) - G``), grad-norm
@@ -40,6 +42,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH
+from src.model.checkpoint_io import atomic_torch_save
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES
 from src.model.raster_network import (
     SCALARS_DIM,
@@ -109,7 +112,10 @@ class PQNConfig:
             a trapped-but-still-alive state is trained toward the forced-death
             outcome on the following step, not toward 0.
         flip_augment: Enable horizontal-flip augmentation.
-        max_frames: Episode-length cap for the episode-progress scalar.
+        max_frames: Episode-length cap. Denominator of the episode-progress
+            observation scalar, and the hard episode end (see
+            :meth:`PQNTrainer._episode_over`) for a batch that never reaches the
+            population floor.
         max_abs_q_alarm: Tripwire threshold on max|Q|.
         seed: Base RNG seed.
         arena_type: Arena type for the sim config.
@@ -315,9 +321,39 @@ class PQNTrainer:
         mask = torch.as_tensor(mask_np, dtype=torch.bool, device=self.device)
         return obs_es, mask
 
+    # -- episode boundary ---------------------------------------------------
+    def _episode_over(self) -> bool:
+        """True when the batch's episode has ended and the sim must be reset.
+
+        Two blueprint episode-end conditions, evaluated over the whole batch
+        because :meth:`BatchSim.reset` has no per-env form:
+
+        * The v2 train-mode POPULATION FLOOR (``population_floor_reached``, i.e.
+          fewer than 3 snakes alive) — the same signal the Apex actor ends an
+          episode on. Requires ALL envs to have floored: the reset is batch-wide,
+          so firing on the first env would truncate every other env's still-live
+          episode and couple episode lengths across the batch. Steps taken in an
+          env between its own floor and the batch reset are excluded from
+          training instead (see ``valid`` in :meth:`_rollout`).
+        * ``cfg.max_frames``. Envs step in lockstep from a shared reset, so the
+          frame counter is identical across the batch and this fires for all envs
+          at once.
+
+        Returns:
+            True iff the sim should be reset before the next rollout.
+        """
+        if int(self.sim.frame.max()) >= self.cfg.max_frames:
+            return True
+        return bool(self.sim.population_floor_reached().all())
+
     # -- rollout ------------------------------------------------------------
     def _rollout(self) -> Dict[str, object]:
         """Collect a ``T``-step self-play rollout of hero + frozen transitions.
+
+        Resets the sim first if the previous episode ended. Resetting only on a
+        rollout BOUNDARY (never mid-rollout) keeps every step of a rollout inside
+        one episode, so no stored ``s_{t+1}`` obs/mask, bootstrap, or backward
+        return can ever cross a reset.
 
         Returns:
             Dict of stacked rollout tensors/arrays (see below). Spatial obs are
@@ -326,6 +362,9 @@ class PQNTrainer:
         cfg = self.cfg
         E, S, T = cfg.num_envs, cfg.num_snakes, cfg.rollout_len
         eps = self.epsilon()
+
+        if self._episode_over():
+            self.sim.reset()
 
         policy_ids = assign_policy_ids(
             E, S, self.pool.policy_ids(), cfg.hero_frac, self.rng, hero_slot0=True
@@ -340,14 +379,24 @@ class PQNTrainer:
         rew_buf = np.zeros((T, E, S), dtype=np.float64)
         done_buf = np.zeros((T, E, S), dtype=bool)
         trapped_buf = np.zeros((T, E, S), dtype=bool)
-        # valid_step[t,e,s]: slot was ALIVE at the start of step t. True on the
-        # death step itself (a real terminal transition), False for every
-        # post-death "zombie" step (train_mode never respawns). Zombie steps are
-        # dropped from the loss and from the backward-return carry.
+        # valid_step[t,e,s]: step t is a REAL transition for this slot — the slot
+        # was ALIVE at the start of step t AND its env's episode was still live.
+        # True on the death step itself (a real terminal transition), False for
+        # every post-death "zombie" step (train_mode never respawns) and for
+        # every step an env takes after its population floor fired (its episode
+        # is over; the batch cannot reset until all envs have floored). Invalid
+        # steps are dropped from the loss, from the telemetry, and from the
+        # backward-return carry.
         valid_buf = np.zeros((T, E, S), dtype=bool)
         # next-mask per step for masked-max bootstrap (mask of s_{t+1}).
         next_mask_buf = torch.zeros((T, E, S, 6), dtype=torch.bool, device=self.device)
         boost_buf = np.zeros((T, E, S), dtype=bool)
+        # Hero Q(s_t) over the whole grid, kept from the acting forward. The
+        # learner's bootstrap for step t is the masked max of Q(s_{t+1}), and
+        # s_{t+1}'s obs IS step t+1's stored obs — already forwarded here under
+        # the same weights, since the only optimizer step runs after the rollout.
+        # _compute_targets reuses these instead of re-forwarding the rollout.
+        hero_q_buf = torch.zeros((T, E, S, 6), dtype=torch.float32, device=self.device)
         kills_total = 0
 
         prof = self.cfg.profile
@@ -360,13 +409,14 @@ class PQNTrainer:
             if prof:
                 t1 = self._sync()
                 feat_t += t1 - t0
-            actions, _ = batched_act(
+            actions, hero_q = batched_act(
                 self.network, self.pool, policy_ids, obs, mask, eps, self.rng, self.device
             )
             if prof:
                 t2 = self._sync()
                 fwd_t += t2 - t1
 
+            hero_q_buf[t] = hero_q
             tac_buf[t] = obs["tactical"]
             strat_buf[t] = obs["strategic"]
             scal_buf[t] = obs["scalars"]
@@ -374,7 +424,11 @@ class PQNTrainer:
             # A slot is TRAPPED if it currently has no valid action (mask all
             # False) but is alive (so it is not yet a death transition).
             alive = self.sim.get_alive()
-            valid_buf[t] = alive
+            # Read the floor BEFORE step(): an env whose episode ended on an
+            # EARLIER step contributes no transitions, but the step that trips
+            # the floor is itself the episode's last real transition.
+            live_env = ~self.sim.population_floor_reached()
+            valid_buf[t] = alive & live_env[:, None]
             no_valid = ~mask.any(dim=2).cpu().numpy()
             trapped_buf[t] = no_valid & alive
 
@@ -411,6 +465,7 @@ class PQNTrainer:
             "trapped": trapped_buf,
             "valid": valid_buf,
             "next_mask": next_mask_buf,
+            "hero_q": hero_q_buf,
             "boost": boost_buf,
             "policy_ids": policy_ids,
             "final_obs": final_obs,
@@ -423,8 +478,9 @@ class PQNTrainer:
     def _compute_targets(self, roll: Dict[str, object]) -> torch.Tensor:
         """Compute per-slot Q(lambda) targets ``(T, E, S)`` (blueprint §3).
 
-        Requires one forward over every stored ``(T, E, S)`` obs (for the masked
-        next-max) plus the final obs. Backward recursion per agent stream:
+        Requires exactly ONE forward, on the final obs: the masked next-max for
+        every other step reuses the hero Q the rollout already computed (see
+        ``hero_q`` in :meth:`_rollout`). Backward recursion per agent stream:
 
             done_t:      G_t = r_t                       (death: no bootstrap)
             trapped_t:   G_t = r_t + gamma * death_value (trapped non-terminal)
@@ -437,10 +493,12 @@ class PQNTrainer:
                                   rollout edge or across a post-death zombie step)
                          G_t = r_t + gamma * ((1-lambda)*boot + lambda*next_G)
 
-        Post-death "zombie" steps (a slot that was already dead at step entry;
-        ``valid[t]`` False) are excluded from training (:meth:`_sgd`) and their
-        return is NOT carried into the backward scan: ``next_g`` for a step whose
-        successor is a zombie falls back to the truncation bootstrap.
+        Non-transitions (``valid[t]`` False: a slot already dead at step entry, or
+        any step in an env whose episode already ended) are excluded from training
+        (:meth:`_sgd`) and their return is NOT carried into the backward scan:
+        ``next_g`` for a step whose successor is one of them falls back to the
+        truncation bootstrap. This is what makes an episode's last real step
+        truncate rather than chain into the steps that follow it.
 
         Args:
             roll: Rollout dict from :meth:`_rollout`.
@@ -459,32 +517,22 @@ class PQNTrainer:
         valid = torch.as_tensor(roll["valid"], dtype=torch.bool, device=self.device)
         next_mask = roll["next_mask"]  # (T, E, S, 6) bool
 
-        # Masked-max Q(s_{t+1}) for every stored step: forward the network on the
-        # obs of s_{t+1}. s_{t+1} obs == the stored obs of step t+1 (for t<T-1)
-        # and == final_obs for t==T-1.
+        # Masked-max Q(s_{t+1}) for every stored step. s_{t+1}'s obs == the stored
+        # obs of step t+1 (for t<T-1), which the rollout already forwarded under
+        # these same weights, so its Q comes from roll["hero_q"][t+1] rather than
+        # a second forward. Only s_T (final_obs, for t==T-1) is unseen.
         with torch.no_grad():
-            boot = torch.zeros((T, E, S), dtype=torch.float32, device=self.device)
-            for t in range(T):
-                if t < T - 1:
-                    tac = roll["tactical"][t + 1]
-                    strat = roll["strategic"][t + 1]
-                    scal = roll["scalars"][t + 1]
-                else:
-                    tac = roll["final_obs"]["tactical"]
-                    strat = roll["final_obs"]["strategic"]
-                    scal = roll["final_obs"]["scalars"]
-                q_next = self.network(
-                    tac.reshape(E * S, *TACTICAL_SHAPE),
-                    strat.reshape(E * S, *STRATEGIC_SHAPE),
-                    scal.reshape(E * S, SCALARS_DIM),
-                ).reshape(E, S, 6)
-                m = next_mask[t]
-                q_masked = torch.where(m, q_next, torch.full_like(q_next, neg_inf))
-                mm = q_masked.max(dim=2).values
-                # If no valid next action, masked-max is -inf; fall back to death
-                # value (handled by the trapped branch below, but guard here too).
-                mm = torch.where(m.any(dim=2), mm, torch.full_like(mm, cfg.death_value))
-                boot[t] = mm
+            q_final = self.network(
+                roll["final_obs"]["tactical"].reshape(E * S, *TACTICAL_SHAPE),
+                roll["final_obs"]["strategic"].reshape(E * S, *STRATEGIC_SHAPE),
+                roll["final_obs"]["scalars"].reshape(E * S, SCALARS_DIM),
+            ).reshape(1, E, S, 6)
+            q_next = torch.cat([roll["hero_q"][1:], q_final], dim=0)  # (T, E, S, 6)
+            q_masked = torch.where(next_mask, q_next, torch.full_like(q_next, neg_inf))
+            mm = q_masked.max(dim=3).values
+            # If no valid next action, masked-max is -inf; fall back to death
+            # value (handled by the trapped branch below, but guard here too).
+            boot = torch.where(next_mask.any(dim=3), mm, torch.full_like(mm, cfg.death_value))
 
         targets = torch.zeros((T, E, S), dtype=torch.float32, device=self.device)
         death_value = float(cfg.death_value)
@@ -762,9 +810,16 @@ class PQNTrainer:
         return state
 
     def save_checkpoint(self, path: str) -> None:
-        """Write a raster checkpoint to ``path``.
+        """Write a raster checkpoint to ``path`` atomically.
+
+        Serializes to a temp file in the DESTINATION directory (so the rename
+        stays on one filesystem), fsyncs it, then renames it into place. A run
+        writes a single rolling artifact, and ``torch.save`` truncates its target
+        the moment it opens it — so a failure part-way through a direct write
+        (preemption, OOM, full disk) would destroy the previous good checkpoint
+        rather than merely fail to replace it.
 
         Args:
             path: Destination file path.
         """
-        torch.save(self.checkpoint_state(), path)
+        atomic_torch_save(self.checkpoint_state(), path)

@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 // A radial "windrose" for the two 16-sector perception features (food density,
 // danger map). Each sector is a wedge whose radius/brightness encodes its value.
 //
@@ -52,7 +54,7 @@ function wedgePath(s: number, n: number, ri: number, ro: number): string {
   );
 }
 
-export default function SectorRadar({
+function SectorRadar({
   values,
   color,
   label,
@@ -118,7 +120,9 @@ export default function SectorRadar({
             </path>
           );
         })}
-        {/* nearest-point-of-interest marker on the rim */}
+        {/* nearest-point-of-interest marker on the rim. Color routes through a
+            CSS variable so the light theme can darken the amber (the old
+            hardcoded #ffe28c is near-invisible on white). */}
         {markVec && (
           <g>
             <line
@@ -126,19 +130,38 @@ export default function SectorRadar({
               y1={markVec[1] * (ri + 1)}
               x2={markVec[0] * ro}
               y2={markVec[1] * ro}
-              stroke="#ffe28c"
+              style={{ stroke: "var(--viz-amber, #ffe28c)" }}
               strokeWidth={1}
               strokeDasharray="2 2"
               opacity={0.8}
             />
-            <circle cx={markVec[0] * ro} cy={markVec[1] * ro} r={2.4} fill="#ffe28c" />
+            <circle
+              cx={markVec[0] * ro}
+              cy={markVec[1] * ro}
+              r={2.4}
+              style={{ fill: "var(--viz-amber, #ffe28c)" }}
+            />
           </g>
         )}
-        {/* heading arrow at the hub */}
+        {/* heading arrow at the hub — theme text color, not hardcoded near-white
+            (which vanished on the light theme's white panel). */}
         {headVec && (
           <g className="radar-head">
-            <line x1="0" y1="0" x2={headVec[0] * ri * 1.7} y2={headVec[1] * ri * 1.7} stroke="#e6edf6" strokeWidth={1.6} strokeLinecap="round" />
-            <circle cx={headVec[0] * ri * 1.7} cy={headVec[1] * ri * 1.7} r={1.8} fill="#e6edf6" />
+            <line
+              x1="0"
+              y1="0"
+              x2={headVec[0] * ri * 1.7}
+              y2={headVec[1] * ri * 1.7}
+              style={{ stroke: "var(--text, #e6edf6)" }}
+              strokeWidth={1.6}
+              strokeLinecap="round"
+            />
+            <circle
+              cx={headVec[0] * ri * 1.7}
+              cy={headVec[1] * ri * 1.7}
+              r={1.8}
+              style={{ fill: "var(--text, #e6edf6)" }}
+            />
           </g>
         )}
         <circle cx="0" cy="0" r={ri * 0.6} className="radar-hub" />
@@ -152,3 +175,5 @@ export default function SectorRadar({
     </div>
   );
 }
+
+export default memo(SectorRadar);

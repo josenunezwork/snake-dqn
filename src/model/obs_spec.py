@@ -18,7 +18,6 @@ Two specs exist today:
 
 The :class:`RasterObsShapes` descriptor records the exact channel/size numbers
 so a checkpoint can rebuild a correctly-sized raster network without a config.
-The trainer records these under :data:`RASTER_SHAPE_KEYS`.
 """
 
 from __future__ import annotations
@@ -33,7 +32,6 @@ __all__ = [
     "KNOWN_OBS_SPECS",
     "RasterObsShapes",
     "RASTER31V2_SHAPES",
-    "RASTER_SHAPE_KEYS",
 ]
 
 # -- metadata key ----------------------------------------------------------
@@ -118,12 +116,3 @@ class RasterObsShapes:
 
 #: Canonical ``raster31v2`` shapes (blueprint §2 / featurizer geometry).
 RASTER31V2_SHAPES = RasterObsShapes()
-
-#: Flat metadata keys that carry the raster shape descriptor.
-RASTER_SHAPE_KEYS = (
-    "tactical_channels",
-    "tactical_size",
-    "strategic_channels",
-    "strategic_size",
-    "scalars",
-)

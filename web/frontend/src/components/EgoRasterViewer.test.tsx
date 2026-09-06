@@ -124,6 +124,54 @@ describe("EgoRasterViewer", () => {
     expect(queryByRole("tab")).toBeNull();
   });
 
+  it("renders the 6-bit action mask with illegal actions struck out", () => {
+    const { getByLabelText, container } = render(
+      <EgoRasterViewer raster={sampleRaster()} obsSpec="raster31v2" />
+    );
+    // fixture mask: [true, true, true, false, false, false]
+    expect(getByLabelText("L: legal")).toBeTruthy();
+    expect(getByLabelText("B-L: masked")).toBeTruthy();
+    expect(container.querySelectorAll("[aria-label='Legal actions'] > *").length).toBe(6);
+  });
+
+  it("renders one strategic plane canvas per served density plane", () => {
+    const size = 3;
+    const plane = Array.from({ length: size }, () => Array.from({ length: size }, () => 128));
+    const raster = { ...sampleRaster(), strategic: [plane, plane, plane], strategic_size: size };
+    const { getByLabelText } = render(<EgoRasterViewer raster={raster} obsSpec="raster31v2" />);
+    expect(getByLabelText("Strategic plane Enemy Mass Density")).toBeTruthy();
+    expect(getByLabelText("Strategic plane Food Mass Density")).toBeTruthy();
+    expect(getByLabelText("Strategic plane Own Body Density")).toBeTruthy();
+  });
+
+  it("omits the strategic card when no planes are served", () => {
+    const { queryByText } = render(
+      <EgoRasterViewer raster={sampleRaster()} obsSpec="raster31v2" />
+    );
+    expect(queryByText(/density planes/)).toBeNull();
+  });
+
+  it("labels the 26 scalars with the featurizer group names", () => {
+    const { getByText } = render(
+      <EgoRasterViewer raster={sampleRaster()} obsSpec="raster31v2" />
+    );
+    expect(getByText("Scalars (26-D)")).toBeTruthy();
+    expect(getByText("Mass rank percentile")).toBeTruthy();
+    expect(getByText("Nearest food ego (dx/dy/dist)")).toBeTruthy();
+  });
+
+  it("prefers scalar group labels served in the payload over the local fallback", () => {
+    const raster = {
+      ...sampleRaster(),
+      scalar_groups: [{ name: "Served label", start: 0, end: 2 }],
+    } as ReturnType<typeof sampleRaster>;
+    const { getByText, queryByText } = render(
+      <EgoRasterViewer raster={raster} obsSpec="raster31v2" />
+    );
+    expect(getByText("Served label")).toBeTruthy();
+    expect(queryByText("Mass rank percentile")).toBeNull();
+  });
+
   it("annotates the ahead axis only when labels are enabled", () => {
     const withLabels = render(
       <EgoRasterViewer raster={sampleRaster()} obsSpec="raster31v2" labels />

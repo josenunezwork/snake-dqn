@@ -12,9 +12,11 @@ import torch
 
 pytest.importorskip("fastapi")
 
-from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES  # noqa: E402
+from src.model.obs_spec import (OBS_SPEC_KEY, RASTER31V2,  # noqa: E402
+                                RASTER31V2_SHAPES)
 from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
-from web.backend.session import MODE_TRAIN, MODE_WATCH, GameSession  # noqa: E402
+from web.backend.session import (MODE_TRAIN, MODE_WATCH,  # noqa: E402
+                                 GameSession)
 
 CPU = torch.device("cpu")
 
@@ -73,22 +75,28 @@ class TestRasterSession:
         sess = GameSession(checkpoint=raster_ckpt)
         heads_before = [tuple(s.head) for s in sess.game.snakes]
         alive_before = sum(1 for s in sess.game.snakes if s.is_alive)
+        # Sampled every frame rather than at the endpoint alone: an untrained net
+        # often emits a constant turn, tracing a closed 4-frame loop that returns
+        # every head to its start on each frame divisible by 4 (20 included).
+        moved = 0
         for _ in range(20):
             sess.step()  # must never raise
+            heads_now = [tuple(s.head) for s in sess.game.snakes]
+            moved = max(moved, sum(1 for a, b in zip(heads_before, heads_now) if a != b))
         assert sess.game.frame == 20
-        heads_after = [tuple(s.head) for s in sess.game.snakes]
         alive_after = sum(1 for s in sess.game.snakes if s.is_alive)
         # The raster policy actually drove the world: snakes moved and/or died
         # (an untrained net crashes most snakes fast — either way it acted).
-        moved = sum(1 for a, b in zip(heads_before, heads_after) if a != b)
         assert moved > 0 or alive_after < alive_before
 
     def test_train_mode_falls_back_to_watch(self, raster_ckpt):
-        """Raster checkpoints have no online-training path; train -> watch."""
+        """Raster checkpoints have no online-training path; train -> watch, loudly."""
         sess = GameSession(checkpoint=raster_ckpt)
         sess.set_mode(MODE_TRAIN)
         assert sess.mode == MODE_WATCH
-        assert sess.last_error is None
+        # The refusal must be loud (surfaced to the client), not a silent no-op.
+        assert sess.last_error is not None
+        assert "train" in sess.last_error.lower()
         assert sess.obs_spec == RASTER31V2
 
     def test_reset_clears_cache_and_keeps_stepping(self, raster_ckpt):
@@ -138,6 +146,37 @@ class TestRasterFrame:
         assert isinstance(frame["mechanics_version"], int)
         assert frame["session"]["obs_spec"] == RASTER31V2
 
+    def test_frame_protocol_fields(self, raster_ckpt):
+        """Every frame carries the protocol contract fields (protocol v2)."""
+        sess = GameSession(checkpoint=raster_ckpt)
+        sess.step()
+        frame = sess.snapshot()
+        assert frame["protocol_version"] == 2
+        assert frame["checkpoint_name"] == "raster.pth"
+        assert frame["architecture"] == "Raster Dueling (raster31v2)"
+        assert frame["paused"] is False
+        # Sessions without the app's viewer counter degrade to 0.
+        assert frame["viewer_count"] == 0
+        sess.viewer_count = 3
+        sess.set_playing(False)
+        frame = sess.snapshot()
+        assert frame["viewer_count"] == 3
+        assert frame["paused"] is True
+
+    def test_raster_block_gated_on_subscribers(self, raster_ckpt):
+        """hero_raster ships only while a client has the Raster tab open.
+
+        A session without the counter attr degrades to always-on (getattr
+        default 1), so serialize.py never depends on app.py's half.
+        """
+        sess = GameSession(checkpoint=raster_ckpt)
+        sess.step()
+        assert sess.snapshot()["hero_raster"] is not None  # no attr -> default on
+        sess.raster_subscribers = 0
+        assert sess.snapshot()["hero_raster"] is None
+        sess.raster_subscribers = 2
+        assert sess.snapshot()["hero_raster"] is not None
+
     def test_frame_exposes_hero_raster_planes(self, raster_ckpt):
         sess = GameSession(checkpoint=raster_ckpt)
         for _ in range(3):
@@ -181,6 +220,67 @@ class TestRasterFrame:
         assert len(nv["output"]) == 6
         assert nv["hidden_count"] > 0
         assert nv["summary"]["status"] == "READY"
+        # Honest architecture label + input-band caption: the raster net is not
+        # "APEX DQN" and the 26 scalars are not its whole input.
+        assert nv["summary"]["architecture"] == "Raster Dueling (raster31v2)"
+        assert nv["input_label"] == "Scalars (26 of raster input)"
+
+    def test_inspector_reports_executed_action(self, raster_ckpt):
+        """The inspector carries the action the hero actually took (post-mask).
+
+        ``chosen`` stays the raw greedy argmax; ``executed_action`` is
+        hero.last_action — the safety-masked/explored action that moved the
+        snake on screen.
+        """
+        sess = GameSession(checkpoint=raster_ckpt)
+        for _ in range(3):
+            sess.step()
+        hero = next(s for s in sess.game.snakes if s.id == sess.hero_id)
+        insp = sess.snapshot()["inspector"]
+        if insp is None:  # hero died in the warmup steps: nothing to assert
+            pytest.skip("hero died during warmup")
+        assert insp["executed_action"] == hero.last_action
+        assert insp["executed_action"] is not None
+        assert 0 <= insp["executed_action"] < 6
+
+    def test_inspector_groups_label_the_raster_scalar_contract(self, raster_ckpt):
+        """Raster group labels describe the scalars actually served, not vector58.
+
+        The inspector's ``input`` band for a raster hero is the 26-D featurizer
+        scalar vector, so it must be labeled from that contract. Labeling it with
+        the hand-crafted vector layout captions real values with wrong semantics
+        (e.g. length/log-length rendered as "Direction (one-hot)").
+        """
+        from src.simd_env.featurizer import SCALARS_DIM
+
+        sess = GameSession(checkpoint=raster_ckpt)
+        for _ in range(3):
+            sess.step()
+        insp = sess.snapshot()["inspector"]
+        groups = insp["groups"]
+
+        # Every label captions values that exist: no group may index off the end.
+        assert all(g["end"] <= insp["input_size"] for g in groups)
+        # The groups tile the scalar vector exactly: no gaps, no overlap, and the
+        # tail lands on SCALARS_DIM. Imported (not hardcoded) so a featurizer
+        # scalar-contract change fails loudly here instead of silently
+        # desynchronizing the labels again.
+        assert insp["input_size"] == SCALARS_DIM
+        assert [g["start"] for g in groups] == [0] + [g["end"] for g in groups[:-1]]
+        assert groups[-1]["end"] == SCALARS_DIM
+        # Labels come from the raster contract, not the vector one.
+        names = [g["name"] for g in groups]
+        assert "Direction (one-hot)" not in names
+        assert "Food density (16 sectors)" not in names
+        assert any("Wall dist" in n for n in names)
+        assert any("Mass rank" in n for n in names)
+        # The frontend picks its food/danger sector radars by width==16 + name.
+        # Those are vector-only semantics; no raster group may trip that match.
+        assert not any(
+            g["end"] - g["start"] == 16
+            and ("food" in g["name"].lower() or "danger" in g["name"].lower())
+            for g in groups
+        )
 
     def test_hero_raster_matches_featurizer(self, raster_ckpt):
         """The served hero raster equals the shared featurizer's output (E=1).
@@ -226,10 +326,22 @@ class TestVectorPathUnchanged:
         assert frame["obs_spec"] == "vector61"
         assert frame["hero_raster"] is None
         assert frame["session"]["obs_spec"] == "vector61"
+        # Honest architecture labels on the vector path too.
+        assert frame["architecture"] == "Apex DQN (vector61)"
+        assert frame["netviz"]["summary"]["architecture"] == "Apex DQN (vector61)"
+        assert frame["netviz"]["input_label"] == "Input (state)"
+        # Executed action is serialized alongside the greedy argmax.
+        assert "executed_action" in frame["inspector"]
         # Vector inspector remains 61-D with the free-space tail.
         assert frame["inspector"]["input_size"] == 61
         assert frame["inspector"]["free_space"] is not None
         assert len(frame["inspector"]["q_values"]) == 6
+        # Vector labels are untouched by the raster grouping path, and satisfy
+        # the same "a label never captions values that do not exist" invariant.
+        groups = frame["inspector"]["groups"]
+        assert groups[0]["name"] == "Direction (one-hot)"
+        assert groups[-1] == {"name": "Free-space (L/S/R)", "start": 58, "end": 61}
+        assert all(g["end"] <= frame["inspector"]["input_size"] for g in groups)
 
 
 # ---------------------------------------------------------------------------

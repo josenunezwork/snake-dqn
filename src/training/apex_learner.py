@@ -33,7 +33,6 @@ from .action_mask import summarize_next_action_quality
 from .apex_buffer import LearnerBufferClient, LocalApexBuffer
 from .base_buffer import BatchDict
 from .checkpoint_contract import validate_checkpoint_contract
-from .metrics_tracker import MetricsTracker
 from .td_targets import double_dqn_next_q, n_step_td_target
 from .tensorboard_logger import TensorBoardLogger
 
@@ -129,7 +128,6 @@ class ApexLearner:
         config: ApexLearnerConfig,
         buffer_client: Optional[BufferClient] = None,
         tensorboard_logger: Optional[TensorBoardLogger] = None,
-        metrics_tracker: Optional[MetricsTracker] = None,
         device: Optional[torch.device] = None,
     ):
         """Initialize Ape-X Learner.
@@ -141,7 +139,6 @@ class ApexLearner:
                           LocalApexBuffer (local). Creates LocalApexBuffer
                           if None.
             tensorboard_logger: Optional TensorBoard logger
-            metrics_tracker: Optional metrics tracker
             device: Device to run on (auto-detects if None)
         """
         self.config = config
@@ -199,7 +196,6 @@ class ApexLearner:
 
         # Logging
         self.tb_logger = tensorboard_logger
-        self.metrics_tracker = metrics_tracker
 
         # Metrics tracking
         self._recent_losses: deque = deque(maxlen=100)
@@ -460,28 +456,13 @@ class ApexLearner:
             "mean_td_error": td_errors.mean().item(),
             "max_td_error": td_errors.max().item(),
             "step": self.step_count,
-            "buffer_size": self._get_buffer_size(),
+            "buffer_size": buffer_size,
         }
         metrics.update(next_action_quality)
 
         # Log to TensorBoard
         if self.tb_logger and self.step_count % self.config.log_interval == 0:
             self._log_training_metrics(metrics, current_q)
-
-        # Log to metrics tracker
-        if self.metrics_tracker:
-            self.metrics_tracker.record("loss", loss_value, self.step_count)
-            self.metrics_tracker.record("mean_q_value", metrics["mean_q_value"], self.step_count)
-            self.metrics_tracker.record(
-                "valid_next_action_fraction",
-                metrics["valid_next_action_fraction"],
-                self.step_count,
-            )
-            self.metrics_tracker.record(
-                "exact_next_action_mask_fraction",
-                metrics["exact_next_action_mask_fraction"],
-                self.step_count,
-            )
 
         return metrics
 
@@ -666,13 +647,15 @@ class ApexLearner:
         )
 
         # Wait for buffer to fill
-        while self._get_buffer_size() < self.config.min_buffer_size:
+        buffer_size = self._get_buffer_size()
+        while buffer_size < self.config.min_buffer_size:
             print(
                 f"\r[ApexLearner] Waiting for buffer: "
-                f"{self._get_buffer_size():,}/{self.config.min_buffer_size:,}",
+                f"{buffer_size:,}/{self.config.min_buffer_size:,}",
                 end="",
             )
             time.sleep(1.0)
+            buffer_size = self._get_buffer_size()
         print()
 
         self._training_start_time = time.time()
@@ -776,13 +759,10 @@ def create_apex_learner(
     if log_dir:
         tb_logger = TensorBoardLogger(log_dir=log_dir, comment="apex_learner")
 
-    metrics_tracker = MetricsTracker()
-
     return ApexLearner(
         config=config,
         buffer_client=buffer_client,
         tensorboard_logger=tb_logger,
-        metrics_tracker=metrics_tracker,
     )
 
 

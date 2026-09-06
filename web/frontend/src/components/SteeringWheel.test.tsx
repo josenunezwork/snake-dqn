@@ -23,6 +23,33 @@ describe("SteeringWheel", () => {
     expect(glowing[0].querySelector("title")?.textContent).toBe("Right: 30.00");
   });
 
+  it("marks the greedy pick separately when it differs from the action taken", () => {
+    const q = [10, 20, 30, 5, 6, 7];
+    // action taken = 0 (exploration), greedy argmax = 2
+    const { container, getByText } = render(
+      <SteeringWheel q={q} chosen={0} greedy={2} labels={LABELS} />
+    );
+    const dashed = [...container.querySelectorAll("path")].filter((p) =>
+      p.getAttribute("stroke-dasharray")
+    );
+    expect(dashed.length).toBe(1);
+    expect(dashed[0].querySelector("title")?.textContent).toContain("greedy pick");
+    expect(getByText(/greedy pick: Right/)).toBeInTheDocument();
+    // the glowing wedge is still the action taken
+    const glowing = [...container.querySelectorAll("path")].filter((p) => p.getAttribute("filter"));
+    expect(glowing[0].querySelector("title")?.textContent).toContain("Left");
+  });
+
+  it("adds no greedy annotations when greedy matches or is absent", () => {
+    const { container } = render(
+      <SteeringWheel q={[9, 1, 1, 1, 1, 1]} chosen={0} greedy={0} labels={LABELS} />
+    );
+    expect(
+      [...container.querySelectorAll("path")].filter((p) => p.getAttribute("stroke-dasharray"))
+        .length
+    ).toBe(0);
+  });
+
   it("places the chosen wedge on the side matching its direction", () => {
     // chosen = Left (dir 0) should render to the left (avg x < 0)
     const { container } = render(

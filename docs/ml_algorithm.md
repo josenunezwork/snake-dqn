@@ -4,7 +4,7 @@ This document describes the reinforcement-learning algorithm the project uses,
 how it is implemented, and the design decisions behind it. It is a *design*
 reference — no training is required to read or use anything here. For running
 trained models see [`InferenceAgent`](../src/model/inference_agent.py); for the
-state-vector layout see [CLAUDE.md](../CLAUDE.md).
+state-vector layout see [`SnakeStateMixin.get_state`](../src/game/snake_state.py).
 
 **Scope.** This document covers the **Apex vector stack**: `ApexNetwork` +
 the 58/61-D hand-crafted state. That stack is no longer the whole codebase —
@@ -110,7 +110,7 @@ Two selectable encodings (config `use_free_space`):
 - **58-D** hand-crafted egocentric vector — direction one-hot, normalized length,
   food direction/distance/density sectors, danger sectors, wall distances,
   two-nearest-enemy features, kill-opportunity, per-action danger, boost-available.
-  Full table in [CLAUDE.md](../CLAUDE.md).
+  Feature construction and ordering live in [`SnakeStateMixin.get_state`](../src/game/snake_state.py).
 - **61-D** = 58-D **+ 3 "don't-trap-yourself" free-space features**. These count
   reachable open space after a left / straight / right turn (a cheap flood-fill
   proxy), which directly attacks the dominant failure mode of the 58-D model:

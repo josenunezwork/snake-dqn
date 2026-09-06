@@ -8,11 +8,13 @@ and RNG spawn parity vs the live ``GameLogic.find_empty_position``.
 All tests use tiny arenas / few frames to stay fast and hand-checkable.
 """
 
+import copy
 import random
 
 import numpy as np
 import pytest
 
+from src.core.mechanics_constants import cell_index
 from src.core.reward_events import RewardEvents, compute_reward_v2
 from src.simd_env import DEATH_BODY, DEATH_HEAD, BatchSim, BatchSimConfig
 from src.simd_env.rng import EnvRng
@@ -272,8 +274,10 @@ def test_boost_no_trail_at_v1():
 def _brute_fatality(sim, e, sidx):
     """Independent brute-force 6-bit safe mask for one snake.
 
-    Recomputes fatality from scratch using the same rules: wall (pixel bounds),
-    self (own segments[3:]), other snakes' full bodies (head+body).
+    Recomputes fatality from scratch using the same rules, all judged against the
+    world the candidate head actually ARRIVES in (the frame's moves applied):
+    wall (pixel bounds), self (simulated post-move segments[3:]), other snakes'
+    head+body with each vacating tail dropped.
     """
     from src.simd_env.batch_sim import CARDINAL
 
@@ -281,15 +285,34 @@ def _brute_fatality(sim, e, sidx):
     W, H = sim.cfg.game_width, sim.cfg.game_height
     head = tuple(int(x) for x in sim.get_heads()[e, sidx])
     cur_dir = int(sim.get_directions()[e, sidx])
-    own = set(sim._snake_body_cells(e, sidx, start=3))
+    own_cells = sim._snake_body_cells(e, sidx, start=0)
+    length = int(sim.get_lengths()[e, sidx])
+    boost_frames = int(sim.get_boost_frames()[e, sidx])
     others = set()
     for j in range(sim.S):
         if j == sidx or not sim.get_alive()[e, j]:
             continue
-        others |= set(sim._snake_body_cells(e, j, start=0))
-    can_boost = int(sim.get_lengths()[e, sidx]) >= sim.cfg.min_boost_length
+        oc = sim._snake_body_cells(e, j, start=0)
+        if len(oc) >= 2 and len(oc) >= int(sim.get_lengths()[e, j]):
+            oc = oc[:-1]  # tail vacates this frame
+        others |= set(oc)
+    can_boost = length >= sim.cfg.min_boost_length
 
-    def fatal(cells):
+    def own_after(heads, is_boost):
+        segs = list(own_cells)
+        limit = length
+        for h in heads:
+            segs.insert(0, h)
+            if len(segs) > limit:
+                segs.pop()
+        if is_boost and boost_frames + 1 >= sim.cfg.boost_length_cost_frames:
+            limit = max(1, limit - 1)
+            if len(segs) > limit:
+                segs.pop()
+        return set(segs[3:])
+
+    def fatal(cells, is_boost=False):
+        own = own_after(cells, is_boost)
         for cx, cy in cells:
             x, y = cx * s, cy * s
             if x < 0 or x >= W or y < 0 or y >= H:
@@ -308,7 +331,7 @@ def _brute_fatality(sim, e, sidx):
             mask[rel] = True
             if can_boost:
                 s2 = (s1[0] + int(dv[0]), s1[1] + int(dv[1]))
-                if not fatal([s1, s2]):
+                if not fatal([s1, s2], is_boost=True):
                     mask[rel + 3] = True
     return mask
 
@@ -339,6 +362,186 @@ def test_mask_matches_bruteforce_near_wall_and_body():
     m = sim.get_action_mask()[0, 0]
     b = _brute_fatality(sim, 0, 0)
     assert list(m) == b
+
+
+def test_mask_allows_following_own_tail():
+    """The mask must not forbid a move its own collision detector calls safe.
+
+    Coiled snake, head->tail [(5,5),(5,6),(6,6),(6,5)], heading UP. Turning right
+    lands on (6,5) -- its own TAIL, which vacates on this very move. Judging the
+    candidate head against the PRE-move body marks this fatal, while
+    ``_resolve_env`` (which resolves after ``_move_all``) scores it as safe: the
+    sim would contradict itself, and the mask would forbid the classic tail-chase
+    the live serve path allows.
+    """
+    cfg = _small_cfg(num_snakes=1, initial_food=0, max_food=0)
+    sim = BatchSim(cfg, seeds=[0], train_mode=True)
+    _clear_food(sim)
+    _place_snake(sim, 0, 0, [(5, 5), (5, 6), (6, 6), (6, 5)], direction=0, length=4)
+
+    mask = sim._compute_action_masks()
+    assert bool(mask[0, 0, 2]) is True
+    assert list(mask[0, 0]) == _brute_fatality(sim, 0, 0)
+
+    # The detector must agree with the mask: taking it survives.
+    sim.step(np.array([[2]], dtype=np.int64))
+    assert bool(sim.get_alive()[0, 0]) is True
+    assert sim.get_bodies(0, 0)[0] == (6, 5)
+
+
+def test_mask_forbids_own_tail_that_does_not_vacate():
+    """The tail only vacates once the body has filled out to ``length``.
+
+    Same coiled shape, but mid fill-in after eating (4 segments, length 5), so
+    nothing pops and (6,5) is still occupied when the head arrives. This pins the
+    ``len(segments) > length`` pop rule -- a fix that always dropped the tail
+    would wrongly call this safe.
+    """
+    cfg = _small_cfg(num_snakes=1, initial_food=0, max_food=0)
+    sim = BatchSim(cfg, seeds=[0], train_mode=True)
+    _clear_food(sim)
+    _place_snake(sim, 0, 0, [(5, 5), (5, 6), (6, 6), (6, 5)], direction=0, length=5)
+
+    mask = sim._compute_action_masks()
+    assert bool(mask[0, 0, 2]) is False
+    assert list(mask[0, 0]) == _brute_fatality(sim, 0, 0)
+
+    sim.step(np.array([[2]], dtype=np.int64))
+    assert bool(sim.get_alive()[0, 0]) is False
+
+
+def test_mask_allows_following_another_snakes_vacating_tail():
+    """Another snake's vacating tail is not an obstacle either.
+
+    Snake 0 heads right at (4,5); snake 1's tail (5,5) vacates as it moves, so
+    stepping onto it is safe -- the live ``_segments_collide_after_move`` drops
+    each other snake's vacating tail while still treating its head as fatal.
+    """
+    cfg = _small_cfg(num_snakes=2, initial_food=0, max_food=0)
+    sim = BatchSim(cfg, seeds=[0], train_mode=True)
+    _clear_food(sim)
+    _place_snake(sim, 0, 0, [(4, 5), (3, 5), (2, 5)], direction=1, length=3)
+    _place_snake(sim, 0, 1, [(7, 5), (6, 5), (5, 5)], direction=1, length=3)
+
+    mask = sim._compute_action_masks()
+    assert bool(mask[0, 0, 1]) is True
+    assert list(mask[0, 0]) == _brute_fatality(sim, 0, 0)
+
+    sim.step(np.array([[1, 1]], dtype=np.int64))
+    assert bool(sim.get_alive()[0, 0]) is True
+
+
+# ===========================================================================
+# Respawn (non-train mode) -- the branch run_simd_eval actually ships
+# ===========================================================================
+def _kill_into_wall(sim, e=0, sidx=0, length=3):
+    """Drive a snake head-first out through the left wall, leaving it dead."""
+    _place_snake(sim, e, sidx, [(1, 5), (2, 5), (3, 5)], direction=3, length=length)
+    sim.step(np.array([[1] * sim.S], dtype=np.int64))  # (1,5) -> (0,5): still in
+    assert bool(sim.get_alive()[e, sidx])
+    sim.step(np.array([[1] * sim.S], dtype=np.int64))  # (0,5) -> (-1,5): wall
+    assert not bool(sim.get_alive()[e, sidx])
+
+
+def test_allow_respawn_defaults_to_not_train_mode():
+    """The two knobs stay independent, but the default still mirrors the live one.
+
+    ``GameState.update`` takes train_mode and allow_respawn separately and
+    defaults the latter to ``not train_mode``; BatchSim must not fuse them, or it
+    cannot express the live gate's ``train_mode=True, allow_respawn=True`` pair.
+    """
+    cfg = _small_cfg(num_snakes=1, initial_food=0, max_food=0)
+    assert BatchSim(cfg, seeds=[0], train_mode=True).allow_respawn is False
+    assert BatchSim(cfg, seeds=[0], train_mode=False).allow_respawn is True
+    gate = BatchSim(cfg, seeds=[0], train_mode=True, allow_respawn=True)
+    assert gate.train_mode is True and gate.allow_respawn is True
+    assert BatchSim(cfg, seeds=[0], train_mode=False, allow_respawn=False).allow_respawn is False
+
+
+@pytest.mark.parametrize("frame_rate", [1, 2, 5])
+def test_respawn_timer_honours_configured_frame_rate(frame_rate):
+    """A dead snake stays dead for exactly ``frame_rate`` frames, then returns.
+
+    Mirrors the live ``Snake.die()`` -> ``respawn_timer = GameConfig.FRAME_RATE``
+    then one decrement per frame. Hardcoding the timer made simd opponents come
+    back ~50x faster than the live gate's on any config with frame_rate != 1.
+    """
+    cfg = _small_cfg(num_snakes=1, initial_food=0, max_food=0, frame_rate=frame_rate)
+    sim = BatchSim(cfg, seeds=[0], train_mode=False)
+    _clear_food(sim)
+    _kill_into_wall(sim)
+    assert int(sim.respawn_timer[0, 0]) == frame_rate
+
+    dead_frames = 0
+    for _ in range(frame_rate + 5):
+        if bool(sim.get_alive()[0, 0]):
+            break
+        sim.step(np.array([[1]], dtype=np.int64))
+        if not bool(sim.get_alive()[0, 0]):
+            dead_frames += 1
+    assert bool(sim.get_alive()[0, 0]) is True
+    # Death frame itself + (frame_rate - 1) further dead frames; the frame that
+    # drives the timer to zero respawns within that same frame.
+    assert dead_frames == frame_rate - 1
+
+
+def test_respawn_snake_moves_on_the_frame_it_respawns():
+    """Respawn precedes the move, so the snake is not frozen for an extra frame.
+
+    The live game respawns at step 4 and moves at step 6 of the SAME frame. A
+    respawn applied at the end of the step instead would cost the snake a frame.
+    """
+    cfg = _small_cfg(num_snakes=1, initial_food=0, max_food=0, frame_rate=1)
+    sim = BatchSim(cfg, seeds=[0], train_mode=False)
+    _clear_food(sim)
+    _kill_into_wall(sim)
+
+    # Predict the cell the respawn will draw by replaying the env RNG on a clone
+    # (no food is configured, so respawn is the only draw this frame). Comparing
+    # the head against drawn+1 rather than against itself is what distinguishes
+    # "respawned then moved" from "respawned at the end of the step".
+    drawn = cell_index(
+        copy.deepcopy(sim._rngs[0]).find_empty_position(sim._all_snake_cells(0)), sim.s
+    )
+
+    sim.step(np.array([[1]], dtype=np.int64))  # timer 1 -> 0 -> respawn -> move
+    assert bool(sim.get_alive()[0, 0]) is True
+    assert int(sim.direction[0, 0]) == 1
+    assert int(sim.length[0, 0]) == 1
+    assert int(sim.respawn_timer[0, 0]) == 0
+    assert tuple(sim.get_heads()[0, 0]) == (drawn[0] + 1, drawn[1])
+
+
+def test_respawn_does_not_fire_in_train_mode():
+    """Deaths stay terminal when respawn is off, whatever the timer says."""
+    cfg = _small_cfg(num_snakes=1, initial_food=0, max_food=0, frame_rate=1)
+    sim = BatchSim(cfg, seeds=[0], train_mode=True)
+    _clear_food(sim)
+    _kill_into_wall(sim)
+    for _ in range(10):
+        sim.step(np.array([[1]], dtype=np.int64))
+    assert bool(sim.get_alive()[0, 0]) is False
+
+
+def test_respawn_resets_reward_baseline_before_the_frames_reward():
+    """A respawned snake's first reward uses the fresh Phi(1) baseline.
+
+    ``respawn()`` sets ``_reward_prev_length = 1`` at step 4, and the live step-9
+    reward reads that. Respawning after the baseline snapshot would price the
+    frame against the snake's pre-death length.
+    """
+    cfg = _small_cfg(num_snakes=1, initial_food=0, max_food=0, frame_rate=1)
+    sim = BatchSim(cfg, seeds=[0], train_mode=False)
+    _clear_food(sim)
+    _kill_into_wall(sim, length=9)  # dies while its reward baseline reads 9
+
+    sim.step(np.array([[1]], dtype=np.int64))  # respawn frame
+    assert bool(sim.get_alive()[0, 0])
+    assert int(sim._reward_prev_length[0, 0]) == 1
+    expected, _ = compute_reward_v2(
+        RewardEvents(prev_length=1.0, new_length=1.0, died=False, gamma=cfg.gamma, kills=())
+    )
+    assert sim.get_reward()[0, 0] == pytest.approx(expected)
 
 
 # ===========================================================================

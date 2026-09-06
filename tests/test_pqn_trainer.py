@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import torch
 
 from src.model.raster_network import (
@@ -17,7 +18,13 @@ from src.training.pqn_selfplay import (
     assign_policy_ids,
     batched_act,
 )
-from src.training.pqn_trainer import PQNConfig, PQNTrainer, TripwireError, flip_augment
+from src.training.pqn_trainer import (
+    PQNConfig,
+    PQNTelemetry,
+    PQNTrainer,
+    TripwireError,
+    flip_augment,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -44,28 +51,26 @@ def _zeros_obs(T, E, S):
     }
 
 
-def _patch_boot(trainer, boot_values):
-    """Force the network's masked-max Q(s') to a known constant per step.
+def _patch_boot(trainer, roll, boot_values):
+    """Force the masked-max Q(s') ``_compute_targets`` sees to a known constant.
 
-    We monkeypatch the trainer's network forward so ``_compute_targets`` sees a
-    deterministic bootstrap. ``boot_values`` is a list length T of the intended
-    masked-max value; the net returns that value in EVERY (valid) action slot so
-    the masked-max equals it.
+    ``boot_values[t]`` is the intended masked-max for step t. Step t's bootstrap
+    is Q(s_{t+1}): for t < T-1 that is the rollout's stored hero Q of step t+1,
+    and for t == T-1 it is the lone forward on ``final_obs``. Setting the value
+    in EVERY action slot makes the masked-max equal it.
     """
-    call = {"i": 0}
-    # _compute_targets calls network(...) once per step t (t=0..T-1) in order.
-    orig = trainer.network
+    T = len(boot_values)
+    E, S = roll["rewards"].shape[1:]
+    hero_q = torch.zeros((T, E, S, 6))
+    for t in range(T - 1):
+        hero_q[t + 1] = float(boot_values[t])
+    roll["hero_q"] = hero_q
+    final_val = float(boot_values[T - 1])
 
     def fake_forward(tac, strat, scal):
-        # returns (N, 6) constant = boot_values[i]
-        n = tac.shape[0]
-        i = call["i"]
-        call["i"] += 1
-        val = boot_values[i]
-        return torch.full((n, 6), float(val))
+        return torch.full((tac.shape[0], 6), final_val)
 
     trainer.network = type("Fake", (), {"__call__": staticmethod(fake_forward)})()
-    return orig
 
 
 def test_qlambda_death_is_reward_only():
@@ -87,7 +92,7 @@ def test_qlambda_death_is_reward_only():
             "scalars": torch.zeros((E, S, SCALARS_DIM)),
         },
     }
-    _patch_boot(tr, [0.0, 0.0, 0.0])
+    _patch_boot(tr, roll, [0.0, 0.0, 0.0])
     targets = tr._compute_targets(roll)
     # Step 2 dies -> G = r = 5.0
     assert targets[2, 0, 0].item() == 5.0
@@ -113,7 +118,7 @@ def test_qlambda_trapped_bootstraps_to_death_value():
             "scalars": torch.zeros((E, S, SCALARS_DIM)),
         },
     }
-    _patch_boot(tr, [3.0, 3.0, 3.0])
+    _patch_boot(tr, roll, [3.0, 3.0, 3.0])
     targets = tr._compute_targets(roll)
     # Step 0 trapped -> G = r + gamma * death_value = 1 + 0.9 * (-7) = -5.3
     assert abs(targets[0, 0, 0].item() - (1.0 + 0.9 * -7.0)) < 1e-5
@@ -139,7 +144,7 @@ def test_qlambda_truncation_bootstraps_masked_max():
         },
     }
     boot = 4.0
-    _patch_boot(tr, [boot, boot, boot])
+    _patch_boot(tr, roll, [boot, boot, boot])
     targets = tr._compute_targets(roll)
     # Last step is truncation: next_G == boot, so
     # G = r + gamma*((1-lam)*boot + lam*boot) = r + gamma*boot.
@@ -171,6 +176,9 @@ def test_qlambda_masked_max_ignores_invalid_actions():
         "trapped": np.zeros((T, E, S), dtype=bool),
         "valid": np.ones((T, E, S), dtype=bool),
         "next_mask": mask,
+        # T==1: the only step is the rollout edge, so its bootstrap comes from
+        # the final-obs forward and no stored Q is read.
+        "hero_q": torch.zeros((T, E, S, 6)),
         "final_obs": {
             "tactical": torch.zeros((E, S, *TACTICAL_SHAPE)),
             "strategic": torch.zeros((E, S, *STRATEGIC_SHAPE)),
@@ -202,7 +210,7 @@ def test_qlambda_interior_recursion():
         },
     }
     boot = 2.0
-    _patch_boot(tr, [boot, boot, boot])
+    _patch_boot(tr, roll, [boot, boot, boot])
     targets = tr._compute_targets(roll)
     g, lam = 0.9, 0.5
     # Backward: G2 = 1 + g*boot (truncation) = 1 + 1.8 = 2.8
@@ -244,7 +252,7 @@ def test_qlambda_death_return_propagates_one_step_back():
         },
     }
     boot = 2.0
-    _patch_boot(tr, [boot, boot, boot])
+    _patch_boot(tr, roll, [boot, boot, boot])
     targets = tr._compute_targets(roll)
     g, lam = 0.9, 0.5
     # Step 1 death -> G1 = r1 = 9.0 (reward alone).
@@ -254,6 +262,42 @@ def test_qlambda_death_return_propagates_one_step_back():
     # G0 = r0 + g*((1-lam)*boot + lam*G1).
     g0 = 1.0 + g * ((1 - lam) * boot + lam * g1)
     assert abs(targets[0, 0, 0].item() - g0) < 1e-5
+
+
+def test_qlambda_zombie_successor_does_not_chain():
+    """A zombie successor's return must not chain into an earlier real transition.
+
+    Step 1 is a post-death zombie (``valid`` False) carrying a huge reward; step 0
+    is an ALIVE, non-trapped interior step, so its target flows through the
+    interior branch and actually CONSUMES ``next_g``. That is what distinguishes
+    this from the death-successor case above, where the death branch discards
+    ``next_g`` and would mask a regression. Step 0 must fall back to the
+    truncation bootstrap (1.0 + gamma*boot = 2.8), not inherit the zombie's
+    99-reward return (which would give 47.2).
+    """
+    tr = _make_trainer()
+    T, E, S = 3, 1, 1
+    roll = {
+        "tactical": _zeros_obs(T, E, S)["tactical"],
+        "strategic": _zeros_obs(T, E, S)["strategic"],
+        "scalars": _zeros_obs(T, E, S)["scalars"],
+        "rewards": np.array([[[1.0]], [[99.0]], [[0.0]]]),
+        "dones": np.zeros((T, E, S), dtype=bool),
+        "trapped": np.zeros((T, E, S), dtype=bool),
+        # Step 1 dead-at-entry: not a transition, so its return must be discarded.
+        "valid": np.array([[[True]], [[False]], [[True]]]),
+        "next_mask": torch.ones((T, E, S, 6), dtype=torch.bool),
+        "final_obs": {
+            "tactical": torch.zeros((E, S, *TACTICAL_SHAPE)),
+            "strategic": torch.zeros((E, S, *STRATEGIC_SHAPE)),
+            "scalars": torch.zeros((E, S, SCALARS_DIM)),
+        },
+    }
+    _patch_boot(tr, roll, [2.0, 2.0, 2.0])
+    targets = tr._compute_targets(roll)
+    assert targets[0, 0, 0].item() == pytest.approx(2.8, abs=1e-4)
+    # Rollout edge stays a plain truncation bootstrap: 0 + 0.9*2.0.
+    assert targets[2, 0, 0].item() == pytest.approx(1.8, abs=1e-4)
 
 
 def test_sgd_excludes_zombie_hero_steps():
@@ -306,11 +350,229 @@ def test_trapped_default_death_value_is_death_reward():
             "scalars": torch.zeros((E, S, SCALARS_DIM)),
         },
     }
-    _patch_boot(tr, [0.0])
+    _patch_boot(tr, roll, [0.0])
     targets = tr._compute_targets(roll)
     # G = r + gamma * DEATH_REWARD, reflecting the impending forced death.
     expected = 0.5 + tr.cfg.gamma * DEATH_REWARD
     assert abs(targets[0, 0, 0].item() - expected) < 1e-5
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap reuse: the rollout's hero Q is the target forward
+# ---------------------------------------------------------------------------
+def test_compute_targets_matches_a_fresh_forward_over_the_rollout():
+    """Reusing the rollout's stored Q is EXACT, not an approximation.
+
+    Step t bootstraps on Q(s_{t+1}), and s_{t+1}'s obs is step t+1's stored obs —
+    already forwarded during the rollout under these same weights (the only
+    optimizer step runs afterwards). Recomputing every stored Q with a fresh
+    forward on the stored obs must therefore give bit-identical targets. Fails if
+    the rollout ever stores a Q that does not correspond to the obs beside it
+    (wrong step index, a frozen net's Q, a stale buffer).
+    """
+    tr = _make_trainer(num_envs=2, num_snakes=3, rollout_len=4, pool_capacity=2)
+    tr.pool.add_snapshot(tr.network)  # frozen slots exist: hero_q must stay hero's
+    E, S, T = 2, 3, 4
+    roll = tr._rollout()
+    targets = tr._compute_targets(roll)
+
+    reference = dict(roll)
+    with torch.no_grad():
+        reference["hero_q"] = torch.stack(
+            [
+                tr.network(
+                    roll["tactical"][t].reshape(E * S, *TACTICAL_SHAPE),
+                    roll["strategic"][t].reshape(E * S, *STRATEGIC_SHAPE),
+                    roll["scalars"][t].reshape(E * S, SCALARS_DIM),
+                ).reshape(E, S, 6)
+                for t in range(T)
+            ]
+        )
+    assert torch.equal(targets, tr._compute_targets(reference))
+
+
+def test_bootstrap_uses_the_successor_states_q_not_the_current_states():
+    """Step t bootstraps on Q(s_{t+1}), so it reads the stored Q of step t+1.
+
+    Uses a DISTINCT bootstrap per step: with one constant for the whole rollout
+    (as the other target-math tests use) an off-by-one in the stored-Q lookup is
+    invisible.
+    """
+    tr = _make_trainer(rollout_len=2)  # gamma=0.9, lambda=0.5
+    T, E, S = 2, 1, 1
+    roll = {
+        "tactical": _zeros_obs(T, E, S)["tactical"],
+        "strategic": _zeros_obs(T, E, S)["strategic"],
+        "scalars": _zeros_obs(T, E, S)["scalars"],
+        "rewards": np.zeros((T, E, S)),
+        "dones": np.zeros((T, E, S), dtype=bool),
+        "trapped": np.zeros((T, E, S), dtype=bool),
+        "valid": np.ones((T, E, S), dtype=bool),
+        "next_mask": torch.ones((T, E, S, 6), dtype=torch.bool),
+        "final_obs": {
+            "tactical": torch.zeros((E, S, *TACTICAL_SHAPE)),
+            "strategic": torch.zeros((E, S, *STRATEGIC_SHAPE)),
+            "scalars": torch.zeros((E, S, SCALARS_DIM)),
+        },
+    }
+    b0, b1 = 5.0, -3.0
+    _patch_boot(tr, roll, [b0, b1])
+    targets = tr._compute_targets(roll)
+    g, lam = 0.9, 0.5
+    # Step 1 is the rollout edge: G1 = gamma * b1 (its s_2 is final_obs).
+    g1 = g * b1
+    # Step 0 is interior and bootstraps on b0 — the masked-max of Q(s_1).
+    g0 = g * ((1 - lam) * b0 + lam * g1)
+    assert targets[1, 0, 0].item() == pytest.approx(g1, abs=1e-5)
+    assert targets[0, 0, 0].item() == pytest.approx(g0, abs=1e-5)
+
+
+def test_compute_targets_forwards_the_network_once():
+    """Only the unseen final obs costs a forward; the rest reuse the rollout's Q.
+
+    Re-forwarding the whole rollout was ~34% of update wall time and produced
+    values the rollout had already computed and thrown away.
+    """
+    tr = _make_trainer(num_envs=1, num_snakes=2, rollout_len=4, pool_capacity=0)
+    roll = tr._rollout()
+    calls = {"n": 0}
+    real = tr.network
+
+    class _Counting:
+        def __call__(self, *args, **kwargs):
+            calls["n"] += 1
+            return real(*args, **kwargs)
+
+    tr.network = _Counting()
+    tr._compute_targets(roll)
+    assert calls["n"] == 1, f"expected 1 forward on the final obs, got {calls['n']}"
+
+
+def test_rollout_stores_hero_q_for_every_slot():
+    """The rollout exposes the hero's Q over the WHOLE grid, aligned to its obs."""
+    tr = _make_trainer(num_envs=2, num_snakes=3, rollout_len=2, pool_capacity=0)
+    roll = tr._rollout()
+    assert roll["hero_q"].shape == (2, 2, 3, 6)
+    assert torch.isfinite(roll["hero_q"]).all()
+
+
+# ---------------------------------------------------------------------------
+# Episode boundary: v2 population floor + frame cap
+# ---------------------------------------------------------------------------
+def _floor_env(trainer, env):
+    """Kill snakes in ``env`` until it is past the v2 population floor (<3 alive)."""
+    trainer.sim.alive[env, 2:] = False
+
+
+def _spy_reset(trainer):
+    """Record calls to the sim's reset while still performing them."""
+    calls: list = []
+    orig = trainer.sim.reset
+
+    def spy():
+        calls.append(1)
+        orig()
+
+    trainer.sim.reset = spy
+    return calls
+
+
+def test_episode_over_on_frame_cap():
+    """``max_frames`` is a real episode end, not just an observation denominator."""
+    tr = _make_trainer(num_envs=2, num_snakes=1, max_frames=10)  # S<3: floor disabled
+    assert not tr._episode_over()
+    tr.sim.frame[:] = 10
+    assert tr._episode_over()
+
+
+def test_episode_over_requires_all_envs_past_the_floor():
+    """A batch-wide reset must not truncate an env whose episode is still live."""
+    tr = _make_trainer(num_envs=2, num_snakes=6, max_frames=10**9)
+    _floor_env(tr, 0)
+    assert tr.sim.population_floor_reached().tolist() == [True, False]
+    assert not tr._episode_over()
+    _floor_env(tr, 1)
+    assert tr._episode_over()
+
+
+def test_rollout_resets_when_all_envs_reach_population_floor():
+    """The v2 population floor ends the episode; the next rollout repopulates."""
+    tr = _make_trainer(num_envs=2, num_snakes=6, rollout_len=1, max_frames=10**9)
+    _floor_env(tr, 0)
+    _floor_env(tr, 1)
+    assert int(tr.sim.get_alive().sum()) == 4
+    calls = _spy_reset(tr)
+    tr._rollout()
+    assert len(calls) == 1
+    assert int(tr.sim.get_alive().sum()) > 4, "reset did not repopulate the batch"
+
+
+def test_rollout_does_not_reset_while_an_env_is_still_live():
+    """One env past the floor must not discard the other env's in-flight episode."""
+    tr = _make_trainer(num_envs=2, num_snakes=6, rollout_len=1, max_frames=10**9)
+    _floor_env(tr, 0)
+    calls = _spy_reset(tr)
+    tr._rollout()
+    assert calls == []
+
+
+def test_rollout_enforces_the_frame_cap():
+    """Frames never run past ``max_frames``: the next rollout starts a new episode."""
+    tr = _make_trainer(num_envs=1, num_snakes=1, rollout_len=2, max_frames=2)
+    tr._rollout()
+    assert int(tr.sim.frame.max()) == 2
+    tr._rollout()
+    # Without the episode end the counter would keep climbing to 4.
+    assert int(tr.sim.frame.max()) == 2
+
+
+def test_steps_after_the_population_floor_are_not_transitions():
+    """An env past its floor is past its episode end: its later steps never train.
+
+    The batch cannot reset until every env has floored, so a floored env keeps
+    being stepped. Those steps must not enter ``valid`` (and hence not the loss,
+    the targets' backward carry, or the agent-step count) even though the
+    surviving snakes are still alive.
+    """
+    tr = _make_trainer(num_envs=1, num_snakes=6, rollout_len=3, max_frames=10**9)
+    # Floor the env from step 2 onward, keyed off the sim's own frame counter so
+    # the script does not depend on how many times the trainer reads the signal.
+    tr.sim.population_floor_reached = lambda: np.array([int(tr.sim.frame.max()) >= 2])
+    roll = tr._rollout()
+    valid = roll["valid"]
+    assert valid[0].any(), "pre-floor step should be a real transition"
+    assert not valid[2].any(), "post-floor steps must not be transitions"
+    # Prove the exclusion came from the floor, not from everyone being dead.
+    assert int(tr.sim.get_alive().sum()) > 0
+
+
+def test_population_recovers_across_updates():
+    """Deaths are permanent in train mode, so alive can only rise via a reset.
+
+    Without an episode end the alive count is monotone non-increasing for the
+    whole run (the reported bug: one endless, decaying episode).
+    """
+    cfg = PQNConfig(
+        num_envs=2,
+        num_snakes=6,
+        rollout_len=4,
+        minibatches=1,
+        minibatch_size=16,
+        eps_start=1.0,
+        eps_end=1.0,
+        eps_decay_steps=1,
+        max_frames=8,
+        pool_capacity=0,
+        flip_augment=False,
+        seed=1,
+    )
+    tr = PQNTrainer(cfg)
+    tr.sim.alive[:, 2:] = False  # both envs past the floor -> episode over
+    alive = []
+    for _ in range(3):
+        tr.update()
+        alive.append(int(tr.sim.get_alive().sum()))
+    assert max(alive) > 4, f"population never recovered: {alive}"
 
 
 # ---------------------------------------------------------------------------
@@ -460,8 +722,14 @@ def test_batched_act_multi_frozen_matches_per_slot_reference():
     mask[1, 3, 2] = False
 
     actions, _ = batched_act(
-        hero, pool, policy_ids, obs, mask, epsilon=0.0,
-        rng=np.random.default_rng(0), device=device,
+        hero,
+        pool,
+        policy_ids,
+        obs,
+        mask,
+        epsilon=0.0,
+        rng=np.random.default_rng(0),
+        device=device,
     )
 
     # Independent per-slot reference: run each slot through its named net.
@@ -553,14 +821,12 @@ def test_smoke_end_to_end_finite_and_learns():
     assert tr.agent_steps > 0
 
 
-def test_tripwire_fires_on_nonfinite():
-    tr = _make_trainer(rollout_len=2)
-    from src.training.pqn_trainer import PQNTelemetry
-
-    tel = PQNTelemetry(
+def _telemetry(**overrides):
+    """A HEALTHY telemetry snapshot; override one field to arm one tripwire."""
+    params = dict(
         update=0,
         agent_steps=0,
-        loss=float("nan"),
+        loss=0.5,
         grad_norm=1.0,
         mean_abs_q=1.0,
         max_abs_q=1.0,
@@ -571,11 +837,45 @@ def test_tripwire_fires_on_nonfinite():
         boost_fraction=0.0,
         pool_size=0,
     )
-    try:
-        tr._check_tripwires(tel)
-        assert False, "expected TripwireError"
-    except TripwireError:
-        pass
+    params.update(overrides)
+    return PQNTelemetry(**params)
+
+
+# Each tripwire test pins its OWN branch via a distinctive `match` literal, so it
+# cannot pass by tripping a different branch. NB `match` is a regex search:
+# "max|Q|" would be an alternation with an empty arm and match ANY message.
+def test_no_tripwire_on_healthy_telemetry():
+    _make_trainer(rollout_len=2)._check_tripwires(_telemetry())
+
+
+@pytest.mark.parametrize("field", ["loss", "grad_norm"])
+def test_tripwire_fires_on_nonfinite(field):
+    tr = _make_trainer(rollout_len=2)
+    with pytest.raises(TripwireError, match="non-finite"):
+        tr._check_tripwires(_telemetry(**{field: float("nan")}))
+
+
+def test_tripwire_fires_on_max_abs_q():
+    tr = _make_trainer(rollout_len=2)
+    with pytest.raises(TripwireError, match="exceeded alarm"):
+        tr._check_tripwires(_telemetry(max_abs_q=tr.cfg.max_abs_q_alarm * 10))
+
+
+def test_tripwire_fires_on_nonfinite_max_abs_q():
+    tr = _make_trainer(rollout_len=2)
+    with pytest.raises(TripwireError, match="exceeded alarm"):
+        tr._check_tripwires(_telemetry(max_abs_q=float("inf")))
+
+
+def test_tripwire_fires_on_action_collapse():
+    tr = _make_trainer(rollout_len=2)
+    with pytest.raises(TripwireError, match="action collapse"):
+        tr._check_tripwires(_telemetry(epsilon=0.1, action_entropy=0.0))
+
+
+def test_action_collapse_not_flagged_during_exploration():
+    """The epsilon<0.5 guard: zero entropy under pure exploration is not collapse."""
+    _make_trainer(rollout_len=2)._check_tripwires(_telemetry(epsilon=0.9, action_entropy=0.0))
 
 
 def test_checkpoint_metadata():
@@ -604,3 +904,90 @@ def test_checkpoint_loads_via_inference_agent(tmp_path):
     agent = InferenceAgent.from_checkpoint(path, device=torch.device("cpu"))
     assert agent.obs_spec == "raster31v2"
     assert agent.output_size == 6
+
+
+def test_checkpoint_weights_survive_the_roundtrip(tmp_path):
+    """Serving == training: the TRAINED weights reach the served network.
+
+    The checkpoint is the only artifact of a run — the file the promotion gate
+    scores and the web app serves. Metadata assertions alone pass just as
+    happily when the saved network is a random one.
+    """
+    from src.model.inference_agent import InferenceAgent
+
+    tr = _make_trainer()
+    # Move the weights off init so a fresh-network save is distinguishable,
+    # without coupling this test to update()/tripwires.
+    torch.manual_seed(0)
+    with torch.no_grad():
+        for p in tr.network.parameters():
+            p.add_(torch.randn_like(p) * 0.05)
+    tr.network.eval()
+
+    path = str(tmp_path / "pqn.pth")
+    tr.save_checkpoint(path)
+    agent = InferenceAgent.from_checkpoint(path, device=torch.device("cpu"))
+
+    for (k_src, v_src), (k_dst, v_dst) in zip(
+        tr.network.state_dict().items(), agent.network.state_dict().items()
+    ):
+        assert k_src == k_dst
+        torch.testing.assert_close(v_src.cpu(), v_dst.cpu())
+
+    # End-to-end: the served Q-values reproduce the trainer's own forward pass.
+    rng = np.random.default_rng(0)
+    obs = {
+        "tactical": rng.random(TACTICAL_SHAPE, dtype=np.float32),
+        "strategic": rng.random(STRATEGIC_SHAPE, dtype=np.float32),
+        "scalars": rng.random((SCALARS_DIM,), dtype=np.float32),
+    }
+    with torch.no_grad():
+        expected = (
+            tr.network(
+                torch.from_numpy(obs["tactical"]).unsqueeze(0),
+                torch.from_numpy(obs["strategic"]).unsqueeze(0),
+                torch.from_numpy(obs["scalars"]).unsqueeze(0),
+            )
+            .squeeze(0)
+            .numpy()
+        )
+    np.testing.assert_allclose(agent.q_values(obs), expected, atol=1e-5)
+
+
+class _PoisonPickle:
+    """Fails to serialize, simulating an interrupt part-way through a save."""
+
+    def __reduce__(self):
+        raise RuntimeError("interrupted mid-save")
+
+
+def test_failed_save_leaves_the_previous_checkpoint_intact(tmp_path):
+    """A run has ONE rolling artifact: a failed save must not destroy it.
+
+    ``torch.save`` truncates its destination on open, so writing straight to the
+    live path turns any mid-write failure (preemption, OOM, full disk) into the
+    loss of the whole run rather than a skipped save.
+    """
+    tr = _make_trainer()
+    path = tmp_path / "latest_pqn.pth"
+    tr.save_checkpoint(str(path))
+    good = torch.load(str(path), map_location="cpu", weights_only=False)
+
+    poisoned = tr.checkpoint_state()
+    poisoned["poison"] = _PoisonPickle()
+    tr.checkpoint_state = lambda: poisoned
+    with pytest.raises(RuntimeError, match="interrupted mid-save"):
+        tr.save_checkpoint(str(path))
+
+    reloaded = torch.load(str(path), map_location="cpu", weights_only=False)
+    for key, value in good["dqn_state_dict"].items():
+        torch.testing.assert_close(value, reloaded["dqn_state_dict"][key])
+    assert [p.name for p in tmp_path.iterdir()] == [path.name], "temp file left behind"
+
+
+def test_save_checkpoint_creates_missing_parent_dirs(tmp_path):
+    """The destination directory is created rather than raising mid-run."""
+    tr = _make_trainer()
+    path = tmp_path / "runs" / "nested" / "latest_pqn.pth"
+    tr.save_checkpoint(str(path))
+    assert path.exists()

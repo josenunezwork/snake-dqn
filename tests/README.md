@@ -1,6 +1,6 @@
 # Test Suite
 
-Tests for the Snake Apex project. Every command below is run from the **repo root**.
+Tests for the Snake DQN project. Every command below is run from the **repo root**.
 
 `pytest.ini` sets `testpaths = tests`, so a bare `pytest` already collects this
 directory — you rarely need to pass a path.
@@ -84,13 +84,13 @@ file list — run `ls tests/` for the current inventory.
   tests in the suite are the 3 parametrizations of
   `test_simd_parity.py::test_parity_bit_exact_full_battery`.
 - **PQN & raster** — the raster network, PQN trainer, raster inference/serving, and
-  the online/offline training paths.
+  the PQN command-line path.
 - **Inference, eval & promotion** — `InferenceAgent`, tournament eval (the promotion
   gate), eval stats, checkpoint evaluation, and the checkpoint contract.
 - **Data & persistence** — replay DB handler, score store, replay audit/quality, and
   experience generation.
-- **Web-adjacent** — human play and raster serving through the web backend
-  (`test_web_play.py`, `test_web_raster_serving.py`).
+- **Web-adjacent** — human play, checkpoint handling, controls, metrics, and raster
+  serving through the web backend.
 - **Config & infra** — config schema parity, reconciliation, PQN config block,
   device selection, and CLI guards.
 

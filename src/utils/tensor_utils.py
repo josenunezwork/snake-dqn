@@ -50,7 +50,7 @@ def memories_to_dicts(raw_tuples: List) -> List[dict]:
     (state, action, reward, next_state, done, priority), the current 7-field
     tuple that appends bootstrap_steps, an 8-field tuple that also carries
     next_action_mask, and a 9-field tuple with producer stream metadata.
-    Used by both OnlineTrainer and ApexPolicy.
+    Used by ApexPolicy.
 
     Args:
         raw_tuples: List of replay tuples

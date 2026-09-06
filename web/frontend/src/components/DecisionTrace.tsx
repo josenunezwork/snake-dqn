@@ -12,6 +12,8 @@ interface Sample {
 
 interface Props {
   tick: number; // frame counter — one sample appended per new frame
+  // The action the agent actually took this frame (executed action when the
+  // backend serves one; the greedy argmax otherwise — the caller decides).
   chosen: number;
   margin: number;
   labels: string[];
@@ -64,11 +66,18 @@ export default function DecisionTrace({ tick, chosen, margin, labels, resetKey, 
           last {samples.length}f
         </span>
       </div>
-      <Sparkline values={margins} color="#fbbf24" width={100} height={26} />
+      <Sparkline
+        values={margins}
+        color="var(--viz-amber, #fbbf24)"
+        width={100}
+        height={26}
+        showRange
+        format={(v) => v.toFixed(2)}
+      />
       <div className="trace-head" style={{ marginTop: 6 }}>
-        <span className="trace-label">Chosen action</span>
+        <span className="trace-label">Action taken</span>
       </div>
-      <svg className="piano" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="chosen action over time">
+      <svg className="piano" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="action taken over time">
         {samples.map((s, i) => (
           <rect
             key={i}

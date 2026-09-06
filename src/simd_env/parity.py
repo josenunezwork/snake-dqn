@@ -26,10 +26,10 @@ Determinism discipline (spec §5, §8):
 - Rectangular arena only, mechanics v2 + reward v2.
 - One env at a time: the reference seeds the **global** ``random`` module with the
   same seed the batch sim gives its per-env ``random.Random``, so both consume the
-  Mersenne-Twister in the same documented order (respawns -> maintain -> per-eat).
-- ``train_mode=True`` (``allow_respawn=False``) so deaths are terminal and the
-  respawn RNG branch never fires (the achieved parity milestone; see module notes
-  in ``run_parity``).
+  Mersenne-Twister in the same order: maintain -> respawns -> per-eat.
+- ``allow_respawn=False`` by default, so deaths are terminal and the respawn RNG
+  branch never fires. ``run_parity(allow_respawn=True)`` covers the other arm —
+  the ``train_mode=True, allow_respawn=True`` pair the live promotion gate runs.
 
 Because both sims must draw from the identical global-``random`` order, the
 reference is single-env; the batch sim is invoked with ``num_envs=1`` per seed and
@@ -56,6 +56,40 @@ from src.simd_env.batch_sim import (
     BatchSim,
     BatchSimConfig,
 )
+
+_REF_SNAKE_CLS: Optional[type] = None
+
+
+def _ref_snake_class() -> type:
+    """``Snake`` subclass that borrows AISnake's exact fatality-simulation helpers.
+
+    The mask reference below must be the LIVE mask implementation
+    (``simulate_relative_action_fatality``), but that function calls simulation
+    helpers defined on ``AISnake`` while this reference world is built from plain
+    ``Snake`` objects. Borrowing the same function objects (the ``ScriptedSnake``
+    idiom) is what lets the reference delegate instead of re-implementing — a
+    re-implementation would only re-derive whatever convention the batch sim
+    already uses, which is exactly how the mask field went unchecked. The
+    borrowed helpers touch only base-``Snake`` attributes (segments, length,
+    direction, segment_size, game dims, boost_frames).
+
+    ``src.game.ai_snake`` pulls in torch, which nothing else in ``simd_env``
+    needs, so the import stays lazy.
+    """
+    global _REF_SNAKE_CLS
+    if _REF_SNAKE_CLS is None:
+        from src.game.ai_snake import AISnake
+        from src.game.snake import Snake
+
+        class _RefSnake(Snake):
+            _in_bounds_position = AISnake._in_bounds_position
+            _simulate_move_after_action = AISnake._simulate_move_after_action
+            _simulate_segments_after_move = AISnake._simulate_segments_after_move
+            _segments_collide_after_move = AISnake._segments_collide_after_move
+
+        _REF_SNAKE_CLS = _RefSnake
+    return _REF_SNAKE_CLS
+
 
 # Map the batch sim's death codes to the live game's collision-type strings.
 _DEATH_CODE_TO_STR: Dict[int, str] = {
@@ -166,28 +200,34 @@ class SurvivorPolicy:
 class PyRefGame:
     """Single-environment reference game driven by scripted actions.
 
-    Reproduces ``GameState.update`` (spec §1) train-mode path exactly, reusing the
-    live ``FoodManager``, ``GameLogic`` and ``compute_reward_v2``. Deaths are
-    terminal (``allow_respawn=False``). One instance == one env == one global-RNG
-    stream; construct after seeding ``random`` for that env's seed.
+    Reproduces ``GameState.update`` (spec §1) exactly, reusing the live
+    ``FoodManager``, ``GameLogic`` and ``compute_reward_v2``. One instance == one
+    env == one global-RNG stream; construct after seeding ``random`` for that
+    env's seed.
+
+    With ``allow_respawn=False`` (the train-mode default) deaths are terminal.
+    With ``allow_respawn=True`` the step runs the live respawn block, which draws
+    from the same global stream as food spawns — the arm that pins
+    :meth:`~src.simd_env.batch_sim.BatchSim._respawn_dead`.
     """
 
-    def __init__(self, cfg: BatchSimConfig) -> None:
+    def __init__(self, cfg: BatchSimConfig, allow_respawn: bool = False) -> None:
         """Build the reference game for one env.
 
         Args:
             cfg: Batch config (game dims, food, boost, mechanics). Only the
                 single-env world knobs are used.
+            allow_respawn: Run the live respawn block each step (non-train mode).
         """
         from src.game.food_manager import FoodManager
-        from src.game.snake import Snake
 
         self.cfg = cfg
+        self.allow_respawn = bool(allow_respawn)
         self.s = cfg.segment_size
         self.num_snakes = cfg.num_snakes
         self._game_width = cfg.game_width
         self._game_height = cfg.game_height
-        self._Snake = Snake
+        self._Snake = _ref_snake_class()
 
         self.food_manager = FoodManager(
             game_width=cfg.game_width,
@@ -259,7 +299,7 @@ class PyRefGame:
         return self.food_manager.food
 
     def step(self, actions: Sequence[int]) -> None:
-        """Advance one frame with scripted per-snake actions (train-mode path)."""
+        """Advance one frame with scripted per-snake actions."""
         from src.game.game_logic import GameLogic
 
         # Step 0: clear per-snake move traces.
@@ -272,7 +312,11 @@ class PyRefGame:
         # Step 2: maintain food count (RNG).
         self.food_manager.maintain_count(self.snakes)
 
-        # Step 4 (respawn): allow_respawn=False in train mode -> no-op.
+        # Step 4 (respawn): no-op in train mode; otherwise the live two-pass
+        # block, which draws respawn positions from the global stream AFTER
+        # maintain_count above.
+        if self.allow_respawn:
+            self._respawn_dead()
 
         # Step 5: decode scripted actions and move all alive snakes (list order).
         for sidx, snake in enumerate(self.snakes):
@@ -322,6 +366,30 @@ class PyRefGame:
             collided = snake.id in frame_collisions
             rewards[snake.id] = self._compute_reward(snake, ate, collided)
         self._rewards = rewards
+
+    # ------------------------------------------------------------------
+    def _respawn_dead(self) -> None:
+        """Faithful copy of ``GameState.update``'s respawn block (step 4-5).
+
+        Two separate passes in snake-list order — decrement every dead snake's
+        timer, THEN respawn every snake whose timer has reached zero — so a
+        timer that hits zero respawns on the SAME frame. Each respawn calls the
+        real ``GameLogic.find_empty_position``, whose rejection loop consumes the
+        global RNG the batch sim must stay in lockstep with.
+        """
+        from src.game.game_logic import GameLogic
+
+        for snake in self.snakes:
+            if not snake.is_alive and snake.respawn_timer > 0:
+                snake.respawn_timer -= 1
+
+        for snake in self.snakes:
+            if not snake.is_alive and snake.respawn_timer <= 0:
+                new_pos = GameLogic.find_empty_position(
+                    self._game_width, self._game_height, self.snakes
+                )
+                if new_pos:
+                    snake.respawn(new_pos)
 
     # ------------------------------------------------------------------
     def _segment_inside_arena(self, segment: Tuple[int, int]) -> bool:
@@ -488,60 +556,28 @@ class PyRefGame:
         }
 
     def action_masks(self) -> List[List[bool]]:
-        """Per-snake 6-bit safe-action mask using the same fatality definition.
+        """Per-snake 6-bit safe-action mask, from the LIVE mask implementation.
 
-        Mirrors ``BatchSim._compute_action_masks`` and the live danger check:
-        for each relative action, the normal 1-step head and (if long enough) the
-        boost 2-step heads are tested against wall / own-body[3:] / other-all
-        fatality. True == safe.
+        Delegates to ``src.game.ai_snake.simulate_relative_action_fatality`` —
+        the exact function ``AISnake._get_safe_actions`` uses to build the mask
+        the serve path acts on — so this gate's mask field is checked against a
+        reference genuinely independent of ``BatchSim._compute_action_masks``.
+        True == safe.
         """
+        from src.game.ai_snake import simulate_relative_action_fatality
+
         masks: List[List[bool]] = []
-        cardinal = [(0, -1), (1, 0), (0, 1), (-1, 0)]
         for snake in self.snakes:
             row = [False] * 6
             if not snake.is_alive:
                 masks.append(row)
                 continue
-            hx, hy = snake.head
-            try:
-                cur_idx = cardinal.index(snake.direction)
-            except ValueError:
-                cur_idx = 1
-            own_body_cells = {cell_index(seg, self.s) for seg in snake.segments[3:]}
-            others_cells = set()
-            for other in self.snakes:
-                if other is snake or not other.is_alive:
-                    continue
-                for seg in other.segments:
-                    others_cells.add(cell_index(seg, self.s))
-            can_boost = snake.length >= GameConfig.MIN_BOOST_LENGTH
+            normal_fatal, boost_fatal = simulate_relative_action_fatality(snake, self.snakes)
             for rel in range(3):
-                delta = -1 if rel == 0 else (1 if rel == 2 else 0)
-                ndir = cardinal[(cur_idx + delta) % 4]
-                step1 = (hx + ndir[0] * self.s, hy + ndir[1] * self.s)
-                if not self._mask_fatal([step1], own_body_cells, others_cells):
-                    row[rel] = True
-                    if can_boost:
-                        step2 = (step1[0] + ndir[0] * self.s, step1[1] + ndir[1] * self.s)
-                        if not self._mask_fatal([step1, step2], own_body_cells, others_cells):
-                            row[rel + 3] = True
+                row[rel] = not normal_fatal[rel]
+                row[rel + 3] = not boost_fatal[rel]
             masks.append(row)
         return masks
-
-    def _mask_fatal(
-        self,
-        cells: List[Tuple[int, int]],
-        own_body_cells: set,
-        others_cells: set,
-    ) -> bool:
-        for x, y in cells:
-            if x < 0 or x >= self._game_width or y < 0 or y >= self._game_height:
-                return True
-        for px, py in cells:
-            c = cell_index((px, py), self.s)
-            if c in own_body_cells or c in others_cells:
-                return True
-        return False
 
 
 # =====================================================================
@@ -818,6 +854,10 @@ def _install_v2_config(cfg: BatchSimConfig) -> AppConfig:
         min_boost_length=cfg.min_boost_length,
         boost_length_cost_frames=cfg.boost_length_cost_frames,
         arena_type=cfg.arena_type,
+        # Feeds the live ``Snake.die()``'s respawn_timer; without this the
+        # reference would wait GameSettings' default 100 frames while the batch
+        # waited cfg.frame_rate.
+        frame_rate=cfg.frame_rate,
     )
     rewards = replace(base.rewards, version=2)
     apex = replace(base.apex, gamma=cfg.gamma)
@@ -859,6 +899,7 @@ def run_parity(
     cfg: Optional[BatchSimConfig] = None,
     stop_on_first: bool = True,
     policy: str = "scripted",
+    allow_respawn: bool = False,
 ) -> ParityResult:
     """Run the reference and batch sims on each seed and compare every frame.
 
@@ -872,9 +913,6 @@ def run_parity(
     3. Steps both with the identical action stream, comparing every frame's
        positions, bodies, deaths, kills, food, rewards and masks.
 
-    Only ``allow_respawn=False`` (train_mode) is exercised — deaths are terminal
-    so the respawn RNG branch never fires (this is the achieved parity milestone).
-
     Args:
         seeds: Env seeds to sweep.
         num_frames: Frames per seed.
@@ -885,6 +923,11 @@ def run_parity(
             snakes alive to exercise growth, boost burns, corpse food and kills.
             The action each frame is derived from the reference's mask and
             applied identically to both sims (no state leak).
+        allow_respawn: Run BOTH sims with the live respawn block enabled, so
+            dead snakes serve ``cfg.frame_rate`` frames and then respawn from the
+            shared RNG stream — the ``train_mode=True, allow_respawn=True`` pair
+            the live promotion gate uses. The default False arm keeps deaths
+            terminal so the respawn branch never fires.
 
     Returns:
         A :class:`ParityResult`. ``divergence is None`` == bit-exact.
@@ -903,10 +946,19 @@ def run_parity(
 
             # --- Reference: seed global random, build, then step ---
             random.seed(seed)
-            ref = PyRefGame(cfg)
+            ref = PyRefGame(cfg, allow_respawn=allow_respawn)
 
             # --- Batch: 1 env, same seed ---
-            bat = BatchSim(replace(cfg, num_envs=1), seeds=[seed], train_mode=True)
+            # train_mode stays True even on the respawn arm: it selects the food
+            # branch, not the respawn policy, and the live gate runs the mixed
+            # pair (tournament_eval.py:289 -> update(train_mode=True,
+            # allow_respawn=True)).
+            bat = BatchSim(
+                replace(cfg, num_envs=1),
+                seeds=[seed],
+                train_mode=True,
+                allow_respawn=allow_respawn,
+            )
 
             # Compare the initial (post-reset) state before any step. Step
             # outputs (deaths/kills/rewards) are undefined pre-step.

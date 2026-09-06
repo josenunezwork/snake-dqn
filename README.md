@@ -8,7 +8,7 @@ real time.
 ![architecture](docs/architecture.svg)
 
 ![python](https://img.shields.io/badge/python-3.12-blue)
-![tests](https://img.shields.io/badge/tests-1600%2B%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-pytest-brightgreen)
 ![code style](https://img.shields.io/badge/code%20style-black-000000)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
@@ -22,19 +22,11 @@ reward problem: the snake **couldn't see the trap in its observation**. Adding t
 BFS flood-fill **"free-space"** features (reachable open area for turn-left / straight / turn-right)
 gave it that signal.
 
-Measured on the **pre-repair** gate (candidate hero vs **frozen** opponents, **paired seeds**, greedy
-rollouts, scoring alive-conditioned *stored mass*):
-
-| model | mean mass | vs frozen champ | result |
-|---|---:|---:|---|
-| **61-D free-space (champion)** | **139.5** | **41.4** | 8/8 paired wins · CI-separated |
-| 58-D baseline | ~56 | — | the free-space model's warm-start parent |
-
-The model is a feedforward Dueling DQN. The win comes from **observation design**, validated by an
-eval harness built specifically to resist self-play inflation. That harness has since been rebuilt
-around a **mass integral** metric (see [Evaluation](#evaluation-the-promotion-gate)), so these
-numbers are historical and not directly comparable to what the current gate prints; the champion
-remains the incumbent baseline and permanent anchor.
+The model is a feedforward Dueling DQN. The original free-space evidence used a
+pre-repair, alive-conditioned, narrow-opponent gate, so it is not comparable to
+the current promotion metric. Read the dated results, reward-label mismatch, and
+corrected CNN/GRU record in [Project history and durable findings](docs/project_history_and_findings.md).
+The champion remains the incumbent baseline until a candidate passes the current gate.
 
 ## Quickstart
 
@@ -121,11 +113,11 @@ Alongside it, the in-progress redesign adds `RasterDuelingNetwork` (`src/model/r
 a conv encoder over the ego-raster observation. It is **not** yet promoted — the gate decides.
 
 A note on history, since earlier docs (including this README) got it wrong: **GRU/DRQN** was trained
-and genuinely lost paired frozen-opponent benchmarks to the feedforward + 61-D free-space model, and
-stays excluded. The oft-repeated claim that **CNN** variants "were evaluated and lost" is **false** —
-git archaeology found the CNN code was written and deleted within a week, never trained, with zero
-checkpoints ever produced. The CNN question is genuinely open, which is why the redesign re-tests it
-against an MLP control arm rather than assuming the answer
+and lost the older paired frozen-opponent trials to the feedforward 61-D model. Those trials predate
+the repaired gate, so they do not settle future recurrent experiments. The oft-repeated claim that
+**CNN** variants "were evaluated and lost" is **false** — git archaeology found the CNN code was
+written and deleted within a week, never trained, with zero checkpoints. The CNN question remains
+open, which is why the redesign re-tests it against an MLP control arm
 ([blueprint](docs/ml_redesign_blueprint_2026-07.md) Appendix B, claims 1 and 10).
 
 The `Snake` class is split by concern: entity/lifecycle (`snake.py`), observation
@@ -188,27 +180,27 @@ src/
                  bench_simd, widen_input + warm-start tooling
 web/             FastAPI backend + React/TS frontend (the live UI)
 configs/         YAML configs (free_space_v2 = production; eval_free_space = the gate arena)
-docs/            architecture, redesign blueprint, SIMD env spec, H100 recipe, history
+docs/            algorithm, redesign blueprint, SIMD env spec, H100 recipe, findings
 saved_snakes/    champion + frozen eval opponents
 ```
 
 ### Redesign in progress
 
-This branch is mid-way through a planned overhaul: a repaired promotion gate (done — above), a
-NumPy-vectorized parity-tested simulator, an ego-raster observation, and a PQN trainer to replace
-the Apex loop. The plan, the evidence behind it, and an audit of which long-standing claims survived
-verification live in **[docs/ml_redesign_blueprint_2026-07.md](docs/ml_redesign_blueprint_2026-07.md)**
-(env contract: [docs/simd_env_spec.md](docs/simd_env_spec.md)). The champion stays incumbent until
-something beats it under the repaired gate.
+The redesign provides a NumPy-vectorized simulator, an ego-raster observation, and
+a PQN trainer alongside the incumbent Apex path. The candidate is unpromoted: the
+champion stays incumbent until something beats it under the repaired gate. See the
+[redesign blueprint](docs/ml_redesign_blueprint_2026-07.md), the
+[SIMD contract](docs/simd_env_spec.md), and the
+[dated findings record](docs/project_history_and_findings.md).
 
 ## Development
 
 ```bash
 make install-dev    # deps + pre-commit hooks
-make test           # pytest (1600+ tests)
+make test           # pytest
 make lint           # black --check + isort --check + flake8
 make format         # auto-format
-cd web/frontend && npm test    # frontend unit tests (vitest, 50+ tests)
+cd web/frontend && npm test    # frontend unit tests (vitest)
 ```
 
 CI runs lint + Python tests + the frontend build **and its vitest suite** on every push
@@ -218,6 +210,8 @@ CI runs lint + Python tests + the frontend build **and its vitest suite** on eve
 
 - **[docs/ml_algorithm.md](docs/ml_algorithm.md)** — the algorithm design in depth: dueling network,
   Double-DQN + n-step targets, PER, action masking, the distributed topology, and design directions.
+- **[docs/project_history_and_findings.md](docs/project_history_and_findings.md)** — dated results,
+  corrected historical claims, and their provenance.
 - [Ape-X](https://arxiv.org/abs/1803.00933) — Distributed Prioritized Experience Replay
 - [Double DQN](https://arxiv.org/abs/1509.06461) · [Dueling Networks](https://arxiv.org/abs/1511.06581) · [PER](https://arxiv.org/abs/1511.05952)
 

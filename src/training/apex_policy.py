@@ -77,6 +77,7 @@ class ApexPolicy(BaseDQNPolicy):
         inference_epsilon: float = 0.0,
         init_type: str = "orthogonal",
         device: Optional[torch.device] = None,
+        override_reward_contract: bool = False,
     ):
         """
         Initialize Ape-X policy.
@@ -95,6 +96,12 @@ class ApexPolicy(BaseDQNPolicy):
             inference_epsilon: Initial epsilon when training=False (default: 0.0).
             init_type: Weight initialization ("orthogonal" or "xavier").
             device: Override device selection (falls back to DeviceManager if None).
+            override_reward_contract: Deliberate reward-migration escape hatch
+                (see :func:`validate_checkpoint_contract`): reward-economics
+                mismatches in a loaded checkpoint warn loudly instead of
+                aborting, e.g. fine-tuning a reward-v1 champion under reward v2.
+                Non-reward contract violations (gamma, n_step, shapes) still
+                abort. Only consulted when ``training`` is True.
         """
         resolved_device = device if device is not None else DeviceManager.get_device()
         super().__init__(policy_name="apex", device=resolved_device)
@@ -109,6 +116,7 @@ class ApexPolicy(BaseDQNPolicy):
         self.distributed = distributed
         self.actor_id = actor_id
         self.training = training
+        self.override_reward_contract = bool(override_reward_contract)
         self.init_type = init_type
         self._last_train_metrics: Dict[str, float] = {}
 
@@ -666,6 +674,7 @@ class ApexPolicy(BaseDQNPolicy):
                 mapping_keys=("reward_contract",),
                 required_keys=("reward_contract", "reward_death", "reward_food_base"),
                 error_type=ValueError,
+                override_reward_contract=self.override_reward_contract,
             )
         return contract
 
@@ -848,31 +857,6 @@ class ApexPolicy(BaseDQNPolicy):
 
         return np.array(priorities, dtype=np.float32)
 
-    def sync_weights(self, state_dict: dict) -> None:
-        """
-        Synchronize weights from learner (distributed mode).
-
-        In Ape-X, actors periodically receive updated weights
-        from the centralized learner.
-
-        Args:
-            state_dict: Network state dict from learner
-        """
-        self.dqn.load_state_dict(state_dict)
-        if self.target_dqn is not None:
-            hard_update(self.target_dqn, self.dqn)
-
-    def get_network_state(self) -> dict:
-        """
-        Get network weights for distribution to actors.
-
-        Called by the learner to share weights with actors.
-
-        Returns:
-            Network state dict
-        """
-        return self.dqn.state_dict()
-
     def cleanup(self) -> None:
         """Release resources and clear memory."""
         if hasattr(self, "memory") and self.memory is not None:
@@ -950,22 +934,3 @@ class ApexPolicy(BaseDQNPolicy):
         except Exception as e:
             print(f"Error loading checkpoint: {e}")
             return False
-
-    def get_q_values(self, state: torch.Tensor) -> List[float]:
-        """
-        Get Q-values for all actions (inference helper).
-
-        Args:
-            state: Current state tensor
-
-        Returns:
-            List of Q-values for each action
-        """
-        with torch.no_grad():
-            if state.dim() == 1:
-                state = state.unsqueeze(0)
-            state = state.to(self.device)
-
-            q_values = self.dqn(state)
-
-            return q_values.squeeze().cpu().tolist()

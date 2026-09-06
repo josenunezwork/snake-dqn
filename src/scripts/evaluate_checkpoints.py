@@ -15,10 +15,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 # Add project root to path when run as a script.
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config_loader import (  # noqa: E402
-    apply_config_to_game_config,
-    load_config,
-)
+from src.core.config_loader import load_config  # noqa: E402
 from src.core.game_config import CheckpointSettings, initialize_config  # noqa: E402
 from src.main import (  # noqa: E402
     apply_training_batch_size_override,
@@ -197,7 +194,6 @@ def configure_project(config_path: str, batch_size: Optional[int], checkpoint_di
         ),
     )
     initialize_config(config)
-    apply_config_to_game_config(config)
     apply_training_batch_size_override(batch_size)
 
 

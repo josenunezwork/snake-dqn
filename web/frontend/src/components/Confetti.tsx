@@ -28,8 +28,14 @@ export default function Confetti({ onDone }: { onDone?: () => void }) {
       onDoneRef.current?.();
       return;
     }
-    const W = (canvas.width = window.innerWidth);
-    const H = (canvas.height = window.innerHeight);
+    // HiDPI: scale the backing store by devicePixelRatio (CSS size is pinned by
+    // .confetti-overlay's inset:0) so pieces stay crisp; draw in CSS px coords.
+    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const parts = Array.from({ length: 150 }, () => ({
       x: W / 2 + (Math.random() - 0.5) * W * 0.5,
       y: H * 0.28 + (Math.random() - 0.5) * 40,

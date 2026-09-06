@@ -1,12 +1,17 @@
 # ML Redesign Research & Blueprint
 
 **Date:** 2026-07-05
-**Scope:** Full assessment of the current ML stack (state representation, algorithm, training system, environment, evaluation) plus a verified redesign blueprint targeting: best-possible state representation and algorithm for the slither-style multi-agent sim, training in hours on one rented GPU, real-time serving on a MacBook inside the web backend.
+**Scope:** July 2026 assessment snapshot of the ML stack (state representation, algorithm, training system, environment, evaluation) plus a verified redesign blueprint targeting: best-possible state representation and algorithm for the slither-style multi-agent sim, training in hours on one rented GPU, real-time serving on a MacBook inside the web backend.
 **Provenance:** Produced by a multi-agent pipeline — 4 code audits (file:line evidence), 6 literature/web research sweeps (primary sources), 3 competing redesign proposals (clean-slate / evolve-in-place / pragmatic-modernization), a 3-lens judge panel (science, engineering, economics), one synthesis, and 10 adversarial verification agents that attacked every load-bearing claim (including git archaeology and an independently written-and-run throughput benchmark on this machine). Verification verdicts are in Appendix B.
 
 ---
 
-## Part I — Assessment of the current implementation
+## Part I — July 2026 audit snapshot
+
+This part records the implementation and gate observed for the July audit. The
+gate defects described below have since been repaired; see the status note and
+[Project history and durable findings](project_history_and_findings.md) before
+using this snapshot to describe current behavior.
 
 ### What is verified correct (keep)
 
@@ -33,12 +38,20 @@
 
 - **The H100 was never the problem; the data engine is.** Each actor: one Python process, one 6-snake env, ~1 ms/frame ≈ 2,100 transitions/s, ~94% pure-Python feature/collision code. Learner gated on **3 synchronous IPC round trips per gradient step** through a single-threaded buffer process → 100–250 steps/s regardless of GPU. H100 utilization < 0.1%.
 - **Pure mirror self-play.** Every snake in every env runs the current policy; no opponent pool, no past checkpoints, no frozen anchors. Late-episode data is lone-survivor solo farming with zeroed enemy features (dead snakes never respawn in training), biasing replay toward "enemies do not exist."
-- The GPU-vectorized colab fork (`colab/h100_apex_v1.py`) proves the game tensorizes but diverged from the production contract (58-D, no free-space, own reward code) — a cautionary tale for two-sim drift, and notably a **grid** env (no batched continuous-heading precedent exists anywhere).
+- The deleted historical Colab fork is recorded in [Project history and durable findings](project_history_and_findings.md). It diverged from the production contract (58-D, no free-space, own reward code) and used a **grid** environment, a caution against treating it as a continuous-dynamics precedent.
 
-### Critical defects (evaluation — must be fixed FIRST)
+### Critical defects observed in the July evaluation gate
 
-- **The promotion gate can promote regressions.** `tournament_eval.py` ranks by mean mass over **alive frames only** — a candidate that boosts to mass 60 and dies at frame 200 outranks one that holds 35 for all 3000 frames. Opponents are 5 clones of ONE checkpoint (single-opponent Goodharting). Paired-seed data is analyzed **unpaired**, discarding the variance reduction that was the point (correct paired math already exists in [ensemble_eval.py:177-196](../src/scripts/ensemble_eval.py)). Both eval scripts' default `--config` points to a deleted YAML.
-- Every architecture decision made under this gate + the 0.2-scale actor distribution + ~10⁷ data-limited frames is of unknown validity (see Appendix B, claims 1 and 10).
+- **The promotion gate could promote regressions.** In the July snapshot,
+  `tournament_eval.py` ranked mean mass over **alive frames only**: a candidate
+  that boosted to mass 60 and died at frame 200 could outrank one that held 35
+  for all 3000 frames. Opponents were 5 clones of one checkpoint
+  (single-opponent Goodharting), and paired-seed data was analyzed **unpaired**.
+  Both evaluation scripts then defaulted to a deleted YAML. Phase 0 repaired
+  these defects; this paragraph explains why the repair was prioritized.
+- Architecture decisions made under that gate, the 0.2-scale actor distribution,
+  and ~10⁷ data-limited frames had unknown validity (see Appendix B, claims 1
+  and 10).
 
 ### Corrected historical record
 
@@ -70,7 +83,7 @@
 # Snake-DQN Redesign Blueprint
 ## Dual-Scale Ego-Raster PQN on a Vectorized Cell-Exact Sim, with Champion-Gated Migration
 
-**Status:** Final synthesis. Chassis = "Pragmatic Modernization" (highest aggregate judge score, 248/300; second place in both lenses it did not win; no fatal objection in any lens), upgraded with grafts from COIL (dual-scale perception, GPU-raster escape hatch, encircle detector, single-sim endgame as the v2 vehicle) and from Ape-X Refit (cheap existing-stack actor fixes, the 3-arm kill diagnosis, distribution-histogram CI, max-Q telemetry). Both rejected chassis options had verified fatal flaws: COIL's load-bearing existence proof is false (checked in-repo: `colab/h100_apex_v1.py` is a **grid** env — `grid_width=145/grid_height=83`, cell-equality collisions at lines ~480-540 — not batched distance tests, so batched *continuous* dynamics have no precedent anywhere), and Refit's 800-1200 learner-steps/s claim collapses to ~210 without an unbudgeted SumTree rewrite while conceding the representation ceiling.
+**Status:** Final synthesis, dated July 2026. Chassis = "Pragmatic Modernization" (highest aggregate judge score, 248/300; second place in both lenses it did not win; no fatal objection in any lens), upgraded with grafts from COIL (dual-scale perception, GPU-raster escape hatch, encircle detector, single-sim endgame as the v2 vehicle) and from Ape-X Refit (cheap existing-stack actor fixes, the 3-arm kill diagnosis, distribution-histogram CI, max-Q telemetry). Both rejected chassis options had verified fatal flaws: the historical Colab fork was a **grid** environment, not a batched continuous-dynamics proof, and Refit's 800-1200 learner-steps/s claim collapsed to ~210 without an unbudgeted SumTree rewrite while conceding the representation ceiling. See [Project history and durable findings](project_history_and_findings.md) for post-blueprint status and provenance.
 
 **Goal restated:** best-possible state representation and algorithm for a slither-style multi-agent snake sim; trains in hours on one rented GPU; serves 6-12 snakes in real time on a MacBook CPU inside the FastAPI web backend; the web UI's "watch it think" surfaces (Q-values, dueling V+A, decision traces, activations) remain first-class.
 
@@ -79,15 +92,31 @@
 ## 0. The ten open questions — definitive positions
 
 1. **Movement model: staged, not dodged.** v1 keeps 4-cardinal grid movement, canonicalized to exact integer cell semantics. Rationale: it is what makes bit-exact parity, existing masks, the Battlesnake prior art, the 45-file test suite, and the shipped Play mode all survive; and cut-off/boxing aggression IS achievable on the grid (env-eval audit's own framing). The honest cap — no smooth coiling — is stated and priced. Every other layer (raster obs, 6-action relative space, trainer, self-play, gate, serving) is built **movement-agnostic**, so the continuous-heading upgrade is a scoped v2 (Phase 6, ~15-20 pd touching only sim dynamics core + rasterizer geometry + Play input, with parity degrading from bit-exact to tolerance+event-exact), decided by a written go/no-go memo using v1 champion behavior, the encircle-detector data, and human-play feedback. If the product hard-requires true coiling, v1 is the de-risked stepping stone that builds ~80% of the destination.
-2. **Why the old CNNs lost, and why now differs:** they were judged at ~10^7 data-limited frames (CNNs trade sample efficiency for ceiling — Battlesnake's raster PPO needed 524M steps), on 0.2-scale boards with saturated danger features, without ego-rotation, with float observations throttling an already IPC-bound pipeline, under a gate that rewards dying rich. All five conditions change: ~3.5-4B frames, full-scale single-geometry env, heading rotation, uint8 transport, repaired gate. **And we do not argue it — we re-test it:** Phase 4 carries an MLP-on-the-new-featurizer control arm in the identical loop, with replicate seeds, and the gate decides. Either winner is a valid deliverable.
-3. **Trust in the "one winner" baseline:** trust the **artifact** (champion_a5 is real; it stays incumbent and permanent anchor) and the **engineering** verdicts (contract discipline, exact masks, InferenceAgent, tournament concept). Trust the architecture **eliminations** (CNN, GRU) not at all as ceiling statements — every one was decided under now-discredited conditions. Nothing is re-deleted on their authority; nothing new is promoted without beating the artifact under the repaired gate. GRU stays excluded for serving-complexity reasons only.
+2. **Why the historical vector/GRU evidence was limited, and why now differs:**
+   the feedforward and GRU/DRQN arms were judged at ~10^7 data-limited frames,
+   on 0.2-scale boards with saturated danger features, without ego-rotation,
+   with float observations throttling an already IPC-bound pipeline, and under
+   the flawed July gate. No CNN arm was trained or judged: its code was deleted
+   before training and produced no checkpoints. The proposed control changes
+   all relevant conditions: ~3.5-4B frames, full-scale single-geometry env,
+   heading rotation, uint8 transport, and repaired gate. **We re-test it:**
+   Phase 4 carries an MLP-on-the-new-featurizer control arm in the identical
+   loop, with replicate seeds; the gate decides. Either winner is valid.
+3. **Trust in the "one winner" baseline:** trust the **artifact**
+   (champion_a5 is real; it stays incumbent and permanent anchor) and the
+   **engineering** verdicts (contract discipline, exact masks, InferenceAgent,
+   tournament concept). Treat historical architecture outcomes as no ceiling
+   evidence: CNN had no trained outcome, and GRU/DRQN was judged under the
+   conditions above. Nothing is re-deleted on their authority; nothing new is
+   promoted without beating the artifact under the repaired gate. GRU stays
+   excluded for serving-complexity reasons only.
 4. **Algorithm fork: PQN**, with dueling head retained, so every Q-value visualization survives byte-for-byte. Keep-Ape-X rejected: the 100-250 steps/s learner cap is architectural (3 synchronous IPC round-trips/step), and the corrected arithmetic kills the replay-ratio argument for keeping it. PPO rejected as primary but held as a **pre-specified fallback** (~2-3 days on shared infra) with its UI adapter designed *now* (critic V(s) as the value stream; τ·(log π − mean log π) as soft advantages; probability bars with masked-action hatching) and explicit tripwires that trigger the switch (§4.6) — so the fallback does not strand the product, and the UI does not pick the algorithm.
 5. **Masking under vectorization:** masks move inside the batched step as cell gathers on the incremental occupancy grid — 3 target cells per agent plus the boost midpoint and landing cell (exact 2-step boost semantics preserved), computed in the same pass as collisions. ONE shared fatality function feeds the behavior mask, the stored per-transition 6-bit uint8 mask, and the Q(λ) masked-max targets — collapsing the audit's three divergent definitions. Trapped states bootstrap to the death value, not 0. Mask cost stops being ~half the actor bottleneck and becomes a handful of vectorized lookups.
 6. **Throughput, honestly:** plan at 150k agent-steps/s aggregate; **no number is trusted until gated.** Gate 1 (before renting): ≥40k/s single process on the Mac including obs+masks+scalars. Gate 2 (before campaign spend): ≥100k/s end-to-end on the rental box **including** the K+1 frozen-pool forwards, learner, and coordination bubbles, after a 30-minute cloud-CPU derate bench (rented x86 cores are typically 2-3x slower than Apple Silicon per core — modeled, not discovered mid-rental). Escape hatches in order: more env workers → GPU rasterization (COIL's per-arena paint + crop; also the P6 vehicle) → Cython/numba on the two hot kernels only. This is 10-70x current throughput, deliberately not the 1M+/s C-grid-snake class, for which no existence proof exists for this obs pipeline.
 7. **Gate repair is Phase 0** — before any candidate exists to judge — plus a calibration check (the repaired gate must reproduce the known ordering champion_a5 > scripted anchor > random-safe with paired significance) before it is trusted. After Phase 2 parity, evals run in the vectorized sim (`--engine simd`), making gating ~100x cheaper and closing the unbudgeted-eval-compute blind spot.
 8. **Mixed-policy execution:** per-slot `policy_id` in the synchronous loop; obs grouped by policy each step; K+1 batched forwards (hero + ≤10 frozen pool nets resident on GPU); only hero-slot transitions train. Realized opponent-exposure distribution (fraction of hero transitions by opponent id, episode length by mix) is telemetered against the nominal 80/20 — covering the pool-x-population-floor interaction blind spot.
 9. **Zero-kills bet:** economics primary (~55%), opponent quality secondary (~30%), data volume tertiary (~15%). Discriminator: **Refit's 3-arm experiment run cheap and early** — Phase 1, local CPU, existing Apex stack accelerated 2-4x by the Phase-0 actor fixes: (A) economics-only, (B) economics+pool, (C) baseline, judged on kills/ep + kill-opportunity telemetry under the repaired gate. A>C: economics confirmed. B>A: opponent quality adds. A≈C≈0 with rising opportunity counts: volume binds, and P4 budget shifts from reward sweeps to longer generations. All three remedies ship regardless; the experiment sets emphasis.
-10. **Parity:** one integer transition function, two implementations, three shared artifacts — (a) cell-exact semantics + one constants module, (b) ONE pure event-based reward function (`ate/died/killed/boost_burn`) imported by both sims, (c) ONE batched featurizer used by trainer and web session. Enforced by golden-replay CI (seeded action logs, 10k frames × 20 seeds, bit-exact positions/deaths/kill-attribution/food-sets/rewards/obs/masks — achievable because the math is integer; the RNG-alignment cost is scoped by a single owned RNG stream with documented draw order, budgeted inside P2) **plus** a train-vs-eval-vs-serve observation-histogram KS check as a standing CI instrument (golden replay catches logic drift; the KS check catches distributional drift — the 0.2-scale bug class). Maintenance: ~0.5 pd per future mechanics change, paid as red CI instead of silent deployment drift. The colab fork is formally archived.
+10. **Parity:** one integer transition function, two implementations, three shared artifacts — (a) cell-exact semantics + one constants module, (b) ONE pure event-based reward function (`ate/died/killed/boost_burn`) imported by both sims, (c) ONE batched featurizer used by trainer and web session. Enforced by golden-replay CI (seeded action logs, 10k frames × 20 seeds, bit-exact positions/deaths/kill-attribution/food-sets/rewards/obs/masks — achievable because the math is integer; the RNG-alignment cost is scoped by a single owned RNG stream with documented draw order, budgeted inside P2) **plus** a train-vs-eval-vs-serve observation-histogram KS check as a standing CI instrument (golden replay catches logic drift; the KS check catches distributional drift — the 0.2-scale bug class). Maintenance: ~0.5 pd per future mechanics change, paid as red CI instead of silent deployment drift. The deleted Colab fork remains a documented historical caution.
 
 ---
 
@@ -248,12 +277,18 @@ The project's own history (the best-save freeze that silently wasted an H100 run
 
 ## 8. Disposition table (blind-spot fix: nothing left dangling)
 
+> **September 2026 status.** This table records the blueprint's conditional
+> migration plan, not completed deletions. Apex, curriculum, and offline tooling
+> remain live while raster/PQN is unpromoted. Their removal remains contingent on
+> a champion-gated raster win; current status is maintained in
+> [Project history and durable findings](project_history_and_findings.md).
+
 | Asset | Disposition |
 |---|---|
-| `colab/h100_apex_v1.py` | **Archived** (moved to `attic/`, referenced in docs as the parity cautionary tale and as prior art for the GPU-raster escape hatch). |
-| Ape-X stack (`apex_actor/buffer/learner`, PER, SumTree) | Kept running through P1 (it powers the 3-arm experiment); **deleted at P5 only after a champion-gated win**; its tests deleted with it. |
-| `curriculum.py` + CLAUDE.md curriculum story | **Retired at P5.** Replaced by: PBRS reward (no reward phases), opponent-pool difficulty (competence-gated), kill-opportunity seeded resets. Docs updated. |
-| `memory_db_handler.py`, `generate_experiences.py`, `offline_train.py` | Frozen/deprecated at P0 (61-D-only, excluded from new-contract CI); deleted at P5 with the Ape-X stack. |
+| Historical Colab grid fork | Removed after its grid-contract divergence was recorded in the project history; it is not a continuous-dynamics precedent. |
+| Ape-X stack (`apex_actor/buffer/learner`, PER, SumTree) | Retained until a champion-gated raster win; only then may its deletion and test retirement be considered. |
+| `curriculum.py` | Planned for conditional P5 retirement after a champion-gated migration; currently live. |
+| `memory_db_handler.py`, `generate_experiences.py`, `offline_train.py` | Proposed to freeze or retire only with the conditional Apex migration; current paths remain live where present. |
 | `rebase_checkpoint.py`, `widen_input.py` | Retired (vector-widening warm starts don't apply across the obs change); kept in history. |
 | `evaluate_checkpoints.py` | Folded into the repaired tournament_eval (or updated to contract v2) at P0. |
 | 61-D featurizer | Kept as the `vector61` obs adapter (eval-only) so champion_a5 and all prior champions remain loadable forever. |
@@ -295,7 +330,7 @@ Q(λ) masked targets with per-agent termination handling; LayerNorm dueling net;
 *Exit:* a champion that beats re-baselined A5(v2) AND the anchor with paired 95% significance; **kills/episode > 0.5 median**; boost fraction 5-30% with rational trail-adjusted ROI; encircle detector fires at a nonzero rate; spend ≤24 GPU-h. If the CNN loses to its own MLP control, **promote the better one — the gate decides.**
 
 **P5 — Deployment + UI + champion-gated deletion (6-8 pd)**
-Session.py on the shared featurizer + incremental grids; `set_num_threads(1)`; ego-raster viewer + probe overlays; human-play telemetry channel live; serving spot-check; **then** delete the Ape-X stack, PER/SumTree, curriculum.py, and frozen offline tooling per §8; docs/CLAUDE.md rewritten.
+Session.py on the shared featurizer + incremental grids; `set_num_threads(1)`; ego-raster viewer + probe overlays; human-play telemetry channel live; serving spot-check; **then, only after a champion-gated raster win,** delete the Ape-X stack, PER/SumTree, curriculum.py, and frozen offline tooling per §8.
 *Exit:* 12 snakes ≥30 Hz with **≤8 ms inference** for all snakes batched; all visualizations working; Play E2E with versioned leaderboard; CI green after deletions; old champions load via adapters.
 
 **P6 — Movement v2 decision point (optional; memo 1-2 pd; if green-lit ~15-20 pd)**
@@ -308,7 +343,7 @@ Written go/no-go on continuous-heading movement using v1 champion behavior, enci
 ## 11. Risks
 
 1. **NumPy rasterizer misses throughput** (dominant, least-certain cost; 4× uncertainty band). Mitigated by the pre-rental Mac gate, the pre-campaign cloud gate, and three ordered escape hatches; a 3× shortfall still keeps generations at ~7h — degraded, not dead.
-2. **The CNN loses to the MLP again.** Real possibility; the P4 control arm with replicate seeds makes the comparison clean for the first time, and the trainer/sim/gate are representation-agnostic — either winner ships.
+2. **The CNN loses to the MLP.** A real possibility; the P4 control arm with replicate seeds makes the comparison clean for the first time, and the trainer/sim/gate are representation-agnostic — either winner ships.
 3. **PQN instability at scale** (thin precedent; Q(λ) truncation subtleties). LayerNorm recipe, conservative lr, λ sweep, tripwires; PPO fallback priced with its UI adapter pre-designed.
 4. **Bit-exact parity slips on RNG alignment.** Scoped by single-stream RNG design; worst case falls back to event-exact + per-field tolerances with the KS check carrying distributional guarantees — a documented, lesser standard, not silent drift.
 5. **Mechanics v2 changes product feel / invalidates history.** P1 product sign-off before training investment; versioned leaderboard; A5 re-baselined under v2 so the bar stays honest.
@@ -336,7 +371,7 @@ Every load-bearing claim was attacked by an independent verifier with repo, git-
 |---|-------|---------|
 | 1 | "CNN variants were evaluated and lost every paired benchmark" (CLAUDE.md/README/docs) | **REFUTED** — documentation artifact. CNN code existed 7 days between squashed commits, never trained, zero checkpoints. Only GRU/DRQN actually lost benchmarks. |
 | 2 | NumPy-vectorized env reaches 50–200k agent-steps/s | **PLAUSIBLE** — self-flagged extrapolation; hence the hard pre-rental gates (≥40k/s Mac, ≥100k/s cloud) before any spend. |
-| 3 | colab fork is a grid env; no batched continuous-heading precedent exists | **CONFIRMED** (cell-equality collisions at colab/h100_apex_v1.py:495/514; 4-cardinal only) — justifies staging the movement upgrade. |
+| 3 | Historical Colab fork is a grid env; no batched continuous-heading precedent exists | **CONFIRMED** in the pre-consolidation source preserved by the project-history provenance table — justifies staging the movement upgrade. |
 | 4 | ≥40k agent-steps/s single-process on this MacBook incl. obs+masks | **PLAUSIBLE, Mac leg CONFIRMED by direct measurement** — verifier wrote and ran an independent full-spec prototype (2,048 agents, real board geometry, rot90 ego-rasters). Cloud leg holds only with forwards/learner on GPU (as budgeted). |
 | 5 | ~0-kills is primarily reward/mechanics economics | **PLAUSIBLE** — every factual premise verified in code (kill ≤ 1.67 pellets, same-frame credit dropped, corpse under cap); causal share decided by the P1 3-arm experiment. |
 | 6 | Bit-exact parity between Python game and batched sim is achievable | **CONFIRMED** — all v1 dynamics are integer cell math; radius tests verified exactly equivalent to integer compares for seg=10. |
@@ -345,7 +380,10 @@ Every load-bearing claim was attacked by an independent verifier with repo, git-
 | 9 | 3.5–4B transition campaign fits in 16–24 GPU-h at gate rate, ~$40–120 spot | **CONFIRMED** — arithmetic recomputed; July 2026 spot rates $0.15–0.70/hr make it ~$4–17. Caveat: in like-for-like agent-transition units the campaign is ~2× the Battlesnake budget, not 7×. |
 | 10 | Prior CNN/GRU eliminations carry no evidential weight (five discredited conditions) | **CONFIRMED a fortiori** — no CNN was ever trained at all. |
 
-**Follow-ups implied by verification:** correct the CNN claim in CLAUDE.md, README.md, docs/ml_algorithm.md, docs/h100_training_recipe.md; treat claims 2/4/5 as gated bets (the blueprint's Gate 1/Gate 2 and the P1 3-arm experiment exist precisely to resolve them before money is spent).
+**Follow-ups implied by verification:** retain the corrected CNN statement in the
+README, algorithm document, and project-history record; treat claims 2/4/5 as
+gated bets (the blueprint's Gate 1/Gate 2 and the P1 3-arm experiment exist
+precisely to resolve them before money is spent).
 
 ## Appendix C — Judge panel outcome
 

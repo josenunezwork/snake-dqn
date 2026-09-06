@@ -74,7 +74,6 @@ class _SnakeFrameData:
     all_cells: List[Tuple[int, int]]  # ordered body cells head..tail
     all_set: set  # set(all_cells) -> head+body (mask fatality target)
     body_from1: set  # set(all_cells[1:]) -> body-hit target
-    body_from3: set  # set(all_cells[3:]) -> self-hit / own-body target
     wall_hit: bool  # any traversed head out of bounds
     self_hit: bool  # head on own body (segments[3:]), needs seg_count > 3
 
@@ -101,6 +100,12 @@ class BatchSimConfig:
     gamma: float = 0.99
     max_capacity: int = 400
     arena_type: str = "rectangular"
+    # Frames a dead snake waits before respawning, mirroring the live
+    # ``Snake.die()``'s ``respawn_timer = GameConfig.FRAME_RATE``. Only read when
+    # ``allow_respawn`` (i.e. NOT train_mode), so the default leaves every
+    # train-mode caller byte-identical. Callers that evaluate against a live
+    # arena MUST mirror that arena's ``GameConfig.FRAME_RATE`` here.
+    frame_rate: int = 1
     # Reward-v2 knobs (sweepable). Defaults match src.core.reward_events so the
     # golden-replay parity (which uses defaults) stays bit-exact; a sweep varies
     # these to probe the kills-0 / boost-drift pathology.
@@ -114,8 +119,13 @@ class BatchSim:
     Args:
         config: Batch configuration.
         seeds: Per-environment RNG seeds (length E). Defaults to ``range(E)``.
-        train_mode: When True, deaths are terminal (``allow_respawn=False``) and
-            the food-replacement RNG follows the train-mode branch (spec §5.3).
+        train_mode: When True, the food-replacement RNG follows the train-mode
+            branch (spec §5.3) and the population floor applies.
+        allow_respawn: Whether dead snakes respawn once their timer elapses.
+            Defaults to ``not train_mode``, mirroring ``GameState.update``'s own
+            default. The two are separate knobs there, and the live promotion
+            gate uses the mixed ``train_mode=True, allow_respawn=True`` pair
+            (``tournament_eval.py``) that coupling them cannot express.
     """
 
     def __init__(
@@ -123,6 +133,7 @@ class BatchSim:
         config: BatchSimConfig,
         seeds: Optional[Sequence[int]] = None,
         train_mode: bool = True,
+        allow_respawn: Optional[bool] = None,
     ) -> None:
         if config.arena_type != "rectangular":
             raise NotImplementedError(
@@ -131,7 +142,7 @@ class BatchSim:
             )
         self.cfg = config
         self.train_mode = bool(train_mode)
-        self.allow_respawn = not self.train_mode
+        self.allow_respawn = (not self.train_mode) if allow_respawn is None else bool(allow_respawn)
 
         E, S = config.num_envs, config.num_snakes
         self.E, self.S = E, S
@@ -344,8 +355,9 @@ class BatchSim:
     def step(self, actions: np.ndarray) -> None:
         """Advance every env/snake one frame given integer actions (E, S).
 
-        Executes the spec's per-frame order: maintain food (RNG) -> move all
-        (incl. boost 2-step + v2 trail pellets) -> food consumption (cell-exact,
+        Executes the live game's per-frame order: maintain food (RNG) -> respawn
+        dead snakes (RNG, only when ``allow_respawn``) -> move all (incl. boost
+        2-step + v2 trail pellets) -> food consumption (cell-exact,
         RNG for replacement) -> collision detection/resolution in exact order
         (wall > self > head-on > body, with head-swap) -> corpse/trail food drop
         -> reward (compute_reward_v2). Per-agent action masks and rewards are
@@ -361,6 +373,17 @@ class BatchSim:
 
         # --- Step 2: maintain food count (RNG) ---
         self._maintain_food()
+
+        # --- Step 4: respawn dead snakes (only when allow_respawn) ---
+        # Ordering is load-bearing twice over. It must follow _maintain_food
+        # because both draw from the SAME per-env RNG and the live game maintains
+        # (game_state.py:307) before it respawns (game_state.py:314) — swapping
+        # them desyncs the Mersenne-Twister stream permanently on the first
+        # respawn. And it must precede the prev_length capture below, because a
+        # respawn resets _reward_prev_length to 1 and the live game's step-9
+        # reward reads that fresh baseline on the respawn frame.
+        if self.allow_respawn:
+            self._respawn_dead()
 
         # PBRS baseline is the live game's ``_reward_prev_length`` (the length at
         # the previous reward computation), NOT the start-of-step length. These
@@ -403,10 +426,6 @@ class BatchSim:
 
         # --- Kill each dying snake now (apply deaths to world state) ---
         self._apply_deaths(died, death_order)
-
-        # --- Step 4-equivalent respawn (only when allow_respawn) ---
-        if self.allow_respawn:
-            self._respawn_dead()
 
         # Rebuild traversed heads to current heads for next-frame masks.
         self._rebuild_traversed_from_heads()
@@ -781,7 +800,6 @@ class BatchSim:
                 all_cells.append((int(c[0]), int(c[1])))
             all_set = set(all_cells)
             body_from1 = set(all_cells[1:])
-            body_from3 = set(all_cells[3:])
 
             # Wall fatality (mirror _wall_hit).
             wall_hit = False
@@ -791,9 +809,12 @@ class BatchSim:
                     wall_hit = True
                     break
 
-            # Self fatality (mirror _self_hit: only when seg_count > 3).
+            # Self fatality (mirror _self_hit: only when seg_count > 3). This
+            # cache is built AFTER _move_all, so all_cells is already the
+            # post-move body and segments[3:] is the correct target here.
             self_hit = False
             if n > 3:
+                body_from3 = set(all_cells[3:])
                 for cell in trav:
                     if cell in body_from3:
                         self_hit = True
@@ -807,7 +828,6 @@ class BatchSim:
                     all_cells=all_cells,
                     all_set=all_set,
                     body_from1=body_from1,
-                    body_from3=body_from3,
                     wall_hit=wall_hit,
                     self_hit=self_hit,
                 )
@@ -957,23 +977,31 @@ class BatchSim:
                     if not self._cell_in_arena(cell):
                         continue
                     self._add_food(e, cell, corpse=self.v2)
-        # Now mark dead + set respawn timer. The live ``die()`` sets
-        # respawn_timer = FRAME_RATE; it only gates respawn (train_mode disables
-        # respawn entirely, so this is a no-op there). The mechanics_v2 config
-        # uses frame_rate=1, so we set the timer to 1 (respawn fires next frame
-        # when allow_respawn). Terminal-death parity runs never read it.
+        # Now mark dead + set respawn timer, mirroring the live ``die()``'s
+        # ``respawn_timer = GameConfig.FRAME_RATE``. The timer only gates respawn,
+        # which train_mode disables entirely, so this is inert there.
         self.alive = self.alive & ~died
-        self.respawn_timer = np.where(died, 1, self.respawn_timer)
+        self.respawn_timer = np.where(died, self.cfg.frame_rate, self.respawn_timer)
 
     def _respawn_dead(self) -> None:
-        """Respawn dead snakes whose timer elapsed (non-train mode, spec §4)."""
+        """Respawn dead snakes whose timer elapsed (non-train mode, spec §4).
+
+        Mirrors ``GameState.update``'s two-pass respawn block: decrement EVERY
+        dead snake's timer first, then respawn every snake whose timer has
+        reached zero. The passes must stay separate — a fused
+        decrement-then-skip costs a snake whose timer hits 0 an extra dead
+        frame the live game never charges it.
+        """
         for e in range(self.E):
             for sidx in range(self.S):
-                if self.alive[e, sidx]:
-                    continue
-                if self.respawn_timer[e, sidx] > 0:
+                if not self.alive[e, sidx] and self.respawn_timer[e, sidx] > 0:
                     self.respawn_timer[e, sidx] -= 1
+            for sidx in range(self.S):
+                if self.alive[e, sidx] or self.respawn_timer[e, sidx] > 0:
                     continue
+                # Occupancy is re-read per snake (not hoisted): the live game
+                # respawns in list order and each respawn immediately occupies a
+                # cell that later snakes' rejection sampling must avoid.
                 occ = self._all_snake_cells(e)
                 pos = self._rngs[e].find_empty_position(occ)
                 if pos is None:
@@ -1033,11 +1061,12 @@ class BatchSim:
     # ------------------------------------------------------------------
     def _fatal_after(
         self,
-        e: int,
-        sidx: int,
         cells: List[Tuple[int, int]],
         own_body: set,
         others: List[set],
+        cell: int,
+        w: int,
+        h: int,
     ) -> bool:
         """Collision-grade fatality for a candidate set of traversed head cells.
 
@@ -1045,26 +1074,61 @@ class BatchSim:
         head cell out of bounds (wall), on own body (self, segments[3:]), on
         another living snake's head (head-on) or body (segments[1:]).
 
-        ``own_body`` is ``segments[3:]`` for ``sidx``; ``others`` is the ordered
-        list of the other living snakes' full (head+body) cell sets in ``j``
-        order (dead snakes contribute an empty set), both precomputed once per
-        snake so this inner check does no ring-buffer rebuilds.
+        Both cell targets describe the world the candidate head actually arrives
+        in, i.e. AFTER this frame's moves: ``own_body`` is ``segments[3:]`` of
+        the caller's SIMULATED post-move body (see
+        :meth:`_sim_body_after_move`), and ``others`` is a dense list of the
+        OTHER LIVING snakes' head+body cell sets with each vacating tail already
+        dropped. The caller pre-filters ``others`` (dead snakes retain non-empty
+        cell sets, so that filter is load-bearing for correctness, not just a
+        perf skip) and precomputes both targets, so this inner check does no
+        ring-buffer rebuilds and no per-cell ``alive`` lookups.
+
+        ``cell``/``w``/``h`` are ``segment_size`` and the arena's pixel bounds.
+        The caller hoists them because this runs O(E * S * 6 * cells) times per
+        frame; the wall test stays in PIXEL space (not ``cx >= grid_w``) because
+        the two differ whenever the arena width is not a multiple of the cell.
         """
         for cx, cy in cells:
-            x, y = cx * self.s, cy * self.s
-            if x < 0 or x >= self.cfg.game_width or y < 0 or y >= self.cfg.game_height:
+            x, y = cx * cell, cy * cell
+            if x < 0 or x >= w or y < 0 or y >= h:
                 return True
         for c in cells:
             if c in own_body:
                 return True
-        for j in range(self.S):
-            if j == sidx or not self.alive[e, j]:
-                continue
-            other_all = others[j]  # head+body (cached)
+        for other_all in others:
             for c in cells:
                 if c in other_all:
                     return True
         return False
+
+    def _sim_body_after_move(
+        self,
+        all_cells: List[Tuple[int, int]],
+        length: int,
+        heads: List[Tuple[int, int]],
+        boost_frames: int = 0,
+        is_boost: bool = False,
+    ) -> List[Tuple[int, int]]:
+        """Ordered body cells after a candidate move (head..tail).
+
+        Mirrors ``AISnake._simulate_move_after_action``: insert each traversed
+        head at the front and pop the tail whenever ``len(segments) > length``,
+        then, for a boosted move that lands on the burn frame, drop the paid
+        segment. The ``> length`` rule is what keeps the post-eat fill-in lag
+        correct: while the body is still shorter than ``length`` nothing pops,
+        so the tail cell genuinely stays occupied.
+        """
+        segs = list(all_cells)
+        for h in heads:
+            segs.insert(0, h)
+            if len(segs) > length:
+                segs.pop()
+        if is_boost and boost_frames + 1 >= self.cfg.boost_length_cost_frames:
+            length = max(1, length - 1)
+            if len(segs) > length:
+                segs.pop()
+        return segs
 
     def _compute_action_masks(self) -> np.ndarray:
         """Per-agent 6-bit fatality mask (turn L/S/R x normal/boost).
@@ -1073,35 +1137,77 @@ class BatchSim:
         2-step heads (from the CURRENT post-frame head) and mark the action safe
         iff no traversed head is fatal (same fatality function as collisions).
         Boost bits require ``length >= min_boost_length``. True == safe.
+
+        Fatality is judged against the POST-move world, matching both the live
+        mask (``simulate_relative_action_fatality``) and this sim's own collision
+        detector, which resolves after ``_move_all`` and therefore already sees
+        vacated tails. Testing the PRE-move body instead would forbid a snake
+        from following its own vacating tail — a move ``_resolve_env`` here goes
+        on to score as perfectly safe.
         """
         E, S = self.E, self.S
+        cell, w, h = self.s, self.cfg.game_width, self.cfg.game_height
+        min_boost = self.cfg.min_boost_length
+        deltas = (-1, 0, 1)  # rel 0/1/2 -> turn left / straight / turn right
         mask = np.zeros((E, S, 6), dtype=bool)
         for e in range(E):
+            # Per-env scalars as Python lists: the loops below read them O(S * 6)
+            # times each, and every numpy scalar read materializes an object.
+            alive_e = self.alive[e].tolist()
+            length_e = self.length[e].tolist()
+            dir_e = self.direction[e].tolist()
+            boost_e = self.boost_frames[e].tolist()
             # Precompute per-snake body cells once for this env; the fatality
             # check below reads these caches instead of rebuilding them per
             # candidate head cell and per other snake.
             cache = self._build_snake_frame_cache(e)
-            others = [c.all_set for c in cache]  # head+body per snake, j order
+            # Other snakes as the candidate head will meet them: head + body with
+            # the vacating tail dropped (mirrors _segments_collide_after_move,
+            # which keeps snake.head but slices segments[1:-1] once the body has
+            # filled out to `length`). Built here rather than in the frame cache
+            # so the O(S^2) collision detector, which does not use it, pays
+            # nothing for it.
+            all_others: List[set] = []
+            for j, c in enumerate(cache):
+                n = len(c.all_cells)
+                if n >= 2 and n >= length_e[j]:
+                    all_others.append(set(c.all_cells[:-1]))
+                else:
+                    all_others.append(c.all_set)
             for sidx in range(S):
-                if not self.alive[e, sidx]:
+                if not alive_e[sidx]:
                     continue
                 ci = cache[sidx]
                 head = ci.all_cells[0]  # segment at offset 0 == heads()[e, sidx]
                 hx, hy = head[0], head[1]
-                cur_dir = int(self.direction[e, sidx])
-                # Own body excluding the 2 cells adjacent to head (segments[3:]).
-                own_body = ci.body_from3
-                can_boost = int(self.length[e, sidx]) >= self.cfg.min_boost_length
+                cur_dir = dir_e[sidx]
+                length = length_e[sidx]
+                boost_frames = boost_e[sidx]
+                can_boost = length >= min_boost
+                # Dead snakes keep a populated cell set, so they must be dropped
+                # HERE rather than tested per candidate cell inside _fatal_after.
+                others = [all_others[j] for j in range(S) if j != sidx and alive_e[j]]
                 for rel in range(3):
-                    delta = -1 if rel == 0 else (1 if rel == 2 else 0)
-                    ndir = (cur_dir + delta) % 4
-                    dv = CARDINAL[ndir]
-                    step1 = (hx + int(dv[0]), hy + int(dv[1]))
-                    if not self._fatal_after(e, sidx, [step1], own_body, others):
+                    dv = CARDINAL[(cur_dir + deltas[rel]) % 4]
+                    dx, dy = int(dv[0]), int(dv[1])
+                    step1 = (hx + dx, hy + dy)
+                    # Own-body target is per-action: each candidate move vacates
+                    # its own tail, so it cannot be hoisted out of this loop.
+                    own_normal = set(self._sim_body_after_move(ci.all_cells, length, [step1])[3:])
+                    if not self._fatal_after([step1], own_normal, others, cell, w, h):
                         mask[e, sidx, rel] = True
                         if can_boost:
-                            step2 = (step1[0] + int(dv[0]), step1[1] + int(dv[1]))
-                            if not self._fatal_after(e, sidx, [step1, step2], own_body, others):
+                            step2 = (step1[0] + dx, step1[1] + dy)
+                            own_boost = set(
+                                self._sim_body_after_move(
+                                    ci.all_cells,
+                                    length,
+                                    [step1, step2],
+                                    boost_frames=boost_frames,
+                                    is_boost=True,
+                                )[3:]
+                            )
+                            if not self._fatal_after([step1, step2], own_boost, others, cell, w, h):
                                 mask[e, sidx, rel + 3] = True
         return mask
 
