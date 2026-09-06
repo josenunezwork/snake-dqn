@@ -326,6 +326,202 @@ def test_sgd_excludes_zombie_hero_steps():
     # _sgd must run without touching the two zombie steps and stay finite.
     loss, gnorm, mean_abs_q, max_abs_q, entropy = tr._sgd(roll, targets)
     assert np.isfinite(loss) and np.isfinite(gnorm) and np.isfinite(max_abs_q)
+    assert tr._last_sgd_sampling == {
+        "eligible_hero_transitions": 1,
+        "sampled_transition_draws": 1,
+        "unique_sampled_transitions": 1,
+        "optimizer_steps": 1,
+    }
+
+
+def _sgd_rollout(valid, policy_ids):
+    """Build a small rollout whose scalar 0 identifies each flattened slot."""
+    T, E, S = valid.shape
+    obs = _zeros_obs(T, E, S)
+    obs["scalars"][..., 0] = torch.arange(T * E * S).reshape(T, E, S)
+    return {
+        **obs,
+        "actions": np.zeros((T, E, S), dtype=np.int64),
+        "policy_ids": policy_ids,
+        "valid": valid,
+    }
+
+
+def test_sgd_epochs_cover_every_eligible_hero_once_per_epoch_with_balanced_batches():
+    """The opt-in sampler consumes all four heroes in each balanced 2+2 epoch."""
+    tr = _make_trainer(
+        rollout_len=4,
+        sgd_epochs=2,
+        minibatch_size=3,
+        flip_augment=False,
+    )
+    roll = _sgd_rollout(np.ones((4, 1, 1), dtype=bool), np.array([[HERO_POLICY_ID]]))
+    seen_batches = []
+    hook = tr.network.register_forward_hook(
+        lambda _module, inputs, _output: seen_batches.append(inputs[2][:, 0].tolist())
+    )
+    try:
+        tr._sgd(roll, torch.zeros((4, 1, 1)))
+    finally:
+        hook.remove()
+
+    assert [len(batch) for batch in seen_batches] == [2, 2, 2, 2]
+    assert {int(x) for batch in seen_batches[:2] for x in batch} == set(range(4))
+    assert {int(x) for batch in seen_batches[2:] for x in batch} == set(range(4))
+    assert tr._last_sgd_sampling == {
+        "eligible_hero_transitions": 4,
+        "sampled_transition_draws": 8,
+        "unique_sampled_transitions": 4,
+        "optimizer_steps": 4,
+    }
+
+
+def test_sgd_epochs_exclude_nonhero_and_zombie_transitions():
+    """Exact coverage is over real HERO transitions only, never the full grid."""
+    tr = _make_trainer(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=2,
+        sgd_epochs=1,
+        minibatch_size=8,
+        flip_augment=False,
+    )
+    roll = _sgd_rollout(
+        np.array([[[True, True]], [[False, True]]]),
+        np.array([[HERO_POLICY_ID, 7]]),
+    )
+    tr._sgd(roll, torch.zeros((2, 1, 2)))
+    assert tr._last_sgd_sampling == {
+        "eligible_hero_transitions": 1,
+        "sampled_transition_draws": 1,
+        "unique_sampled_transitions": 1,
+        "optimizer_steps": 1,
+    }
+
+
+def test_legacy_sgd_sampler_keeps_fixed_minibatch_permutation_order():
+    """``sgd_epochs=None`` retains one independent permutation per minibatch."""
+    tr = _make_trainer(
+        rollout_len=4,
+        minibatches=3,
+        minibatch_size=2,
+        flip_augment=False,
+        sgd_epochs=None,
+    )
+
+    class RecordingRng:
+        def __init__(self):
+            self.calls = 0
+            self.orders = [np.array([3, 2, 1, 0]), np.array([1, 0, 3, 2]), np.array([2, 3, 0, 1])]
+
+        def permutation(self, n):
+            assert n == 4
+            order = self.orders[self.calls]
+            self.calls += 1
+            return order
+
+    rng = RecordingRng()
+    tr.sgd_rng = rng
+    roll = _sgd_rollout(np.ones((4, 1, 1), dtype=bool), np.array([[HERO_POLICY_ID]]))
+    seen_batches = []
+    hook = tr.network.register_forward_hook(
+        lambda _module, inputs, _output: seen_batches.append(inputs[2][:, 0].tolist())
+    )
+    try:
+        tr._sgd(roll, torch.zeros((4, 1, 1)))
+    finally:
+        hook.remove()
+
+    assert rng.calls == 3
+    assert seen_batches == [[3.0, 2.0], [1.0, 0.0], [2.0, 3.0]]
+
+
+@pytest.mark.parametrize("sgd_epochs", [None, 1])
+def test_explicit_sgd_seed_isolates_sgd_rng_from_rollout_rng(sgd_epochs):
+    """A seeded sampler must not perturb rollout assignment/exploration RNG state."""
+    tr = _make_trainer(
+        rollout_len=4,
+        minibatches=2,
+        minibatch_size=2,
+        sgd_epochs=sgd_epochs,
+        sgd_seed=12_345,
+        flip_augment=True,
+    )
+    roll = _sgd_rollout(np.ones((4, 1, 1), dtype=bool), np.array([[HERO_POLICY_ID]]))
+    targets = torch.zeros((4, 1, 1))
+    rollout_state_before = tr.rng.bit_generator.state.copy()
+    sgd_state_before = tr.sgd_rng.bit_generator.state.copy()
+
+    tr._sgd(roll, targets)
+
+    assert tr.rng.bit_generator.state == rollout_state_before
+    assert tr.sgd_rng.bit_generator.state != sgd_state_before
+
+
+@pytest.mark.parametrize("epochs", [0, -1, 1.5, True])
+def test_sgd_epochs_must_be_a_positive_integer(epochs):
+    with pytest.raises(ValueError, match="positive integer"):
+        PQNConfig(sgd_epochs=epochs)
+
+
+def test_padded_sgd_forward_matches_unpadded_update_without_phantom_samples():
+    """Forward-only padding preserves the real-row update and sampler accounting."""
+    cfg = dict(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=3,
+        sgd_epochs=1,
+        minibatch_size=3,
+        flip_augment=False,
+        seed=7,
+    )
+    unpadded = PQNTrainer(PQNConfig(**cfg, pad_sgd_batches=False))
+    padded = PQNTrainer(PQNConfig(**cfg, pad_sgd_batches=True))
+    padded.network.load_state_dict(unpadded.network.state_dict())
+
+    # Four real hero rows (B+1) form two balanced 2-row batches. The two zombie
+    # rows carry distinctive scalars and must never reach either real loss.
+    valid = np.array([[[True, True]], [[False, True]], [[False, True]]])
+    roll = _sgd_rollout(valid, np.full((1, 2), HERO_POLICY_ID))
+    roll["scalars"][1:, 0, 0, 0] = torch.tensor([91.0, 92.0])
+    targets = torch.linspace(-1.0, 1.0, 6).reshape(3, 1, 2)
+    forward_batch_sizes = []
+    forward_scalars = []
+
+    def record_forward(_module, inputs, _output):
+        forward_batch_sizes.append(inputs[0].shape[0])
+        forward_scalars.extend(inputs[2][:, 0].tolist())
+
+    hook = padded.network.register_forward_hook(record_forward)
+    try:
+        unpadded_metrics = unpadded._sgd(roll, targets)
+        padded_metrics = padded._sgd(roll, targets)
+    finally:
+        hook.remove()
+
+    assert forward_batch_sizes == [3, 3]
+    assert 91.0 not in forward_scalars and 92.0 not in forward_scalars
+    assert (
+        unpadded._last_sgd_sampling
+        == padded._last_sgd_sampling
+        == {
+            "eligible_hero_transitions": 4,
+            "sampled_transition_draws": 4,
+            "unique_sampled_transitions": 4,
+            "optimizer_steps": 2,
+        }
+    )
+    assert padded_metrics == pytest.approx(unpadded_metrics, rel=1e-5, abs=1e-6)
+    for name, tensor in unpadded.network.state_dict().items():
+        assert torch.allclose(tensor, padded.network.state_dict()[name], rtol=1e-5, atol=1e-6), name
+
+
+def test_checkpoint_records_sampler_provenance():
+    tr = _make_trainer(sgd_epochs=1, pad_sgd_batches=True, sgd_seed=101)
+    state = tr.checkpoint_state()
+    assert state["sgd_epochs"] == 1
+    assert state["pad_sgd_batches"] is True
+    assert state["sgd_seed"] == 101
 
 
 def test_trapped_default_death_value_is_death_reward():
@@ -877,6 +1073,8 @@ def _telemetry(**overrides):
         kills_per_ep=0.0,
         boost_fraction=0.0,
         pool_size=0,
+        action_collapse_streak=1,
+        action_collapse_evidence_samples=0,
     )
     params.update(overrides)
     return PQNTelemetry(**params)
@@ -917,6 +1115,132 @@ def test_tripwire_fires_on_action_collapse():
 def test_action_collapse_not_flagged_during_exploration():
     """The epsilon<0.5 guard: zero entropy under pure exploration is not collapse."""
     _make_trainer(rollout_len=2)._check_tripwires(_telemetry(epsilon=0.9, action_entropy=0.0))
+
+
+def test_action_collapse_evidence_waits_for_patience_and_real_samples():
+    tr = _make_trainer(
+        action_collapse_raw_actions=True,
+        action_collapse_patience=2,
+        action_collapse_min_samples=5,
+    )
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 2, 1) == (1, 2)
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 2, 1) == (2, 4)
+    tr._check_tripwires(
+        _telemetry(
+            action_entropy=1.0,
+            raw_action_entropy=0.0,
+            action_collapse_streak=2,
+            action_collapse_evidence_samples=4,
+        )
+    )
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 2, 1) == (3, 6)
+    tel = _telemetry(
+        action_entropy=1.0,
+        raw_action_entropy=0.0,
+        action_collapse_streak=3,
+        action_collapse_evidence_samples=6,
+    )
+    with pytest.raises(TripwireError, match="action collapse") as caught:
+        tr._check_tripwires(tel)
+    assert caught.value.telemetry is tel
+
+
+def test_action_collapse_recovery_and_raw_mode_change_reset_evidence():
+    tr = _make_trainer(action_collapse_raw_actions=True, action_collapse_patience=3)
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 3, 0) == (1, 3)
+    assert tr._update_action_collapse_evidence(0.1, 0.5, 3, 0) == (0, 0)
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 3, 0) == (1, 3)
+    # A different dominant raw action is a separate collapse hypothesis.
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 4, 1) == (1, 4)
+
+
+def test_raw_action_collapse_zero_eligible_rows_reset_evidence():
+    tr = _make_trainer(action_collapse_raw_actions=True, action_collapse_patience=2)
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 3, 2) == (1, 3)
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 0, -1) == (0, 0)
+
+
+def test_action_collapse_triggers_at_exact_sample_threshold():
+    tr = _make_trainer(
+        action_collapse_raw_actions=True,
+        action_collapse_patience=2,
+        action_collapse_min_samples=4,
+    )
+    assert tr._update_action_collapse_evidence(0.1, 0.0, 2, 1) == (1, 2)
+    streak, samples = tr._update_action_collapse_evidence(0.1, 0.0, 2, 1)
+    with pytest.raises(TripwireError, match="action collapse"):
+        tr._check_tripwires(
+            _telemetry(
+                action_entropy=1.0,
+                raw_action_entropy=0.0,
+                action_collapse_streak=streak,
+                action_collapse_evidence_samples=samples,
+            )
+        )
+
+
+def test_numeric_tripwire_has_priority_over_collapse_guard():
+    tr = _make_trainer(action_collapse_raw_actions=True)
+    with pytest.raises(TripwireError, match="non-finite"):
+        tr._check_tripwires(
+            _telemetry(
+                loss=float("nan"),
+                action_entropy=0.0,
+                raw_action_entropy=0.0,
+                action_collapse_streak=1,
+            )
+        )
+
+
+def test_raw_action_entropy_uses_only_valid_hero_rollout_actions():
+    tr = _make_trainer(
+        num_snakes=2,
+        rollout_len=2,
+        action_collapse_raw_actions=True,
+        action_collapse_patience=2,
+    )
+    roll = {
+        "actions": np.array([[[0, 4]], [[1, 5]]]),
+        "policy_ids": np.array([[HERO_POLICY_ID, 9]]),
+        "valid": np.array([[[True, True]], [[True, False]]]),
+        "rewards": np.zeros((2, 1, 2)),
+        "boost": np.zeros((2, 1, 2), dtype=bool),
+        "epsilon": 0.1,
+        "kills_total": 0,
+    }
+    tr._rollout = lambda: roll
+    tr._compute_targets = lambda _roll: torch.zeros((2, 1, 2))
+    # Deliberately sampler/augmentation-dependent entropy disagrees with raw.
+    tr._sgd = lambda _roll, _targets: (0.5, 1.0, 1.0, 1.0, 0.0)
+
+    tel = tr.update()
+
+    assert tel.raw_action_entropy == pytest.approx(np.log(2.0))
+    assert tel.raw_action_mode == 0
+    assert tel.action_collapse_streak == 0
+    assert tr.last_telemetry is tel
+
+
+def test_collapse_guard_checkpoint_round_trip_restores_evidence_state():
+    saved = _make_trainer(
+        action_collapse_patience=3,
+        action_collapse_min_samples=12,
+        action_collapse_raw_actions=True,
+    )
+    saved._action_collapse_streak = 2
+    saved._action_collapse_evidence_samples = 9
+    saved._action_collapse_raw_action_mode = 4
+    fresh = _make_trainer(
+        action_collapse_patience=3,
+        action_collapse_min_samples=12,
+        action_collapse_raw_actions=True,
+    )
+    from src.scripts.train_pqn import apply_resume_checkpoint
+
+    apply_resume_checkpoint(fresh, saved.checkpoint_state())
+    assert fresh._action_collapse_streak == 2
+    assert fresh._action_collapse_evidence_samples == 9
+    assert fresh._action_collapse_raw_action_mode == 4
 
 
 def test_checkpoint_metadata():

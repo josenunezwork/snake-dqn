@@ -199,16 +199,21 @@ class NetworkSimdPolicy(SimdPolicy):
         )
 
         torch = self._torch
-        # Featurize the whole batch once, then index the slots we control.
+        # Featurize the whole batch once, then forward only the slots we control.
+        # A shared checkpoint policy receives every live roster row it controls
+        # in one call from ``run_simd_eval``.
         obs = build_observations(obs_inputs_from_batch_sim(sim))
         tensors = raster_tensors_from_obs(obs, device=self._device)  # (E*S, ...)
         S = int(sim.S)
+        flat = slots[:, 0] * S + slots[:, 1]  # (N,) row index into E*S
+        flat_t = torch.as_tensor(flat, device=self._device, dtype=torch.long)
         with torch.no_grad():
             q = self._network(
-                tensors["tactical"], tensors["strategic"], tensors["scalars"]
-            )  # (E*S, 6)
-        flat = slots[:, 0] * S + slots[:, 1]  # (N,) row index into E*S
-        q_rows = q[torch.as_tensor(flat, device=q.device, dtype=torch.long)]  # (N, 6)
+                tensors["tactical"][flat_t],
+                tensors["strategic"][flat_t],
+                tensors["scalars"][flat_t],
+            )  # (N, 6)
+        q_rows = q
         mask_t = torch.as_tensor(masks, dtype=torch.bool, device=q.device)  # (N, 6)
         neg_inf = torch.finfo(q_rows.dtype).min
         masked = torch.where(mask_t, q_rows, torch.full_like(q_rows, neg_inf))
@@ -276,6 +281,47 @@ def _config_from_game_config(num_snakes: int, gamma: float) -> BatchSimConfig:
         gamma=float(gamma),
         arena_type=str(GameConfig.ARENA_TYPE),
     )
+
+
+def _dispatch_actions(
+    sim: BatchSim,
+    masks: np.ndarray,
+    actions: np.ndarray,
+    hero_policies: Sequence[SimdPolicy],
+    opp_policies: Sequence[Sequence[SimdPolicy]],
+) -> None:
+    """Fill actions with a legacy-order scripted dispatch and grouped networks.
+
+    Stateful scripted policies deliberately retain the previous one-call-per-live
+    row ordering.  Checkpoint policies are stateless, so each shared instance is
+    called once with all of its live ``(env, slot)`` rows for this frame.
+    """
+    alive = sim.get_alive()
+    network_rows: Dict[NetworkSimdPolicy, List[Tuple[int, int]]] = {}
+
+    def dispatch(policy: SimdPolicy, env: int, slot: int) -> None:
+        if isinstance(policy, NetworkSimdPolicy):
+            network_rows.setdefault(policy, []).append((env, slot))
+            return
+        result = policy.actions(
+            masks[env : env + 1, slot, :], sim, np.array([[env, slot]], dtype=np.int64)
+        )
+        actions[env, slot] = int(result[0])
+
+    # Preserve the pre-existing ordering for RNG-bearing scripted policies:
+    # hero envs first, then each opponent slot across envs.
+    for env, policy in enumerate(hero_policies):
+        if alive[env, 0]:
+            dispatch(policy, env, 0)
+    for slot in range(1, int(sim.S)):
+        for env, row in enumerate(opp_policies):
+            if alive[env, slot]:
+                dispatch(row[slot - 1], env, slot)
+
+    for policy, rows in network_rows.items():
+        slots = np.asarray(rows, dtype=np.int64)
+        selected_masks = masks[slots[:, 0], slots[:, 1], :]
+        actions[slots[:, 0], slots[:, 1]] = policy.actions(selected_masks, sim, slots)
 
 
 class _TerminalHeroBatchSim(BatchSim):
@@ -353,15 +399,29 @@ def run_simd_eval(
     # non-train respawn sweep resurrects any dead slot).
     sim = _TerminalHeroBatchSim(cfg, seeds=seeds, train_mode=False)
 
-    # Build one policy per (spec, env-seed): scripted RNG policies must be seeded
-    # per seed so paired heroes are deterministic given the seed, exactly like
-    # the live engine's set_seed(seed) before each rollout.
-    hero_policies = [build_simd_policy(hero_spec, seed) for seed in seeds]
+    # Build one policy per (spec, env-seed) for scripted agents: their RNGs must
+    # remain per world/slot.  A checkpoint model is stateless at evaluation time,
+    # so identical paths share one policy instance and one forward per frame.
+    checkpoint_cache: Dict[str, NetworkSimdPolicy] = {}
+
+    def policy_for(spec: AgentSpec, seed: int) -> SimdPolicy:
+        if spec[0] != "checkpoint":
+            return build_simd_policy(spec, seed)
+        cached = checkpoint_cache.get(spec[1])
+        if cached is None:
+            built = build_simd_policy(spec, seed)
+            if not isinstance(built, NetworkSimdPolicy):
+                raise TypeError("checkpoint specs must build NetworkSimdPolicy instances")
+            checkpoint_cache[spec[1]] = built
+            cached = built
+        return cached
+
+    hero_policies = [policy_for(hero_spec, seed) for seed in seeds]
     opp_policies: List[List[SimdPolicy]] = []
     for seed in seeds:
         row: List[SimdPolicy] = []
         for opp_slot, spec in enumerate(opponent_specs, start=1):
-            row.append(build_simd_policy(spec, seed * 1000 + opp_slot))
+            row.append(policy_for(spec, seed * 1000 + opp_slot))
         opp_policies.append(row)
 
     # --- Per-seed accumulators (index by env) ---
@@ -383,26 +443,7 @@ def run_simd_eval(
         masks = sim.get_action_mask()  # (E, S, 6)
         actions = np.ones((E, num_snakes), dtype=np.int64)
 
-        # Hero (slot 0): one policy per env; feed each its env's mask row.
-        hero_masks = masks[:, 0, :]  # (E, 6)
-        for e in range(E):
-            if not sim.get_alive()[e, 0]:
-                continue
-            a = hero_policies[e].actions(
-                hero_masks[e : e + 1], sim, np.array([[e, 0]], dtype=np.int64)
-            )
-            actions[e, 0] = int(a[0])
-
-        # Opponents (slots 1..S-1): one policy per (env, slot).
-        for opp_slot in range(1, num_snakes):
-            slot_masks = masks[:, opp_slot, :]  # (E, 6)
-            for e in range(E):
-                if not sim.get_alive()[e, opp_slot]:
-                    continue
-                a = opp_policies[e][opp_slot - 1].actions(
-                    slot_masks[e : e + 1], sim, np.array([[e, opp_slot]], dtype=np.int64)
-                )
-                actions[e, opp_slot] = int(a[0])
+        _dispatch_actions(sim, masks, actions, hero_policies, opp_policies)
 
         sim.step(actions)
 

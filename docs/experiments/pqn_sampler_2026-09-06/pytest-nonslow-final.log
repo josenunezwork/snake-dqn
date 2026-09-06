@@ -1,0 +1,107 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-pqn-coverage
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.14.1
+collected 1952 items / 3 deselected / 1949 selected
+
+tests/test_action_mask.py .......                                        [  0%]
+tests/test_actor_hotpath.py .........                                    [  0%]
+tests/test_ai_snake.py ...........................                       [  2%]
+tests/test_apex_actor.py ............................................... [  4%]
+...........                                                              [  5%]
+tests/test_apex_buffer.py .............................................. [  7%]
+..................................................                       [ 10%]
+tests/test_apex_learner.py .............................                 [ 11%]
+tests/test_apex_learner_compile.py ...                                   [ 11%]
+tests/test_apex_policy.py ..................................             [ 13%]
+tests/test_apex_train_config.py ........................................ [ 15%]
+...............................................                          [ 17%]
+tests/test_audit_replay.py ....................                          [ 18%]
+tests/test_base_buffer.py ...............                                [ 19%]
+tests/test_behavior_probes.py ..............                             [ 20%]
+tests/test_cell_collision.py ..................                          [ 21%]
+tests/test_checkpoint_contract.py .......                                [ 21%]
+tests/test_checkpoint_contract_override.py .......                       [ 22%]
+tests/test_checkpoint_io.py ........                                     [ 22%]
+tests/test_circular_arena.py ..............................              [ 24%]
+tests/test_config_pqn_block.py ............                              [ 24%]
+tests/test_config_reconciliation.py ....                                 [ 24%]
+tests/test_config_schema_parity.py .......                               [ 25%]
+tests/test_curriculum.py .........................                       [ 26%]
+tests/test_device_selection.py ......                                    [ 26%]
+tests/test_enemy_features.py .....................                       [ 27%]
+tests/test_eval_cli.py .................................                 [ 29%]
+tests/test_eval_engine.py .......                                        [ 29%]
+tests/test_eval_stats.py ....................                            [ 30%]
+tests/test_evaluate_checkpoints.py ....                                  [ 31%]
+tests/test_featurizer.py ......................                          [ 32%]
+tests/test_food_manager.py .....                                         [ 32%]
+tests/test_free_space.py ......                                          [ 32%]
+tests/test_game_config.py ......................................         [ 34%]
+tests/test_game_logic.py .........................                       [ 36%]
+tests/test_game_state.py .................                               [ 36%]
+tests/test_generate_experiences.py ..................................... [ 38%]
+........................................................................ [ 42%]
+.......................                                                  [ 43%]
+tests/test_gpu_featurizer.py .......                                     [ 44%]
+tests/test_human_snake.py .............................                  [ 45%]
+tests/test_inference_agent.py ................                           [ 46%]
+tests/test_inference_agent_raster.py ......ss.......                     [ 47%]
+tests/test_kill_attribution.py ....................                      [ 48%]
+tests/test_main_cli_guard.py ...........                                 [ 48%]
+tests/test_main_training_state.py ...................................... [ 50%]
+...........................                                              [ 52%]
+tests/test_mechanics_v2.py .............................                 [ 53%]
+tests/test_memory_db_handler.py ........................................ [ 55%]
+...............................................                          [ 58%]
+tests/test_multistep_buffer.py ...........                               [ 58%]
+tests/test_obs_parity.py .....                                           [ 58%]
+tests/test_offline_train.py ............................................ [ 61%]
+........................................................................ [ 64%]
+..............                                                           [ 65%]
+tests/test_opponent_pool.py .............................                [ 67%]
+tests/test_per_action_danger.py ......................                   [ 68%]
+tests/test_pqn_sampler_diagnostic.py ...............                     [ 68%]
+tests/test_pqn_trainer.py .............................................. [ 71%]
+...............                                                          [ 72%]
+tests/test_raster_network.py ........                                    [ 72%]
+tests/test_rate_pool.py ..............................                   [ 74%]
+tests/test_relative_actions.py ...........................               [ 75%]
+tests/test_replay_quality_pure.py ........................               [ 76%]
+tests/test_reward_events.py ...............                              [ 77%]
+tests/test_reward_v2.py ............                                     [ 78%]
+tests/test_rl_diagnostic.py ....                                         [ 78%]
+tests/test_run_kill_diagnosis.py ...                                     [ 78%]
+tests/test_score_store.py ...................................            [ 80%]
+tests/test_scripted_snake.py ...................                         [ 81%]
+tests/test_simd_env.py ..............................                    [ 82%]
+tests/test_simd_parity.py ...........                                    [ 83%]
+tests/test_snake.py .......................                              [ 84%]
+tests/test_speed_boost.py ..............................                 [ 85%]
+tests/test_sum_tree.py ....................................              [ 87%]
+tests/test_sweep.py .................                                    [ 88%]
+tests/test_td_target_helpers.py ......                                   [ 89%]
+tests/test_tournament_eval.py ................................s......    [ 91%]
+tests/test_train_pqn.py ................................................ [ 93%]
+........                                                                 [ 93%]
+tests/test_web_checkpoints.py ....                                       [ 94%]
+tests/test_web_control.py .............................................. [ 96%]
+..................sss.                                                   [ 97%]
+tests/test_web_metrics.py .......                                        [ 97%]
+tests/test_web_play.py .........................                         [ 99%]
+tests/test_web_raster_serving.py ...............                         [100%]
+
+=============================== warnings summary ===============================
+../snake-dqn/venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_inference_agent_raster.py:175: champion checkpoint absent
+SKIPPED [1] tests/test_inference_agent_raster.py:194: champion checkpoint absent
+SKIPPED [1] tests/test_tournament_eval.py:713: vector champion checkpoint not present
+SKIPPED [3] tests/test_web_control.py:699: active config's reward contract matches the checkpoint
+===== 1943 passed, 6 skipped, 3 deselected, 1 warning in 60.69s (0:01:00) ======

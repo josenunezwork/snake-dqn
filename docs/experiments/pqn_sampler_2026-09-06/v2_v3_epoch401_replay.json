@@ -1,0 +1,18 @@
+{
+  "same_weights_and_steps": true,
+  "fields": {
+    "initial_model_tensor_sha256": {
+      "v2": "66d97ef39129bcb138c85e4df7eeabb5c11c4021b81d16b664dde4a92b09e270",
+      "v3": "66d97ef39129bcb138c85e4df7eeabb5c11c4021b81d16b664dde4a92b09e270"
+    },
+    "final_model_tensor_sha256": {
+      "v2": "c64d3981a677070cf45493af9bfa9ff18b25c0519dde97f8de33c89ec31878b1",
+      "v3": "c64d3981a677070cf45493af9bfa9ff18b25c0519dde97f8de33c89ec31878b1"
+    },
+    "agent_steps": {
+      "v2": 500471,
+      "v3": 500471
+    }
+  },
+  "interpretation": "One full500k MPS replay across guard-only revision; not an additional independent seed and not proof of general MPS determinism"
+}

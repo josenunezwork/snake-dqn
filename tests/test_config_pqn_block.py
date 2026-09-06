@@ -21,6 +21,12 @@ PQN_BLOCK = {
     "rollout_len": 24,
     "gamma": 0.997,
     "lambda_": 0.65,
+    "sgd_epochs": 1,
+    "pad_sgd_batches": True,
+    "sgd_seed": 101,
+    "action_collapse_patience": 3,
+    "action_collapse_min_samples": 256,
+    "action_collapse_raw_actions": True,
     "eps_decay_steps": 120000,
     "mechanics_version": 2,
 }
@@ -41,6 +47,12 @@ def test_config_schema_accepts_pqn_block():
     schema = ConfigSchema(**{"pqn": PQN_BLOCK})
     assert schema.pqn.num_envs == 64
     assert schema.pqn.lambda_ == 0.65
+    assert schema.pqn.sgd_epochs == 1
+    assert schema.pqn.pad_sgd_batches is True
+    assert schema.pqn.sgd_seed == 101
+    assert schema.pqn.action_collapse_patience == 3
+    assert schema.pqn.action_collapse_min_samples == 256
+    assert schema.pqn.action_collapse_raw_actions is True
 
 
 def test_pqn_block_is_optional():
@@ -60,6 +72,12 @@ def test_pqn_wrong_type_is_rejected():
 def test_pqn_out_of_range_is_rejected():
     with pytest.raises(ValidationError):
         ConfigSchema(**{"pqn": {"hero_frac": 1.5}})
+
+
+@pytest.mark.parametrize("epochs", [0, -1])
+def test_pqn_nonpositive_sgd_epochs_is_rejected(epochs):
+    with pytest.raises(ValidationError, match="sgd_epochs"):
+        ConfigSchema(**{"pqn": {"sgd_epochs": epochs}})
 
 
 def test_pqn_epsilon_order_is_rejected():

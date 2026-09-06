@@ -1,0 +1,4134 @@
+{
+  "status": "finished",
+  "purpose": "pre-specified sampler diagnostic, not promotion",
+  "command": [
+    "runs/pqn_coverage_final_20260906/evaluate_campaign.py"
+  ],
+  "device": "cpu",
+  "threads": 2,
+  "engine": "simd",
+  "world_seeds": [
+    41000,
+    41001,
+    41002,
+    41003,
+    41004,
+    41005,
+    41006,
+    41007,
+    41008,
+    41009,
+    41010,
+    41011
+  ],
+  "frames": 1000,
+  "observation_max_frames": 5000,
+  "config": "configs/mechanics_v2.yaml",
+  "opponents": [
+    [
+      "scripted",
+      "greedy_food"
+    ],
+    [
+      "scripted",
+      "greedy_food"
+    ],
+    [
+      "scripted",
+      "greedy_food"
+    ],
+    [
+      "scripted",
+      "greedy_food"
+    ],
+    [
+      "scripted",
+      "greedy_food"
+    ]
+  ],
+  "elapsed_seconds": 310.87182641599793,
+  "scientific_source_manifest_sha256": "3f9903bb9434a9de3ca8ddd81962960dc09739dbfaeff7153d5a43e3a0308991",
+  "protocol_sha256": "6ab4ede17b3d40474957013239588c1a6e4abb44c3813d29da1f593ce6b0dfa6",
+  "results": [
+    {
+      "label": "simd:greedy_food",
+      "training_seed": null,
+      "stage": "scripted_reference",
+      "agent_spec": [
+        "scripted",
+        "greedy_food"
+      ],
+      "wall_seconds": 9.60008183401078,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 3.189,
+          "max_mass": 32.0,
+          "mean_mass_alive": 16.106060606060606,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.198,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 31,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 32
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 28.4,
+          "max_mass": 93.0,
+          "mean_mass_alive": 53.58490566037736,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.53,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 92,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 93
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 23.063,
+          "max_mass": 102.0,
+          "mean_mass_alive": 48.55368421052631,
+          "kills": 1.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.475,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 101,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 102
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 69.287,
+          "max_mass": 190.0,
+          "mean_mass_alive": 94.01221166892809,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.737,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 189,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 190
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 26.806,
+          "max_mass": 122.0,
+          "mean_mass_alive": 49.457564575645755,
+          "kills": 1.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.542,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 121,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 122
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 40.274,
+          "max_mass": 139.0,
+          "mean_mass_alive": 72.30520646319569,
+          "kills": 1.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.557,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 138,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 139
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 0.698,
+          "max_mass": 16.0,
+          "mean_mass_alive": 8.30952380952381,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.084,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 15,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 16
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 43.021,
+          "max_mass": 123.0,
+          "mean_mass_alive": 61.45857142857143,
+          "kills": 2.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.7,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 122,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 123
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 6.856,
+          "max_mass": 42.0,
+          "mean_mass_alive": 21.696202531645568,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.316,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 41,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 42
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 84.975,
+          "max_mass": 172.0,
+          "mean_mass_alive": 84.975,
+          "kills": 1.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 171,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 172
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 2.59,
+          "max_mass": 29.0,
+          "mean_mass_alive": 14.076086956521738,
+          "kills": 1.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.184,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 28,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 29
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 7.752,
+          "max_mass": 47.0,
+          "mean_mass_alive": 27.587188612099645,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.281,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 46,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 47
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 28.075916666666668,
+        "mass_integral_ci": 17.36521902409904,
+        "max_mass": 92.25,
+        "max_mass_ci": 37.36608439767292,
+        "kills": 0.5833333333333334,
+        "kills_ci": 0.42478430281042806,
+        "deaths": 0.9166666666666666,
+        "deaths_ci": 0.18341666666666667,
+        "survival_fraction": 0.467,
+        "survival_fraction_ci": 0.16979546033773407,
+        "probes": {
+          "boost_frame_fraction": 0.0,
+          "food_eaten": 91.25,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 2,
+            "self": 9
+          }
+        }
+      }
+    },
+    {
+      "label": "simd:random_safe",
+      "training_seed": null,
+      "stage": "scripted_reference",
+      "agent_spec": [
+        "scripted",
+        "random_safe"
+      ],
+      "wall_seconds": 8.115193958976306,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 4.025,
+          "max_mass": 13.0,
+          "mean_mass_alive": 6.491935483870968,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.62,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 12,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 13
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 1.627,
+          "max_mass": 7.0,
+          "mean_mass_alive": 5.052795031055901,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.322,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 6,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 4.166,
+          "max_mass": 14.0,
+          "mean_mass_alive": 6.274096385542169,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.664,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 13,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 14
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 5.012,
+          "max_mass": 11.0,
+          "mean_mass_alive": 7.274310595065312,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.689,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 10,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 11
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 2.413,
+          "max_mass": 8.0,
+          "mean_mass_alive": 4.493482309124767,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.537,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 7,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 8
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 4.763,
+          "max_mass": 17.0,
+          "mean_mass_alive": 7.8467874794069195,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.607,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 16,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 17
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 2.238,
+          "max_mass": 11.0,
+          "mean_mass_alive": 5.392771084337349,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.415,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 10,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 11
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 0.457,
+          "max_mass": 5.0,
+          "mean_mass_alive": 2.207729468599034,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.207,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 4,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 5
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 3.117,
+          "max_mass": 15.0,
+          "mean_mass_alive": 7.753731343283582,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.402,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 14,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 15
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 2.487,
+          "max_mass": 10.0,
+          "mean_mass_alive": 5.054878048780488,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.492,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 9,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 10
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 4.063,
+          "max_mass": 13.0,
+          "mean_mass_alive": 4.063,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 12,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 13
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 2.206,
+          "max_mass": 11.0,
+          "mean_mass_alive": 4.242307692307692,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.52,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 10,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 11
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 3.047833333333333,
+        "mass_integral_ci": 0.8748275842402687,
+        "max_mass": 11.25,
+        "max_mass_ci": 2.1863613577682957,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.9166666666666666,
+        "deaths_ci": 0.18341666666666667,
+        "survival_fraction": 0.5395833333333333,
+        "survival_fraction_ci": 0.12934460056431932,
+        "probes": {
+          "boost_frame_fraction": 0.0,
+          "food_eaten": 10.25,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "self": 10,
+            "head_on": 1
+          }
+        }
+      }
+    },
+    {
+      "label": "initial_s401",
+      "training_seed": 401,
+      "stage": "initial",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s401/initial.pth"
+      ],
+      "wall_seconds": 19.964927791967057,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 1.409,
+          "max_mass": 5.0,
+          "mean_mass_alive": 3.622107969151671,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.389,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.030848329048843187,
+            "food_eaten": 7,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 5
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 4.672,
+          "max_mass": 14.0,
+          "mean_mass_alive": 4.672,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.14,
+            "food_eaten": 56,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 14
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 4.319,
+          "max_mass": 9.0,
+          "mean_mass_alive": 4.319,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.395,
+            "food_eaten": 133,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 9
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 4.607,
+          "max_mass": 7.0,
+          "mean_mass_alive": 4.607,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.333,
+            "food_eaten": 112,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 4.59,
+          "max_mass": 9.0,
+          "mean_mass_alive": 4.59,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.369,
+            "food_eaten": 122,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 9
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 4.484,
+          "max_mass": 17.0,
+          "mean_mass_alive": 4.816326530612245,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.931,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.158968850698174,
+            "food_eaten": 57,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 17
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 2.311,
+          "max_mass": 6.0,
+          "mean_mass_alive": 3.161422708618331,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.731,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.11627906976744186,
+            "food_eaten": 30,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 4.893,
+          "max_mass": 10.0,
+          "mean_mass_alive": 4.893,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.318,
+            "food_eaten": 106,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 10
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 6.218,
+          "max_mass": 16.0,
+          "mean_mass_alive": 6.218,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.219,
+            "food_eaten": 69,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 16
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 1.878,
+          "max_mass": 7.0,
+          "mean_mass_alive": 3.646601941747573,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.515,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.038834951456310676,
+            "food_eaten": 11,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 4.774,
+          "max_mass": 10.0,
+          "mean_mass_alive": 4.774,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.387,
+            "food_eaten": 126,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 10
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 1.049,
+          "max_mass": 5.0,
+          "mean_mass_alive": 3.2376543209876543,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.324,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.05555555555555555,
+            "food_eaten": 9,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 5
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 3.767,
+        "mass_integral_ci": 1.0483411121690176,
+        "max_mass": 9.583333333333334,
+        "max_mass_ci": 2.605080242055992,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.4166666666666667,
+        "deaths_ci": 0.32717226160331236,
+        "survival_fraction": 0.8241666666666667,
+        "survival_fraction_ci": 0.16828260401001469,
+        "probes": {
+          "boost_frame_fraction": 0.21345722971052714,
+          "food_eaten": 69.83333333333333,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 3,
+            "self": 1,
+            "enemy_body": 1
+          }
+        }
+      },
+      "checkpoint_sha256": "83bb983ef43a8b33e37c3906f3f13ea49569dfa5a06e87e58410b62dbb7e034c"
+    },
+    {
+      "label": "legacy_s401",
+      "training_seed": 401,
+      "stage": "legacy",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s401/latest_pqn.pth"
+      ],
+      "wall_seconds": 18.645351084065624,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 5.072,
+          "max_mass": 16.0,
+          "mean_mass_alive": 7.133614627285513,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.711,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 15,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 16
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 3.847,
+          "max_mass": 12.0,
+          "mean_mass_alive": 7.1638733705772815,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.537,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 11,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 12
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 11.163,
+          "max_mass": 23.0,
+          "mean_mass_alive": 13.747536945812808,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.812,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 22,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 23
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 12.199,
+          "max_mass": 24.0,
+          "mean_mass_alive": 13.288671023965142,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.918,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0032679738562091504,
+            "food_eaten": 24,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 24
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 3.696,
+          "max_mass": 16.0,
+          "mean_mass_alive": 6.201342281879195,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.596,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 15,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 16
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 1.073,
+          "max_mass": 6.0,
+          "mean_mass_alive": 3.8597122302158273,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.278,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 5,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 3.844,
+          "max_mass": 10.0,
+          "mean_mass_alive": 6.913669064748201,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.556,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 9,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 10
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 18.117,
+          "max_mass": 44.0,
+          "mean_mass_alive": 19.8,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.915,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 43,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 44
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 6.782,
+          "max_mass": 16.0,
+          "mean_mass_alive": 9.857558139534884,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.688,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 15,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 16
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 12.776,
+          "max_mass": 25.0,
+          "mean_mass_alive": 12.776,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.001,
+            "food_eaten": 24,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 25
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 3.545,
+          "max_mass": 23.0,
+          "mean_mass_alive": 9.504021447721179,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.373,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 22,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 23
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 0.355,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.8783068783068784,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.189,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 6.872416666666666,
+        "mass_integral_ci": 3.463807839460494,
+        "max_mass": 18.083333333333332,
+        "max_mass_ci": 6.967858472211001,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.9166666666666666,
+        "deaths_ci": 0.18341666666666667,
+        "survival_fraction": 0.6310833333333333,
+        "survival_fraction_ci": 0.16522154785819698,
+        "probes": {
+          "boost_frame_fraction": 0.00035566448801742915,
+          "food_eaten": 17.166666666666668,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 5,
+            "self": 6
+          }
+        }
+      },
+      "checkpoint_sha256": "aa95afd18abcb1a2296e9582c7cb5f7276d6b1d53e4b182044b625f5aee05b98"
+    },
+    {
+      "label": "epoch_s401",
+      "training_seed": 401,
+      "stage": "epoch",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/epoch_s401/latest_pqn.pth"
+      ],
+      "wall_seconds": 19.1294892920414,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 2.649,
+          "max_mass": 22.0,
+          "mean_mass_alive": 7.978915662650603,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.332,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.09337349397590361,
+            "food_eaten": 26,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 22
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 7.531,
+          "max_mass": 19.0,
+          "mean_mass_alive": 7.531,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.084,
+            "food_eaten": 38,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 19
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 0.22,
+          "max_mass": 3.0,
+          "mean_mass_alive": 2.1359223300970873,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.103,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 4.801,
+          "max_mass": 15.0,
+          "mean_mass_alive": 6.226977950713359,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.771,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.11284046692607004,
+            "food_eaten": 31,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 15
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 2.983,
+          "max_mass": 9.0,
+          "mean_mass_alive": 3.919842312746386,
+          "kills": 1.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.761,
+          "probes": {
+            "death_cause": "wall",
+            "boost_frame_fraction": 0.017082785808147174,
+            "food_eaten": 10,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 9
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 5.708,
+          "max_mass": 12.0,
+          "mean_mass_alive": 5.708,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.083,
+            "food_eaten": 36,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 12
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 1.065,
+          "max_mass": 4.0,
+          "mean_mass_alive": 2.0441458733205375,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.521,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 4.239,
+          "max_mass": 8.0,
+          "mean_mass_alive": 4.239,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.063,
+            "food_eaten": 22,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 8
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 4.109,
+          "max_mass": 7.0,
+          "mean_mass_alive": 4.109,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.057,
+            "food_eaten": 21,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 4.094,
+          "max_mass": 6.0,
+          "mean_mass_alive": 4.094,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.081,
+            "food_eaten": 29,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 0.011,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.011,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 4.418,
+          "max_mass": 20.0,
+          "mean_mass_alive": 6.153203342618385,
+          "kills": 1.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.718,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.052924791086350974,
+            "food_eaten": 30,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 20
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 3.485666666666667,
+        "mass_integral_ci": 1.4178841765321641,
+        "max_mass": 10.5,
+        "max_mass_ci": 4.480502666435921,
+        "kills": 0.16666666666666666,
+        "kills_ci": 0.247318982880266,
+        "deaths": 0.5833333333333334,
+        "deaths_ci": 0.32717226160331236,
+        "survival_fraction": 0.6847500000000001,
+        "survival_fraction_ci": 0.23107246308657342,
+        "probes": {
+          "boost_frame_fraction": 0.05368512814970599,
+          "food_eaten": 20.666666666666668,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "self": 2,
+            "enemy_body": 2,
+            "wall": 1,
+            "head_on": 2
+          }
+        }
+      },
+      "checkpoint_sha256": "0556fd4295df827766c707a8dfc221e6e4405728ff7e3eaa114e977c04e44f17"
+    },
+    {
+      "label": "initial_s502",
+      "training_seed": 502,
+      "stage": "initial",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s502/initial.pth"
+      ],
+      "wall_seconds": 19.831045166007243,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 1.381,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.381,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 1.905,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.905,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 2.446,
+          "max_mass": 10.0,
+          "mean_mass_alive": 2.446,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.015,
+            "food_eaten": 14,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 10
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 2.096,
+          "max_mass": 8.0,
+          "mean_mass_alive": 4.015325670498084,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.522,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0421455938697318,
+            "food_eaten": 13,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 8
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 1.789,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.789,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 0.225,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.0321100917431192,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.218,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 2.225,
+          "max_mass": 14.0,
+          "mean_mass_alive": 3.7648054145516077,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.591,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.04060913705583756,
+            "food_eaten": 17,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 14
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 0.091,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.091,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 3.813,
+          "max_mass": 7.0,
+          "mean_mass_alive": 3.813,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.019,
+            "food_eaten": 11,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 0.72,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.72,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 0.817,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.817,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 3.562,
+          "max_mass": 7.0,
+          "mean_mass_alive": 3.562,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.027,
+            "food_eaten": 12,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 1.7558333333333334,
+        "mass_integral_ci": 0.7551859203476927,
+        "max_mass": 4.75,
+        "max_mass_ci": 2.75125,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.5,
+        "deaths_ci": 0.33181323470782886,
+        "survival_fraction": 0.7465833333333333,
+        "survival_fraction_ci": 0.20764359643824798,
+        "probes": {
+          "boost_frame_fraction": 0.011979560910464114,
+          "food_eaten": 5.916666666666667,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 5,
+            "self": 1
+          }
+        }
+      },
+      "checkpoint_sha256": "167271493abc509a7e1f702a8465a46716c007bd922afd1b1395cee821a906b7"
+    },
+    {
+      "label": "legacy_s502",
+      "training_seed": 502,
+      "stage": "legacy",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s502/latest_pqn.pth"
+      ],
+      "wall_seconds": 19.608110708999448,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 4.12,
+          "max_mass": 23.0,
+          "mean_mass_alive": 10.67357512953368,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.386,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.012953367875647668,
+            "food_eaten": 23,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 23
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 1.221,
+          "max_mass": 9.0,
+          "mean_mass_alive": 4.963414634146342,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.246,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.008130081300813009,
+            "food_eaten": 8,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 9
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 12.431,
+          "max_mass": 35.0,
+          "mean_mass_alive": 13.395474137931034,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.928,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.02693965517241379,
+            "food_eaten": 40,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 35
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 3.413,
+          "max_mass": 20.0,
+          "mean_mass_alive": 7.371490280777538,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.463,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.004319654427645789,
+            "food_eaten": 19,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 20
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 2.443,
+          "max_mass": 6.0,
+          "mean_mass_alive": 4.2635253054101225,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.573,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.006980802792321117,
+            "food_eaten": 6,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 8.359,
+          "max_mass": 31.0,
+          "mean_mass_alive": 10.884114583333334,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.768,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.016927083333333332,
+            "food_eaten": 31,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 31
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 6.354,
+          "max_mass": 14.0,
+          "mean_mass_alive": 6.354,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.016,
+            "food_eaten": 18,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 14
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 4.769,
+          "max_mass": 11.0,
+          "mean_mass_alive": 5.370495495495495,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.888,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0011261261261261261,
+            "food_eaten": 10,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 11
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 3.136,
+          "max_mass": 16.0,
+          "mean_mass_alive": 5.8836772983114445,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.533,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.013133208255159476,
+            "food_eaten": 17,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 16
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 7.199,
+          "max_mass": 18.0,
+          "mean_mass_alive": 7.199,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.021,
+            "food_eaten": 23,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 18
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 15.799,
+          "max_mass": 43.0,
+          "mean_mass_alive": 16.68321013727561,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.947,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.026399155227032733,
+            "food_eaten": 48,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 43
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 0.889,
+          "max_mass": 7.0,
+          "mean_mass_alive": 4.630208333333333,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.192,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 6,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 5.844416666666667,
+        "mass_integral_ci": 2.878523465502524,
+        "max_mass": 19.416666666666668,
+        "max_mass_ci": 7.426779453598915,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.8333333333333334,
+        "deaths_ci": 0.247318982880266,
+        "survival_fraction": 0.6603333333333333,
+        "survival_fraction_ci": 0.18936069620833423,
+        "probes": {
+          "boost_frame_fraction": 0.012825761209207753,
+          "food_eaten": 20.75,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "self": 6,
+            "head_on": 1,
+            "enemy_body": 3
+          }
+        }
+      },
+      "checkpoint_sha256": "60039e427de809c2c5f45ce78ba6229cae74193b83a0252fa9fd87c74fbd1717"
+    },
+    {
+      "label": "epoch_s502",
+      "training_seed": 502,
+      "stage": "epoch",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/epoch_s502/latest_pqn.pth"
+      ],
+      "wall_seconds": 19.26483712508343,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 0.141,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.141,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 1.465,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.465,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 0.545,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.545,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 0.957,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.0657015590200445,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.898,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 1.233,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.233,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 2.73,
+          "max_mass": 3.0,
+          "mean_mass_alive": 2.73,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 1.143,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.143,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 1.1011666666666666,
+        "mass_integral_ci": 0.3882735534212655,
+        "max_mass": 1.5,
+        "max_mass_ci": 0.428369044024878,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.25,
+        "deaths_ci": 0.28735869056886826,
+        "survival_fraction": 0.882,
+        "survival_fraction_ci": 0.17008160797505062,
+        "probes": {
+          "boost_frame_fraction": 0.0,
+          "food_eaten": 0.5,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 3
+          }
+        }
+      },
+      "checkpoint_sha256": "e03e2788d95cda9a2ff16e2a145459930e5d7ddebc1f134eb6f93f22374db0e1"
+    },
+    {
+      "label": "initial_s603",
+      "training_seed": 603,
+      "stage": "initial",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s603/initial.pth"
+      ],
+      "wall_seconds": 19.387921583955176,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 0.516,
+          "max_mass": 4.0,
+          "mean_mass_alive": 2.055776892430279,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.251,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 3.955,
+          "max_mass": 6.0,
+          "mean_mass_alive": 3.955,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.057,
+            "food_eaten": 21,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 2.677,
+          "max_mass": 4.0,
+          "mean_mass_alive": 2.677,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 2.38,
+          "max_mass": 5.0,
+          "mean_mass_alive": 2.38,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.003,
+            "food_eaten": 4,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 5
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 3.751,
+          "max_mass": 7.0,
+          "mean_mass_alive": 3.751,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.042,
+            "food_eaten": 16,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 3.689,
+          "max_mass": 7.0,
+          "mean_mass_alive": 3.689,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.042,
+            "food_eaten": 16,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 3.785,
+          "max_mass": 6.0,
+          "mean_mass_alive": 3.785,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.024,
+            "food_eaten": 11,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 0.406,
+          "max_mass": 3.0,
+          "mean_mass_alive": 2.1945945945945944,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.185,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 3.736,
+          "max_mass": 6.0,
+          "mean_mass_alive": 3.736,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.108,
+            "food_eaten": 33,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 4.006,
+          "max_mass": 6.0,
+          "mean_mass_alive": 4.006,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.048,
+            "food_eaten": 19,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 3.881,
+          "max_mass": 11.0,
+          "mean_mass_alive": 3.881,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.13,
+            "food_eaten": 39,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 11
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 2.609,
+          "max_mass": 6.0,
+          "mean_mass_alive": 2.609,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.015,
+            "food_eaten": 8,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 2.9492499999999997,
+        "mass_integral_ci": 0.8219030177699775,
+        "max_mass": 5.916666666666667,
+        "max_mass_ci": 1.2839166666666668,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.16666666666666666,
+        "deaths_ci": 0.247318982880266,
+        "survival_fraction": 0.8696666666666667,
+        "survival_fraction_ci": 0.1936099816756081,
+        "probes": {
+          "boost_frame_fraction": 0.03908333333333334,
+          "food_eaten": 14.583333333333334,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 2
+          }
+        }
+      },
+      "checkpoint_sha256": "2de2ee8c901215adf6d1d556ad4de519f7c798ea2f499144db6a8c2f22a711d2"
+    },
+    {
+      "label": "legacy_s603",
+      "training_seed": 603,
+      "stage": "legacy",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s603/latest_pqn.pth"
+      ],
+      "wall_seconds": 20.267447290942073,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 1.03,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.03,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 0.138,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.138,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 4.232,
+          "max_mass": 21.0,
+          "mean_mass_alive": 5.17359413202934,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.818,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0012224938875305623,
+            "food_eaten": 20,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 21
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 0.293,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.5585106382978724,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.188,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 0.519,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.519,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 1.115,
+          "max_mass": 18.0,
+          "mean_mass_alive": 2.837150127226463,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.393,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 17,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 18
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 2.421,
+          "max_mass": 5.0,
+          "mean_mass_alive": 2.421,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 4,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 5
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 0.094,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.094,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 2.992,
+          "max_mass": 4.0,
+          "mean_mass_alive": 2.992,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 4.037,
+          "max_mass": 6.0,
+          "mean_mass_alive": 4.037,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 5,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 0.143,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.143,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 8.221,
+          "max_mass": 16.0,
+          "mean_mass_alive": 8.221,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.003,
+            "food_eaten": 16,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 16
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 2.1029166666666668,
+        "mass_integral_ci": 1.5592386172438626,
+        "max_mass": 6.5,
+        "max_mass_ci": 4.704264508739047,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.5833333333333334,
+        "deaths_ci": 0.32717226160331236,
+        "survival_fraction": 0.60775,
+        "survival_fraction_ci": 0.2530124870224586,
+        "probes": {
+          "boost_frame_fraction": 0.00035187449062754685,
+          "food_eaten": 5.583333333333333,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 4,
+            "self": 1,
+            "enemy_body": 2
+          }
+        }
+      },
+      "checkpoint_sha256": "eefca3af70885143b9b2f02ea12677de564fbdae8921a7841d27edcf77dc67f3"
+    },
+    {
+      "label": "epoch_s603",
+      "training_seed": 603,
+      "stage": "epoch",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/epoch_s603/latest_pqn.pth"
+      ],
+      "wall_seconds": 19.897436999948695,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 1.669,
+          "max_mass": 4.0,
+          "mean_mass_alive": 1.669,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 1.626,
+          "max_mass": 3.0,
+          "mean_mass_alive": 2.7653061224489797,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.588,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 1.253,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.253,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 0.488,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.488,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 1.01,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.01,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 1.458,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.458,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 1.1253333333333333,
+        "mass_integral_ci": 0.208713132933058,
+        "max_mass": 1.6666666666666667,
+        "max_mass_ci": 0.6256730355982647,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.16666666666666666,
+        "deaths_ci": 0.247318982880266,
+        "survival_fraction": 0.923,
+        "survival_fraction_ci": 0.11506155193147184,
+        "probes": {
+          "boost_frame_fraction": 0.0,
+          "food_eaten": 0.6666666666666666,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 2
+          }
+        }
+      },
+      "checkpoint_sha256": "90c4d3856665bf0bf5b97811dcf4f4cb42eff27e0f931ccfb93468f940885d94"
+    },
+    {
+      "label": "initial_s704",
+      "training_seed": 704,
+      "stage": "initial",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s704/initial.pth"
+      ],
+      "wall_seconds": 19.82292095804587,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 0.129,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.0078125,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.128,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 3.812,
+          "max_mass": 4.0,
+          "mean_mass_alive": 3.812,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 0.625,
+          "max_mass": 3.0,
+          "mean_mass_alive": 2.367424242424242,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.264,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 2.32,
+          "max_mass": 7.0,
+          "mean_mass_alive": 3.531202435312024,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.657,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0121765601217656,
+            "food_eaten": 8,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 0.035,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.2962962962962963,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.027,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 4.772,
+          "max_mass": 11.0,
+          "mean_mass_alive": 4.772,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.1,
+            "food_eaten": 32,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 11
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 3.703,
+          "max_mass": 6.0,
+          "mean_mass_alive": 3.703,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.018,
+            "food_eaten": 9,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 3.706,
+          "max_mass": 6.0,
+          "mean_mass_alive": 3.706,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.012,
+            "food_eaten": 7,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 6
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 3.617,
+          "max_mass": 7.0,
+          "mean_mass_alive": 3.617,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.051,
+            "food_eaten": 20,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 2.837,
+          "max_mass": 4.0,
+          "mean_mass_alive": 2.837,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 3.554,
+          "max_mass": 11.0,
+          "mean_mass_alive": 3.554,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.039,
+            "food_eaten": 14,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 11
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 4.613,
+          "max_mass": 12.0,
+          "mean_mass_alive": 4.613,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.084,
+            "food_eaten": 29,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 12
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 2.81025,
+        "mass_integral_ci": 1.0634039781780469,
+        "max_mass": 6.25,
+        "max_mass_ci": 2.236152059274362,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.3333333333333333,
+        "deaths_ci": 0.3128365177991324,
+        "survival_fraction": 0.7563333333333334,
+        "survival_fraction_ci": 0.2463756404289859,
+        "probes": {
+          "boost_frame_fraction": 0.0263480466768138,
+          "food_eaten": 10.75,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 4
+          }
+        }
+      },
+      "checkpoint_sha256": "d2b270781203cf7f57de1540edc3a26f815de239b98608ac66a470d45f5e5454"
+    },
+    {
+      "label": "legacy_s704",
+      "training_seed": 704,
+      "stage": "legacy",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s704/latest_pqn.pth"
+      ],
+      "wall_seconds": 19.51492154202424,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 3.771,
+          "max_mass": 5.0,
+          "mean_mass_alive": 3.771,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.003,
+            "food_eaten": 4,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 5
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 1.882,
+          "max_mass": 3.0,
+          "mean_mass_alive": 1.882,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 0.795,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.823394495412844,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.436,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 2.563,
+          "max_mass": 5.0,
+          "mean_mass_alive": 2.563,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.003,
+            "food_eaten": 4,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 5
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 3.504,
+          "max_mass": 7.0,
+          "mean_mass_alive": 3.504,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.009,
+            "food_eaten": 6,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 1.801,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.801,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 2.623,
+          "max_mass": 4.0,
+          "mean_mass_alive": 2.623,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 0.741,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.3,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.57,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 1.925,
+          "max_mass": 4.0,
+          "mean_mass_alive": 1.925,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 0.55,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.2387387387387387,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.444,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 0.995,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.5098634294385433,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.659,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 1.8458333333333332,
+        "mass_integral_ci": 0.6914446355689137,
+        "max_mass": 3.25,
+        "max_mass_ci": 1.1211490799486468,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.3333333333333333,
+        "deaths_ci": 0.3128365177991324,
+        "survival_fraction": 0.8424166666666667,
+        "survival_fraction_ci": 0.15210695519139766,
+        "probes": {
+          "boost_frame_fraction": 0.00125,
+          "food_eaten": 2.25,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 3,
+            "enemy_body": 1
+          }
+        }
+      },
+      "checkpoint_sha256": "7a168bdf01a39a7e6d917f1ec5a3ced419662636d63003e552f65bf22cb65aeb"
+    },
+    {
+      "label": "epoch_s704",
+      "training_seed": 704,
+      "stage": "epoch",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/epoch_s704/latest_pqn.pth"
+      ],
+      "wall_seconds": 19.71801625005901,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 3.575,
+          "max_mass": 13.0,
+          "mean_mass_alive": 6.441441441441442,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.555,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.007207207207207207,
+            "food_eaten": 12,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 13
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 4.359,
+          "max_mass": 14.0,
+          "mean_mass_alive": 4.359,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.002,
+            "food_eaten": 13,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 14
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 7.419,
+          "max_mass": 11.0,
+          "mean_mass_alive": 7.419,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.007,
+            "food_eaten": 11,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 11
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 5.813,
+          "max_mass": 12.0,
+          "mean_mass_alive": 7.578878748370274,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.767,
+          "probes": {
+            "death_cause": "wall",
+            "boost_frame_fraction": 0.01955671447196871,
+            "food_eaten": 15,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 12
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 1.849,
+          "max_mass": 7.0,
+          "mean_mass_alive": 2.6189801699716715,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.706,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.00424929178470255,
+            "food_eaten": 6,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 7
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 4.871,
+          "max_mass": 14.0,
+          "mean_mass_alive": 6.938746438746438,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.702,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.021367521367521368,
+            "food_eaten": 18,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 14
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 2.904,
+          "max_mass": 4.0,
+          "mean_mass_alive": 2.904,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 5.674,
+          "max_mass": 22.0,
+          "mean_mass_alive": 6.961963190184049,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.815,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.0049079754601227,
+            "food_eaten": 22,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 22
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 2.461,
+          "max_mass": 8.0,
+          "mean_mass_alive": 2.461,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.004,
+            "food_eaten": 8,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 8
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 1.192,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.192,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 0.383,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.383,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 5.654,
+          "max_mass": 14.0,
+          "mean_mass_alive": 6.112432432432432,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.925,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.002162162162162162,
+            "food_eaten": 13,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 14
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 3.8461666666666665,
+        "mass_integral_ci": 1.3608763877959242,
+        "max_mass": 10.166666666666666,
+        "max_mass_ci": 3.829852437685354,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.5833333333333334,
+        "deaths_ci": 0.32717226160331236,
+        "survival_fraction": 0.8210833333333333,
+        "survival_fraction_ci": 0.13048868056849586,
+        "probes": {
+          "boost_frame_fraction": 0.006037572704473725,
+          "food_eaten": 10.166666666666666,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "self": 4,
+            "wall": 1,
+            "enemy_body": 1,
+            "head_on": 1
+          }
+        }
+      },
+      "checkpoint_sha256": "9de2653d5a10b7638003bba9aae797b18847c00e82afc45b417fba7f953e47b9"
+    },
+    {
+      "label": "initial_s805",
+      "training_seed": 805,
+      "stage": "initial",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s805/initial.pth"
+      ],
+      "wall_seconds": 19.34018883400131,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 1.787,
+          "max_mass": 3.0,
+          "mean_mass_alive": 1.787,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 0.794,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.794,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 1.617,
+          "max_mass": 3.0,
+          "mean_mass_alive": 1.617,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 1.997,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.997,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 0.07,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.07,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 2.039,
+          "max_mass": 3.0,
+          "mean_mass_alive": 2.039,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 2.202,
+          "max_mass": 3.0,
+          "mean_mass_alive": 2.202,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 1.134,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.134,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 0.359,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.0436046511627908,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.344,
+          "probes": {
+            "death_cause": "enemy_body",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 1.413,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.413,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 2.039,
+          "max_mass": 3.0,
+          "mean_mass_alive": 2.039,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 1.3709166666666668,
+        "mass_integral_ci": 0.4473823999193677,
+        "max_mass": 2.1666666666666665,
+        "max_mass_ci": 0.5304401236213894,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.25,
+        "deaths_ci": 0.28735869056886826,
+        "survival_fraction": 0.8506666666666667,
+        "survival_fraction_ci": 0.19817026712711552,
+        "probes": {
+          "boost_frame_fraction": 0.0,
+          "food_eaten": 1.1666666666666667,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 2,
+            "enemy_body": 1
+          }
+        }
+      },
+      "checkpoint_sha256": "12070de31ee117ddb80b01e6b2fa81403b3b76b644e437eba69b34a682f65bfb"
+    },
+    {
+      "label": "legacy_s805",
+      "training_seed": 805,
+      "stage": "legacy",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/legacy_s805/latest_pqn.pth"
+      ],
+      "wall_seconds": 19.286003916990012,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 0.142,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.142,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 0.673,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.1142384105960266,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.604,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 0.784,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.784,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 0.546,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.546,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 1.484,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.484,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 1.379,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.379,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 1.54,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.54,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 1.977,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.977,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 1.675,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.675,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 1.1,
+        "mass_integral_ci": 0.3348693183136498,
+        "max_mass": 1.5,
+        "max_mass_ci": 0.33181323470782886,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.3333333333333333,
+        "deaths_ci": 0.3128365177991324,
+        "survival_fraction": 0.8396666666666667,
+        "survival_fraction_ci": 0.17529358176963084,
+        "probes": {
+          "boost_frame_fraction": 0.0,
+          "food_eaten": 0.5,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 4
+          }
+        }
+      },
+      "checkpoint_sha256": "1fe0411e68d9079d7c89f62e013b66674ca61c86bfec89c5400120502aeb28f0"
+    },
+    {
+      "label": "epoch_s805",
+      "training_seed": 805,
+      "stage": "epoch",
+      "agent_spec": [
+        "checkpoint",
+        "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/pqn_coverage_final_20260906/epoch_s805/latest_pqn.pth"
+      ],
+      "wall_seconds": 19.368518249946646,
+      "runs": [
+        {
+          "seed": 41000,
+          "mass_integral": 1.714,
+          "max_mass": 3.0,
+          "mean_mass_alive": 1.714,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41001,
+          "mass_integral": 0.141,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.141,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41002,
+          "mass_integral": 1.465,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.465,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41003,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41004,
+          "mass_integral": 1.729,
+          "max_mass": 3.0,
+          "mean_mass_alive": 1.729,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 2,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 3
+          }
+        },
+        {
+          "seed": 41005,
+          "mass_integral": 0.901,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.901,
+          "probes": {
+            "death_cause": "head_on",
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41006,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41007,
+          "mass_integral": 1.0,
+          "max_mass": 1.0,
+          "mean_mass_alive": 1.0,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 0,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 1
+          }
+        },
+        {
+          "seed": 41008,
+          "mass_integral": 1.455,
+          "max_mass": 14.0,
+          "mean_mass_alive": 2.635869565217391,
+          "kills": 0.0,
+          "deaths": 1.0,
+          "survival_fraction": 0.552,
+          "probes": {
+            "death_cause": "self",
+            "boost_frame_fraction": 0.019927536231884056,
+            "food_eaten": 13,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 14
+          }
+        },
+        {
+          "seed": 41009,
+          "mass_integral": 1.818,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.818,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        },
+        {
+          "seed": 41010,
+          "mass_integral": 2.786,
+          "max_mass": 4.0,
+          "mean_mass_alive": 2.786,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 3,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 4
+          }
+        },
+        {
+          "seed": 41011,
+          "mass_integral": 1.313,
+          "max_mass": 2.0,
+          "mean_mass_alive": 1.313,
+          "kills": 0.0,
+          "deaths": 0.0,
+          "survival_fraction": 1.0,
+          "probes": {
+            "death_cause": null,
+            "boost_frame_fraction": 0.0,
+            "food_eaten": 1,
+            "kill_opportunity_count": 0,
+            "entrapment_event": false,
+            "peak_length": 2
+          }
+        }
+      ],
+      "summary": {
+        "n": 12,
+        "mass_integral": 1.3601666666666665,
+        "mass_integral_ci": 0.411431359170913,
+        "max_mass": 2.9166666666666665,
+        "max_mass_ci": 2.3061749206251037,
+        "kills": 0.0,
+        "kills_ci": 0.0,
+        "deaths": 0.25,
+        "deaths_ci": 0.28735869056886826,
+        "survival_fraction": 0.8828333333333332,
+        "survival_fraction_ci": 0.16958758416643172,
+        "probes": {
+          "boost_frame_fraction": 0.0016606280193236713,
+          "food_eaten": 1.9166666666666667,
+          "kill_opportunity_count": 0.0,
+          "entrapment_events": 0,
+          "deaths_by_cause": {
+            "head_on": 2,
+            "self": 1
+          }
+        }
+      },
+      "checkpoint_sha256": "1ea689ae8d460ebad08c4e7a50e102e0b1a733de3cfbbcd1eb9a0444e0a62e8e"
+    }
+  ]
+}

@@ -281,6 +281,117 @@ class TestBuildConfigPrecedence:
 
         assert made[0].config.flip_augment is False
 
+    def test_sgd_epochs_cli_flag_beats_config_file(self, tmp_path, monkeypatch):
+        path = tmp_path / "c.yaml"
+        path.write_text(yaml.safe_dump({"pqn": {"sgd_epochs": 2}}))
+        made = _install_trainer(monkeypatch)
+        train_pqn.main(
+            [
+                "--device",
+                "cpu",
+                "--out-dir",
+                str(tmp_path),
+                "--total-steps",
+                "1",
+                "--config",
+                str(path),
+                "--sgd-epochs",
+                "1",
+            ]
+        )
+        assert made[0].config.sgd_epochs == 1
+
+    def test_pad_sgd_batches_cli_flag_beats_config_file(self, tmp_path, monkeypatch):
+        path = tmp_path / "c.yaml"
+        path.write_text(yaml.safe_dump({"pqn": {"pad_sgd_batches": False}}))
+        made = _install_trainer(monkeypatch)
+        train_pqn.main(
+            [
+                "--device",
+                "cpu",
+                "--out-dir",
+                str(tmp_path),
+                "--total-steps",
+                "1",
+                "--config",
+                str(path),
+                "--pad-sgd-batches",
+            ]
+        )
+        assert made[0].config.pad_sgd_batches is True
+
+    def test_sgd_seed_cli_flag_beats_config_file(self, tmp_path, monkeypatch):
+        path = tmp_path / "c.yaml"
+        path.write_text(yaml.safe_dump({"pqn": {"sgd_seed": 101}}))
+        made = _install_trainer(monkeypatch)
+        train_pqn.main(
+            [
+                "--device",
+                "cpu",
+                "--out-dir",
+                str(tmp_path),
+                "--total-steps",
+                "1",
+                "--config",
+                str(path),
+                "--sgd-seed",
+                "202",
+            ]
+        )
+        assert made[0].config.sgd_seed == 202
+
+    def test_collapse_guard_cli_flags_override_config_file(self, tmp_path, monkeypatch):
+        path = tmp_path / "c.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "pqn": {
+                        "action_collapse_patience": 2,
+                        "action_collapse_min_samples": 100,
+                        "action_collapse_raw_actions": False,
+                    }
+                }
+            )
+        )
+        made = _install_trainer(monkeypatch)
+        train_pqn.main(
+            [
+                "--device",
+                "cpu",
+                "--out-dir",
+                str(tmp_path),
+                "--total-steps",
+                "1",
+                "--config",
+                str(path),
+                "--action-collapse-patience",
+                "3",
+                "--action-collapse-min-samples",
+                "200",
+                "--action-collapse-raw-actions",
+            ]
+        )
+        config = made[0].config
+        assert config.action_collapse_patience == 3
+        assert config.action_collapse_min_samples == 200
+        assert config.action_collapse_raw_actions is True
+
+    @pytest.mark.parametrize("epochs", ["0", "-1"])
+    def test_nonpositive_sgd_epochs_cli_is_rejected(self, tmp_path, epochs):
+        with pytest.raises(SystemExit, match="2"):
+            train_pqn.main(
+                [
+                    "--device",
+                    "cpu",
+                    "--out-dir",
+                    str(tmp_path),
+                    "--total-steps",
+                    "1",
+                    "--sgd-epochs",
+                    epochs,
+                ]
+            )
+
     def test_no_self_play_collapses_the_pool(self, tmp_path, monkeypatch):
         made = _install_trainer(monkeypatch)
         train_pqn.main(
@@ -357,6 +468,14 @@ class TestConfigBlockIsValidated:
         path.write_text("pqn:\n  hero_frac: 1.5\n")
 
         with pytest.raises(ValidationError, match="hero_frac"):
+            train_pqn._load_config_overrides(str(path))
+
+    @pytest.mark.parametrize("epochs", [0, -1])
+    def test_nonpositive_sgd_epochs_in_config_is_rejected(self, tmp_path, epochs):
+        path = tmp_path / "c.yaml"
+        path.write_text(yaml.safe_dump({"pqn": {"sgd_epochs": epochs}}))
+
+        with pytest.raises(ValidationError, match="sgd_epochs"):
             train_pqn._load_config_overrides(str(path))
 
     def test_typo_under_pqn_is_rejected_not_ignored(self, tmp_path):
@@ -513,6 +632,41 @@ class TestResumeContract:
 
         with pytest.raises(ValueError, match="lambda"):
             train_pqn.validate_pqn_resume_checkpoint_config(blob, _tiny_config(lambda_=0.65))
+
+    @pytest.mark.parametrize(
+        ("field", "checkpoint_value", "resume_value"),
+        [
+            ("sgd_epochs", 1, 2),
+            ("pad_sgd_batches", True, False),
+            ("sgd_seed", 101, 202),
+            ("action_collapse_patience", 2, 3),
+            ("action_collapse_min_samples", 100, 200),
+            ("action_collapse_raw_actions", True, False),
+        ],
+    )
+    def test_mismatched_sampler_provenance_is_rejected(
+        self, tmp_path, field, checkpoint_value, resume_value
+    ):
+        blob = self._blob(tmp_path, **{field: checkpoint_value})
+
+        with pytest.raises(ValueError, match=field):
+            train_pqn.validate_pqn_resume_checkpoint_config(
+                blob, _tiny_config(**{field: resume_value})
+            )
+
+    def test_old_checkpoint_without_sampler_metadata_uses_legacy_defaults(self, tmp_path):
+        blob = self._blob(tmp_path)
+        for field in (
+            "sgd_epochs",
+            "pad_sgd_batches",
+            "sgd_seed",
+            "action_collapse_patience",
+            "action_collapse_min_samples",
+            "action_collapse_raw_actions",
+        ):
+            del blob[field]
+
+        train_pqn.validate_pqn_resume_checkpoint_config(blob, _tiny_config())
 
     def test_mismatched_mechanics_version_is_rejected(self, tmp_path):
         blob = self._blob(tmp_path, mechanics_version=1)

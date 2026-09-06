@@ -1,0 +1,139 @@
+{
+  "experiment": "pqn_coverage_final_20260906",
+  "frozen_before_campaign_training_and_evaluation": true,
+  "base_git_sha": "1b21187ef158242190d0b183333a2dfd9419aaa3",
+  "purpose": "diagnostic of rollout sampling, not promotion or an algorithm ranking",
+  "device": "mps",
+  "training_seeds": [
+    401,
+    502,
+    603,
+    704,
+    805
+  ],
+  "training_order": [
+    [
+      401,
+      "epoch"
+    ],
+    [
+      401,
+      "legacy"
+    ],
+    [
+      502,
+      "legacy"
+    ],
+    [
+      502,
+      "epoch"
+    ],
+    [
+      603,
+      "epoch"
+    ],
+    [
+      603,
+      "legacy"
+    ],
+    [
+      704,
+      "legacy"
+    ],
+    [
+      704,
+      "epoch"
+    ],
+    [
+      805,
+      "epoch"
+    ],
+    [
+      805,
+      "legacy"
+    ]
+  ],
+  "target_hero_agent_steps_per_arm": 500000,
+  "max_seconds_per_arm": 480,
+  "native_cpu_threads_per_arm": 2,
+  "max_concurrent_trainers": 1,
+  "max_process_rss_gib": 4,
+  "max_mps_driver_gib": 8,
+  "min_available_system_memory_gib": 6,
+  "num_envs": 16,
+  "num_snakes": 6,
+  "rollout_len": 16,
+  "eps_decay_steps": 300000,
+  "reward": "unchanged reward v2; no living-mass bonus",
+  "network": "unchanged raster dueling network",
+  "flip_augmentation": true,
+  "max_frames": 5000,
+  "pool_capacity": 0,
+  "hero_frac": 1.0,
+  "legacy_sampler": "four independent 256-row subsets, allowing overlap between subsets",
+  "epoch_sampler": "one permutation of every eligible hero row, balanced into ceil(n/256) batches",
+  "equalized_budget": "hero transitions, not optimizer draws or wall time",
+  "evaluation_engine": "simd",
+  "evaluation_world_seeds": [
+    41000,
+    41001,
+    41002,
+    41003,
+    41004,
+    41005,
+    41006,
+    41007,
+    41008,
+    41009,
+    41010,
+    41011
+  ],
+  "evaluation_frames": 1000,
+  "evaluation_config": "configs/mechanics_v2.yaml",
+  "evaluation_opponents": [
+    "scripted:greedy_food",
+    "scripted:greedy_food",
+    "scripted:greedy_food",
+    "scripted:greedy_food",
+    "scripted:greedy_food"
+  ],
+  "evaluation_models": "all ten final checkpoints, one paired initial checkpoint per training seed, plus greedy_food and random_safe references",
+  "primary_estimand": "mean across five training seeds of each seed's mean over twelve paired world-seed deltas: final epoch mass integral minus final legacy mass integral",
+  "primary_interval": "two-sided 95% Student-t interval with training seed as independent unit (n=5, df=4)",
+  "diagnostic_success": "primary confidence interval lower bound greater than zero; separate numerical health and coverage correctness",
+  "failure_handling": "record every assigned arm; stop campaign on runtime/resource failure; incomplete pairs cannot support primary success",
+  "secondary_metrics": [
+    "mass vs initial",
+    "mass vs scripted anchors",
+    "valid slot fraction",
+    "unique sampled coverage",
+    "optimizer draws and steps",
+    "elapsed wall time",
+    "RSS",
+    "MPS driver memory"
+  ],
+  "known_limits": [
+    "five training seeds remain a small screen",
+    "1000-frame scripted mix is not promotion",
+    "all heroes co-learn despite frozen pool disabled",
+    "existing safety-mask targets and flip geometry remain unchanged confounds",
+    "MPS short replay matched hashes but full-run deterministic reproducibility is not assumed",
+    "no matched-wall-time performance evaluation",
+    "The same initial/rollout RNG seeds do not imply identical future world trajectories once learned actions diverge."
+  ],
+  "revision": 3,
+  "amends": "../pqn_coverage_padded_20260906/protocol.json",
+  "amendment_reason": "Revision 2 control hit one-update action entropy alarm at332548 transitions with only64 real rows. This metric was post-sampling/post-augmentation and could censor sampler arms differently. Both arms now guard on raw unique eligible rollout actions, requiring same-action unanimity over at least3 consecutive updates and2048 real rows; changes of dominant action reset the window. Numerical and resource guards unchanged. All ten arms restart before any heldout evaluation outcomes are inspected.",
+  "pad_sgd_batches": true,
+  "sgd_rng_seed": "training_seed + 10000000, separate from rollout exploration RNG in both arms",
+  "action_collapse_patience": 3,
+  "action_collapse_min_samples": 2048,
+  "action_collapse_raw_actions": true,
+  "action_collapse_interpretation": "Emergency heuristic for sustained repeated same-action rollout unanimity, not statistical proof of global policy collapse; rows within trajectories are correlated.",
+  "observed_before_revision": {
+    "heldout_evaluations_viewed": 0,
+    "v1": "legacy401 completed500346; epoch401 RSSstop407662,4.318GB; training telemetry and memory observed",
+    "v2": "epoch401 completed500471 in180.478s; legacy401 stopped332548 at action entropyzero in64-row window; training telemetry, weights and completion statuses inspected",
+    "adaptation_limit": "Operational guard design used these training observations. This is an adaptive exploratory diagnostic, not a preregistered confirmatory algorithm test."
+  }
+}

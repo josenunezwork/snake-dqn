@@ -27,6 +27,11 @@ class TestParseSeedList:
     def test_mixed_forms_preserve_order(self):
         assert parse_seed_list("0-3,7,10-11") == [0, 1, 2, 3, 7, 10, 11]
 
+    @pytest.mark.parametrize("value", ["1,1", "0-2,2", "4,2-4"])
+    def test_duplicate_seed_rejected(self, value):
+        with pytest.raises(argparse.ArgumentTypeError, match="duplicate seed"):
+            parse_seed_list(value)
+
     def test_whitespace_and_empty_tokens_tolerated(self):
         # The legacy evaluate_checkpoints contract.
         assert parse_seed_list("0, 2,5") == [0, 2, 5]
@@ -44,6 +49,15 @@ class TestParseSeedList:
     def test_backwards_range_rejected(self):
         with pytest.raises(argparse.ArgumentTypeError, match="before start"):
             parse_seed_list("9-2")
+
+    def test_tournament_cli_rejects_duplicate_world_seed_before_rollouts(self, capsys):
+        from src.scripts.tournament_eval import main
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["scripted:random_safe", "--seeds", "1,1"])
+
+        assert exc_info.value.code == 2
+        assert "duplicate seed 1" in capsys.readouterr().err
 
 
 class TestSharedAcrossScripts:

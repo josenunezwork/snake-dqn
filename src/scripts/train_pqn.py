@@ -65,6 +65,22 @@ from src.training.pqn_trainer import (  # noqa: E402
 # also drives PQN.
 
 
+def _positive_int(value: str) -> int:
+    """Parse a strictly positive CLI integer for a config count."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
+def _nonnegative_int(value: str) -> int:
+    """Parse a non-negative CLI integer for an evidence count."""
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
+
+
 def _load_config_overrides(path: str) -> Dict[str, Any]:
     """Read PQN overrides from a YAML config file.
 
@@ -125,6 +141,14 @@ def _load_config_overrides(path: str) -> Dict[str, Any]:
 # -- resume (blueprint §4.4 spot-preemption contract) -----------------------
 #: Checkpoint entries a resume needs on top of the contract metadata.
 _RESUME_REQUIRED_STATE = ("dqn_state_dict", "optimizer_state_dict")
+_SAMPLER_PROVENANCE_DEFAULTS = {
+    "sgd_epochs": None,
+    "pad_sgd_batches": False,
+    "sgd_seed": None,
+    "action_collapse_patience": 1,
+    "action_collapse_min_samples": 0,
+    "action_collapse_raw_actions": False,
+}
 
 
 def resume_contract(config: PQNConfig) -> Dict[str, Any]:
@@ -193,6 +217,33 @@ def validate_pqn_resume_checkpoint_config(
         required_keys=("algo", "gamma", "lambda", "mechanics_version", "reward_version"),
         error_type=ValueError,
     )
+    # Sampler fields are fit-provenance rather than inference/promotion
+    # semantics, but changing any of them on resume silently changes the
+    # optimizer trajectory. Missing fields predate this metadata and mean the
+    # legacy defaults, preserving compatibility with older checkpoints.
+    expected_sampler = {
+        "sgd_epochs": config.sgd_epochs,
+        "pad_sgd_batches": config.pad_sgd_batches,
+        "sgd_seed": config.sgd_seed,
+        "action_collapse_patience": config.action_collapse_patience,
+        "action_collapse_min_samples": config.action_collapse_min_samples,
+        "action_collapse_raw_actions": config.action_collapse_raw_actions,
+    }
+    for key, expected in expected_sampler.items():
+        actual = checkpoint.get(key, _SAMPLER_PROVENANCE_DEFAULTS[key])
+        if key in ("pad_sgd_batches", "action_collapse_raw_actions"):
+            matches = isinstance(actual, bool) and actual is expected
+        elif expected is None:
+            matches = actual is None
+        else:
+            matches = (
+                isinstance(actual, int) and not isinstance(actual, bool) and actual == expected
+            )
+        if not matches:
+            raise ValueError(
+                f"{checkpoint_path}: sampler provenance mismatch for {key}: "
+                f"checkpoint={actual!r}, config={expected!r}"
+            )
 
 
 def load_pqn_resume_checkpoint(
@@ -259,6 +310,12 @@ def apply_resume_checkpoint(trainer: PQNTrainer, checkpoint: Dict[str, Any]) -> 
     trainer.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     trainer.update_idx = int(checkpoint.get("update_counter", 0))
     trainer.agent_steps = int(checkpoint.get("agent_steps", 0))
+    trainer._action_collapse_streak = int(checkpoint.get("action_collapse_streak", 0))
+    trainer._action_collapse_evidence_samples = int(
+        checkpoint.get("action_collapse_evidence_samples", 0)
+    )
+    raw_mode = checkpoint.get("action_collapse_raw_action_mode")
+    trainer._action_collapse_raw_action_mode = None if raw_mode is None else int(raw_mode)
 
 
 def build_config(args: argparse.Namespace) -> PQNConfig:
@@ -288,6 +345,12 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         "lr": args.lr,
         "minibatches": args.minibatches,
         "minibatch_size": args.minibatch_size,
+        "sgd_epochs": args.sgd_epochs,
+        "pad_sgd_batches": args.pad_sgd_batches,
+        "sgd_seed": args.sgd_seed,
+        "action_collapse_patience": args.action_collapse_patience,
+        "action_collapse_min_samples": args.action_collapse_min_samples,
+        "action_collapse_raw_actions": args.action_collapse_raw_actions,
         "eps_start": args.eps_start,
         "eps_end": args.eps_end,
         "eps_decay_steps": args.eps_decay_steps,
@@ -339,7 +402,11 @@ def _format_row(tel: PQNTelemetry) -> str:
         f"|Q|~ {tel.mean_abs_q:7.3f} max {tel.max_abs_q:8.3f} | "
         f"gnorm {tel.grad_norm:7.3f} | R/step {tel.mean_reward:+7.4f} | "
         f"H {tel.action_entropy:5.3f} | kills {tel.kills_per_ep:5.1f} | "
-        f"boost {100 * tel.boost_fraction:4.1f}% | pool {tel.pool_size}"
+        f"boost {100 * tel.boost_fraction:4.1f}% | pool {tel.pool_size} | "
+        f"sgd {tel.sampled_transition_draws}/{tel.eligible_hero_transitions} "
+        f"({tel.unique_sampled_transitions} unique, {tel.optimizer_steps} steps) | "
+        f"Hraw {tel.raw_action_entropy:5.3f} mode {tel.raw_action_mode} "
+        f"collapse {tel.action_collapse_streak}/{tel.action_collapse_evidence_samples}"
     )
 
 
@@ -358,6 +425,15 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
         "kills_per_ep": tel.kills_per_ep,
         "boost_fraction": tel.boost_fraction,
         "pool_size": tel.pool_size,
+        "eligible_hero_transitions": tel.eligible_hero_transitions,
+        "sampled_transition_draws": tel.sampled_transition_draws,
+        "unique_sampled_transitions": tel.unique_sampled_transitions,
+        "optimizer_steps": tel.optimizer_steps,
+        "valid_slot_fraction": tel.valid_slot_fraction,
+        "raw_action_entropy": tel.raw_action_entropy,
+        "raw_action_mode": tel.raw_action_mode,
+        "action_collapse_streak": tel.action_collapse_streak,
+        "action_collapse_evidence_samples": tel.action_collapse_evidence_samples,
     }
 
 
@@ -510,6 +586,39 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--lr", type=float, default=None)
     p.add_argument("--minibatches", type=int, default=None)
     p.add_argument("--minibatch-size", type=int, default=None)
+    p.add_argument(
+        "--sgd-epochs",
+        type=_positive_int,
+        default=None,
+        help="Exact-coverage SGD epochs (default: legacy fixed-minibatch sampler).",
+    )
+    p.add_argument(
+        "--pad-sgd-batches",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Pad undersized SGD forwards to minibatch-size, then discard padded predictions.",
+    )
+    p.add_argument("--sgd-seed", type=int, default=None, help="Optional independent SGD RNG seed.")
+    p.add_argument(
+        "--action-collapse-patience",
+        type=_positive_int,
+        default=None,
+        help="Consecutive low-entropy updates required before stopping.",
+    )
+    p.add_argument(
+        "--action-collapse-min-samples",
+        type=_nonnegative_int,
+        default=None,
+        help="Eligible hero samples required across a low-entropy streak.",
+    )
+    p.add_argument(
+        "--action-collapse-raw-actions",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Measure collapse from raw rollout actions before augmentation.",
+    )
 
     # Exploration.
     p.add_argument("--eps-start", type=float, default=None)

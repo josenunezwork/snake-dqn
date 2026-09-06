@@ -427,6 +427,68 @@ def summarize_runs(runs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     return out
 
 
+def combined_paired_stats(
+    candidate_runs_by_mix: Dict[str, Sequence[Dict[str, Any]]],
+    baseline_runs_by_mix: Dict[str, Sequence[Dict[str, Any]]],
+    mixes: Sequence[str],
+) -> Dict[str, Any]:
+    """Compute one equal-weight paired delta per world across opponent mixes.
+
+    A world seed is reused across mixes, so its mix-specific results are
+    correlated observations rather than extra independent samples. The
+    descriptive combined interval therefore averages each world's
+    candidate-minus-baseline deltas across the requested mixes, then computes
+    the t interval over those distinct world averages. Per-mix paired results
+    remain the promotion authority.
+
+    Args:
+        candidate_runs_by_mix: Candidate rollout records keyed by mix.
+        baseline_runs_by_mix: Baseline rollout records keyed by mix.
+        mixes: Predeclared opponent mixes, each given equal weight per world.
+
+    Returns:
+        The usual ``paired_stats`` schema over one aggregate delta per seed.
+
+    Raises:
+        ValueError: If mixes are missing, a run omits its seed, a seed is
+            duplicated, or candidate/baseline and cross-mix seed sets differ.
+    """
+    mixes = list(dict.fromkeys(mixes))
+    if not mixes:
+        raise ValueError("combined paired analysis needs at least one mix")
+
+    def scores_by_seed(runs: Sequence[Dict[str, Any]], label: str) -> Dict[int, float]:
+        scores: Dict[int, float] = {}
+        for run in runs:
+            if "seed" not in run:
+                raise ValueError(f"{label} run is missing its world seed")
+            seed = int(run["seed"])
+            if seed in scores:
+                raise ValueError(f"{label} has duplicate world seed {seed}")
+            scores[seed] = float(run["mass_integral"])
+        return scores
+
+    seed_order: List[int] | None = None
+    deltas_by_seed: Dict[int, List[float]] = {}
+    for mix in mixes:
+        if mix not in candidate_runs_by_mix or mix not in baseline_runs_by_mix:
+            raise ValueError(f"combined paired analysis is missing mix {mix!r}")
+        candidate_scores = scores_by_seed(candidate_runs_by_mix[mix], f"candidate {mix!r}")
+        baseline_scores = scores_by_seed(baseline_runs_by_mix[mix], f"baseline {mix!r}")
+        if candidate_scores.keys() != baseline_scores.keys():
+            raise ValueError(f"candidate/baseline world seed sets differ for mix {mix!r}")
+        if seed_order is None:
+            seed_order = list(candidate_scores)
+            deltas_by_seed = {seed: [] for seed in seed_order}
+        elif candidate_scores.keys() != deltas_by_seed.keys():
+            raise ValueError(f"world seed sets differ across mixes at {mix!r}")
+        for seed in seed_order:
+            deltas_by_seed[seed].append(candidate_scores[seed] - baseline_scores[seed])
+
+    seed_mean_deltas = [mean(deltas_by_seed[seed]) for seed in seed_order]
+    return paired_stats(seed_mean_deltas, [0.0] * len(seed_mean_deltas))
+
+
 def promotion_decision(
     per_mix_paired: Dict[str, Dict[str, Any]], mixes: Sequence[str]
 ) -> Dict[str, Any]:
@@ -489,7 +551,8 @@ def print_markdown_report(
             )
         c = result["combined_paired"]
         print(
-            f"| {name} | **combined** | - | {c['mean_delta']:+.2f} ± {c['ci95']:.2f} "
+            f"| {name} | **mean across mixes / world** | - | "
+            f"{c['mean_delta']:+.2f} ± {c['ci95']:.2f} "
             f"| {c['wins']}/{c['n']} | - | - | - | - | "
             f"{'WIN' if c['significant'] else 'ns'} |"
         )
@@ -769,8 +832,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     for cand_spec, cand_raw in zip(candidate_specs, args.candidates):
         try:
             per_mix: Dict[str, Any] = {}
-            all_cand_vals: List[float] = []
-            all_base_vals: List[float] = []
             for mix in args.mixes:
                 runs = run_mix(cand_spec, mix_specs[mix], args.frames, args.seeds, args.engine)
                 cand_vals = [r["mass_integral"] for r in runs]
@@ -780,14 +841,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "summary": summarize_runs(runs),
                     "paired": paired_stats(cand_vals, base_vals),
                 }
-                all_cand_vals.extend(cand_vals)
-                all_base_vals.extend(base_vals)
             paired_by_mix = {mix: per_mix[mix]["paired"] for mix in args.mixes}
             candidate_results.append(
                 {
                     "candidate": cand_raw,
                     "per_mix": per_mix,
-                    "combined_paired": paired_stats(all_cand_vals, all_base_vals),
+                    "combined_paired": combined_paired_stats(
+                        {mix: per_mix[mix]["runs"] for mix in args.mixes},
+                        baseline_runs,
+                        args.mixes,
+                    ),
                     "decision": promotion_decision(paired_by_mix, args.mixes),
                 }
             )

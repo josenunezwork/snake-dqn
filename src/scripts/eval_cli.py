@@ -32,8 +32,9 @@ def parse_seed_list(value: str) -> List[int]:
     """Parse a ``--seeds`` value into an explicit seed list.
 
     Accepts comma-separated seeds, inclusive ranges, or a mix of both. Order is
-    preserved and duplicates are kept, so a caller can deliberately repeat a
-    seed.
+    preserved, and every expanded seed must be unique. Repeating a world seed
+    would count the same deterministic rollout more than once in paired
+    statistics.
 
     Args:
         value: Seed spec, e.g. ``"0,1,2"``, ``"0-15"`` or ``"0-3,7"``.
@@ -43,10 +44,11 @@ def parse_seed_list(value: str) -> List[int]:
 
     Raises:
         argparse.ArgumentTypeError: If a token is not a non-negative int or an
-            inclusive range, if a range ends before it starts, or if no seed is
-            given at all.
+            inclusive range, if a range ends before it starts, if a seed is
+            repeated, or if no seed is given at all.
     """
     seeds: List[int] = []
+    seen = set()
     for raw_token in value.split(","):
         token = raw_token.strip()
         if not token:
@@ -60,14 +62,21 @@ def parse_seed_list(value: str) -> List[int]:
         start = int(match.group("start"))
         end_text = match.group("end")
         if end_text is None:
-            seeds.append(start)
-            continue
-        end = int(end_text)
-        if end < start:
-            raise argparse.ArgumentTypeError(
-                f"invalid seed range {token!r}: end {end} is before start {start}"
-            )
-        seeds.extend(range(start, end + 1))
+            expanded = (start,)
+        else:
+            end = int(end_text)
+            if end < start:
+                raise argparse.ArgumentTypeError(
+                    f"invalid seed range {token!r}: end {end} is before start {start}"
+                )
+            expanded = range(start, end + 1)
+        for seed in expanded:
+            if seed in seen:
+                raise argparse.ArgumentTypeError(
+                    f"duplicate seed {seed}: each world seed may appear only once"
+                )
+            seen.add(seed)
+            seeds.append(seed)
     if not seeds:
         raise argparse.ArgumentTypeError("at least one seed is required")
     return seeds

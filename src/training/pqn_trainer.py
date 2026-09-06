@@ -97,9 +97,24 @@ class PQNConfig:
         lr: Adam learning rate (blueprint: 5e-4).
         adam_eps: Adam epsilon (blueprint: 1.5e-4).
         grad_clip: Grad-norm clip (blueprint: 10.0).
-        minibatches: Number of minibatch SGD steps per update.
-        minibatch_size: Transitions per SGD minibatch (hero transitions are
-            sampled without replacement across minibatches, then reshuffled).
+        minibatches: Number of fixed-size SGD steps in legacy sampling mode.
+        minibatch_size: Maximum transitions per SGD minibatch. Legacy mode
+            independently samples this many without replacement per batch;
+            exact-coverage mode uses it as the balanced-batch size cap.
+        sgd_epochs: Optional exact-coverage sampler. ``None`` retains the
+            historical fixed-minibatch sampler; a positive value shuffles every
+            eligible hero transition once per epoch in balanced minibatches.
+        pad_sgd_batches: Pad undersized SGD batches to ``minibatch_size`` for
+            the network forward only, then discard padded predictions before
+            loss and telemetry. This is opt-in for fixed accelerator shapes.
+        sgd_seed: Optional independent RNG seed for sampling and flip
+            augmentation. ``None`` preserves the historical shared RNG stream.
+        action_collapse_patience: Consecutive low-entropy updates required
+            before the collapse guard stops training.
+        action_collapse_min_samples: Real eligible hero samples required across
+            a low-entropy streak before the collapse guard stops training.
+        action_collapse_raw_actions: Measure collapse from pre-augmentation
+            rollout actions instead of sampled SGD actions.
         eps_start / eps_end: ε-greedy endpoints (blueprint: 1.0 -> 0.02).
         eps_decay_steps: Agent-steps over which ε decays (blueprint ~50M; scale
             down for smoke).
@@ -133,6 +148,12 @@ class PQNConfig:
     grad_clip: float = 10.0
     minibatches: int = 4
     minibatch_size: int = 256
+    sgd_epochs: Optional[int] = None
+    pad_sgd_batches: bool = False
+    sgd_seed: Optional[int] = None
+    action_collapse_patience: int = 1
+    action_collapse_min_samples: int = 0
+    action_collapse_raw_actions: bool = False
     eps_start: float = 1.0
     eps_end: float = 0.02
     eps_decay_steps: int = 50_000_000
@@ -149,6 +170,22 @@ class PQNConfig:
     mechanics_version: int = 2
     reward_version: int = 2
     profile: bool = False  # print a CUDA-synced per-phase time breakdown each update
+
+    def __post_init__(self) -> None:
+        """Reject an invalid opt-in exact-coverage epoch count."""
+        if self.sgd_epochs is not None and (
+            isinstance(self.sgd_epochs, bool)
+            or not isinstance(self.sgd_epochs, int)
+            or self.sgd_epochs <= 0
+        ):
+            raise ValueError("sgd_epochs must be a positive integer when set")
+        for name, value, minimum in (
+            ("action_collapse_patience", self.action_collapse_patience, 1),
+            ("action_collapse_min_samples", self.action_collapse_min_samples, 0),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                comparator = "positive" if minimum else "non-negative"
+                raise ValueError(f"{name} must be a {comparator} integer")
 
 
 @dataclass
@@ -168,6 +205,15 @@ class PQNTelemetry:
         kills_per_ep: Total hero kills over the rollout (per E*T proxy).
         boost_fraction: Fraction of hero steps that engaged boost.
         pool_size: Current opponent-pool size.
+        eligible_hero_transitions: Real hero transitions eligible for SGD.
+        sampled_transition_draws: Total transition draws across SGD batches.
+        unique_sampled_transitions: Distinct eligible transitions drawn by SGD.
+        optimizer_steps: SGD optimizer steps completed this update.
+        valid_slot_fraction: Fraction of rollout slots that were real transitions.
+        raw_action_entropy: Entropy of unique valid hero rollout actions before augmentation.
+        raw_action_mode: Most frequent valid hero rollout action, or ``-1`` when empty.
+        action_collapse_streak: Consecutive low-entropy update count.
+        action_collapse_evidence_samples: Real eligible samples in that streak.
     """
 
     update: int
@@ -182,10 +228,23 @@ class PQNTelemetry:
     kills_per_ep: float
     boost_fraction: float
     pool_size: int
+    eligible_hero_transitions: int = 0
+    sampled_transition_draws: int = 0
+    unique_sampled_transitions: int = 0
+    optimizer_steps: int = 0
+    valid_slot_fraction: float = 0.0
+    raw_action_entropy: float = 0.0
+    raw_action_mode: int = -1
+    action_collapse_streak: int = 0
+    action_collapse_evidence_samples: int = 0
 
 
 class TripwireError(RuntimeError):
-    """Raised when a training tripwire fires (NaN/inf, max|Q|, action-collapse)."""
+    """Raised when a training tripwire fires, retaining the triggering telemetry."""
+
+    def __init__(self, message: str, telemetry: Optional[PQNTelemetry] = None) -> None:
+        super().__init__(message)
+        self.telemetry = telemetry
 
 
 def flip_augment(
@@ -253,6 +312,12 @@ class PQNTrainer:
         )
         self.pool = OpponentPool(capacity=config.pool_capacity, device=self.device)
         self.rng = np.random.default_rng(config.seed)
+        # The default deliberately aliases the rollout generator: existing runs
+        # retain their exact RNG ordering. An explicit seed isolates optimizer
+        # sampling/augmentation from rollout policy assignment and exploration.
+        self.sgd_rng = (
+            self.rng if config.sgd_seed is None else np.random.default_rng(config.sgd_seed)
+        )
 
         sim_cfg = BatchSimConfig(
             num_envs=config.num_envs,
@@ -271,6 +336,16 @@ class PQNTrainer:
 
         self.update_idx = 0
         self.agent_steps = 0
+        self._last_sgd_sampling = {
+            "eligible_hero_transitions": 0,
+            "sampled_transition_draws": 0,
+            "unique_sampled_transitions": 0,
+            "optimizer_steps": 0,
+        }
+        self._action_collapse_streak = 0
+        self._action_collapse_evidence_samples = 0
+        self._action_collapse_raw_action_mode: Optional[int] = None
+        self.last_telemetry: Optional[PQNTelemetry] = None
 
     # -- ε schedule ---------------------------------------------------------
     def epsilon(self) -> float:
@@ -618,6 +693,12 @@ class PQNTrainer:
         hero_mask_tes = (np.broadcast_to(hero_es[None], (T, E, S)) & roll["valid"]).reshape(-1)
         hero_idx = np.nonzero(hero_mask_tes)[0]
         if hero_idx.size == 0:
+            self._last_sgd_sampling = {
+                "eligible_hero_transitions": 0,
+                "sampled_transition_draws": 0,
+                "unique_sampled_transitions": 0,
+                "optimizer_steps": 0,
+            }
             return 0.0, 0.0, 0.0, 0.0, 0.0
 
         tac = roll["tactical"].reshape(T * E * S, *TACTICAL_SHAPE)
@@ -638,21 +719,38 @@ class PQNTrainer:
         grad_norms: List[float] = []
         abs_q_vals: List[torch.Tensor] = []
         action_hist = torch.zeros(6, device=self.device)
+        sampled_indices = set()
+        sampled_draws = 0
 
-        for _ in range(cfg.minibatches):
-            perm = torch.as_tensor(
-                self.rng.permutation(n)[: cfg.minibatch_size], device=self.device
-            )
+        def run_minibatch(indices: np.ndarray) -> None:
+            """Apply one optimizer step to the supplied eligible-index positions."""
+            nonlocal action_hist, sampled_draws
+            sampled_indices.update(indices.tolist())
+            sampled_draws += int(indices.size)
+            perm = torch.as_tensor(indices, device=self.device)
             mtac = tac_h[perm]
             mstrat = strat_h[perm]
             mscal = scal_h[perm]
             macts = acts_h[perm]
             mtgt = tgt_h[perm]
+            real_count = int(indices.size)
 
-            if cfg.flip_augment and self.rng.random() < 0.5:
+            if cfg.pad_sgd_batches and real_count < cfg.minibatch_size:
+                pad_count = cfg.minibatch_size - real_count
+                mtac = torch.cat(
+                    [mtac, torch.zeros((pad_count, *TACTICAL_SHAPE), device=self.device)], dim=0
+                )
+                mstrat = torch.cat(
+                    [mstrat, torch.zeros((pad_count, *STRATEGIC_SHAPE), device=self.device)], dim=0
+                )
+                mscal = torch.cat(
+                    [mscal, torch.zeros((pad_count, SCALARS_DIM), device=self.device)], dim=0
+                )
+
+            if cfg.flip_augment and self.sgd_rng.random() < 0.5:
                 mtac, mstrat, mscal, macts = flip_augment(mtac, mstrat, mscal, macts)
 
-            q = self.network(mtac, mstrat, mscal)  # (m, 6)
+            q = self.network(mtac, mstrat, mscal)[:real_count]  # discard forward-only padding
             q_taken = q.gather(1, macts.view(-1, 1)).squeeze(1)
             loss = F.smooth_l1_loss(q_taken, mtgt.detach())
 
@@ -666,6 +764,29 @@ class PQNTrainer:
             abs_q_vals.append(q.detach().abs().reshape(-1))
             action_hist += torch.bincount(macts, minlength=6).float()
 
+        if cfg.sgd_epochs is None:
+            # Keep this loop and its RNG calls in their historical order. The
+            # opt-in coverage sampler below deliberately does not share it.
+            for _ in range(cfg.minibatches):
+                run_minibatch(self.sgd_rng.permutation(n)[: cfg.minibatch_size])
+        else:
+            for _ in range(cfg.sgd_epochs):
+                epoch_perm = self.sgd_rng.permutation(n)
+                # Equalize the last epoch shard across all optimizer steps. For
+                # example, five samples with a size-three cap become 3+2, while
+                # four become 2+2 rather than 3+1. Every shard remains nonempty
+                # and never exceeds minibatch_size.
+                batches = int(np.ceil(n / cfg.minibatch_size))
+                for indices in np.array_split(epoch_perm, batches):
+                    run_minibatch(indices)
+
+        self._last_sgd_sampling = {
+            "eligible_hero_transitions": int(n),
+            "sampled_transition_draws": sampled_draws,
+            "unique_sampled_transitions": len(sampled_indices),
+            "optimizer_steps": len(losses),
+        }
+
         abs_q = torch.cat(abs_q_vals)
         probs = action_hist / action_hist.sum().clamp_min(1.0)
         entropy = float(-(probs * (probs + 1e-12).log()).sum())
@@ -678,6 +799,35 @@ class PQNTrainer:
         )
 
     # -- tripwires ----------------------------------------------------------
+    def _update_action_collapse_evidence(
+        self, epsilon: float, entropy: float, eligible_samples: int, raw_action_mode: int
+    ) -> Tuple[int, int]:
+        """Advance or reset collapse evidence for one completed rollout update."""
+        # Raw-action evidence with no eligible rows is not evidence of action
+        # collapse. Keep the legacy sampled-action default untouched.
+        if self.cfg.action_collapse_raw_actions and (eligible_samples == 0 or raw_action_mode < 0):
+            self._action_collapse_streak = 0
+            self._action_collapse_evidence_samples = 0
+            self._action_collapse_raw_action_mode = None
+            return self._action_collapse_streak, self._action_collapse_evidence_samples
+        if epsilon < 0.5 and entropy < 1e-3:
+            if (
+                self.cfg.action_collapse_raw_actions
+                and self._action_collapse_streak > 0
+                and raw_action_mode != self._action_collapse_raw_action_mode
+            ):
+                self._action_collapse_streak = 0
+                self._action_collapse_evidence_samples = 0
+            self._action_collapse_streak += 1
+            self._action_collapse_evidence_samples += eligible_samples
+            if self.cfg.action_collapse_raw_actions:
+                self._action_collapse_raw_action_mode = raw_action_mode
+        else:
+            self._action_collapse_streak = 0
+            self._action_collapse_evidence_samples = 0
+            self._action_collapse_raw_action_mode = None
+        return self._action_collapse_streak, self._action_collapse_evidence_samples
+
     def _check_tripwires(self, tel: PQNTelemetry) -> None:
         """Raise :class:`TripwireError` on NaN/inf, max|Q| alarm, action-collapse.
 
@@ -688,16 +838,27 @@ class PQNTrainer:
             TripwireError: When any tripwire condition is met.
         """
         if not np.isfinite(tel.loss) or not np.isfinite(tel.grad_norm):
-            raise TripwireError(f"non-finite loss/grad at update {tel.update}")
+            raise TripwireError(f"non-finite loss/grad at update {tel.update}", telemetry=tel)
         if not np.isfinite(tel.max_abs_q) or tel.max_abs_q > self.cfg.max_abs_q_alarm:
             raise TripwireError(
                 f"max|Q|={tel.max_abs_q:.3g} exceeded alarm "
-                f"{self.cfg.max_abs_q_alarm:.3g} at update {tel.update}"
+                f"{self.cfg.max_abs_q_alarm:.3g} at update {tel.update}",
+                telemetry=tel,
             )
-        # Action-collapse: entropy near zero once past pure-exploration ε.
-        if tel.epsilon < 0.5 and tel.action_entropy < 1e-3:
+        collapse_entropy = (
+            tel.raw_action_entropy if self.cfg.action_collapse_raw_actions else tel.action_entropy
+        )
+        if (
+            tel.epsilon < 0.5
+            and collapse_entropy < 1e-3
+            and tel.action_collapse_streak >= self.cfg.action_collapse_patience
+            and tel.action_collapse_evidence_samples >= self.cfg.action_collapse_min_samples
+        ):
             raise TripwireError(
-                f"action collapse (entropy={tel.action_entropy:.3g}) at update {tel.update}"
+                f"action collapse (entropy={collapse_entropy:.3g}, "
+                f"streak={tel.action_collapse_streak}, "
+                f"samples={tel.action_collapse_evidence_samples}) at update {tel.update}",
+                telemetry=tel,
             )
 
     # -- public API ---------------------------------------------------------
@@ -742,12 +903,22 @@ class PQNTrainer:
         hero_mask_tes = np.broadcast_to(hero_es[None], (T, E, S)) & roll["valid"]
         hero_steps = int(hero_mask_tes.sum())
         self.agent_steps += hero_steps
+        valid_slot_fraction = float(np.asarray(roll["valid"]).mean())
 
         # Hero-only reward / boost means.
         hero_rewards = roll["rewards"][hero_mask_tes]
         hero_boost = roll["boost"][hero_mask_tes]
+        raw_actions = roll["actions"][hero_mask_tes]
         mean_reward = float(hero_rewards.mean()) if hero_rewards.size else 0.0
         boost_fraction = float(hero_boost.mean()) if hero_boost.size else 0.0
+        raw_hist = np.bincount(raw_actions, minlength=6).astype(np.float64)
+        raw_probs = raw_hist / max(1.0, raw_hist.sum())
+        raw_action_entropy = float(-(raw_probs * np.log(raw_probs + 1e-12)).sum())
+        raw_action_mode = int(raw_hist.argmax()) if raw_actions.size else -1
+        guard_entropy = raw_action_entropy if cfg.action_collapse_raw_actions else entropy
+        collapse_streak, collapse_evidence_samples = self._update_action_collapse_evidence(
+            roll["epsilon"], guard_entropy, hero_steps, raw_action_mode
+        )
 
         tel = PQNTelemetry(
             update=self.update_idx,
@@ -762,7 +933,14 @@ class PQNTrainer:
             kills_per_ep=float(roll["kills_total"]),
             boost_fraction=boost_fraction,
             pool_size=len(self.pool),
+            valid_slot_fraction=valid_slot_fraction,
+            **self._last_sgd_sampling,
+            raw_action_entropy=raw_action_entropy,
+            raw_action_mode=raw_action_mode,
+            action_collapse_streak=collapse_streak,
+            action_collapse_evidence_samples=collapse_evidence_samples,
         )
+        self.last_telemetry = tel
         self._check_tripwires(tel)
 
         # Snapshot the hero into the pool at the configured cadence.
@@ -817,6 +995,17 @@ class PQNTrainer:
             "algo": "pqn",
             "mechanics_version": int(self.cfg.mechanics_version),
             "reward_version": int(self.cfg.reward_version),
+            # Optimization-mode provenance. These do not affect inference or
+            # the promotion contract, but identify how the checkpoint was fit.
+            "sgd_epochs": self.cfg.sgd_epochs,
+            "pad_sgd_batches": self.cfg.pad_sgd_batches,
+            "sgd_seed": self.cfg.sgd_seed,
+            "action_collapse_patience": self.cfg.action_collapse_patience,
+            "action_collapse_min_samples": self.cfg.action_collapse_min_samples,
+            "action_collapse_raw_actions": self.cfg.action_collapse_raw_actions,
+            "action_collapse_streak": self._action_collapse_streak,
+            "action_collapse_evidence_samples": self._action_collapse_evidence_samples,
+            "action_collapse_raw_action_mode": self._action_collapse_raw_action_mode,
             "update_counter": self.update_idx,
             "agent_steps": self.agent_steps,
         }

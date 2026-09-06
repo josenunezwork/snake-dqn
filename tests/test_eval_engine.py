@@ -58,6 +58,25 @@ def _build_sim(num_snakes, seeds):
     return _TerminalHeroBatchSim(cfg, seeds=list(seeds), train_mode=False)
 
 
+def _legacy_actions(sim, masks, hero_policies, opp_policies):
+    """Pre-cache nested-loop dispatch, retained here as a parity oracle."""
+    actions = np.ones((sim.E, sim.S), dtype=np.int64)
+    for env, policy in enumerate(hero_policies):
+        if sim.get_alive()[env, 0]:
+            actions[env, 0] = int(
+                policy.actions(masks[env : env + 1, 0, :], sim, np.array([[env, 0]]))[0]
+            )
+    for slot in range(1, sim.S):
+        for env, row in enumerate(opp_policies):
+            if sim.get_alive()[env, slot]:
+                actions[env, slot] = int(
+                    row[slot - 1].actions(
+                        masks[env : env + 1, slot, :], sim, np.array([[env, slot]])
+                    )[0]
+                )
+    return actions
+
+
 class TestTerminalHeroSim:
     """The eval sim exempts arena slot 0 from the non-train respawn sweep."""
 
@@ -160,3 +179,101 @@ class TestSimdEvalTerminalHeroMetrics:
             assert alive_frames[e] < frames, "hero should have died in this arena"
             assert r["survival_fraction"] < 1.0
             assert r["deaths"] == 1.0, f"a terminal hero dies exactly once: {r}"
+
+
+class TestCheckpointDispatchCaching:
+    """Checkpoint batching preserves the old action order and world outcomes."""
+
+    def test_grouped_checkpoint_rows_match_legacy_actions_and_world(self, tiny_v2):
+        from src.simd_env.eval_engine import NetworkSimdPolicy, _dispatch_actions
+
+        class DeterministicNetwork(NetworkSimdPolicy):
+            def __init__(self):
+                self.calls = []
+
+            def actions(self, masks, sim, slots):
+                self.calls.append((masks.copy(), slots.copy()))
+                out = np.ones(masks.shape[0], dtype=np.int64)
+                for i, row in enumerate(masks):
+                    safe = np.nonzero(row)[0]
+                    out[i] = int(safe[0]) if safe.size else 1
+                return out
+
+        seeds = [5, 9]
+        grouped_sim = _build_sim(num_snakes=3, seeds=seeds)
+        legacy_sim = _build_sim(num_snakes=3, seeds=seeds)
+        grouped_network = DeterministicNetwork()
+        legacy_network = DeterministicNetwork()
+        grouped_hero = [grouped_network, grouped_network]
+        legacy_hero = [legacy_network, legacy_network]
+        grouped_opps = [[grouped_network, grouped_network] for _ in seeds]
+        legacy_opps = [[legacy_network, legacy_network] for _ in seeds]
+
+        for _ in range(12):
+            grouped_masks = grouped_sim.get_action_mask()
+            grouped_actions = np.ones((grouped_sim.E, grouped_sim.S), dtype=np.int64)
+            _dispatch_actions(
+                grouped_sim, grouped_masks, grouped_actions, grouped_hero, grouped_opps
+            )
+            legacy_actions = _legacy_actions(
+                legacy_sim, legacy_sim.get_action_mask(), legacy_hero, legacy_opps
+            )
+            np.testing.assert_array_equal(grouped_actions, legacy_actions)
+            grouped_sim.step(grouped_actions)
+            legacy_sim.step(legacy_actions)
+            np.testing.assert_array_equal(grouped_sim.get_alive(), legacy_sim.get_alive())
+            np.testing.assert_array_equal(grouped_sim.get_lengths(), legacy_sim.get_lengths())
+
+        # One network call per frame; each call receives every live controlled row.
+        assert len(grouped_network.calls) == 12
+        assert all(
+            call_slots.shape[0] == call_masks.shape[0]
+            for call_masks, call_slots in grouped_network.calls
+        )
+
+    def test_identical_checkpoint_loads_once_and_dispatches_once_per_frame(
+        self, tiny_v2, monkeypatch
+    ):
+        import src.simd_env.eval_engine as ee
+
+        class SpyNetwork(ee.NetworkSimdPolicy):
+            def __init__(self):
+                self.calls = []
+
+            def actions(self, masks, sim, slots):
+                self.calls.append((masks.copy(), slots.copy()))
+                return np.ones(masks.shape[0], dtype=np.int64)
+
+        path = "same-raster-checkpoint.pth"
+        created = []
+
+        def build(spec, seed):
+            if spec == ("checkpoint", path):
+                policy = SpyNetwork()
+                created.append(policy)
+                return policy
+            return ee.GreedyFoodSimdPolicy()
+
+        monkeypatch.setattr(ee, "build_simd_policy", build)
+        ee.run_simd_eval(
+            ("checkpoint", path),
+            [("checkpoint", path), ("checkpoint", path)],
+            frames=1,
+            seeds=[2, 4, 6],
+        )
+
+        assert len(created) == 1
+        assert len(created[0].calls) == 1
+        masks, slots = created[0].calls[0]
+        assert slots.tolist() == [
+            [0, 0],
+            [1, 0],
+            [2, 0],
+            [0, 1],
+            [1, 1],
+            [2, 1],
+            [0, 2],
+            [1, 2],
+            [2, 2],
+        ]
+        assert masks.shape == (9, 6)

@@ -1,0 +1,83 @@
+{
+  "status": "passed",
+  "frozen_source_files_verified": 87,
+  "training_arms": 10,
+  "independent_training_seeds": 5,
+  "evaluation_conditions": 17,
+  "raw_evaluation_world_outcomes": 204,
+  "same_recipe_except_sampler_epochs": true,
+  "all_optimizer_batch_counts_verified": true,
+  "all_checkpoint_hashes_verified": true,
+  "checks": [
+    {
+      "seed": 401,
+      "sampler": "epoch",
+      "updates": 524,
+      "optimizer_steps_checked": 2175,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 401,
+      "sampler": "legacy",
+      "updates": 720,
+      "optimizer_steps_checked": 2880,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 502,
+      "sampler": "legacy",
+      "updates": 594,
+      "optimizer_steps_checked": 2376,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 502,
+      "sampler": "epoch",
+      "updates": 702,
+      "optimizer_steps_checked": 2274,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 603,
+      "sampler": "epoch",
+      "updates": 645,
+      "optimizer_steps_checked": 2281,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 603,
+      "sampler": "legacy",
+      "updates": 505,
+      "optimizer_steps_checked": 2020,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 704,
+      "sampler": "legacy",
+      "updates": 537,
+      "optimizer_steps_checked": 2148,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 704,
+      "sampler": "epoch",
+      "updates": 611,
+      "optimizer_steps_checked": 2206,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 805,
+      "sampler": "epoch",
+      "updates": 684,
+      "optimizer_steps_checked": 2301,
+      "tensor_hash_matches": true
+    },
+    {
+      "seed": 805,
+      "sampler": "legacy",
+      "updates": 650,
+      "optimizer_steps_checked": 2600,
+      "tensor_hash_matches": true
+    }
+  ]
+}

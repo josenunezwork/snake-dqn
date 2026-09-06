@@ -11,9 +11,11 @@ import os
 
 import pytest
 
+from src.scripts.eval_stats import paired_stats
 from src.scripts.tournament_eval import (
     MIX_NAMES,
     build_mix_specs,
+    combined_paired_stats,
     main,
     parse_agent_spec,
     parse_mix_list,
@@ -106,6 +108,48 @@ class TestPromotionDecision:
         assert decision["promote"] is False
         assert any(">= 2 required" in r for r in decision["reasons"])
 
+
+class TestCombinedPairedStats:
+    """The descriptive cross-mix CI must retain worlds as the sample unit."""
+
+    @staticmethod
+    def _runs(seed_scores):
+        return [{"seed": seed, "mass_integral": score} for seed, score in seed_scores]
+
+    def test_averages_mix_deltas_per_world_before_ci(self):
+        candidate = {
+            "scripted": self._runs([(10, 3.0), (20, 7.0)]),
+            "mixed": self._runs([(10, 7.0), (20, 13.0)]),
+        }
+        baseline = {
+            "scripted": self._runs([(10, 1.0), (20, 3.0)]),
+            "mixed": self._runs([(10, 1.0), (20, 3.0)]),
+        }
+
+        combined = combined_paired_stats(candidate, baseline, ["scripted", "mixed"])
+        expected = paired_stats([4.0, 7.0], [0.0, 0.0])
+
+        assert combined == expected
+        assert combined["n"] == 2
+        assert combined["deltas"] == [4.0, 7.0]
+
+    def test_unequal_or_misaligned_seed_sets_fail(self):
+        candidate = {
+            "scripted": self._runs([(10, 3.0), (20, 7.0)]),
+            "mixed": self._runs([(10, 4.0)]),
+        }
+        baseline = {
+            "scripted": self._runs([(10, 1.0), (30, 3.0)]),
+            "mixed": self._runs([(10, 1.0)]),
+        }
+
+        with pytest.raises(ValueError, match="candidate/baseline world seed sets differ"):
+            combined_paired_stats(candidate, baseline, ["scripted", "mixed"])
+
+        baseline["scripted"] = self._runs([(10, 1.0), (20, 3.0)])
+        with pytest.raises(ValueError, match="world seed sets differ across mixes"):
+            combined_paired_stats(candidate, baseline, ["scripted", "mixed"])
+
     def test_rejects_on_scripted_anchor_regression(self):
         decision = promotion_decision(
             {
@@ -197,7 +241,7 @@ class TestEndToEndMiniature:
             assert paired["n"] == 2
             assert len(paired["deltas"]) == 2
         combined = candidate["combined_paired"]
-        assert combined["n"] == 4
+        assert combined["n"] == 2
         assert "promote" in candidate["decision"]
 
     def test_gate_exit_code_reflects_decision(self, setup_config, tiny_config):
