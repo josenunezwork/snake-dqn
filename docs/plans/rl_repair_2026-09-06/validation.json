@@ -1,0 +1,145 @@
+{
+  "scope": "Documentation and plan tooling only; no implementation package or training run executed.",
+  "timestamp_utc": "2026-09-07T01:25:08.504136+00:00",
+  "source_base": "6986fd35b99d7c827bffe935c5a09d23595fbca7",
+  "status": "PASS",
+  "checks": [
+    {
+      "check": "plan_and_negative_self_tests",
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "docs/plans/rl_repair_2026-09-06/validate_plan.py",
+        "--self-test"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "pass": true,
+      "stdout": "{\n  \"status\": \"PASS\",\n  \"packages\": 24,\n  \"initial_ready\": [\n    \"A0\",\n    \"A1\",\n    \"C0\",\n    \"E0\",\n    \"N0\",\n    \"S0\"\n  ],\n  \"ordered_shared_file_pairs\": 16,\n  \"invalid_plan_self_tests\": 5,\n  \"errors\": [],\n  \"scope\": \"Static planning validation; not dependency acceptance or compute authorization\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "check": "initial_parallel_group",
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "docs/plans/rl_repair_2026-09-06/validate_plan.py",
+        "--batch",
+        "C0",
+        "N0",
+        "A0",
+        "A1",
+        "S0",
+        "E0"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "pass": true,
+      "stdout": "{\n  \"status\": \"PASS\",\n  \"packages\": 24,\n  \"initial_ready\": [\n    \"A0\",\n    \"A1\",\n    \"C0\",\n    \"E0\",\n    \"N0\",\n    \"S0\"\n  ],\n  \"ordered_shared_file_pairs\": 16,\n  \"invalid_plan_self_tests\": 0,\n  \"errors\": [],\n  \"scope\": \"Static planning validation; not dependency acceptance or compute authorization\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "check": "reject_dependent_parallel_group",
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "docs/plans/rl_repair_2026-09-06/validate_plan.py",
+        "--batch",
+        "C0",
+        "ENV"
+      ],
+      "exit_code": 1,
+      "expected_exit_code": 1,
+      "pass": true,
+      "stdout": "{\n  \"status\": \"FAIL\",\n  \"packages\": 24,\n  \"initial_ready\": [\n    \"A0\",\n    \"A1\",\n    \"C0\",\n    \"E0\",\n    \"N0\",\n    \"S0\"\n  ],\n  \"ordered_shared_file_pairs\": 16,\n  \"invalid_plan_self_tests\": 0,\n  \"errors\": [\n    \"Dependent packages cannot share a launch batch: C0/ENV\"\n  ],\n  \"scope\": \"Static planning validation; not dependency acceptance or compute authorization\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "check": "black",
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "black",
+        "--check",
+        "docs/plans/rl_repair_2026-09-06/validate_plan.py"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "pass": true,
+      "stdout": "",
+      "stderr": "All done! \u2728 \ud83c\udf70 \u2728\n1 file would be left unchanged.\n"
+    },
+    {
+      "check": "isort",
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "isort",
+        "--check-only",
+        "docs/plans/rl_repair_2026-09-06/validate_plan.py"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "pass": true,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "check": "flake8",
+      "command": [
+        "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+        "-m",
+        "flake8",
+        "docs/plans/rl_repair_2026-09-06/validate_plan.py"
+      ],
+      "exit_code": 0,
+      "expected_exit_code": 0,
+      "pass": true,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "check": "local_markdown_links",
+      "links_checked": 126,
+      "missing": [],
+      "pass": true
+    }
+  ],
+  "plan_file_sha256": {
+    "README.md": "94751893d0343900eda798608cd013c753478ea7a941cf6b8f7f349628f2649f",
+    "agent_runbook.md": "637ca2cb2d13b3b32a28b565b14b4ee5a8a49192a70610dcab8cafb5565f8a5a",
+    "dispatch.json": "fbaf9fd6c39f1631fc3b1d9d1027dd2e19a3fe58be3e2c8c329c7b71a8c390e8",
+    "packages/a0.md": "30eb36fc0e9e4f66a8dc1992e48bf443a80d56e30f51130f2fd02fb90b5919c3",
+    "packages/a1.md": "a376b6c84ad948628097af25ba45b7b35b4e3036a971b8e514b188f04ea886ec",
+    "packages/a2.md": "f54405aa267ce467f767b1317ffe24cb88ea5bc0cea7dfb54bc6bd8daeb8e176",
+    "packages/c0.md": "8de834c086ebcb85636f934767638cf8a0c4be5009b26b92713948a11c3aba08",
+    "packages/e0.md": "bc51914693db76e4f1050c9ba842da599b60e44a0080b29e65c0e46f66807fa1",
+    "packages/e1.md": "a0c08e9bc8e8eaef77e227fda1d4ca564a7bf5977ccf9f6a056f88a165cc373e",
+    "packages/e2.md": "74f6f17d33816ad64ebf7b18e2eaca67a88c431bbef1ec975fe662e9f47c8008",
+    "packages/env.md": "0b71ca6d7d4afb652d8e84c33ea2d58d344b67f91445be43102147cc3c5dda12",
+    "packages/g0.md": "6b09026c9b97626d3e4383b5981503bf94f90abcf62ac2ba4ffe83b4a8cf62db",
+    "packages/g1.md": "b657db69337d63e5a92985d1a7598c95f978a1c6b82730b276e83ad0fc15cd1a",
+    "packages/h0.md": "e078e27d18a14f7528f552ec32a855935811dde64da3634a560a170f9fae5ca7",
+    "packages/h1.md": "bfc62c29f0fe1b2cce0940ffcaf593a80b49b1fd061338fb322e4604555cddc8",
+    "packages/l0.md": "2436f114fd4a00690748e88c6709ac565927e178cc4378c827d253a100f1fc66",
+    "packages/l1.md": "a9c1034d0fc6587ad368df7d167048d350adbb7036f2580dd029b6d15a7ec43b",
+    "packages/n0.md": "6e6f673470d8dce195e6de0af7cff82673f31f5ad86c25ee88f865912c8a3509",
+    "packages/obs.md": "545d8f42369433e4cdc50a2a28aa41ba5b96b324cce37a1024a6ce81c3680de0",
+    "packages/off.md": "4f95a0ecd21d0a2a89b16293cd279eb66c770cc6e8fa2fc35316e5792007f472",
+    "packages/p1.md": "144f3f58cc333ed173ff36b3eb9d41e3b9ea5d0a5472dbdff9e3dab80499b0dd",
+    "packages/p2.md": "dfecd1b74f9259d29d4abad726b1cacf247e10ae5b787822d5d0255e637f6a41",
+    "packages/rel.md": "94b79c0b2709facd1258049705ab5c0653fcb8d5dbfa69869e380f8b2da3d9b7",
+    "packages/s0.md": "9ba4f2b1d023a04eacb35516981c76d747aaa5a25947b58bc6a4e6dd447bbe14",
+    "packages/s1.md": "be338c50c2af6cf4069eee817d3aaba509ef7b087837b08fec08e7ec2533e297",
+    "packages/x0.md": "2283428d7560d4044afe9fc6b6402099d3aa9bdcfa7ed06aebdbab063a391bff",
+    "packages/x2.md": "f94421853fe8cedc33ebe3dd5f2ef82de5219a1300f5d15c8c64ed8334f9cdd6",
+    "validate_plan.py": "2964e98f026c0b82a1888e510a4f2558cd98a1d56d53ad0618a466da8dbf7854"
+  },
+  "independent_review": {
+    "reviewer": "final_code_review",
+    "outcome": "No material plan blockers remain after revisions.",
+    "scope": "Documentation, DAG, package ownership, current source interfaces; no product tests or training.",
+    "execution_unknowns": [
+      "Corrected MPS resource profile pending G0",
+      "Actual live/SIMD deployment-path parity pending E1",
+      "Promotion margins and powered final-world count require independent calibration"
+    ]
+  }
+}

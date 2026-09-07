@@ -1,0 +1,1232 @@
+{
+  "schema_version": 1,
+  "status": "PLANNED_NOT_STARTED",
+  "source_base": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715",
+  "audit_commit": "6986fd35b99d7c827bffe935c5a09d23595fbca7",
+  "main_base": "950d583b9eb0c3e316edd0f651954d133334ac1a",
+  "worktree": "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage",
+  "integration_branch": "codex/rl-contract-repair",
+  "resource_limits": {
+    "max_write_packages": 6,
+    "max_small_cpu_test_jobs": 2,
+    "native_threads_per_test_job": 1,
+    "max_full_suite_workers": 2,
+    "max_mps_learners": 1,
+    "native_threads_per_learner": 2,
+    "training_rss_cap_gib": 4,
+    "mps_driver_cap_gib": 8,
+    "system_available_memory_reserve_gib": 6,
+    "test_slot_authority": "Root issues and releases at most two named small-CPU tokens; full-suite, corpus, evaluation and MPS tokens are exclusive. No token means no local test or compute command."
+  },
+  "packages": [
+    {
+      "id": "A0",
+      "title": "Version distributed replay-slot identities",
+      "wave": 0,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [],
+      "owned_files": [
+        "src/training/sum_tree.py",
+        "src/training/apex_buffer.py",
+        "src/training/apex_learner.py",
+        "tests/test_sum_tree.py",
+        "tests/test_apex_buffer.py",
+        "tests/test_apex_learner.py",
+        "tests/test_apex_replay_identity.py"
+      ],
+      "test_targets": [
+        "tests/test_apex_replay_identity.py",
+        "tests/test_sum_tree.py",
+        "tests/test_apex_buffer.py",
+        "tests/test_apex_learner.py"
+      ],
+      "goal": "Prevent sampled TD errors from reprioritizing a different transition after slot reuse.",
+      "steps": [
+        "Add monotonically increasing slot generations and versioned sample/update handles. Preserve the synchronous local replay API.",
+        "Carry (slot,generation) through buffer, learner and priority IPC without losing alignment. Reject stale generations; count accepted/stale/malformed updates.",
+        "Keep alpha/beta schedules, n-step returns, Q targets and mask interpretation unchanged in this package. Bound message processing only as needed to guarantee priority/sample service; measure rather than retune throughput."
+      ],
+      "gates": [
+        "Capacity-two overwrite fixture rejects stale updates and accepts current generations. Duplicate indices and partial stale batches preserve index/error alignment.",
+        "End-to-end buffer-client handle round trip passes. Old index-only distributed IPC fails clearly; local replay tests remain green.",
+        "No persistent replay migration is assumed: document the current lack of distributed replay restoration."
+      ],
+      "rollback": "Upgrade actor/learner/buffer code as one deployment unit. Keep stale counters and no silent legacy-message fallback.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/a0.md",
+      "new_files": [
+        "tests/test_apex_replay_identity.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/a0/"
+    },
+    {
+      "id": "A1",
+      "title": "Supervise Apex children and name its budgets",
+      "wave": 0,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [],
+      "owned_files": [
+        "src/scripts/apex_train.py",
+        "src/training/apex_actor.py",
+        "tests/test_apex_train_config.py",
+        "tests/test_apex_actor.py",
+        "tests/test_actor_hotpath.py",
+        "src/training/apex_runtime.py",
+        "tests/test_apex_runtime.py",
+        "tests/helpers/apex_failure_children.py"
+      ],
+      "test_targets": [
+        "tests/test_apex_runtime.py",
+        "tests/test_apex_train_config.py",
+        "tests/test_apex_actor.py",
+        "tests/test_actor_hotpath.py"
+      ],
+      "goal": "Make child failure terminate promptly and make actual training work auditable.",
+      "steps": [
+        "Check actor/buffer liveness and heartbeat age during warmup and training. Use bounded join and termination cleanup; never rely on Queue.qsize() for correctness.",
+        "Propagate learner/actor/buffer failure to nonzero exit. Never emit a success-named final checkpoint after failure; label optional recovery artifacts failed.",
+        "Add explicit learner-update, environment-transition and wall-time budgets. Preserve --total-steps as a documented/deprecated learner-update alias; stop at the first declared limit.",
+        "Report actor frames/transitions, emitted replay rows, learner samples/updates, policy version and heartbeat ages. Bound overshoot by the documented in-flight batch allowance."
+      ],
+      "gates": [
+        "Subprocess fixtures cover actor exit before warmup, buffer exit before/after ready, learner exception, ignored shutdown and timeout. Each fixture has its own short hard timeout.",
+        "No child remains after every outcome; failure never reports success. Counts reconcile on a controlled tiny run.",
+        "The existing --total-steps command still resolves to learner updates; new limits and their exit causes appear in receipts."
+      ],
+      "rollback": "Keep existing checkpoint loading; intentionally stop treating swallowed failures as success. A2 receives these files after merge.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/a1.md",
+      "new_files": [
+        "src/training/apex_runtime.py",
+        "tests/test_apex_runtime.py",
+        "tests/helpers/apex_failure_children.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/a1/"
+    },
+    {
+      "id": "C0",
+      "title": "Freeze shared contracts and seed API",
+      "wave": 0,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [],
+      "owned_files": [
+        "src/model/obs_spec.py",
+        "src/training/checkpoint_contract.py",
+        "src/core/game_config.py",
+        "src/core/config_loader.py",
+        "configs/default.yaml",
+        "tests/test_checkpoint_contract.py",
+        "tests/test_checkpoint_contract_override.py",
+        "tests/test_game_config.py",
+        "tests/test_config_schema_parity.py",
+        "tests/test_config_reconciliation.py",
+        "tests/test_config_pqn_block.py",
+        "src/core/runtime_contract.py",
+        "src/core/seeding.py",
+        "tests/test_runtime_contract.py",
+        "tests/test_seeding.py"
+      ],
+      "test_targets": [
+        "tests/test_runtime_contract.py",
+        "tests/test_seeding.py",
+        "tests/test_checkpoint_contract.py",
+        "tests/test_game_config.py",
+        "tests/test_config_schema_parity.py",
+        "tests/test_config_pqn_block.py"
+      ],
+      "goal": "Provide additive, tested contract APIs before their consumers change. Preserve existing legacy behavior.",
+      "steps": [
+        "Implement the interfaces and semantic decisions in README.md: observation descriptor, effective world, runtime/episode mode, action mask set, run provenance, canonical JSON digest, and stable named RNG streams. Extend the existing compatibility validator; do not introduce another competing checkpoint validator.",
+        "Define raster31v3 with the same shapes and scalar slots. Require its complete semantic descriptor and digest; accept missing metadata only through named vector61/raster31v2 legacy adapters. Keep default legacy inference dispatch unchanged until S1 wires v3 atomically.",
+        "Add only the configuration fields needed by later packages, including an optional run seed and explicit contract/profile selection. Resolve CLI > environment device override > YAML > automatic selection. New behavior is opt-in until G0 passes.",
+        "Seed Python, NumPy and Torch before construction; derive named streams without wall clock or Python hash(). Return/persist an entropy-generated effective seed when no seed was requested. Export RNG state helpers with device limitations explicit.",
+        "Publish a small API/descriptor fixture in the package handoff. Downstream packages may read but cannot edit these files without a new scheduled C0 handoff.",
+        "ActionMaskSet resolves independently per action row: intersection = legal & advisory; return intersection if that row has any true action, otherwise legal. Dead rows stay false; never use one batch-wide any().",
+        "Expose the already validated pqn block as AppConfig.pqn using a frozen PQNOverrides value. Preserve None for a value not supplied; do not fill it with a second CLI default. P1 must consume one initialize_config/load result without opening or reparsing YAML. Preserve existing config API consumers.",
+        "Define ModelHeadContract and a closed descriptor registry for Apex/PQN action-Q heads and the optional PPO categorical actor plus scalar critic head. Keep algorithm identity distinct from observation identity. Validate declared head shapes and reject unknown combinations; descriptor recognition alone does not enable a runtime loader. S1 enables supported Q heads and L1 enables the PPO loader without editing this frozen contract boundary.",
+        "Expose AppConfig.provided_fields as a frozen set of explicitly supplied dotted YAML paths, including shared game.* and rewards.* fields, captured before schema defaults are materialized. The resolved API distinguishes supplied values from legacy AppConfig defaults; preserve CLI/environment provenance separately at their resolver boundary. Consumers must not infer presence by comparing a value with a default."
+      ],
+      "gates": [
+        "Every semantic field mutation changes the digest; reordering mapping keys does not. Array/channel order remains meaningful. Nonfinite/ambiguous contract fields are rejected.",
+        "Legacy 58/61 and v2 checkpoint validation still works; v3 missing or mismatched metadata fails. Two same-seed CPU initializations and short RNG traces agree.",
+        "Configuration schema/default reconciliation passes. No model topology, reward arithmetic or gameplay change occurs.",
+        "A mixed batch of illegal-advised, advisory-empty, partially advised and dead rows resolves correctly without admitting an unavailable boost.",
+        "A non-default YAML pqn block survives schema-to-AppConfig conversion exactly, with omitted fields remaining None, and a downstream consumer obtains it without reopening YAML.",
+        "Q-head and actor/critic descriptor fixtures validate independently of observation shape; wrong output count, mismatched algorithm/head and unknown descriptors fail. Downstream S1/L1 can dispatch using the published API without modifying contract files.",
+        "No config, a YAML file containing only pqn.lr, explicit game.mechanics_version/arena_type/num_snakes/max_frames and rewards.version, and explicit values equal to defaults all yield correct provided_fields. Omitted shared v1 defaults are distinguishable from an explicit v1 request."
+      ],
+      "rollback": "Revert additive APIs only before consumers land. After consumers land, roll back the dependent closure; never relabel a v3 artifact as v2.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/c0.md",
+      "new_files": [
+        "src/core/runtime_contract.py",
+        "src/core/seeding.py",
+        "tests/test_runtime_contract.py",
+        "tests/test_seeding.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/c0/"
+    },
+    {
+      "id": "E0",
+      "title": "Snapshot evaluation inputs and retain provenance",
+      "wave": 0,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [],
+      "owned_files": [
+        "src/scripts/tournament_eval.py",
+        "tests/test_tournament_eval.py",
+        "src/evaluation/__init__.py",
+        "src/evaluation/artifacts.py",
+        "tests/test_eval_artifacts.py"
+      ],
+      "test_targets": [
+        "tests/test_eval_artifacts.py",
+        "tests/test_tournament_eval.py"
+      ],
+      "goal": "Ensure a comparison uses one immutable set of checkpoint bytes.",
+      "steps": [
+        "Open and copy each candidate/baseline/opponent once into a content-addressed evaluation directory while hashing. Detect in-place mutation or fail; an atomic path replacement must not switch bytes halfway through the run.",
+        "Load snapshots for all seeds/mixes, deduplicate aliases by content hash, and retain original paths plus hashes, effective config, source identity and evaluator version.",
+        "Preserve scoring and existing diagnostic comparison behavior. Do not change promotion thresholds or copy authority until E2.",
+        "Do not expand this task into a general deserialization/security migration; existing trusted local loading remains a separate boundary."
+      ],
+      "gates": [
+        "Replace a rolling source between seeded evaluations: all rows refer to the initial snapshot or the command fails before a verdict.",
+        "Hash, config and source receipts round-trip; missing/corrupted snapshots fail. Aliased paths do not cause different content identities.",
+        "Fixed-checkpoint scores and the paired/grouped-CI behavior remain unchanged on fixtures."
+      ],
+      "rollback": "Receipts are additive; preserve old diagnostics as explicitly legacy/unverified. E1/E2 inherit tournament_eval.py in order.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/e0.md",
+      "new_files": [
+        "src/evaluation/__init__.py",
+        "src/evaluation/artifacts.py",
+        "tests/test_eval_artifacts.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/e0/"
+    },
+    {
+      "id": "N0",
+      "title": "Preserve good PQN checkpoints on numeric failure",
+      "wave": 0,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [],
+      "owned_files": [
+        "src/training/pqn_trainer.py",
+        "src/scripts/train_pqn.py",
+        "tests/test_pqn_trainer.py",
+        "tests/test_train_pqn.py",
+        "tests/test_pqn_numeric_recovery.py"
+      ],
+      "test_targets": [
+        "tests/test_pqn_numeric_recovery.py",
+        "tests/test_pqn_trainer.py",
+        "tests/test_train_pqn.py"
+      ],
+      "goal": "Fix the reproduced poisoned-latest failure without changing successful finite updates.",
+      "steps": [
+        "Check targets, loss and gradients before optimizer.step; stop remaining minibatches on failure. Validate parameters and optimizer state after the step. Keep a last-known-good recovery strategy whose memory cost is measured.",
+        "For every tripwire, persist exception telemetry and incident cause before exit. For pre/post-step nonfinite failures, restore the last-known-good training state and keep latest unchanged. For finite max-Q and finite action-collapse alarms, retain existing detection thresholds and halt timing, preserve the previous accepted latest, and save the finite flagged state only as an explicitly labeled incident checkpoint. If no good latest exists, leave it absent.",
+        "Distinguish tripwire classes in the incident schema and checkpoint history. Preserve opt-in sampler controls and successful-update arithmetic. Moving a finite flagged model out of latest is an intentional checkpoint-safety change; do not silently change alarm thresholds or suppress finite diagnostic artifacts."
+      ],
+      "gates": [
+        "Inject nonfinite target, loss, gradient and post-optimizer state separately. Existing latest bytes remain unchanged; all incident fields are persisted; no later minibatch runs.",
+        "Finite control updates and checkpoint outputs match baseline on deterministic fixtures. Atomic-write interruption tests remain green.",
+        "Reproduce the old failure with the retained audit fixture and demonstrate its corrected postcondition, using disposable paths only.",
+        "Inject finite max-Q and finite action-collapse alarms separately: the existing trigger/halt condition remains, latest bytes remain unchanged, and the labeled incident checkpoint, classification and telemetry are loadable and complete. Post-step nonfinite recovery restores optimizer state as well as weights."
+      ],
+      "rollback": "One reversible correctness commit; retain old good checkpoints and incident logs. Hand these files to P1 only after the recovery gate passes.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/n0.md",
+      "new_files": [
+        "tests/test_pqn_numeric_recovery.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/n0/"
+    },
+    {
+      "id": "S0",
+      "title": "Correct raster human-play row dispatch",
+      "wave": 0,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [],
+      "owned_files": [
+        "web/backend/raster_policy.py",
+        "tests/test_web_raster_serving.py",
+        "tests/test_raster_play_identity.py"
+      ],
+      "test_targets": [
+        "tests/test_raster_play_identity.py",
+        "tests/test_web_raster_serving.py",
+        "tests/test_web_play.py"
+      ],
+      "goal": "Land the small independently useful human/AI row fix first.",
+      "steps": [
+        "Queue only alive AI snakes controlled by this exact raster policy. Exclude humans and snakes owned by other policies.",
+        "Preserve current observation and action behavior otherwise. Do not change inference contracts, mechanics defaults or inspector payloads in this early patch.",
+        "Leave explicit ID-aware inference and the v3 mask/serialization integration to S1."
+      ],
+      "gates": [
+        "Use row-distinguishing Q outputs through real GameState.update with a human and at least two AI snakes. Every AI gets its own row.",
+        "Death, respawn and mixed-policy rosters do not shift rows. Existing all-AI Watch and raster-hero tournament cases still pass."
+      ],
+      "rollback": "Small standalone fix; v2 model/observation bytes stay unchanged. S1 must retain these regressions.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/s0.md",
+      "new_files": [
+        "tests/test_raster_play_identity.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/s0/"
+    },
+    {
+      "id": "ENV",
+      "title": "Repair BatchSim reset and inactive-world semantics",
+      "wave": 1,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "C0"
+      ],
+      "owned_files": [
+        "src/simd_env/batch_sim.py",
+        "src/simd_env/parity.py",
+        "src/simd_env/__init__.py",
+        "tests/test_simd_env.py",
+        "tests/test_simd_parity.py",
+        "tests/test_simd_reset_contract.py"
+      ],
+      "test_targets": [
+        "tests/test_simd_reset_contract.py",
+        "tests/test_simd_env.py",
+        "tests/test_simd_parity.py"
+      ],
+      "goal": "Match repeated live resets and stop finished environments from affecting future episodes.",
+      "steps": [
+        "Consume discarded constructor food RNG draws once; later reset() must follow live reset ordering. Retain the current batch-wide reset schedule.",
+        "Expose separate legal/advisory masks and the C0 resolved mask. Keep get_action_mask() as the legacy advisory API. Alive normal actions are domain-legal; boost requires the configured length threshold; dead rows are false.",
+        "Add active_env_mask to step(). Inactive environment state, frame, food, timers, masks and RNG are unchanged. Return no new transition/event for inactive rows and make validity explicit.",
+        "Expose existing per-step food/boost/death/kill event facts needed by E1 without changing event ordering or reward arithmetic. Do not introduce asynchronous resets or new gameplay rules."
+      ],
+      "gates": [
+        "Seeds 41 and 314159 match across at least three resets and subsequent actions against the live reference.",
+        "Inactive-world byte/RNG snapshots remain identical while another environment advances; post-floor food cannot affect the next initialization.",
+        "Legal/advisory subsets and boost thresholds pass controlled/random fixtures. V1/v2 ordered mechanics fixtures remain unchanged; run the affected slow parity battery once at integration."
+      ],
+      "rollback": "Keep the legacy default step call functional. Reset semantics get a new contract ID; old checkpoints remain inference-loadable, not falsely exact-resumable.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/env.md",
+      "new_files": [
+        "tests/test_simd_reset_contract.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/env/"
+    },
+    {
+      "id": "OBS",
+      "title": "Implement a corrected versioned raster producer",
+      "wave": 1,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "C0"
+      ],
+      "owned_files": [
+        "src/simd_env/featurizer.py",
+        "src/simd_env/gpu_featurizer.py",
+        "src/simd_env/live_adapter.py",
+        "tests/test_featurizer.py",
+        "tests/test_gpu_featurizer.py",
+        "tests/test_obs_parity.py",
+        "src/training/raster_augmentation.py",
+        "tests/test_raster_augmentation.py",
+        "tests/fixtures/raster31v2_golden.npz"
+      ],
+      "test_targets": [
+        "tests/test_featurizer.py",
+        "tests/test_gpu_featurizer.py",
+        "tests/test_obs_parity.py",
+        "tests/test_raster_augmentation.py"
+      ],
+      "goal": "Correct observation precedence while preserving legacy v2 inference and current network capacity.",
+      "steps": [
+        "Add explicit contract dispatch. Freeze v2 observation bytes with checked-in small synthetic golden fixtures; v3 uses the documented deterministic priority reduction.",
+        "Reject out-of-world predicted cells and preserve actual walls. Test every type pair, reverse order, equal-type max-value tie and enemy permutation against an independent oracle.",
+        "Pass normalization fields explicitly through both adapters. V3 retains all 26 scalars, tensor shapes and RasterDuelingNetwork topology.",
+        "Expose legacy flip separately. V3 initial augmentation is none; do not silently zero coordinates, claim legacy flip physical symmetry, or edit pqn_trainer.py."
+      ],
+      "gates": [
+        "V2 golden bytes match; v3 body/prediction and wall/prediction fixtures produce the correct cell codes independent of source order.",
+        "NumPy and Torch CPU outputs agree with the oracle. Actual CUDA validation is separately required if CUDA is later claimed; Mac MPS uses NumPy observations.",
+        "Non-default horizon/length/starvation normalization propagates. Unsupported circular raster geometry fails instead of painting rectangular walls."
+      ],
+      "rollback": "Route old checkpoints through frozen v2. Never rewrite their metadata or claim source-order repairs are byte compatible under v2.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/obs.md",
+      "new_files": [
+        "src/training/raster_augmentation.py",
+        "tests/test_raster_augmentation.py",
+        "tests/fixtures/raster31v2_golden.npz"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/obs/"
+    },
+    {
+      "id": "OFF",
+      "title": "Require offline replay provenance and consistent episode endings",
+      "wave": 1,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "data-engineer",
+      "depends_on": [
+        "C0"
+      ],
+      "owned_files": [
+        "src/scripts/generate_experiences.py",
+        "src/scripts/offline_train.py",
+        "src/data/replay_quality.py",
+        "src/data/memory_db_handler.py",
+        "tests/test_generate_experiences.py",
+        "tests/test_offline_train.py",
+        "tests/test_replay_quality_pure.py",
+        "tests/test_memory_db_handler.py",
+        "tests/test_audit_replay.py",
+        "src/data/replay_contract.py",
+        "src/scripts/migrate_replay_metadata.py",
+        "tests/test_replay_contract.py",
+        "tests/test_replay_metadata_migration.py"
+      ],
+      "test_targets": [
+        "tests/test_replay_contract.py",
+        "tests/test_replay_metadata_migration.py",
+        "tests/test_generate_experiences.py",
+        "tests/test_offline_train.py",
+        "tests/test_replay_quality_pure.py",
+        "tests/test_memory_db_handler.py"
+      ],
+      "goal": "Prevent silent mixing of unverifiable replay and honor the online episode boundary.",
+      "steps": [
+        "Use C0 contracts/seeding; record observation/action/mask semantics, mechanics/arena/world, gamma/n-step/reward, effective seed and generator identity. Empty/incomplete metadata fails normal append/load.",
+        "Provide an explicit unverified-legacy path with missing-field and fallback-mask counts permanently attached to output provenance. Unknown gamma/n-step cannot be reconstructed from row shape.",
+        "Both single and parallel generators seed all RNGs and stop at mechanics-v2 population floor. Do not continue lone-survivor replay after that boundary.",
+        "Add dry-run and copy-first metadata migration using SQLite backup API (or a verified offline exclusive checkpoint including WAL). Fsync and atomically publish the destination copy; never mutate the only source. Preserve experience rows. Supplied known facts cannot turn unknown target semantics into verified facts. Do not migrate user databases in this package."
+      ],
+      "gates": [
+        "Append/load reject mismatched mechanics, arena, target horizon and mask schema. Legacy opt-in is visible in resulting metadata.",
+        "Controlled single/worker generation stops at the floor and repeats a short same-seed trace.",
+        "Temporary SQLite fixtures include committed WAL data and an active reader. Backup retains every committed row; dry-run leaves source files unchanged; migration failure leaves source and prior valid destination intact. Unknown semantics remain unverified."
+      ],
+      "rollback": "Existing databases are retained. Evaluation of old checkpoints remains supported; legacy replay use is explicit and never silently upgraded.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/off.md",
+      "new_files": [
+        "src/data/replay_contract.py",
+        "src/scripts/migrate_replay_metadata.py",
+        "tests/test_replay_contract.py",
+        "tests/test_replay_metadata_migration.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/off/"
+    },
+    {
+      "id": "P1",
+      "title": "Wire effective PQN config, seeds and honest resume modes",
+      "wave": 2,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "C0",
+        "N0",
+        "ENV",
+        "OBS"
+      ],
+      "owned_files": [
+        "src/training/pqn_trainer.py",
+        "src/scripts/train_pqn.py",
+        "tests/test_pqn_trainer.py",
+        "tests/test_train_pqn.py",
+        "tests/test_pqn_effective_world.py",
+        "tests/test_pqn_resume_state.py"
+      ],
+      "test_targets": [
+        "tests/test_pqn_effective_world.py",
+        "tests/test_pqn_resume_state.py",
+        "tests/test_train_pqn.py",
+        "tests/test_pqn_trainer.py"
+      ],
+      "goal": "Make requested behavior match the actual simulator, optimizer and artifact.",
+      "steps": [
+        "Consume C0's complete validated AppConfig, including frozen PQNOverrides, once; never reopen YAML. Map every supported dynamics field into BatchSimConfig. Reject unsupported/conflicting fields explicitly; validate cell alignment rather than silently rounding geometry.",
+        "Use C0 provided_fields plus explicit CLI overrides to preserve the current legacy PQN no-config and partial-config defaults. A YAML file containing only pqn.lr must not import omitted AppConfig mechanics/reward-v1 defaults. When a named v3 recipe is explicitly selected, resolve its complete world and overlay supplied supported fields in the frozen precedence order. Record the effective value and source for every field; an explicitly requested unsupported reward-v1 still fails.",
+        "Test the audited 777 x 666 fixture as fail-fast for unsupported divisibility where applicable, plus a grid-aligned non-default fixture that propagates every field. This avoids mandating an invalid world just to mirror the audit input.",
+        "Honor device precedence and seed all RNGs before model/environment construction. Reject PQN reward_version !=2 until a real v1 dispatch exists; record kill/death coefficients and actual arithmetic.",
+        "Add recipe/world/observation/mask/runtime/source metadata. Keep successful N0 recovery. Restore optimizer hyperparameters truthfully; conflict between requested and resumed values fails or uses explicitly named weights-only warm start.",
+        "Initial implementation exposes weights-only warm start and explicitly labeled optimizer/odometer continuation with fresh environment/pool state. Capture/restore only the RNG streams actually supported and name any reset streams. Reject an exact-resume request: full simulator/pool/IPC continuation is deferred, not an optional branch depending on future P2 code. Legacy checkpoints remain inference-compatible. A checkpoint lacking any required training recipe/episode provenance is weights-only for new training; optimizer/odometer continuation is rejected. No unverified continuation escape hatch is included in this repair."
+      ],
+      "gates": [
+        "Resolved simulator, logs and checkpoint agree on every supported world field, requested/effective device and active optimizer learning rate.",
+        "Explicit --seed repeats initial parameter hashes. Requested LR 0.0002 versus saved 0.001, max_frames 100 to 40, and epsilon horizon 100 to 10 fail conflicting optimizer/odometer continuation unless a named weights-only warm start is selected. Every exact-resume request fails regardless of whether those values match.",
+        "Weights-only start resets optimizer/odometers and records parent hash. Continuation records restored and reset state, rejects recipe conflicts, and never prints or checkpoints an exact-resume claim. A requested exact mode fails clearly.",
+        "Legacy checkpoints with unknown target/reset/horizon/epsilon recipe fields load for inference and weights-only warm start, but fail optimizer/odometer continuation. Such artifacts cannot supply verified G0/REL continuation evidence.",
+        "No-config and PQN-only YAML retain legacy PQN mechanics/reward defaults; explicitly supplied shared fields propagate or fail as documented. Selecting the v3 recipe produces its complete resolved world without accidentally importing omitted legacy AppConfig defaults. Verify value and provenance for each case."
+      ],
+      "rollback": "New recipes are explicit. Leave old files untouched; do not claim old v2 training can exactly resume under repaired reset/target semantics.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/p1.md",
+      "new_files": [
+        "tests/test_pqn_effective_world.py",
+        "tests/test_pqn_resume_state.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/p1/"
+    },
+    {
+      "id": "S1",
+      "title": "Integrate explicit inference identity and runtime contracts",
+      "wave": 2,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "C0",
+        "S0",
+        "ENV",
+        "OBS"
+      ],
+      "owned_files": [
+        "src/model/obs_spec.py",
+        "src/model/inference_agent.py",
+        "src/game/ai_snake.py",
+        "src/training/action_mask.py",
+        "web/backend/raster_policy.py",
+        "web/backend/session.py",
+        "web/backend/serialize.py",
+        "tests/test_inference_agent.py",
+        "tests/test_inference_agent_raster.py",
+        "tests/test_ai_snake.py",
+        "tests/test_action_mask.py",
+        "tests/test_web_raster_serving.py",
+        "tests/test_web_play.py",
+        "tests/test_web_checkpoints.py",
+        "tests/test_web_control.py",
+        "src/scripts/serving_spot_check.py",
+        "tests/test_serving_runtime_contract.py",
+        "web/frontend/src/types.ts",
+        "web/frontend/src/components/Inspector.tsx",
+        "web/frontend/src/components/SteeringWheel.tsx"
+      ],
+      "test_targets": [
+        "tests/test_serving_runtime_contract.py",
+        "tests/test_inference_agent.py",
+        "tests/test_inference_agent_raster.py",
+        "tests/test_ai_snake.py",
+        "tests/test_web_raster_serving.py",
+        "tests/test_web_play.py",
+        "tests/test_web_checkpoints.py"
+      ],
+      "goal": "Use one explicit snake identity, mask contract and checkpoint descriptor in real serving.",
+      "steps": [
+        "Atomically enable v3 inference dispatch with its loader/producer support. Add ID-aware action-value access so inspector calls, epsilon skips and mixed rosters cannot consume another snake row. Preserve legacy checkpoint preparation and tie rules.",
+        "Route v3 AISnake selection through legal/advisory resolution before movement; do not let the legacy normal-only fallback override the new resolved boost options. Keep legacy vector/v2 mask behavior by explicit contract. Supply the collector with explicitly tagged current/next mask semantics for A2; legacy collected advice remains legacy.",
+        "Serialize actual legal/advisory/resolved masks and contract/hash identities. Use weight-shape inference for bare 58-D checkpoints; label untrained Watch startup or fail readiness when the champion is absent.",
+        "Use the named mechanics-v2 rectangular Watch/Play deployment profile. Reject unsupported arena/observation/action/normalization semantics. Treat explicit training-to-deployment distribution differences as recorded provenance; legacy incumbent deployment is pinned, not silently inferred.",
+        "Provide a bounded headless serving spot-check entrypoint with disposable output paths. It runs only when the root grants a compute slot."
+      ],
+      "gates": [
+        "Actual GameState.update with human/multiple AI/mixed policies, deaths, respawns, out-of-order and extra inspector calls returns each correct row.",
+        "Advisory-empty v3 chooses the highest-valued legal action, including a legal boost. Collector, inspector and inference masks agree.",
+        "Legacy 58/61/v2 outputs remain compatible; mismatched v3 schema/circular mode fails before session mutation. Missing champion behavior is explicit.",
+        "Frontend test/build and the changed inspector labels are verified if the typed payload or mask display changes. Use the same package ownership for these consumers."
+      ],
+      "rollback": "Keep incumbent weights and legacy adapter. Disable v3 profile if it fails; do not relabel checkpoint semantics.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/s1.md",
+      "new_files": [
+        "src/scripts/serving_spot_check.py",
+        "tests/test_serving_runtime_contract.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/s1/"
+    },
+    {
+      "id": "A2",
+      "title": "Record Apex recipes and apply explicit new mask semantics",
+      "wave": 3,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "C0",
+        "A0",
+        "A1",
+        "OFF",
+        "S1"
+      ],
+      "owned_files": [
+        "src/training/base_dqn_policy.py",
+        "src/training/apex_policy.py",
+        "src/training/apex_actor.py",
+        "src/training/apex_buffer.py",
+        "src/training/apex_learner.py",
+        "src/training/replay_buffer.py",
+        "src/training/multistep_buffer.py",
+        "src/training/td_targets.py",
+        "src/scripts/apex_train.py",
+        "src/main.py",
+        "tests/test_apex_policy.py",
+        "tests/test_apex_actor.py",
+        "tests/test_apex_buffer.py",
+        "tests/test_apex_learner.py",
+        "tests/test_apex_train_config.py",
+        "tests/test_replay_quality_pure.py",
+        "tests/test_multistep_buffer.py",
+        "tests/test_td_target_helpers.py",
+        "tests/test_main_cli_guard.py",
+        "tests/test_main_training_state.py",
+        "src/training/apex_recipe.py",
+        "tests/test_apex_recipe.py",
+        "tests/test_apex_mask_roundtrip.py"
+      ],
+      "test_targets": [
+        "tests/test_apex_recipe.py",
+        "tests/test_apex_mask_roundtrip.py",
+        "tests/test_apex_policy.py",
+        "tests/test_apex_actor.py",
+        "tests/test_apex_buffer.py",
+        "tests/test_apex_learner.py",
+        "tests/test_td_target_helpers.py",
+        "tests/test_multistep_buffer.py",
+        "tests/test_apex_runtime.py"
+      ],
+      "goal": "Give local/distributed Apex explicit seed, recipe, target-mask and continuation provenance.",
+      "steps": [
+        "Use C0 named seeds before construction. Record distinct local-AdamW/clip 50 and distributed-Adam/clip 100 recipes and beta clock meanings; do not unify numerical recipes in this repair.",
+        "Carry the selected action-mask contract through collection, n-step, replay and TD targets. New mask-mode rows have known semantics; legacy advisory masks are never relabeled as hard legality. Preserve incumbent serving behavior.",
+        "Reject unsupported distributed curriculum before spawning; local curriculum stays available. Do not reopen central config files: consume C0 fields or request a separate C0 handoff.",
+        "Validate optimizer/recipe conflicts. Distinguish weights-only fine-tune from optimizer/odometer continuation. Distributed Apex lacks replay/in-flight actor state, so do not promise bit-exact resume without a separately implemented full-state protocol.",
+        "Retain A0 generation tokens and A1 liveness/budget behavior. Count policy-version age, fallback-mask rows and effective data/update clocks."
+      ],
+      "gates": [
+        "Same explicit seed repeats initialization and a controlled single-actor short trace; asynchronous multi-actor schedule is not claimed bit deterministic.",
+        "Mask semantics survive n-step/replay and mixed legacy presence cases. Bootstrap uses gamma**actual_n and actual done; malformed width/version fails.",
+        "Conflicting recipe resumes fail; unsupported curriculum fails before child creation. All A0 stale-handle and A1 failure cleanup cases remain green."
+      ],
+      "rollback": "Existing checkpoints remain evaluable; legacy continuation is explicit/unverified. Revert the new recipe selection without removing prior replay/liveness repairs.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/a2.md",
+      "new_files": [
+        "src/training/apex_recipe.py",
+        "tests/test_apex_recipe.py",
+        "tests/test_apex_mask_roundtrip.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/a2/"
+    },
+    {
+      "id": "E1",
+      "title": "Align live/SIMD deployment evaluation and event metrics",
+      "wave": 3,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "C0",
+        "E0",
+        "ENV",
+        "OBS",
+        "S1"
+      ],
+      "owned_files": [
+        "src/scripts/tournament_eval.py",
+        "src/simd_env/eval_engine.py",
+        "src/training/behavior_probes.py",
+        "src/game/game_state.py",
+        "tests/test_tournament_eval.py",
+        "tests/test_eval_engine.py",
+        "tests/test_behavior_probes.py",
+        "tests/test_game_state.py",
+        "src/evaluation/protocol.py",
+        "src/evaluation/metrics.py",
+        "src/evaluation/anchors.py",
+        "configs/promotion_mechanics_v2.yaml",
+        "tests/test_eval_runtime_parity.py"
+      ],
+      "test_targets": [
+        "tests/test_eval_runtime_parity.py",
+        "tests/test_eval_engine.py",
+        "tests/test_tournament_eval.py",
+        "tests/test_behavior_probes.py",
+        "tests/test_game_state.py",
+        "tests/test_serving_runtime_contract.py"
+      ],
+      "goal": "Make the new explicit deployment comparison simulate and score one stated task.",
+      "steps": [
+        "Implement the new mechanics-v2 rectangular Watch/Play evaluation profile: train_mode=false, allow_respawn=true, hero terminal overlay, frame_rate=1. Keep legacy v1/custom comparisons named diagnostic profiles.",
+        "Separate evaluation horizon from observation-progress normalization. Initial profile uses 5000 for both but must propagate and fingerprint each independently.",
+        "Use one post-step logical-mass integral with dead frames zero. Propagate complete config and exact food/boost/kill/death events; do not infer food from net growth.",
+        "Implement shared versioned scripted anchors and roster/action adapters for deterministic engine parity. Preserve legacy product scripted policy behavior under its existing profile.",
+        "Implement temporal entrapment and named denominators where feasible; unavailable metrics must be null/unavailable, never numeric zero. No behavioral promotion band is invented from uncalibrated values.",
+        "Use immutable E0 inputs and versioned inference. Additional mechanics defects found by parity return to ENV through a scheduled handoff; do not silently change written game rules."
+      ],
+      "gates": [
+        "Drive actual GameState.update and the live tournament adapter against the actual run_simd_eval path with controlled actions. Compare food/corpse cap, growth lag, boost burn, death, respawn and frame rates 1/3/100. PyRefGame/parity.py is supporting coverage, never the sole runtime oracle.",
+        "Both score accumulators agree on growth/death frames and non-default score/observation horizons. Reordered/sparse batched rows keep identities.",
+        "Anchor action traces agree under the common profile. Temporal-probe K\u22121/K/K+1 cases and unavailable-field semantics pass.",
+        "Legacy diagnostic result schema remains readable; new profile scores carry a new evaluator/profile identity and are not pooled with old scores."
+      ],
+      "rollback": "Keep legacy diagnostics available. The new profile is explicit until G0 qualifies it; no implicit mechanics or champion change.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/e1.md",
+      "new_files": [
+        "src/evaluation/protocol.py",
+        "src/evaluation/metrics.py",
+        "src/evaluation/anchors.py",
+        "configs/promotion_mechanics_v2.yaml",
+        "tests/test_eval_runtime_parity.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/e1/"
+    },
+    {
+      "id": "P2",
+      "title": "Repair PQN target, self-play and episode accounting",
+      "wave": 3,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "P1",
+        "S1",
+        "ENV",
+        "OBS"
+      ],
+      "owned_files": [
+        "src/training/pqn_trainer.py",
+        "src/training/pqn_selfplay.py",
+        "src/scripts/train_pqn.py",
+        "tests/test_pqn_trainer.py",
+        "tests/test_train_pqn.py",
+        "tests/test_opponent_pool.py",
+        "src/training/rollout_policies.py",
+        "tests/test_pqn_episode_contract.py",
+        "tests/test_rollout_policies.py"
+      ],
+      "test_targets": [
+        "tests/test_pqn_episode_contract.py",
+        "tests/test_rollout_policies.py",
+        "tests/test_pqn_trainer.py",
+        "tests/test_train_pqn.py",
+        "tests/test_opponent_pool.py",
+        "tests/test_pqn_numeric_recovery.py",
+        "tests/test_pqn_resume_state.py"
+      ],
+      "goal": "Finish the corrected v3 learner recipe with explicit boundaries and useful telemetry.",
+      "steps": [
+        "Only actual death is a death terminal. Use the resolved advisory-then-legal set for v3 action selection and bootstrap; advisory-empty must not map to death_value. Preserve truncation bootstrap, exact gamma and valid-successor lambda carry rules.",
+        "Freeze hero/opponent assignments until their episode ends. Reference each opponent by immutable snapshot ID/content hash, never a mutable FIFO list index. Pin assigned snapshot objects until all assigned episodes finish; evict only unpinned snapshots and defer admission when every capacity slot is pinned. Add a shared rollout-policy interface for fixed common opponents or a versioned snapshot pool, with mode and realized exposure recorded.",
+        "Pass the active-env mask; discard finished rows without advancing their world/RNG. Reset the whole batch only at the existing boundary. Do not implement asynchronous reset here.",
+        "Retain the truthful continuation modes from P1. New episode and opponent state is explicitly fresh on continuation; record seeds, policy IDs and reset counters. The new recipe disables flip and retains legacy sampler, Adam, Huber and current network.",
+        "Report reward terms when available, valid hero kills/deaths/completed episodes, snapshot exposure, raw action frequencies, useful-row utilization, draws and optimizer work. Replace mislabeled rollout totals; keep legacy metrics clearly named."
+      ],
+      "gates": [
+        "All-false-advice escape still bootstraps; actual death uses reward only; no lambda carry crosses invalid/dead/reset rows or a cap.",
+        "Two rollouts inside one episode preserve policy identities/hero eligibility. Admit a new snapshot and attempt eviction between these rollouts: assigned snapshot hashes and deterministic actions remain identical. A fully pinned pool defers admission within its memory bound. Finished env snapshots/RNG do not change.",
+        "Term/accounting totals reconcile with event fixtures; full/partial rollout and sampler tests remain green. N0 incidents preserve good state.",
+        "Checkpoint/CLI receipts identify optimizer/odometer continuation and fresh episode/pool state. They do not advertise exact resume or silently imply that replay exposure continued unchanged."
+      ],
+      "rollback": "Version target/episode/self-play semantics. The old campaign is reproduced from its pinned source/protocol; do not modify its archived scripts or results.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/p2.md",
+      "new_files": [
+        "src/training/rollout_policies.py",
+        "tests/test_pqn_episode_contract.py",
+        "tests/test_rollout_policies.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/p2/"
+    },
+    {
+      "id": "E2",
+      "title": "Separate strict promotion from diagnostics",
+      "wave": 4,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "E1",
+        "S1",
+        "E0",
+        "C0"
+      ],
+      "owned_files": [
+        "src/scripts/tournament_eval.py",
+        "src/scripts/eval_cli.py",
+        "src/scripts/eval_stats.py",
+        "src/scripts/evaluate_checkpoints.py",
+        "src/scripts/sweep.py",
+        "tests/test_tournament_eval.py",
+        "tests/test_eval_cli.py",
+        "tests/test_eval_stats.py",
+        "tests/test_evaluate_checkpoints.py",
+        "tests/test_sweep.py",
+        "tests/test_strict_promotion.py"
+      ],
+      "test_targets": [
+        "tests/test_strict_promotion.py",
+        "tests/test_tournament_eval.py",
+        "tests/test_eval_cli.py",
+        "tests/test_eval_stats.py",
+        "tests/test_evaluate_checkpoints.py",
+        "tests/test_sweep.py"
+      ],
+      "goal": "Make a promotion verdict bind an incumbent, deployment profile and adequate predeclared design.",
+      "steps": [
+        "Strict mode requires immutable candidate/incumbent/opponent hashes, clean/source-hashed inputs, the named deployment profile, all required mixes, balanced precomputed roster rotations and a valid serving readiness receipt. Generic/scripted comparisons remain diagnostics.",
+        "Replace baseline-only pilot sizing with paired delta variance and declared power/MDE. Require at least 40 untouched final worlds and any larger pilot-derived count. Forty is a floor, not a power guarantee.",
+        "Use the decision rule in README: per-mix paired superiority with multiplicity handling, at least two successful mixes, and a genuine scripted noninferiority bound against a predeclared absolute margin. Preserve per-world data and do not use the descriptive combined interval as authority.",
+        "Keep seed sets disjoint after model selection. Null/unimplemented required probes block readiness; calibrate behavioral bands before final data, not from final outcomes.",
+        "Remove champion authority from --copy-best-to diagnostics. Do not auto-promote after evaluation. An explicit later promotion operation must recheck the exact passing receipt/hash and preserve the incumbent; publishing remains outside these packages."
+      ],
+      "gates": [
+        "Two-world or arbitrary-scripted baselines cannot obtain strict authority. Duplicate hashes/seeds, missing mixes, unbalanced rosters, changed snapshots and insufficient pilot-sized n fail.",
+        "Constant-baseline/variable-delta pilot counterexample is handled correctly. Superiority/multiplicity/noninferiority boundaries have analytical oracles.",
+        "Failed/legacy/missing-serving receipts cannot authorize a champion update. Diagnostic comparisons still run with their authority clearly labeled."
+      ],
+      "rollback": "Version receipts/decision rule; retain old scores as diagnostics. Never retroactively call an old contextual PROMOTE receipt a strict incumbent win.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/e2.md",
+      "new_files": [
+        "tests/test_strict_promotion.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/e2/"
+    },
+    {
+      "id": "H0",
+      "title": "Build corrected-PQN diagnostic harness",
+      "wave": 4,
+      "status": "PLANNED",
+      "kind": "implementation",
+      "role": "builder",
+      "depends_on": [
+        "P2",
+        "E1",
+        "S1"
+      ],
+      "owned_files": [
+        "src/scripts/pqn_correctness_diagnostic.py",
+        "tests/test_pqn_correctness_diagnostic.py"
+      ],
+      "test_targets": [
+        "tests/test_pqn_correctness_diagnostic.py"
+      ],
+      "goal": "Run new protocols without modifying the completed sampler campaign harness.",
+      "steps": [
+        "Build a manifest-first runner around corrected PQN and the new evaluator. Persist recipe, source/config/checkpoint/opponent hashes, all RNG streams, seed splits and requested/actual clocks.",
+        "Keep one training executor, unique run directories and a portable resource/incident receipt. Refuse source/protocol drift mid-arm; never auto-extend a run based on scores.",
+        "Provide smoke, single-seed shakedown and five-seed fixed-budget modes. Save initial/final checkpoints and per-update/event telemetry; evaluate only after training exits.",
+        "Do not edit pqn_sampler_diagnostic.py, its tests or archived protocols/results. They remain historical reproduction assets."
+      ],
+      "gates": [
+        "Fake tiny trainer/evaluator tests prove exact arm cardinality, seed isolation, resource-stop behavior, checkpoint lineage and no promotion side effects.",
+        "Failed arms remain in results with their cause; no silent retry or drop. Initial/final pairing is by independent training seed, not by rows or worlds."
+      ],
+      "rollback": "New tool only; deleting/reverting it does not alter the prior campaign or model behavior.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/h0.md",
+      "new_files": [
+        "src/scripts/pqn_correctness_diagnostic.py",
+        "tests/test_pqn_correctness_diagnostic.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/h0/"
+    },
+    {
+      "id": "G0",
+      "title": "Qualify the integrated repair",
+      "wave": 5,
+      "status": "PLANNED",
+      "kind": "verification",
+      "role": "verifier",
+      "depends_on": [
+        "P2",
+        "A2",
+        "E1",
+        "E2",
+        "H0",
+        "OFF",
+        "S1"
+      ],
+      "owned_files": [
+        "docs/experiments/rl_repair_qualification_2026-09-06/"
+      ],
+      "test_targets": [],
+      "goal": "Produce one reviewed implementation-readiness receipt before substantive experiments.",
+      "steps": [
+        "On one frozen integration SHA, run the affected focused union, full non-slow Python suite with -n2 at most, changed-file formatting/lint and required slow multi-reset/engine parity cases. Run the full suite alone.",
+        "Run frontend test/build when serving payload/type consumers change. Reproduce actual human-plus-AI runtime behavior headlessly; use browser inspection if visible UI behavior changed.",
+        "Run tiny CPU PQN and Apex lifecycle smokes in separate disposable paths, including failure cleanup. Then one 100k-hero MPS PQN shakedown, at most 10 minutes, 2 native threads and the runbook memory caps.",
+        "Check successful and failed checkpoint recovery, all input hashes, actual useful-row accounting and zero leaked children. Use the shakedown only for operability/cost calibration; do not select hyperparameters from its score."
+      ],
+      "gates": [
+        "All required checks pass on the same integration source identity. No stale test count from the old1943-pass source is treated as current evidence.",
+        "No known contract counterexample remains unresolved in the new profile; legacy fixtures still load/act through legacy adapters.",
+        "Numerical/resource failure halts qualification and preserves artifacts. Readiness does not imply learned skill or statistical superiority."
+      ],
+      "rollback": "Failed qualification leaves default serving/champion unchanged; reopen only the failing owner package and repeat invalidated gates.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/g0.md",
+      "new_files": [
+        "docs/experiments/rl_repair_qualification_2026-09-06/"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/g0/"
+    },
+    {
+      "id": "H1",
+      "title": "Measure state information before expanding the model",
+      "wave": 6,
+      "status": "PLANNED",
+      "kind": "conditional_implementation",
+      "role": "builder",
+      "depends_on": [
+        "G0",
+        "E1",
+        "P2"
+      ],
+      "owned_files": [
+        "src/scripts/observation_value_diagnostic.py",
+        "tests/test_observation_value_diagnostic.py",
+        "docs/experiments/observation_value_2026-09-06/"
+      ],
+      "test_targets": [
+        "tests/test_observation_value_diagnostic.py"
+      ],
+      "goal": "Quantify alias prevalence and action relevance with a bounded frozen corpus.",
+      "steps": [
+        "Implement a counterfactual probe harness using cloned complete simulator/RNG state and controlled full joint actions. Verify clone independence and equal-observation witnesses.",
+        "After its tests pass and the root grants an exclusive CPU slot, collect at most 250k transitions with seed/opponent episode splits; reserve untouched test worlds.",
+        "Compare current observations, oracle omitted counters, short 2/4/8-step histories and simple enemy-head tokens. Report action-order disagreement and finite-horizon regret alongside predictive errors; define horizon/opponent sampling and practical threshold before opening test data.",
+        "No GRU, attention, new channels, crop or gameplay changes here. If results justify a candidate, emit a separate bounded implementation proposal with exact fields/capacity and fresh training protocol."
+      ],
+      "gates": [
+        "Alias existence, prevalence, action preference and return regret are separate outputs. Counterfactual horizon return is not mislabeled globally optimal Q.",
+        "No row-level split leakage across an episode/world/opponent checkpoint. Thresholds and resource limits are frozen before test evaluation.",
+        "Corpus/probes run serially relative to MPS training and full tests; stop on the declared resource/time cap and preserve partial-corpus status."
+      ],
+      "rollback": "Analysis tool and artifacts only. An uninformative result ends this branch of research without changing representation.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/h1.md",
+      "new_files": [
+        "src/scripts/observation_value_diagnostic.py",
+        "tests/test_observation_value_diagnostic.py",
+        "docs/experiments/observation_value_2026-09-06/"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/h1/"
+    },
+    {
+      "id": "L0",
+      "title": "Implement a bounded shared-policy PPO control",
+      "wave": 6,
+      "status": "PLANNED",
+      "kind": "conditional_implementation",
+      "role": "builder",
+      "depends_on": [
+        "G0",
+        "P2",
+        "C0"
+      ],
+      "owned_files": [
+        "src/model/raster_actor_critic.py",
+        "src/training/ppo_trainer.py",
+        "src/scripts/train_ppo.py",
+        "tests/test_raster_actor_critic.py",
+        "tests/test_ppo_trainer.py",
+        "tests/test_train_ppo.py"
+      ],
+      "test_targets": [
+        "tests/test_raster_actor_critic.py",
+        "tests/test_ppo_trainer.py",
+        "tests/test_train_ppo.py"
+      ],
+      "goal": "Add an optional algorithm baseline consuming the frozen world/observation/action APIs.",
+      "steps": [
+        "Use the same spatial trunk topology/capacity exactly, including initialization and normalization with separate actor and critic outputs; report any parameter-count difference. Do not edit RasterDuelingNetwork or its behavior.",
+        "Implement categorical masking, on-policy rollout log probabilities, clipped PPO objective, value loss, entropy, advantage estimation and minibatch accounting. GAE death/truncation/invalid-row semantics must follow the shared episode contract.",
+        "Use P2 rollout policies so the later comparison can use fixed common opponents and identical hero-assignment/reset rules. Changing snapshot exposure is not part of the initial algorithm control.",
+        "Record algorithm/head semantics explicitly. PPO logits are not Q-values. This package writes no generic serving/evaluator files; L1 integrates its checkpoints later.",
+        "Freeze exactly the same v3 preprocessing and convolution/fusion trunk topology, width, depth, normalization and initialization as corrected PQN. Predeclare the unavoidable categorical actor/scalar critic versus dueling-Q output-head differences. Do not widen or retune the trunk in the algorithm control; any proposed trunk change is a separately named architecture experiment."
+      ],
+      "gates": [
+        "Analytical clipped-surrogate/GAE fixtures cover actual terminal vs truncation, legal action probabilities, log-probability identity and invalid rows.",
+        "Same-seed initialization/short CPU update is reproducible; finite checks/checkpoint recovery satisfy the same requirements as PQN.",
+        "No toy reward improvement is claimed as Snake competence. No long run is launched by the builder.",
+        "Compare ordered trunk layer configuration, state-dict shapes and same-seed initial trunk weights against RasterDuelingNetwork. All agree; only predeclared output heads differ. Trunk mismatch blocks L1/G1/X2 algorithm-control readiness."
+      ],
+      "rollback": "Entirely optional new files; PQN/legacy inference remains operational. No default learner switch.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/l0.md",
+      "new_files": [
+        "src/model/raster_actor_critic.py",
+        "src/training/ppo_trainer.py",
+        "src/scripts/train_ppo.py",
+        "tests/test_raster_actor_critic.py",
+        "tests/test_ppo_trainer.py",
+        "tests/test_train_ppo.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/l0/"
+    },
+    {
+      "id": "X0",
+      "title": "Run the corrected-PQN learning screen",
+      "wave": 6,
+      "status": "PLANNED",
+      "kind": "experiment",
+      "role": "verifier",
+      "depends_on": [
+        "G0",
+        "H0"
+      ],
+      "owned_files": [
+        "docs/experiments/pqn_corrected_screen_2026-09-06/"
+      ],
+      "test_targets": [],
+      "goal": "Measure learning after repairs with a predeclared bounded Mac run.",
+      "steps": [
+        "Freeze five fresh training seeds, 500k hero transitions each, initial checkpoints, explicit epsilon horizon, the legacy sampler, unchanged Adam/Huber/network and the versioned corrected profile. Freeze 12 development evaluation worlds per chosen mix before training.",
+        "Run one learner at a time. Per-arm wall cap comes from G0 shakedown projection plus 25% headroom, with a 30-minute absolute ceiling; exceeding it is an incident, not permission to extend. Resource caps remain in force.",
+        "Evaluate final and same-seed initial networks on paired worlds/mixes plus scripted anchors. Average repeated worlds/mixes within each trained seed; report a five-seed interval and raw results.",
+        "Keep no-learning or inconclusive results. They do not justify silent tuning or block a separately sound PPO control. Do not pool these scores with the older SIMD campaign."
+      ],
+      "gates": [
+        "All five arm outcomes and checkpoint identities are accounted for. Incident/failed arms are visible; no score-based early stop or seed replacement.",
+        "Report effect size, interval, useful transitions, optimizer work, time and memory. No promotion or algorithm winner is asserted from this screen."
+      ],
+      "rollback": "Keep the incumbent and preserve all experimental artifacts. A new recipe or budget requires a new protocol and fresh confirmatory seeds.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/x0.md",
+      "new_files": [
+        "docs/experiments/pqn_corrected_screen_2026-09-06/"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/x0/"
+    },
+    {
+      "id": "L1",
+      "title": "Integrate PPO inference and algorithm comparison",
+      "wave": 7,
+      "status": "PLANNED",
+      "kind": "conditional_implementation",
+      "role": "builder",
+      "depends_on": [
+        "L0",
+        "E2",
+        "E1",
+        "S1",
+        "H0"
+      ],
+      "owned_files": [
+        "src/model/inference_agent.py",
+        "web/backend/raster_policy.py",
+        "web/backend/serialize.py",
+        "web/backend/state_labels.py",
+        "src/simd_env/eval_engine.py",
+        "src/scripts/tournament_eval.py",
+        "web/frontend/src/types.ts",
+        "web/frontend/src/components/Inspector.tsx",
+        "web/frontend/src/components/GameCanvas.tsx",
+        "web/frontend/src/components/SteeringWheel.tsx",
+        "tests/test_inference_agent.py",
+        "tests/test_inference_agent_raster.py",
+        "tests/test_eval_engine.py",
+        "tests/test_tournament_eval.py",
+        "tests/test_web_raster_serving.py",
+        "src/scripts/algorithm_control_diagnostic.py",
+        "tests/test_algorithm_control_diagnostic.py",
+        "tests/test_ppo_inference_contract.py"
+      ],
+      "test_targets": [
+        "tests/test_ppo_inference_contract.py",
+        "tests/test_algorithm_control_diagnostic.py",
+        "tests/test_inference_agent.py",
+        "tests/test_eval_engine.py",
+        "tests/test_tournament_eval.py",
+        "tests/test_web_raster_serving.py"
+      ],
+      "goal": "Give PPO the same evaluation/serving path without pretending logits are Q-values.",
+      "steps": [
+        "Dispatch by validated algorithm/head contract, retaining all DQN behavior. Expose policy logits/probabilities and critic value with honest inspector labels.",
+        "Add the paired algorithm-control harness using immutable common opponent manifests, hero assignment, world/mask/reward/observation semantics and independent training seeds. Report both data and compute budgets.",
+        "Freeze inference action selection in the comparison protocol (deterministic greedy for both unless a separately labeled stochastic evaluation is planned).",
+        "Rerun E2 strict receipt and row/mask identity cases after these shared files change. Generic PPO promotion is unavailable until this integration gate and candidate-specific serving receipt pass."
+      ],
+      "gates": [
+        "PPO checkpoint load/act/serialize round trips and bad head/contract combinations fail. Human/AI row identity and masks agree across engines.",
+        "Existing vector/v2/v3 DQN values and labels remain correct. Frontend tests/build pass; inspect the affected labels.",
+        "Comparison harness counts training seeds correctly, uses fresh evaluation worlds and never copies/promotes a winner automatically."
+      ],
+      "rollback": "Optional supported algorithm; no default switch. Roll back this dependent closure if PPO integration fails.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/l1.md",
+      "new_files": [
+        "src/scripts/algorithm_control_diagnostic.py",
+        "tests/test_algorithm_control_diagnostic.py",
+        "tests/test_ppo_inference_contract.py"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/l1/"
+    },
+    {
+      "id": "G1",
+      "title": "Requalify the PPO-integrated source",
+      "wave": 8,
+      "status": "PLANNED",
+      "kind": "verification",
+      "role": "verifier",
+      "depends_on": [
+        "L1",
+        "G0"
+      ],
+      "owned_files": [
+        "docs/experiments/ppo_integration_qualification_2026-09-06/"
+      ],
+      "new_files": [
+        "docs/experiments/ppo_integration_qualification_2026-09-06/"
+      ],
+      "test_targets": [],
+      "goal": "Produce a new source-specific readiness receipt after L1 changes shared inference, frontend and evaluator code.",
+      "steps": [
+        "Freeze the post-L1 integration SHA. Repeat the changed inference/serving/engine/promotion test union, frontend test/build, changed-file lint and the full non-slow suite alone; include the required runtime/slow parity cases.",
+        "Run candidate-head-specific CPU smoke and serving identity/mask/label checks for both DQN and PPO. Prior G0 receipts do not qualify the changed evaluator or PPO head.",
+        "Run one 100k hero-transition MPS operability shakedown per algorithm serially, each at most 10 minutes under the runbook caps. Freeze comparison settings before these runs and use outcomes for numerics/cost only. X2 consumes these shakedown receipts rather than duplicating them.",
+        "Record the new source/profile/contract/checkpoint hashes and invalidate any older serving/evaluator receipt that no longer matches."
+      ],
+      "gates": [
+        "All changed and retained contracts pass on one post-L1 SHA; no old G0 test count is represented as current proof.",
+        "Both algorithms produce finite, loadable checkpoints and actual serving/evaluation receipts under the same task contract. Resource incidents stop requalification and preserve artifacts."
+      ],
+      "rollback": "Keep the already-qualified PQN branch if optional PPO integration fails. Reopen the failing owner and repeat invalidated gates.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/g1.md",
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/g1/"
+    },
+    {
+      "id": "X2",
+      "title": "Run a matched PQN-versus-PPO screen",
+      "wave": 9,
+      "status": "PLANNED",
+      "kind": "experiment",
+      "role": "verifier",
+      "depends_on": [
+        "X0",
+        "L1",
+        "L0",
+        "G0",
+        "G1"
+      ],
+      "owned_files": [
+        "docs/experiments/algorithm_control_2026-09-06/"
+      ],
+      "test_targets": [],
+      "goal": "Estimate the algorithm effect under one frozen, repaired task.",
+      "steps": [
+        "Consume G1's one-100k-shakedown-per-algorithm cost receipts, then run five fresh paired training seeds with 500k hero transitions per arm. Run all 10 arms serially with unchanged settings and fixed common opponents. Recalibration after any recipe/source change requires a new protocol.",
+        "Use a new development world set; evaluate each final/initial checkpoint and anchors. Predeclare primary per-trained-seed paired mass delta, fixed absolute practical-effect margin from independent calibration, and seed/mix aggregation.",
+        "Record parameter counts, environment frames, useful hero rows, optimizer updates, wall time and memory. Equal data is not equal compute; report both.",
+        "Use per-arm cost/resource caps calibrated before score inspection. Wide intervals remain inconclusive. Do not extend or select hyperparameters on these evaluation worlds.",
+        "Verify the frozen observation preprocessing and conv/fusion trunk fingerprint and paired initial trunk weights match across algorithms; only predeclared output heads and algorithm-required update rules may differ. A trunk mismatch stops this algorithm-only protocol rather than being excused by recording parameter counts."
+      ],
+      "gates": [
+        "Complete raw outcome cardinality and immutable hashes; five independent paired training units, not 60 world rows counted as 60 trained models.",
+        "Superiority, practical equivalence and inconclusive outcomes are distinct. A selected method still needs a separately chosen checkpoint and final live gate.",
+        "The paired architecture manifest has identical preprocessing/trunk fingerprints and initial trunk weights. Unplanned width, depth, normalization or initialization differences invalidate an algorithm-effect claim and require a distinct architecture protocol."
+      ],
+      "rollback": "All artifacts retained; incumbent and defaults unchanged. Further confirmation uses a new protocol/seeds.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [],
+      "card": "packages/x2.md",
+      "new_files": [
+        "docs/experiments/algorithm_control_2026-09-06/"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/x2/"
+    },
+    {
+      "id": "REL",
+      "title": "Qualify an exact candidate for deployment",
+      "wave": 10,
+      "status": "PLANNED",
+      "kind": "experiment",
+      "role": "verifier",
+      "depends_on": [
+        "X0",
+        "G0",
+        "E2",
+        "S1"
+      ],
+      "owned_files": [
+        "docs/experiments/rl_candidate_promotion_2026-09-06/"
+      ],
+      "test_targets": [],
+      "goal": "Evaluate one selected immutable candidate against the pinned incumbent in the deployed task.",
+      "steps": [
+        "Before opening final worlds, freeze candidate/incumbent/opponent hashes, source/profile, roster rotations, pilot-derived n, statistical hypotheses and absolute noninferiority margin. At least 40 fresh worlds are required; honor any larger powered n.",
+        "Use the live engine for cross-stack comparison, the 5000-frame deployment profile, all required mixes and balanced per-world rosters. Keep observation normalization 5000 explicit.",
+        "Run50 separate serving-path episodes from the same snapshot/profile for compatibility, including human-plus-AI dispatch. They are not extra independent training seeds or a substitute for the paired effect estimate.",
+        "Emit strict readiness/statistical/decision receipts. No champion file, default or remote deployment is changed by this experiment. Any later promotion action must use this exact passing receipt and preserve rollback assets.",
+        "Bind readiness to the exact evaluation/serving source: a pre-L1 PQN qualification can use its G0-qualified source; every post-L1 source requires G1 even when the candidate is PQN. A PPO candidate also requires L1 and X2. Any later material source change invalidates affected receipts and requires requalification before final scoring."
+      ],
+      "gates": [
+        "All E2 readiness, powered seed, superiority, noninferiority and calibrated behavioral requirements pass on untouched final data.",
+        "If PPO is selected, L1, X2 and G1 receipts for the exact post-integration source are mandatory. Otherwise record that branch as not applicable with the selected algorithm/head identity; do not silently waive it.",
+        "A failed or inconclusive gate leaves the candidate experimental and retains the full result.",
+        "A fixture with a PQN candidate and post-L1 evaluator source cannot qualify using only old G0/E2 receipts; it requires a matching G1 receipt. A pre-L1 PQN path remains independent of optional PPO work."
+      ],
+      "rollback": "Keep A5 and its prior deployment available. Never substitute another checkpoint after passing.",
+      "audit_reference": "state_and_system_review_2026-09-06.md",
+      "conditional_dependencies": [
+        {
+          "when": "selected_candidate.algorithm == ppo",
+          "requires": [
+            "L1",
+            "X2",
+            "G1"
+          ]
+        },
+        {
+          "when": "The source SHA used by REL includes L1 or later changes to the shared PPO-integrated runtime/evaluator, regardless of the selected candidate algorithm.",
+          "requires": [
+            "G1"
+          ]
+        }
+      ],
+      "card": "packages/rel.md",
+      "new_files": [
+        "docs/experiments/rl_candidate_promotion_2026-09-06/"
+      ],
+      "artifact_directory": "<EVIDENCE_ROOT>/packages/rel/"
+    }
+  ],
+  "evidence_root_template": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/rl-repair-<campaign-id>/"
+}
