@@ -1,0 +1,111 @@
+{
+  "classification": "confirmed exact observation alias with divergent next observation",
+  "current_hero_observation_fields_equal": {
+    "mask": true,
+    "scalars": true,
+    "strategic_uint8": true,
+    "tactical_uint8": true
+  },
+  "done_equal": true,
+  "food_cell": [
+    78,
+    1
+  ],
+  "hero_head": [
+    23,
+    52
+  ],
+  "hero_heading": 1,
+  "hidden_classes": [
+    "ambient",
+    "corpse"
+  ],
+  "initial_worlds": [
+    {
+      "entities": [
+        {
+          "body_head_to_tail": [
+            [
+              23,
+              52
+            ]
+          ],
+          "heading": 1,
+          "label": "hero"
+        }
+      ],
+      "food": [
+        {
+          "cell": [
+            78,
+            1
+          ],
+          "class": "ambient"
+        }
+      ],
+      "label": "ambient"
+    },
+    {
+      "entities": [
+        {
+          "body_head_to_tail": [
+            [
+              23,
+              52
+            ]
+          ],
+          "heading": 1,
+          "label": "hero"
+        }
+      ],
+      "food": [
+        {
+          "cell": [
+            78,
+            1
+          ],
+          "class": "corpse"
+        }
+      ],
+      "label": "corpse"
+    }
+  ],
+  "interpretation": "The hero receives exactly the same raster31v2 observation when a remote pellet's hidden class is ambient versus corpse. Under the same action, v2 food maintenance produces different next states because corpse food is cap-exempt. Reward and done are equal on this step. This proves an alias exists; it does not measure its frequency or control-performance loss.",
+  "next_food_cells": [
+    [
+      [
+        78,
+        1
+      ]
+    ],
+    [
+      [
+        78,
+        1
+      ],
+      [
+        44,
+        60
+      ]
+    ]
+  ],
+  "next_food_counts": [
+    1,
+    2
+  ],
+  "next_hero_observation_fields_equal": {
+    "mask": true,
+    "scalars": false,
+    "strategic_uint8": false,
+    "tactical_uint8": true
+  },
+  "next_hero_scalar_different_indices": [
+    12,
+    13,
+    14
+  ],
+  "reward_equal": true,
+  "same_hero_action": 0,
+  "seed": 177,
+  "source_commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715"
+}

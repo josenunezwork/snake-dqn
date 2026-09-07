@@ -1,0 +1,125 @@
+{
+  "body_prediction_priority": {
+    "actual_code": 4,
+    "confirmed_violation": true,
+    "contested_raster_cell": [
+      17,
+      20
+    ],
+    "contested_world_cell": [
+      25,
+      14
+    ],
+    "expected_by_declared_priority": 6,
+    "world": {
+      "entities_by_identity": [
+        {
+          "body_head_to_tail": [
+            [
+              20,
+              20
+            ]
+          ],
+          "heading": 0,
+          "label": "hero"
+        },
+        {
+          "body_head_to_tail": [
+            [
+              24,
+              14
+            ],
+            [
+              25,
+              14
+            ],
+            [
+              26,
+              14
+            ]
+          ],
+          "heading": 3,
+          "label": "enemy_body_source"
+        },
+        {
+          "body_head_to_tail": [
+            [
+              25,
+              15
+            ],
+            [
+              25,
+              16
+            ],
+            [
+              25,
+              17
+            ]
+          ],
+          "heading": 0,
+          "label": "enemy_prediction_source"
+        }
+      ],
+      "grid_cells": [
+        80,
+        80
+      ],
+      "observer_slot": 0,
+      "slot_order_body_then_prediction": [
+        "hero",
+        "enemy_body_source",
+        "enemy_prediction_source"
+      ],
+      "slot_order_prediction_then_body": [
+        "hero",
+        "enemy_prediction_source",
+        "enemy_body_source"
+      ]
+    }
+  },
+  "outside_prediction_overwrites_wall": {
+    "actual_code": 4,
+    "cell_raster": [
+      20,
+      20
+    ],
+    "confirmed_wall_erased": true,
+    "interpretation": "A geometrically impossible enemy prediction and the wall occupy one categorical cell; the emitted type plane retains only the prediction. This proves information loss but does not quantify a control-performance effect.",
+    "predicted_world_cell": [
+      25,
+      -1
+    ],
+    "prediction_code": 4,
+    "wall_code": 1,
+    "world": {
+      "entities": [
+        {
+          "body_head_to_tail": [
+            [
+              20,
+              2
+            ]
+          ],
+          "heading": 0,
+          "label": "hero"
+        },
+        {
+          "body_head_to_tail": [
+            [
+              25,
+              0
+            ]
+          ],
+          "heading": 0,
+          "label": "enemy"
+        }
+      ],
+      "grid_cells": [
+        80,
+        80
+      ],
+      "observer_slot": 0
+    }
+  },
+  "source_commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715"
+}

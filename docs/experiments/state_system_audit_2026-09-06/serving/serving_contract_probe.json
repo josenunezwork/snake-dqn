@@ -1,0 +1,131 @@
+{
+  "all_three_reproduced": true,
+  "checkpoint_mechanics": {
+    "checkpoint_mechanics_version": 1,
+    "reproduced_silent_mismatch": true,
+    "served_config": "mechanics_v2.yaml",
+    "served_mechanics_version": 2,
+    "session_error": null
+  },
+  "device": "cpu",
+  "elapsed_seconds": 0.228186,
+  "git_sha": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715",
+  "play_dispatch": {
+    "actual_argmax": 0,
+    "dispatch_queue_after_first_ai_call": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "dispatch_queue_before_first_ai_call": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "expected_ai_row": 1,
+    "expected_argmax": 1,
+    "first_ai_id": 1,
+    "reproduced_foreign_row": true,
+    "roster": [
+      {
+        "alive": true,
+        "cache_row": 0,
+        "id": 0,
+        "type": "HumanSnake"
+      },
+      {
+        "alive": true,
+        "cache_row": 1,
+        "id": 1,
+        "type": "AISnake"
+      },
+      {
+        "alive": true,
+        "cache_row": 2,
+        "id": 2,
+        "type": "AISnake"
+      },
+      {
+        "alive": true,
+        "cache_row": 3,
+        "id": 3,
+        "type": "AISnake"
+      },
+      {
+        "alive": true,
+        "cache_row": 4,
+        "id": 4,
+        "type": "AISnake"
+      },
+      {
+        "alive": true,
+        "cache_row": 5,
+        "id": 5,
+        "type": "AISnake"
+      }
+    ]
+  },
+  "purpose": "Reproduce raster web serving identity and contract mismatches",
+  "python": "3.12.3",
+  "reproduction_command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python runs/state_system_audit_20260906/serving/serving_contract_probe.py --output runs/state_system_audit_20260906/serving/serving_contract_probe.json",
+  "schema_version": 1,
+  "seed": 1729,
+  "serialized_action_mask": {
+    "actual_live_safe_mask": [
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ],
+    "hero_direction": [
+      -1,
+      0
+    ],
+    "hero_head": [
+      10,
+      100
+    ],
+    "hero_id": 0,
+    "mismatched_action_indices": [
+      4
+    ],
+    "reproduced_mask_mismatch": true,
+    "safe_actions": [
+      0,
+      3,
+      1,
+      2,
+      5
+    ],
+    "serialized_raster_mask": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "source_sha256": {
+    "src/game/game_state.py": "5fb02992be5a3840cd5a3e251fb09f01761e1f29081e209b82b6541535168303",
+    "src/simd_env/featurizer.py": "525ab4017e760a63f3d97d968ede7537fab605520d619eeabe30710755e74232",
+    "src/training/pqn_trainer.py": "d686ad5e46e098bf50e1e29e1ad51e6cfd0358c3c3299f9f8a4b8f98286eb9ad",
+    "web/backend/raster_policy.py": "458db294a8fcbe2e989cc7e9401eda43c8e23cdce224fc15dd5e0c901accab46",
+    "web/backend/session.py": "d76a9099d2a7007599a2c16698e487e036e0aaad3b95345d199233948281bcb0"
+  },
+  "synthetic_checkpoint_retained": false,
+  "targeted_test_receipt": {
+    "command": "OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python -m pytest -q tests/test_web_raster_serving.py tests/test_obs_parity.py tests/test_inference_agent.py tests/test_inference_agent_raster.py tests/test_web_checkpoints.py",
+    "path": "runs/state_system_audit_20260906/serving/targeted_tests.log",
+    "sha256": "b3a90cec00a0714e0a1707b7425513e7378adf37dbb9eb4fe9f9be0c12933d01"
+  },
+  "torch": "2.9.1",
+  "torch_threads": 1
+}

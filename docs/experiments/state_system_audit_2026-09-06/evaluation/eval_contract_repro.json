@@ -1,0 +1,25 @@
+{
+  "active_live": {
+    "arena_type": "rectangular",
+    "frame_rate": 100,
+    "mechanics_version": 1
+  },
+  "config": "configs/eval_free_space.yaml",
+  "derived_simd": {
+    "arena_type": "rectangular",
+    "frame_rate": 1,
+    "mechanics_version": 1
+  },
+  "growth_mass_units": {
+    "before": {
+      "logical_length": 1,
+      "segment_count": 1
+    },
+    "immediately_after_grow": {
+      "logical_length": 2,
+      "segment_count": 1
+    },
+    "live_tournament_uses": "segment_count",
+    "simd_tournament_uses": "logical_length"
+  }
+}

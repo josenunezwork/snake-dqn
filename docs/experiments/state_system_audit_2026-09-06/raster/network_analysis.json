@@ -1,0 +1,29 @@
+{
+  "conv_layernorm_count": 0,
+  "fc_layernorm_count": 3,
+  "fractions": {
+    "advantage_stream": 0.0469,
+    "fuse_fc": 0.0622,
+    "strategic_conv": 0.0035,
+    "strategic_fc": 0.07,
+    "tactical_conv": 0.0404,
+    "tactical_fc": 0.7309,
+    "value_stream": 0.046
+  },
+  "parameters": {
+    "advantage_stream": 67334,
+    "fuse_fc": 89344,
+    "strategic_conv": 5088,
+    "strategic_fc": 100544,
+    "tactical_conv": 58048,
+    "tactical_fc": 1049344,
+    "total": 1435751,
+    "value_stream": 66049
+  },
+  "source_commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715",
+  "strategic_final_stride_coarse_cells": 4,
+  "strategic_receptive_field_coarse_cells": 7,
+  "strategic_receptive_field_raw_cells": 35,
+  "tactical_final_stride_raw_cells": 4,
+  "tactical_receptive_field_raw_cells": 9
+}

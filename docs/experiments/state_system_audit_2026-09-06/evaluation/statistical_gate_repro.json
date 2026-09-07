@@ -1,0 +1,46 @@
+{
+  "baseline_only_pilot_counterexample": {
+    "actual_paired_delta_sd": 100.0,
+    "baseline": [
+      100.0,
+      100.0,
+      100.0,
+      100.0
+    ],
+    "baseline_sd_used_by_pilot": 0.0,
+    "candidate": [
+      100.0,
+      100.0,
+      100.0,
+      300.0
+    ],
+    "note": "A baseline-only sample cannot identify paired-delta variance.",
+    "recommended_n_from_baseline_sd_for_mde_3": 2
+  },
+  "two_seed_zero_sample_variance": {
+    "decision_two_mixes": {
+      "promote": true,
+      "reasons": [],
+      "significant_mixes": [
+        "frozen",
+        "scripted"
+      ]
+    },
+    "note": "Current gate has no CLI minimum beyond paired_stats n>=2.",
+    "paired": {
+      "ci95": 0.0,
+      "ci_high": 1.0,
+      "ci_low": 1.0,
+      "deltas": [
+        1.0,
+        1.0
+      ],
+      "losses": 0,
+      "mean_delta": 1.0,
+      "n": 2,
+      "regression": false,
+      "significant": true,
+      "wins": 2
+    }
+  }
+}

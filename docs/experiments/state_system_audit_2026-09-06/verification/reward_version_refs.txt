@@ -1,0 +1,9 @@
+src/scripts/train_pqn.py:90:      * ``rewards.version`` -> ``reward_version``.
+src/scripts/train_pqn.py:131:        overrides["reward_version"] = int(rewards["version"])
+src/scripts/train_pqn.py:174:        "reward_version": int(config.reward_version),
+src/scripts/train_pqn.py:205:            "reward_version",
+src/scripts/train_pqn.py:217:        required_keys=("algo", "gamma", "lambda", "mechanics_version", "reward_version"),
+src/training/pqn_trainer.py:138:        reward_version: Reward version recorded in the checkpoint metadata.
+src/training/pqn_trainer.py:171:    reward_version: int = 2
+src/training/pqn_trainer.py:983:        (``gamma``/``lambda``/``algo``/``mechanics_version``/``reward_version``).
+src/training/pqn_trainer.py:997:            "reward_version": int(self.cfg.reward_version),

@@ -1,0 +1,36 @@
+{
+  "pqn_seed_with_explicit_torch_seed": [
+    {
+      "initial_model_tensor_sha256": "db1b771fd53d725077f8aa803b1d9641fd09def0d70ea5a9fcf8c45d9b3b8294",
+      "manual_torch_seed": true,
+      "pqn_seed": 123,
+      "seed": 123,
+      "torch_initial_seed": 123
+    },
+    {
+      "initial_model_tensor_sha256": "db1b771fd53d725077f8aa803b1d9641fd09def0d70ea5a9fcf8c45d9b3b8294",
+      "manual_torch_seed": true,
+      "pqn_seed": 123,
+      "seed": 123,
+      "torch_initial_seed": 123
+    }
+  ],
+  "pqn_seed_without_torch_seed": [
+    {
+      "initial_model_tensor_sha256": "e429e615ab9b802e77c798f99238b247fd6c843586418de0813cbe788bc5ee43",
+      "manual_torch_seed": false,
+      "pqn_seed": 123,
+      "seed": 123,
+      "torch_initial_seed": 1937097241246152335
+    },
+    {
+      "initial_model_tensor_sha256": "e1d2c82fc9c62243a8157a94bcca9517b6d3386849c764de8e65cfe103c06b78",
+      "manual_torch_seed": false,
+      "pqn_seed": 123,
+      "seed": 123,
+      "torch_initial_seed": 14121752861049923731
+    }
+  ],
+  "with_torch_seed_hashes_equal": true,
+  "without_torch_seed_hashes_equal": false
+}

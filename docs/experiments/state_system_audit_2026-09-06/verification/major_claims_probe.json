@@ -1,0 +1,130 @@
+{
+  "mid_episode_policy_reassignment": {
+    "episode_reset_between_rollouts": false,
+    "frames": [
+      0,
+      1,
+      2
+    ],
+    "living_slots_whose_hero_eligibility_changed": [
+      1
+    ],
+    "living_slots_whose_policy_changed": [
+      1,
+      5
+    ],
+    "policy_ids_first": [
+      -1,
+      0,
+      -1,
+      -1,
+      0,
+      2
+    ],
+    "policy_ids_second": [
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      0
+    ],
+    "stayed_alive": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "play_serving_q_row": {
+    "ai_ids": [
+      1,
+      2
+    ],
+    "direct_first_ai_is_wrong": true,
+    "dispatch_queue_before_calls": [
+      0,
+      1,
+      2
+    ],
+    "first_ai_expected_row": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "first_ai_q_direct": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "human_id": 0,
+    "real_update_ai_q_rows": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    ],
+    "real_update_first_ai_is_wrong": true,
+    "real_update_second_ai_is_wrong": true,
+    "roster_ids": [
+      0,
+      1,
+      2
+    ],
+    "roster_types": [
+      "HumanSnake",
+      "AISnake",
+      "AISnake"
+    ]
+  },
+  "raster_enemy_slot_permutation": {
+    "code_A_then_B": 6,
+    "code_B_then_A": 4,
+    "codes_differ": true,
+    "contested_raster_cell": [
+      19,
+      15
+    ],
+    "expected_body_code": 6,
+    "expected_pred_code": 4
+  },
+  "reward_version": {
+    "rewards_equal": true,
+    "rows": [
+      {
+        "batch_sim_has_reward_version_field": false,
+        "checkpoint_reward_version": 1,
+        "configured_reward_version": 1,
+        "new_length": 2,
+        "step_reward": 0.09940000000000002
+      },
+      {
+        "batch_sim_has_reward_version_field": false,
+        "checkpoint_reward_version": 2,
+        "configured_reward_version": 2,
+        "new_length": 2,
+        "step_reward": 0.09940000000000002
+      }
+    ]
+  }
+}

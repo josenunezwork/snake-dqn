@@ -1,0 +1,21 @@
+{
+  "command": [
+    "/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python",
+    "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/runs/state_system_replay_p6wkfvs9/verification/major_claims_probe.py"
+  ],
+  "cwd": "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage",
+  "environment_overrides": {
+    "PYTHONPATH": "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage",
+    "SNAKE_DQN_DEVICE": "cpu",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1"
+  },
+  "elapsed_seconds": 1.2320983750978485,
+  "exit_code": 0,
+  "all_four_claims_match_archived_receipt": true,
+  "staging_directory": "runs/state_system_replay_p6wkfvs9",
+  "note": "Replayed archived script from documented ignored-directory layout; console prefix preserved as a log, object parsed independently."
+}

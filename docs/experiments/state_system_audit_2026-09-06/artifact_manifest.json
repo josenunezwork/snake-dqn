@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "audited_source_commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715",
+  "artifacts": [
+    {
+      "path": "README.md",
+      "origin": "Authored during expanded audit closeout",
+      "size_bytes": 5025,
+      "sha256": "9e57f6825c7800989a15ce820d9b1789a87e381fab620bd0664418591418b068"
+    },
+    {
+      "path": "apex/stale_per_generation_probe.json",
+      "origin": "runs/state_system_audit_20260906/apex/stale_per_generation_probe.json",
+      "size_bytes": 815,
+      "sha256": "057b48d21ab734ec45b3b8c3a842e587d1b0760f9d76e8501b5eeb3881a44a85"
+    },
+    {
+      "path": "apex/stale_per_generation_probe.py",
+      "origin": "runs/state_system_audit_20260906/apex/stale_per_generation_probe.py",
+      "size_bytes": 4012,
+      "sha256": "f66246490f26a62b55cf45e28955f197c2ed9fa29df7b9e80f952f3c8345a937"
+    },
+    {
+      "path": "archive_replay_receipt.json",
+      "origin": "Authored during expanded audit closeout",
+      "size_bytes": 882,
+      "sha256": "eb908b802aaae5268592546d134e1671b43d130a5793baef712b63f859fbfc10"
+    },
+    {
+      "path": "audit_manifest.json",
+      "origin": "runs/state_system_audit_20260906/audit_manifest.json",
+      "size_bytes": 10645,
+      "sha256": "004dbf56acae924895053ab7040e58f20d0f25b22841cbb114f0a0ec564b05de"
+    },
+    {
+      "path": "completion_receipt.json",
+      "origin": "Authored during expanded audit closeout",
+      "size_bytes": 1551,
+      "sha256": "efdac6d445d9f16f5096ca95bd0333ad72fa01ec342e2a34fd5e398fcd951dc6"
+    },
+    {
+      "path": "config/cli_device_probe.log",
+      "origin": "runs/state_system_audit_20260906/config/cli_device_probe.log",
+      "size_bytes": 1305,
+      "sha256": "c957b7cd7e51b465a137befb118959e90ceab0697af1675b16dad20a7fc2799e"
+    },
+    {
+      "path": "config/config_system_probe.json",
+      "origin": "runs/state_system_audit_20260906/config/config_system_probe.json",
+      "size_bytes": 2218,
+      "sha256": "3503b3df7960f84e28081ea3fbe6a2fa24495ef3e28751bb5fbacb606514515a"
+    },
+    {
+      "path": "config/config_system_probe.py",
+      "origin": "runs/state_system_audit_20260906/config/config_system_probe.py",
+      "size_bytes": 1945,
+      "sha256": "89df4b036ddcb0da49ae0314a268bccaec9356ae6b70664aacf2b9ac9a247748"
+    },
+    {
+      "path": "config/input_hardware_params.yaml",
+      "origin": "runs/state_system_audit_20260906/config/input_hardware_params.yaml",
+      "size_bytes": 478,
+      "sha256": "bde4a64ce77abd904158f8815d4a05bcc6372611bb4a7089389a54c9741969ae"
+    },
+    {
+      "path": "config/seed_repro_child.py",
+      "origin": "runs/state_system_audit_20260906/config/seed_repro_child.py",
+      "size_bytes": 718,
+      "sha256": "caa69dcba9311c2c7e9fdaa565180c28abb6332d6f1b1ab5cda63ddc5b3521f5"
+    },
+    {
+      "path": "config/seed_repro_probe.json",
+      "origin": "runs/state_system_audit_20260906/config/seed_repro_probe.json",
+      "size_bytes": 1106,
+      "sha256": "dd58e70778d2e7f3a5b4e743899def7981de799f0bf88fa96f64e3fe15bba5c8"
+    },
+    {
+      "path": "config/seed_repro_probe.py",
+      "origin": "runs/state_system_audit_20260906/config/seed_repro_probe.py",
+      "size_bytes": 1398,
+      "sha256": "f864eb59be74ce1354f9c4702e8985bac19b378ba1a62a0acad579a3709eeae1"
+    },
+    {
+      "path": "config/source_baseline.txt",
+      "origin": "runs/state_system_audit_20260906/config/source_baseline.txt",
+      "size_bytes": 356,
+      "sha256": "a16906276d71a908516e5ecddbd124609c0886081aaeada87096e3527137f39c"
+    },
+    {
+      "path": "config/source_line_refs.txt",
+      "origin": "runs/state_system_audit_20260906/config/source_line_refs.txt",
+      "size_bytes": 1592,
+      "sha256": "33926e699b2327eaa529bebc35f79de89830a2b37f7c5f0cf33aea3ac345201a"
+    },
+    {
+      "path": "dynamics/dynamics_contract_probe.json",
+      "origin": "runs/state_system_audit_20260906/dynamics/dynamics_contract_probe.json",
+      "size_bytes": 18072,
+      "sha256": "db090f11e9f9f5851c454786a4606a812567f587011ba258006f6da77506cf54"
+    },
+    {
+      "path": "dynamics/dynamics_contract_probe.py",
+      "origin": "runs/state_system_audit_20260906/dynamics/dynamics_contract_probe.py",
+      "size_bytes": 15557,
+      "sha256": "f9dde93e6f854f8db5840d67557e2b93c4ae5fd1e262f946004ac80fe3797201"
+    },
+    {
+      "path": "evaluation/README.md",
+      "origin": "runs/state_system_audit_20260906/evaluation/README.md",
+      "size_bytes": 1037,
+      "sha256": "4ae0d16baf65870501262d553bef10ae4615463efca5bcc1159a139ee7fed3a0"
+    },
+    {
+      "path": "evaluation/config_authority_repro.json",
+      "origin": "runs/state_system_audit_20260906/evaluation/config_authority_repro.json",
+      "size_bytes": 511,
+      "sha256": "5c839bcde4d559b79029ee8292303fe11972282ef91b55eb4eb0ceba2f52e5ed"
+    },
+    {
+      "path": "evaluation/eval_contract_repro.json",
+      "origin": "runs/state_system_audit_20260906/evaluation/eval_contract_repro.json",
+      "size_bytes": 546,
+      "sha256": "5fb798aa4a3ea0003060c56f2c93fb827330b2084917facc705cc4dffbc8ff6a"
+    },
+    {
+      "path": "evaluation/food_mode_repro.json",
+      "origin": "runs/state_system_audit_20260906/evaluation/food_mode_repro.json",
+      "size_bytes": 516,
+      "sha256": "6a8d71f88419ad91e506c2303d290c396c83b93004bd3d9269a30934b9fec795"
+    },
+    {
+      "path": "evaluation/reproduce_eval_contract.py",
+      "origin": "runs/state_system_audit_20260906/evaluation/reproduce_eval_contract.py",
+      "size_bytes": 3572,
+      "sha256": "242639c03b53f732453b531b7fd790ed74b39c861085de35547e155d32b2b150"
+    },
+    {
+      "path": "evaluation/reproduce_food_mode.py",
+      "origin": "runs/state_system_audit_20260906/evaluation/reproduce_food_mode.py",
+      "size_bytes": 2090,
+      "sha256": "f9dbad778ee65b2c507bc4cc488322ea44a495b935b113f018cda1631a781ef7"
+    },
+    {
+      "path": "evaluation/reproduce_statistical_gate.py",
+      "origin": "runs/state_system_audit_20260906/evaluation/reproduce_statistical_gate.py",
+      "size_bytes": 1970,
+      "sha256": "b876fa7c43caf29aed995810bece836a6b578462d275d24a3c3799cbf12f07a4"
+    },
+    {
+      "path": "evaluation/statistical_gate_repro.json",
+      "origin": "runs/state_system_audit_20260906/evaluation/statistical_gate_repro.json",
+      "size_bytes": 937,
+      "sha256": "a8d2380d7a9dae76b09117f1831bedd244ea3041ae5bfc86da29adf10a5f1758"
+    },
+    {
+      "path": "instrumentation/probe_drift_contract.json",
+      "origin": "runs/state_system_audit_20260906/instrumentation/probe_drift_contract.json",
+      "size_bytes": 1046,
+      "sha256": "88b8d95f11a6d94e79423f76d97eb4a04a3637b93e521bd6b383daa751e7c571"
+    },
+    {
+      "path": "instrumentation/probe_drift_contract.py",
+      "origin": "runs/state_system_audit_20260906/instrumentation/probe_drift_contract.py",
+      "size_bytes": 1758,
+      "sha256": "e635bbe05b42c50ae5acecc7b4e9875be5b49e09b648c90705a85dc41b7d8621"
+    },
+    {
+      "path": "pqn/objective_contract_probe.json",
+      "origin": "runs/state_system_audit_20260906/pqn/objective_contract_probe.json",
+      "size_bytes": 4811,
+      "sha256": "bc903ee27c15d45a1fd9d807992a545e07ba52ca10b0c957f4714e59f7609fa3"
+    },
+    {
+      "path": "pqn/objective_contract_probe.py",
+      "origin": "runs/state_system_audit_20260906/pqn/objective_contract_probe.py",
+      "size_bytes": 12826,
+      "sha256": "bc6c5db67204afba5a879e7716bbe1195bb01b52bea00fec5839281e7e3fe7aa"
+    },
+    {
+      "path": "prior_audit/audit_reproductions.json",
+      "origin": "runs/pqn_coverage_20260906/audit_reproductions.json",
+      "size_bytes": 2891,
+      "sha256": "dc4350e0e45e3babc79c77bf661289910d6296f0602502e50357f019726c3301"
+    },
+    {
+      "path": "prior_audit/audit_reproductions.log",
+      "origin": "runs/pqn_coverage_20260906/audit_reproductions.log",
+      "size_bytes": 2891,
+      "sha256": "dc4350e0e45e3babc79c77bf661289910d6296f0602502e50357f019726c3301"
+    },
+    {
+      "path": "prior_audit/audit_reproductions.py",
+      "origin": "runs/pqn_coverage_20260906/audit_reproductions.py",
+      "size_bytes": 4616,
+      "sha256": "f1f35a61f1b4184868fcc4c9264ee2816b9a5459660d6a493b417b708e6a7fb5"
+    },
+    {
+      "path": "raster/enemy_slot_permutation.json",
+      "origin": "runs/state_system_audit_20260906/raster/enemy_slot_permutation.json",
+      "size_bytes": 2242,
+      "sha256": "819aed6f505198f0664012bb4dab0e5dfeb9ffda14e1abe21c8a7643eb8a844c"
+    },
+    {
+      "path": "raster/food_class_transition.json",
+      "origin": "runs/state_system_audit_20260906/raster/food_class_transition.json",
+      "size_bytes": 2134,
+      "sha256": "89b30cc7d4520d20fce2e969cdf42ac7338fdb3e5a4c3c4843720f5b3d050739"
+    },
+    {
+      "path": "raster/network_analysis.json",
+      "origin": "runs/state_system_audit_20260906/raster/network_analysis.json",
+      "size_bytes": 792,
+      "sha256": "645fccacc1bd7d80b14b5eaaa0dd96909798786c2618f0172cbf30e955811e06"
+    },
+    {
+      "path": "raster/priority_and_wall.json",
+      "origin": "runs/state_system_audit_20260906/raster/priority_and_wall.json",
+      "size_bytes": 2525,
+      "sha256": "9420f8d0fcaaba3716b44291c9848a91859199a7c83d3a1c3a541849a77a33f0"
+    },
+    {
+      "path": "raster/probes.json",
+      "origin": "runs/state_system_audit_20260906/raster/probes.json",
+      "size_bytes": 4089,
+      "sha256": "bdc80be865d1613dff7f14d40283d452e7a4176de2d28823e8dba5890378c4a3"
+    },
+    {
+      "path": "raster/remote_heading_transition.json",
+      "origin": "runs/state_system_audit_20260906/raster/remote_heading_transition.json",
+      "size_bytes": 2095,
+      "sha256": "8a823bbaef3fa411502e95dc620d98d118f20396ce58d39a09e270aabef001ce"
+    },
+    {
+      "path": "raster/reproduce_raster_state_evidence.py",
+      "origin": "runs/state_system_audit_20260906/raster/reproduce_raster_state_evidence.py",
+      "size_bytes": 21471,
+      "sha256": "a4105cbe2ab5710a94b6d6bc024d66d6588fd114bbfb53477ba3ca1f54dafe5a"
+    },
+    {
+      "path": "raster/targeted_tests.log",
+      "origin": "runs/state_system_audit_20260906/raster/targeted_tests.log",
+      "size_bytes": 619,
+      "sha256": "7ceb61ab98a108d5ed80e8e5ba5461b1e21a5a05e3b3e9aa7f017ec32aa23e0a"
+    },
+    {
+      "path": "serving/serving_contract_probe.json",
+      "origin": "runs/state_system_audit_20260906/serving/serving_contract_probe.json",
+      "size_bytes": 3396,
+      "sha256": "7428b933eb080c162012bd982999755517d0d3c400573efcb7be22b7702f2145"
+    },
+    {
+      "path": "serving/serving_contract_probe.py",
+      "origin": "runs/state_system_audit_20260906/serving/serving_contract_probe.py",
+      "size_bytes": 8615,
+      "sha256": "8b143757351fc09072a5a9715827e036eecb2b1f4cc0bfd577f93b5d24c2ea77"
+    },
+    {
+      "path": "serving/targeted_tests.log",
+      "origin": "runs/state_system_audit_20260906/serving/targeted_tests.log",
+      "size_bytes": 993,
+      "sha256": "b3a90cec00a0714e0a1707b7425513e7378adf37dbb9eb4fe9f9be0c12933d01"
+    },
+    {
+      "path": "vector/actor_vs_full_obs.json",
+      "origin": "runs/state_system_audit_20260906/vector/actor_vs_full_obs.json",
+      "size_bytes": 36104,
+      "sha256": "257dfbbcfe806bfe444d04b70babacac60dc011df5834dd7a93f0a87ebc3975b"
+    },
+    {
+      "path": "vector/actor_vs_full_obs.md",
+      "origin": "runs/state_system_audit_20260906/vector/actor_vs_full_obs.md",
+      "size_bytes": 6562,
+      "sha256": "cbace734d1545ba35d4de984dfe8138d748fe2ab115bdcb95d3ab07ce191cacb"
+    },
+    {
+      "path": "vector/vector_contract_probe.json",
+      "origin": "runs/state_system_audit_20260906/vector/vector_contract_probe.json",
+      "size_bytes": 3213,
+      "sha256": "c492ee3a3e700c80b8f348fd7cf80673e6790a4102bfa4a0ce4b8e25806cb315"
+    },
+    {
+      "path": "vector/vector_contract_probe.py",
+      "origin": "runs/state_system_audit_20260906/vector/vector_contract_probe.py",
+      "size_bytes": 7848,
+      "sha256": "e27357e9d893872a980dad73a6bee8a2d04059484f8a447426ea992bfd2ff282"
+    },
+    {
+      "path": "verification/major_claims_probe.json",
+      "origin": "runs/state_system_audit_20260906/verification/major_claims_probe.json",
+      "size_bytes": 2140,
+      "sha256": "41166d8dbd7b28fe10737becdaeb54bef0f8ee84e803fcda6112530545885b87"
+    },
+    {
+      "path": "verification/major_claims_probe.py",
+      "origin": "runs/state_system_audit_20260906/verification/major_claims_probe.py",
+      "size_bytes": 8541,
+      "sha256": "878ae5ebd2063569a149f2dd2422dd167b417b099ae9e0bec7e6b2befe57040e"
+    },
+    {
+      "path": "verification/major_claims_probe.stdout.log",
+      "origin": "runs/state_system_audit_20260906/verification/major_claims_probe.stdout.log",
+      "size_bytes": 2168,
+      "sha256": "989021681c771511b88fad0f1b4fb03e8160c434f189d6ed60ac3f0e802aef79"
+    },
+    {
+      "path": "verification/objective_contract_probe_recheck.json",
+      "origin": "runs/state_system_audit_20260906/verification/objective_contract_probe_recheck.json",
+      "size_bytes": 4811,
+      "sha256": "e3adeee541ffbadfeeca639d02537c5c2b0ae3bbbcc516b13b9f9a0e04914f90"
+    },
+    {
+      "path": "verification/objective_contract_probe_recheck.log",
+      "origin": "runs/state_system_audit_20260906/verification/objective_contract_probe_recheck.log",
+      "size_bytes": 5199,
+      "sha256": "e1cbc42eb558749bf96ba8aab86c16ea2c5588d2ffc9843e2d07bd5cb6d299db"
+    },
+    {
+      "path": "verification/objective_contract_probe_recheck.py",
+      "origin": "runs/state_system_audit_20260906/verification/objective_contract_probe_recheck.py",
+      "size_bytes": 12826,
+      "sha256": "bc6c5db67204afba5a879e7716bbe1195bb01b52bea00fec5839281e7e3fe7aa"
+    },
+    {
+      "path": "verification/reward_version_refs.txt",
+      "origin": "runs/state_system_audit_20260906/verification/reward_version_refs.txt",
+      "size_bytes": 805,
+      "sha256": "5dfc9601695604c876326bca70d9fc32a99c4788975337b42074753087df35a1"
+    },
+    {
+      "path": "verification/source_hashes.txt",
+      "origin": "runs/state_system_audit_20260906/verification/source_hashes.txt",
+      "size_bytes": 913,
+      "sha256": "d07fb53a65c489505d500b9ae10f0731aba09c3f5c9f2802cce057e66694bf91"
+    },
+    {
+      "path": "verification/source_refs.txt",
+      "origin": "runs/state_system_audit_20260906/verification/source_refs.txt",
+      "size_bytes": 1462,
+      "sha256": "bfb1e04fe909d03e8c563a745ede337bb36be3011fe91c14ff626c4107e35803"
+    }
+  ]
+}

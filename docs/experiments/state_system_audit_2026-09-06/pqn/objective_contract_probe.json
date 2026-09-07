@@ -1,0 +1,228 @@
+{
+  "commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715",
+  "elapsed_seconds": 0.5843625830020756,
+  "policy_reassignment": {
+    "episode_reset_between_rollouts": false,
+    "frames": [
+      0,
+      1,
+      2
+    ],
+    "living_slots_whose_hero_eligibility_changed": [
+      1
+    ],
+    "living_slots_whose_policy_changed": [
+      1,
+      5
+    ],
+    "policy_ids_first": [
+      -1,
+      0,
+      -1,
+      -1,
+      0,
+      2
+    ],
+    "policy_ids_second": [
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      0
+    ],
+    "stayed_alive": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "post_floor_rng": {
+    "next_reset_changed": true,
+    "next_reset_heads_after_one_ignored_step": [
+      [
+        20,
+        18
+      ],
+      [
+        11,
+        4
+      ],
+      [
+        24,
+        17
+      ],
+      [
+        10,
+        15
+      ],
+      [
+        18,
+        3
+      ],
+      [
+        28,
+        18
+      ]
+    ],
+    "next_reset_heads_immediate": [
+      [
+        12,
+        10
+      ],
+      [
+        20,
+        18
+      ],
+      [
+        11,
+        4
+      ],
+      [
+        24,
+        17
+      ],
+      [
+        10,
+        15
+      ],
+      [
+        18,
+        3
+      ]
+    ],
+    "post_floor_survivor_consumed_food": true,
+    "seed": 99
+  },
+  "resume_contract": {
+    "checkpoint_missing_keys": [
+      "lr",
+      "max_frames",
+      "eps_start",
+      "eps_end",
+      "eps_decay_steps"
+    ],
+    "configured_lr_before_apply": 0.0002,
+    "optimizer_lr_after_apply": 0.001,
+    "resumed_epsilon_at_step_50": 0.0,
+    "resumed_max_frames": 40,
+    "source_epsilon_at_step_50": 0.5,
+    "source_max_frames": 100,
+    "validation_accepted_changed_contract": true
+  },
+  "reward_version": {
+    "rewards_equal": true,
+    "rows": [
+      {
+        "batch_sim_has_reward_version_field": false,
+        "checkpoint_reward_version": 1,
+        "configured_reward_version": 1,
+        "new_length": 2,
+        "step_reward": 0.09940000000000002
+      },
+      {
+        "batch_sim_has_reward_version_field": false,
+        "checkpoint_reward_version": 2,
+        "configured_reward_version": 2,
+        "new_length": 2,
+        "step_reward": 0.09940000000000002
+      }
+    ]
+  },
+  "second_reset_parity": {
+    "batch_heads": [
+      [
+        7,
+        11
+      ],
+      [
+        5,
+        16
+      ],
+      [
+        28,
+        11
+      ],
+      [
+        6,
+        7
+      ]
+    ],
+    "initial_parity": true,
+    "reference_heads": [
+      [
+        26,
+        11
+      ],
+      [
+        12,
+        1
+      ],
+      [
+        5,
+        4
+      ],
+      [
+        4,
+        12
+      ]
+    ],
+    "second_reset_divergence": {
+      "detail": "snake 0 head ref=(26, 11) batch=(7, 11)",
+      "field": "positions"
+    },
+    "second_reset_parity": false,
+    "seed": 41
+  },
+  "source_hashes": {
+    "src/core/reward_contract.py": "f0def93b39d51fcce38f0aff5f08b664ae4baaf68ace21689c88a7682761629a",
+    "src/core/reward_events.py": "55bc4264bf64fa8cf5f2cf00c80fd460dd9f174bf38e4fd70e8d03564fbebcf8",
+    "src/simd_env/batch_sim.py": "69d79a55376bf927bfdf9a19be23fe204d032e40587d4ae2ab1778aed11093c7",
+    "src/simd_env/parity.py": "06896bb07b3ff07cd9d89c65dbfc6e39b78c484400c301adec0613d0c4945400",
+    "src/training/curriculum.py": "6ac2f5f07f683115ed14a1a41f348ec72bf285850fc021a95e1a378056a38725",
+    "src/training/pqn_selfplay.py": "2b5d77f67929ab9303a17d2b63503708b934fb5a7bc7300e21c66407df558c14",
+    "src/training/pqn_trainer.py": "d686ad5e46e098bf50e1e29e1ad51e6cfd0358c3c3299f9f8a4b8f98286eb9ad"
+  },
+  "tripwire_checkpoint": {
+    "completed_history_rows": 0,
+    "persisted_history_lines": 0,
+    "saved_checkpoint_exists": true,
+    "saved_parameter_tensors_nonfinite": [
+      "tactical_conv.0.weight",
+      "tactical_conv.0.bias",
+      "tactical_conv.2.weight",
+      "tactical_conv.2.bias",
+      "tactical_conv.4.weight",
+      "tactical_conv.4.bias",
+      "tactical_fc.0.weight",
+      "tactical_fc.0.bias",
+      "tactical_fc.1.weight",
+      "tactical_fc.1.bias",
+      "strategic_conv.0.weight",
+      "strategic_conv.0.bias",
+      "strategic_conv.2.weight",
+      "strategic_conv.2.bias",
+      "strategic_fc.0.weight",
+      "strategic_fc.0.bias",
+      "strategic_fc.1.weight",
+      "strategic_fc.1.bias",
+      "fuse_fc.0.weight",
+      "fuse_fc.0.bias",
+      "fuse_fc.1.weight",
+      "fuse_fc.1.bias",
+      "value_stream.0.weight",
+      "value_stream.0.bias",
+      "value_stream.2.weight",
+      "value_stream.2.bias",
+      "advantage_stream.0.weight",
+      "advantage_stream.0.bias",
+      "advantage_stream.2.weight",
+      "advantage_stream.2.bias"
+    ],
+    "triggering_telemetry_retained_only_in_memory": true,
+    "tripped": "non-finite loss/grad at update 0"
+  }
+}

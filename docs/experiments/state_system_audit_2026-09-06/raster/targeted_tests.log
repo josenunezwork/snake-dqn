@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-pqn-coverage
+configfile: pytest.ini
+plugins: anyio-4.14.1
+collected 34 items / 1 deselected / 33 selected
+
+tests/test_featurizer.py ......................                          [ 66%]
+tests/test_gpu_featurizer.py ......                                      [ 84%]
+tests/test_obs_parity.py .....                                           [100%]
+
+====================== 33 passed, 1 deselected in 18.16s =======================

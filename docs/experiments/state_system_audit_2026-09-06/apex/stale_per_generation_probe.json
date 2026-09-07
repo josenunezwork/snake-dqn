@@ -1,0 +1,32 @@
+{
+  "probe": "distributed_per_stale_slot_identity",
+  "status": "reproduced",
+  "capacity": 2,
+  "sampled_indices": [
+    0,
+    1
+  ],
+  "sampled_transition_markers": [
+    1.0,
+    2.0
+  ],
+  "slot_markers_after_full_ring_overwrite": [
+    101.0,
+    102.0
+  ],
+  "stale_td_errors_applied": [
+    20.0,
+    30.0
+  ],
+  "slot_priorities_after_stale_update": [
+    20.000001,
+    30.000001
+  ],
+  "finding": "Sample returns bare slot indices. After those slots are overwritten, update_priorities accepts the old indices and changes the new occupants.",
+  "source_refs": {
+    "sample_indices": "src/training/apex_buffer.py:573-675",
+    "priority_update": "src/training/apex_buffer.py:677-696",
+    "ring_overwrite": "src/training/sum_tree.py:55-75",
+    "index_only_update": "src/training/sum_tree.py:82-97"
+  }
+}

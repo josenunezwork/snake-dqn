@@ -1,0 +1,135 @@
+{
+  "status": "reproduced",
+  "command": [
+    "runs/pqn_coverage_20260906/audit_reproductions.py"
+  ],
+  "elapsed_seconds": 1.1451205000048503,
+  "source_sha256": {
+    "src/training/pqn_trainer.py": "0c35fe53bb21ec04e1eb419f1b308032bed9b7d177e92a0605f20b43328d47b2",
+    "src/simd_env/batch_sim.py": "69d79a55376bf927bfdf9a19be23fe204d032e40587d4ae2ab1778aed11093c7",
+    "src/simd_env/featurizer.py": "525ab4017e760a63f3d97d968ede7537fab605520d619eeabe30710755e74232",
+    "src/model/raster_network.py": "70aa22048e15c3859753cae0f2b4cf6ae011e3a2bbccee9b8304e9632871c915"
+  },
+  "advisory_mask_escape": {
+    "frame": 798,
+    "env": 6,
+    "slot": 1,
+    "length": 6,
+    "head": [
+      4,
+      17
+    ],
+    "direction": 2,
+    "current_mask": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "previous_reward": -0.0018000000000000238,
+    "outcomes": [
+      {
+        "action": 0,
+        "reward": -3.6,
+        "alive": false,
+        "done": true,
+        "next_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "current_target_if_marked_trapped": -3.6
+      },
+      {
+        "action": 1,
+        "reward": -3.6,
+        "alive": false,
+        "done": true,
+        "next_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "current_target_if_marked_trapped": -3.6
+      },
+      {
+        "action": 2,
+        "reward": -3.6,
+        "alive": false,
+        "done": true,
+        "next_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "current_target_if_marked_trapped": -3.6
+      },
+      {
+        "action": 3,
+        "reward": -0.0018000000000000238,
+        "alive": true,
+        "done": false,
+        "next_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "current_target_if_marked_trapped": -2.9928
+      },
+      {
+        "action": 4,
+        "reward": 1.0985,
+        "alive": true,
+        "done": false,
+        "next_mask": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "current_target_if_marked_trapped": -1.8925
+      },
+      {
+        "action": 5,
+        "reward": -3.6,
+        "alive": false,
+        "done": true,
+        "next_mask": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "current_target_if_marked_trapped": -3.6
+      }
+    ]
+  },
+  "flip_realizability": {
+    "tactical_equal": true,
+    "strategic_equal": true,
+    "scalar_diff_indices": [
+      23
+    ],
+    "augmented_world_x": 0.2083333283662796,
+    "real_mirrored_world_x": 0.7916666865348816
+  },
+  "scope": "existing behavior unchanged by sampler campaign; target value is explicit current trapped-branch formula, not a new training arm"
+}

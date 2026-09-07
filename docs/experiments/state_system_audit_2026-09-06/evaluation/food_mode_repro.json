@@ -1,0 +1,31 @@
+{
+  "scenario": "ambient already at max=1; hero consumes cap-exempt corpse pellet",
+  "train_mode_false": {
+    "ambient_count_after": 2,
+    "ate_corpse": true,
+    "corpse_after": [],
+    "food_after": [
+      [
+        5,
+        5
+      ],
+      [
+        4,
+        5
+      ]
+    ],
+    "total_food_after": 2
+  },
+  "train_mode_true": {
+    "ambient_count_after": 1,
+    "ate_corpse": true,
+    "corpse_after": [],
+    "food_after": [
+      [
+        5,
+        5
+      ]
+    ],
+    "total_food_after": 1
+  }
+}

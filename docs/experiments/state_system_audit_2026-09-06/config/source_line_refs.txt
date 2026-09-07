@@ -1,0 +1,31 @@
+Source snapshot: c1cf7e8c954239cb6773c3da24bd17f4ddb9b715 (same working tree as probes)
+Baseline reference: 950d583 (three relevant files differ only by c1cf7e8 audit/config additions; no audit source edits)
+
+src/scripts/train_pqn.py:84-139
+  _load_config_overrides reads pqn plus only game.mechanics_version, game.arena_type,
+  game.num_snakes, game.max_frames, and rewards.version. Hardware is not read.
+
+src/scripts/train_pqn.py:545-567
+  CLI parser exposes --config and --device; no YAML hardware/device mapping is defined.
+
+src/scripts/train_pqn.py:674-687
+  main resolves device with _resolve_device(args.device) before build_config(args).
+  With args.device unset, _resolve_device calls DeviceManager.get_device() auto path;
+  build_config only constructs PQNConfig from the mapped override fields.
+
+src/scripts/train_pqn.py:381-397
+  _resolve_device(name) honors explicit CLI device; None calls DeviceManager.get_device().
+
+src/core/config_loader.py:433-457
+  resolve_yaml_device(config_path) does parse hardware.device, but train_pqn.py has no
+  import or call to this helper. Thus YAML hardware.device is dead for train_pqn.
+
+src/training/pqn_trainer.py:301-335
+  PQNTrainer builds BatchSimConfig from only num_envs, num_snakes, mechanics_version,
+  gamma, arena_type, kill_scale, death_value. BatchSimConfig defaults supply all other
+  shared game fields.
+
+src/simd_env/batch_sim.py:82-113
+  BatchSimConfig defaults include width/height=1450/830, segment_size=10,
+  wall_thickness=10, initial_food=250, max_food=300, min_boost_length=5,
+  boost_length_cost_frames=3, frame_rate=1.

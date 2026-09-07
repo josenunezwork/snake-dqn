@@ -1,0 +1,116 @@
+{
+  "classification": "confirmed source-slot permutation dependence",
+  "contested_raster_cell": [
+    17,
+    20
+  ],
+  "contested_world_cell": [
+    25,
+    14
+  ],
+  "declared_codes": {
+    "enemy_body": 6,
+    "enemy_prediction": 4
+  },
+  "hero_observation_comparison": {
+    "mask": {
+      "different_elements": 0,
+      "equal": true
+    },
+    "scalars": {
+      "different_elements": 0,
+      "equal": true
+    },
+    "strategic_uint8": {
+      "different_elements": 0,
+      "equal": true
+    },
+    "tactical_uint8": {
+      "different_elements": 2,
+      "equal": false
+    }
+  },
+  "hero_tactical_diff_indices_plane_row_col": [
+    [
+      0,
+      17,
+      20
+    ],
+    [
+      1,
+      17,
+      20
+    ]
+  ],
+  "interpretation": "The same physical world yields a different hero raster solely because enemy slots are swapped. This is an invariant failure, not a measured policy-performance loss.",
+  "only_enemy_slot_order_swapped": true,
+  "physical_world_same": true,
+  "source_commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715",
+  "type_code_body_first_then_prediction": 4,
+  "type_code_prediction_first_then_body": 6,
+  "world": {
+    "entities_by_identity": [
+      {
+        "body_head_to_tail": [
+          [
+            20,
+            20
+          ]
+        ],
+        "heading": 0,
+        "label": "hero"
+      },
+      {
+        "body_head_to_tail": [
+          [
+            24,
+            14
+          ],
+          [
+            25,
+            14
+          ],
+          [
+            26,
+            14
+          ]
+        ],
+        "heading": 3,
+        "label": "enemy_body_source"
+      },
+      {
+        "body_head_to_tail": [
+          [
+            25,
+            15
+          ],
+          [
+            25,
+            16
+          ],
+          [
+            25,
+            17
+          ]
+        ],
+        "heading": 0,
+        "label": "enemy_prediction_source"
+      }
+    ],
+    "grid_cells": [
+      80,
+      80
+    ],
+    "observer_slot": 0,
+    "slot_order_body_then_prediction": [
+      "hero",
+      "enemy_body_source",
+      "enemy_prediction_source"
+    ],
+    "slot_order_prediction_then_body": [
+      "hero",
+      "enemy_prediction_source",
+      "enemy_body_source"
+    ]
+  }
+}

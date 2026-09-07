@@ -1,0 +1,28 @@
+hardware:
+  device: mps
+  num_threads: 1
+  num_parallel_envs: 1
+game:
+  width: 777
+  height: 666
+  num_snakes: 3
+  segment_size: 7
+  wall_thickness: 3
+  initial_food: 17
+  max_food: 19
+  max_frames: 123
+  frame_rate: 12
+  min_boost_length: 9
+  boost_length_cost_frames: 11
+  mechanics_version: 1
+  arena_type: rectangular
+rewards:
+  version: 1
+pqn:
+  num_envs: 1
+  num_snakes: 3
+  max_frames: 123
+  mechanics_version: 1
+  arena_type: rectangular
+  seed: 123
+  reward_version: 1

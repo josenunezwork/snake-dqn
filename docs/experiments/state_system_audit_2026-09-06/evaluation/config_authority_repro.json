@@ -1,0 +1,19 @@
+{
+  "environment_flag": "SNAKE_MECHANICS_V2 unset => enabled",
+  "tournament_default": {
+    "frame_rate": 100,
+    "max_frames": 5000,
+    "mechanics_version": 1,
+    "num_snakes": 6,
+    "path": "configs/eval_free_space.yaml",
+    "reward_version": 1
+  },
+  "web_default_for_61_or_raster": {
+    "frame_rate": 1,
+    "max_frames": 5000,
+    "mechanics_version": 2,
+    "num_snakes": 6,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-pqn-coverage/configs/mechanics_v2.yaml",
+    "reward_version": 2
+  }
+}

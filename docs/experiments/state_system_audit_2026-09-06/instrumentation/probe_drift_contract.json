@@ -1,0 +1,38 @@
+{
+  "source_sha256": "af3475d782a7f371c63a55bce7a5f7525aa6b54489c32fee54f0bd591ca4e65d",
+  "results": {
+    "identical_finite_control": {
+      "passed": true,
+      "max_ks": 0.0,
+      "flagged": [],
+      "input_all_finite": true,
+      "warnings": []
+    },
+    "changed_joint_same_marginals": {
+      "passed": true,
+      "max_ks": 0.0,
+      "flagged": [],
+      "input_all_finite": true,
+      "warnings": [],
+      "fraction_x_equals_y_a": 1.0,
+      "fraction_x_equals_y_b": 0.0
+    },
+    "both_nan": {
+      "passed": true,
+      "max_ks": 0.0,
+      "flagged": [],
+      "input_all_finite": false,
+      "warnings": []
+    },
+    "both_inf": {
+      "passed": true,
+      "max_ks": 0.0,
+      "flagged": [],
+      "input_all_finite": false,
+      "warnings": [
+        "invalid value encountered in subtract"
+      ]
+    }
+  },
+  "scope": "Synthetic acceptance probes, no training or live nonfinite observation claimed. Marginal KS cannot validate joint relations, and the current function does not reject nonfinite observations."
+}

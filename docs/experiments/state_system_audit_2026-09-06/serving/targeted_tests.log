@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-pqn-coverage
+configfile: pytest.ini
+plugins: anyio-4.14.1
+collected 55 items
+
+tests/test_web_raster_serving.py ...............                         [ 27%]
+tests/test_obs_parity.py .....                                           [ 36%]
+tests/test_inference_agent.py ................                           [ 65%]
+tests/test_inference_agent_raster.py ......ss.......                     [ 92%]
+tests/test_web_checkpoints.py ....                                       [100%]
+
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_inference_agent_raster.py:175: champion checkpoint absent
+SKIPPED [1] tests/test_inference_agent_raster.py:194: champion checkpoint absent
+======================== 53 passed, 2 skipped in 16.41s ========================

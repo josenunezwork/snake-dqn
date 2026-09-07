@@ -1,0 +1,841 @@
+{
+  "all_expected_observations_reproduced": true,
+  "cases": {
+    "boost_self_tunnel": {
+      "boost_fatal_by_relative_action": [
+        true,
+        true,
+        false
+      ],
+      "checks": {
+        "action_mask_simulation_conservatively_marks_straight_boost_fatal": true,
+        "final_body_collision_check_reports_safe": true,
+        "first_substep_enters_body_present_at_that_substep": true,
+        "normal_straight_is_also_marked_fatal": true
+      },
+      "classification": "contract-consistent execution with a conservative mask/execution mismatch; whether per-substep self collision is desired is a gameplay decision",
+      "final_segments": [
+        [
+          0,
+          20
+        ],
+        [
+          10,
+          20
+        ],
+        [
+          20,
+          20
+        ],
+        [
+          20,
+          30
+        ],
+        [
+          10,
+          30
+        ]
+      ],
+      "initial_segments": [
+        [
+          20,
+          20
+        ],
+        [
+          20,
+          30
+        ],
+        [
+          10,
+          30
+        ],
+        [
+          10,
+          20
+        ],
+        [
+          10,
+          10
+        ]
+      ],
+      "normal_fatal_by_relative_action": [
+        false,
+        true,
+        false
+      ],
+      "observed": true,
+      "post_first_substep_segments": [
+        [
+          10,
+          20
+        ],
+        [
+          20,
+          20
+        ],
+        [
+          20,
+          30
+        ],
+        [
+          10,
+          30
+        ],
+        [
+          10,
+          20
+        ]
+      ],
+      "reported_self_collision": false,
+      "source_refs": [
+        "docs/simd_env_spec.md:183-201",
+        "docs/simd_env_spec.md:242-254",
+        "docs/simd_env_spec.md:649-651",
+        "src/game/snake.py:143-164",
+        "src/game/game_logic.py:245-250",
+        "src/game/ai_snake.py:56-96"
+      ],
+      "title": "Two-step boost can pass through a body cell removed by the second tail pop",
+      "traversed_heads": [
+        [
+          10,
+          20
+        ],
+        [
+          0,
+          20
+        ]
+      ],
+      "written_contract_status": "Conforms literally to docs/simd_env_spec.md sections 2 and 3.1: movement finishes both insert/pop substeps, then all traversed heads are tested against the final segments[3:]. The action mask is outside the recommended pure-dynamics parity surface and correctly warns against this forced action via its normal-step check."
+    },
+    "consecutive_reset": {
+      "checks": {
+        "initial_post_construction_worlds_match": true,
+        "second_reset_head_positions_diverge": true,
+        "second_reset_worlds_diverge": true
+      },
+      "classification": "written live/SIMD multi-episode parity violation",
+      "initial": {
+        "batch": {
+          "alive": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "bodies": [
+            [
+              [
+                16,
+                14
+              ]
+            ],
+            [
+              [
+                10,
+                5
+              ]
+            ],
+            [
+              [
+                2,
+                6
+              ]
+            ],
+            [
+              [
+                26,
+                14
+              ]
+            ]
+          ],
+          "food": [
+            [
+              8,
+              5
+            ],
+            [
+              17,
+              1
+            ],
+            [
+              26,
+              4
+            ],
+            [
+              14,
+              9
+            ]
+          ],
+          "heads": [
+            [
+              16,
+              14
+            ],
+            [
+              10,
+              5
+            ],
+            [
+              2,
+              6
+            ],
+            [
+              26,
+              14
+            ]
+          ],
+          "lengths": [
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "reference": {
+          "alive": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "bodies": [
+            [
+              [
+                16,
+                14
+              ]
+            ],
+            [
+              [
+                10,
+                5
+              ]
+            ],
+            [
+              [
+                2,
+                6
+              ]
+            ],
+            [
+              [
+                26,
+                14
+              ]
+            ]
+          ],
+          "food": [
+            [
+              8,
+              5
+            ],
+            [
+              17,
+              1
+            ],
+            [
+              26,
+              4
+            ],
+            [
+              14,
+              9
+            ]
+          ],
+          "heads": [
+            [
+              16,
+              14
+            ],
+            [
+              10,
+              5
+            ],
+            [
+              2,
+              6
+            ],
+            [
+              26,
+              14
+            ]
+          ],
+          "lengths": [
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "initial_equal": true,
+      "observed": true,
+      "second_reset": {
+        "batch": {
+          "alive": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "bodies": [
+            [
+              [
+                15,
+                7
+              ]
+            ],
+            [
+              [
+                26,
+                15
+              ]
+            ],
+            [
+              [
+                13,
+                7
+              ]
+            ],
+            [
+              [
+                16,
+                1
+              ]
+            ]
+          ],
+          "food": [
+            [
+              7,
+              18
+            ],
+            [
+              6,
+              8
+            ],
+            [
+              16,
+              18
+            ],
+            [
+              13,
+              15
+            ]
+          ],
+          "heads": [
+            [
+              15,
+              7
+            ],
+            [
+              26,
+              15
+            ],
+            [
+              13,
+              7
+            ],
+            [
+              16,
+              1
+            ]
+          ],
+          "lengths": [
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "reference": {
+          "alive": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "bodies": [
+            [
+              [
+                16,
+                13
+              ]
+            ],
+            [
+              [
+                17,
+                15
+              ]
+            ],
+            [
+              [
+                18,
+                6
+              ]
+            ],
+            [
+              [
+                5,
+                4
+              ]
+            ]
+          ],
+          "food": [
+            [
+              15,
+              7
+            ],
+            [
+              26,
+              15
+            ],
+            [
+              13,
+              7
+            ],
+            [
+              16,
+              1
+            ]
+          ],
+          "heads": [
+            [
+              16,
+              13
+            ],
+            [
+              17,
+              15
+            ],
+            [
+              18,
+              6
+            ],
+            [
+              5,
+              4
+            ]
+          ],
+          "lengths": [
+            1,
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      "second_reset_differing_fields": [
+        "heads",
+        "bodies",
+        "food"
+      ],
+      "second_reset_equal": false,
+      "seed": 314159,
+      "source_refs": [
+        "docs/simd_env_spec.md:485-496",
+        "src/game/game_state.py:117-155",
+        "src/simd_env/batch_sim.py:247-287",
+        "src/simd_env/parity.py:947-1000"
+      ],
+      "title": "BatchSim replays constructor-only discarded-food RNG draws on every reset",
+      "written_contract_status": "Violates the multi-episode live contract in docs/simd_env_spec.md section 5.4. FoodManager construction consumes the discarded-food draws once; later live resets only reposition snakes and reset food, while BatchSim.reset repeats those draws."
+    },
+    "contested_food_slot_order": {
+      "checks": {
+        "first_listed_snake_always_claims_food": true,
+        "food_growth_changes_head_on_winner": true,
+        "winner_changes_when_only_list_order_changes": true
+      },
+      "classification": "proven index dependence; gameplay-fairness concern, not a written-contract violation",
+      "observed": true,
+      "runs": [
+        {
+          "alive_ids": [
+            0
+          ],
+          "ate_ids": [
+            0
+          ],
+          "frame_collisions": {
+            "1": "head"
+          },
+          "frame_kills": {
+            "0": [
+              1
+            ]
+          },
+          "head_by_id": {
+            "0": [
+              130,
+              50
+            ],
+            "1": [
+              130,
+              50
+            ]
+          },
+          "length_by_id": {
+            "0": 7,
+            "1": 6
+          },
+          "list_order": [
+            0,
+            1
+          ]
+        },
+        {
+          "alive_ids": [
+            1
+          ],
+          "ate_ids": [
+            1
+          ],
+          "frame_collisions": {
+            "0": "head"
+          },
+          "frame_kills": {
+            "1": [
+              0
+            ]
+          },
+          "head_by_id": {
+            "0": [
+              130,
+              50
+            ],
+            "1": [
+              130,
+              50
+            ]
+          },
+          "length_by_id": {
+            "0": 6,
+            "1": 7
+          },
+          "list_order": [
+            1,
+            0
+          ]
+        }
+      ],
+      "setup": "Equal logical length 6; both heads move to food cell (130,50); mechanics v2.",
+      "source_refs": [
+        "docs/simd_env_spec.md:107-130",
+        "docs/simd_env_spec.md:623-627",
+        "src/game/game_state.py:369-400",
+        "src/game/game_state.py:646-652",
+        "src/simd_env/batch_sim.py:403-407"
+      ],
+      "title": "Contested food follows snake-list order before head-on size resolution",
+      "written_contract_status": "Conforms to docs/simd_env_spec.md section 1 step 7 (alive snakes consume in list order) followed by step 8 collision resolution, and section 7.6 (logical length is authoritative after food growth). The document specifies the order but does not state a fairness or contested-pellet rule."
+    },
+    "three_way_head_on": {
+      "checks": {
+        "exactly_one_equal_snake_survives_each_order": true,
+        "last_listed_snake_survives_each_order": true,
+        "survivor_identity_depends_on_list_order": true
+      },
+      "classification": "proven index dependence; underspecified multi-head gameplay semantics, not live/SIMD drift",
+      "observed": true,
+      "runs": [
+        {
+          "detected": [
+            {
+              "other": 1,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 2,
+              "type": "head"
+            }
+          ],
+          "frame_collisions": {
+            "0": "head",
+            "1": "head"
+          },
+          "frame_kills": {},
+          "list_order": [
+            0,
+            1,
+            2
+          ],
+          "survivor_ids": [
+            2
+          ]
+        },
+        {
+          "detected": [
+            {
+              "other": 2,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 1,
+              "type": "head"
+            }
+          ],
+          "frame_collisions": {
+            "0": "head",
+            "2": "head"
+          },
+          "frame_kills": {},
+          "list_order": [
+            0,
+            2,
+            1
+          ],
+          "survivor_ids": [
+            1
+          ]
+        },
+        {
+          "detected": [
+            {
+              "other": 0,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 2,
+              "type": "head"
+            }
+          ],
+          "frame_collisions": {
+            "0": "head",
+            "1": "head"
+          },
+          "frame_kills": {},
+          "list_order": [
+            1,
+            0,
+            2
+          ],
+          "survivor_ids": [
+            2
+          ]
+        },
+        {
+          "detected": [
+            {
+              "other": 2,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 0,
+              "type": "head"
+            }
+          ],
+          "frame_collisions": {
+            "1": "head",
+            "2": "head"
+          },
+          "frame_kills": {},
+          "list_order": [
+            1,
+            2,
+            0
+          ],
+          "survivor_ids": [
+            0
+          ]
+        },
+        {
+          "detected": [
+            {
+              "other": 0,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 1,
+              "type": "head"
+            }
+          ],
+          "frame_collisions": {
+            "0": "head",
+            "2": "head"
+          },
+          "frame_kills": {},
+          "list_order": [
+            2,
+            0,
+            1
+          ],
+          "survivor_ids": [
+            1
+          ]
+        },
+        {
+          "detected": [
+            {
+              "other": 1,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 2,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 0,
+              "snake": 1,
+              "type": "head"
+            },
+            {
+              "other": 2,
+              "snake": 0,
+              "type": "head"
+            },
+            {
+              "other": 1,
+              "snake": 0,
+              "type": "head"
+            }
+          ],
+          "frame_collisions": {
+            "1": "head",
+            "2": "head"
+          },
+          "frame_kills": {},
+          "list_order": [
+            2,
+            1,
+            0
+          ],
+          "survivor_ids": [
+            0
+          ]
+        }
+      ],
+      "setup": "Three equal length-1 snakes occupy one head cell; all six list permutations.",
+      "source_refs": [
+        "docs/simd_env_spec.md:239-240",
+        "docs/simd_env_spec.md:270-298",
+        "src/game/game_logic.py:148-167",
+        "src/game/game_state.py:629-670",
+        "src/simd_env/batch_sim.py:878-942"
+      ],
+      "title": "Pairwise resolution leaves one arbitrary survivor in an equal three-head contact",
+      "written_contract_status": "Conforms to docs/simd_env_spec.md section 3.3, which requires consuming the ordered pair list and skipping pairs whose participant was already marked dead. The contract does not define an atomic three-or-more-head outcome."
+    }
+  },
+  "probe": "dynamics_contract_edge_cases",
+  "resource_contract": "CPU only; one process; one thread; no training",
+  "schema_version": 1,
+  "source_revision": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715"
+}

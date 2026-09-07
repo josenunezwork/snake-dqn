@@ -1,0 +1,201 @@
+{
+  "circular_geometry_capacity": {
+    "obsinputs_has_circle_geometry": false,
+    "scalar_diff_indices": [
+      25
+    ],
+    "strategic_equal": true,
+    "tactical_equal": true
+  },
+  "interpretation": "Alias cases prove representation non-Markovness by construction; they do not by themselves establish occurrence rate, preferred-action disagreement, or trained-policy performance loss.",
+  "outside_prediction_overwrites_wall": {
+    "actual_code": 4,
+    "cell_raster": [
+      20,
+      20
+    ],
+    "confirmed_wall_erased": true,
+    "interpretation": "A geometrically impossible enemy prediction and the wall occupy one categorical cell; the emitted type plane retains only the prediction. This proves information loss but does not quantify a control-performance effect.",
+    "predicted_world_cell": [
+      25,
+      -1
+    ],
+    "prediction_code": 4,
+    "wall_code": 1,
+    "world": {
+      "entities": [
+        {
+          "body_head_to_tail": [
+            [
+              20,
+              2
+            ]
+          ],
+          "heading": 0,
+          "label": "hero"
+        },
+        {
+          "body_head_to_tail": [
+            [
+              25,
+              0
+            ]
+          ],
+          "heading": 0,
+          "label": "enemy"
+        }
+      ],
+      "grid_cells": [
+        80,
+        80
+      ],
+      "observer_slot": 0
+    }
+  },
+  "priority_overwrite": {
+    "actual_code": 4,
+    "confirmed_violation": true,
+    "contested_raster_cell": [
+      17,
+      20
+    ],
+    "contested_world_cell": [
+      25,
+      14
+    ],
+    "expected_by_declared_priority": 6,
+    "world": {
+      "entities_by_identity": [
+        {
+          "body_head_to_tail": [
+            [
+              20,
+              20
+            ]
+          ],
+          "heading": 0,
+          "label": "hero"
+        },
+        {
+          "body_head_to_tail": [
+            [
+              24,
+              14
+            ],
+            [
+              25,
+              14
+            ],
+            [
+              26,
+              14
+            ]
+          ],
+          "heading": 3,
+          "label": "enemy_body_source"
+        },
+        {
+          "body_head_to_tail": [
+            [
+              25,
+              15
+            ],
+            [
+              25,
+              16
+            ],
+            [
+              25,
+              17
+            ]
+          ],
+          "heading": 0,
+          "label": "enemy_prediction_source"
+        }
+      ],
+      "grid_cells": [
+        80,
+        80
+      ],
+      "observer_slot": 0,
+      "slot_order_body_then_prediction": [
+        "hero",
+        "enemy_body_source",
+        "enemy_prediction_source"
+      ],
+      "slot_order_prediction_then_body": [
+        "hero",
+        "enemy_prediction_source",
+        "enemy_body_source"
+      ]
+    }
+  },
+  "remote_enemy_heading_alias": {
+    "controlled_hero_current_fields_equal": {
+      "mask": true,
+      "scalars": true,
+      "strategic_uint8": true,
+      "tactical_uint8": true
+    },
+    "controlled_hero_next_fields_equal": {
+      "mask": true,
+      "scalars": false,
+      "strategic_uint8": true,
+      "tactical_uint8": true
+    },
+    "same_relative_actions_hero_enemy": [
+      1,
+      1
+    ],
+    "world_states": {
+      "enemy_head": [
+        20,
+        50
+      ],
+      "hero_head": [
+        20,
+        20
+      ],
+      "hidden_headings": [
+        0,
+        2
+      ]
+    }
+  },
+  "remote_food_class_alias": {
+    "controlled_hero_fields_equal": {
+      "mask": true,
+      "scalars": true,
+      "strategic_uint8": true,
+      "tactical_uint8": true
+    },
+    "food_cell": [
+      78,
+      1
+    ],
+    "hidden_classes": [
+      "ambient",
+      "corpse"
+    ]
+  },
+  "source_commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715",
+  "strategic_footprint": {
+    "board_width_cells": 145,
+    "enemy_heads": [
+      [
+        132,
+        40
+      ],
+      [
+        133,
+        40
+      ]
+    ],
+    "hero_head": [
+      70,
+      40
+    ],
+    "lateral_62_channel_sum": 10,
+    "lateral_63_channel_sum": 0
+  }
+}

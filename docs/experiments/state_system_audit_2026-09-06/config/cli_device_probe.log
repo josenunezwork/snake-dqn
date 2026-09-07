@@ -1,0 +1,42 @@
+🖥️  Using CPU (MPS available but slower for this small model; use --device mps or SNAKE_DQN_DEVICE=mps to force MPS)
+[train_pqn] device: cpu
+[train_pqn] config: {
+  "action_collapse_min_samples": 0,
+  "action_collapse_patience": 1,
+  "action_collapse_raw_actions": false,
+  "adam_eps": 0.00015,
+  "arena_type": "rectangular",
+  "death_value": -3.0,
+  "eps_decay_steps": 50000000,
+  "eps_end": 0.02,
+  "eps_start": 1.0,
+  "flip_augment": true,
+  "gamma": 0.997,
+  "grad_clip": 10.0,
+  "hero_frac": 0.8,
+  "kill_scale": 0.3,
+  "lambda_": 0.65,
+  "lr": 0.0005,
+  "max_abs_q_alarm": 1000.0,
+  "max_frames": 123,
+  "mechanics_version": 1,
+  "minibatch_size": 256,
+  "minibatches": 4,
+  "num_envs": 1,
+  "num_snakes": 3,
+  "pad_sgd_batches": false,
+  "pool_add_interval": 50,
+  "pool_capacity": 10,
+  "profile": false,
+  "reward_version": 1,
+  "rollout_len": 32,
+  "seed": 123,
+  "sgd_epochs": null,
+  "sgd_seed": null
+}
+[train_pqn] network: RasterDuelingNetwork(tactical=(9, 31, 31), strategic=(3, 25, 25), scalars=26, output_size=6, total_params=1,435,751)
+[train_pqn] params: 1,435,751
+
+[train_pqn] done: 0 updates, 0 agent-steps this session (0 total) in 0.0s (0 steps/s)
+[train_pqn] checkpoint: runs/state_system_audit_20260906/config/cli_device_probe/latest_pqn.pth
+[train_pqn] no updates completed.

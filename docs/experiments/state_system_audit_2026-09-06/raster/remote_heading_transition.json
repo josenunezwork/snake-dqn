@@ -1,0 +1,100 @@
+{
+  "classification": "confirmed exact observation alias with divergent next observation",
+  "current_hero_observation_fields_equal": {
+    "mask": true,
+    "scalars": true,
+    "strategic_uint8": true,
+    "tactical_uint8": true
+  },
+  "hero_done": [
+    false,
+    false
+  ],
+  "hero_rewards": [
+    -0.0010000000000000009,
+    -0.0010000000000000009
+  ],
+  "hidden_enemy_headings": [
+    0,
+    2
+  ],
+  "initial_worlds": [
+    {
+      "entities": [
+        {
+          "body_head_to_tail": [
+            [
+              20,
+              20
+            ]
+          ],
+          "heading": 0,
+          "label": "hero"
+        },
+        {
+          "body_head_to_tail": [
+            [
+              20,
+              50
+            ]
+          ],
+          "heading": 0,
+          "label": "enemy"
+        }
+      ],
+      "food": [],
+      "label": "enemy_heading_up"
+    },
+    {
+      "entities": [
+        {
+          "body_head_to_tail": [
+            [
+              20,
+              20
+            ]
+          ],
+          "heading": 0,
+          "label": "hero"
+        },
+        {
+          "body_head_to_tail": [
+            [
+              20,
+              50
+            ]
+          ],
+          "heading": 2,
+          "label": "enemy"
+        }
+      ],
+      "food": [],
+      "label": "enemy_heading_down"
+    }
+  ],
+  "interpretation": "The controlled hero receives exactly the same raster31v2 observation in both worlds. The same full joint relative-action vector produces different next observations. The first-step hero reward and done are equal. This is an alias-existence proof; it does not measure frequency, preferred-action disagreement, or performance loss.",
+  "next_enemy_heads": [
+    [
+      20,
+      49
+    ],
+    [
+      20,
+      51
+    ]
+  ],
+  "next_hero_observation_fields_equal": {
+    "mask": true,
+    "scalars": false,
+    "strategic_uint8": true,
+    "tactical_uint8": true
+  },
+  "next_hero_scalar_different_indices": [
+    16
+  ],
+  "same_relative_actions": [
+    1,
+    1
+  ],
+  "source_commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715"
+}

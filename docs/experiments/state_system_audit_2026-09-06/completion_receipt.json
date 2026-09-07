@@ -1,0 +1,26 @@
+{
+  "audited_source_commit": "c1cf7e8c954239cb6773c3da24bd17f4ddb9b715",
+  "main_commit": "950d583b9eb0c3e316edd0f651954d133334ac1a",
+  "main_status_porcelain": "",
+  "checked_at_utc": "2026-09-07T00:32:28.180195+00:00",
+  "source_files_checked": 100,
+  "source_sha256_mismatches": [],
+  "product_source_edits_this_expanded_audit": false,
+  "new_training_campaigns_this_expanded_audit": 0,
+  "strict_json_validation": "PASS",
+  "python_ast_validation": "PASS",
+  "source_test_receipts": "Selected overlapping lane shards; earlier full c1cf7e8 suite is documented in sampler report. No full-suite rerun for documentation-only changes.",
+  "independent_major_claims_receipt": "verification/major_claims_probe.json",
+  "independent_fault_injection_receipt": "verification/objective_contract_probe_recheck.json",
+  "notes": [
+    "The prefixed major_claims stdout is preserved separately as a log; the JSON contains the parsed object.",
+    "No checkpoint or replay binaries were copied.",
+    "Prior_audit files retain their original hashes and precede c1cf7e8."
+  ],
+  "final_evidence_review": "CLEAR: source, claims, caveats, artifact hashes and replay receipt reviewed independently.",
+  "archive_replay": "PASS: all four reproduced claims exactly match retained JSON; see archive_replay_receipt.json",
+  "report_sha256": {
+    "docs/state_and_system_review_2026-09-06.md": "e776c4299e8a2519d7509102e62a526e2531ff0de7120127c9f277844fb65562",
+    "docs/rl_review_2026-09-06.md": "2c9cb20b5f5c32668933d30253b73a05dfe632d9de8ffa5ea478d2a70048f534"
+  }
+}

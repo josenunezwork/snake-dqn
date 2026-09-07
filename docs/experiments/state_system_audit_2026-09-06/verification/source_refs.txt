@@ -1,0 +1,23 @@
+Snapshot: c1cf7e8c954239cb6773c3da24bd17f4ddb9b715
+Baseline: 950d583b9eb0c3e316edd0f651954d133334ac1a
+
+PQN reward version:
+src/training/pqn_trainer.py:322-335 builds BatchSimConfig without reward_version.
+src/training/pqn_trainer.py:983-1003 records reward_version in checkpoint metadata.
+src/core/reward_events.py and src/core/reward_contract.py are the reward arithmetic/contract sources.
+
+Mid-episode policy assignment:
+src/training/pqn_trainer.py:435-493 computes each rollout and calls assign_policy_ids at rollout start.
+src/training/pqn_selfplay.py:67-125 assign_policy_ids samples hero/opponent slot identities from its RNG each call.
+
+Raster enemy-slot overwrite:
+src/simd_env/featurizer.py:448-569 loops source slots and paints body/prediction codes.
+src/simd_env/featurizer.py:263-305 _paint performs last-write-wins for scalar codes across calls.
+Thus a contested cell may depend on source-slot iteration order despite the documented code priority.
+
+Play serving Q-row:
+src/game/game_state.py:345-355 iterates every alive roster snake and calls snake.update().
+src/game/human_snake.py:146-180 HumanSnake.update moves and never calls policy.dqn().
+src/game/snake_factory.py:311-353 creates slot 0 as HumanSnake and AI slots thereafter.
+web/backend/raster_policy.py:170-229 seeds _dispatch_queue with all alive snake IDs and pops it positionally for dqn.
+web/backend/session.py:237-252 constructs human-mode GameState and attaches RasterServingPolicy.

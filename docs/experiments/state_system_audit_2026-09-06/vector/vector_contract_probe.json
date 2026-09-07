@@ -1,0 +1,138 @@
+{
+  "checkpoint_loaded": false,
+  "config": "configs/free_space_v2.yaml",
+  "device": "cpu",
+  "hidden_state_aliases": {
+    "boost_phase": {
+      "hidden_boost_frames_after": [
+        1,
+        0
+      ],
+      "hidden_boost_frames_before": [
+        0,
+        2
+      ],
+      "length_after_same_boost_action": [
+        6,
+        5
+      ],
+      "observation_sha256": [
+        "e5bbe53a563221a9d2782fba16110c0f8f5574f488c29044a5be676662c34b69",
+        "e5bbe53a563221a9d2782fba16110c0f8f5574f488c29044a5be676662c34b69"
+      ],
+      "observations_equal": true
+    },
+    "hunger_reward_v1": {
+      "hidden_frames_since_food_before": [
+        0,
+        600
+      ],
+      "observation_sha256": [
+        "e5bbe53a563221a9d2782fba16110c0f8f5574f488c29044a5be676662c34b69",
+        "e5bbe53a563221a9d2782fba16110c0f8f5574f488c29044a5be676662c34b69"
+      ],
+      "observations_equal": true,
+      "reward_breakdown": [
+        {
+          "boost": 0.0,
+          "clamp_delta": 0.0,
+          "danger": 0.0,
+          "death": 0.0,
+          "food": 0.0,
+          "food_shaping": 0.0,
+          "kill": 0.0,
+          "potential": 0.0,
+          "starvation": 0.0,
+          "survival": 0.01,
+          "wall": -0.08103448301553726
+        },
+        {
+          "boost": 0.0,
+          "clamp_delta": 0.0,
+          "danger": 0.0,
+          "death": 0.0,
+          "food": 0.0,
+          "food_shaping": 0.0,
+          "kill": 0.0,
+          "potential": 0.0,
+          "starvation": -0.1,
+          "survival": 0.01,
+          "wall": -0.08103448301553726
+        }
+      ],
+      "reward_from_identical_observation": [
+        -0.07103448301553726,
+        -0.17103448301553725
+      ]
+    }
+  },
+  "probe": "vector61 contract aliases and static-mask errors",
+  "static_mask_errors": {
+    "fatal_move_approved": {
+      "collisions": [
+        {
+          "other_id": 1,
+          "snake_id": 0,
+          "type": "head"
+        },
+        {
+          "other_id": 0,
+          "snake_id": 1,
+          "type": "head"
+        }
+      ],
+      "heads_after_all_snakes_move": [
+        [
+          110,
+          100
+        ],
+        [
+          110,
+          100
+        ]
+      ],
+      "hero_collision_after_all_snakes_move": true,
+      "per_action_danger": [
+        0.2546440075000701,
+        0.6666666666666667,
+        0.2546440075000701
+      ],
+      "safe_actions_before": [
+        0,
+        1,
+        2
+      ],
+      "scenario": "hero and enemy converge on the same head cell",
+      "straight_action": 1,
+      "straight_marked_safe": true
+    },
+    "safe_move_rejected": {
+      "collisions": [],
+      "heads_after_all_snakes_move": [
+        [
+          110,
+          100
+        ],
+        [
+          120,
+          100
+        ]
+      ],
+      "hero_collision_after_all_snakes_move": false,
+      "per_action_danger": [
+        0.5285954792089683,
+        1.0,
+        0.5285954792089683
+      ],
+      "safe_actions_before": [
+        0,
+        2
+      ],
+      "scenario": "hero moves into a length-one enemy head as that head vacates",
+      "straight_action": 1,
+      "straight_marked_safe": false
+    }
+  },
+  "torch_threads": 1,
+  "training_performed": false
+}
