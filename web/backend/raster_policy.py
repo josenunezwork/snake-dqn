@@ -100,7 +100,9 @@ class RasterServingPolicy:
         output_size: Number of discrete actions.
     """
 
-    def __init__(self, agent: InferenceAgent) -> None:
+    def __init__(
+        self, agent: InferenceAgent, *, normalization: Optional[Dict[str, int]] = None
+    ) -> None:
         """Wrap an already-built raster :class:`InferenceAgent`.
 
         Args:
@@ -114,6 +116,9 @@ class RasterServingPolicy:
         self.total_reward = 0.0
         self.memory = None  # AISnake skips replay when training is False.
         self.dqn = _RasterDQNShim(self)
+        # Only v3 passes this explicit adapter contract. V2 keeps the historic
+        # live-adapter defaults byte-for-byte.
+        self._normalization = dict(normalization or {})
 
         # Live game reference, set by the session after the game is built.
         self._game = None
@@ -169,13 +174,19 @@ class RasterServingPolicy:
 
     @classmethod
     def from_checkpoint_blob(
-        cls, blob: dict, *, checkpoint_path: str, device: Optional[torch.device] = None
+        cls,
+        blob: dict,
+        *,
+        checkpoint_path: str,
+        device: Optional[torch.device] = None,
+        normalization: Optional[Dict[str, int]] = None,
     ) -> "RasterServingPolicy":
         """Build from checkpoint content already preflighted by the session."""
         return cls(
             InferenceAgent.from_checkpoint_blob(
                 blob, checkpoint_path=checkpoint_path, device=device
-            )
+            ),
+            normalization=normalization,
         )
 
     def attach_game(self, game) -> None:
@@ -212,7 +223,11 @@ class RasterServingPolicy:
             return
 
         snakes = list(game.snakes)
-        inp = game_state_to_obs_inputs(game)
+        inp = (
+            game_state_to_obs_inputs(game, **self._normalization)
+            if self.obs_spec == RASTER31V3
+            else game_state_to_obs_inputs(game)
+        )
         legal, advisory, dead = self._live_masks(snakes)
         masks = ActionMaskSet(legal=legal, advisory=advisory, dead=dead)
         resolved = masks.resolved()

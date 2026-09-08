@@ -89,6 +89,7 @@ def _validate_v3_serving_checkpoint(
         raise ValueError("raster31v3 checkpoint has an invalid effective_world digest")
     if effective_world.arena_type != "rectangular":
         raise ValueError("raster31v3 serving supports rectangular arenas only")
+    normalization_args = _v3_normalization_args(effective_world)
 
     runtime = blob.get("runtime_contract")
     runtime_digest = blob.get("runtime_contract_digest")
@@ -142,7 +143,11 @@ def _validate_v3_serving_checkpoint(
     # The deployment target is detached from checkpoint metadata: only a
     # receipt written after reading immutable bytes can truthfully bind the
     # full checkpoint SHA-256.  `_deployment_target_manifest` constructs it.
-    return {**blob, "_checkpoint_sha256": checkpoint_sha256}
+    return {
+        **blob,
+        "_checkpoint_sha256": checkpoint_sha256,
+        "_normalization_args": normalization_args,
+    }
 
 
 def _read_input_size(checkpoint_path: str) -> int:
@@ -281,7 +286,9 @@ def _v3_serving_config(world: EffectiveWorldConfig):
     return replace(base, game=game, rewards=rewards)
 
 
-def _deployment_target_manifest(world: EffectiveWorldConfig, checkpoint_sha256: str) -> dict:
+def _deployment_target_manifest(
+    world: EffectiveWorldConfig, checkpoint_sha256: str, mode: str
+) -> dict:
     """Describe the sole supported watch deployment derived from source world."""
     source = {field.name: getattr(world, field.name) for field in fields(world)}
     source["normalization"] = dict(world.normalization)
@@ -302,7 +309,7 @@ def _deployment_target_manifest(world: EffectiveWorldConfig, checkpoint_sha256: 
         "source_normalization": dict(world.normalization),
         "deployed_normalization": dict(deployed_world.normalization),
         "deployed_runtime": {
-            "mode": "watch",
+            "mode": mode,
             "training": False,
             "respawn": True,
             "hero_terminal": True,
@@ -311,6 +318,28 @@ def _deployment_target_manifest(world: EffectiveWorldConfig, checkpoint_sha256: 
         },
         "distribution_differences": {"frame_rate": {"source": world.frame_rate, "deployed": 1}},
     }
+
+
+def _v3_normalization_args(world: EffectiveWorldConfig) -> dict[str, int]:
+    """Extract the three semantic scalar normalizers without defaulting them."""
+    required = {"max_frames", "starvation_max", "max_length"}
+    if set(world.normalization) != required:
+        raise ValueError(
+            "raster31v3 normalization must declare exactly max_frames/starvation_max/max_length"
+        )
+    values = {}
+    for key in required:
+        value = world.normalization.get(key)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+            or int(value) != value
+        ):
+            raise ValueError(f"raster31v3 effective_world requires integer normalization.{key}")
+        values[key] = int(value)
+    return values
 
 
 class GameSession:
@@ -426,7 +455,11 @@ class GameSession:
             if not checkpoint:
                 raise RuntimeError("raster31v2 serving requires a checkpoint.")
             policy = RasterServingPolicy.from_checkpoint_blob(
-                checkpoint_blob, checkpoint_path=checkpoint
+                checkpoint_blob,
+                checkpoint_path=checkpoint,
+                normalization=(
+                    v3_metadata["_normalization_args"] if v3_metadata is not None else None
+                ),
             )
         else:
             policy = ApexPolicy(
@@ -492,6 +525,7 @@ class GameSession:
             target_manifest = _deployment_target_manifest(
                 EffectiveWorldConfig(**v3_metadata["effective_world"]),
                 v3_metadata["_checkpoint_sha256"],
+                mode,
             )
             self.serving_contract.update(
                 {

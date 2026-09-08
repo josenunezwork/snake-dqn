@@ -9,18 +9,16 @@ pytest.importorskip("fastapi")
 
 from src.core.runtime_contract import EffectiveWorldConfig  # noqa: E402
 from src.core.runtime_contract import ModelHeadContract  # noqa: E402
-from src.core.runtime_contract import (  # noqa: E402
-    RunProvenance,
-    RuntimeModeContract,
-    canonical_digest,
-)  # noqa: E402
-from src.model.obs_spec import (  # noqa: E402
-    OBS_SPEC_KEY,
-    RASTER31V3,  # noqa: E402
-    RASTER31V3_CONTRACT,
-)  # noqa: E402
+from src.core.runtime_contract import RunProvenance  # noqa: E402
+from src.core.runtime_contract import (RuntimeModeContract,  # noqa: E402
+                                       canonical_digest)
+from src.model.obs_spec import RASTER31V3  # noqa: E402
+from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3_CONTRACT  # noqa: E402
 from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
-from web.backend.session import V3_ACTION_MASK_CONTRACT, GameSession  # noqa: E402
+from src.simd_env.featurizer import build_observations  # noqa: E402
+from src.simd_env.live_adapter import game_state_to_obs_inputs  # noqa: E402
+from web.backend.session import (V3_ACTION_MASK_CONTRACT,  # noqa: E402
+                                 GameSession)
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +31,12 @@ def _restore_global_config():
     game_config._current_config = previous
 
 
-def _v3_metadata() -> dict:
+def _v3_metadata(normalization=None) -> dict:
+    normalization = normalization or {
+        "max_frames": 5000.0,
+        "starvation_max": 500.0,
+        "max_length": 150.0,
+    }
     world = EffectiveWorldConfig(
         width=1450,
         height=830,
@@ -47,7 +50,7 @@ def _v3_metadata() -> dict:
         max_food=300,
         min_boost_length=5,
         boost_length_cost_frames=3,
-        normalization={"max_frames": 5000.0, "starvation_max": 500.0, "max_length": 150.0},
+        normalization=normalization,
     )
     runtime = RuntimeModeContract(
         mode="train", training=True, respawn=False, hero_terminal=True, population_floor=True
@@ -123,6 +126,10 @@ def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
     assert session.obs_spec == RASTER31V3
     assert session.config_path == "promotion-v2-watch-rect"
     assert session.serving_contract["obs_contract_digest"] == RASTER31V3_CONTRACT.digest
+    session.set_mode("play")
+    assert (
+        session.serving_contract["deployment_target_manifest"]["deployed_runtime"]["mode"] == "play"
+    )
 
 
 def test_bad_v3_descriptor_rejects_without_replacing_existing_session(v3_checkpoint, tmp_path):
@@ -165,6 +172,39 @@ def test_unknown_explicit_obs_spec_is_not_silently_treated_as_vector(tmp_path):
         GameSession(checkpoint=str(path))
 
 
+@pytest.mark.parametrize(
+    "normalization",
+    [
+        {"max_frames": 1.0, "starvation_max": 1.0},
+        {"max_frames": 0.0, "starvation_max": 1.0, "max_length": 1.0},
+        {"max_frames": 1.5, "starvation_max": 1.0, "max_length": 1.0},
+        {"max_frames": 1.0, "starvation_max": 1.0, "max_length": 1.0, "extra": 1.0},
+    ],
+)
+def test_bad_v3_normalization_rejects_before_mutating_session(
+    v3_checkpoint, tmp_path, normalization
+):
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game = session.game
+    from src.core.game_config import get_config
+
+    before_config = get_config()
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["effective_world"]["normalization"] = normalization
+    world = EffectiveWorldConfig(**blob["effective_world"])
+    blob["effective_world_digest"] = world.digest
+    provenance = RunProvenance.from_metadata(blob)
+    blob["run_provenance"] = {**provenance.__dict__, "world_digest": world.digest}
+    blob["run_provenance_digest"] = canonical_digest(blob["run_provenance"])
+    path = tmp_path / "bad-normalization.pth"
+    torch.save(blob, path)
+
+    with pytest.raises(ValueError, match="normalization"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game
+    assert get_config() is before_config
+
+
 def test_v3_advisory_empty_uses_legal_boost_and_id_keyed_row(v3_checkpoint):
     """The human does not consume row 0 and an empty advisory keeps legal boost."""
     session = GameSession(checkpoint=v3_checkpoint)
@@ -192,3 +232,22 @@ def test_v3_advisory_empty_uses_legal_boost_and_id_keyed_row(v3_checkpoint):
     assert second_ai.last_action == 2
     context = session.policy.action_context_for(first_ai.id)
     assert context.resolved.tolist() == [True] * 6
+
+
+def test_v3_live_adapter_uses_checkpoint_normalization_bytes(tmp_path):
+    """Serving must never silently fall back to live-adapter scalar defaults."""
+    path = tmp_path / "custom-normalization.pth"
+    net = RasterDuelingNetwork()
+    normalization = {"max_frames": 1234.0, "starvation_max": 77.0, "max_length": 66.0}
+    torch.save(
+        {"dqn_state_dict": net.state_dict(), "output_size": 6, **_v3_metadata(normalization)}, path
+    )
+    session = GameSession(checkpoint=str(path))
+    snake = session.game.snakes[0]
+    actual = session.policy.hero_observation(snake.id)
+    expected = build_observations(
+        game_state_to_obs_inputs(session.game, max_frames=1234, starvation_max=77, max_length=66),
+        obs_spec=RASTER31V3,
+    )
+    assert actual is not None
+    assert actual["scalars"].tobytes() == expected["scalars"][0, 0].tobytes()
