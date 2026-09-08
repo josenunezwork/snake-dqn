@@ -14,6 +14,7 @@ import torch
 from src.model.obs_spec import RASTER31V3
 from src.model.raster_network import SCALARS_DIM, STRATEGIC_SHAPE, TACTICAL_SHAPE
 from src.training.pqn_trainer import PQNConfig, PQNTrainer, pqn_target_contract
+from src.training.rollout_policies import FixedPolicySource
 
 
 def _corrected_trainer() -> PQNTrainer:
@@ -75,3 +76,91 @@ def test_corrected_contract_declares_pinned_episode_and_real_death_semantics() -
     assert contract["death"] == "actual_done_reward_only"
     assert contract["lambda_carry"] == "next_in_rollout_valid_transition_including_death"
     assert contract["inactive_worlds"] == "active_env_mask_freezes_world_rng_and_events"
+
+
+def test_corrected_max_frame_one_completes_and_resets_on_next_rollout() -> None:
+    """The terminal frame is counted now, then the following rollout starts fresh."""
+    trainer = _corrected_trainer()
+    trainer.cfg.max_frames = 1
+    first = trainer.update()
+    assert first.completed_episodes == 1
+    assert first.rollout_capacity == 1
+    assert first.episode_reset_count == 0
+
+    second = trainer.update()
+    assert second.completed_episodes == 1
+    assert second.episode_reset_count == 1
+
+
+def test_corrected_all_floor_at_first_step_slices_the_rollout() -> None:
+    """All worlds ending together must not emit a padded zombie tail."""
+    trainer = _corrected_trainer()
+    trainer.sim.population_floor_reached = lambda: trainer.sim.frame >= 1
+    roll = trainer._rollout()
+
+    assert roll["actions"].shape[0] == 1
+    assert roll["newly_completed_episodes"] == 1
+    assert roll["batch_episode_finished"] is True
+
+
+class _FixedRight:
+    identity = "fixed:right:v1"
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[np.ndarray, np.ndarray]] = []
+
+    def actions(self, masks: np.ndarray, sim, slots: np.ndarray) -> np.ndarray:
+        self.calls.append((masks.copy(), slots.copy()))
+        return np.full(masks.shape[0], 2, dtype=np.int64)
+
+
+def test_fixed_source_actions_and_identity_are_real_rollout_contract_inputs() -> None:
+    """Fixed opponents receive sparse slots and are signed into sampler metadata."""
+    policy = _FixedRight()
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=1,
+        max_frames=1,
+        hero_frac=0.0,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        rollout_policy_mode="fixed",
+        fixed_policy_identity=policy.identity,
+    )
+    trainer = PQNTrainer(config, fixed_policy=FixedPolicySource(policy, policy.identity))
+    roll = trainer._rollout()
+
+    assert policy.calls and policy.calls[0][1].tolist() == [[0, 1]]
+    assert roll["actions"][0, 0, 1] == 2
+    checkpoint = trainer.checkpoint_state()
+    assert checkpoint["sampler_contract"]["rollout_policy_source"] == {
+        "mode": "fixed",
+        "identity": policy.identity,
+    }
+    assert checkpoint["rollout_policy_source"] == {"mode": "fixed", "identity": policy.identity}
+
+
+def test_pinned_assignment_and_lease_survive_two_rollouts_until_batch_reset() -> None:
+    """Snapshot identity cannot change while the batch episode remains live."""
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=1,
+        max_frames=10,
+        hero_frac=0.0,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        pool_capacity=1,
+    )
+    trainer = PQNTrainer(config)
+    trainer.pool.add_snapshot(trainer.network)
+    first = trainer._rollout()
+    lease = trainer._episode_lease
+    second = trainer._rollout()
+
+    assert lease is not None and trainer._episode_lease is lease and not lease.closed
+    assert np.array_equal(first["policy_ids"], second["policy_ids"])
+    assert first["policy_identities"] == second["policy_identities"]

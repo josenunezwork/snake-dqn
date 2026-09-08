@@ -541,19 +541,25 @@ def apply_resume_checkpoint(
     """
     if mode not in {"weights-only", "continuation"}:
         raise ValueError(f"Cannot apply resume mode {mode!r}")
-    if mode == "weights-only" and (
+    if (
         trainer.update_idx != 0
         or trainer.agent_steps != 0
         or bool(trainer.optimizer.state)
         or bool((trainer.sim.frame != 0).any())
         or len(trainer.pool) != 0
+        or trainer._episode_policy_ids is not None
+        or trainer._episode_lease is not None
+        or bool(trainer._episode_finished_env.any())
+        or bool(trainer._episode_ids.any())
+        or trainer._episode_reset_count != 0
+        or trainer.last_telemetry is not None
         or trainer._initial_rng_identity
         != (
             canonical_digest(trainer.rng.bit_generator.state),
             canonical_digest(trainer.sgd_rng.bit_generator.state),
         )
     ):
-        raise ValueError("weights-only resume requires a fresh trainer")
+        raise ValueError("resume requires a fresh trainer with pristine runtime state")
     validate_checkpoint_numeric_state(checkpoint)
     trainer.network.load_state_dict(checkpoint["dqn_state_dict"])
     if mode == "weights-only":
@@ -757,6 +763,8 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
         "rollout_capacity": tel.rollout_capacity,
         "hero_eligible_fraction": tel.hero_eligible_fraction,
         "policy_exposure": tel.policy_exposure or {},
+        "raw_action_counts": tel.raw_action_counts or [0, 0, 0, 0, 0, 0],
+        "episode_reset_count": tel.episode_reset_count,
     }
 
 
@@ -886,7 +894,7 @@ def _print_curve_summary(history: Sequence[PQNTelemetry]) -> None:
         ("mean_reward", "reward/step"),
         ("mean_abs_q", "mean|Q|"),
         ("action_entropy", "entropy"),
-        ("kills_per_ep", "kills/rollout"),
+        ("hero_kills", "hero kills/rollout"),
         ("boost_fraction", "boost frac"),
     ):
         print(f"  {label:>14}: {_avg(head, attr):+.4f}  ->  {_avg(tail, attr):+.4f}")

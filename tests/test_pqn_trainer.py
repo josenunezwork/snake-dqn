@@ -1210,7 +1210,9 @@ def test_raw_action_entropy_uses_only_valid_hero_rollout_actions():
         "deaths": np.zeros((2, 1, 2), dtype=bool),
         "policy_identities": {"9": "fixture:frozen"},
         "rollout_policy_source": {"mode": "fixture", "identity": "fixture:frozen"},
-        "completed_episodes": 0,
+        "newly_completed_episodes": 0,
+        "episode_reset_count": 0,
+        "batch_episode_finished": False,
     }
     tr._rollout = lambda: roll
     tr._compute_targets = lambda _roll: torch.zeros((2, 1, 2))

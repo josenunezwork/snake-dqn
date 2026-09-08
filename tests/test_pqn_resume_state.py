@@ -43,6 +43,26 @@ def test_exact_resume_is_rejected_and_weights_only_starts_fresh_world(tmp_path):
     assert fresh.checkpoint_state()["resume_state"]["environment"] == "fresh"
 
 
+@pytest.mark.parametrize("mode", ["weights-only", "continuation"])
+@pytest.mark.parametrize("mutation", ["world", "episode", "rng"])
+def test_both_resume_modes_require_a_pristine_runtime_before_mutation(tmp_path, mode, mutation):
+    """Neither resume flavor may overwrite a trainer with hidden live state."""
+    original = PQNTrainer(_config())
+    path = tmp_path / "checkpoint.pth"
+    original.save_checkpoint(str(path))
+    target = PQNTrainer(_config())
+    if mutation == "world":
+        target.sim.frame[0] = 1
+    elif mutation == "episode":
+        target._episode_ids[0] = 1
+    else:
+        target.rng.random()
+
+    blob = train_pqn.load_pqn_resume_checkpoint(str(path), target.cfg, mode=mode)
+    with pytest.raises(ValueError, match="fresh trainer with pristine runtime"):
+        train_pqn.apply_resume_checkpoint(target, blob, mode=mode)
+
+
 def test_v3_checkpoint_continues_only_with_identical_world_and_optimizer(tmp_path):
     config = PQNConfig(
         num_envs=1,
