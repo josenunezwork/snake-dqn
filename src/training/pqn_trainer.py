@@ -234,10 +234,157 @@ class PQNConfig:
             raise ValueError(f"Unsupported PQN recipe {self.recipe!r}")
         if self.recipe == "corrected-v3" and self.obs_spec != RASTER31V3:
             raise ValueError("corrected-v3 recipe requires obs_spec='raster31v3'")
+        if self.recipe == "corrected-v3" and (self.mechanics_version != 2 or self.flip_augment):
+            raise ValueError("corrected-v3 requires mechanics_version=2 and flip_augment=False")
         if self.game_width % self.segment_size or self.game_height % self.segment_size:
             raise ValueError("PQN world width and height must align to segment_size")
         if self.wall_thickness % self.segment_size:
             raise ValueError("PQN world wall_thickness must align to segment_size")
+
+
+def pqn_action_mask_contract(config: PQNConfig) -> Dict[str, object]:
+    """Describe the mask actually selected by this observation recipe."""
+    if config.obs_spec == RASTER31V3:
+        return {
+            "version": "legal-advisory-resolved-v1",
+            "action_count": 6,
+            "resolution": "row_local_intersection_else_legal",
+            "dead_rows": "all_false",
+        }
+    return {
+        "version": "legacy-advisory-v1",
+        "action_count": 6,
+        "resolution": "advisory_only",
+        "dead_rows": "all_false",
+    }
+
+
+def pqn_reward_contract(config: PQNConfig) -> Dict[str, object]:
+    """Describe BatchSim's actual unclipped reward-v2 arithmetic."""
+    return {
+        "version": "pqn-potential-reward-v2",
+        "gamma": config.gamma,
+        "potential": "logical_length_divided_by_10",
+        "terminal_potential": 0.0,
+        "shaping": "gamma_times_next_potential_minus_previous_potential",
+        "death_bonus": config.death_value,
+        "kill_scale": config.kill_scale,
+        "kill_sum": "victim_order_left_to_right",
+        "clipping": None,
+    }
+
+
+def pqn_target_contract(config: PQNConfig) -> Dict[str, object]:
+    """Freeze current pre-P2 behavior, including its known episode limitations.
+
+    P2 must version this descriptor when it repairs the target/episode loop.
+    This metadata does not claim that those pending repairs already happened.
+    """
+    return {
+        "version": "pqn-qlambda-pre-p2-v1",
+        "gamma": config.gamma,
+        "lambda": config.lambda_,
+        "death": "actual_done_reward_only",
+        "trapped": "alive_and_current_selected_mask_empty",
+        "trapped_bootstrap": config.death_value,
+        "empty_successor_bootstrap": config.death_value,
+        "truncation": "masked_max_q_of_successor",
+        "lambda_carry": "next_in_rollout_valid_transition_including_death",
+        "validity": "env_transition_valid_and_prefloor_live_env",
+        "inactive_worlds": "continue_stepping_but_exclude_rows",
+        "reset": "whole_batch_at_rollout_boundary_after_all_floor_or_frame_cap",
+        "population_floor": config.mechanics_version == 2 and config.num_snakes >= 3,
+        "bootstrap_network": "rollout_frozen_online_network",
+        "loss_eligibility": "valid_and_rollout_assigned_hero",
+        "reward_digest": canonical_digest(pqn_reward_contract(config)),
+        "action_mask": pqn_action_mask_contract(config),
+    }
+
+
+def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
+    """Describe sampling and realized-policy assignment rules before P2."""
+    return {
+        "version": "pqn-sampler-pre-p2-v1",
+        "mode": "exact_coverage" if config.sgd_epochs is not None else "minibatch",
+        "minibatches": config.minibatches,
+        "minibatch_size": config.minibatch_size,
+        "sgd_epochs": config.sgd_epochs,
+        "pad_sgd_batches": config.pad_sgd_batches,
+        "sgd_seed": config.sgd_seed,
+        "sampling": (
+            "independent_permutation_prefix_per_batch"
+            if config.sgd_epochs is None
+            else "per_epoch_permutation_balanced_array_split"
+        ),
+        "eligible": "valid_transitions_of_rollout_assigned_hero_slots",
+        "flip_augment": config.flip_augment,
+        "augmentation": "legacy_horizontal_flip_per_minibatch_probability_0.5",
+        "sgd_rng": "shared_with_rollout" if config.sgd_seed is None else "independent_seed",
+        "num_envs": config.num_envs,
+        "num_snakes": config.num_snakes,
+        "rollout_len": config.rollout_len,
+        "hero_frac": config.hero_frac,
+        "pool_capacity": config.pool_capacity,
+        "pool_add_interval": config.pool_add_interval,
+        "policy_assignment": "resample_each_rollout_bernoulli_hero_else_uniform_pool",
+        "forced_hero_slot": 0,
+        "empty_pool": "all_heroes",
+        "snapshot_identity": "mutable_fifo_indices_unpinned",
+        "assignment_lifetime": "rollout",
+        "episode_pinning": False,
+        "pool_mutation": "between_rollouts",
+        "snapshot_admission": "after_sgd_positive_update_index_divisible_by_interval",
+        "exploration": {
+            "policy": "hero_only_epsilon_greedy_constant_within_rollout",
+            "clock": "valid_hero_agent_steps",
+            "start": config.eps_start,
+            "end": config.eps_end,
+            "decay_steps": config.eps_decay_steps,
+        },
+    }
+
+
+def pqn_optimizer_contract(
+    config: PQNConfig, optimizer_state: Optional[Dict[str, object]] = None
+) -> Dict[str, object]:
+    """Describe expected Adam, or the actual serialized groups for a checkpoint."""
+    expected_group = {
+        "lr": config.lr,
+        "eps": config.adam_eps,
+        "betas": [0.9, 0.999],
+        "weight_decay": 0,
+        "amsgrad": False,
+        "maximize": False,
+        "foreach": None,
+        "capturable": False,
+        "differentiable": False,
+        "fused": None,
+        "decoupled_weight_decay": False,
+    }
+    groups = [expected_group]
+    if optimizer_state is not None:
+        raw_groups = optimizer_state.get("param_groups")
+        if not isinstance(raw_groups, list) or not raw_groups:
+            raise ValueError("continuation requires optimizer param_groups")
+        groups = []
+        for raw in raw_groups:
+            if not isinstance(raw, dict) or set(raw) - set(expected_group) - {"params"}:
+                raise ValueError("unknown optimizer param_group fields")
+            if not isinstance(raw.get("betas"), (tuple, list)):
+                raise ValueError("invalid optimizer param_group betas")
+            group = {key: raw.get(key) for key in expected_group}
+            group["betas"] = list(raw["betas"])
+            groups.append(group)
+    return {
+        "version": "pqn-adam-huber-v1",
+        "algorithm": "Adam",
+        "param_groups": groups,
+        "loss": {"name": "smooth_l1", "beta": 1.0, "reduction": "mean"},
+        "grad_clip": {"norm_type": 2.0, "max_norm": config.grad_clip},
+        "td_target_clip": None,
+        "target_gradient": "detached",
+        "zero_grad_set_to_none": True,
+    }
 
 
 @dataclass
@@ -383,6 +530,10 @@ class PQNTrainer:
         # sampling/augmentation from rollout policy assignment and exploration.
         self.sgd_rng = (
             self.rng if config.sgd_seed is None else np.random.default_rng(config.sgd_seed)
+        )
+        self._initial_rng_identity = (
+            canonical_digest(self.rng.bit_generator.state),
+            canonical_digest(self.sgd_rng.bit_generator.state),
         )
 
         sim_cfg = BatchSimConfig(
@@ -1265,24 +1416,15 @@ class PQNTrainer:
             training=True,
             respawn=False,
             hero_terminal=True,
-            population_floor=True,
+            population_floor=self.cfg.mechanics_version == 2 and self.cfg.num_snakes >= 3,
             reset_strategy="batch_episode",
         )
-        mask_contract = (
-            {
-                "version": "legal-advisory-resolved-v1",
-                "action_count": 6,
-                "resolution": "row_local_intersection_else_legal",
-                "dead_rows": "all_false",
-            }
-            if self.cfg.obs_spec == RASTER31V3
-            else {
-                "version": "legacy-advisory-v1",
-                "action_count": 6,
-                "resolution": "advisory_only",
-                "dead_rows": "legacy",
-            }
-        )
+        mask_contract = pqn_action_mask_contract(self.cfg)
+        reward_contract = pqn_reward_contract(self.cfg)
+        target_contract = pqn_target_contract(self.cfg)
+        sampler_contract = pqn_sampler_contract(self.cfg)
+        optimizer_state = self.optimizer.state_dict()
+        optimizer_contract = pqn_optimizer_contract(self.cfg, optimizer_state)
         observation_digest = (
             RASTER31V3_CONTRACT.digest if self.cfg.obs_spec == RASTER31V3 else RASTER31V2
         )
@@ -1309,47 +1451,12 @@ class PQNTrainer:
         }
         state: Dict[str, object] = {
             "dqn_state_dict": self.network.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "optimizer_contract": {
-                "param_groups": [
-                    {
-                        "algorithm": "Adam",
-                        "lr": group["lr"],
-                        "eps": group["eps"],
-                        "betas": list(group["betas"]),
-                        "weight_decay": group["weight_decay"],
-                        "amsgrad": group["amsgrad"],
-                    }
-                    for group in self.optimizer.param_groups
-                ]
-            },
-            "target_contract": {
-                "version": "pqn-qlambda-v1",
-                "gamma": self.cfg.gamma,
-                "lambda": self.cfg.lambda_,
-                "death_value": self.cfg.death_value,
-                "death_reward": self.cfg.death_value,
-                "trapped_bootstrap": self.cfg.death_value,
-                "trapped_version": "death-value-v1",
-                "truncation_bootstrap": "masked_max_q",
-                "lambda_boundary": "bootstrap_final_masked_max",
-                "population_floor": True,
-                "transition_validity": "env_transition_valid",
-                "action_mask": mask_contract,
-            },
-            "sampler_contract": {
-                "mode": "exact_coverage" if self.cfg.sgd_epochs else "minibatch",
-                "minibatches": self.cfg.minibatches,
-                "minibatch_size": self.cfg.minibatch_size,
-                "sgd_epochs": self.cfg.sgd_epochs,
-                "pad_sgd_batches": self.cfg.pad_sgd_batches,
-                "sgd_seed": self.cfg.sgd_seed,
-                "flip_augment": self.cfg.flip_augment,
-                "hero_frac": self.cfg.hero_frac,
-                "pool_capacity": self.cfg.pool_capacity,
-                "pool_add_interval": self.cfg.pool_add_interval,
-                "policy_assignment": "hero_slot0",
-            },
+            "optimizer_state_dict": optimizer_state,
+            "optimizer_contract": optimizer_contract,
+            "reward_contract": reward_contract,
+            "reward_contract_digest": canonical_digest(reward_contract),
+            "target_contract": target_contract,
+            "sampler_contract": sampler_contract,
             OBS_SPEC_KEY: self.cfg.obs_spec,
             "output_size": self.network.output_size,
             "gamma": self.cfg.gamma,
@@ -1400,16 +1507,10 @@ class PQNTrainer:
             observation_digest=observation_digest,
             world_digest=world.digest,
             runtime_digest=runtime.digest,
-            reward_digest=canonical_digest(
-                {
-                    "version": self.cfg.reward_version,
-                    "kill_scale": self.cfg.kill_scale,
-                    "death_value": self.cfg.death_value,
-                }
-            ),
-            target_digest=state["target_contract_digest"],
-            sampler_digest=state["sampler_contract_digest"],
-            optimizer_digest=state["optimizer_contract_digest"],
+            reward_digest=canonical_digest(reward_contract),
+            target_digest=canonical_digest(target_contract),
+            sampler_digest=canonical_digest(sampler_contract),
+            optimizer_digest=canonical_digest(optimizer_contract),
             model_head_digest=ModelHeadContract("pqn", "dueling_q", 6).digest,
             source_revision=self.cfg.source_revision,
         )

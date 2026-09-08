@@ -14,13 +14,16 @@ whether restored weights/optimizer/odometers actually survive the round trip.
 """
 
 import json
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 import yaml
 from pydantic import ValidationError
 
 from src.core.device_manager import DeviceManager
+from src.core.runtime_contract import canonical_digest
 from src.model.obs_spec import RASTER31V2_SHAPES
 from src.scripts import sweep, train_pqn
 from src.training.pqn_trainer import PQNConfig, PQNTelemetry, PQNTrainer, TripwireError
@@ -76,6 +79,7 @@ class _FakeOptimizer:
 
     def __init__(self):
         self.loaded_state = None
+        self.state = {}
 
     def load_state_dict(self, state_dict):
         self.loaded_state = state_dict
@@ -96,6 +100,14 @@ class FakeTrainer:
         self.last_telemetry = None
         self.network = _FakeNetwork()
         self.optimizer = _FakeOptimizer()
+        self.sim = SimpleNamespace(frame=np.zeros(1, dtype=np.int64))
+        self.pool = []
+        self.rng = np.random.default_rng(config.seed)
+        self.sgd_rng = self.rng
+        self._initial_rng_identity = (
+            canonical_digest(self.rng.bit_generator.state),
+            canonical_digest(self.sgd_rng.bit_generator.state),
+        )
         self.saved = []
         self.recovery_refreshes = 0
 
@@ -279,8 +291,10 @@ class TestBuildConfigPrecedence:
         default = PQNConfig()
 
         assert config.num_envs == 16
-        for field in ("lr", "gamma", "lambda_", "eps_start", "eps_end", "hero_frac", "seed"):
+        for field in ("lr", "gamma", "lambda_", "eps_start", "eps_end", "hero_frac"):
             assert getattr(config, field) == getattr(default, field), field
+        assert config.field_sources["seed"] == "entropy"
+        assert 0 <= config.seed < 2**64
 
     def test_no_flip_augment_survives_the_none_filter(self, tmp_path, monkeypatch):
         """store_const False must not be dropped by build_config's ``is not None`` test."""

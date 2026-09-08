@@ -15,6 +15,7 @@ def test_config_file_has_complete_resolved_world_and_sources(tmp_path):
     fields = train_pqn._load_config_overrides(str(path))
     fields["num_envs"] = 3  # explicit CLI-equivalent override
     fields["obs_spec"] = RASTER31V3  # corrected recipe resolver sets this in build_config
+    fields["flip_augment"] = False
     fields["field_sources"] = {key: "config" for key in fields}
     fields["field_sources"]["num_envs"] = "cli"
     config = PQNConfig(**fields)

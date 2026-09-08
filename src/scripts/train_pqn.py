@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import subprocess
@@ -76,6 +77,11 @@ from src.training.pqn_trainer import (  # noqa: E402
     PQNTelemetry,
     PQNTrainer,
     TripwireError,
+    pqn_action_mask_contract,
+    pqn_optimizer_contract,
+    pqn_reward_contract,
+    pqn_sampler_contract,
+    pqn_target_contract,
     validate_checkpoint_numeric_state,
 )
 
@@ -314,7 +320,14 @@ def validate_pqn_resume_checkpoint_config(
         raise ValueError("invalid runtime_contract metadata") from exc
     if checkpoint.get("runtime_contract_digest") != recorded_runtime.digest:
         raise ValueError("runtime_contract_digest does not match runtime_contract")
-    expected_runtime = RuntimeModeContract("pqn_train", True, False, True, True, "batch_episode")
+    expected_runtime = RuntimeModeContract(
+        "pqn_train",
+        True,
+        False,
+        True,
+        config.mechanics_version == 2 and config.num_snakes >= 3,
+        "batch_episode",
+    )
     if recorded_runtime != expected_runtime:
         raise ValueError("continuation runtime_contract conflicts with PQN training")
     mask = checkpoint.get("action_mask_contract")
@@ -322,66 +335,29 @@ def validate_pqn_resume_checkpoint_config(
         "action_mask_contract_digest"
     ) != canonical_digest(mask):
         raise ValueError("invalid action_mask_contract metadata")
-    expected_mask = (
-        {
-            "version": "legal-advisory-resolved-v1",
-            "action_count": 6,
-            "resolution": "row_local_intersection_else_legal",
-            "dead_rows": "all_false",
-        }
-        if config.obs_spec == RASTER31V3
-        else {
-            "version": "legacy-advisory-v1",
-            "action_count": 6,
-            "resolution": "advisory_only",
-            "dead_rows": "legacy",
-        }
-    )
+    expected_mask = pqn_action_mask_contract(config)
     if mask != expected_mask:
         raise ValueError("continuation action_mask_contract conflicts with requested recipe")
-    for name in ("target_contract", "sampler_contract", "optimizer_contract"):
+    for name, expected in (
+        ("reward_contract", pqn_reward_contract(config)),
+        ("target_contract", pqn_target_contract(config)),
+        ("sampler_contract", pqn_sampler_contract(config)),
+        ("optimizer_contract", pqn_optimizer_contract(config)),
+    ):
         raw = checkpoint.get(name)
         if not isinstance(raw, dict) or checkpoint.get(f"{name}_digest") != canonical_digest(raw):
             raise ValueError(f"invalid {name} metadata")
-    expected_target_contract = {
-        "version": "pqn-qlambda-v1",
-        "gamma": config.gamma,
-        "lambda": config.lambda_,
-        "death_value": config.death_value,
-        "death_reward": config.death_value,
-        "trapped_bootstrap": config.death_value,
-        "trapped_version": "death-value-v1",
-        "truncation_bootstrap": "masked_max_q",
-        "lambda_boundary": "bootstrap_final_masked_max",
-        "population_floor": True,
-        "transition_validity": "env_transition_valid",
-        "action_mask": expected_mask,
-    }
-    if checkpoint["target_contract"] != expected_target_contract:
-        raise ValueError("continuation target_contract conflicts with requested target semantics")
-    expected_sampler_contract = {
-        "mode": "exact_coverage" if config.sgd_epochs else "minibatch",
-        "minibatches": config.minibatches,
-        "minibatch_size": config.minibatch_size,
-        "sgd_epochs": config.sgd_epochs,
-        "pad_sgd_batches": config.pad_sgd_batches,
-        "sgd_seed": config.sgd_seed,
-        "flip_augment": config.flip_augment,
-        "hero_frac": config.hero_frac,
-        "pool_capacity": config.pool_capacity,
-        "pool_add_interval": config.pool_add_interval,
-        "policy_assignment": "hero_slot0",
-    }
-    if checkpoint["sampler_contract"] != expected_sampler_contract:
-        differing = sorted(
-            key
-            for key, value in expected_sampler_contract.items()
-            if checkpoint["sampler_contract"].get(key) != value
-        )
-        raise ValueError(
-            "continuation sampler_contract conflicts with requested sampler: "
-            + ", ".join(differing)
-        )
+        if canonical_digest(raw) != canonical_digest(expected):
+            differing = sorted(
+                key
+                for key in raw.keys() | expected.keys()
+                if key not in raw
+                or key not in expected
+                or canonical_digest(raw[key]) != canonical_digest(expected[key])
+            )
+            raise ValueError(
+                f"continuation {name} conflicts with requested semantics: {', '.join(differing)}"
+            )
     model_head = validate_model_head_contract(checkpoint, require_digest=True)
     provenance = RunProvenance.from_metadata(checkpoint)
     expected_obs_digest = (
@@ -392,6 +368,7 @@ def validate_pqn_resume_checkpoint_config(
         or provenance.world_digest != recorded_world.digest
         or provenance.runtime_digest != recorded_runtime.digest
         or provenance.model_head_digest != model_head.digest
+        or provenance.reward_digest != checkpoint["reward_contract_digest"]
         or provenance.target_digest != checkpoint["target_contract_digest"]
         or provenance.sampler_digest != checkpoint["sampler_contract_digest"]
         or provenance.optimizer_digest != checkpoint["optimizer_contract_digest"]
@@ -449,35 +426,11 @@ def validate_pqn_resume_checkpoint_config(
         optimizer_state.get("param_groups"), list
     ):
         raise ValueError("continuation requires optimizer param_groups")
-    groups = optimizer_state["param_groups"]
-    if not groups:
-        raise ValueError("continuation requires at least one optimizer param_group")
-    contract_groups = checkpoint["optimizer_contract"].get("param_groups")
-    if not isinstance(contract_groups, list) or len(contract_groups) != len(groups):
-        raise ValueError("optimizer_contract param_groups do not match optimizer state")
-    for index, group in enumerate(groups):
-        expected_group = {
-            "algorithm": "Adam",
-            "lr": config.lr,
-            "eps": config.adam_eps,
-            "betas": [0.9, 0.999],
-            "weight_decay": 0,
-            "amsgrad": False,
-        }
-        actual_group = {
-            "algorithm": "Adam",
-            "lr": group.get("lr") if isinstance(group, dict) else None,
-            "eps": group.get("eps") if isinstance(group, dict) else None,
-            "betas": list(group.get("betas", ())) if isinstance(group, dict) else None,
-            "weight_decay": group.get("weight_decay") if isinstance(group, dict) else None,
-            "amsgrad": group.get("amsgrad") if isinstance(group, dict) else None,
-        }
-        if actual_group != expected_group:
-            raise ValueError(
-                f"optimizer param_group {index} conflicts with requested Adam semantics"
-            )
-        if contract_groups[index] != actual_group:
-            raise ValueError(f"optimizer_contract disagrees with param_group {index}")
+    actual_optimizer = pqn_optimizer_contract(config, optimizer_state)
+    if canonical_digest(actual_optimizer) != canonical_digest(pqn_optimizer_contract(config)):
+        raise ValueError("optimizer param_groups conflict with requested Adam semantics")
+    if canonical_digest(actual_optimizer) != checkpoint["optimizer_contract_digest"]:
+        raise ValueError("optimizer_contract disagrees with actual param_groups")
 
 
 def load_pqn_resume_checkpoint(
@@ -518,12 +471,15 @@ def load_pqn_resume_checkpoint(
         raise FileNotFoundError(f"Resume checkpoint not found: {resume_checkpoint}")
 
     try:
-        checkpoint = torch.load(checkpoint_path, map_location=map_location, weights_only=False)
+        checkpoint_bytes = checkpoint_path.read_bytes()
+        checkpoint = torch.load(
+            io.BytesIO(checkpoint_bytes), map_location=map_location, weights_only=False
+        )
         if not isinstance(checkpoint, dict):
             raise ValueError(f"checkpoint payload must be a dict, got {type(checkpoint).__name__}")
         # This private loader annotation becomes auditable output metadata on
         # the next checkpoint; it never participates in the resume contract.
-        checkpoint["_p1_parent_hash"] = hashlib.sha256(checkpoint_path.read_bytes()).hexdigest()
+        checkpoint["_p1_parent_hash"] = hashlib.sha256(checkpoint_bytes).hexdigest()
         required_state = ("dqn_state_dict",) if mode == "weights-only" else _RESUME_REQUIRED_STATE
         for key in required_state:
             if key not in checkpoint:
@@ -573,6 +529,21 @@ def apply_resume_checkpoint(
         checkpoint: A checkpoint already validated by
             :func:`load_pqn_resume_checkpoint`.
     """
+    if mode not in {"weights-only", "continuation"}:
+        raise ValueError(f"Cannot apply resume mode {mode!r}")
+    if mode == "weights-only" and (
+        trainer.update_idx != 0
+        or trainer.agent_steps != 0
+        or bool(trainer.optimizer.state)
+        or bool((trainer.sim.frame != 0).any())
+        or len(trainer.pool) != 0
+        or trainer._initial_rng_identity
+        != (
+            canonical_digest(trainer.rng.bit_generator.state),
+            canonical_digest(trainer.sgd_rng.bit_generator.state),
+        )
+    ):
+        raise ValueError("weights-only resume requires a fresh trainer")
     validate_checkpoint_numeric_state(checkpoint)
     trainer.network.load_state_dict(checkpoint["dqn_state_dict"])
     if mode == "weights-only":
@@ -633,6 +604,9 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         if key not in {"field_sources", "source_revision", "requested_device", "effective_device"}
     }
     sources = {key: "default" for key in cfg_kwargs}
+    sources.update(
+        source_revision="checkout", requested_device="default", effective_device="runtime"
+    )
     if args.config:
         app_config = load_config(args.config)
         config_values = _load_config_overrides(args.config, app_config)
@@ -640,6 +614,7 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         sources.update({key: "config" for key in config_values})
         # ConfigSchema already validated the hardware section in this one read.
         cfg_kwargs["requested_device"] = app_config.hardware.device
+        sources["requested_device"] = "config"
 
     # Map CLI flags (only those explicitly provided) onto config fields.
     cli_map = {
@@ -1040,7 +1015,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = p.parse_args(argv)
 
     config = build_config(args)
-    seed_context = initialize_run_seed(config.seed)
+    seed_request = None if config.field_sources["seed"] == "default" else config.seed
+    seed_context = initialize_run_seed(seed_request)
+    if seed_request is None:
+        config.field_sources["seed"] = "entropy"
     config.seed = seed_context.effective_seed
     # CLI > explicitly-set environment > validated YAML hardware > auto.
     yaml_device = config.requested_device if config.requested_device != "auto" else None
@@ -1050,6 +1028,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # while claiming CPU in the artifact.
     device = _resolve_device(None if requested_device == "auto" else requested_device)
     config.requested_device = requested_device
+    config.field_sources["requested_device"] = (
+        "cli"
+        if args.device
+        else "env" if os.environ.get("SNAKE_DQN_DEVICE") else "config" if yaml_device else "default"
+    )
     config.effective_device = str(device)
     out_dir = Path(args.out_dir)
 
