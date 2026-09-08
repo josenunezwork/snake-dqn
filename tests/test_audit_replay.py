@@ -20,6 +20,10 @@ from src.scripts.audit_replay import (
     main,
     resolve_audit_gate_values,
 )
+from src.training.td_targets import (
+    MASK_MODE_RASTER_RESOLVED_V3,
+    MASK_MODE_TERMINAL_NO_SUCCESSOR,
+)
 
 
 def make_state(value: float) -> list[float]:
@@ -42,27 +46,33 @@ def make_state(value: float) -> list[float]:
     return state
 
 
-def write_replay_db(db_path, rewards=None) -> None:
+def write_replay_db(db_path, rewards=None, *, resolved_masks: bool = False) -> None:
     """Create a small replay database with deterministic quality stats."""
     rewards = rewards if rewards is not None else [1.0, 0.0, 0.5, -1.0]
+    memories = []
+    for idx, reward in enumerate(rewards):
+        done = idx == len(rewards) - 1
+        memory = {
+            "state": make_state(idx),
+            "action": idx % 4,
+            "reward": reward,
+            "next_state": make_state(idx + 10),
+            "done": done,
+            "priority": 1.0 + idx,
+            "bootstrap_steps": 2 if idx < 2 else 1,
+            "next_action_mask": [mask_idx < 3 for mask_idx in range(6)],
+        }
+        if resolved_masks:
+            memory["next_action_mask_mode"] = (
+                MASK_MODE_TERMINAL_NO_SUCCESSOR if done else MASK_MODE_RASTER_RESOLVED_V3
+            )
+            if done:
+                memory["next_action_mask"] = None
+        memories.append(memory)
+
     handler = MemoryDBHandler(str(db_path))
     try:
-        handler.save_memories(
-            snake_id=2,
-            memories=[
-                {
-                    "state": make_state(idx),
-                    "action": idx % 4,
-                    "reward": reward,
-                    "next_state": make_state(idx + 10),
-                    "done": idx == len(rewards) - 1,
-                    "priority": 1.0 + idx,
-                    "bootstrap_steps": 2 if idx < 2 else 1,
-                    "next_action_mask": [mask_idx < 3 for mask_idx in range(6)],
-                }
-                for idx, reward in enumerate(rewards)
-            ],
-        )
+        handler.save_memories(snake_id=2, memories=memories)
     finally:
         handler.close()
 
@@ -125,11 +135,26 @@ def test_format_generation_metadata_returns_compact_lines():
             "model_loaded=True"
         ),
         (
-            "Generation replay quality: rows=4 | terminal=25.00% | exact_masks=75.0% | "
+            "Generation replay quality: rows=4 | terminal=25.00% | masks_present=75.0% | "
             "actions=0:3, 1:0, 2:0, 3:1, 4:0, 5:0 | reward neg/zero/pos=1/1/2 | "
             "invalid_nonterminal_actions=25.0%"
         ),
     ]
+
+
+def test_format_generation_metadata_distinguishes_resolved_masks_from_presence():
+    lines = format_generation_metadata(
+        {
+            "generation.mode": "single",
+            "generation.replay_quality": {
+                "count": 4,
+                "nonterminal_mask_fraction": 0.75,
+                "nonterminal_exact_mask_fraction": 0.25,
+            },
+        }
+    )
+
+    assert "masks_present=75.0% | resolved_exact_masks=25.0%" in lines[-1]
 
 
 def test_format_gate_args_prints_only_active_gates():
@@ -258,6 +283,20 @@ def test_audit_replay_database_returns_quality_and_warnings(tmp_path):
     assert isinstance(warnings, list)
 
 
+def test_legacy_mask_presence_is_auditable_but_cannot_pass_exact_mask_gate(tmp_path):
+    db_path = tmp_path / "legacy-replay.db"
+    write_replay_db(db_path)
+
+    quality, _warnings = audit_replay_database(str(db_path))
+
+    assert quality["nonterminal_mask_count"] == 3
+    assert quality["nonterminal_exact_mask_count"] == 0
+    gates = dict(AUDIT_GATE_PRESETS["none"])
+    gates["min_exact_mask_fraction"] = 0.01
+    with pytest.raises(RuntimeError, match="0/3 nonterminal rows carry resolved mode 1"):
+        audit_replay_database(str(db_path), gates=gates)
+
+
 def test_audit_replay_database_applies_quality_gates(tmp_path):
     db_path = tmp_path / "replay.db"
     write_replay_db(db_path, rewards=[0.0, 0.0, 1.0, -1.0])
@@ -377,7 +416,7 @@ def test_audit_replay_database_applies_min_row_count(tmp_path):
 
 def test_main_prints_report_and_gate_args(tmp_path, capsys):
     db_path = tmp_path / "replay.db"
-    write_replay_db(db_path)
+    write_replay_db(db_path, resolved_masks=True)
     handler = MemoryDBHandler(str(db_path))
     try:
         handler.update_metadata(

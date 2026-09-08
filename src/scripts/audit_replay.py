@@ -174,6 +174,8 @@ def format_generation_metadata(metadata: dict) -> list[str]:
     replay_quality = metadata.get("generation.replay_quality")
     if isinstance(replay_quality, dict):
         count = int(replay_quality.get("count", 0))
+        mask_presence_fraction = float(replay_quality.get("nonterminal_mask_fraction", 0.0))
+        exact_mask_fraction = replay_quality.get("nonterminal_exact_mask_fraction")
         action_counts = replay_quality.get("action_counts", [])
         if isinstance(action_counts, dict):
             action_counts = [
@@ -184,11 +186,14 @@ def format_generation_metadata(metadata: dict) -> list[str]:
             f"{action}:{int(action_counts[action]) if action < len(action_counts) else 0}"
             for action in range(6)
         )
+        mask_summary = f"masks_present={mask_presence_fraction:.1%}"
+        if exact_mask_fraction is not None:
+            mask_summary += f" | resolved_exact_masks={float(exact_mask_fraction):.1%}"
         lines.append(
             "Generation replay quality: "
             f"rows={count:,} | "
             f"terminal={float(replay_quality.get('terminal_fraction', 0.0)):.2%} | "
-            f"exact_masks={float(replay_quality.get('nonterminal_mask_fraction', 0.0)):.1%} | "
+            f"{mask_summary} | "
             f"actions={actions} | "
             f"reward neg/zero/pos="
             f"{int(replay_quality.get('reward_negative_count', 0)):,}/"
