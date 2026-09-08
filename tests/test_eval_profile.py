@@ -79,6 +79,15 @@ def test_profile_descriptor_rejects_truthy_runtime_and_missing_normalization() -
 def test_profile_canonicalizes_integral_normalizers_and_rejects_fractional_values() -> None:
     profile = promotion_v2_watch_rect(_world())
     assert profile.world.normalization["max_frames"] == 5000
+    assert type(profile.world.normalization["max_frames"]) is int
+
+    integer_world = EffectiveWorldConfig(
+        **{
+            **{field.name: getattr(_world(), field.name) for field in fields(EffectiveWorldConfig)},
+            "normalization": {"max_frames": 5000, "starvation_max": 500, "max_length": 100},
+        }
+    )
+    assert promotion_v2_watch_rect(integer_world).digest == profile.digest
 
     fractional = EffectiveWorldConfig(
         **{

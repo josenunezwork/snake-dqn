@@ -123,10 +123,9 @@ class EvaluationProfile:
                     "promotion v2 requires complete positive integer observation normalization"
                 )
             canonical_normalization = {key: int(value) for key, value in normalization.items()}
-            if dict(normalization) != canonical_normalization:
-                object.__setattr__(
-                    self, "world", replace(self.world, normalization=canonical_normalization)
-                )
+            object.__setattr__(
+                self, "world", replace(self.world, normalization=canonical_normalization)
+            )
 
     def descriptor(self) -> dict[str, Any]:
         """Return canonical, JSON-ready identity data for results and manifests."""
