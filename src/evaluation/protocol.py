@@ -7,7 +7,7 @@ observation-progress normalization without relying on a CLI default.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, fields
 from math import isfinite
 from typing import Any, Mapping
 
@@ -122,10 +122,6 @@ class EvaluationProfile:
                 raise ValueError(
                     "promotion v2 requires complete positive integer observation normalization"
                 )
-            canonical_normalization = {key: int(value) for key, value in normalization.items()}
-            object.__setattr__(
-                self, "world", replace(self.world, normalization=canonical_normalization)
-            )
 
     def descriptor(self) -> dict[str, Any]:
         """Return canonical, JSON-ready identity data for results and manifests."""

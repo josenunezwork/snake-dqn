@@ -51,7 +51,7 @@ def test_promotion_profile_freezes_watch_runtime_and_separate_horizons() -> None
     assert changed_progress.digest != profile.digest
     assert changed_score.digest != changed_progress.digest
     descriptor = profile.descriptor()
-    assert descriptor["world"]["normalization"]["max_frames"] == 5000
+    assert descriptor["world"]["normalization"]["max_frames"] == 5000.0
     assert descriptor["runtime"]["reset_strategy"] == "manual"
     assert profile.from_descriptor(descriptor) == profile
 
@@ -76,18 +76,12 @@ def test_profile_descriptor_rejects_truthy_runtime_and_missing_normalization() -
         profile.from_descriptor(descriptor)
 
 
-def test_profile_canonicalizes_integral_normalizers_and_rejects_fractional_values() -> None:
+def test_profile_preserves_integral_normalizer_representation_and_rejects_fractional_values() -> (
+    None
+):
     profile = promotion_v2_watch_rect(_world())
     assert profile.world.normalization["max_frames"] == 5000
-    assert type(profile.world.normalization["max_frames"]) is int
-
-    integer_world = EffectiveWorldConfig(
-        **{
-            **{field.name: getattr(_world(), field.name) for field in fields(EffectiveWorldConfig)},
-            "normalization": {"max_frames": 5000, "starvation_max": 500, "max_length": 100},
-        }
-    )
-    assert promotion_v2_watch_rect(integer_world).digest == profile.digest
+    assert type(profile.world.normalization["max_frames"]) is float
 
     fractional = EffectiveWorldConfig(
         **{
