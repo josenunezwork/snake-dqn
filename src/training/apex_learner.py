@@ -717,6 +717,12 @@ class ApexLearner:
         """
         if self.step_count or self.update_version or self.optimizer.state:
             raise ValueError("weights-only load requires a fresh Apex learner receiver")
+        # A direct local learner owns its replay in-process.  Do not blend an
+        # imported model with rows from a prior local run.  Distributed replay
+        # is coordinator-owned and must not be polled here: its BufferProcess
+        # may not have started when this public loader is called.
+        if isinstance(self.buffer_client, LocalApexBuffer) and len(self.buffer_client):
+            raise ValueError("weights-only load requires an empty local Apex replay buffer")
 
     def get_training_stats(self) -> Dict[str, Any]:
         """Get comprehensive training statistics.

@@ -540,7 +540,8 @@ class TestCheckpointing:
         assert state["step_count"] == 3
 
         # Create new learner and load
-        learner2 = ApexLearner(config, buffer_client=buf, device=torch.device("cpu"))
+        fresh_buf = LocalApexBuffer(capacity=1000, alpha=0.6, state_size=config.input_size)
+        learner2 = ApexLearner(config, buffer_client=fresh_buf, device=torch.device("cpu"))
         assert learner2.step_count == 0
         learner2.load_state_dict(state, resume_mode="weights-only")
         assert learner2.step_count == 0
@@ -589,6 +590,23 @@ class TestCheckpointing:
 
         assert target.step_count == 1
         assert target.optimizer.state
+        for key, value in before_weights.items():
+            assert torch.equal(value, target.dqn.state_dict()[key])
+
+    def test_weights_only_resume_rejects_prefilled_local_replay(self):
+        config = _small_config(min_buffer_size=1)
+        source = ApexLearner(config, device=torch.device("cpu"))
+        local_replay = LocalApexBuffer(capacity=8, state_size=config.input_size)
+        _fill_buffer(local_replay, 1, input_size=config.input_size)
+        target = ApexLearner(config, buffer_client=local_replay, device=torch.device("cpu"))
+        before_weights = {key: value.clone() for key, value in target.dqn.state_dict().items()}
+
+        with pytest.raises(ValueError, match="empty local Apex replay buffer"):
+            target.load_state_dict(
+                {"dqn_state_dict": source.dqn.state_dict(), "config": source.config.__dict__}
+            )
+
+        assert len(local_replay) == 1
         for key, value in before_weights.items():
             assert torch.equal(value, target.dqn.state_dict()[key])
 
