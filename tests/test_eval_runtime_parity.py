@@ -179,3 +179,69 @@ def test_profile_capacity_boundary_fails_closed_in_both_public_wrappers(monkeypa
         rollout(hero, opponents, frames=3, seed=43, profile=profile)
     with pytest.raises(RuntimeError, match="max_capacity"):
         run_simd_eval(hero, opponents, frames=3, seeds=[43], profile=profile)
+
+
+def test_actual_serialized_v3_checkpoint_attaches_to_live_profile(tmp_path):
+    """A producer-format v3 checkpoint reaches RasterServingPolicy without a mock."""
+    import torch
+
+    from src.core.game_config import AppConfig, GameSettings, initialize_config
+    from src.core.runtime_contract import EffectiveWorldConfig
+    from src.core.seeding import initialize_run_seed
+    from src.evaluation.protocol import promotion_v2_watch_rect
+    from src.game.game_state_factory import create_training_game_state
+    from src.scripts.tournament_eval import _attach_agent
+    from src.training.pqn_trainer import PQNConfig, PQNTrainer
+    from web.backend.raster_policy import RasterServingPolicy
+
+    seed = initialize_run_seed(9017)
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=6,
+        rollout_len=2,
+        obs_spec="raster31v3",
+        recipe="corrected-v3",
+        flip_augment=False,
+        max_frames=1234,
+        starvation_max=77,
+        max_length=66,
+        source_revision="e1-runtime-test",
+        seed=seed.effective_seed,
+        requested_device="cpu",
+        effective_device="cpu",
+    )
+    trainer = PQNTrainer(config, device=torch.device("cpu"))
+    checkpoint = tmp_path / "actual-v3.pth"
+    trainer.save_checkpoint(str(checkpoint))
+    blob = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    profile = replace(
+        promotion_v2_watch_rect(EffectiveWorldConfig(**blob["effective_world"])),
+        scored_horizon=1,
+        observation_progress_horizon=1234,
+    )
+    world = profile.world
+    initialize_config(
+        AppConfig(
+            game=GameSettings(
+                width=world.width,
+                height=world.height,
+                segment_size=world.segment_size,
+                wall_thickness=world.wall_thickness,
+                num_snakes=world.num_snakes,
+                initial_food=world.initial_food,
+                max_food=world.max_food,
+                mechanics_version=world.mechanics_version,
+                frame_rate=world.frame_rate,
+                max_length=world.max_length,
+                min_boost_length=world.min_boost_length,
+                boost_length_cost_frames=world.boost_length_cost_frames,
+            )
+        )
+    )
+    game = create_training_game_state(eval_mode=False)
+    try:
+        cache = {}
+        _attach_agent(game, 0, ("checkpoint", str(checkpoint)), 59, cache, profile)
+        assert isinstance(game.snakes[0].policy, RasterServingPolicy)
+    finally:
+        game.full_cleanup()

@@ -372,7 +372,9 @@ def _attach_agent(
     snake = gs.snakes[slot]
     kind, ref = spec
     if kind == "checkpoint":
+        from src.model.inference_agent import InferenceAgent
         from src.model.obs_spec import RASTER31V2, RASTER31V3
+        from web.backend.raster_policy import RasterServingPolicy
 
         obs_spec = checkpoint_obs_spec(ref)
         if obs_spec == RASTER31V2 and slot != 0:
@@ -383,9 +385,6 @@ def _attach_agent(
             )
         if ref not in policy_cache:
             if obs_spec == RASTER31V2:
-                from src.model.inference_agent import InferenceAgent
-                from web.backend.raster_policy import RasterServingPolicy
-
                 policy_cache[ref] = RasterServingPolicy(InferenceAgent.from_checkpoint(ref))
             elif obs_spec == RASTER31V3:
                 if profile is None:
