@@ -61,7 +61,12 @@ def validate_serialized_optimizer_state(
             for parameter_id in parameters
         ):
             raise ValueError("optimizer continuation has malformed parameter ids")
+        previous_count = len(serialized_ids)
         serialized_ids.update(parameters)
+        if len(serialized_ids) != previous_count + len(parameters):
+            raise ValueError("optimizer continuation has duplicate parameter ids")
+    if update_count == 0 and entries:
+        raise ValueError("zero-update optimizer continuation must have empty Adam state")
     if update_count > 0 and set(entries) != serialized_ids:
         raise ValueError("optimizer continuation has incomplete Adam state")
     expected_shapes: dict[int, tuple[int, ...]] = {}
@@ -96,6 +101,8 @@ def validate_serialized_optimizer_state(
             or step < 0
         ):
             raise ValueError("optimizer continuation has invalid Adam step")
+        if int(step) != update_count:
+            raise ValueError("optimizer continuation Adam step disagrees with update count")
         exp_avg, exp_avg_sq = entry["exp_avg"], entry["exp_avg_sq"]
         if not hasattr(exp_avg, "shape") or not hasattr(exp_avg_sq, "shape"):
             raise ValueError("optimizer continuation has non-tensor Adam moments")

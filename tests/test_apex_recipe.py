@@ -5,7 +5,11 @@ import copy
 import pytest
 import torch
 
-from src.training.apex_recipe import ApexRecipe, validate_recipe_continuation
+from src.training.apex_recipe import (
+    ApexRecipe,
+    validate_recipe_continuation,
+    validate_serialized_optimizer_state,
+)
 
 
 def _recipe_and_optimizer() -> tuple[ApexRecipe, torch.optim.Optimizer]:
@@ -53,6 +57,16 @@ def _nonzero_checkpoint(recipe: ApexRecipe, optimizer: torch.optim.Optimizer) ->
     checkpoint = _checkpoint(recipe, optimizer)
     checkpoint["step_count"] = 1
     return checkpoint
+
+
+def _set_adam_step(checkpoint: dict, step: int) -> None:
+    checkpoint["step_count"] = step
+    for entry in checkpoint["optimizer_state_dict"]["state"].values():
+        current = entry["step"]
+        if isinstance(current, torch.Tensor):
+            entry["step"] = torch.full_like(current, step)
+        else:
+            entry["step"] = step
 
 
 def test_optimizer_continuation_rejects_forged_descriptor_before_use() -> None:
@@ -117,7 +131,7 @@ def test_distributed_continuation_accepts_nonzero_checkpoint_beta_clock() -> Non
     """A resume clock is launch provenance, while the beta horizon is semantic."""
     recipe, optimizer = _recipe_and_optimizer()
     checkpoint = _nonzero_checkpoint(recipe, optimizer)
-    checkpoint["step_count"] = 100
+    _set_adam_step(checkpoint, 100)
     requested = ApexRecipe(
         **recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 100}
     )
@@ -129,7 +143,7 @@ def test_entropy_seeded_continuation_accepts_new_run_seed_with_source_labeling()
     """Continuation starts fresh RNG streams while retaining source seed provenance."""
     recipe, optimizer = _recipe_and_optimizer()
     checkpoint = _nonzero_checkpoint(recipe, optimizer)
-    checkpoint["step_count"] = 7
+    _set_adam_step(checkpoint, 7)
     resumed = ApexRecipe(
         **recipe.semantic_dict(),
         seeding_contract={
@@ -152,10 +166,12 @@ def test_entropy_seeded_continuation_accepts_new_run_seed_with_source_labeling()
 def test_optimizer_continuation_rejects_malformed_adam_state_before_load() -> None:
     recipe, optimizer = _recipe_and_optimizer()
     checkpoint = _checkpoint(recipe, optimizer)
+    checkpoint["step_count"] = 1
     checkpoint["optimizer_state_dict"] = copy.deepcopy(checkpoint["optimizer_state_dict"])
     checkpoint["optimizer_state_dict"]["state"] = {0: {"step": 1}}
     with pytest.raises(ValueError, match="missing exp_avg"):
-        validate_recipe_continuation(checkpoint, recipe, weights_only=False, optimizer=optimizer)
+        requested = ApexRecipe(**recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 1})
+        validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
 
 
 @pytest.mark.parametrize("corruption", ["delete", "fractional_step"])
@@ -174,3 +190,21 @@ def test_nonzero_continuation_requires_complete_integral_adam_state(corruption: 
     with pytest.raises(ValueError, match=expected):
         requested = ApexRecipe(**recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 1})
         validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
+
+
+def test_distributed_continuation_rejects_adam_step_odometer_mismatch() -> None:
+    recipe, optimizer = _recipe_and_optimizer()
+    checkpoint = _nonzero_checkpoint(recipe, optimizer)
+    checkpoint["step_count"] = 2
+    requested = ApexRecipe(**recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 2})
+    with pytest.raises(ValueError, match="disagrees with update count"):
+        validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
+
+
+def test_optimizer_state_rejects_duplicate_parameter_ids() -> None:
+    recipe, optimizer = _recipe_and_optimizer()
+    checkpoint = _nonzero_checkpoint(recipe, optimizer)
+    state = copy.deepcopy(checkpoint["optimizer_state_dict"])
+    state["param_groups"][0]["params"] = [0, 0]
+    with pytest.raises(ValueError, match="duplicate parameter ids"):
+        validate_serialized_optimizer_state(state, optimizer, update_count=1)

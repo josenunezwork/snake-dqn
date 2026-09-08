@@ -438,7 +438,7 @@ def test_local_multistep_sample_preserves_mask_modes_into_resolved_targets():
                 next_action_mask_mode=mode,
             )
             batch, _, weights = policy.memory.sample(1, torch.device("cpu"))
-            if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR:
+            if mode == MASK_MODE_LEGACY_ADVISORY:
                 assert "next_action_mask_modes" not in batch
             else:
                 assert batch["next_action_mask_modes"].tolist() == [mode]
@@ -997,7 +997,7 @@ def test_weights_only_loads_online_then_freshly_syncs_target_and_runtime():
         initialize_config()
 
 
-@pytest.mark.parametrize("corruption", ["delete", "fractional_step"])
+@pytest.mark.parametrize("corruption", ["delete", "fractional_step", "counter"])
 def test_local_continuation_rejects_adam_state_before_network_mutation(corruption: str) -> None:
     """A corrupt optimizer continuation cannot partially replace local model weights."""
     DeviceManager.override_device(torch.device("cpu"))
@@ -1016,11 +1016,13 @@ def test_local_continuation_rejects_adam_state_before_network_mutation(corruptio
         parameter_id = next(iter(state))
         if corruption == "delete":
             del state[parameter_id]
-        else:
+        elif corruption == "fractional_step":
             state[parameter_id]["step"] = 1.5
+        else:
+            checkpoint["update_counter"] = 2
         reader = ApexPolicy(input_size=4, hidden_size=64, output_size=3, n_step=1)
         original = {key: value.clone() for key, value in reader.dqn.state_dict().items()}
-        with pytest.raises(ValueError, match="Adam state|Adam step"):
+        with pytest.raises(ValueError, match="Adam state|Adam step|update count"):
             reader.load_state_dict(checkpoint, resume_mode="continuation")
         for key, value in reader.dqn.state_dict().items():
             assert torch.equal(value, original[key])
