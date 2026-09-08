@@ -43,16 +43,30 @@ def serialized_optimizer_descriptor(state: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def validate_serialized_optimizer_state(
-    state: Mapping[str, Any], optimizer: Optional[torch.optim.Optimizer] = None
+    state: Mapping[str, Any], optimizer: Optional[torch.optim.Optimizer] = None,
+    update_count: int = 0,
 ) -> None:
     """Reject malformed or non-finite Adam state before a live optimizer changes."""
     entries = state.get("state")
     if not isinstance(entries, Mapping):
         raise ValueError("optimizer continuation has malformed state mapping")
+    serialized_groups = state.get("param_groups")
+    if not isinstance(serialized_groups, list):
+        raise ValueError("optimizer continuation has no param_groups")
+    serialized_ids: set[int] = set()
+    for group in serialized_groups:
+        parameters = group.get("params") if isinstance(group, Mapping) else None
+        if not isinstance(parameters, list) or any(
+            isinstance(parameter_id, bool) or not isinstance(parameter_id, int)
+            for parameter_id in parameters
+        ):
+            raise ValueError("optimizer continuation has malformed parameter ids")
+        serialized_ids.update(parameters)
+    if update_count > 0 and set(entries) != serialized_ids:
+        raise ValueError("optimizer continuation has incomplete Adam state")
     expected_shapes: dict[int, tuple[int, ...]] = {}
     if optimizer is not None:
-        serialized_groups = state.get("param_groups")
-        if not isinstance(serialized_groups, list) or len(serialized_groups) != len(optimizer.param_groups):
+        if len(serialized_groups) != len(optimizer.param_groups):
             raise ValueError("optimizer continuation has incompatible live param_groups")
         for saved, live in zip(serialized_groups, optimizer.param_groups):
             saved_ids = saved.get("params") if isinstance(saved, Mapping) else None
@@ -78,6 +92,7 @@ def validate_serialized_optimizer_state(
             isinstance(step, bool)
             or not isinstance(step, (int, float))
             or not math.isfinite(step)
+            or not float(step).is_integer()
             or step < 0
         ):
             raise ValueError("optimizer continuation has invalid Adam step")
@@ -285,6 +300,9 @@ def validate_recipe_continuation(
     actual_optimizer = serialized_optimizer_descriptor(optimizer_state)
     if actual_optimizer["param_groups"] != stored_optimizer.get("param_groups"):
         raise ValueError("optimizer continuation state conflicts with its Apex recipe")
-    validate_serialized_optimizer_state(optimizer_state, optimizer)
+    update_count = checkpoint.get("step_count", checkpoint.get("update_counter", 0))
+    if isinstance(update_count, bool) or not isinstance(update_count, int) or update_count < 0:
+        raise ValueError("optimizer continuation has invalid update count")
+    validate_serialized_optimizer_state(optimizer_state, optimizer, update_count=update_count)
     if optimizer is not None and optimizer_descriptor(optimizer) != dict(stored_optimizer):
         raise ValueError("optimizer continuation conflicts with receiving optimizer")

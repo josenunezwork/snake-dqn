@@ -434,15 +434,19 @@ def test_local_multistep_sample_preserves_mask_modes_into_resolved_targets():
             policy.memory.clear()
             policy.memory.add(
                 torch.zeros(58), 0, 1.25 if done else 0.0, _full_state_batch().squeeze(0), done,
-                next_action_mask=resolved_safe, next_action_mask_mode=mode,
+                next_action_mask=None if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR else resolved_safe,
+                next_action_mask_mode=mode,
             )
             batch, _, weights = policy.memory.sample(1, torch.device("cpu"))
-            assert batch["next_action_mask_modes"].tolist() == [mode]
+            if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR:
+                assert "next_action_mask_modes" not in batch
+            else:
+                assert batch["next_action_mask_modes"].tolist() == [mode]
             _, errors = policy._compute_double_dqn_loss(
                 batch["states"], batch["actions"], batch["rewards"], batch["next_states"],
                 batch["dones"], weights, bootstrap_steps=batch["bootstrap_steps"],
-                next_action_masks=batch["next_action_masks"],
-                next_action_mask_modes=batch["next_action_mask_modes"],
+                next_action_masks=batch.get("next_action_masks"),
+                next_action_mask_modes=batch.get("next_action_mask_modes"),
             )
             return float(errors[0])
 
@@ -988,6 +992,38 @@ def test_weights_only_loads_online_then_freshly_syncs_target_and_runtime():
         assert reader.epsilon == pytest.approx(1.0)
         assert reader.distributed is False
         assert reader.actor_id is None
+    finally:
+        DeviceManager.reset_for_testing()
+        initialize_config()
+
+
+@pytest.mark.parametrize("corruption", ["delete", "fractional_step"])
+def test_local_continuation_rejects_adam_state_before_network_mutation(corruption: str) -> None:
+    """A corrupt optimizer continuation cannot partially replace local model weights."""
+    DeviceManager.override_device(torch.device("cpu"))
+    initialize_config(
+        AppConfig(
+            network=NetworkSettings(input_size=4, hidden_size=64, output_size=3),
+            training=TrainingSettings(batch_size=1, memory_size=1000),
+            apex=ApexSettings(batch_size=1, min_buffer_size=1, learning_rate=0.001),
+        )
+    )
+    try:
+        writer = ApexPolicy(input_size=4, hidden_size=64, output_size=3, n_step=1)
+        writer.update(torch.zeros(4), 0, 0.5, torch.ones(4), False)
+        checkpoint = writer.get_state_dict()
+        state = checkpoint["optimizer_state_dict"]["state"]
+        parameter_id = next(iter(state))
+        if corruption == "delete":
+            del state[parameter_id]
+        else:
+            state[parameter_id]["step"] = 1.5
+        reader = ApexPolicy(input_size=4, hidden_size=64, output_size=3, n_step=1)
+        original = {key: value.clone() for key, value in reader.dqn.state_dict().items()}
+        with pytest.raises(ValueError, match="Adam state|Adam step"):
+            reader.load_state_dict(checkpoint, resume_mode="continuation")
+        for key, value in reader.dqn.state_dict().items():
+            assert torch.equal(value, original[key])
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()

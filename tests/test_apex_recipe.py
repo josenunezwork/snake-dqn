@@ -46,6 +46,15 @@ def _checkpoint(recipe: ApexRecipe, optimizer: torch.optim.Optimizer) -> dict:
     }
 
 
+def _nonzero_checkpoint(recipe: ApexRecipe, optimizer: torch.optim.Optimizer) -> dict:
+    parameter = optimizer.param_groups[0]["params"][0]
+    parameter.grad = torch.ones_like(parameter)
+    optimizer.step()
+    checkpoint = _checkpoint(recipe, optimizer)
+    checkpoint["step_count"] = 1
+    return checkpoint
+
+
 def test_optimizer_continuation_rejects_forged_descriptor_before_use() -> None:
     recipe, optimizer = _recipe_and_optimizer()
     checkpoint = _checkpoint(recipe, optimizer)
@@ -107,7 +116,7 @@ def test_recipe_continuation_rejects_replay_horizon_or_batch_change() -> None:
 def test_distributed_continuation_accepts_nonzero_checkpoint_beta_clock() -> None:
     """A resume clock is launch provenance, while the beta horizon is semantic."""
     recipe, optimizer = _recipe_and_optimizer()
-    checkpoint = _checkpoint(recipe, optimizer)
+    checkpoint = _nonzero_checkpoint(recipe, optimizer)
     checkpoint["step_count"] = 100
     requested = ApexRecipe(
         **recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 100}
@@ -119,7 +128,7 @@ def test_distributed_continuation_accepts_nonzero_checkpoint_beta_clock() -> Non
 def test_entropy_seeded_continuation_accepts_new_run_seed_with_source_labeling() -> None:
     """Continuation starts fresh RNG streams while retaining source seed provenance."""
     recipe, optimizer = _recipe_and_optimizer()
-    checkpoint = _checkpoint(recipe, optimizer)
+    checkpoint = _nonzero_checkpoint(recipe, optimizer)
     checkpoint["step_count"] = 7
     resumed = ApexRecipe(
         **recipe.semantic_dict(),
@@ -147,3 +156,21 @@ def test_optimizer_continuation_rejects_malformed_adam_state_before_load() -> No
     checkpoint["optimizer_state_dict"]["state"] = {0: {"step": 1}}
     with pytest.raises(ValueError, match="missing exp_avg"):
         validate_recipe_continuation(checkpoint, recipe, weights_only=False, optimizer=optimizer)
+
+
+@pytest.mark.parametrize("corruption", ["delete", "fractional_step"])
+def test_nonzero_continuation_requires_complete_integral_adam_state(corruption: str) -> None:
+    recipe, optimizer = _recipe_and_optimizer()
+    checkpoint = _nonzero_checkpoint(recipe, optimizer)
+    checkpoint["optimizer_state_dict"] = copy.deepcopy(checkpoint["optimizer_state_dict"])
+    state = checkpoint["optimizer_state_dict"]["state"]
+    parameter_id = next(iter(state))
+    if corruption == "delete":
+        del state[parameter_id]
+        expected = "incomplete Adam state"
+    else:
+        state[parameter_id]["step"] = 1.5
+        expected = "invalid Adam step"
+    with pytest.raises(ValueError, match=expected):
+        requested = ApexRecipe(**recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 1})
+        validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
