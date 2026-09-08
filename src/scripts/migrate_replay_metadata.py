@@ -55,13 +55,32 @@ def _experience_counts(conn: sqlite3.Connection) -> dict[str, int]:
     return counts
 
 
-def _fallback_mask_count(conn: sqlite3.Connection) -> int:
-    tables = {
-        str(row[0]) for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    }
-    table = "memories_standard" if "memories_standard" in tables else None
-    if table is None:
-        table = "memories" if "memories" in tables else "memories_legacy"
+def _populated_replay_table(experience_counts: Mapping[str, int]) -> str:
+    standard_count = experience_counts.get("memories_standard", 0)
+    unmigrated_count = experience_counts.get("memories", 0)
+    archive_count = experience_counts.get("memories_legacy", 0)
+    if standard_count > 0 and unmigrated_count > 0:
+        raise RuntimeError(
+            "Source has multiple populated active replay experience tables: "
+            "memories_standard, memories"
+        )
+    if standard_count > 0:
+        return "memories_standard"
+    if unmigrated_count > 0 and archive_count > 0:
+        raise RuntimeError(
+            "Source has multiple populated legacy replay experience tables: "
+            "memories, memories_legacy"
+        )
+    if unmigrated_count > 0:
+        return "memories"
+    if archive_count > 0:
+        return "memories_legacy"
+    if not any(experience_counts.values()):
+        raise RuntimeError("Source has no replay experience rows")
+    raise RuntimeError("Source has no recognized populated replay experience table")
+
+
+def _fallback_mask_count(conn: sqlite3.Connection, table: str) -> int:
     columns = _table_columns(conn, table)
     if "next_action_mask" not in columns:
         predicate = "done = 0" if "done" in columns else "1=1"
@@ -158,7 +177,8 @@ def migrate_replay_metadata(
         source_counts = _experience_counts(source_conn)
         if not source_counts:
             raise RuntimeError("Source has no recognized replay experience table")
-        fallback_count = _fallback_mask_count(source_conn)
+        replay_table = _populated_replay_table(source_counts)
+        fallback_count = _fallback_mask_count(source_conn, replay_table)
         source_metadata = _read_metadata(source_conn)
         if REPLAY_CONTRACT_KEY in source_metadata or REPLAY_CONTRACT_DIGEST_KEY in source_metadata:
             raise RuntimeError("Source already contains replay.contract metadata")

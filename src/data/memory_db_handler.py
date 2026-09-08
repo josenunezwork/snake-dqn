@@ -559,17 +559,51 @@ class MemoryDBHandler:
         """Return column names for a trusted table selected from sqlite_master."""
         return {str(row[1]) for row in self.cursor.execute(f'PRAGMA table_info("{table}")')}
 
-    def _replay_table_for_read(self) -> str:
-        """Select standard replay first, then the untouched legacy table."""
+    def get_replay_table_counts(self) -> dict[str, int]:
+        """Return row counts for every recognized replay table in the database."""
         tables = {
             str(row[0])
             for row in self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-        if "memories_standard" in tables:
+        return {
+            table: int(self.cursor.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
+            for table in ("memories_standard", "memories", "memories_legacy")
+            if table in tables
+        }
+
+    def get_active_replay_table(self) -> str:
+        """Select active replay rows while recognizing the archival legacy copy."""
+        table_counts = self.get_replay_table_counts()
+        standard_count = table_counts.get("memories_standard", 0)
+        unmigrated_count = table_counts.get("memories", 0)
+        archive_count = table_counts.get("memories_legacy", 0)
+        if standard_count > 0 and unmigrated_count > 0:
+            raise RuntimeError(
+                "Replay database has multiple populated active experience tables: "
+                "memories_standard, memories"
+            )
+        if standard_count > 0:
             return "memories_standard"
-        if "memories" in tables:
+        if unmigrated_count > 0 and archive_count > 0:
+            raise RuntimeError(
+                "Replay database has multiple populated legacy experience tables: "
+                "memories, memories_legacy"
+            )
+        if unmigrated_count > 0:
             return "memories"
+        if archive_count > 0:
+            return "memories_legacy"
+        if "memories_standard" in table_counts:
+            return "memories_standard"
+        if "memories" in table_counts:
+            return "memories"
+        if "memories_legacy" in table_counts:
+            return "memories_legacy"
         raise RuntimeError("Replay database has no recognized experience table")
+
+    def _replay_table_for_read(self) -> str:
+        """Return the active replay table for internal read operations."""
+        return self.get_active_replay_table()
 
     # ========================
     # LEGACY COMPATIBILITY
@@ -665,6 +699,35 @@ class MemoryDBHandler:
             return 0
         where_clause = " AND ".join(predicates) if predicates else "1=1"
         query = f'SELECT COUNT(*) FROM "{table}" WHERE {where_clause}'
+        return int(self.cursor.execute(query, params).fetchone()[0])
+
+    def get_nonterminal_invalid_mask_count(
+        self,
+        policy_type: str | None = None,
+        action_count: int = ACTION_SIZE,
+    ) -> int:
+        """Count nonterminal masks outside the contract's integer bitset encoding."""
+        if not isinstance(action_count, int) or isinstance(action_count, bool) or action_count <= 0:
+            raise ValueError("action_count must be a positive integer")
+        table = self._replay_table_for_read()
+        columns = self._table_columns(table)
+        if "next_action_mask" not in columns:
+            return 0
+        predicates = ["next_action_mask IS NOT NULL"]
+        if "done" in columns:
+            predicates.append("done = 0")
+        max_mask = (1 << action_count) - 1
+        predicates.append(
+            "(typeof(next_action_mask) != 'integer' "
+            "OR next_action_mask < 0 OR next_action_mask > ?)"
+        )
+        params = [max_mask]
+        if policy_type and "policy_type" in columns:
+            predicates.append("policy_type = ?")
+            params.append(policy_type)
+        elif policy_type and policy_type != "apex":
+            return 0
+        query = f'SELECT COUNT(*) FROM "{table}" WHERE {" AND ".join(predicates)}'
         return int(self.cursor.execute(query, params).fetchone()[0])
 
     def get_memory_stats(self) -> dict:

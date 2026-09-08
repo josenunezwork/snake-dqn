@@ -1,6 +1,7 @@
 """Tests for experience generation helpers."""
 
 import sqlite3
+import struct
 from dataclasses import replace
 
 import pytest
@@ -224,7 +225,7 @@ class TestGenerationDatabasePaths:
             "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
         ).fetchall()
         try:
-            with pytest.raises(RuntimeError, match="incomplete or unverified"):
+            with pytest.raises(RuntimeError, match="active replay table.*legacy"):
                 generate_experiences(
                     episodes=1,
                     save_interval=1,
@@ -241,6 +242,58 @@ class TestGenerationDatabasePaths:
                 ).fetchall()
                 == before_schema
             )
+        finally:
+            writer.close()
+
+    @pytest.mark.parametrize("done", [False, True])
+    def test_append_rejects_empty_standard_plus_populated_legacy_without_mutation(
+        self, tmp_path, done
+    ):
+        db_path = tmp_path / "interrupted_legacy_migration.db"
+        creator = MemoryDBHandler(str(db_path))
+        creator.close()
+        writer = sqlite3.connect(db_path)
+        writer.execute(
+            "CREATE TABLE memories ("
+            "id INTEGER PRIMARY KEY, snake_id INTEGER, state BLOB, action INTEGER, "
+            "reward REAL, next_state BLOB, done INTEGER, priority REAL)"
+        )
+        state = struct.pack(f"<{GameConfig.INPUT_SIZE}f", *([0.0] * GameConfig.INPUT_SIZE))
+        writer.execute(
+            "INSERT INTO memories VALUES (1, 4, ?, 1, 1.0, ?, ?, 1.0)",
+            (state, state, int(done)),
+        )
+        writer.commit()
+        before_hashes = replay_sqlite_hashes(db_path)
+        before_schema = writer.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+        before_counts = {
+            table: writer.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in ("memories_standard", "memories")
+        }
+        try:
+            with pytest.raises(RuntimeError, match="active replay table.*legacy"):
+                generate_experiences(
+                    episodes=1,
+                    save_interval=1,
+                    load_model=False,
+                    max_frames=1,
+                    db_path=str(db_path),
+                    append=True,
+                    seed=123,
+                )
+            assert replay_sqlite_hashes(db_path) == before_hashes
+            assert (
+                writer.execute(
+                    "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+                ).fetchall()
+                == before_schema
+            )
+            assert {
+                table: writer.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+                for table in ("memories_standard", "memories")
+            } == before_counts
         finally:
             writer.close()
 
@@ -290,6 +343,48 @@ class TestGenerationDatabasePaths:
             assert (
                 inspector.execute("SELECT COUNT(*) FROM memories_standard").fetchone()[0]
                 == before_count
+            )
+        finally:
+            inspector.close()
+
+    @pytest.mark.parametrize("invalid_mask", [64, -1, "bad"])
+    def test_actual_append_rejects_invalid_mask_without_mutation(self, tmp_path, invalid_mask):
+        db_path = tmp_path / "verified_invalid_mask.db"
+        contract = build_verified_replay_contract(
+            resolve_generation_environment_settings(),
+            frame_limit=1,
+        )
+        handler = MemoryDBHandler(str(db_path))
+        try:
+            handler.update_metadata(contract.to_metadata())
+            handler.save_memories(0, [_one_replay_memory()])
+            handler.cursor.execute(
+                "UPDATE memories_standard SET next_action_mask = ?",
+                (invalid_mask,),
+            )
+            handler.conn.commit()
+        finally:
+            handler.close()
+        before_hashes = replay_sqlite_hashes(db_path)
+
+        with pytest.raises(RuntimeError, match="invalid exact next-action mask encodings"):
+            generate_experiences(
+                episodes=1,
+                save_interval=1,
+                load_model=False,
+                max_frames=1,
+                db_path=str(db_path),
+                append=True,
+                seed=123,
+            )
+
+        assert replay_sqlite_hashes(db_path) == before_hashes
+        inspector = sqlite3.connect(db_path)
+        try:
+            assert inspector.execute("SELECT COUNT(*) FROM memories_standard").fetchone()[0] == 1
+            assert (
+                inspector.execute("SELECT next_action_mask FROM memories_standard").fetchone()[0]
+                == invalid_mask
             )
         finally:
             inspector.close()

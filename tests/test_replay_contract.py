@@ -28,7 +28,9 @@ def replay_contract() -> ReplayContract:
         },
         action={"count": 6, "interpretation": "relative6"},
         mask={
-            "schema": "exact_safe_actions_v1",
+            "schema": "vector_advisory_v1",
+            "role": "collision_avoidance_advice",
+            "authority": "not_legal_or_terminal_oracle",
             "action_count": 6,
             "encoding": "sqlite_integer_lsb_action_index",
             "presence_rule": "required_nonterminal_nullable_terminal",
@@ -70,7 +72,9 @@ def test_verified_contract_round_trip() -> None:
         (
             "mask",
             {
-                "schema": "exact_safe_actions_v1",
+                "schema": "vector_advisory_v1",
+                "role": "collision_avoidance_advice",
+                "authority": "not_legal_or_terminal_oracle",
                 "action_count": 6,
                 "encoding": "sqlite_integer_msb_action_index",
                 "presence_rule": "required_nonterminal_nullable_terminal",
@@ -152,6 +156,22 @@ def test_partial_legacy_metadata_only_removes_directly_recorded_facts() -> None:
     assert "mask.action_count" in missing
     assert "reward.version" in missing
     assert "episode.population_floor" in missing
+
+
+def test_null_required_legacy_facts_remain_unknown() -> None:
+    missing = missing_legacy_fields(
+        {
+            "generation.gamma": None,
+            "generation.apex_n_step": None,
+            "generation.circular_geometry": None,
+            "generation.max_capacity": None,
+        }
+    )
+
+    assert "target.gamma" in missing
+    assert "target.n_step" in missing
+    assert "world.circular_geometry" not in missing
+    assert "world.max_capacity" not in missing
 
 
 def test_asserted_legacy_facts_never_become_verified() -> None:

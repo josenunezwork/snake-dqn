@@ -29,6 +29,7 @@ from src.data.memory_db_handler import (
 from src.data.replay_contract import replay_sqlite_hashes
 from src.scripts.generate_experiences import (
     build_generation_metadata,
+    build_verified_replay_contract,
     resolve_generation_environment_settings,
 )
 from src.scripts.offline_train import (
@@ -1192,6 +1193,86 @@ class TestLoadReplayDatabase:
         finally:
             writer.close()
 
+    @pytest.mark.parametrize(("done", "expected_fallback"), [(False, 1), (True, 0)])
+    def test_explicit_legacy_load_selects_populated_table_when_standard_is_empty(
+        self, tmp_path, done, expected_fallback
+    ):
+        db_path = tmp_path / "interrupted_legacy_migration.db"
+        creator = MemoryDBHandler(str(db_path))
+        creator.close()
+        writer = sqlite3.connect(db_path)
+        writer.execute(
+            "CREATE TABLE memories ("
+            "id INTEGER PRIMARY KEY, snake_id INTEGER, state BLOB, action INTEGER, "
+            "reward REAL, next_state BLOB, done INTEGER, priority REAL)"
+        )
+        state_values = [0.0] * GameConfig.INPUT_SIZE
+        state_values[0] = 1.0
+        state = struct.pack(f"<{GameConfig.INPUT_SIZE}f", *state_values)
+        writer.execute(
+            "INSERT INTO memories VALUES (1, 4, ?, 1, ?, ?, ?, 1.0)",
+            (state, -11.0 if done else 1.0, state, int(done)),
+        )
+        writer.commit()
+        before_hashes = replay_sqlite_hashes(db_path)
+        before_schema = writer.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+        try:
+            policy = self.PolicyStub()
+            assert (
+                load_replay_database(
+                    policy,
+                    str(db_path),
+                    limit=None,
+                    allow_unverified_legacy=True,
+                )
+                == 1
+            )
+            validation = policy._offline_replay_metadata["replay.load_validation"]
+            assert validation["fallback_mask_count"] == expected_fallback
+            assert replay_sqlite_hashes(db_path) == before_hashes
+            assert (
+                writer.execute(
+                    "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+                ).fetchall()
+                == before_schema
+            )
+        finally:
+            writer.close()
+
+    def test_explicit_legacy_load_prefers_standard_over_archival_copy(self, tmp_path):
+        db_path = tmp_path / "auto_migrated_legacy.db"
+        writer = sqlite3.connect(db_path)
+        writer.execute(
+            "CREATE TABLE memories ("
+            "id INTEGER PRIMARY KEY, snake_id INTEGER, state BLOB, action INTEGER, "
+            "reward REAL, next_state BLOB, done INTEGER, priority REAL)"
+        )
+        state = [0.0] * GameConfig.INPUT_SIZE
+        state[0] = 1.0
+        state_blob = struct.pack(f"<{GameConfig.INPUT_SIZE}f", *state)
+        writer.execute(
+            "INSERT INTO memories VALUES (1, 4, ?, 1, 1.0, ?, 0, 1.0)",
+            (state_blob, state_blob),
+        )
+        writer.commit()
+        writer.close()
+        migrator = MemoryDBHandler(str(db_path))
+        migrator.close()
+
+        policy = self.PolicyStub()
+        assert (
+            load_replay_database(
+                policy,
+                str(db_path),
+                limit=None,
+                allow_unverified_legacy=True,
+            )
+            == 1
+        )
+        assert policy._offline_replay_metadata["replay.load_validation"]["fallback_mask_count"] == 1
+
     def test_capped_legacy_load_preserves_dataset_fallback_count(self, tmp_path):
         db_path = tmp_path / "legacy.db"
         handler = MemoryDBHandler(str(db_path))
@@ -1282,6 +1363,77 @@ class TestLoadReplayDatabase:
         with pytest.raises(RuntimeError, match="Verified replay.*without an exact"):
             load_replay_database(policy, str(db_path), limit=None)
         assert policy.memory.cleared is False
+
+    def test_verified_load_exposes_advisory_mask_mode(self, tmp_path):
+        db_path = tmp_path / "verified_advisory.db"
+        contract = build_verified_replay_contract(resolve_generation_environment_settings())
+        state = [0.0] * GameConfig.INPUT_SIZE
+        state[0] = 1.0
+        handler = MemoryDBHandler(str(db_path))
+        try:
+            handler.update_metadata(contract.to_metadata())
+            handler.save_memories(
+                0,
+                [
+                    {
+                        "state": state,
+                        "action": 1,
+                        "reward": 1.0,
+                        "next_state": state,
+                        "done": False,
+                        "priority": 1.0,
+                        "bootstrap_steps": 1,
+                        "next_action_mask": [True] * GameConfig.OUTPUT_SIZE,
+                    }
+                ],
+            )
+        finally:
+            handler.close()
+
+        policy = self.PolicyStub()
+        assert load_replay_database(policy, str(db_path), limit=None) == 1
+        validation = policy._offline_replay_metadata["replay.load_validation"]
+        assert validation["status"] == "verified"
+        assert validation["mask_schema"] == "vector_advisory_v1"
+        assert validation["mask_role"] == "collision_avoidance_advice"
+        assert validation["mask_authority"] == "not_legal_or_terminal_oracle"
+
+    @pytest.mark.parametrize("invalid_mask", [64, -1, "bad"])
+    def test_capped_load_rejects_invalid_mask_outside_subset_without_mutation(
+        self, tmp_path, invalid_mask
+    ):
+        db_path = tmp_path / "verified_invalid_mask.db"
+        contract = build_verified_replay_contract(resolve_generation_environment_settings())
+        handler = MemoryDBHandler(str(db_path))
+        memory = {
+            "state": [0.0] * GameConfig.INPUT_SIZE,
+            "action": 1,
+            "reward": 1.0,
+            "next_state": [1.0] * GameConfig.INPUT_SIZE,
+            "done": False,
+            "priority": 1.0,
+            "bootstrap_steps": 1,
+            "next_action_mask": [True] * GameConfig.OUTPUT_SIZE,
+        }
+        try:
+            handler.update_metadata(contract.to_metadata())
+            handler.save_memories(0, [memory, memory])
+            handler.cursor.execute(
+                "UPDATE memories_standard SET next_action_mask = ? WHERE id = 2",
+                (invalid_mask,),
+            )
+            handler.conn.commit()
+        finally:
+            handler.close()
+        before_hashes = replay_sqlite_hashes(db_path)
+        policy = self.PolicyStub()
+
+        with pytest.raises(RuntimeError, match="invalid exact next-action mask encodings"):
+            load_replay_database(policy, str(db_path), limit=1, replay_order="id")
+
+        assert replay_sqlite_hashes(db_path) == before_hashes
+        assert policy.memory.cleared is False
+        assert policy.memory.add_bulk_kwargs is None
 
     def test_normal_load_rejects_unverified_legacy_before_mutating_memory(self, tmp_path):
         db_path = tmp_path / "legacy.db"

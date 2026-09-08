@@ -697,6 +697,15 @@ def load_replay_database(
         dataset_fallback_mask_count = db_handler.get_nonterminal_missing_mask_count(
             policy_type="apex"
         )
+        invalid_mask_count = db_handler.get_nonterminal_invalid_mask_count(
+            policy_type="apex",
+            action_count=GameConfig.OUTPUT_SIZE,
+        )
+        if invalid_mask_count:
+            raise RuntimeError(
+                f"Replay database {db_path} contains {invalid_mask_count} nonterminal row(s) "
+                "with invalid exact next-action mask encodings"
+            )
         replay_validation = validate_replay_provenance(
             replay_metadata,
             db_path,
@@ -847,6 +856,21 @@ def load_replay_database(
         "replay.load_validation": {
             **replay_validation.to_metadata(),
             "loaded_subset_fallback_mask_count": loaded_fallback_mask_count,
+            "mask_schema": (
+                replay_metadata.get("replay.contract", {}).get("mask", {}).get("schema")
+                if isinstance(replay_metadata.get("replay.contract"), dict)
+                else None
+            ),
+            "mask_role": (
+                replay_metadata.get("replay.contract", {}).get("mask", {}).get("role")
+                if isinstance(replay_metadata.get("replay.contract"), dict)
+                else None
+            ),
+            "mask_authority": (
+                replay_metadata.get("replay.contract", {}).get("mask", {}).get("authority")
+                if isinstance(replay_metadata.get("replay.contract"), dict)
+                else None
+            ),
         },
     }
     policy._offline_replay_gates = {

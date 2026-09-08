@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -39,6 +40,8 @@ REPLAY_LOAD_COMPATIBILITY_PATHS = (
     "action.count",
     "action.interpretation",
     "mask.schema",
+    "mask.role",
+    "mask.authority",
     "mask.action_count",
     "mask.encoding",
     "mask.presence_rule",
@@ -88,6 +91,8 @@ LEGACY_PROVENANCE_KEYS: dict[str, str | None] = {
     "action.count": "generation.action_size",
     "action.interpretation": "generation.action_interpretation",
     "mask.schema": "generation.mask_schema",
+    "mask.role": "generation.mask_role",
+    "mask.authority": "generation.mask_authority",
     "mask.action_count": "generation.mask_action_count",
     "mask.encoding": "generation.mask_encoding",
     "mask.presence_rule": "generation.mask_presence_rule",
@@ -134,6 +139,100 @@ LEGACY_PROVENANCE_KEYS: dict[str, str | None] = {
     "generator.identity": "generation.generator_identity",
     "generator.version": "generation.generator_version",
 }
+
+_LEGACY_NULLABLE_PATHS = {
+    "observation.circular_geometry",
+    "world.circular_geometry",
+    "world.max_capacity",
+}
+_LEGACY_BOOL_PATHS = {
+    "observation.use_free_space",
+    "observation.use_boundary_as_danger",
+    "episode.train_mode",
+    "episode.allow_respawn",
+    "episode.hero_terminal",
+    "episode.population_floor",
+}
+_LEGACY_INT_PATHS = {
+    "observation.input_size",
+    "observation.num_sectors",
+    "observation.danger_max_distance",
+    "observation.game_width",
+    "observation.game_height",
+    "observation.segment_size",
+    "observation.food_capacity",
+    "observation.min_boost_length",
+    "observation.free_space_bfs_cap",
+    "observation.free_space_min_cap",
+    "observation.free_space_length_multiplier",
+    "action.count",
+    "mask.action_count",
+    "world.schema_version",
+    "world.width",
+    "world.height",
+    "world.segment_size",
+    "world.wall_thickness",
+    "world.mechanics_version",
+    "world.num_snakes",
+    "world.max_frames",
+    "world.initial_food",
+    "world.max_food",
+    "world.min_boost_length",
+    "world.boost_length_cost_frames",
+    "world.frame_rate",
+    "world.max_length",
+    "world.starvation_max_frames",
+    "target.n_step",
+    "reward.version",
+    "seed.effective_seed",
+    "generator.version",
+}
+_LEGACY_NONNEGATIVE_INT_PATHS = {
+    "world.wall_thickness",
+    "world.initial_food",
+    "world.max_food",
+    "seed.effective_seed",
+}
+_LEGACY_NUMBER_PATHS = {"target.gamma", "world.kill_scale", "world.death_value"}
+_LEGACY_MAPPING_PATHS = {
+    "observation.circular_geometry",
+    "world.circular_geometry",
+    "world.normalization",
+    "reward.contract",
+}
+_LEGACY_SEQUENCE_PATHS = {"observation.direction_order"}
+
+
+def _legacy_fact_is_known(path: str, value: object) -> bool:
+    """Return whether a legacy value truthfully establishes its semantic fact."""
+    if value is None:
+        return path in _LEGACY_NULLABLE_PATHS
+    if path in _LEGACY_BOOL_PATHS:
+        return isinstance(value, bool)
+    if path in _LEGACY_INT_PATHS:
+        return (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and (value >= 0 if path in _LEGACY_NONNEGATIVE_INT_PATHS else value > 0)
+        )
+    if path == "world.max_capacity":
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+    if path in _LEGACY_NUMBER_PATHS:
+        valid_number = (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+        )
+        return valid_number and (path != "target.gamma" or 0.0 < float(value) <= 1.0)
+    if path in _LEGACY_MAPPING_PATHS:
+        return isinstance(value, Mapping) and bool(value)
+    if path in _LEGACY_SEQUENCE_PATHS:
+        return (
+            isinstance(value, Sequence)
+            and not isinstance(value, (str, bytes, bytearray))
+            and bool(value)
+        )
+    return isinstance(value, str) and bool(value.strip())
 
 
 def replay_sqlite_hashes(path: str | Path) -> dict[str, str]:
@@ -303,7 +402,9 @@ class ReplayValidation:
 def missing_legacy_fields(metadata: Mapping[str, Any]) -> tuple[str, ...]:
     """Return unknown legacy facts without guessing from replay row shape."""
     return tuple(
-        path for path, key in LEGACY_PROVENANCE_KEYS.items() if key is None or key not in metadata
+        path
+        for path, key in LEGACY_PROVENANCE_KEYS.items()
+        if key is None or key not in metadata or not _legacy_fact_is_known(path, metadata[key])
     )
 
 

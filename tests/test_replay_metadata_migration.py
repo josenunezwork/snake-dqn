@@ -79,6 +79,83 @@ def test_backup_includes_committed_wal_rows_with_active_reader(tmp_path: Path) -
         writer.close()
 
 
+@pytest.mark.parametrize(("done", "expected_fallback"), [(False, 1), (True, 0)])
+def test_migration_selects_populated_legacy_table_when_standard_is_empty(
+    tmp_path: Path, done: bool, expected_fallback: int
+) -> None:
+    source = tmp_path / "interrupted_legacy_migration.db"
+    destination = tmp_path / "migrated.db"
+    writer = sqlite3.connect(source)
+    writer.execute("CREATE TABLE memories_standard (id INTEGER PRIMARY KEY)")
+    writer.execute(
+        "CREATE TABLE memories (id INTEGER PRIMARY KEY, done INTEGER, next_action_mask INTEGER)"
+    )
+    writer.execute("INSERT INTO memories VALUES (1, ?, NULL)", (int(done),))
+    writer.commit()
+    writer.close()
+
+    result = migrate_replay_metadata(source, destination)
+
+    assert result["experience_counts"] == {"memories_standard": 0, "memories": 1}
+    assert result["fallback_mask_count"] == expected_fallback
+    metadata = _metadata(destination)
+    assert metadata["replay.verification"]["fallback_mask_count"] == expected_fallback
+    migrated = sqlite3.connect(destination)
+    try:
+        assert migrated.execute("SELECT COUNT(*) FROM memories_standard").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 1
+    finally:
+        migrated.close()
+
+
+def test_migration_rejects_multiple_populated_replay_tables(tmp_path: Path) -> None:
+    source = tmp_path / "ambiguous.db"
+    destination = tmp_path / "migrated.db"
+    writer = sqlite3.connect(source)
+    writer.execute(
+        "CREATE TABLE memories_standard (id INTEGER PRIMARY KEY, done INTEGER, "
+        "next_action_mask INTEGER)"
+    )
+    writer.execute(
+        "CREATE TABLE memories (id INTEGER PRIMARY KEY, done INTEGER, next_action_mask INTEGER)"
+    )
+    writer.execute("INSERT INTO memories_standard VALUES (1, 1, NULL)")
+    writer.execute("INSERT INTO memories VALUES (1, 1, NULL)")
+    writer.commit()
+    writer.close()
+
+    with pytest.raises(RuntimeError, match="multiple populated"):
+        migrate_replay_metadata(source, destination)
+
+    assert not destination.exists()
+
+
+def test_migration_prefers_standard_over_archival_legacy_copy(tmp_path: Path) -> None:
+    source = tmp_path / "auto_migrated.db"
+    destination = tmp_path / "migrated.db"
+    writer = sqlite3.connect(source)
+    writer.execute(
+        "CREATE TABLE memories_standard (id INTEGER PRIMARY KEY, done INTEGER, "
+        "next_action_mask INTEGER)"
+    )
+    writer.execute(
+        "CREATE TABLE memories_legacy (id INTEGER PRIMARY KEY, done INTEGER, "
+        "next_action_mask INTEGER)"
+    )
+    writer.execute("INSERT INTO memories_standard VALUES (1, 0, NULL)")
+    writer.execute("INSERT INTO memories_legacy VALUES (1, 0, NULL)")
+    writer.commit()
+    writer.close()
+
+    result = migrate_replay_metadata(source, destination)
+
+    assert result["fallback_mask_count"] == 1
+    assert result["experience_counts"] == {
+        "memories_standard": 1,
+        "memories_legacy": 1,
+    }
+
+
 def test_dry_run_writes_nothing_and_preserves_source(tmp_path: Path) -> None:
     source = tmp_path / "source.db"
     destination = tmp_path / "migrated.db"

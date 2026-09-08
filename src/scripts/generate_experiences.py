@@ -555,7 +555,9 @@ def build_verified_replay_contract(
         },
         action={"count": int(GameConfig.OUTPUT_SIZE), "interpretation": "relative6"},
         mask={
-            "schema": "exact_safe_actions_v1",
+            "schema": "vector_advisory_v1",
+            "role": "collision_avoidance_advice",
+            "authority": "not_legal_or_terminal_oracle",
             "action_count": int(GameConfig.OUTPUT_SIZE),
             "encoding": "sqlite_integer_lsb_action_index",
             "presence_rule": "required_nonterminal_nullable_terminal",
@@ -683,9 +685,30 @@ def validate_append_replay_contract(
     if not append:
         return
 
-    existing_rows = int(db_handler.get_memory_count(policy_type=policy_type))
-    if existing_rows <= 0:
+    table_counts = db_handler.get_replay_table_counts()
+    if not any(table_counts.values()):
         return
+    active_table = db_handler.get_active_replay_table()
+    if active_table != "memories_standard":
+        raise RuntimeError(
+            f"Cannot append to {db_path}: active replay table {active_table!r} is legacy. "
+            "Migrate to a fresh database first."
+        )
+    existing_rows = int(db_handler.get_memory_count(policy_type=policy_type))
+    if existing_rows != table_counts["memories_standard"]:
+        raise RuntimeError(
+            f"Cannot append to {db_path}: memories_standard contains rows outside "
+            f"policy_type={policy_type!r}"
+        )
+    invalid_mask_count = db_handler.get_nonterminal_invalid_mask_count(
+        policy_type=policy_type,
+        action_count=int(GameConfig.OUTPUT_SIZE),
+    )
+    if invalid_mask_count:
+        raise RuntimeError(
+            f"Cannot append to {db_path}: {invalid_mask_count} nonterminal row(s) contain "
+            "invalid exact next-action mask encodings"
+        )
 
     existing_metadata = db_handler.get_metadata()
     if intended_contract is not None:
@@ -803,7 +826,9 @@ def build_generation_metadata(
         "generation.per_action_danger_rule": observation["per_action_danger_rule"],
         "generation.observation_digest": observation["semantic_digest"],
         "generation.action_interpretation": "relative6",
-        "generation.mask_schema": "exact_safe_actions_v1",
+        "generation.mask_schema": mask["schema"],
+        "generation.mask_role": mask["role"],
+        "generation.mask_authority": mask["authority"],
         "generation.mask_action_count": mask["action_count"],
         "generation.mask_encoding": mask["encoding"],
         "generation.mask_presence_rule": mask["presence_rule"],
