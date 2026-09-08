@@ -34,6 +34,13 @@ from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
+from src.evaluation.anchors import AnchorContext, ScriptedAnchor
+from src.evaluation.metrics import (
+    EvaluationMetricsAccumulator,
+    PostStepState,
+    StepEvents,
+)
+from src.evaluation.protocol import EvaluationProfile
 from src.simd_env.batch_sim import (
     CARDINAL,
     DEATH_BODY,
@@ -153,6 +160,33 @@ class GreedyFoodSimdPolicy(SimdPolicy):
         return out
 
 
+class _ProfileAnchorSimdPolicy(SimdPolicy):
+    """Profile-scoped scripted anchor keyed by world identity, never row order."""
+
+    def __init__(self, kind: str, world_seeds: Sequence[int]) -> None:
+        self._anchor = ScriptedAnchor(kind)
+        self._world_seeds = tuple(int(seed) for seed in world_seeds)
+
+    def actions(self, masks: np.ndarray, sim: BatchSim, slots: np.ndarray) -> np.ndarray:
+        heads = sim.get_heads()
+        headings = sim.get_direction_vectors()
+        out = np.ones(len(slots), dtype=np.int64)
+        for row, (env, slot) in enumerate(slots):
+            env_i, slot_i = int(env), int(slot)
+            out[row] = self._anchor.action(
+                AnchorContext(
+                    world_seed=self._world_seeds[env_i],
+                    slot=slot_i,
+                    frame=int(sim.frame[env_i]),
+                    head_cell=tuple(int(v) for v in heads[env_i, slot_i]),
+                    heading=tuple(int(v) for v in headings[env_i, slot_i]),
+                    food_cells=tuple(tuple(int(v) for v in cell) for cell in sim.get_food(env_i)),
+                    allowed_mask=masks[row],
+                )
+            )
+        return out
+
+
 class NetworkSimdPolicy(SimdPolicy):
     """Batched raster-network policy (obs_spec ``raster31v2``) for the simd gate.
 
@@ -165,7 +199,7 @@ class NetworkSimdPolicy(SimdPolicy):
     featurized by the batch sim and must use ``--engine live``.
     """
 
-    def __init__(self, checkpoint_path: str) -> None:
+    def __init__(self, checkpoint_path: str, profile: EvaluationProfile | None = None) -> None:
         """Load a raster checkpoint for batched, no-grad greedy action selection.
 
         Args:
@@ -177,17 +211,44 @@ class NetworkSimdPolicy(SimdPolicy):
         import torch
 
         from src.model.inference_agent import InferenceAgent
-        from src.model.obs_spec import RASTER31V2
+        from src.model.obs_spec import RASTER31V2, RASTER31V3
 
         self._torch = torch
         agent = InferenceAgent.from_checkpoint(checkpoint_path)
-        if getattr(agent, "obs_spec", None) != RASTER31V2:
+        obs_spec = getattr(agent, "obs_spec", None)
+        if obs_spec not in (RASTER31V2, RASTER31V3):
             raise ValueError(
-                f"--engine simd checkpoint policy needs a '{RASTER31V2}' model; "
-                f"{checkpoint_path!r} is '{getattr(agent, 'obs_spec', '?')}'. "
+                f"--engine simd checkpoint policy needs a raster model; "
+                f"{checkpoint_path!r} is '{obs_spec or '?'}'. "
                 "Use --engine live for 61-D vector champions."
             )
+        if obs_spec == RASTER31V3 and profile is None:
+            raise ValueError("raster31v3 SIMD evaluation requires an explicit EvaluationProfile")
+        if profile is not None and obs_spec == RASTER31V3:
+            from src.core.runtime_contract import EffectiveWorldConfig
+            from src.model.obs_spec import RASTER31V3_CONTRACT
+
+            if profile.world.arena_type != "rectangular":
+                raise ValueError("raster31v3 SIMD evaluation supports rectangular worlds only")
+            required = {"max_frames", "starvation_max", "max_length"}
+            if set(profile.world.normalization) != required:
+                raise ValueError("raster31v3 evaluation profile requires explicit normalization")
+            blob = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+            if blob.get("obs_contract_digest") != RASTER31V3_CONTRACT.digest:
+                raise ValueError(
+                    "raster31v3 checkpoint observation contract does not match evaluator"
+                )
+            raw_world = blob.get("effective_world")
+            if not isinstance(raw_world, dict):
+                raise ValueError("raster31v3 checkpoint requires an effective_world descriptor")
+            checkpoint_world = EffectiveWorldConfig(**raw_world)
+            if checkpoint_world.digest != profile.world.digest:
+                raise ValueError("raster31v3 checkpoint world does not match evaluation profile")
+            if not isinstance(blob.get("model_head"), dict):
+                raise ValueError("raster31v3 checkpoint requires an explicit model head contract")
         self._agent = agent
+        self._obs_spec = obs_spec
+        self._profile = profile
         self._network = agent.network
         self._device = agent.device
 
@@ -202,7 +263,20 @@ class NetworkSimdPolicy(SimdPolicy):
         # Featurize the whole batch once, then forward only the slots we control.
         # A shared checkpoint policy receives every live roster row it controls
         # in one call from ``run_simd_eval``.
-        obs = build_observations(obs_inputs_from_batch_sim(sim))
+        if self._profile is None:
+            obs = build_observations(obs_inputs_from_batch_sim(sim), obs_spec=self._obs_spec)
+        else:
+            norm = self._profile.world.normalization
+            obs = build_observations(
+                obs_inputs_from_batch_sim(
+                    sim,
+                    max_frames=int(norm["max_frames"]),
+                    starvation_max=int(norm["starvation_max"]),
+                    max_length=int(norm["max_length"]),
+                ),
+                mask=sim.get_resolved_action_mask(),
+                obs_spec=self._obs_spec,
+            )
         tensors = raster_tensors_from_obs(obs, device=self._device)  # (E*S, ...)
         S = int(sim.S)
         flat = slots[:, 0] * S + slots[:, 1]  # (N,) row index into E*S
@@ -223,7 +297,13 @@ class NetworkSimdPolicy(SimdPolicy):
         return masked.argmax(dim=1).cpu().numpy().astype(np.int64)
 
 
-def build_simd_policy(spec: AgentSpec, seed: int) -> SimdPolicy:
+def build_simd_policy(
+    spec: AgentSpec,
+    seed: int,
+    *,
+    profile: EvaluationProfile | None = None,
+    world_seeds: Sequence[int] | None = None,
+) -> SimdPolicy:
     """Build a :class:`SimdPolicy` for an agent spec.
 
     Args:
@@ -240,9 +320,13 @@ def build_simd_policy(spec: AgentSpec, seed: int) -> SimdPolicy:
     """
     kind, ref = spec
     if kind == "checkpoint":
-        return NetworkSimdPolicy(ref)
+        return NetworkSimdPolicy(ref, profile=profile)
     if kind != "scripted":
         raise ValueError(f"unknown agent kind {kind!r}")
+    if profile is not None:
+        if world_seeds is None:
+            raise ValueError("profile anchors require the complete world seed assignment")
+        return _ProfileAnchorSimdPolicy(ref, world_seeds)
     if ref == "greedy_food":
         return GreedyFoodSimdPolicy()
     if ref == "random_safe":
@@ -250,7 +334,9 @@ def build_simd_policy(spec: AgentSpec, seed: int) -> SimdPolicy:
     raise ValueError(f"unknown scripted kind {ref!r}")
 
 
-def _config_from_game_config(num_snakes: int, gamma: float) -> BatchSimConfig:
+def _config_from_game_config(
+    num_snakes: int, gamma: float, profile: EvaluationProfile | None = None
+) -> BatchSimConfig:
     """Build a :class:`BatchSimConfig` from the active immutable ``GameConfig``.
 
     Reads the same arena/food/boost/mechanics knobs the live engine's
@@ -266,20 +352,25 @@ def _config_from_game_config(num_snakes: int, gamma: float) -> BatchSimConfig:
     """
     from src.core.game_config import GameConfig
 
+    world = profile.world if profile is not None else None
+    if world is not None and world.num_snakes != num_snakes:
+        raise ValueError("evaluation profile world roster does not match opponent assignment")
     return BatchSimConfig(
         num_envs=1,  # overwritten per call
         num_snakes=num_snakes,
-        game_width=int(GameConfig.WIDTH),
-        game_height=int(GameConfig.HEIGHT),
-        segment_size=int(GameConfig.SEGMENT_SIZE),
-        wall_thickness=int(GameConfig.WALL_THICKNESS),
-        initial_food=int(GameConfig.INITIAL_FOOD),
-        max_food=int(GameConfig.MAX_FOOD),
-        min_boost_length=int(GameConfig.MIN_BOOST_LENGTH),
-        boost_length_cost_frames=int(GameConfig.BOOST_LENGTH_COST_FRAMES),
-        mechanics_version=int(GameConfig.MECHANICS_VERSION),
+        game_width=int(world.width if world else GameConfig.WIDTH),
+        game_height=int(world.height if world else GameConfig.HEIGHT),
+        segment_size=int(world.segment_size if world else GameConfig.SEGMENT_SIZE),
+        wall_thickness=int(world.wall_thickness if world else GameConfig.WALL_THICKNESS),
+        initial_food=int(world.initial_food if world else GameConfig.INITIAL_FOOD),
+        max_food=int(world.max_food if world else GameConfig.MAX_FOOD),
+        min_boost_length=int(world.min_boost_length if world else GameConfig.MIN_BOOST_LENGTH),
+        boost_length_cost_frames=int(
+            world.boost_length_cost_frames if world else GameConfig.BOOST_LENGTH_COST_FRAMES
+        ),
+        mechanics_version=int(world.mechanics_version if world else GameConfig.MECHANICS_VERSION),
         gamma=float(gamma),
-        arena_type=str(GameConfig.ARENA_TYPE),
+        arena_type=str(world.arena_type if world else GameConfig.ARENA_TYPE),
     )
 
 
@@ -356,6 +447,7 @@ def run_simd_eval(
     seeds: Sequence[int],
     gamma: float = 0.99,
     max_frames: int = 5000,
+    profile: EvaluationProfile | None = None,
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -387,9 +479,18 @@ def run_simd_eval(
     seeds = list(seeds)
     if not seeds:
         raise ValueError("at least one seed is required")
+    if profile is not None:
+        if frames != profile.scored_horizon:
+            raise ValueError("frames must equal the explicit profile scored_horizon")
+        if (
+            profile.runtime.training
+            or not profile.runtime.respawn
+            or not profile.runtime.hero_terminal
+        ):
+            raise ValueError("SIMD promotion evaluation requires Watch respawn with terminal hero")
 
     num_snakes = len(opponent_specs) + 1
-    cfg = _config_from_game_config(num_snakes, gamma)
+    cfg = _config_from_game_config(num_snakes, gamma, profile)
     E = len(seeds)
     cfg = BatchSimConfig(**{**cfg.__dict__, "num_envs": E})
 
@@ -409,7 +510,11 @@ def run_simd_eval(
             return build_simd_policy(spec, seed)
         cached = checkpoint_cache.get(spec[1])
         if cached is None:
-            built = build_simd_policy(spec, seed)
+            built = (
+                build_simd_policy(spec, seed)
+                if profile is None
+                else build_simd_policy(spec, seed, profile=profile, world_seeds=seeds)
+            )
             if not isinstance(built, NetworkSimdPolicy):
                 raise TypeError("checkpoint specs must build NetworkSimdPolicy instances")
             checkpoint_cache[spec[1]] = built
@@ -424,7 +529,15 @@ def run_simd_eval(
             row.append(policy_for(spec, seed * 1000 + opp_slot))
         opp_policies.append(row)
 
-    # --- Per-seed accumulators (index by env) ---
+    # The profile path consumes only exact BatchSim transition facts.  Preserve
+    # the named legacy diagnostic accounting below until E2 retires it.
+    profile_accumulators = (
+        [EvaluationMetricsAccumulator(profile.scored_horizon) for _ in seeds]
+        if profile is not None
+        else None
+    )
+
+    # --- Per-seed accumulators (index by env; legacy diagnostic path) ---
     mass_sum = np.zeros(E, dtype=np.float64)
     max_mass = sim.get_lengths()[:, 0].astype(np.float64)  # start length
     alive_frames = np.zeros(E, dtype=np.int64)
@@ -440,7 +553,9 @@ def run_simd_eval(
     env_idx = np.arange(E)
 
     for _ in range(frames):
-        masks = sim.get_action_mask()  # (E, S, 6)
+        masks = (
+            sim.get_resolved_action_mask() if profile is not None else sim.get_action_mask()
+        )  # (E, S, 6)
         actions = np.ones((E, num_snakes), dtype=np.int64)
 
         _dispatch_actions(sim, masks, actions, hero_policies, opp_policies)
@@ -452,6 +567,27 @@ def run_simd_eval(
         cause0 = sim.get_death_cause()[:, 0]
         kills0 = sim.get_kill_credit()[:, 0]
         boosting0 = sim.get_boosted_this_step()[:, 0]  # boost 2nd-step engaged this frame
+        exact_events = sim.get_step_events() if profile_accumulators is not None else None
+
+        if profile_accumulators is not None:
+            assert exact_events is not None
+            for e in env_idx:
+                valid = bool(exact_events["transition_valid"][e, 0])
+                if not valid:
+                    raise RuntimeError("profile evaluation encountered an inactive hero transition")
+                died = bool(exact_events["done"][e, 0])
+                cause = int(exact_events["death_cause"][e, 0])
+                profile_accumulators[e].observe(
+                    pre_alive=bool(prev_alive[e]),
+                    post=PostStepState(alive=bool(alive0[e]), logical_mass=float(len0[e])),
+                    events=StepEvents(
+                        food_eaten=int(exact_events["food_ate"][e, 0]),
+                        boost_executed=bool(exact_events["boosted"][e, 0]),
+                        kills=int(exact_events["kills"][e, 0]),
+                        death=died,
+                        death_cause=_DEATH_CAUSE_LABEL.get(cause) if died else None,
+                    ),
+                )
 
         # Mass integral: hero mass over frames it was alive (dead => 0).
         mass_sum += np.where(alive0, len0, 0)
@@ -483,6 +619,17 @@ def run_simd_eval(
     # --- Assemble per-seed records (live-engine METRIC_KEYS parity) ---
     records: List[Dict[str, object]] = []
     for e in env_idx:
+        if profile_accumulators is not None:
+            record = profile_accumulators[e].result()
+            record.update(
+                {
+                    "seed": int(seeds[e]),
+                    "evaluation_profile": profile.descriptor(),
+                    "evaluation_profile_digest": profile.digest,
+                }
+            )
+            records.append(record)
+            continue
         af = int(alive_frames[e])
         records.append(
             {

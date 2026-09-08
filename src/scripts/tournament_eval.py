@@ -56,8 +56,23 @@ from typing import Any, Dict, List, Sequence, Tuple
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.core.config_loader import load_and_initialize_config  # noqa: E402
-from src.core.game_config import GameConfig  # noqa: E402
+from src.core.game_config import GameConfig, get_config  # noqa: E402
+from src.core.runtime_contract import (  # noqa: E402
+    EffectiveWorldConfig,
+    RuntimeModeContract,
+)
 from src.evaluation.artifacts import EvaluationArtifacts, SnapshotError  # noqa: E402
+from src.evaluation.metrics import (  # noqa: E402
+    EvaluationMetricsAccumulator,
+    PostStepState,
+    StepEvents,
+)
+from src.evaluation.protocol import (  # noqa: E402
+    PROMOTION_V2_WATCH_RECT,
+    EvaluationProfile,
+    legacy_diagnostic_profile,
+    promotion_v2_watch_rect,
+)
 from src.game.game_state_factory import (  # noqa: E402
     configure_eval_game_state,
     create_training_game_state,
@@ -97,6 +112,60 @@ METRIC_KEYS = ("mass_integral", "max_mass", "kills", "deaths", "survival_fractio
 
 # (kind, ref) agent spec: ("checkpoint", path) or ("scripted", scripted kind).
 AgentSpec = Tuple[str, str]
+
+
+def _evaluation_world_from_config() -> EffectiveWorldConfig:
+    """Materialize the complete live-world identity from the resolved config."""
+    config = GameConfig
+    pqn = get_config().pqn
+    return EffectiveWorldConfig(
+        width=int(config.WIDTH),
+        height=int(config.HEIGHT),
+        segment_size=int(config.SEGMENT_SIZE),
+        wall_thickness=int(config.WALL_THICKNESS),
+        arena_type=str(config.ARENA_TYPE),
+        mechanics_version=int(config.MECHANICS_VERSION),
+        num_snakes=int(config.NUM_SNAKES),
+        max_frames=int(config.MAX_FRAMES),
+        initial_food=int(config.INITIAL_FOOD),
+        max_food=int(config.MAX_FOOD),
+        min_boost_length=int(config.MIN_BOOST_LENGTH),
+        boost_length_cost_frames=int(config.BOOST_LENGTH_COST_FRAMES),
+        frame_rate=int(config.FRAME_RATE),
+        max_length=int(config.MAX_LENGTH),
+        starvation_max_frames=int(config.STARVATION_MAX_FRAMES),
+        max_capacity=int(pqn.max_capacity or config.MAX_LENGTH),
+        kill_scale=float(pqn.kill_scale if pqn.kill_scale is not None else 0.3),
+        death_value=float(pqn.death_value if pqn.death_value is not None else -3.0),
+        normalization={
+            "max_frames": float(config.MAX_FRAMES),
+            "starvation_max": float(config.STARVATION_MAX_FRAMES),
+            "max_length": float(config.MAX_LENGTH),
+        },
+    )
+
+
+def evaluation_profile_for_name(name: str, frames: int) -> EvaluationProfile:
+    """Return an explicit profile, retaining legacy diagnostics as the default."""
+    world = _evaluation_world_from_config()
+    if name == PROMOTION_V2_WATCH_RECT:
+        profile = promotion_v2_watch_rect(world)
+        if frames != profile.scored_horizon:
+            raise ValueError("promotion-v2-watch-rect requires --frames 5000")
+        return profile
+    return legacy_diagnostic_profile(
+        world,
+        RuntimeModeContract(
+            mode="legacy_diagnostic",
+            training=True,
+            respawn=True,
+            hero_terminal=True,
+            population_floor=False,
+            reset_strategy="legacy",
+        ),
+        scored_horizon=frames,
+        observation_progress_horizon=int(world.normalization["max_frames"]),
+    )
 
 
 def parse_mix_list(value: str) -> List[str]:
@@ -232,7 +301,14 @@ def build_mix_specs(
     raise ValueError(f"unknown mix {mix!r}; expected one of {MIX_NAMES}")
 
 
-def _attach_agent(gs, slot: int, spec: AgentSpec, seed: int, policy_cache: Dict[str, Any]) -> None:
+def _attach_agent(
+    gs,
+    slot: int,
+    spec: AgentSpec,
+    seed: int,
+    policy_cache: Dict[str, Any],
+    profile: EvaluationProfile | None = None,
+) -> None:
     """Attach an agent spec to arena slot ``slot`` (hero is slot 0).
 
     Checkpoint agents keep the roster's AISnake and get the frozen policy;
@@ -248,7 +324,7 @@ def _attach_agent(gs, slot: int, spec: AgentSpec, seed: int, policy_cache: Dict[
     snake = gs.snakes[slot]
     kind, ref = spec
     if kind == "checkpoint":
-        from src.model.obs_spec import RASTER31V2
+        from src.model.obs_spec import RASTER31V2, RASTER31V3
 
         obs_spec = checkpoint_obs_spec(ref)
         if obs_spec == RASTER31V2 and slot != 0:
@@ -263,6 +339,15 @@ def _attach_agent(gs, slot: int, spec: AgentSpec, seed: int, policy_cache: Dict[
                 from web.backend.raster_policy import RasterServingPolicy
 
                 policy_cache[ref] = RasterServingPolicy(InferenceAgent.from_checkpoint(ref))
+            elif obs_spec == RASTER31V3:
+                if profile is None:
+                    raise ValueError("raster31v3 live evaluation requires an explicit profile")
+                normalization = {
+                    key: int(value) for key, value in profile.world.normalization.items()
+                }
+                policy_cache[ref] = RasterServingPolicy(
+                    InferenceAgent.from_checkpoint(ref), normalization=normalization
+                )
             else:
                 policy_cache[ref] = build_policy_from_checkpoint(ref)
         snake.policy = policy_cache[ref]
@@ -288,6 +373,7 @@ def rollout(
     opponent_specs: Sequence[AgentSpec],
     frames: int,
     seed: int,
+    profile: EvaluationProfile | None = None,
 ) -> Dict[str, Any]:
     """One paired rollout: hero (slot 0) vs the mix's opponents.
 
@@ -315,9 +401,9 @@ def rollout(
         )
 
     policy_cache: Dict[str, Any] = {}
-    _attach_agent(gs, 0, hero_spec, seed, policy_cache)
+    _attach_agent(gs, 0, hero_spec, seed, policy_cache, profile)
     for slot, spec in enumerate(opponent_specs, start=1):
-        _attach_agent(gs, slot, spec, seed, policy_cache)
+        _attach_agent(gs, slot, spec, seed, policy_cache, profile)
     # Disable centralized training so no policy is ever updated.
     gs._shared_policy = None
     # Greedy, inference-only for every policy now attached to the roster.
@@ -328,6 +414,7 @@ def rollout(
     hero_id = hero.id
 
     probes = BehaviorProbes()
+    accumulator = EvaluationMetricsAccumulator(profile.scored_horizon) if profile else None
     max_mass = len(hero.segments)
     mass_sum = 0.0
     alive_frames = 0
@@ -336,9 +423,26 @@ def rollout(
     prev_alive = hero.is_alive
 
     for _ in range(frames):
-        gs.update(train_mode=True, learn=False, allow_respawn=True)
+        gs.update(
+            train_mode=profile.runtime.training if profile else True,
+            learn=False,
+            allow_respawn=profile.runtime.respawn if profile else True,
+        )
         probes.observe(gs)
         alive = hero.is_alive
+        if accumulator is not None:
+            cause = gs.frame_death_causes.get(hero_id)
+            accumulator.observe(
+                pre_alive=bool(prev_alive),
+                post=PostStepState(alive=bool(alive), logical_mass=float(hero._logical_length())),
+                events=StepEvents(
+                    food_eaten=int(bool(gs.frame_ate_food.get(hero_id, False))),
+                    boost_executed=bool(hero.is_boosting),
+                    kills=len(gs.frame_kills.get(hero_id, [])),
+                    death=bool(prev_alive and not alive),
+                    death_cause=cause,
+                ),
+            )
         if alive:
             m = len(hero.segments)
             max_mass = max(max_mass, m)
@@ -352,6 +456,16 @@ def rollout(
     records = probes.finalize_episode()
     hero_record = next((r for r in records if r["snake_id"] == hero_id), {})
     gs.full_cleanup()
+    if accumulator is not None:
+        result = accumulator.result()
+        result.update(
+            {
+                "seed": seed,
+                "evaluation_profile": profile.descriptor(),
+                "evaluation_profile_digest": profile.digest,
+            }
+        )
+        return result
     return {
         "seed": seed,
         "mass_integral": mass_integral(mass_sum, frames),
@@ -377,6 +491,7 @@ def run_mix(
     frames: int,
     seeds: Sequence[int],
     engine: str = "live",
+    profile: EvaluationProfile | None = None,
 ) -> List[Dict[str, Any]]:
     """Run one hero over all seeds of one opponent mix.
 
@@ -400,9 +515,14 @@ def run_mix(
         from src.simd_env.eval_engine import run_simd_eval
 
         return run_simd_eval(
-            hero_spec, list(mix_specs), frames, list(seeds), gamma=float(GameConfig.GAMMA)
+            hero_spec,
+            list(mix_specs),
+            frames,
+            list(seeds),
+            gamma=float(GameConfig.GAMMA),
+            profile=profile,
         )
-    return [rollout(hero_spec, mix_specs, frames, s) for s in seeds]
+    return [rollout(hero_spec, mix_specs, frames, s, profile=profile) for s in seeds]
 
 
 def summarize_runs(runs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -417,13 +537,20 @@ def summarize_runs(runs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         cause = r["probes"]["death_cause"]
         if cause is not None:
             death_causes[cause] = death_causes.get(cause, 0) + 1
+
+    def _mean_available(key: str):
+        values = [r["probes"][key] for r in runs]
+        return None if any(value is None for value in values) else mean([float(v) for v in values])
+
     out["probes"] = {
         "boost_frame_fraction": mean([r["probes"]["boost_frame_fraction"] for r in runs]),
         "food_eaten": mean([float(r["probes"]["food_eaten"]) for r in runs]),
-        "kill_opportunity_count": mean(
-            [float(r["probes"]["kill_opportunity_count"]) for r in runs]
+        "kill_opportunity_count": _mean_available("kill_opportunity_count"),
+        "entrapment_events": (
+            None
+            if any(r["probes"]["entrapment_event"] is None for r in runs)
+            else sum(1 for r in runs if r["probes"]["entrapment_event"])
         ),
-        "entrapment_events": sum(1 for r in runs if r["probes"]["entrapment_event"]),
         "deaths_by_cause": death_causes,
     }
     return out
@@ -583,6 +710,7 @@ def run_pilot(
     seeds: Sequence[int],
     mde_fraction: float,
     engine: str = "live",
+    profile: EvaluationProfile | None = None,
 ) -> Dict[str, Any]:
     """Pilot mode: baseline-only variance estimate and seed-count recommendation.
 
@@ -594,7 +722,7 @@ def run_pilot(
     per_mix: Dict[str, Any] = {}
     recommendations: List[int] = []
     for mix in mixes:
-        runs = run_mix(baseline_spec, mix_specs[mix], frames, seeds, engine)
+        runs = run_mix(baseline_spec, mix_specs[mix], frames, seeds, engine, profile)
         vals = [r["mass_integral"] for r in runs]
         mu = mean(vals)
         sd = sample_std(vals)
@@ -665,6 +793,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         ),
     )
     p.add_argument("--frames", type=int, default=3000)
+    p.add_argument(
+        "--evaluation-profile",
+        choices=("legacy-diagnostic", PROMOTION_V2_WATCH_RECT),
+        default="legacy-diagnostic",
+        help="Explicit evaluation task; promotion-v2-watch-rect fixes a 5000-frame horizon.",
+    )
     p.add_argument(
         "--seeds",
         type=parse_seed_list,
@@ -746,6 +880,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SnapshotError as exc:
         p.error(str(exc))
 
+    try:
+        profile = evaluation_profile_for_name(args.evaluation_profile, args.frames)
+    except ValueError as exc:
+        p.error(str(exc))
+    active_profile = None if profile.legacy_diagnostic else profile
+
+    def run_selected_mix(hero_spec: AgentSpec, specs: Sequence[AgentSpec]) -> List[Dict[str, Any]]:
+        """Keep legacy monkeypatch/caller signatures unchanged until opt-in."""
+        if active_profile is None:
+            return run_mix(hero_spec, specs, args.frames, args.seeds, args.engine)
+        return run_mix(hero_spec, specs, args.frames, args.seeds, args.engine, active_profile)
+
     # Fail fast: --engine simd can evaluate raster ('raster31v2') checkpoints
     # (the batch sim featurizes them) but NOT 61-D 'vector61' champions. Catch a
     # vector61 baseline or opponent up front (a vector61 CANDIDATE is instead
@@ -825,6 +971,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.seeds,
             args.mde_fraction,
             args.engine,
+            active_profile,
         )
         try:
             artifacts.verify_integrity()
@@ -866,9 +1013,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     baseline_runs: Dict[str, List[Dict[str, Any]]] = {}
     baseline_summaries: Dict[str, Dict[str, Any]] = {}
     for mix in args.mixes:
-        baseline_runs[mix] = run_mix(
-            baseline_spec, mix_specs[mix], args.frames, args.seeds, args.engine
-        )
+        baseline_runs[mix] = run_selected_mix(baseline_spec, mix_specs[mix])
         baseline_summaries[mix] = summarize_runs(baseline_runs[mix])
         print(
             f"baseline [{mix:9s}] mass_int={baseline_summaries[mix]['mass_integral']:.2f} "
@@ -880,7 +1025,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             per_mix: Dict[str, Any] = {}
             for mix in args.mixes:
-                runs = run_mix(cand_spec, mix_specs[mix], args.frames, args.seeds, args.engine)
+                runs = run_selected_mix(cand_spec, mix_specs[mix])
                 cand_vals = [r["mass_integral"] for r in runs]
                 base_vals = [r["mass_integral"] for r in baseline_runs[mix]]
                 per_mix[mix] = {
