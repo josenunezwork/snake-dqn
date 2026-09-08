@@ -143,3 +143,65 @@ def test_evaluator_source_manifest_changes_when_a_dependency_changes(tmp_path):
     second = evaluator_provenance(evaluator, [evaluator, dependency])
 
     assert first["source_manifest"] != second["source_manifest"]
+
+
+def test_default_source_closure_binds_profile_metric_anchor_and_runtime_adapters():
+    """E1 profile metrics cannot be evaluated against an E0-only source receipt."""
+    from src.evaluation.artifacts import _default_evaluator_sources
+
+    repository = Path(__file__).resolve().parents[1]
+    closure = {str(path.relative_to(repository)) for path in _default_evaluator_sources(repository)}
+
+    assert {
+        "src/evaluation/protocol.py",
+        "src/evaluation/metrics.py",
+        "src/evaluation/anchors.py",
+        "src/simd_env/eval_engine.py",
+        "src/simd_env/live_adapter.py",
+        "src/simd_env/batch_sim.py",
+        "src/simd_env/featurizer.py",
+        "web/backend/raster_policy.py",
+    } <= closure
+
+
+def test_receipt_binds_explicit_evaluation_profile(tmp_path):
+    from src.core.runtime_contract import EffectiveWorldConfig
+    from src.evaluation.protocol import promotion_v2_watch_rect
+
+    config = tmp_path / "eval.yaml"
+    config.write_text("game: {}\n")
+    artifacts = EvaluationArtifacts(tmp_path / "artifacts")
+    snapshot = artifacts.snapshot_config(config)
+    world = EffectiveWorldConfig(
+        width=400,
+        height=300,
+        segment_size=10,
+        wall_thickness=10,
+        arena_type="rectangular",
+        mechanics_version=2,
+        num_snakes=3,
+        max_frames=5000,
+        initial_food=2,
+        max_food=2,
+        min_boost_length=5,
+        boost_length_cost_frames=3,
+        frame_rate=1,
+        max_length=100,
+        starvation_max_frames=500,
+        max_capacity=400,
+        kill_scale=0.3,
+        death_value=-3.0,
+        normalization={"max_frames": 5000.0, "starvation_max": 500.0, "max_length": 100.0},
+    )
+    profile = promotion_v2_watch_rect(world)
+    receipt = json.loads(
+        artifacts.write_receipt(
+            config_snapshot=snapshot,
+            effective_config={},
+            evaluator_path=__file__,
+            source_specs=[],
+            evaluation_profile=profile,
+        ).read_text()
+    )
+
+    assert receipt["evaluation_profile"]["digest"] == profile.digest

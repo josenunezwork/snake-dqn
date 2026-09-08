@@ -200,6 +200,7 @@ class EvaluationArtifacts:
         evaluator_path: str | Path,
         source_specs: Iterable[AgentSpec],
         evaluator_sources: Iterable[str | Path] | None = None,
+        evaluation_profile: Any | None = None,
     ) -> Path:
         """Persist the frozen inputs and evaluator/config identities as JSON."""
         self.root.mkdir(parents=True, exist_ok=True)
@@ -223,6 +224,11 @@ class EvaluationArtifacts:
             "evaluator": evaluator_provenance(evaluator, evaluator_sources),
             "source_agents": [{"kind": kind, "reference": ref} for kind, ref in source_specs],
         }
+        if evaluation_profile is not None:
+            payload["evaluation_profile"] = {
+                "descriptor": evaluation_profile.descriptor(),
+                "digest": evaluation_profile.digest,
+            }
         receipt_path = self.root / "receipt.json"
         with tempfile.NamedTemporaryFile(
             mode="w", dir=self.root, prefix=".receipt-", suffix=".json", delete=False
@@ -266,12 +272,27 @@ def _default_evaluator_sources(repository: Path) -> List[Path]:
         "src/scripts/eval_stats.py",
         "src/core/config_loader.py",
         "src/core/game_config.py",
+        "src/core/runtime_contract.py",
+        "src/evaluation/artifacts.py",
+        "src/evaluation/protocol.py",
+        "src/evaluation/metrics.py",
+        "src/evaluation/anchors.py",
         "src/game/game_state_factory.py",
+        "src/game/game_state.py",
+        "src/game/food_manager.py",
+        "src/game/ai_snake.py",
+        "src/game/snake.py",
         "src/game/scripted_snake.py",
         "src/game/snake_factory.py",
         "src/training/behavior_probes.py",
         "src/model/inference_agent.py",
+        "src/model/obs_spec.py",
+        "src/model/raster_network.py",
         "src/simd_env/eval_engine.py",
+        "src/simd_env/live_adapter.py",
+        "src/simd_env/batch_sim.py",
+        "src/simd_env/featurizer.py",
+        "web/backend/raster_policy.py",
     )
     return [
         repository / relative for relative in relative_paths if (repository / relative).exists()

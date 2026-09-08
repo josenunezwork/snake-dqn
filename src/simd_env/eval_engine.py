@@ -30,10 +30,11 @@ checkpoint under ``--engine simd`` raises with a clear message pointing at
 
 from __future__ import annotations
 
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
 
+from src.core.runtime_contract import EffectiveWorldConfig, RuntimeModeContract
 from src.evaluation.anchors import AnchorContext, ScriptedAnchor
 from src.evaluation.metrics import (
     EvaluationMetricsAccumulator,
@@ -62,6 +63,47 @@ _DEATH_CAUSE_LABEL = {
     DEATH_HEAD: "head_on",
     DEATH_BODY: "enemy_body",
 }
+
+
+def validate_v3_checkpoint_for_profile(checkpoint_path: str, profile: EvaluationProfile) -> None:
+    """Reject a v3 checkpoint whose declared source world differs from evaluation."""
+    import torch
+
+    from src.core.runtime_contract import EffectiveWorldConfig
+    from src.model.obs_spec import RASTER31V3_CONTRACT
+
+    if profile.world.arena_type != "rectangular":
+        raise ValueError("raster31v3 evaluation supports rectangular worlds only")
+    if set(profile.world.normalization) != {"max_frames", "starvation_max", "max_length"}:
+        raise ValueError("raster31v3 evaluation profile requires explicit normalization")
+    blob = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    if blob.get("obs_contract_digest") != RASTER31V3_CONTRACT.digest:
+        raise ValueError("raster31v3 checkpoint observation contract does not match evaluator")
+    raw_world = blob.get("effective_world")
+    world_fields = set(EffectiveWorldConfig.__dataclass_fields__)
+    if not isinstance(raw_world, dict) or set(raw_world) != world_fields:
+        raise ValueError("raster31v3 checkpoint requires a complete effective_world descriptor")
+    source_world = EffectiveWorldConfig(**raw_world)
+    if blob.get("effective_world_digest") != source_world.digest:
+        raise ValueError("raster31v3 checkpoint effective_world_digest does not match descriptor")
+    if source_world.digest != profile.world.digest:
+        raise ValueError("raster31v3 checkpoint world does not match evaluation profile")
+    raw_runtime = blob.get("runtime_contract")
+    runtime_fields = set(RuntimeModeContract.__dataclass_fields__)
+    if not isinstance(raw_runtime, dict) or set(raw_runtime) != runtime_fields:
+        raise ValueError("raster31v3 checkpoint requires a complete runtime_contract")
+    for key in ("training", "respawn", "hero_terminal", "population_floor"):
+        if not isinstance(raw_runtime[key], bool):
+            raise ValueError("raster31v3 checkpoint runtime_contract has invalid boolean fields")
+    if not isinstance(raw_runtime["mode"], str) or not isinstance(
+        raw_runtime["reset_strategy"], str
+    ):
+        raise ValueError("raster31v3 checkpoint runtime_contract has invalid string fields")
+    source_runtime = RuntimeModeContract(**raw_runtime)
+    if blob.get("runtime_contract_digest") != source_runtime.digest:
+        raise ValueError("raster31v3 checkpoint runtime_contract_digest does not match descriptor")
+    if not isinstance(blob.get("model_head"), dict):
+        raise ValueError("raster31v3 checkpoint requires an explicit model head contract")
 
 
 class SimdPolicy:
@@ -225,27 +267,7 @@ class NetworkSimdPolicy(SimdPolicy):
         if obs_spec == RASTER31V3 and profile is None:
             raise ValueError("raster31v3 SIMD evaluation requires an explicit EvaluationProfile")
         if profile is not None and obs_spec == RASTER31V3:
-            from src.core.runtime_contract import EffectiveWorldConfig
-            from src.model.obs_spec import RASTER31V3_CONTRACT
-
-            if profile.world.arena_type != "rectangular":
-                raise ValueError("raster31v3 SIMD evaluation supports rectangular worlds only")
-            required = {"max_frames", "starvation_max", "max_length"}
-            if set(profile.world.normalization) != required:
-                raise ValueError("raster31v3 evaluation profile requires explicit normalization")
-            blob = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-            if blob.get("obs_contract_digest") != RASTER31V3_CONTRACT.digest:
-                raise ValueError(
-                    "raster31v3 checkpoint observation contract does not match evaluator"
-                )
-            raw_world = blob.get("effective_world")
-            if not isinstance(raw_world, dict):
-                raise ValueError("raster31v3 checkpoint requires an effective_world descriptor")
-            checkpoint_world = EffectiveWorldConfig(**raw_world)
-            if checkpoint_world.digest != profile.world.digest:
-                raise ValueError("raster31v3 checkpoint world does not match evaluation profile")
-            if not isinstance(blob.get("model_head"), dict):
-                raise ValueError("raster31v3 checkpoint requires an explicit model head contract")
+            validate_v3_checkpoint_for_profile(checkpoint_path, profile)
         self._agent = agent
         self._obs_spec = obs_spec
         self._profile = profile
@@ -270,7 +292,7 @@ class NetworkSimdPolicy(SimdPolicy):
             obs = build_observations(
                 obs_inputs_from_batch_sim(
                     sim,
-                    max_frames=int(norm["max_frames"]),
+                    max_frames=int(self._profile.observation_progress_horizon),
                     starvation_max=int(norm["starvation_max"]),
                     max_length=int(norm["max_length"]),
                 ),
@@ -371,6 +393,10 @@ def _config_from_game_config(
         mechanics_version=int(world.mechanics_version if world else GameConfig.MECHANICS_VERSION),
         gamma=float(gamma),
         arena_type=str(world.arena_type if world else GameConfig.ARENA_TYPE),
+        max_capacity=int(world.max_capacity if world else 400),
+        frame_rate=int(world.frame_rate if world else GameConfig.FRAME_RATE),
+        kill_scale=float(world.kill_scale if world else 0.3),
+        death_value=float(world.death_value if world else -3.0),
     )
 
 
@@ -448,6 +474,8 @@ def run_simd_eval(
     gamma: float = 0.99,
     max_frames: int = 5000,
     profile: EvaluationProfile | None = None,
+    opponent_specs_by_world: Mapping[int, Sequence[AgentSpec]] | None = None,
+    world_identities: Mapping[int, Dict[str, object]] | None = None,
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -480,6 +508,8 @@ def run_simd_eval(
     if not seeds:
         raise ValueError("at least one seed is required")
     if profile is not None:
+        if profile.legacy_diagnostic:
+            raise ValueError("legacy diagnostic profiles must use the legacy evaluation path")
         if frames != profile.scored_horizon:
             raise ValueError("frames must equal the explicit profile scored_horizon")
         if (
@@ -489,7 +519,16 @@ def run_simd_eval(
         ):
             raise ValueError("SIMD promotion evaluation requires Watch respawn with terminal hero")
 
-    num_snakes = len(opponent_specs) + 1
+    assigned_specs = [list(opponent_specs) for _ in seeds]
+    if opponent_specs_by_world is not None:
+        if set(opponent_specs_by_world) != set(seeds):
+            raise ValueError("opponent_specs_by_world must provide exactly one roster per seed")
+        assigned_specs = [list(opponent_specs_by_world[seed]) for seed in seeds]
+        if any(len(row) != len(assigned_specs[0]) for row in assigned_specs):
+            raise ValueError("all materialized world rosters must have the same slot count")
+    if world_identities is not None and set(world_identities) != set(seeds):
+        raise ValueError("world_identities must provide exactly one identity per seed")
+    num_snakes = len(assigned_specs[0]) + 1
     cfg = _config_from_game_config(num_snakes, gamma, profile)
     E = len(seeds)
     cfg = BatchSimConfig(**{**cfg.__dict__, "num_envs": E})
@@ -507,7 +546,11 @@ def run_simd_eval(
 
     def policy_for(spec: AgentSpec, seed: int) -> SimdPolicy:
         if spec[0] != "checkpoint":
-            return build_simd_policy(spec, seed)
+            return (
+                build_simd_policy(spec, seed)
+                if profile is None
+                else build_simd_policy(spec, seed, profile=profile, world_seeds=seeds)
+            )
         cached = checkpoint_cache.get(spec[1])
         if cached is None:
             built = (
@@ -525,7 +568,7 @@ def run_simd_eval(
     opp_policies: List[List[SimdPolicy]] = []
     for seed in seeds:
         row: List[SimdPolicy] = []
-        for opp_slot, spec in enumerate(opponent_specs, start=1):
+        for opp_slot, spec in enumerate(assigned_specs[len(opp_policies)], start=1):
             row.append(policy_for(spec, seed * 1000 + opp_slot))
         opp_policies.append(row)
 
@@ -573,20 +616,19 @@ def run_simd_eval(
             assert exact_events is not None
             for e in env_idx:
                 valid = bool(exact_events["transition_valid"][e, 0])
-                if not valid:
-                    raise RuntimeError("profile evaluation encountered an inactive hero transition")
-                died = bool(exact_events["done"][e, 0])
-                cause = int(exact_events["death_cause"][e, 0])
+                died = bool(exact_events["done"][e, 0]) if valid else False
+                cause = int(exact_events["death_cause"][e, 0]) if valid else DEATH_NONE
                 profile_accumulators[e].observe(
                     pre_alive=bool(prev_alive[e]),
                     post=PostStepState(alive=bool(alive0[e]), logical_mass=float(len0[e])),
                     events=StepEvents(
-                        food_eaten=int(exact_events["food_ate"][e, 0]),
-                        boost_executed=bool(exact_events["boosted"][e, 0]),
-                        kills=int(exact_events["kills"][e, 0]),
+                        food_eaten=int(exact_events["food_ate"][e, 0]) if valid else 0,
+                        boost_executed=bool(exact_events["boosted"][e, 0]) if valid else False,
+                        kills=int(exact_events["kills"][e, 0]) if valid else 0,
                         death=died,
                         death_cause=_DEATH_CAUSE_LABEL.get(cause) if died else None,
                     ),
+                    acted=valid,
                 )
 
         # Mass integral: hero mass over frames it was alive (dead => 0).
@@ -626,6 +668,9 @@ def run_simd_eval(
                     "seed": int(seeds[e]),
                     "evaluation_profile": profile.descriptor(),
                     "evaluation_profile_digest": profile.digest,
+                    "world_identity": (
+                        world_identities[int(seeds[e])] if world_identities else None
+                    ),
                 }
             )
             records.append(record)
