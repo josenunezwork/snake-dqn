@@ -48,6 +48,7 @@ from src.training.td_targets import (
     MASK_MODE_LEGACY_ADVISORY,
     MASK_MODE_RASTER_RESOLVED_V3,
     MASK_MODE_TERMINAL_NO_SUCCESSOR,
+    resolve_bootstrap_action_masks,
     validate_mask_mode,
 )
 from src.utils.tensor_utils import ensure_tensor_on_device, tensor_to_numpy
@@ -1034,6 +1035,7 @@ class ApexActor(mp.Process):
                 final_done=final_done,
                 final_next_state=final_next_state,
                 final_next_action_mask=final_next_action_mask,
+                final_next_action_mask_mode=final_next_action_mask_mode,
             )
 
         # Convert to numpy for buffer storage
@@ -1071,6 +1073,7 @@ class ApexActor(mp.Process):
         final_done: bool,
         final_next_state: Optional[torch.Tensor],
         final_next_action_mask: Optional[torch.Tensor],
+        final_next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY,
     ) -> float:
         """Compute the legacy actor-side TD-error priority estimate ("td" mode).
 
@@ -1084,7 +1087,8 @@ class ApexActor(mp.Process):
             gamma_power: Discount factor for the bootstrap term.
             final_done: Whether the n-step window hit a terminal.
             final_next_state: Bootstrap state (None when terminal).
-            final_next_action_mask: Optional exact mask for the bootstrap state.
+            final_next_action_mask: Recorded six-action mask for the bootstrap state.
+            final_next_action_mask_mode: Semantics recorded with that mask.
 
         Returns:
             Absolute TD error estimate.
@@ -1102,6 +1106,15 @@ class ApexActor(mp.Process):
                     action_mask = ensure_tensor_on_device(action_mask, self.device)
                     if action_mask.dim() == 1:
                         action_mask = action_mask.unsqueeze(0)
+                    action_mask = resolve_bootstrap_action_masks(
+                        ns,
+                        action_mask,
+                        torch.tensor(
+                            [validate_mask_mode(final_next_action_mask_mode)],
+                            dtype=torch.long,
+                            device=self.device,
+                        ),
+                    )
 
                 # Double DQN: select a valid action with local, evaluate with target.
                 #

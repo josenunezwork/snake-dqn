@@ -4,6 +4,11 @@ import pytest
 import torch
 
 from src.training.replay_buffer import PrioritizedReplayBuffer, restore_replay_memories
+from src.training.td_targets import (
+    MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_RASTER_RESOLVED_V3,
+)
 
 from src.data.memory_db_handler import (
     build_replay_quality_stats,
@@ -37,7 +42,16 @@ def test_restore_ten_field_replay_mode_round_trip():
     state = torch.zeros(58)
     state[57] = 1.0
     source = PrioritizedReplayBuffer(capacity=4)
-    source.add(state, 0, 0.0, state, False, next_action_mask=[True, False, False, False, False, False], next_action_mask_mode=1, stream_id="s")
+    source.add(
+        state,
+        0,
+        0.0,
+        state,
+        False,
+        next_action_mask=[True, False, False, False, False, False],
+        next_action_mask_mode=1,
+        stream_id="s",
+    )
     target = PrioritizedReplayBuffer(capacity=4)
     assert restore_replay_memories(target, source.get_all_memories(), torch.device("cpu")) == 1
     saved = target.get_all_memories()[0]
@@ -71,6 +85,58 @@ def test_replay_quality_stats_reject_misaligned_optional_fields():
             states=[state, state],
             next_states=[state, state, state],
         )
+
+
+def test_replay_quality_exact_gate_uses_resolved_mode_not_mask_presence():
+    """Identical present masks carry exact authority only under resolved mode 1."""
+    state = make_semantically_valid_state()
+    masks = [[True, False, False, False, False, False]] * 3
+    stats = build_replay_quality_stats(
+        actions=[0, 1, 2],
+        rewards=[0.0, 0.0, 0.0],
+        dones=[False, False, False],
+        priorities=[1.0, 1.0, 1.0],
+        bootstrap_steps=[1, 1, 1],
+        next_action_masks=masks,
+        states=[state, state, state],
+        next_states=[state, state, state],
+        next_action_mask_modes=[
+            MASK_MODE_RASTER_RESOLVED_V3,
+            MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+            MASK_MODE_LEGACY_ADVISORY,
+        ],
+    )
+
+    assert stats["mask_count"] == 3
+    assert stats["nonterminal_mask_fraction"] == pytest.approx(1.0)
+    assert stats["exact_mask_count"] == 1
+    assert stats["nonterminal_exact_mask_count"] == 1
+    assert stats["nonterminal_exact_mask_fraction"] == pytest.approx(1 / 3)
+    with pytest.raises(RuntimeError, match="1/3 nonterminal rows carry resolved mode 1"):
+        validate_replay_quality_gates(stats, min_exact_mask_fraction=0.5)
+    validate_replay_quality_gates(stats, min_exact_mask_fraction=1 / 3)
+
+
+def test_replay_quality_invalid_mask_modes_are_counted_and_rejected():
+    """An unknown authority tag cannot satisfy an exact-mask quality gate."""
+    state = make_semantically_valid_state()
+    stats = build_replay_quality_stats(
+        actions=[0],
+        rewards=[0.0],
+        dones=[False],
+        priorities=[1.0],
+        bootstrap_steps=[1],
+        next_action_masks=[[True, False, False, False, False, False]],
+        next_states=[state],
+        next_action_mask_modes=[99],
+    )
+
+    assert stats["mask_count"] == 1
+    assert stats["exact_mask_count"] == 0
+    assert stats["invalid_action_mask_mode_count"] == 1
+    assert stats["invalid_action_mask_mode_fraction"] == pytest.approx(1.0)
+    with pytest.raises(RuntimeError, match="invalid next-action mask modes"):
+        validate_replay_quality_gates(stats, min_exact_mask_fraction=0.0)
 
 
 def test_replay_quality_stats_flag_current_actions_invalid_under_state_features():
@@ -484,6 +550,7 @@ def test_replay_quality_stats_reject_invalid_exact_next_action_masks():
         priorities=[1.0],
         bootstrap_steps=[1],
         next_action_masks=[[0, 1, 0, 0, 2, 0]],
+        next_action_mask_modes=[MASK_MODE_RASTER_RESOLVED_V3],
         states=[state],
         next_states=[state],
     )
@@ -494,15 +561,13 @@ def test_replay_quality_stats_reject_invalid_exact_next_action_masks():
     assert stats["boost_mask_count"] == 0
     assert stats["exact_mask_state_comparison_count"] == 0
     assert any(
-        "Invalid exact next-action masks: 1/1" in line
-        for line in format_replay_quality_stats(stats)
+        "Invalid next-action masks: 1/1" in line for line in format_replay_quality_stats(stats)
     )
     assert any(
-        "invalid exact next-action masks" in warning
-        for warning in format_replay_quality_warnings(stats)
+        "invalid next-action masks" in warning for warning in format_replay_quality_warnings(stats)
     )
 
-    with pytest.raises(RuntimeError, match="invalid exact next-action masks"):
+    with pytest.raises(RuntimeError, match="invalid next-action masks"):
         validate_replay_quality_gates(stats)
 
 
@@ -626,13 +691,14 @@ def test_replay_quality_stats_flag_exact_mask_state_danger_disagreements():
             [True, True, False, False, False, False],
             [False, False, False, False, False, False],
         ],
+        next_action_mask_modes=[MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_LEGACY_ADVISORY],
         states=[state, state],
         next_states=[mismatch_next_state, trapped_next_state],
     )
 
-    assert stats["exact_mask_state_comparison_count"] == 2
+    assert stats["exact_mask_state_comparison_count"] == 1
     assert stats["exact_mask_state_mismatch_count"] == 1
-    assert stats["exact_mask_state_mismatch_fraction"] == pytest.approx(0.5)
+    assert stats["exact_mask_state_mismatch_fraction"] == pytest.approx(1.0)
     assert stats["exact_mask_unsafe_normal_count"] == 1
     assert stats["exact_mask_blocked_safe_normal_count"] == 1
 
@@ -640,7 +706,7 @@ def test_replay_quality_stats_flag_exact_mask_state_danger_disagreements():
         validate_replay_quality_gates(stats, max_exact_mask_state_mismatch_fraction=0.0)
 
     assert any(
-        "Exact mask/state normal-action mismatches: 1/2 (50.0%)" in line
+        "Exact mask/state normal-action mismatches: 1/1 (100.0%)" in line
         for line in format_replay_quality_stats(stats)
     )
     warnings = format_replay_quality_warnings(stats)

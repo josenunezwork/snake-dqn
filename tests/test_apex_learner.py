@@ -566,10 +566,31 @@ class TestCheckpointing:
     def test_weights_only_resume_accepts_online_only_legacy_checkpoint(self):
         source = ApexLearner(_small_config(), device=torch.device("cpu"))
         target = ApexLearner(_small_config(), device=torch.device("cpu"))
-        target.load_state_dict({"dqn_state_dict": source.dqn.state_dict(), "config": source.config.__dict__})
+        target.load_state_dict(
+            {"dqn_state_dict": source.dqn.state_dict(), "config": source.config.__dict__}
+        )
         for key, value in source.dqn.state_dict().items():
             assert torch.equal(value, target.dqn.state_dict()[key])
             assert torch.equal(value, target.target_dqn.state_dict()[key])
+
+    def test_weights_only_resume_rejects_trained_receiver_without_mutation(self):
+        config = _small_config(batch_size=1, min_buffer_size=1)
+        source = ApexLearner(config, device=torch.device("cpu"))
+        target_buffer = LocalApexBuffer(capacity=8, state_size=config.input_size)
+        _fill_buffer(target_buffer, 1, input_size=config.input_size)
+        target = ApexLearner(config, buffer_client=target_buffer, device=torch.device("cpu"))
+        target.train_step()
+        before_weights = {key: value.clone() for key, value in target.dqn.state_dict().items()}
+
+        with pytest.raises(ValueError, match="fresh Apex learner receiver"):
+            target.load_state_dict(
+                {"dqn_state_dict": source.dqn.state_dict(), "config": source.config.__dict__}
+            )
+
+        assert target.step_count == 1
+        assert target.optimizer.state
+        for key, value in before_weights.items():
+            assert torch.equal(value, target.dqn.state_dict()[key])
 
     def test_weights_only_rejects_nonfinite_online_weights_without_mutation(self):
         learner = ApexLearner(_small_config(), device=torch.device("cpu"))

@@ -383,7 +383,9 @@ class ApexLearner:
                 ("terminal_no_successor", MASK_MODE_TERMINAL_NO_SUCCESSOR),
                 ("dataset_vector_advisory_v1", MASK_MODE_DATASET_VECTOR_ADVISORY_V1),
             ):
-                metrics[f"next_action_mask_mode_{name}_fraction"] = float((modes == mode).float().mean().item())
+                metrics[f"next_action_mask_mode_{name}_fraction"] = float(
+                    (modes == mode).float().mean().item()
+                )
         return metrics
 
     def train_step(self) -> Dict[str, float]:
@@ -580,9 +582,7 @@ class ApexLearner:
             "resume_provenance": self.resume_provenance,
             "config": self.config.__dict__,
             **(
-                self.config.apex_recipe.to_metadata()
-                if self.config.apex_recipe is not None
-                else {}
+                self.config.apex_recipe.to_metadata() if self.config.apex_recipe is not None else {}
             ),
         }
 
@@ -649,6 +649,9 @@ class ApexLearner:
             error_type=ValueError,
         )
 
+        if resume_mode == "weights-only":
+            self._assert_pristine_weights_only_receiver()
+
         if resume_mode == "continuation":
             if requested_recipe is None:
                 raise ValueError("optimizer continuation requires requested_recipe")
@@ -658,7 +661,9 @@ class ApexLearner:
             optimizer_state = state_dict["optimizer_state_dict"]
             if not isinstance(self.optimizer, optim.Adam):
                 raise ValueError("distributed continuation requires an Adam optimizer")
-            groups = optimizer_state.get("param_groups") if isinstance(optimizer_state, dict) else None
+            groups = (
+                optimizer_state.get("param_groups") if isinstance(optimizer_state, dict) else None
+            )
             if not isinstance(groups, list) or len(groups) != len(self.optimizer.param_groups):
                 raise ValueError("optimizer continuation has incompatible Adam parameter groups")
             if any(not isinstance(group, dict) or not group.get("params") for group in groups):
@@ -702,6 +707,16 @@ class ApexLearner:
             self.step_count = 0
             self.update_version = 0
             self.resume_provenance = "weights-only"
+
+    def _assert_pristine_weights_only_receiver(self) -> None:
+        """Reject weights-only loads into a learner that has already trained.
+
+        A weights-only checkpoint deliberately does not import Adam moments or
+        update clocks.  Loading one into an active receiver would otherwise
+        combine its old optimizer state with unrelated online weights.
+        """
+        if self.step_count or self.update_version or self.optimizer.state:
+            raise ValueError("weights-only load requires a fresh Apex learner receiver")
 
     def get_training_stats(self) -> Dict[str, Any]:
         """Get comprehensive training statistics.

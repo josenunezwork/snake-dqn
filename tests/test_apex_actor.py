@@ -615,9 +615,13 @@ class TestWeightSync:
                 return self.items.pop(0)
 
         actor = ApexActor(
-            actor_id=0, num_actors=1, shared_network=MagicMock(),
-            buffer_client=MagicMock(spec=ActorBufferClient), weight_queue=QueueWithVersion(),
-            stats_queue=MagicMock(spec=mp.Queue), stop_event=MagicMock(spec=mp.Event),
+            actor_id=0,
+            num_actors=1,
+            shared_network=MagicMock(),
+            buffer_client=MagicMock(spec=ActorBufferClient),
+            weight_queue=QueueWithVersion(),
+            stats_queue=MagicMock(spec=mp.Queue),
+            stop_event=MagicMock(spec=mp.Event),
         )
         actor.local_network = MagicMock()
         actor.target_network = MagicMock()
@@ -992,6 +996,44 @@ class TestActorPriorityMode:
         assert exp.td_error is not None
         assert exp.td_error >= 0.0
         assert mock_net.called
+
+    def test_td_priority_resolves_advisory_masks_before_bootstrap(self):
+        actor = self._make_actor(actor_priority_mode="td")
+        actor.local_network = FixedQ([0.0, 1.0, 3.0, 100.0, 100.0, 100.0])
+        actor.target_network = FixedQ([0.0, 1.0, 3.0, 100.0, 100.0, 100.0])
+        next_state = _state_with_no_boost()
+
+        advisory = deque(
+            [
+                {
+                    "state": torch.zeros(58),
+                    "action": 0,
+                    "reward": 0.0,
+                    "next_state": next_state,
+                    "next_action_mask": torch.zeros(6, dtype=torch.bool),
+                    "next_action_mask_mode": 0,
+                    "done": False,
+                }
+            ]
+        )
+        exact = deque(
+            [
+                {
+                    "state": torch.zeros(58),
+                    "action": 0,
+                    "reward": 0.0,
+                    "next_state": next_state,
+                    "next_action_mask": torch.tensor([True, False, False, False, False, False]),
+                    "next_action_mask_mode": 1,
+                    "done": False,
+                }
+            ]
+        )
+
+        advisory_experience = actor._compute_n_step_experience(advisory)
+        exact_experience = actor._compute_n_step_experience(exact)
+
+        assert advisory_experience.td_error > exact_experience.td_error
 
     def test_max_mode_sends_none_priorities(self):
         actor = self._make_actor()

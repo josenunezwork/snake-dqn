@@ -46,10 +46,35 @@ def _coerce_replay_priority(priority, default_priority: float, priority_eps: flo
     return max(value, float(priority_eps))
 
 
+def _coerce_bootstrap_steps(bootstrap_steps) -> int:
+    """Return an exact, positive n-step horizon without lossy coercion."""
+    if isinstance(bootstrap_steps, (bool, str, bytes, bytearray, memoryview)):
+        raise ValueError("bootstrap_steps must be an integer >= 1")
+    try:
+        steps = int(bootstrap_steps)
+        number = float(bootstrap_steps)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("bootstrap_steps must be an integer >= 1") from exc
+    if not np.isfinite(number) or number != steps or steps < 1:
+        raise ValueError("bootstrap_steps must be an integer >= 1")
+    return steps
+
+
 def _unpack_replay_memory(memory_item, default_bootstrap_steps: int = 1):
     """Return a normalized replay tuple from legacy or current serialized memory."""
     if len(memory_item) == 10:
-        state, action, reward, next_state, done, priority, bootstrap_steps, next_action_mask, next_action_mask_mode, stream_id = memory_item
+        (
+            state,
+            action,
+            reward,
+            next_state,
+            done,
+            priority,
+            bootstrap_steps,
+            next_action_mask,
+            next_action_mask_mode,
+            stream_id,
+        ) = memory_item
     elif len(memory_item) == 9:
         (
             state,
@@ -103,7 +128,7 @@ def _unpack_replay_memory(memory_item, default_bootstrap_steps: int = 1):
         next_state,
         done,
         priority,
-        int(bootstrap_steps),
+        _coerce_bootstrap_steps(bootstrap_steps),
         next_action_mask,
         validate_mask_mode(next_action_mask_mode),
         stream_id,
@@ -136,11 +161,20 @@ def restore_replay_memories(
     stream_ids = []
 
     for memory_item in memories:
-        state, action, reward, next_state, done, priority, steps, next_action_mask, next_action_mask_mode, stream_id = (
-            _unpack_replay_memory(
-                memory_item,
-                default_bootstrap_steps=default_bootstrap_steps,
-            )
+        (
+            state,
+            action,
+            reward,
+            next_state,
+            done,
+            priority,
+            steps,
+            next_action_mask,
+            next_action_mask_mode,
+            stream_id,
+        ) = _unpack_replay_memory(
+            memory_item,
+            default_bootstrap_steps=default_bootstrap_steps,
         )
         states.append(state.to(device) if torch.is_tensor(state) else state)
         next_states.append(next_state.to(device) if torch.is_tensor(next_state) else next_state)
@@ -165,16 +199,24 @@ def restore_replay_memories(
             dones,
             priorities,
             bootstrap_steps=bootstrap_steps,
-            next_action_masks=(
-            next_action_masks
-            ),
+            next_action_masks=(next_action_masks),
             next_action_mask_modes=next_action_mask_modes,
             stream_ids=(
                 stream_ids if any(stream_id is not None for stream_id in stream_ids) else None
             ),
         )
     else:
-        for state, action, reward, next_state, done, priority, steps, next_action_mask, next_action_mask_mode in zip(
+        for (
+            state,
+            action,
+            reward,
+            next_state,
+            done,
+            priority,
+            steps,
+            next_action_mask,
+            next_action_mask_mode,
+        ) in zip(
             states,
             actions,
             rewards,
@@ -268,7 +310,9 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             priority_eps=self.priority_eps,
         )
         next_action_mask = validate_next_action_mask(next_action_mask)
-        next_action_mask_mode = validate_replay_mask_row(next_state, done, next_action_mask, next_action_mask_mode)
+        next_action_mask_mode = validate_replay_mask_row(
+            next_state, done, next_action_mask, next_action_mask_mode
+        )
 
         self._tree.add(
             priority,
@@ -278,7 +322,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                 reward,
                 next_state,
                 done,
-                max(1, int(bootstrap_steps)),
+                _coerce_bootstrap_steps(bootstrap_steps),
                 next_action_mask,
                 next_action_mask_mode,
                 stream_id,
@@ -334,7 +378,17 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             indices.append(idx)
             priorities.append(pri)
             if len(data) == 9:
-                state, action, reward, next_state, done, steps, next_action_mask, next_action_mask_mode, _stream_id = data
+                (
+                    state,
+                    action,
+                    reward,
+                    next_state,
+                    done,
+                    steps,
+                    next_action_mask,
+                    next_action_mask_mode,
+                    _stream_id,
+                ) = data
             elif len(data) == 8:
                 state, action, reward, next_state, done, steps, next_action_mask, _stream_id = data
                 next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
@@ -378,10 +432,13 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             device,
             bootstrap_steps=bootstrap_steps,
             next_action_masks=(
-                next_action_masks if any(mask is not None for mask in next_action_masks) else None
+                next_action_masks
+                if any(mask is not None for mask in next_action_masks)
+                or any(mode != MASK_MODE_LEGACY_ADVISORY for mode in next_action_mask_modes)
+                else None
             ),
         )
-        if "next_action_masks" in batch_dict:
+        if any(mode != MASK_MODE_LEGACY_ADVISORY for mode in next_action_mask_modes):
             batch_dict["next_action_mask_modes"] = torch.tensor(
                 next_action_mask_modes, dtype=torch.long, device=device
             )
@@ -416,8 +473,15 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             stream_id = None
             if len(data) == 9:
                 (
-                    state, action, reward, next_state, done, bootstrap_steps,
-                    next_action_mask, next_action_mask_mode, stream_id,
+                    state,
+                    action,
+                    reward,
+                    next_state,
+                    done,
+                    bootstrap_steps,
+                    next_action_mask,
+                    next_action_mask_mode,
+                    stream_id,
                 ) = data
             elif len(data) == 8:
                 (
@@ -445,8 +509,18 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                 next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
             if next_action_mask_mode != MASK_MODE_LEGACY_ADVISORY:
                 memories.append(
-                    (state, action, reward, next_state, done, priority, bootstrap_steps,
-                     next_action_mask, next_action_mask_mode, stream_id)
+                    (
+                        state,
+                        action,
+                        reward,
+                        next_state,
+                        done,
+                        priority,
+                        bootstrap_steps,
+                        next_action_mask,
+                        next_action_mask_mode,
+                        stream_id,
+                    )
                 )
             elif stream_id is not None:
                 memories.append(
@@ -546,7 +620,9 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                 priority_eps=self.priority_eps,
             )
             next_action_mask = validate_next_action_mask(next_action_mask)
-            next_action_mask_mode = validate_replay_mask_row(next_state, done, next_action_mask, next_action_mask_mode)
+            next_action_mask_mode = validate_replay_mask_row(
+                next_state, done, next_action_mask, next_action_mask_mode
+            )
             validated_memories.append(
                 (
                     priority,
@@ -556,7 +632,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                         reward,
                         next_state,
                         done,
-                        max(1, int(steps)),
+                        _coerce_bootstrap_steps(steps),
                         next_action_mask,
                         next_action_mask_mode,
                         stream_id,
