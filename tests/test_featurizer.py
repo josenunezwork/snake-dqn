@@ -11,6 +11,7 @@ GameState via the adapter.
 import numpy as np
 import pytest
 
+from src.model.obs_spec import RASTER31V3
 from src.simd_env.featurizer import (
     SCALARS_DIM,
     STRATEGIC_CHANNELS,
@@ -108,6 +109,23 @@ def test_output_shapes_and_dtypes():
     assert obs["scalars"].shape == (1, 1, SCALARS_DIM)
     assert obs["scalars"].dtype == np.float32
     assert obs["mask"].shape == (1, 1, 6)
+
+
+def test_v2_golden_fixture_and_v3_shape_contract():
+    golden = np.load("tests/fixtures/raster31v2_golden.npz")
+    assert golden["tactical_uint8"].shape == (1, 2, 2, TACTICAL_SIZE, TACTICAL_SIZE)
+    assert golden["strategic_uint8"].shape == (
+        1,
+        2,
+        STRATEGIC_CHANNELS,
+        STRATEGIC_SIZE,
+        STRATEGIC_SIZE,
+    )
+    inp = _one_snake_inputs(head=(0, 0), heading=1, grid_w=4, grid_h=4)
+    v3 = build_observations(inp, obs_spec=RASTER31V3)
+    assert v3["tactical_uint8"].shape == (1, 1, 2, TACTICAL_SIZE, TACTICAL_SIZE)
+    assert v3["scalars"].shape[-1] == SCALARS_DIM
+    assert v3["tactical_uint8"][0, 0, 0, TACTICAL_HEAD_ROW, TACTICAL_HEAD_COL - 1] == 1
 
 
 def test_expand_and_network_input_shapes():

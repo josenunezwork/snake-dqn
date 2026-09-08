@@ -30,6 +30,8 @@ from typing import Optional
 
 import numpy as np
 
+from src.model.obs_spec import RASTER31V2, RASTER31V3
+
 # --- Raster geometry (blueprint §2.1 / §2.2) ---------------------------------
 TACTICAL_SIZE = 31
 TACTICAL_HEAD_ROW = 23  # forward-biased: ~230px ahead, ~70px behind
@@ -214,7 +216,9 @@ def _ego_offsets(
 # ---------------------------------------------------------------------------
 # Core build
 # ---------------------------------------------------------------------------
-def build_observations(inp: ObsInputs, mask: Optional[np.ndarray] = None) -> dict:
+def build_observations(
+    inp: ObsInputs, mask: Optional[np.ndarray] = None, *, obs_spec: str = RASTER31V2
+) -> dict:
     """Build the full dual-scale ego observation for every ``(E, S)`` agent.
 
     Fully vectorized over the ``(E, S)`` agent grid. Everything spatial is
@@ -231,8 +235,12 @@ def build_observations(inp: ObsInputs, mask: Optional[np.ndarray] = None) -> dic
         ``strategic_uint8`` ``(E, S, 3, 25, 25)`` uint8, ``scalars``
         ``(E, S, 26)`` float32, and ``mask`` ``(E, S, 6)``.
     """
+    if obs_spec not in {RASTER31V2, RASTER31V3}:
+        raise ValueError(f"Unsupported raster observation spec {obs_spec!r}")
+    if inp.arena_type_flag not in (0.0, 0):
+        raise ValueError("Raster observations support rectangular arena geometry only")
     E, S = inp.E, inp.S
-    tactical = _build_tactical(inp)
+    tactical = _build_tactical(inp, corrected=obs_spec == RASTER31V3)
     strategic = _build_strategic(inp)
     scalars = _build_scalars(inp)
 
@@ -247,6 +255,33 @@ def build_observations(inp: ObsInputs, mask: Optional[np.ndarray] = None) -> dic
         "scalars": scalars,
         "mask": out_mask,
     }
+
+
+_V3_PRIORITY = {
+    CODE_EMPTY: 0,
+    CODE_AMBIENT_FOOD: 1,
+    CODE_CORPSE_FOOD: 2,
+    CODE_ENEMY_PRED: 3,
+    CODE_OWN_BODY: 4,
+    CODE_ENEMY_BODY: 5,
+    CODE_ENEMY_HEAD: 6,
+    CODE_OWN_HEAD: 7,
+    CODE_WALL: 8,
+}
+_V3_CODE_BY_PRIORITY = np.array(
+    [
+        CODE_EMPTY,
+        CODE_AMBIENT_FOOD,
+        CODE_CORPSE_FOOD,
+        CODE_ENEMY_PRED,
+        CODE_OWN_BODY,
+        CODE_ENEMY_BODY,
+        CODE_ENEMY_HEAD,
+        CODE_OWN_HEAD,
+        CODE_WALL,
+    ],
+    dtype=np.uint8,
+)
 
 
 def _paint(
@@ -280,6 +315,7 @@ def _paint(
         value: Flat value byte per point, or a scalar shared by all points.
         size: Raster edge length.
     """
+    corrected = code_plane.dtype == np.int32
     scalar_code = np.ndim(code) == 0
     inb = (row >= 0) & (row < size) & (col >= 0) & (col < size)
     if not inb.all():
@@ -290,6 +326,23 @@ def _paint(
             code = code[inb]
         if np.ndim(value):
             value = value[inb]
+    if corrected:
+        codes = np.full(len(ei), int(code), dtype=np.int32) if scalar_code else np.asarray(code)
+        values = (
+            np.full(len(ei), int(value), dtype=np.uint16)
+            if np.ndim(value) == 0
+            else np.asarray(value)
+        )
+        ranks = np.asarray([_V3_PRIORITY[int(item)] for item in codes], dtype=np.int32)
+        for index in range(len(ei)):
+            current = code_plane[ei[index], si[index], row[index], col[index]]
+            current_value = val_plane[ei[index], si[index], row[index], col[index]]
+            if ranks[index] > current or (
+                ranks[index] == current and values[index] > current_value
+            ):
+                code_plane[ei[index], si[index], row[index], col[index]] = ranks[index]
+                val_plane[ei[index], si[index], row[index], col[index]] = values[index]
+        return
     if scalar_code:
         # Uniform code: last-write-wins by position is identical to the old
         # stable-sort-then-scatter (the sort left equal codes in place), so skip
@@ -305,12 +358,12 @@ def _paint(
     val_plane[ei[order], si[order], row[order], col[order]] = value[order]
 
 
-def _build_tactical(inp: ObsInputs) -> np.ndarray:
+def _build_tactical(inp: ObsInputs, *, corrected: bool = False) -> np.ndarray:
     """Render the 31x31 tactical rasters as 2 uint8 planes ``(E, S, 2, 31, 31)``."""
     E, S = inp.E, inp.S
     size = TACTICAL_SIZE
     # uint16 accumulators (code + value) then downcast; codes fit in a byte.
-    code_plane = np.zeros((E, S, size, size), dtype=np.uint16)
+    code_plane = np.zeros((E, S, size, size), dtype=np.int32 if corrected else np.uint16)
     val_plane = np.zeros((E, S, size, size), dtype=np.uint16)
 
     heads = inp.heads  # (E, S, 2)
@@ -383,7 +436,7 @@ def _build_tactical(inp: ObsInputs) -> np.ndarray:
     _paint_snakes_tactical(inp, code_plane, val_plane, heads, heading, alive, lengths, size)
 
     out = np.zeros((E, S, 2, size, size), dtype=np.uint8)
-    out[:, :, 0] = code_plane.astype(np.uint8)
+    out[:, :, 0] = (_V3_CODE_BY_PRIORITY[code_plane] if corrected else code_plane).astype(np.uint8)
     out[:, :, 1] = np.minimum(val_plane, 255).astype(np.uint8)
     return out
 
@@ -612,6 +665,11 @@ def _paint_enemy_pred(
         col = TACTICAL_HEAD_COL + lateral
         obs_is_src = np.arange(S)[None, :] == src  # (1,S)
         active = np.broadcast_to(pvalid[:, None], (E, S)) & alive & ~obs_is_src
+        if code_plane.dtype == np.int32:
+            # Corrected v3 does not project a source's future position through
+            # the arena boundary merely because its ego raster coordinate fits.
+            in_world = (pc >= 0) & (pc < inp.grid_w) & (pr >= 0) & (pr < inp.grid_h)
+            active &= np.broadcast_to(in_world, (E, S))
         if not np.any(active):
             continue
         ei = np.broadcast_to(np.arange(E)[:, None], (E, S))
