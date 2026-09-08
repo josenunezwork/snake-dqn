@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import random
 
 import numpy as np
@@ -50,7 +51,7 @@ def _batch_snapshot(sim: BatchSim, env: int) -> tuple:
 
 @pytest.mark.parametrize("seed", [41, 314159])
 def test_repeated_resets_match_actual_game_state_rng_order(seed: int) -> None:
-    """Constructor food draws occur once, while GameState soft resets do not repeat them."""
+    """Actual GameState remains aligned through actions and later soft resets."""
     from src.game.game_state import GameState
 
     cfg = _cfg(num_envs=1)
@@ -60,7 +61,14 @@ def test_repeated_resets_match_actual_game_state_rng_order(seed: int) -> None:
         random.seed(seed)
         game = GameState(headless=True, num_snakes=cfg.num_snakes)
         sim = BatchSim(cfg, seeds=[seed], train_mode=True)
+        # Drive the real GameState with a deterministic physical action, without
+        # invoking policy exploration or re-implementing GameState.update().
+        for snake in game.snakes:
+            snake.update = lambda _others, _food, snake=snake, **_kwargs: snake.move()
         for _ in range(3):
+            assert _batch_snapshot(sim, 0) == _live_snapshot(game)
+            game.update(train_mode=True, learn=False, allow_respawn=False)
+            sim.step(np.ones((1, cfg.num_snakes), dtype=np.int64))
             assert _batch_snapshot(sim, 0) == _live_snapshot(game)
             game.reset()
             sim.reset()
@@ -103,8 +111,26 @@ def test_masks_keep_legacy_advisory_meaning_and_resolve_against_domain_legality(
     assert np.array_equal(sim.get_action_mask(), sim.get_advisory_action_mask())
     assert not sim.get_resolved_action_mask()[0, 0, 3:].any()
 
+    # A fully boxed-in normal-action row has no advisory choices. C0's
+    # row-local fallback returns its legal actions, still excluding boost.
+    sim.seg_count[0, 0] = 4
+    sim.length[0, 0] = 4
+    sim.head_ptr[0, 0] = 3
+    # Ring index 3 is the head; after a candidate move the old offset-two
+    # segment at (0, 1) remains in the self-collision target.
+    for ring, cell in enumerate(((1, 1), (0, 1), (1, 0), (0, 0))):
+        sim.bodies[0, 0, ring] = cell
+    sim.direction[0, 0] = 3
+    sim._rebuild_traversed_from_heads()
+    sim._refresh_action_masks()
+    assert not sim.get_advisory_action_mask()[0, 0].any()
+    assert sim.get_resolved_action_mask()[0, 0].tolist() == [True, True, True, False, False, False]
+
     # At the left wall straight-left is advisory-fatal, while a turn can remain
     # safe. Resolution preserves that advisory veto and never enables boost.
+    sim.seg_count[0, 0] = 1
+    sim.length[0, 0] = 1
+    sim.head_ptr[0, 0] = 0
     sim.bodies[0, 0, 0] = (0, 3)
     sim.direction[0, 0] = 3
     sim._rebuild_traversed_from_heads()
@@ -129,3 +155,87 @@ def test_active_env_mask_rejects_non_boolean_or_wrong_shape() -> None:
         sim.step(actions, active_env_mask=np.array([[True, False]], dtype=bool))
     with pytest.raises(ValueError, match="actions must have shape"):
         sim.step(np.zeros((2, 1), dtype=np.int64))
+
+
+def test_inactive_full_capacity_row_is_not_moved_or_consulted_for_overflow() -> None:
+    """An inactive full ring cannot make an unrelated active environment fail."""
+    sim = BatchSim(
+        _cfg(num_snakes=1, initial_food=0, max_food=0, max_capacity=2),
+        seeds=[41, 314159],
+        train_mode=True,
+    )
+    # Construct an otherwise valid full-capacity inactive body. A previous
+    # snapshot-and-restore implementation still tried to push this head first.
+    sim.seg_count[1, 0] = 2
+    sim.length[1, 0] = 2
+    sim.head_ptr[1, 0] = 1
+    sim.bodies[1, 0, 1] = (8, 4)
+    sim.bodies[1, 0, 0] = (7, 4)
+    frozen = (
+        sim.bodies[1].copy(),
+        sim.head_ptr[1].copy(),
+        sim.seg_count[1].copy(),
+        sim.length[1].copy(),
+        sim.frame[1].copy(),
+        copy.deepcopy(sim._rngs[1]._rng.getstate()),
+    )
+
+    sim.step(np.array([[1], [1]], dtype=np.int64), active_env_mask=np.array([True, False]))
+
+    assert sim.frame[0] == 1
+    assert sim.frame[1] == frozen[4]
+    assert np.array_equal(sim.bodies[1], frozen[0])
+    assert np.array_equal(sim.head_ptr[1], frozen[1])
+    assert np.array_equal(sim.seg_count[1], frozen[2])
+    assert np.array_equal(sim.length[1], frozen[3])
+    assert sim._rngs[1]._rng.getstate() == frozen[5]
+    assert sim.get_transition_valid().tolist() == [[True], [False]]
+
+
+def test_transition_valid_marks_death_frame_but_not_the_following_dead_step() -> None:
+    """A terminal transition is trainable once; its dead successor is not."""
+    sim = BatchSim(_cfg(num_envs=1, num_snakes=1, initial_food=0, max_food=0), seeds=[9])
+    sim.bodies[0, 0, 0] = (0, 3)
+    sim.direction[0, 0] = 3
+    sim._rebuild_traversed_from_heads()
+    sim._refresh_action_masks()
+
+    sim.step(np.array([[1]], dtype=np.int64))
+    assert sim.get_done().tolist() == [[True]]
+    assert sim.get_transition_valid().tolist() == [[True]]
+
+    sim.step(np.array([[1]], dtype=np.int64))
+    assert sim.get_transition_valid().tolist() == [[False]]
+
+
+def test_inactive_world_preserves_food_timers_masks_and_population_floor() -> None:
+    """Inactive rows retain every public episode field, not only their body ring."""
+    sim = BatchSim(_cfg(num_snakes=3), seeds=[4, 5], train_mode=True)
+    sim.alive[1, 2] = False
+    sim.respawn_timer[1, 2] = 7
+    sim.boost_frames[1, 0] = 2
+    sim.frames_since_food[1, 1] = 11
+    sim._refresh_action_masks()
+    frozen = (
+        tuple(sim.get_food(1)),
+        tuple(sim.get_corpse_food(1)),
+        sim.get_alive()[1].copy(),
+        sim.get_boost_frames()[1].copy(),
+        sim.get_frames_since_food()[1].copy(),
+        sim.get_legal_action_mask()[1].copy(),
+        sim.get_advisory_action_mask()[1].copy(),
+        sim.get_resolved_action_mask()[1].copy(),
+        bool(sim.population_floor_reached()[1]),
+    )
+
+    sim.step(np.ones((2, 3), dtype=np.int64), active_env_mask=np.array([True, False], dtype=bool))
+
+    assert tuple(sim.get_food(1)) == frozen[0]
+    assert tuple(sim.get_corpse_food(1)) == frozen[1]
+    assert np.array_equal(sim.get_alive()[1], frozen[2])
+    assert np.array_equal(sim.get_boost_frames()[1], frozen[3])
+    assert np.array_equal(sim.get_frames_since_food()[1], frozen[4])
+    assert np.array_equal(sim.get_legal_action_mask()[1], frozen[5])
+    assert np.array_equal(sim.get_advisory_action_mask()[1], frozen[6])
+    assert np.array_equal(sim.get_resolved_action_mask()[1], frozen[7])
+    assert bool(sim.population_floor_reached()[1]) == frozen[8]

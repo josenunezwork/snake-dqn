@@ -26,7 +26,6 @@ circular raises. Reward reuses ``src.core.reward_events.compute_reward_v2``.
 
 from __future__ import annotations
 
-import copy
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
@@ -352,13 +351,15 @@ class BatchSim:
                 cells.append((int(c[0]), int(c[1])))
         return np.array(cells, dtype=np.int64).reshape(-1, 2)
 
-    def _rebuild_traversed_from_heads(self) -> None:
+    def _rebuild_traversed_from_heads(self, active: Optional[np.ndarray] = None) -> None:
         """Set traversed-head arrays to just the current head (no move yet)."""
         h = self.heads()
-        self._trav[:, :, 0] = h
-        self._trav[:, :, 1] = h
-        self._trav_valid[:, :, 0] = True
-        self._trav_valid[:, :, 1] = False
+        if active is None:
+            active = np.ones(self.E, dtype=bool)
+        self._trav[active, :, 0] = h[active]
+        self._trav[active, :, 1] = h[active]
+        self._trav_valid[active, :, 0] = True
+        self._trav_valid[active, :, 1] = False
 
     def _normalize_active_env_mask(self, active_env_mask: Optional[np.ndarray]) -> np.ndarray:
         """Validate an optional per-environment transition selection mask."""
@@ -371,65 +372,11 @@ class BatchSim:
             raise ValueError("active_env_mask must have boolean dtype")
         return active.copy()
 
-    def _snapshot_inactive_envs(self, inactive: np.ndarray) -> dict:
-        """Capture all mutable per-environment state before a masked step.
+    def _active_envs(self) -> np.ndarray:
+        """Return the active rows for the current step or all rows outside one."""
+        return getattr(self, "_active_env_mask", np.ones(self.E, dtype=bool))
 
-        BatchSim's mechanics are independent across environments, but its
-        vectorized implementation advances every row together.  Restoring a
-        complete snapshot for inactive rows preserves the public synchronous
-        default while giving the trainer a safe, explicit active-row contract.
-        """
-        arrays = (
-            "bodies",
-            "head_ptr",
-            "seg_count",
-            "length",
-            "alive",
-            "direction",
-            "boost_frames",
-            "frames_since_food",
-            "respawn_timer",
-            "_reward_prev_length",
-            "_boosted_this_step",
-            "_trav",
-            "_trav_valid",
-            "frame",
-            "_last_reward",
-            "_last_mask",
-            "_last_legal_mask",
-            "_last_resolved_mask",
-            "_last_done",
-            "_last_food_ate",
-            "_last_death_cause",
-            "_last_kills",
-            "_last_transition_valid",
-            "_last_kill_victim_len",
-        )
-        indices = np.flatnonzero(inactive)
-        return {
-            "indices": indices,
-            "arrays": {name: copy.deepcopy(getattr(self, name)[inactive]) for name in arrays},
-            "food_cells": {e: list(self.food_cells[e]) for e in indices},
-            "corpse_cells": {e: set(self.corpse_cells[e]) for e in indices},
-            "food_set": {e: set(self.food_set[e]) for e in indices},
-            "rng_states": {e: self._rngs[e]._rng.getstate() for e in indices},
-        }
-
-    def _restore_inactive_envs(self, snapshot: dict) -> None:
-        """Restore inactive rows after vectorized mechanics ran for active rows."""
-        indices = snapshot["indices"]
-        for name, values in snapshot["arrays"].items():
-            getattr(self, name)[indices] = values
-        for e, values in snapshot["food_cells"].items():
-            self.food_cells[e] = values
-        for e, values in snapshot["corpse_cells"].items():
-            self.corpse_cells[e] = values
-        for e, values in snapshot["food_set"].items():
-            self.food_set[e] = values
-        for e, rng_state in snapshot["rng_states"].items():
-            self._rngs[e]._rng.setstate(rng_state)
-
-    def _refresh_action_masks(self) -> None:
+    def _refresh_action_masks(self, active: Optional[np.ndarray] = None) -> None:
         """Recompute legal, advisory, and C0-resolved masks for this world."""
         advisory = self._compute_action_masks()
         legal = np.zeros((self.E, self.S, 6), dtype=bool)
@@ -437,9 +384,12 @@ class BatchSim:
         boost_legal = self.alive & (self.length >= self.cfg.min_boost_length)
         legal[:, :, 3:] = boost_legal[:, :, None]
         masks = ActionMaskSet(legal=legal, advisory=advisory, dead=~self.alive)
-        self._last_legal_mask = legal
-        self._last_mask = advisory
-        self._last_resolved_mask = masks.resolved()
+        if active is None:
+            active = np.ones(self.E, dtype=bool)
+        resolved = masks.resolved()
+        self._last_legal_mask[active] = legal[active]
+        self._last_mask[active] = advisory[active]
+        self._last_resolved_mask[active] = resolved[active]
 
     # ==================================================================
     # Step
@@ -466,84 +416,87 @@ class BatchSim:
         if actions.shape != (self.E, self.S):
             raise ValueError(f"actions must have shape {(self.E, self.S)}, got {actions.shape}")
         active = self._normalize_active_env_mask(active_env_mask)
-        inactive = ~active
-        snapshot = self._snapshot_inactive_envs(inactive) if inactive.any() else None
+        self._active_env_mask = active
+        try:
+            self.frame[active] += 1
 
-        self.frame += 1
+            # --- Step 2: maintain food count (RNG) ---
+            self._maintain_food()
 
-        # --- Step 2: maintain food count (RNG) ---
-        self._maintain_food()
+            # --- Step 4: respawn dead snakes (only when allow_respawn) ---
+            # Ordering is load-bearing twice over. It must follow _maintain_food
+            # because both draw from the SAME per-env RNG and the live game maintains
+            # (game_state.py:307) before it respawns (game_state.py:314) — swapping
+            # them desyncs the Mersenne-Twister stream permanently on the first
+            # respawn. And it must precede the prev_length capture below, because a
+            # respawn resets _reward_prev_length to 1 and the live game's step-9
+            # reward reads that fresh baseline on the respawn frame.
+            if self.allow_respawn:
+                self._respawn_dead()
 
-        # --- Step 4: respawn dead snakes (only when allow_respawn) ---
-        # Ordering is load-bearing twice over. It must follow _maintain_food
-        # because both draw from the SAME per-env RNG and the live game maintains
-        # (game_state.py:307) before it respawns (game_state.py:314) — swapping
-        # them desyncs the Mersenne-Twister stream permanently on the first
-        # respawn. And it must precede the prev_length capture below, because a
-        # respawn resets _reward_prev_length to 1 and the live game's step-9
-        # reward reads that fresh baseline on the respawn frame.
-        if self.allow_respawn:
-            self._respawn_dead()
+            # A row is a fresh transition only when it actually has a living
+            # snake to act after the optional respawn phase. A death caused by
+            # this step remains valid; a snake already dead at the next call is
+            # not. This is the episode-boundary signal P2/E1 consume.
+            acted = self.alive.copy()
 
-        # PBRS baseline is the live game's ``_reward_prev_length`` (the length at
-        # the previous reward computation), NOT the start-of-step length. These
-        # differ only when a snake grows AND dies on the same frame: the live
-        # game's ``_calculate_reward_v2`` reads ``_reward_prev_length`` (last
-        # non-death baseline), so Phi(prev) uses the pre-growth length. Using
-        # start-of-step length here would double-count that frame's growth.
-        prev_length = self._reward_prev_length.copy()
+            # PBRS baseline is the live game's ``_reward_prev_length`` (the length at
+            # the previous reward computation), NOT the start-of-step length. These
+            # differ only when a snake grows AND dies on the same frame: the live
+            # game's ``_calculate_reward_v2`` reads ``_reward_prev_length`` (last
+            # non-death baseline), so Phi(prev) uses the pre-growth length. Using
+            # start-of-step length here would double-count that frame's growth.
+            prev_length = self._reward_prev_length.copy()
 
-        # --- Step 5: decode actions + move all alive snakes ---
-        trail_cells = self._move_all(actions)
+            # --- Step 5: decode actions + move all alive snakes ---
+            trail_cells = self._move_all(actions)
 
-        # --- Step 6 (v2): boost trail pellets become corpse food ---
-        if self.v2:
-            self._drop_trail_pellets(trail_cells)
+            # --- Step 6 (v2): boost trail pellets become corpse food ---
+            if self.v2:
+                self._drop_trail_pellets(trail_cells)
 
-        # --- Step 7: food consumption (+ replacement RNG) ---
-        ate = self._consume_food()
+            # --- Step 7: food consumption (+ replacement RNG) ---
+            ate = self._consume_food()
 
-        # --- Step 8: collisions detect + resolve (+ corpse drop) ---
-        death_cause, kill_credit, kill_victim_len, death_order = self._resolve_collisions()
+            # --- Step 8: collisions detect + resolve (+ corpse drop) ---
+            death_cause, kill_credit, kill_victim_len, death_order = self._resolve_collisions()
 
-        died = death_cause != DEATH_NONE
+            died = death_cause != DEATH_NONE
 
-        # --- Step 9: reward (compute_reward_v2 arithmetic, vectorized) ---
-        self._last_reward = self._compute_rewards(prev_length, died, kill_victim_len)
+            # --- Step 9: reward (compute_reward_v2 arithmetic, vectorized) ---
+            reward = self._compute_rewards(prev_length, died, kill_victim_len)
+            self._last_reward[active] = reward[active]
 
-        # Counter upkeep (spec §6b): on death leave counters; else update.
-        alive_not_dead = self.alive & ~died  # snakes still alive after this step
-        ate_and_alive = ate & alive_not_dead
-        self.frames_since_food = np.where(
-            died,
-            self.frames_since_food,
-            np.where(ate, 0, self.frames_since_food + 1),
-        )
-        self._reward_prev_length = np.where(died, self._reward_prev_length, self.length)
-        # frames_since_food only meaningful for alive; keep dead as-is (respawn
-        # resets). The alive_not_dead intermediate documents intent.
-        _ = ate_and_alive
+            # Counter upkeep (spec §6b): on death leave counters; else update.
+            alive_not_dead = self.alive & ~died  # snakes still alive after this step
+            ate_and_alive = ate & alive_not_dead
+            next_frames_since_food = np.where(
+                died,
+                self.frames_since_food,
+                np.where(ate, 0, self.frames_since_food + 1),
+            )
+            self.frames_since_food[active] = next_frames_since_food[active]
+            next_reward_prev_length = np.where(died, self._reward_prev_length, self.length)
+            self._reward_prev_length[active] = next_reward_prev_length[active]
+            # frames_since_food only meaningful for alive; keep dead as-is (respawn
+            # resets). The alive_not_dead intermediate documents intent.
+            _ = ate_and_alive
 
-        # --- Kill each dying snake now (apply deaths to world state) ---
-        self._apply_deaths(died, death_order)
+            # --- Kill each dying snake now (apply deaths to world state) ---
+            self._apply_deaths(died, death_order)
 
-        # Rebuild traversed heads to current heads for next-frame masks.
-        self._rebuild_traversed_from_heads()
-        self._refresh_action_masks()
+            # Rebuild traversed heads to current heads for next-frame masks.
+            self._rebuild_traversed_from_heads(active)
+            self._refresh_action_masks(active)
 
-        self._last_death_cause = death_cause
-        self._last_kills = kill_credit
-        self._last_kill_victim_len = kill_victim_len
-        self._last_done = died
-        self._last_food_ate = ate
-        self._last_transition_valid[:] = active[:, None]
-
-        if snapshot is not None:
-            self._restore_inactive_envs(snapshot)
-            # Validity is intentionally a transition-output field rather than
-            # part of frozen world state: callers must not train/evaluate an
-            # inactive row as though it produced a new transition.
-            self._last_transition_valid[inactive] = False
+            self._last_death_cause[active] = death_cause[active]
+            self._last_kills[active] = kill_credit[active]
+            self._last_kill_victim_len[active] = kill_victim_len[active]
+            self._last_done[active] = died[active]
+            self._last_food_ate[active] = ate[active]
+            self._last_transition_valid[:] = active[:, None] & acted
+        finally:
+            del self._active_env_mask
 
     # ------------------------------------------------------------------
     # Movement
@@ -566,7 +519,8 @@ class BatchSim:
             trail_cells: (E, S, 3) int array; columns are (col, row, valid).
         """
         E, S = self.E, self.S
-        alive = self.alive
+        active = self._active_envs()[:, None]
+        alive = self.alive & active
         new_dir = self._decode_directions(actions)
         self.direction = np.where(alive, new_dir, self.direction)
 
@@ -576,8 +530,8 @@ class BatchSim:
         dvec = CARDINAL[self.direction]  # (E, S, 2)
 
         # Reset per-frame traversed record.
-        self._trav[:] = 0
-        self._trav_valid[:] = False
+        self._trav[active[:, 0]] = 0
+        self._trav_valid[active[:, 0]] = False
         trail = np.full((E, S, 3), -1, dtype=np.int64)  # (col,row,valid)
 
         head = self.heads()  # (E, S, 2)
@@ -586,19 +540,24 @@ class BatchSim:
         new_head1 = head + dvec
         moved1 = alive
         self._push_head(new_head1, moved1)
-        self._trav[:, :, 0] = np.where(moved1[..., None], new_head1, self._trav[:, :, 0])
-        self._trav_valid[:, :, 0] = moved1
+        active_rows = active[:, 0]
+        self._trav[active_rows, :, 0] = np.where(
+            moved1[active_rows, :, None], new_head1[active_rows], self._trav[active_rows, :, 0]
+        )
+        self._trav_valid[active_rows, :, 0] = moved1[active_rows]
 
         # --- sub-step 2 (boost eligible) ---
         head2 = new_head1  # head is now new_head1
         new_head2 = head2 + dvec
         moved2 = can_boost
         self._push_head(new_head2, moved2)
-        self._trav[:, :, 1] = np.where(moved2[..., None], new_head2, self._trav[:, :, 1])
-        self._trav_valid[:, :, 1] = moved2
+        self._trav[active_rows, :, 1] = np.where(
+            moved2[active_rows, :, None], new_head2[active_rows], self._trav[active_rows, :, 1]
+        )
+        self._trav_valid[active_rows, :, 1] = moved2[active_rows]
         # Persist the boost signal for obs/eval readers (survives the
         # _rebuild_traversed_from_heads reset at the end of step()).
-        self._boosted_this_step = moved2.copy()
+        self._boosted_this_step[active_rows] = moved2[active_rows]
 
         # Boost burn cadence: increment boost_frames once per boosting frame.
         self.boost_frames = np.where(moved2, self.boost_frames + 1, self.boost_frames)
@@ -654,7 +613,7 @@ class BatchSim:
         Called after each head insert. Because inserts add at most one segment
         per call and growth increments length by 1, at most one tail pops here.
         """
-        overflow = self.seg_count > self.length
+        overflow = (self.seg_count > self.length) & self._active_envs()[:, None]
         self.seg_count = np.where(overflow, self.seg_count - 1, self.seg_count)
 
     def _settle_tails(self, pay: np.ndarray, trail: np.ndarray) -> np.ndarray:
@@ -692,6 +651,8 @@ class BatchSim:
     def _maintain_food(self) -> None:
         """Top ambient food up to ``max_food`` per env (spec §4.4, RNG)."""
         for e in range(self.E):
+            if not self._active_envs()[e]:
+                continue
             deficit = self.cfg.max_food - self._ambient_count(e)
             if deficit > 0:
                 self._spawn(e, deficit)
@@ -726,6 +687,8 @@ class BatchSim:
         ate = np.zeros((E, S), dtype=bool)
         any_ate = np.zeros(E, dtype=bool)
         for e in range(E):
+            if not self._active_envs()[e]:
+                continue
             fset = self.food_set[e]  # maintained membership index (== set(food_cells))
             if not fset:
                 pass
@@ -754,6 +717,8 @@ class BatchSim:
         # Train-mode replacement: one maintain_count if anyone ate.
         if self.train_mode:
             for e in range(E):
+                if not self._active_envs()[e]:
+                    continue
                 if any_ate[e]:
                     deficit = self.cfg.max_food - self._ambient_count(e)
                     if deficit > 0:
@@ -763,6 +728,8 @@ class BatchSim:
     def _drop_trail_pellets(self, trail: np.ndarray) -> None:
         """Turn burned boost-tail cells into corpse-class food (v2, spec §4.6)."""
         for e in range(self.E):
+            if not self._active_envs()[e]:
+                continue
             for sidx in range(self.S):
                 if trail[e, sidx, 2] != 1:
                     continue
@@ -823,6 +790,8 @@ class BatchSim:
 
         # Precompute per-snake data once for the frame.
         for e in range(E):
+            if not self._active_envs()[e]:
+                continue
             self._resolve_env(e, death_cause, kill_credit, kill_victim_len, death_order[e])
         return death_cause, kill_credit, kill_victim_len, death_order
 
@@ -1076,6 +1045,8 @@ class BatchSim:
         stride1 = max(1, round(1.0 / CORPSE_DROP_FRACTION_V1))  # v1 -> 2
         stride = 1 if self.v2 else stride1
         for e in range(self.E):
+            if not self._active_envs()[e]:
+                continue
             for sidx in death_order[e]:
                 if not died[e, sidx]:
                     continue
@@ -1102,6 +1073,8 @@ class BatchSim:
         frame the live game never charges it.
         """
         for e in range(self.E):
+            if not self._active_envs()[e]:
+                continue
             for sidx in range(self.S):
                 if not self.alive[e, sidx] and self.respawn_timer[e, sidx] > 0:
                     self.respawn_timer[e, sidx] -= 1
