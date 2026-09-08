@@ -479,7 +479,8 @@ class PQNTelemetry:
         action_entropy: Entropy (nats) of the hero action histogram.
         hero_kills: Exact valid hero kill credits in this rollout.
         hero_deaths: Exact valid hero deaths in this rollout.
-        completed_episodes: Batch environments reset at this rollout boundary.
+        completed_episodes: Environments newly completed during this rollout.
+        episode_reset_count: Cumulative batch resets before collecting this rollout.
         boost_fraction: Fraction of hero steps that engaged boost.
         pool_size: Current opponent-pool size.
         eligible_hero_transitions: Real hero transitions eligible for SGD.

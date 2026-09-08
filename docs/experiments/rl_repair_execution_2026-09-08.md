@@ -1,8 +1,10 @@
 # RL repair execution — 2026-09-08
 
-Status: implementation in progress. The accepted plan is preserved at
-`docs/plans/rl_repair_2026-09-06/`; its PLANNED fields describe the delivered
-plan snapshot, not execution status.
+Status: the initial repair implementation and G0 qualification are complete;
+the bounded X0 development screen closed inconclusive. The accepted plan is
+preserved at `docs/plans/rl_repair_2026-09-06/`; its PLANNED fields describe the
+delivered plan snapshot, not execution status. Conditional follow-up work has
+not started. The incumbent and `main` remain unchanged.
 
 - Plan base: `5d5e85d6da1be3af48845e233d826c9cdcec77ed`.
 - Integration branch: `codex/rl-contract-repair`.
@@ -107,8 +109,10 @@ review against these fixtures, including direct quadrature and exact Holm bounda
 These are E2 implementation oracles, not evidence that the inferential gate exists.
 
 The campaign ledger records exact package/integration/test SHAs and durable
-evidence manifests. No repaired-model training or model-quality qualification
-has run yet in this execution campaign.
+evidence manifests. G0 later qualified the repaired source for a bounded
+development screen. X0 then retained five incomplete wall-stopped arms; it did
+not produce a model-quality estimate, strict authority, release authorization,
+or incumbent change.
 
 P2 is accepted at source `3692585`, integrated through `c080f6a`. The integrated
 PQN union passed **291 tests in 21.80s**. Hero-only updates now use actual episode
@@ -149,7 +153,7 @@ asserts all three input tensors, all anchor contexts/actions, and zero inference
 RNG draws. Full diagnostic traces and failing attempts remain in durable evidence.
 No learner update or skill qualification is implied by these checks.
 
-## Active integration wave
+## Qualification and development screen
 
 E2 and H0 started from the accepted `0896caa` source. The E2 statistical slice is
 accepted through integrated `cd82c09`: the statistics and tournament union passed
@@ -173,9 +177,15 @@ integrated runner, evaluator-trace and schema union passed **72 tests in 9.46s**
 It freezes source, seeds, configuration and checkpoint lineage, supervises each
 learner and evaluator under separate resource and wall limits, and confirms child
 cleanup before continuing. Failed and unrun arms retain their original positions;
-there are no automatic retries. A real 100,000-step MPS shakedown must supply the
-hashed timing receipt before the five-arm screen can start. Those actual CPU/MPS
-qualification runs remain pending.
+there are no automatic retries.
+
+The initial G0 CPU launch exposed a nested `RunProvenance` seed-lineage mismatch
+before an initial checkpoint or update. `810d877` repairs checkpoint seed
+validation, `3a9e7a2` covers the nested provenance metadata, and `7cb66a9`
+formats the final assertions. An earlier builder log was overwritten and is not
+an immutable receipt. The G0-R3 runner/source hashes and retained receipts below
+are the authoritative evidence; `b673c46` remains the original H0 implementation
+identifier rather than the executed source revision.
 
 The serving evidence producer is accepted at source `ff63255`, integrated as
 `95d376d`. Its combined serving union passed **79 tests in 8.96s**. The previous
@@ -189,9 +199,25 @@ and 49 Play sessions ending at actual human death or that horizon. These mode
 counts carry no statistical-power claim. Checkpoint source-runtime contracts and
 actual deployment differences remain intact. Implementation uses bounded serving
 oracles; the later 50-session readiness run is not part of the development screen.
-G0 now proceeds on the frozen combined source. Required full regression, slow
-parity, actual CPU/MPS execution and external 5,000-frame Watch checks remain
-pending. The five-seed X0 screen is conditional on that qualification.
+
+### G0-R3: qualified for development screening
+
+G0-R3 qualified clean source `7cb66a9437f63b89cd5dc8731b5f8577ce1c9765`
+for a bounded development screen. The canonical receipt is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/rl-repair-20260908/g0-r3/qualification.json`
+(SHA-256 `11482e88e5835cbd7b2f08995f4523d7b5822fa9f8f307a3f449cd96bdc98983`),
+with independent review at `g0-r3/readiness-review.md` (SHA-256
+`dbdd47f10d9310a5ec1da6c6efec21ed2b64fe7dac483cc178b36360cd227bcd`).
+
+The receipt covers **2,519 non-slow passes, 6 conditional skips and 3 slow
+tests deselected**; **3 slow simulator-parity passes**; **167 frontend tests**
+and a production build; browser/serving checks; 300 bounded incumbent frames;
+bounded Apex success and invalid-configuration controls; H0 CPU success and
+retained wall-stop controls; a 5,000-frame Watch; and one MPS shakedown. The MPS
+shakedown completed 100,901 actual hero steps against 100,000 requested in 73
+rollout updates and 292 optimizer steps. It is a diagnostic operability receipt,
+not a confidence interval or model-selection result. The G0 receipt explicitly
+sets `strict_authority: false` and `release_action_authorized: false`.
 
 A preliminary full non-slow regression on `c633135` completed in 85.32s with
 **2 failures, 2,411 passes, 6 conditional skips and 3 slow cases deselected**.
@@ -208,12 +234,10 @@ The parser-only E2 addition at `f143865` passed 34 integrated tests. It register
 request/receipt paths and carries no decision authority. Only the net safe patch
 was integrated; the rejected prototype's validators were removed in its worktree.
 
-G0 command recording is prepared and independently reviewed. Actual bounded
-process checks covered normal exit, error exit, and a detached child surviving
-its parent; the latter was detected and terminated. This recorder is separate
-from H0's learner executor. CPU, shakedown and screen root seeds are predeclared
-under `g0-root-seed-intent.json`; final expanded namespaces and source identity
-will be frozen by the accepted runner before any training begins.
+G0 command recording covered normal exit, error exit, and a detached child
+surviving its parent; the latter was detected and terminated. This recorder is
+separate from H0's learner executor. The final source and seed namespaces were
+frozen by the accepted runner before the retained X0 screen began.
 
 The campaign's `cpu_test_slot.py` now enforces at most two concurrent one-thread
 focused test processes. Owned-file repair/rerun attempts are continuously authorized
@@ -225,3 +249,72 @@ Two ambiguous A2 card phrases are resolved explicitly in the execution ledger:
 must record its actual separate value. Historical checkpoints remain loadable for
 inference or weights-only starts; restoring optimizer/counters requires verified
 continuation, with no unverified optimizer-continuation escape hatch.
+
+### X0: executed, inconclusive development screen
+
+The X0 launch bound exactly five `corrected-v3` arms to the qualified `7cb66a9`
+source, 500,000 requested hero transitions per arm, one MPS learner, and later
+paired CPU evaluation. Every original arm is retained as `wall_stop`; none was
+retried, extended, replaced, or evaluated. The campaign closed with no active
+learner or remaining campaign process. The final analysis is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/rl-repair-20260908/x0-final-analysis.json`
+(SHA-256 `dd65903b68a1aceb6e0e1d180343c6e913c85efdfd0720bd4e1a6c877cb0db09`),
+and its independent review is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/rl-repair-20260908/x0-final-analysis-review.md`
+(SHA-256
+`cb10eb415bc503d86ce80bca1ae351108d0e09e6beca31887e8f367e2871c616`).
+
+| Arm | Last recorded hero steps | Requested | Final checkpoint / evaluation |
+| --- | ---: | ---: | --- |
+| screen-1 | 416,687 | 500,000 | absent / absent |
+| screen-2 | 404,516 | 500,000 | absent / absent |
+| screen-3 | 431,780 | 500,000 | absent / absent |
+| screen-4 | 424,379 | 500,000 | absent / absent |
+| screen-5 | 455,227 | 500,000 | absent / absent |
+
+The 2,132,589 aggregate is a lower bound from each interrupted arm's final
+telemetry row, which may omit unflushed work. With zero complete arms, accepted
+checkpoint pairs, or evaluations, the five-seed interval is null. The analysis
+reports no integrity error. Its generic `observed_world_count: 12` and mix labels
+describe the frozen evaluation plan, not executed worlds: every arm has no
+evaluator record and `world_pairs_by_mix` is null.
+
+All checked loss/Q fields were finite and every arm reached the wall cap rather
+than a numerical or resource incident. Maximum recorded process RSS was
+1,559,150,592 bytes (1.452 GiB), maximum MPS-driver allocation was 1,195,245,568
+bytes (1.113 GiB), and minimum available memory was 15,994,765,312 bytes
+(14.896 GiB). The runtime summary is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/rl-repair-20260908/x0-runtime-summary.md`.
+The frozen per-arm wall cap was 435.61 seconds; observed detection was
+435.77–436.51 seconds, including less than 0.90 seconds of monitor overshoot.
+This censored screen does not show that PQN, the sampler, the representation, or
+an algorithm alternative won or lost.
+
+The short calibration sampled only the early all-hero phase. In screen 1, the
+first 73 updates produced 1,513.5 useful hero transitions per update-wall-second;
+subsequent recorded updates averaged 859.7. Completed environments remained
+inactive until the batch reset, and frozen opponents first received exposure
+after that reset. This is expected under the accepted batch-barrier contract,
+but the timing projection did not represent those later phases. The retained
+`x0-episode-utilization.md` and `x0-autoreset-research.md` in the evidence root
+explain the raw telemetry and primary-source comparison.
+
+## Conditional follow-up work
+
+The campaign ledger marks X0 `EXECUTED_INCONCLUSIVE`; H1, L0, L1, G1, X2 and REL
+are `DEFERRED_CONDITIONAL`. Follow the tracked
+[post-X0 follow-up plan](../plans/rl_repair_2026-09-08-followup.md) rather than
+altering this campaign. First calibrate steady-state cost across early all-hero,
+sparse-tail, reset, and frozen-opponent phases. A per-environment autoreset
+comparison is a separately versioned semantic experiment: it must retain actual
+death targets, final post-step truncation bootstraps, return boundaries,
+per-environment RNG, and opponent leases before testing a matched valid-transition
+budget. PPO and state-representation changes remain optional and require their
+own qualified paths.
+
+After all runs and the independent analysis review closed, the learner docstring
+was corrected: `PQNTelemetry.completed_episodes` counts environments newly completed
+in a rollout, while `episode_reset_count` counts actual batch resets. The
+docstring-stripped AST is identical before and after. All qualification and
+training evidence remains bound to `7cb66a9`; the final documentation commit
+does not claim a new training or qualification run.
