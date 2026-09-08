@@ -68,7 +68,15 @@ from src.model.raster_network import (
 from src.simd_env.batch_sim import BatchSim, BatchSimConfig
 from src.simd_env.featurizer import build_observations, obs_inputs_from_batch_sim
 from src.simd_env.gpu_featurizer import build_observations_gpu, obs_inputs_to_torch
-from src.training.pqn_selfplay import HERO_POLICY_ID, OpponentPool, assign_policy_ids, batched_act
+from src.training.pqn_selfplay import (
+    HERO_POLICY_ID,
+    OpponentLease,
+    OpponentPool,
+    PinnedOpponentPool,
+    assign_policy_ids,
+    batched_act,
+)
+from src.training.rollout_policies import FixedPolicySource
 
 __all__ = [
     "PQNConfig",
@@ -275,11 +283,26 @@ def pqn_reward_contract(config: PQNConfig) -> Dict[str, object]:
 
 
 def pqn_target_contract(config: PQNConfig) -> Dict[str, object]:
-    """Freeze current pre-P2 behavior, including its known episode limitations.
-
-    P2 must version this descriptor when it repairs the target/episode loop.
-    This metadata does not claim that those pending repairs already happened.
-    """
+    """Describe the target and episode semantics selected by ``config``."""
+    if config.recipe == "corrected-v3":
+        return {
+            "version": "pqn-qlambda-corrected-v3",
+            "gamma": config.gamma,
+            "lambda": config.lambda_,
+            "death": "actual_done_reward_only",
+            "trapped": "unsupported_alive_empty_resolved_mask_fails",
+            "empty_successor_bootstrap": "error_for_valid_alive_row",
+            "truncation": "masked_max_q_of_successor",
+            "lambda_carry": "next_in_rollout_valid_transition_including_death",
+            "validity": "env_transition_valid_and_active_episode_env",
+            "inactive_worlds": "active_env_mask_freezes_world_rng_and_events",
+            "reset": "whole_batch_at_rollout_boundary_after_all_floor_or_frame_cap",
+            "population_floor": config.mechanics_version == 2 and config.num_snakes >= 3,
+            "bootstrap_network": "rollout_frozen_online_network",
+            "loss_eligibility": "valid_and_episode_assigned_hero",
+            "reward_digest": canonical_digest(pqn_reward_contract(config)),
+            "action_mask": pqn_action_mask_contract(config),
+        }
     return {
         "version": "pqn-qlambda-pre-p2-v1",
         "gamma": config.gamma,
@@ -302,9 +325,10 @@ def pqn_target_contract(config: PQNConfig) -> Dict[str, object]:
 
 
 def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
-    """Describe sampling and realized-policy assignment rules before P2."""
+    """Describe sampling and policy assignment without inventing resume state."""
+    corrected = config.recipe == "corrected-v3"
     return {
-        "version": "pqn-sampler-pre-p2-v1",
+        "version": "pqn-sampler-corrected-v3" if corrected else "pqn-sampler-pre-p2-v1",
         "mode": "exact_coverage" if config.sgd_epochs is not None else "minibatch",
         "minibatches": config.minibatches,
         "minibatch_size": config.minibatch_size,
@@ -326,13 +350,21 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
         "hero_frac": config.hero_frac,
         "pool_capacity": config.pool_capacity,
         "pool_add_interval": config.pool_add_interval,
-        "policy_assignment": "resample_each_rollout_bernoulli_hero_else_uniform_pool",
+        "policy_assignment": (
+            "episode_pinned_bernoulli_hero_else_immutable_snapshot_pool"
+            if corrected
+            else "resample_each_rollout_bernoulli_hero_else_uniform_pool"
+        ),
         "forced_hero_slot": 0,
         "empty_pool": "all_heroes",
-        "snapshot_identity": "mutable_fifo_indices_unpinned",
-        "assignment_lifetime": "rollout",
-        "episode_pinning": False,
-        "pool_mutation": "between_rollouts",
+        "snapshot_identity": (
+            "immutable_content_hash_stable_id" if corrected else "mutable_fifo_indices_unpinned"
+        ),
+        "assignment_lifetime": "batch_episode" if corrected else "rollout",
+        "episode_pinning": corrected,
+        "pool_mutation": (
+            "admission_deferred_when_all_snapshots_pinned" if corrected else "between_rollouts"
+        ),
         "snapshot_admission": "after_sgd_positive_update_index_divisible_by_interval",
         "exploration": {
             "policy": "hero_only_epsilon_greedy_constant_within_rollout",
@@ -401,7 +433,9 @@ class PQNTelemetry:
         epsilon: ε used during the rollout.
         mean_reward: Mean hero per-step reward over the rollout.
         action_entropy: Entropy (nats) of the hero action histogram.
-        kills_per_ep: Total hero kills over the rollout (per E*T proxy).
+        hero_kills: Exact valid hero kill credits in this rollout.
+        hero_deaths: Exact valid hero deaths in this rollout.
+        completed_episodes: Batch environments reset at this rollout boundary.
         boost_fraction: Fraction of hero steps that engaged boost.
         pool_size: Current opponent-pool size.
         eligible_hero_transitions: Real hero transitions eligible for SGD.
@@ -436,6 +470,13 @@ class PQNTelemetry:
     raw_action_mode: int = -1
     action_collapse_streak: int = 0
     action_collapse_evidence_samples: int = 0
+    hero_kills: int = 0
+    hero_deaths: int = 0
+    completed_episodes: int = 0
+    valid_transitions: int = 0
+    rollout_capacity: int = 0
+    hero_eligible_fraction: float = 0.0
+    policy_exposure: Optional[Dict[str, int]] = None
 
 
 class TripwireError(RuntimeError):
@@ -509,6 +550,8 @@ class PQNTrainer:
             :class:`RasterDuelingNetwork`).
         device: Compute device (default: CPU — the raster net is small enough to
             train on CPU for smoke; use CUDA for full runs).
+        fixed_policy: Optional immutable common opponent source for non-hero
+            slots. Its sparse action protocol and identity are recorded.
     """
 
     def __init__(
@@ -516,14 +559,23 @@ class PQNTrainer:
         config: PQNConfig,
         network: Optional[RasterDuelingNetwork] = None,
         device: Optional[torch.device] = None,
+        fixed_policy: Optional[FixedPolicySource] = None,
     ) -> None:
         self.cfg = config
+        self.fixed_policy = fixed_policy
         self.device = device or torch.device("cpu")
         self.network = (network or RasterDuelingNetwork()).to(self.device)
         self.optimizer = torch.optim.Adam(
             self.network.parameters(), lr=config.lr, eps=config.adam_eps
         )
-        self.pool = OpponentPool(capacity=config.pool_capacity, device=self.device)
+        # Legacy checkpoints retain the historical mutable FIFO pool. Corrected
+        # v3 uses stable identities and a lease that prevents a live assignment
+        # from being replaced by a later snapshot admission.
+        self.pool = (
+            PinnedOpponentPool(capacity=config.pool_capacity, device=self.device)
+            if config.recipe == "corrected-v3"
+            else OpponentPool(capacity=config.pool_capacity, device=self.device)
+        )
         self.rng = np.random.default_rng(config.seed)
         # The default deliberately aliases the rollout generator: existing runs
         # retain their exact RNG ordering. An explicit seed isolates optimizer
@@ -573,6 +625,8 @@ class PQNTrainer:
         # that ends early is frozen by BatchSim's active mask until the batch
         # reaches the shared reset boundary.
         self._episode_policy_ids: Optional[np.ndarray] = None
+        self._episode_lease: Optional[OpponentLease] = None
+        self._last_policy_source = self._policy_source_descriptor()
         self._episode_reset_count = 0
         self._last_sgd_sampling = {
             "eligible_hero_transitions": 0,
@@ -587,6 +641,12 @@ class PQNTrainer:
         self._last_known_good_state: Dict[str, object] = {}
         self._last_known_good_snapshot_bytes = 0
         self.refresh_numeric_recovery_state()
+
+    def _policy_source_descriptor(self) -> Dict[str, object]:
+        """Return the realized non-hero rollout source without serializing code."""
+        if self.fixed_policy is not None:
+            return {"mode": "fixed", "identity": self.fixed_policy.identity}
+        return {"mode": "snapshot_pool", "identity": "episode-assigned"}
 
     # -- numeric recovery --------------------------------------------------
     @staticmethod
@@ -803,10 +863,15 @@ class PQNTrainer:
         E, S = cfg.num_envs, cfg.num_snakes
         eps = self.epsilon()
 
+        completed_episodes = 0
         if self._episode_over():
+            if self._episode_lease is not None:
+                self._episode_lease.close()
+                self._episode_lease = None
             self.sim.reset()
             self._episode_policy_ids = None
             self._episode_reset_count += 1
+            completed_episodes = E
 
         # A rollout may not cross the frame-cap episode boundary.  In
         # particular, when ``max_frames`` is not divisible by ``rollout_len``,
@@ -822,11 +887,16 @@ class PQNTrainer:
         if self.cfg.obs_spec == RASTER31V3 and self._episode_policy_ids is not None:
             policy_ids = self._episode_policy_ids
         else:
-            policy_ids = assign_policy_ids(
-                E, S, self.pool.policy_ids(), cfg.hero_frac, self.rng, hero_slot0=True
-            )
+            pool_ids = [0] if self.fixed_policy is not None else self.pool.policy_ids()
+            policy_ids = assign_policy_ids(E, S, pool_ids, cfg.hero_frac, self.rng, hero_slot0=True)
             if self.cfg.obs_spec == RASTER31V3:
                 self._episode_policy_ids = policy_ids.copy()
+                if not isinstance(self.pool, PinnedOpponentPool):
+                    raise RuntimeError("corrected-v3 requires PinnedOpponentPool")
+                if self.fixed_policy is None:
+                    self._episode_lease = self.pool.acquire(policy_ids.reshape(-1))
+
+        acting_pool = self._episode_lease or self.pool
 
         tac_buf = torch.zeros((T, E, S, *TACTICAL_SHAPE), dtype=torch.float32, device=self.device)
         strat_buf = torch.zeros(
@@ -855,7 +925,8 @@ class PQNTrainer:
         # the same weights, since the only optimizer step runs after the rollout.
         # _compute_targets reuses these instead of re-forwarding the rollout.
         hero_q_buf = torch.zeros((T, E, S, 6), dtype=torch.float32, device=self.device)
-        kills_total = 0
+        kill_buf = np.zeros((T, E, S), dtype=np.int64)
+        death_buf = np.zeros((T, E, S), dtype=bool)
 
         prof = self.cfg.profile
         feat_t = fwd_t = sim_t = 0.0
@@ -867,9 +938,24 @@ class PQNTrainer:
             if prof:
                 t1 = self._sync()
                 feat_t += t1 - t0
-            actions, hero_q = batched_act(
-                self.network, self.pool, policy_ids, obs, mask, eps, self.rng, self.device
+            # ``batched_act`` owns the hero epsilon path. A fixed common source
+            # is deliberately invoked through its sparse protocol for non-hero
+            # rows, never smuggled into the mutable snapshot pool.
+            act_ids = (
+                np.where(policy_ids == HERO_POLICY_ID, HERO_POLICY_ID, HERO_POLICY_ID)
+                if self.fixed_policy is not None
+                else policy_ids
             )
+            actions, hero_q = batched_act(
+                self.network, acting_pool, act_ids, obs, mask, eps, self.rng, self.device
+            )
+            if self.fixed_policy is not None:
+                frozen_slots = np.argwhere(policy_ids != HERO_POLICY_ID)
+                if frozen_slots.size:
+                    frozen_masks = mask.cpu().numpy()[frozen_slots[:, 0], frozen_slots[:, 1]]
+                    actions[frozen_slots[:, 0], frozen_slots[:, 1]] = self.fixed_policy.actions(
+                        frozen_masks, self.sim, frozen_slots
+                    )
             if prof:
                 t2 = self._sync()
                 fwd_t += t2 - t1
@@ -887,8 +973,11 @@ class PQNTrainer:
             # the floor is itself the episode's last real transition.
             live_env = ~self.sim.population_floor_reached()
             live_env &= self.sim.frame < cfg.max_frames
-            no_valid = ~mask.any(dim=2).cpu().numpy()
-            trapped_buf[t] = no_valid & alive
+            # ``trapped`` is a legacy target branch. A corrected-v3 resolved
+            # legal mask cannot turn an alive row into a synthetic terminal.
+            if self.cfg.obs_spec != RASTER31V3:
+                no_valid = ~mask.any(dim=2).cpu().numpy()
+                trapped_buf[t] = no_valid & alive
 
             if prof:
                 t3 = self._sync()
@@ -902,7 +991,8 @@ class PQNTrainer:
             valid_buf[t] = self.sim.get_transition_valid() & live_env[:, None]
             done_buf[t] = self.sim.get_done()
             boost_buf[t] = self.sim.get_boosted_this_step()
-            kills_total += int(self.sim.get_kill_credit().sum())
+            kill_buf[t] = self.sim.get_kill_credit()
+            death_buf[t] = self.sim.get_done()
 
             # Mask of the NEXT state s_{t+1} for the bootstrap of non-terminal
             # transitions (already updated by step()).
@@ -935,10 +1025,28 @@ class PQNTrainer:
             "hero_q": hero_q_buf,
             "boost": boost_buf,
             "policy_ids": policy_ids,
+            "policy_identities": (
+                {
+                    str(policy_id): identity
+                    for policy_id, identity in self._episode_lease.identities.items()
+                }
+                if self._episode_lease is not None
+                else (
+                    {"0": self.fixed_policy.identity}
+                    if self.fixed_policy is not None
+                    else {
+                        str(policy_id): f"legacy:{policy_id}"
+                        for policy_id in self.pool.policy_ids()
+                    }
+                )
+            ),
+            "rollout_policy_source": self._policy_source_descriptor(),
             "episode_reset_count": self._episode_reset_count,
+            "completed_episodes": completed_episodes,
             "final_obs": final_obs,
             "final_mask": final_mask,
-            "kills_total": kills_total,
+            "kills": kill_buf,
+            "deaths": death_buf,
             "epsilon": eps,
         }
 
@@ -1056,7 +1164,10 @@ class PQNTrainer:
             # (not valid) does not seed the carry, so its garbage return never
             # chains into an earlier real transition.
             carry = g
-            succ_valid = valid[t] & ~done_t
+            # A death transition is valid: its reward-only return is precisely
+            # the successor return that a preceding live transition may mix
+            # through lambda. Only a dead-at-entry/invalid row breaks carry.
+            succ_valid = valid[t]
         return targets
 
     # -- SGD ----------------------------------------------------------------
@@ -1328,7 +1439,8 @@ class PQNTrainer:
         hero_mask_tes = np.broadcast_to(hero_es[None], (T, E, S)) & roll["valid"]
         hero_steps = int(hero_mask_tes.sum())
         self.agent_steps += hero_steps
-        valid_slot_fraction = float(np.asarray(roll["valid"]).mean())
+        valid = np.asarray(roll["valid"], dtype=bool)
+        valid_slot_fraction = float(valid.mean())
 
         # Hero-only reward / boost means.
         hero_rewards = roll["rewards"][hero_mask_tes]
@@ -1345,6 +1457,19 @@ class PQNTrainer:
             roll["epsilon"], guard_entropy, hero_steps, raw_action_mode
         )
 
+        hero_kills = int(np.asarray(roll["kills"])[hero_mask_tes].sum())
+        hero_deaths = int(np.asarray(roll["deaths"], dtype=bool)[hero_mask_tes].sum())
+        policy_exposure: Dict[str, int] = {}
+        policy_identities = roll["policy_identities"]
+        for policy_id in np.unique(roll["policy_ids"]):
+            slot_mask = np.broadcast_to(roll["policy_ids"] == policy_id, (T, E, S))
+            identity = (
+                "hero:live"
+                if policy_id == HERO_POLICY_ID
+                else policy_identities[str(int(policy_id))]
+            )
+            policy_exposure[identity] = int((slot_mask & valid).sum())
+
         tel = PQNTelemetry(
             update=self.update_idx,
             agent_steps=self.agent_steps,
@@ -1355,7 +1480,9 @@ class PQNTrainer:
             epsilon=roll["epsilon"],
             mean_reward=mean_reward,
             action_entropy=entropy,
-            kills_per_ep=float(roll["kills_total"]),
+            # Retained for history-file compatibility. It is a rollout count,
+            # not an episode-normalized metric; consumers should use hero_kills.
+            kills_per_ep=float(hero_kills),
             boost_fraction=boost_fraction,
             pool_size=len(self.pool),
             valid_slot_fraction=valid_slot_fraction,
@@ -1364,8 +1491,16 @@ class PQNTrainer:
             raw_action_mode=raw_action_mode,
             action_collapse_streak=collapse_streak,
             action_collapse_evidence_samples=collapse_evidence_samples,
+            hero_kills=hero_kills,
+            hero_deaths=hero_deaths,
+            completed_episodes=int(roll["completed_episodes"]),
+            valid_transitions=int(valid.sum()),
+            rollout_capacity=T * E * S,
+            hero_eligible_fraction=float(hero_steps / max(1, int(valid.sum()))),
+            policy_exposure=policy_exposure,
         )
         self.last_telemetry = tel
+        self._last_policy_source = dict(roll["rollout_policy_source"])
         self._check_tripwires(tel)
 
         # Snapshot the hero into the pool at the configured cadence.
@@ -1502,6 +1637,7 @@ class PQNTrainer:
             "action_mask_contract_digest": canonical_digest(mask_contract),
             "resume_mode": self._resume_mode,
             "resume_state": dict(self._resume_state),
+            "rollout_policy_source": dict(self._last_policy_source),
         }
         state.update(ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
         state["target_contract_digest"] = canonical_digest(state["target_contract"])

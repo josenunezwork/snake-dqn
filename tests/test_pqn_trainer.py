@@ -743,9 +743,9 @@ def test_nondivisible_frame_cap_shortens_tail_rollouts_across_updates():
     seen_frames = []
     original_step = tr.sim.step
 
-    def record_step(actions):
+    def record_step(actions, active_env_mask=None):
         seen_frames.append(int(tr.sim.frame.max()))
-        original_step(actions)
+        original_step(actions, active_env_mask=active_env_mask)
         seen_frames.append(int(tr.sim.frame.max()))
 
     tr.sim.step = record_step
@@ -1206,7 +1206,11 @@ def test_raw_action_entropy_uses_only_valid_hero_rollout_actions():
         "rewards": np.zeros((2, 1, 2)),
         "boost": np.zeros((2, 1, 2), dtype=bool),
         "epsilon": 0.1,
-        "kills_total": 0,
+        "kills": np.zeros((2, 1, 2), dtype=np.int64),
+        "deaths": np.zeros((2, 1, 2), dtype=bool),
+        "policy_identities": {"9": "fixture:frozen"},
+        "rollout_policy_source": {"mode": "fixture", "identity": "fixture:frozen"},
+        "completed_episodes": 0,
     }
     tr._rollout = lambda: roll
     tr._compute_targets = lambda _roll: torch.zeros((2, 1, 2))

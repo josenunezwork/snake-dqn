@@ -46,7 +46,7 @@ import os
 import subprocess
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -259,6 +259,16 @@ def _require_counter(checkpoint: Dict[str, Any], key: str) -> None:
         raise ValueError(f"continuation requires non-negative integer {key}")
 
 
+def _require_complete_descriptor(raw: object, descriptor: type, name: str) -> Dict[str, Any]:
+    """Reject metadata that would acquire semantic values from dataclass defaults."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"continuation requires {name} mapping")
+    missing = sorted(field.name for field in fields(descriptor) if field.name not in raw)
+    if missing:
+        raise ValueError(f"continuation requires complete {name}: missing {', '.join(missing)}")
+    return raw
+
+
 def validate_pqn_resume_checkpoint_config(
     checkpoint: Dict[str, Any],
     config: PQNConfig,
@@ -300,9 +310,9 @@ def validate_pqn_resume_checkpoint_config(
         error_type=ValueError,
     )
     expected_world = _effective_world(config)
-    raw_world = checkpoint.get("effective_world")
-    if not isinstance(raw_world, dict):
-        raise ValueError("continuation requires effective_world mapping")
+    raw_world = _require_complete_descriptor(
+        checkpoint.get("effective_world"), EffectiveWorldConfig, "effective_world"
+    )
     try:
         recorded_world = EffectiveWorldConfig(**raw_world)
     except (TypeError, ValueError) as exc:
@@ -311,9 +321,9 @@ def validate_pqn_resume_checkpoint_config(
         raise ValueError("effective_world_digest does not match effective_world")
     if recorded_world.digest != expected_world.digest:
         raise ValueError("continuation effective_world conflicts with requested world")
-    raw_runtime = checkpoint.get("runtime_contract")
-    if not isinstance(raw_runtime, dict):
-        raise ValueError("continuation requires runtime_contract mapping")
+    raw_runtime = _require_complete_descriptor(
+        checkpoint.get("runtime_contract"), RuntimeModeContract, "runtime_contract"
+    )
     try:
         recorded_runtime = RuntimeModeContract(**raw_runtime)
     except (TypeError, ValueError) as exc:
@@ -706,7 +716,8 @@ def _format_row(tel: PQNTelemetry) -> str:
         f"eps {tel.epsilon:5.3f} | loss {tel.loss:9.4f} | "
         f"|Q|~ {tel.mean_abs_q:7.3f} max {tel.max_abs_q:8.3f} | "
         f"gnorm {tel.grad_norm:7.3f} | R/step {tel.mean_reward:+7.4f} | "
-        f"H {tel.action_entropy:5.3f} | kills {tel.kills_per_ep:5.1f} | "
+        f"H {tel.action_entropy:5.3f} | hero K/D {tel.hero_kills}/{tel.hero_deaths} | "
+        f"completed {tel.completed_episodes} | "
         f"boost {100 * tel.boost_fraction:4.1f}% | pool {tel.pool_size} | "
         f"sgd {tel.sampled_transition_draws}/{tel.eligible_hero_transitions} "
         f"({tel.unique_sampled_transitions} unique, {tel.optimizer_steps} steps) | "
@@ -739,6 +750,13 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
         "raw_action_mode": tel.raw_action_mode,
         "action_collapse_streak": tel.action_collapse_streak,
         "action_collapse_evidence_samples": tel.action_collapse_evidence_samples,
+        "hero_kills": tel.hero_kills,
+        "hero_deaths": tel.hero_deaths,
+        "completed_episodes": tel.completed_episodes,
+        "valid_transitions": tel.valid_transitions,
+        "rollout_capacity": tel.rollout_capacity,
+        "hero_eligible_fraction": tel.hero_eligible_fraction,
+        "policy_exposure": tel.policy_exposure or {},
     }
 
 
