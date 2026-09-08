@@ -55,6 +55,7 @@ from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig  # noqa: E402
 from src.core.reward_contract import current_reward_contract  # noqa: E402
 from src.training.apex_runtime import (  # noqa: E402
+    ApexControlledStop,
     ApexRunBudgets,  # noqa: E402
     ApexRuntimeSnapshot,
     ApexRuntimeSupervisor,
@@ -1564,22 +1565,27 @@ def train_apex(
         cause = current_runtime_cause()
         runtime_supervisor.check_children(shared_health(), expected_stop_cause=cause)
         if cause:
-            raise RuntimeError(f"controlled startup stop: {cause}")
+            raise ApexControlledStop(cause)
 
+    startup_exit_cause: str | None = None
     buffer_process.start()
     try:
         initial_cause = current_runtime_cause()
         runtime_supervisor.check_children(shared_health(), expected_stop_cause=initial_cause)
         if initial_cause:
-            raise RuntimeError(f"controlled startup stop: {initial_cause}")
+            raise ApexControlledStop(initial_cause)
         start_actors(
             actors,
             stagger_delay=stagger_delay,
             on_started=supervise_started_actor,
-            on_wait=lambda: runtime_supervisor.check_children(
-                shared_health(), expected_stop_cause=current_runtime_cause()
+            on_wait=lambda: (
+                (_ for _ in ()).throw(ApexControlledStop(cause))
+                if (cause := current_runtime_cause())
+                else runtime_supervisor.check_children(shared_health())
             ),
         )
+    except ApexControlledStop as stop:
+        startup_exit_cause = stop.cause
     except BaseException:
         stop_event.set()
         stop_processes(actors, timeout_seconds=5.0)
@@ -1601,7 +1607,7 @@ def train_apex(
     last_reported_buffer_priority_rejection_count = 0
     last_reported_learner_sample_error_count = 0
     step = start_step
-    exit_cause = "signal"
+    exit_cause = startup_exit_cause or "signal"
     run_failure: BaseException | None = None
     latest_snapshot: ApexRuntimeSnapshot | None = None
 
@@ -1625,7 +1631,7 @@ def train_apex(
         return cleanup_errors
 
     try:
-        while not shutdown_requested[0]:
+        while not shutdown_requested[0] and startup_exit_cause is None:
             update_latest_actor_stats(
                 actor_stats_by_id,
                 collect_actor_stats(stats_queue),

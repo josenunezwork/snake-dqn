@@ -18,6 +18,14 @@ class ApexRuntimeFailure(RuntimeError):
     """Raised when a supervised Ape-X child exits or stops reporting health."""
 
 
+class ApexControlledStop(RuntimeError):
+    """A declared budget ended startup or training without a runtime failure."""
+
+    def __init__(self, cause: str) -> None:
+        super().__init__(cause)
+        self.cause = cause
+
+
 @dataclass(frozen=True)
 class ApexRunBudgets:
     """Independent upper bounds for work performed by one coordinator run."""
@@ -253,27 +261,28 @@ def stop_processes(processes: Sequence[object], timeout_seconds: float = 5.0) ->
     """Join, terminate, then kill all process-like children or raise on survivors."""
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
-    survivors: list[object] = []
-    for process in processes:
-        alive = ApexRuntimeSupervisor._is_alive(process)
-        if not alive:
-            continue
-        join = getattr(process, "join", None)
-        if callable(join):
-            join(timeout=timeout_seconds)
-        if ApexRuntimeSupervisor._is_alive(process):
-            terminate = getattr(process, "terminate", None)
-            if callable(terminate):
-                terminate()
+
+    def wait_phase(candidates: list[object]) -> None:
+        deadline = monotonic() + timeout_seconds
+        for process in candidates:
+            join = getattr(process, "join", None)
             if callable(join):
-                join(timeout=timeout_seconds)
-        if ApexRuntimeSupervisor._is_alive(process):
-            kill = getattr(process, "kill", None)
-            if callable(kill):
-                kill()
-            if callable(join):
-                join(timeout=timeout_seconds)
-        if ApexRuntimeSupervisor._is_alive(process):
-            survivors.append(process)
+                join(timeout=max(0.0, deadline - monotonic()))
+
+    active = [process for process in processes if ApexRuntimeSupervisor._is_alive(process)]
+    wait_phase(active)
+    active = [process for process in active if ApexRuntimeSupervisor._is_alive(process)]
+    for process in active:
+        terminate = getattr(process, "terminate", None)
+        if callable(terminate):
+            terminate()
+    wait_phase(active)
+    active = [process for process in active if ApexRuntimeSupervisor._is_alive(process)]
+    for process in active:
+        kill = getattr(process, "kill", None)
+        if callable(kill):
+            kill()
+    wait_phase(active)
+    survivors = [process for process in active if ApexRuntimeSupervisor._is_alive(process)]
     if survivors:
         raise ApexRuntimeFailure(f"failed to stop {len(survivors)} Ape-X child process(es)")
