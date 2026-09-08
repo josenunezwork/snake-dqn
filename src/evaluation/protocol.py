@@ -7,14 +7,39 @@ observation-progress normalization without relying on a CLI default.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, fields
+from typing import Any, Mapping
 
-from src.core.runtime_contract import EffectiveWorldConfig, RuntimeModeContract, canonical_digest
+from src.core.runtime_contract import (
+    EffectiveWorldConfig,
+    RuntimeModeContract,
+    canonical_digest,
+)
 
 PROMOTION_V2_WATCH_RECT = "promotion-v2-watch-rect"
 PROMOTION_V2_EVALUATOR = "promotion-v2-evaluator/v1"
 LEGACY_DIAGNOSTIC_EVALUATOR = "legacy-diagnostic/v1"
+_PROMOTION_METRIC_VERSION = "logical-mass/v1"
+_PROMOTION_ANCHOR_VERSION = "scripted-anchor/v1"
+
+
+def _raw_dataclass_descriptor(value: object) -> dict[str, Any]:
+    """Detach a frozen contract into JSON-safe values without defaulting fields."""
+    return {
+        field.name: (
+            dict(getattr(value, field.name))
+            if field.name == "normalization"
+            else getattr(value, field.name)
+        )
+        for field in fields(value)
+    }
+
+
+def _require_exact_keys(raw: Mapping[str, Any], expected: set[str], label: str) -> None:
+    if set(raw) != expected:
+        missing = sorted(expected - set(raw))
+        extra = sorted(set(raw) - expected)
+        raise ValueError(f"{label} has missing={missing!r}, extra={extra!r}")
 
 
 @dataclass(frozen=True)
@@ -59,13 +84,21 @@ class EvaluationProfile:
                 raise ValueError(
                     "promotion v2 Watch profile requires watch respawn and terminal hero"
                 )
+            if self.runtime.population_floor or self.runtime.reset_strategy != "manual":
+                raise ValueError("promotion v2 Watch profile requires manual reset without a floor")
+            if self.metric_version != _PROMOTION_METRIC_VERSION:
+                raise ValueError("promotion v2 requires the logical-mass/v1 metric")
+            if self.anchor_version != _PROMOTION_ANCHOR_VERSION:
+                raise ValueError("promotion v2 requires the scripted-anchor/v1 anchor")
 
     def descriptor(self) -> dict[str, Any]:
         """Return canonical, JSON-ready identity data for results and manifests."""
         return {
             "name": self.name,
             "evaluator_version": self.evaluator_version,
+            "world": _raw_dataclass_descriptor(self.world),
             "world_digest": self.world.digest,
+            "runtime": _raw_dataclass_descriptor(self.runtime),
             "runtime_digest": self.runtime.digest,
             "scored_horizon": self.scored_horizon,
             "observation_progress_horizon": self.observation_progress_horizon,
@@ -73,6 +106,57 @@ class EvaluationProfile:
             "anchor_version": self.anchor_version,
             "legacy_diagnostic": self.legacy_diagnostic,
         }
+
+    @classmethod
+    def from_descriptor(cls, raw: Mapping[str, Any]) -> "EvaluationProfile":
+        """Rebuild an exact profile descriptor without allowing dataclass defaults.
+
+        Checkpoint and receipt readers must reject omitted world/runtime fields
+        before constructing their default-bearing contracts.  Digests are then
+        recomputed and compared, preventing a descriptor from naming one world
+        while carrying another world's content.
+        """
+        if not isinstance(raw, Mapping):
+            raise ValueError("evaluation profile descriptor must be a mapping")
+        expected = {
+            "name",
+            "evaluator_version",
+            "world",
+            "world_digest",
+            "runtime",
+            "runtime_digest",
+            "scored_horizon",
+            "observation_progress_horizon",
+            "metric_version",
+            "anchor_version",
+            "legacy_diagnostic",
+        }
+        _require_exact_keys(raw, expected, "evaluation profile descriptor")
+        world_raw = raw["world"]
+        runtime_raw = raw["runtime"]
+        if not isinstance(world_raw, Mapping) or not isinstance(runtime_raw, Mapping):
+            raise ValueError("evaluation profile world and runtime must be mappings")
+        _require_exact_keys(
+            world_raw, {field.name for field in fields(EffectiveWorldConfig)}, "effective world"
+        )
+        _require_exact_keys(
+            runtime_raw, {field.name for field in fields(RuntimeModeContract)}, "runtime contract"
+        )
+        world = EffectiveWorldConfig(**dict(world_raw))
+        runtime = RuntimeModeContract(**dict(runtime_raw))
+        if raw["world_digest"] != world.digest or raw["runtime_digest"] != runtime.digest:
+            raise ValueError("evaluation profile descriptor digest does not match detached content")
+        return cls(
+            name=raw["name"],
+            evaluator_version=raw["evaluator_version"],
+            world=world,
+            runtime=runtime,
+            scored_horizon=raw["scored_horizon"],
+            observation_progress_horizon=raw["observation_progress_horizon"],
+            metric_version=raw["metric_version"],
+            anchor_version=raw["anchor_version"],
+            legacy_diagnostic=raw["legacy_diagnostic"],
+        )
 
     @property
     def digest(self) -> str:
@@ -96,7 +180,7 @@ def promotion_v2_watch_rect(world: EffectiveWorldConfig) -> EvaluationProfile:
             respawn=True,
             hero_terminal=True,
             population_floor=False,
-            reset_strategy="serving",
+            reset_strategy="manual",
         ),
         scored_horizon=5000,
         observation_progress_horizon=5000,

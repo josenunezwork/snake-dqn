@@ -1,5 +1,7 @@
 """Unit coverage for immutable deployment evaluation identities."""
 
+import pytest
+
 from src.core.runtime_contract import EffectiveWorldConfig, RuntimeModeContract
 from src.evaluation.protocol import (
     LEGACY_DIAGNOSTIC_EVALUATOR,
@@ -45,6 +47,17 @@ def test_promotion_profile_freezes_watch_runtime_and_separate_horizons() -> None
     assert changed_score.digest != profile.digest
     assert changed_progress.digest != profile.digest
     assert changed_score.digest != changed_progress.digest
+    descriptor = profile.descriptor()
+    assert descriptor["world"]["normalization"] == {}
+    assert descriptor["runtime"]["reset_strategy"] == "manual"
+    assert profile.from_descriptor(descriptor) == profile
+
+
+def test_profile_descriptor_rejects_omitted_world_fields_before_defaults() -> None:
+    descriptor = promotion_v2_watch_rect(_world()).descriptor()
+    descriptor["world"].pop("max_capacity")
+    with pytest.raises(ValueError, match="effective world"):
+        promotion_v2_watch_rect(_world()).from_descriptor(descriptor)
 
 
 def test_legacy_profiles_are_explicitly_nonpromotion_identities() -> None:
