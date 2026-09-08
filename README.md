@@ -1,9 +1,9 @@
 # snake-dqn
 
-Multi-agent reinforcement learning that teaches snakes to play a slither.io-style game with a
-distributed **Apex DQN** built from scratch — a hand-rolled actor/learner/buffer system, a
-disciplined paired-seed promotion gate, and a live web app to watch the trained policy think in
-real time.
+Snake DQN is a local reinforcement-learning project with a live FastAPI/React
+snake game, an incumbent distributed Apex DQN policy, and an experimental
+raster/PQN path. The incumbent stays in service while repairs and experiments
+produce evidence; no command in this repository silently replaces it.
 
 ![architecture](docs/architecture.svg)
 
@@ -12,208 +12,228 @@ real time.
 ![code style](https://img.shields.io/badge/code%20style-black-000000)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
----
+## What is established, and what is not
 
-## The headline result
+The deployed reference is the 61-feature free-space Apex checkpoint. Its earlier
+evidence used a pre-repair, alive-conditioned, narrow-opponent gate, so it is
+useful historical evidence rather than proof under the repaired deployment
+task. The raster/PQN route is a plausible engineering direction, not a promoted
+replacement or an algorithm winner.
 
-The interesting finding wasn't a reward tweak — it was a diagnosis. The agent kept dying by
-**self-collision once it got long**, and no amount of reward shaping fixed it, because it wasn't a
-reward problem: the snake **couldn't see the trap in its observation**. Adding three bounded
-BFS flood-fill **"free-space"** features (reachable open area for turn-left / straight / turn-right)
-gave it that signal.
+The history also has an important correction: GRU/DRQN was trained and lost the
+older frozen-opponent trials, but the frequently repeated claim that CNNs were
+trained and lost is false. Git history found CNN code but no CNN training run or
+checkpoint. Those older trials also predate the repaired evaluation work. Read
+[the dated findings record](docs/project_history_and_findings.md) and the
+[redesign blueprint](docs/ml_redesign_blueprint_2026-07.md) before making a
+model-selection claim.
 
-The model is a feedforward Dueling DQN. The original free-space evidence used a
-pre-repair, alive-conditioned, narrow-opponent gate, so it is not comparable to
-the current promotion metric. Read the dated results, reward-label mismatch, and
-corrected CNN/GRU record in [Project history and durable findings](docs/project_history_and_findings.md).
-The champion remains the incumbent baseline until a candidate passes the current gate.
+## Quick start
 
-## Quickstart
+This section is for a developer who has Python, Node.js, and a local checkout.
+Use the project virtual environment for every Python command.
 
 ```bash
-python -m venv venv && . venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv venv
+./venv/bin/python -m pip install -r requirements.txt
 
-# Watch the trained champion play — or play against it yourself — in the browser
+# Build and serve the browser game at http://localhost:8000.
 cd web/frontend && npm install && npm run build && cd ../..
-python web/serve.py            # -> http://localhost:8000   (or: make web)
-#                                open the "Play" tab to steer a snake and top the leaderboard
+./venv/bin/python web/serve.py
 
-# Train headless (no GUI needed)
-python src/main.py --headless --episodes 100000
-
-# Gate a candidate against the incumbent champion (paired seeds, all 3 opponent mixes).
-# --gate exits 0 iff the candidate passes the promotion rule, so CI can branch on it.
-SNAKE_DQN_DEVICE=cpu python src/scripts/tournament_eval.py saved_snakes/best_apex_fs.pth \
-  --gate --frames 3000 --seeds 0,1,2,3,4,5,6,7,8,9 \
-  --json-output logs/gate_candidate.json
-
-# How many seeds do you actually need? (power analysis on the baseline)
-python src/scripts/tournament_eval.py --pilot --frames 3000
+# Apex is the incumbent training stack. This is a headless training command,
+# not an evaluation or promotion command.
+./venv/bin/python src/main.py --headless --episodes 100000
 ```
 
-## The web app
+The browser renders state supplied by the Python server. The **Play** tab lets a
+human steer a snake; the game, scoring, inference, and the SQLite leaderboard
+remain server-side. See [web/README.md](web/README.md) for its interface.
 
-A **server-authoritative** UI: the Python engine is the single source of truth, and the React
-frontend is a pure view that renders frames streamed over a WebSocket — no game logic or model
-inference runs in the browser. Seven panels — the arena is always on screen, with six tabs beside it:
+## Evaluation has two different purposes
 
-- **Game** — the live arena; the hero snake is outlined.
-- **Play** — *take the controls yourself.* Steer a snake with the arrow keys / WASD against the
-  trained AI, boost with space, and submit your final score to a **SQLite-backed leaderboard**
-  (see [Human play](#human-play--leaderboard)).
-- **Inspector** — the hero's 58-/61-D state vector (grouped + labeled), live Q-values → chosen
-  action, and the free-space features.
-- **Raster** — what a `raster31v2` snake actually sees: the heading-rotated **ego-centric 31×31
-  tactical stack** (head centred, facing up), as a colour-coded composite or one isolated channel.
-  The redesign's candidate observation (`src/simd_env/featurizer.py`); shows a placeholder for the
-  61-D vector champion.
-- **Network** — live `forward_with_activations` heat-mapped across input / hidden / output layers.
-- **Dashboard** — the eval leaderboard parsed from `logs/eval_*.json` + the checkpoint inventory.
-- **Controls** — play/pause, speed, ε, hero selector, checkpoint loader, watch↔train toggle.
+`src/scripts/tournament_eval.py` keeps diagnostic comparisons separate from
+promotion authority. Do not use a diagnostic exit code as a release decision.
 
-### Human play + leaderboard
+### Legacy diagnostics and inexpensive screens
 
-The **Play** tab pits *you* against the trained snakes on the same engine. Movement is decoupled
-from any UI toolkit ([`HumanSnake.apply_direction_input`](src/game/human_snake.py)), so the browser
-drives it over the WebSocket. A run freezes until your first key ("press an arrow to start"), your
-death ends the run (AI opponents keep respawning), and the score is computed **server-side** from
-length, food, kills, and survival — so it can't be spoofed by the client.
+The default diagnostic compares paired world seeds, reports mass integral (dead
+frames contribute zero), and can retain content-addressed input snapshots. Its
+old `--gate` status is only a convenient diagnostic signal: an exit code of zero
+does **not** promote a checkpoint.
 
-Scores persist in a small dedicated SQLite database ([`ScoreStore`](src/data/score_store.py),
-`scores.db`), separate from the large experience-replay DB. REST surface:
-`GET /api/leaderboard`, `GET /api/players/{name}`, `POST /api/scores`.
+This fully scripted command is a copyable plumbing check. It needs no saved
+model, writes the comparison JSON, and places a snapshot receipt beside the
+immutable inputs. Replace `scripted:random_safe` with a candidate only after
+selecting compatible baseline and opponents.
 
-> A screenshot/GIF lives best at `docs/web_app.png` — the app is one command away (`make web`).
-> See [web/README.md](web/README.md) for the design.
+```bash
+SNAKE_DQN_DEVICE=cpu ./venv/bin/python src/scripts/tournament_eval.py \
+  scripted:random_safe \
+  --baseline scripted:greedy_food \
+  --opponents scripted:greedy_food \
+  --engine live \
+  --evaluation-profile legacy-diagnostic \
+  --frames 3000 --seeds 0-9 \
+  --snapshot-dir runs/evaluation_artifacts/readme-diagnostic \
+  --json-output runs/evaluation_artifacts/readme-diagnostic/results.json
+```
+
+`results.json` records `authority: "diagnostic-only"`; the adjacent evaluation
+input receipt records the config and checkpoint or scripted-agent identities
+used for that run. Add `--gate` only when automation needs the legacy
+diagnostic exit status. It still writes diagnostic-only output.
+
+`--engine simd` is useful for a raster or scripted **screen** under a declared
+profile. It is never a promotion path. In particular, a SIMD result cannot
+replace a live serving-path result, even when it has the same seeds or metric.
+Use `--engine live` for vector61 checkpoints; BatchSim only accepts compatible
+raster or scripted agents.
+
+### Strict promotion authority
+
+Strict promotion is a separate, live-only operation supplied by the E2 repair.
+It starts from a frozen request and derives its engine, roster, seeds, world,
+and output locations from evidence; it rejects diagnostic candidates, `--gate`,
+`--pilot`, and diagnostic overrides. The request binds immutable candidate,
+incumbent, opponent, source, and serving evidence before final worlds run.
+
+The final profile has 5,000 scored frames and 5,000 observation-progress frames.
+It requires at least 40 fresh paired worlds, or the larger count from the paired
+pilot; three predeclared mixes; Holm-corrected superiority on at least two
+mixes; and a scripted-mix one-sided noninferiority bound against a predeclared
+absolute margin. The final receipt also rechecks readiness and provenance.
+
+Only the execution protocol creates the six inputs below. They must describe
+the same frozen candidate and deployment profile; do not substitute artifacts
+from a diagnostic run.
+
+```bash
+./venv/bin/python src/scripts/tournament_eval.py \
+  --strict-promotion-request artifacts/strict/request.json \
+  --strict-promotion-receipt artifacts/strict/final-receipt.json \
+  --strict-e0-receipt artifacts/strict/e0-receipt.json \
+  --strict-pilot-artifact artifacts/strict/paired-pilot.json \
+  --strict-calibration-artifact artifacts/strict/calibration.json \
+  --strict-serving-bundle artifacts/strict/serving-bundle.json
+```
+
+A passing final receipt is evidence for a later, explicit release operation. It
+does not copy a checkpoint, change a default, publish a service, or replace the
+incumbent by itself. The details and handoff requirements are in the
+[RL contract-repair plan](docs/plans/rl_repair_2026-09-06/README.md) and its
+[agent execution runbook](docs/plans/rl_repair_2026-09-06/agent_runbook.md).
+The [repair execution status](docs/experiments/rl_repair_execution_2026-09-08.md)
+records accepted packages and pending G0/X0 evidence; it is not a promotion
+result.
+
+## Corrected PQN diagnostics
+
+The corrected recipe is opt-in. It records `raster31v3` and a
+`corrected-v3` recipe; it does not reinterpret legacy observations. Existing
+`vector61` and `raster31v2` paths remain for compatible inference and archived
+reproduction. A checkpoint with missing metadata is legacy compatibility input,
+not verified v3 evidence.
+
+`pqn_correctness_diagnostic.py` is a bounded, non-promoting runner. It freezes
+a manifest, retains initial and final checkpoints plus terminal receipts, and
+evaluates only after its learner process exits. The modes are intentionally
+different:
+
+```bash
+# Tiny CPU smoke: one environment and a short, explicit positive budget.
+OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 \
+  ./venv/bin/python src/scripts/pqn_correctness_diagnostic.py \
+  --mode smoke --device cpu --out-dir runs/pqn_h0_smoke --seed 1000 --total-steps 32
+
+# G0-style operational shakedown: the mode requires exactly 100,000 steps.
+OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 \
+  ./venv/bin/python src/scripts/pqn_correctness_diagnostic.py \
+  --mode shakedown --device mps --out-dir runs/pqn_h0_shakedown \
+  --seed 1001 --total-steps 100000
+
+# Fixed-budget screen: the mode requires exactly 500,000 steps and a compatible
+# shakedown receipt from the same source, device, and rollout geometry.
+OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 \
+  ./venv/bin/python src/scripts/pqn_correctness_diagnostic.py \
+  --mode screen --device mps --out-dir runs/pqn_h0_screen --seed 1002 \
+  --total-steps 500000 \
+  --shakedown-receipt runs/pqn_h0_shakedown/shakedown_projection_receipt.json
+```
+
+The small smoke training budget does not shorten evaluation. Smoke and
+shakedown each evaluate their initial and final checkpoints for the full
+5,000-frame profile on one world against the scripted mix.
+
+Each output directory contains an immutable manifest, per-arm terminal status,
+checkpoint-lineage receipts, and evaluation artifacts. `completed` means that
+the bounded diagnostic completed its stated work; it never means that a model
+was promoted. A tripwire, resource stop, source/protocol drift, or failed
+evaluation remains an artifact to inspect, not a reason to extend or retry a
+run with changed defaults.
+
+The Mac resource limits are deliberate: each H0 invocation runs one learner and
+its worker uses two native CPU threads, including a CPU smoke. Do not start a
+test suite, build, corpus job, second learner, or evaluation while an MPS learner
+runs; evaluate only after it exits. Initial fail-closed limits are 4 GiB process
+RSS, 8 GiB MPS-driver allocation, and a 6 GiB system-memory reserve. RSS and
+MPS allocation overlap on unified memory and must not be added together. The
+runbook owns resource slots and requires retained logs, telemetry, and
+checkpoints when a cap is reached.
 
 ## Architecture
 
-### Distributed Apex DQN (`src/training/`)
+### Apex DQN: the incumbent
 
-N actor processes (CPU, varied ε) → a `SumTree`-backed prioritized buffer (O(log N) sampling,
-n-step returns) → one GPU learner; weights broadcast back to actors. Implements:
+The incumbent path is distributed Apex DQN: CPU actors with varied exploration
+feed a SumTree-backed prioritized buffer and n-step returns to one learner,
+which broadcasts weights back to the actors. `ApexNetwork` is a feedforward
+dueling network over the hand-crafted 58-D or free-space 61-D vector.
 
-- **Double DQN** (online selects, target evaluates)
-- **Dueling architecture** (separate value / advantage streams)
-- **Prioritized Experience Replay** with importance sampling
-- **N-step returns** and target networks
+### Raster/PQN: an experimental path
 
-A `Policy` ABC and a `BaseReplayBuffer` ABC keep the pieces swappable; `SnakeFactory` injects the
-shared policy into snakes via DI; configuration is immutable frozen dataclasses.
+The redesign uses `BatchSim`, an ego-centred dual-scale raster observation, and
+a synchronous replay-free PQN Q(lambda) learner. Its raster network is separate
+from the Apex policy hierarchy. The simulator and raster make efficient batched
+experiments possible, but neither establishes live-product parity nor policy
+quality without the relevant evidence.
 
-### Models and state representations
-
-The **production** model is the feedforward Dueling DQN `ApexNetwork` (`src/model/apex_network.py`)
-— the only one with a promoted checkpoint. Its state is selectable via `use_free_space`: the 58-D
-hand-crafted vector, or the 61-D variant that appends the three free-space features
-(`input_size: 61`, `use_free_space: true`).
-
-Alongside it, the in-progress redesign adds `RasterDuelingNetwork` (`src/model/raster_network.py`),
-a conv encoder over the ego-raster observation. It is **not** yet promoted — the gate decides.
-
-A note on history, since earlier docs (including this README) got it wrong: **GRU/DRQN** was trained
-and lost the older paired frozen-opponent trials to the feedforward 61-D model. Those trials predate
-the repaired gate, so they do not settle future recurrent experiments. The oft-repeated claim that
-**CNN** variants "were evaluated and lost" is **false** — git archaeology found the CNN code was
-written and deleted within a week, never trained, with zero checkpoints. The CNN question remains
-open, which is why the redesign re-tests it against an MLP control arm
-([blueprint](docs/ml_redesign_blueprint_2026-07.md) Appendix B, claims 1 and 10).
-
-The `Snake` class is split by concern: entity/lifecycle (`snake.py`), observation
-(`snake_state.py` → `SnakeStateMixin`), and reward (`snake_reward.py` → `SnakeRewardMixin`).
-
-### Evaluation: the promotion gate
-
-`src/scripts/tournament_eval.py` is the differentiator. Naïve self-play eval inflates skill (a Red
-Queen effect — opponents improve too, and survival saturates at the frame cap). This harness runs
-greedy (ε=0, deterministic) rollouts on **paired seeds** — every candidate plays the identical
-worlds as a `--baseline` (default: the incumbent champion) — and reports per-seed deltas with a
-t-distribution 95% CI.
-
-The headline metric is the **mass integral**: mean per-frame mass over the **total** horizon, with
-dead frames contributing **0**. This replaced an alive-conditioned mean mass under which *dying rich
-outranked surviving* — that metric survives only as the `mean_mass_alive` legacy diagnostic.
-
-Opponents are **diverse** rather than five clones of one checkpoint. The candidate is evaluated
-round-robin over three mixes:
-
-| mix | opponent slots |
-|---|---|
-| `frozen` | cycled over the `--opponents` checkpoint pool |
-| `scripted` | all `greedy_food` scripted anchors — ungameable, and it can't drift |
-| `mixed` | alternating frozen-pool checkpoints and `random_safe` scripted slots |
-
-The scripted anchors are why the gate can calibrate *itself* (champion > greedy anchor > random_safe)
-and why its tests run hermetically with no checkpoints at all.
-
-**Promotion rule** (printed always, machine-enforced with `--gate`, which exits 0 iff it passes):
-promote iff the paired mass-integral delta is **> 0 at 95% CI on ≥ 2 mixes** *and* there is **no
-regression vs the scripted anchor mix**. `--pilot` runs the baseline alone and recommends a seed
-count for a 3% minimum detectable effect. Behavioral probes (boost fraction, death causes, kills,
-entrapment) ride along on every run.
-
-This harness is what caught a mislabeled reward contract during development.
-
-## Train your own on an H100
-
-The winner is feedforward, so it runs on the fast distributed path (1 GPU learner + many CPU
-actors). See [docs/h100_training_recipe.md](docs/h100_training_recipe.md) for the exact warm-start,
-config, and gating recipe.
-
-## Project structure
-
-```
-src/
-├── core/        immutable config, device manager
-├── model/       ApexNetwork (Dueling DQN) + mixins, RasterDuelingNetwork, InferenceAgent
-├── training/    Apex policy, actor, learner, SumTree/PER buffers, curriculum, PQN trainer
-├── game/        snake entity + state/reward mixins, game loop, factory (DI)
-├── simd_env/    the vectorized redesign env:
-│                  batch_sim      NumPy-vectorized, cell-exact batch simulator
-│                  featurizer     dual-scale ego-raster observation (raster31v2)
-│                  gpu_featurizer the same featurizer in torch, built on-device
-│                  eval_engine    batched rollouts for the gate
-│                  parity         golden-replay harness: live game vs batch sim
-│                  live_adapter   live GameState -> ObsInputs bridge
-└── scripts/     apex_train, train_pqn, sweep, tournament_eval (promotion gate),
-                 bench_simd, widen_input + warm-start tooling
-web/             FastAPI backend + React/TS frontend (the live UI)
-configs/         YAML configs (free_space_v2 = production; eval_free_space = the gate arena)
-docs/            algorithm, redesign blueprint, SIMD env spec, H100 recipe, findings
-saved_snakes/    champion + frozen eval opponents
-```
-
-### Redesign in progress
-
-The redesign provides a NumPy-vectorized simulator, an ego-raster observation, and
-a PQN trainer alongside the incumbent Apex path. The candidate is unpromoted: the
-champion stays incumbent until something beats it under the repaired gate. See the
-[redesign blueprint](docs/ml_redesign_blueprint_2026-07.md), the
-[SIMD contract](docs/simd_env_spec.md), and the
-[dated findings record](docs/project_history_and_findings.md).
+The current repair keeps the legacy sampler available for reproduction and makes
+full-epoch sampling opt-in. The prior five-seed sampler comparison was
+inconclusive, so it does not justify changing a default. The repair also does
+not prescribe a larger convolutional model, recurrence, attention, or a new
+optimizer before semantics and provenance are qualified.
 
 ## Development
 
 ```bash
-make install-dev    # deps + pre-commit hooks
-make test           # pytest
-make lint           # black --check + isort --check + flake8
-make format         # auto-format
-cd web/frontend && npm test    # frontend unit tests (vitest)
+make install-dev
+make test
+make lint
+cd web/frontend && npm test
 ```
 
-CI runs lint + Python tests + the frontend build **and its vitest suite** on every push
-([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+For repair work, follow the runbook rather than running broad commands in
+parallel: small CPU checks use one native numerical thread each, and the full
+suite runs alone with at most two pytest workers. `make test-fast` uses
+`-n auto` and is not part of that execution protocol.
 
 ## References
 
-- **[docs/ml_algorithm.md](docs/ml_algorithm.md)** — the algorithm design in depth: dueling network,
-  Double-DQN + n-step targets, PER, action masking, the distributed topology, and design directions.
-- **[docs/project_history_and_findings.md](docs/project_history_and_findings.md)** — dated results,
-  corrected historical claims, and their provenance.
-- [Ape-X](https://arxiv.org/abs/1803.00933) — Distributed Prioritized Experience Replay
-- [Double DQN](https://arxiv.org/abs/1509.06461) · [Dueling Networks](https://arxiv.org/abs/1511.06581) · [PER](https://arxiv.org/abs/1511.05952)
+- [Algorithm documentation](docs/ml_algorithm.md) — Apex DQN details and its
+  historical context.
+- [Project history and durable findings](docs/project_history_and_findings.md)
+  — dated results, corrected historical claims, and provenance.
+- [SIMD environment contract](docs/simd_env_spec.md) — documented simulator
+  dynamics contract.
+- [RL contract-repair plan](docs/plans/rl_repair_2026-09-06/README.md) —
+  versioned repair decisions, evidence gates, and experiment sequence.
+- [Repair execution status](docs/experiments/rl_repair_execution_2026-09-08.md)
+  — accepted-package receipts and pending qualification evidence.
+- [Ape-X](https://arxiv.org/abs/1803.00933) ·
+  [Double DQN](https://arxiv.org/abs/1509.06461) ·
+  [Dueling Networks](https://arxiv.org/abs/1511.06581) ·
+  [PER](https://arxiv.org/abs/1511.05952)
 
 ## License
 
