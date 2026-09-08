@@ -547,6 +547,11 @@ class GameSession:
         else:
             self.human_id = None
             self.hero_id = game.snakes[0].id if game.snakes else 0
+            # The named v3 watch deployment has one terminal evaluated hero;
+            # opponents continue to respawn. Legacy Watch keeps its historical
+            # all-respawn behavior.
+            if v3_metadata is not None and game.snakes:
+                game.snakes[0].auto_respawn = False
 
     # -- stepping -----------------------------------------------------------
     def step(self) -> None:

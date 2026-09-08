@@ -11,13 +11,10 @@ import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 from src.core.game_config import GameConfig
-from src.core.mechanics_constants import (
-    CORPSE_DROP_FRACTION_V1,
-    CORPSE_DROP_FRACTION_V2,
-    HEADON_SIZE_RATIO,
-    POPULATION_FLOOR_V2,
-    snap_to_cell,
-)
+from src.core.mechanics_constants import (CORPSE_DROP_FRACTION_V1,
+                                          CORPSE_DROP_FRACTION_V2,
+                                          HEADON_SIZE_RATIO,
+                                          POPULATION_FLOOR_V2, snap_to_cell)
 from src.game.food_manager import FoodManager
 from src.game.game_logic import GameLogic
 from src.game.snake_factory import SnakeFactory
@@ -346,6 +343,18 @@ class GameState:
         # then move. Passing snapshots avoids order bias where later snakes
         # would otherwise observe earlier snakes after they already moved.
         pre_move_snapshots = [self._snapshot_snake_for_observation(snake) for snake in self.snakes]
+        # Optional serving policies can cache a complete roster observation for
+        # this exact pre-move state. Keep this hook generic: GameState must not
+        # depend on the web raster adapter, while vector/legacy policies remain
+        # untouched because they do not implement prepare_frame(). Respawns have
+        # already completed, so every current id is represented once.
+        prepared_policies = set()
+        for snake in self.snakes:
+            policy = getattr(snake, "policy", None)
+            prepare_frame = getattr(policy, "prepare_frame", None)
+            if callable(prepare_frame) and id(policy) not in prepared_policies:
+                prepare_frame()
+                prepared_policies.add(id(policy))
         for snake_idx, snake in enumerate(self.snakes):
             if snake.is_alive:
                 observation_snakes = list(pre_move_snapshots)

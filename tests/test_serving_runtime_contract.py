@@ -132,6 +132,21 @@ def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
     )
 
 
+def test_v3_watch_hero_is_terminal_while_opponents_respawn(v3_checkpoint):
+    session = GameSession(checkpoint=v3_checkpoint)
+    hero, opponent = session.game.snakes[:2]
+    hero.is_alive = False
+    hero.respawn_timer = 0
+    opponent.is_alive = False
+    opponent.respawn_timer = 0
+    session.game.update(train_mode=False, learn=False, allow_respawn=True)
+    assert not hero.is_alive
+    assert opponent.is_alive
+    assert session.serving_contract["deployment_target_manifest"]["deployed_runtime"][
+        "hero_terminal"
+    ]
+
+
 def test_bad_v3_descriptor_rejects_without_replacing_existing_session(v3_checkpoint, tmp_path):
     session = GameSession(checkpoint=v3_checkpoint)
     before_game = session.game

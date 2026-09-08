@@ -198,6 +198,10 @@ class RasterServingPolicy:
         self._game = game
         self._invalidate_cache()
 
+    def prepare_frame(self) -> None:
+        """Prime immutable full-roster observations before any snake moves."""
+        self._ensure_frame()
+
     # -- per-frame observation build ---------------------------------------
     def _invalidate_cache(self) -> None:
         self._cache_frame = None

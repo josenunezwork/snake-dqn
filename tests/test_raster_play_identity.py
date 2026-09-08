@@ -5,7 +5,8 @@ import torch
 
 pytest.importorskip("fastapi")
 
-from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES  # noqa: E402
+from src.model.obs_spec import (OBS_SPEC_KEY, RASTER31V2,  # noqa: E402
+                                RASTER31V2_SHAPES)
 from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
 from web.backend.session import MODE_PLAY, GameSession  # noqa: E402
 
@@ -87,6 +88,24 @@ def test_human_row_does_not_shift_raster_ai_actions(raster_checkpoint):
     assert human.is_alive
     assert first_ai.last_action == 1
     assert second_ai.last_action == 2
+
+
+def test_raster_policy_primes_once_before_human_moves(raster_checkpoint):
+    """Play snapshots the whole raster roster before the human changes row zero."""
+    session = _play_session_with_two_ai(raster_checkpoint)
+    human, first_ai, _ = session.game.snakes
+    initial_head = tuple(human.segments[0])
+    calls = []
+    original = session.policy.prepare_frame
+
+    def prepare():
+        calls.append(tuple(human.segments[0]))
+        original()
+
+    session.policy.prepare_frame = prepare
+    session.game.update(train_mode=False, learn=False, allow_respawn=True)
+    assert calls == [initial_head]
+    assert session.policy.hero_observation(first_ai.id) is not None
 
 
 def test_dead_and_foreign_policy_rows_do_not_shift_dispatch(raster_checkpoint):
