@@ -1009,7 +1009,12 @@ def to_network_input(obs: dict):
 # ---------------------------------------------------------------------------
 # BatchSim producer
 # ---------------------------------------------------------------------------
-def obs_inputs_from_batch_sim(sim, max_frames: int = 5000) -> ObsInputs:
+def obs_inputs_from_batch_sim(
+    sim,
+    max_frames: int = 5000,
+    starvation_max: int = 500,
+    max_length: int = 400,
+) -> ObsInputs:
     """Build an :class:`ObsInputs` from a :class:`BatchSim` via its accessors.
 
     Reads only the documented public/state arrays. Bodies are gathered into a
@@ -1019,6 +1024,9 @@ def obs_inputs_from_batch_sim(sim, max_frames: int = 5000) -> ObsInputs:
     Args:
         sim: A :class:`~src.simd_env.batch_sim.BatchSim` instance.
         max_frames: Episode-length cap for the episode-progress scalar.
+        starvation_max: Starvation frame cap for the hunger scalar.
+        max_length: Logical-length cap for length scalars. This is a feature
+            normalization contract, never the simulator ring-buffer capacity.
 
     Returns:
         A filled :class:`ObsInputs` (E = sim.E, S = sim.S).
@@ -1082,8 +1090,8 @@ def obs_inputs_from_batch_sim(sim, max_frames: int = 5000) -> ObsInputs:
         grid_w=sim.grid_w,
         grid_h=sim.grid_h,
         max_snakes=sim.S,
-        starvation_max=getattr(sim.cfg, "starvation_max", 500),
-        max_length=int(getattr(sim.cfg, "max_capacity", 400)),
+        starvation_max=starvation_max,
+        max_length=max_length,
         min_boost_length=sim.cfg.min_boost_length,
         boost_cost_frames=sim.cfg.boost_length_cost_frames,
         frame=np.asarray(sim.frame, dtype=np.int64),

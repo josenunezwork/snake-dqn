@@ -8,19 +8,14 @@ that ``build_observations`` runs on a real BatchSim batch and on a live
 GameState via the adapter.
 """
 
+import hashlib
+from itertools import combinations
+
 import numpy as np
 import pytest
 
 from src.model.obs_spec import RASTER31V3
 from src.simd_env.featurizer import (
-    CODE_AMBIENT_FOOD,
-    CODE_CORPSE_FOOD,
-    CODE_ENEMY_BODY,
-    CODE_ENEMY_HEAD,
-    CODE_ENEMY_PRED,
-    CODE_OWN_BODY,
-    CODE_OWN_HEAD,
-    CODE_WALL,
     SCALARS_DIM,
     STRATEGIC_CHANNELS,
     STRATEGIC_SIZE,
@@ -29,9 +24,6 @@ from src.simd_env.featurizer import (
     TACTICAL_HEAD_ROW,
     TACTICAL_SIZE,
     ObsInputs,
-    _V3_CODE_BY_PRIORITY,
-    _V3_PRIORITY,
-    _paint,
     build_observations,
     expand_tactical,
     obs_inputs_from_batch_sim,
@@ -101,6 +93,41 @@ def _one_snake_inputs(
     )
 
 
+def _v2_golden_inputs() -> tuple[ObsInputs, np.ndarray]:
+    """Fixed pre-v3 fixture world; keep its recipe separate from the renderer."""
+    mask = np.array(
+        [[[True, False, True, False, True, True], [False, True, True, True, False, True]]]
+    )
+    return (
+        ObsInputs(
+            heads=np.array([[[10, 10], [14, 8]]], dtype=np.int64),
+            bodies=np.array(
+                [[[[10, 10], [9, 10], [8, 10], [0, 0]], [[14, 8], [14, 9], [14, 10], [14, 11]]]]
+            ),
+            body_len=np.array([[3, 4]], dtype=np.int64),
+            lengths=np.array([[3, 6]], dtype=np.int64),
+            alive=np.array([[True, True]]),
+            heading=np.array([[1, 2]], dtype=np.int64),
+            boost_frames=np.array([[2, 1]], dtype=np.int64),
+            frames_since_food=np.array([[17, 41]], dtype=np.int64),
+            boosting=np.array([[False, True]]),
+            food_cells=np.array([[[12, 10], [12, 10], [7, 12]]], dtype=np.int64),
+            food_mass=np.array([[1.0, 3.0, 2.0]]),
+            food_is_corpse=np.array([[False, True, False]]),
+            grid_w=30,
+            grid_h=24,
+            max_snakes=2,
+            starvation_max=80,
+            max_length=40,
+            min_boost_length=5,
+            boost_cost_frames=3,
+            frame=np.array([37], dtype=np.int64),
+            max_frames=200,
+        ),
+        mask,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Shapes / dtypes
 # ---------------------------------------------------------------------------
@@ -124,14 +151,13 @@ def test_output_shapes_and_dtypes():
 
 def test_v2_golden_fixture_and_v3_shape_contract():
     golden = np.load("tests/fixtures/raster31v2_golden.npz")
-    assert golden["tactical_uint8"].shape == (1, 2, 2, TACTICAL_SIZE, TACTICAL_SIZE)
-    assert golden["strategic_uint8"].shape == (
-        1,
-        2,
-        STRATEGIC_CHANNELS,
-        STRATEGIC_SIZE,
-        STRATEGIC_SIZE,
-    )
+    assert hashlib.sha256(
+        open("tests/fixtures/raster31v2_golden.npz", "rb").read()
+    ).hexdigest() == ("7698e2ce0cfd50eecb4f74137ce8efe31dbae7e439a8a6fe6fd7192cf79a36af")
+    fixture_inp, fixture_mask = _v2_golden_inputs()
+    rebuilt = build_observations(fixture_inp, mask=fixture_mask)
+    for key in ("tactical_uint8", "strategic_uint8", "scalars", "mask"):
+        assert np.array_equal(rebuilt[key], golden[key]), key
     inp = _one_snake_inputs(head=(0, 0), heading=1, grid_w=4, grid_h=4)
     v3 = build_observations(inp, obs_spec=RASTER31V3)
     assert v3["tactical_uint8"].shape == (1, 1, 2, TACTICAL_SIZE, TACTICAL_SIZE)
@@ -139,56 +165,155 @@ def test_v2_golden_fixture_and_v3_shape_contract():
     assert v3["tactical_uint8"][0, 0, 0, TACTICAL_HEAD_ROW, TACTICAL_HEAD_COL - 1] == 1
 
 
-@pytest.mark.parametrize(
-    "left,right,expected",
-    [
-        (CODE_WALL, CODE_OWN_HEAD, CODE_WALL),
-        (CODE_OWN_HEAD, CODE_ENEMY_HEAD, CODE_OWN_HEAD),
-        (CODE_ENEMY_HEAD, CODE_ENEMY_BODY, CODE_ENEMY_HEAD),
-        (CODE_ENEMY_BODY, CODE_OWN_BODY, CODE_ENEMY_BODY),
-        (CODE_OWN_BODY, CODE_ENEMY_PRED, CODE_OWN_BODY),
-        (CODE_ENEMY_PRED, CODE_CORPSE_FOOD, CODE_ENEMY_PRED),
-        (CODE_CORPSE_FOOD, CODE_AMBIENT_FOOD, CODE_CORPSE_FOOD),
-    ],
-)
-def test_v3_pair_priority_is_order_independent(left, right, expected):
-    """Every adjacent v3 priority pair resolves identically in either order."""
-    for codes in ((left, right), (right, left)):
-        code_plane = np.zeros((1, 1, 1, 1), dtype=np.int32)
-        val_plane = np.zeros((1, 1, 1, 1), dtype=np.uint16)
-        _paint(
-            code_plane,
-            val_plane,
-            np.array([0, 0]),
-            np.array([0, 0]),
-            np.array([0, 0]),
-            np.array([0, 0]),
-            np.asarray(codes),
-            np.array([11, 19]),
-            1,
-        )
-        assert _V3_CODE_BY_PRIORITY[code_plane[0, 0, 0, 0]] == expected
+def test_batch_adapter_propagates_explicit_normalizations_not_ring_capacity():
+    """Feature normalization values are caller data, not BatchSim storage capacity."""
+    from src.simd_env.batch_sim import BatchSim, BatchSimConfig
+
+    sim = BatchSim(BatchSimConfig(num_envs=1, num_snakes=2, max_capacity=17), seeds=[4])
+    inp = obs_inputs_from_batch_sim(sim, max_frames=47, starvation_max=31, max_length=71)
+    assert (inp.max_frames, inp.starvation_max, inp.max_length) == (47, 31, 71)
 
 
-def test_v3_max_byte_tie_and_permutation_are_deterministic():
-    """Same-type collisions retain their maximum byte under every input order."""
-    values = np.array([7, 251, 99], dtype=np.uint16)
-    for order in ((0, 1, 2), (2, 1, 0), (1, 0, 2)):
-        code_plane = np.zeros((1, 1, 1, 1), dtype=np.int32)
-        val_plane = np.zeros((1, 1, 1, 1), dtype=np.uint16)
-        _paint(
-            code_plane,
-            val_plane,
-            np.zeros(3, dtype=np.int64),
-            np.zeros(3, dtype=np.int64),
-            np.zeros(3, dtype=np.int64),
-            np.zeros(3, dtype=np.int64),
-            np.full(3, CODE_ENEMY_BODY),
-            values[list(order)],
-            1,
+_ORACLE_CODE = {
+    "ambient": 2,
+    "corpse": 3,
+    "prediction": 4,
+    "own_body": 5,
+    "enemy_body": 6,
+    "enemy_head": 7,
+    "own_head": 8,
+    "wall": 1,
+}
+_ORACLE_RANK = {
+    "ambient": 1,
+    "corpse": 2,
+    "prediction": 3,
+    "own_body": 4,
+    "enemy_body": 5,
+    "enemy_head": 6,
+    "own_head": 7,
+    "wall": 8,
+}
+
+
+def _v3_contended_input(kinds, *, enemy_order=None):
+    """Build an independently specified full-raster collision at one ego cell."""
+    own_head = "own_head" in kinds
+    target = np.array((20, 20), dtype=np.int64)
+    observer_head = target if own_head else np.array((21, 20), dtype=np.int64)
+    enemy_kinds = [kind for kind in kinds if kind.startswith("enemy") or kind == "prediction"]
+    if enemy_order is None:
+        enemy_order = tuple(range(len(enemy_kinds)))
+    S, maxlen = 1 + len(enemy_kinds), 4
+    heads = np.zeros((1, S, 2), dtype=np.int64)
+    bodies = np.zeros((1, S, maxlen, 2), dtype=np.int64)
+    body_len = np.ones((1, S), dtype=np.int64)
+    lengths = np.ones((1, S), dtype=np.int64)
+    alive = np.ones((1, S), dtype=bool)
+    heading = np.ones((1, S), dtype=np.int64)
+    heads[0, 0] = observer_head
+    bodies[0, 0, 0] = observer_head
+    if "own_body" in kinds:
+        body_len[0, 0] = 2
+        bodies[0, 0, 1] = target
+    for source, kind in enumerate(np.asarray(enemy_kinds)[list(enemy_order)], start=1):
+        if kind == "enemy_head":
+            head = target
+        elif kind == "prediction":
+            head = target - np.array((1, 0))
+        else:  # enemy body target is a trailing segment with a distinct head.
+            head = target + np.array((0, 2))
+            body_len[0, source] = 2 + source
+            bodies[0, source, 1] = target
+        heads[0, source] = head
+        bodies[0, source, 0] = head
+        lengths[0, source] = 2 + source
+    foods = [kind for kind in kinds if kind in {"ambient", "corpse"}]
+    food_cells = np.zeros((1, max(len(foods), 1), 2), dtype=np.int64)
+    food_mass = np.zeros((1, max(len(foods), 1)), dtype=np.float64)
+    food_is_corpse = np.zeros((1, max(len(foods), 1)), dtype=bool)
+    for index, kind in enumerate(foods):
+        food_cells[0, index] = target
+        food_mass[0, index] = 1.0 + index
+        food_is_corpse[0, index] = kind == "corpse"
+    return (
+        ObsInputs(
+            heads=heads,
+            bodies=bodies,
+            body_len=body_len,
+            lengths=lengths,
+            alive=alive,
+            heading=heading,
+            boost_frames=np.zeros((1, S), dtype=np.int64),
+            frames_since_food=np.zeros((1, S), dtype=np.int64),
+            boosting=np.zeros((1, S), dtype=bool),
+            food_cells=food_cells,
+            food_mass=food_mass,
+            food_is_corpse=food_is_corpse,
+            grid_w=40,
+            grid_h=40,
+            max_snakes=S,
+            starvation_max=100,
+            max_length=100,
+            min_boost_length=5,
+            boost_cost_frames=3,
+            frame=np.zeros(1, dtype=np.int64),
+            max_frames=100,
+        ),
+        tuple(target),
+        tuple(observer_head),
+    )
+
+
+@pytest.mark.parametrize("pair", list(combinations(tuple(_ORACLE_RANK)[:-1], 2)))
+def test_v3_all_rendered_type_pairs_use_independent_oracle(pair):
+    """Public v3 output follows the card's semantic ordering, not renderer ranks."""
+    inp, target, observer = _v3_contended_input(pair)
+    code = build_observations(inp, obs_spec=RASTER31V3)["tactical_uint8"]
+    ahead, lateral = target[0] - observer[0], target[1] - observer[1]
+    row, col = TACTICAL_HEAD_ROW - ahead, TACTICAL_HEAD_COL + lateral
+    expected = max(pair, key=lambda kind: _ORACLE_RANK[kind])
+    assert code[0, 0, 0, row, col] == _ORACLE_CODE[expected]
+
+
+def test_v3_wall_beats_prediction_and_drops_out_of_world_prediction():
+    """A prediction outside the world cannot overwrite the true wall cell."""
+    inp = _one_snake_inputs(head=(0, 20), heading=1, grid_w=40, grid_h=40)
+    # Add an enemy whose next cell is (-1, 20), outside the rectangular world.
+    inp = ObsInputs(
+        **{
+            **inp.__dict__,
+            "heads": np.array([[[0, 20], [-2, 20]]]),
+            "bodies": np.array([[[[0, 20]], [[-2, 20]]]]),
+            "body_len": np.ones((1, 2), dtype=np.int64),
+            "lengths": np.ones((1, 2), dtype=np.int64),
+            "alive": np.ones((1, 2), dtype=bool),
+            "heading": np.array([[1, 1]], dtype=np.int64),
+            "boost_frames": np.zeros((1, 2), dtype=np.int64),
+            "frames_since_food": np.zeros((1, 2), dtype=np.int64),
+            "boosting": np.zeros((1, 2), dtype=bool),
+            "max_snakes": 2,
+        }
+    )
+    out = build_observations(inp, obs_spec=RASTER31V3)["tactical_uint8"]
+    assert out[0, 0, 0, TACTICAL_HEAD_ROW + 1, TACTICAL_HEAD_COL] == _ORACLE_CODE["wall"]
+
+
+def test_v3_enemy_slot_permutation_and_same_type_max_byte_tie():
+    """Two enemy body candidates have the same result after source-slot permutation."""
+    kinds = ("enemy_body", "enemy_body")
+    rendered = []
+    for order in ((0, 1), (1, 0)):
+        inp, target, observer = _v3_contended_input(kinds, enemy_order=order)
+        out = build_observations(inp, obs_spec=RASTER31V3)["tactical_uint8"]
+        row, col = (
+            TACTICAL_HEAD_ROW - (target[0] - observer[0]),
+            TACTICAL_HEAD_COL + target[1] - observer[1],
         )
-        assert code_plane[0, 0, 0, 0] == _V3_PRIORITY[CODE_ENEMY_BODY]
-        assert val_plane[0, 0, 0, 0] == 251
+        rendered.append(out[0, 0, :, row, col].copy())
+    assert np.array_equal(rendered[0], rendered[1])
+    assert rendered[0][0] == _ORACLE_CODE["enemy_body"]
+    assert rendered[0][1] == 191
 
 
 def test_expand_and_network_input_shapes():

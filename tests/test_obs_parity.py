@@ -356,3 +356,18 @@ def test_live_adapter_rejects_circular_geometry():
             game_state_to_obs_inputs(None)
     finally:
         initialize_config(saved)
+
+
+def test_live_adapter_propagates_nondefault_normalizations_and_boost_knobs():
+    """Live producer receives complete normalization and boost inputs explicitly."""
+    cfg = _CFG_MID
+    saved = get_config()
+    _install_v2_config(cfg)
+    try:
+        ref = PyRefGame(cfg)
+        inp = game_state_to_obs_inputs(ref, max_frames=47, starvation_max=31, max_length=71)
+        assert (inp.max_frames, inp.starvation_max, inp.max_length) == (47, 31, 71)
+        assert inp.min_boost_length == cfg.min_boost_length
+        assert inp.boost_cost_frames == cfg.boost_length_cost_frames
+    finally:
+        initialize_config(saved)
