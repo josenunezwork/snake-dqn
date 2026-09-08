@@ -7,6 +7,7 @@ not changed after that descriptor was written.  Continuations check both.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import math
 from typing import Any, Mapping, Optional
 
 import torch.optim
@@ -39,6 +40,56 @@ def serialized_optimizer_descriptor(state: Mapping[str, Any]) -> dict[str, Any]:
         options["parameter_count"] = len(group["params"])
         result.append(options)
     return {"param_groups": result}
+
+
+def validate_serialized_optimizer_state(
+    state: Mapping[str, Any], optimizer: Optional[torch.optim.Optimizer] = None
+) -> None:
+    """Reject malformed or non-finite Adam state before a live optimizer changes."""
+    entries = state.get("state")
+    if not isinstance(entries, Mapping):
+        raise ValueError("optimizer continuation has malformed state mapping")
+    expected_shapes: dict[int, tuple[int, ...]] = {}
+    if optimizer is not None:
+        serialized_groups = state.get("param_groups")
+        if not isinstance(serialized_groups, list) or len(serialized_groups) != len(optimizer.param_groups):
+            raise ValueError("optimizer continuation has incompatible live param_groups")
+        for saved, live in zip(serialized_groups, optimizer.param_groups):
+            saved_ids = saved.get("params") if isinstance(saved, Mapping) else None
+            live_params = live.get("params")
+            if not isinstance(saved_ids, list) or len(saved_ids) != len(live_params):
+                raise ValueError("optimizer continuation has incompatible live parameters")
+            for parameter_id, parameter in zip(saved_ids, live_params):
+                expected_shapes[parameter_id] = tuple(parameter.shape)
+    for parameter_id, entry in entries.items():
+        if isinstance(parameter_id, bool) or not isinstance(parameter_id, int):
+            raise ValueError("optimizer continuation has malformed state parameter id")
+        if expected_shapes and parameter_id not in expected_shapes:
+            raise ValueError("optimizer continuation has state for an unknown parameter")
+        if not isinstance(entry, Mapping):
+            raise ValueError("optimizer continuation has malformed per-parameter state")
+        for key in ("step", "exp_avg", "exp_avg_sq"):
+            if key not in entry:
+                raise ValueError(f"optimizer continuation state missing {key}")
+        step = entry["step"]
+        if hasattr(step, "item"):
+            step = step.item()
+        if (
+            isinstance(step, bool)
+            or not isinstance(step, (int, float))
+            or not math.isfinite(step)
+            or step < 0
+        ):
+            raise ValueError("optimizer continuation has invalid Adam step")
+        exp_avg, exp_avg_sq = entry["exp_avg"], entry["exp_avg_sq"]
+        if not hasattr(exp_avg, "shape") or not hasattr(exp_avg_sq, "shape"):
+            raise ValueError("optimizer continuation has non-tensor Adam moments")
+        if exp_avg.shape != exp_avg_sq.shape:
+            raise ValueError("optimizer continuation has incompatible Adam moment shapes")
+        if parameter_id in expected_shapes and tuple(exp_avg.shape) != expected_shapes[parameter_id]:
+            raise ValueError("optimizer continuation has Adam moment shape mismatch")
+        if not bool(exp_avg.isfinite().all()) or not bool(exp_avg_sq.isfinite().all()):
+            raise ValueError("optimizer continuation has non-finite Adam moments")
 
 
 @dataclass(frozen=True)
@@ -189,5 +240,6 @@ def validate_recipe_continuation(
     actual_optimizer = serialized_optimizer_descriptor(optimizer_state)
     if actual_optimizer["param_groups"] != stored_optimizer.get("param_groups"):
         raise ValueError("optimizer continuation state conflicts with its Apex recipe")
+    validate_serialized_optimizer_state(optimizer_state, optimizer)
     if optimizer is not None and optimizer_descriptor(optimizer) != dict(stored_optimizer):
         raise ValueError("optimizer continuation conflicts with receiving optimizer")

@@ -408,6 +408,52 @@ def test_feedforward_loss_prefers_exact_replay_action_mask():
         initialize_config()
 
 
+def test_local_multistep_sample_preserves_mask_modes_into_resolved_targets():
+    """Local replay must retain resolved/advisory/terminal successor semantics."""
+    from src.training.td_targets import (
+        MASK_MODE_LEGACY_ADVISORY,
+        MASK_MODE_RASTER_RESOLVED_V3,
+        MASK_MODE_TERMINAL_NO_SUCCESSOR,
+    )
+
+    DeviceManager.override_device(torch.device("cpu"))
+    initialize_config(
+        AppConfig(
+            network=NetworkSettings(input_size=58, hidden_size=64, output_size=6),
+            training=TrainingSettings(batch_size=1, memory_size=1000),
+            apex=ApexSettings(batch_size=1, min_buffer_size=1, learning_rate=0.001, gamma=0.5),
+        )
+    )
+    try:
+        policy = ApexPolicy(input_size=58, hidden_size=64, output_size=6, n_step=1)
+        policy.dqn = FixedQ([0.0, 3.0, 0.0, 0.0, 100.0, 0.0])
+        policy.target_dqn = FixedQ([0.0, 5.0, 0.0, 0.0, 50.0, 0.0])
+        resolved_empty = torch.zeros(6, dtype=torch.bool)
+
+        def sampled_td_error(mode: int, done: bool = False) -> float:
+            policy.memory.clear()
+            policy.memory.add(
+                torch.zeros(58), 0, 1.25 if done else 0.0, _full_state_batch().squeeze(0), done,
+                next_action_mask=resolved_empty, next_action_mask_mode=mode,
+            )
+            batch, _, weights = policy.memory.sample(1, torch.device("cpu"))
+            assert batch["next_action_mask_modes"].tolist() == [mode]
+            _, errors = policy._compute_double_dqn_loss(
+                batch["states"], batch["actions"], batch["rewards"], batch["next_states"],
+                batch["dones"], weights, bootstrap_steps=batch["bootstrap_steps"],
+                next_action_masks=batch["next_action_masks"],
+                next_action_mask_modes=batch["next_action_mask_modes"],
+            )
+            return float(errors[0])
+
+        assert sampled_td_error(MASK_MODE_RASTER_RESOLVED_V3) == pytest.approx(0.0)
+        assert sampled_td_error(MASK_MODE_LEGACY_ADVISORY) == pytest.approx(2.5)
+        assert sampled_td_error(MASK_MODE_TERMINAL_NO_SUCCESSOR, done=True) == pytest.approx(1.25)
+    finally:
+        DeviceManager.reset_for_testing()
+        initialize_config()
+
+
 def test_policy_update_preserves_exact_next_action_mask():
     """Direct ApexPolicy.update callers should not drop simulator action masks."""
     DeviceManager.override_device(torch.device("cpu"))
@@ -901,6 +947,46 @@ def test_weights_only_retains_requested_local_target_semantics():
         assert policy.memory.n_step == 1
         assert policy.memory.gamma == pytest.approx(0.9)
         assert policy._local_buffer.maxlen == 1
+    finally:
+        DeviceManager.reset_for_testing()
+        initialize_config()
+
+
+def test_weights_only_loads_online_then_freshly_syncs_target_and_runtime():
+    """Warm starts cannot inherit a target, odometer, or distributed role."""
+    DeviceManager.override_device(torch.device("cpu"))
+    initialize_config(
+        AppConfig(
+            network=NetworkSettings(input_size=4, hidden_size=64, output_size=3),
+            training=TrainingSettings(batch_size=1, memory_size=1000),
+            apex=ApexSettings(batch_size=1, min_buffer_size=1, learning_rate=0.001, gamma=0.9),
+        )
+    )
+    try:
+        writer = ApexPolicy(input_size=4, hidden_size=64, output_size=3, n_step=1)
+        with torch.no_grad():
+            for parameter in writer.dqn.parameters():
+                parameter.fill_(0.25)
+            for parameter in writer.target_dqn.parameters():
+                parameter.fill_(-0.5)
+        writer.distributed = True
+        writer.actor_id = 9
+        writer.update_counter = 12
+        writer.total_reward = 7.5
+        writer.epsilon = 0.2
+        checkpoint = writer.get_state_dict()
+
+        reader = ApexPolicy(input_size=4, hidden_size=64, output_size=3, n_step=1)
+        reader.load_state_dict(checkpoint)
+
+        for online, target in zip(reader.dqn.parameters(), reader.target_dqn.parameters()):
+            assert torch.equal(online, target)
+            assert torch.all(online == 0.25)
+        assert reader.update_counter == 0
+        assert reader.total_reward == 0.0
+        assert reader.epsilon == pytest.approx(1.0)
+        assert reader.distributed is False
+        assert reader.actor_id is None
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()

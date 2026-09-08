@@ -11,6 +11,7 @@ and does not use distributional RL (C51) for simplicity.
 """
 
 import os
+import math
 from collections import deque
 from typing import Dict, List, Optional, Tuple
 
@@ -44,7 +45,7 @@ from .checkpoint_contract import (
     checkpoint_contract_values,
     validate_checkpoint_contract,
 )
-from .td_targets import double_dqn_next_q, n_step_td_target
+from .td_targets import MASK_MODE_LEGACY_ADVISORY, double_dqn_next_q, n_step_td_target, validate_mask_mode
 
 
 class ApexPolicy(BaseDQNPolicy):
@@ -310,6 +311,7 @@ class ApexPolicy(BaseDQNPolicy):
         done: bool,
         snake_id: Optional[int] = None,
         next_action_mask: Optional[torch.Tensor] = None,
+        next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY,
     ) -> Tuple[Optional[float], float]:
         """
         Update Ape-X policy with transition.
@@ -326,6 +328,7 @@ class ApexPolicy(BaseDQNPolicy):
             snake_id: Snake identifier for per-stream replay bookkeeping
             next_action_mask: Optional exact valid-action mask for next_state.
                 Feedforward replay stores this for target action selection.
+            next_action_mask_mode: Persisted semantics for the successor mask.
 
         Returns:
             Tuple of (loss, epsilon)
@@ -355,6 +358,7 @@ class ApexPolicy(BaseDQNPolicy):
             priority=None,
             stream_id=snake_id,
             next_action_mask=next_action_mask,
+            next_action_mask_mode=validate_mask_mode(next_action_mask_mode),
         )
         self.total_reward += reward
 
@@ -433,10 +437,12 @@ class ApexPolicy(BaseDQNPolicy):
             bootstrap_steps = batch.get("bootstrap_steps")
             next_action_masks = batch.get("next_action_masks")
             next_action_mask_present = batch.get("next_action_mask_present")
+            next_action_mask_modes = batch.get("next_action_mask_modes")
             self._last_train_metrics = self._compute_next_action_quality_metrics(
                 next_states,
                 next_action_masks=next_action_masks,
                 next_action_mask_present=next_action_mask_present,
+                next_action_mask_modes=next_action_mask_modes,
                 sample_mask=1.0 - dones,
             )
 
@@ -450,6 +456,7 @@ class ApexPolicy(BaseDQNPolicy):
                 weights,
                 bootstrap_steps=bootstrap_steps,
                 next_action_masks=next_action_masks,
+                next_action_mask_modes=next_action_mask_modes,
             )
 
             # Backward pass with gradient clipping
@@ -481,6 +488,7 @@ class ApexPolicy(BaseDQNPolicy):
         next_states: torch.Tensor,
         next_action_masks: Optional[torch.Tensor] = None,
         next_action_mask_present: Optional[torch.Tensor] = None,
+        next_action_mask_modes: Optional[torch.Tensor] = None,
         sample_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, float]:
         """Summarize target-action coverage for the latest sampled replay batch."""
@@ -489,6 +497,7 @@ class ApexPolicy(BaseDQNPolicy):
             self.output_size,
             next_action_masks=next_action_masks,
             next_action_mask_present=next_action_mask_present,
+            next_action_mask_modes=next_action_mask_modes,
             sample_mask=sample_mask,
         )
 
@@ -502,6 +511,7 @@ class ApexPolicy(BaseDQNPolicy):
         weights: torch.Tensor,
         bootstrap_steps: Optional[torch.Tensor] = None,
         next_action_masks: Optional[torch.Tensor] = None,
+        next_action_mask_modes: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, np.ndarray]:
         """
         Compute Double DQN loss with importance sampling weights.
@@ -543,6 +553,7 @@ class ApexPolicy(BaseDQNPolicy):
                 self.target_dqn(next_states),
                 next_states,
                 next_action_masks,
+                next_action_mask_modes,
             )
             expected_q = n_step_td_target(
                 rewards, dones, next_q, bootstrap_steps, self.gamma, self.n_step, 50.0
@@ -671,6 +682,36 @@ class ApexPolicy(BaseDQNPolicy):
         if self.optimizer is not None and self.optimizer.state:
             raise ValueError("weights-only load requires a fresh local Apex optimizer")
 
+    def _validate_network_weights(self, weights: object, *, label: str) -> None:
+        """Check a state mapping completely before ``load_state_dict`` mutates a model."""
+        if not isinstance(weights, dict):
+            raise ValueError(f"checkpoint {label} weights must be a mapping")
+        expected = self.dqn.state_dict()
+        if set(weights) != set(expected):
+            raise ValueError(f"checkpoint {label} weights do not match the Apex network")
+        for key, expected_tensor in expected.items():
+            candidate = weights[key]
+            if not isinstance(candidate, torch.Tensor) or candidate.shape != expected_tensor.shape:
+                raise ValueError(f"checkpoint {label} tensor {key!r} has incompatible shape")
+            if not bool(torch.isfinite(candidate).all()):
+                raise ValueError(f"checkpoint {label} tensor {key!r} is non-finite")
+
+    def _validate_continuation_base_state(self, state_dict: dict) -> None:
+        """Validate mutable counters before a verified continuation changes this policy."""
+        update_counter = state_dict.get("update_counter", 0)
+        total_reward = state_dict.get("total_reward", 0.0)
+        epsilon = state_dict.get("epsilon", 1.0)
+        if isinstance(update_counter, bool) or not isinstance(update_counter, int) or update_counter < 0:
+            raise ValueError("continuation checkpoint has invalid update_counter")
+        if (
+            isinstance(total_reward, bool)
+            or not isinstance(total_reward, (int, float))
+            or not math.isfinite(total_reward)
+        ):
+            raise ValueError("continuation checkpoint has invalid total_reward")
+        if isinstance(epsilon, bool) or not isinstance(epsilon, (int, float)) or not 0.0 <= epsilon <= 1.0:
+            raise ValueError("continuation checkpoint has invalid epsilon")
+
     def _resolve_checkpoint_contract(self, state_dict: dict, *, validate_target_contract: bool = True) -> dict:
         """Resolve and validate the training contract declared by a checkpoint."""
 
@@ -710,7 +751,7 @@ class ApexPolicy(BaseDQNPolicy):
 
     def load_state_dict(self, state_dict: dict, resume_mode: str = "weights-only") -> None:
         """Load checkpoint weights, with explicit optimizer continuation policy."""
-        if resume_mode not in {"weights-only", "continuation", "legacy-unverified"}:
+        if resume_mode not in {"weights-only", "continuation"}:
             raise ValueError(f"Unsupported Apex resume mode {resume_mode!r}")
         self._verify_checkpoint_type(state_dict, self._policy_name)
         if self.training and resume_mode == "continuation":
@@ -756,6 +797,15 @@ class ApexPolicy(BaseDQNPolicy):
                 "Checkpoint missing network weights. Expected 'dqn_state_dict' "
                 "or 'model_state_dict' key."
             )
+        self._validate_network_weights(dqn_weights, label="online")
+        if resume_mode == "continuation":
+            target_weights_for_validation = state_dict.get(
+                "target_dqn_state_dict", state_dict.get("target_state_dict")
+            )
+            if target_weights_for_validation is None:
+                raise ValueError("optimizer continuation requires target_dqn_state_dict")
+            self._validate_network_weights(target_weights_for_validation, label="target")
+            self._validate_continuation_base_state(state_dict)
         # Remap tensors to current device (handles cuda->mps/cpu etc.)
         remapped_dqn = {
             k: (v.to(self.device) if isinstance(v, torch.Tensor) else v)
@@ -780,7 +830,7 @@ class ApexPolicy(BaseDQNPolicy):
         # Load optimizer state if available (not present in sim exports / inference)
         if (
             self.optimizer is not None
-            and resume_mode in {"continuation", "legacy-unverified"}
+            and resume_mode == "continuation"
             and "optimizer_state_dict" in state_dict
         ):
             self.optimizer.load_state_dict(state_dict["optimizer_state_dict"])

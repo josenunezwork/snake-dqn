@@ -72,3 +72,12 @@ def test_complete_recipe_keeps_target_and_gradient_clipping_distinct() -> None:
     assert recipe.observation_contract["mask_mode"] == "legacy_advisory_rowwise_legal_intersection"
     assert recipe.world_contract["width"] == 290
     assert recipe.runtime_contract["respawn"] is True
+
+
+def test_optimizer_continuation_rejects_malformed_adam_state_before_load() -> None:
+    recipe, optimizer = _recipe_and_optimizer()
+    checkpoint = _checkpoint(recipe, optimizer)
+    checkpoint["optimizer_state_dict"] = copy.deepcopy(checkpoint["optimizer_state_dict"])
+    checkpoint["optimizer_state_dict"]["state"] = {0: {"step": 1}}
+    with pytest.raises(ValueError, match="missing exp_avg"):
+        validate_recipe_continuation(checkpoint, recipe, weights_only=False, optimizer=optimizer)
