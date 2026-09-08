@@ -34,17 +34,33 @@ central ``train_step`` / replay-memory paths are skipped.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
+from src.core.game_config import GameConfig
+from src.core.runtime_contract import ActionMaskSet
 from src.model.inference_agent import InferenceAgent
+from src.model.obs_spec import RASTER31V3
 from src.model.raster_network import raster_tensors_from_obs
 from src.simd_env.featurizer import build_observations
 from src.simd_env.live_adapter import game_state_to_obs_inputs
 
-__all__ = ["RasterServingPolicy"]
+__all__ = ["RasterActionContext", "RasterServingPolicy"]
+
+
+@dataclass(frozen=True)
+class RasterActionContext:
+    """Non-consuming, identity-addressed serving data for one live snake."""
+
+    snake_id: int
+    q_values: torch.Tensor
+    legal: np.ndarray
+    advisory: np.ndarray
+    resolved: np.ndarray
+    observation: Dict[str, np.ndarray]
 
 
 class _RasterDQNShim:
@@ -106,6 +122,7 @@ class RasterServingPolicy:
         self._cache_obs: Optional[dict] = None
         self._cache_id_to_row: Dict[int, int] = {}
         self._cache_q: Optional[np.ndarray] = None  # (S, output_size)
+        self._cache_masks: Optional[ActionMaskSet] = None
         self._dispatch_queue: List[int] = []
 
     # -- epsilon (forced to 0) ---------------------------------------------
@@ -165,6 +182,7 @@ class RasterServingPolicy:
         self._cache_obs = None
         self._cache_id_to_row = {}
         self._cache_q = None
+        self._cache_masks = None
         self._dispatch_queue = []
 
     def _ensure_frame(self) -> None:
@@ -184,7 +202,21 @@ class RasterServingPolicy:
 
         snakes = list(game.snakes)
         inp = game_state_to_obs_inputs(game)
-        obs = build_observations(inp)  # (1, S, ...) + mask
+        legal, advisory, dead = self._live_masks(snakes)
+        masks = ActionMaskSet(legal=legal, advisory=advisory, dead=dead)
+        resolved = masks.resolved()
+        # Raster-v2's historical serving view carries the featurizer's all-true
+        # mask. Do not retrofit corrected action semantics onto that checkpoint
+        # family; v3 is the explicit opt-in producer.
+        obs = (
+            build_observations(inp, mask=resolved, obs_spec=self.obs_spec)
+            if self.obs_spec == RASTER31V3
+            else build_observations(inp, obs_spec=self.obs_spec)
+        )
+        if self.obs_spec == RASTER31V3:
+            obs["legal_mask"] = legal
+            obs["advisory_mask"] = advisory
+            obs["resolved_mask"] = resolved
         # (1, S, ...) uint8 -> (S, ...) float tensors the raster net consumes.
         tensors = raster_tensors_from_obs(obs, device=self.device)
         with torch.no_grad():
@@ -193,6 +225,7 @@ class RasterServingPolicy:
         self._cache_frame = frame
         self._cache_obs = obs
         self._cache_q = q
+        self._cache_masks = masks
         self._cache_id_to_row = {int(s.id): row for row, s in enumerate(snakes)}
         # Dispatch only the alive AI snakes that actually call this exact policy.
         # A Play-mode roster begins with a HumanSnake, which moves during the
@@ -211,9 +244,88 @@ class RasterServingPolicy:
             and getattr(snake, "policy", None) is self
         ]
 
+    def _live_masks(self, snakes) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return v3 legal/advisory masks from the current live roster.
+
+        Raster v2 retains its historic single-mask serving behavior. V3 records
+        the two inputs separately and resolves them with C0's row-local rule.
+        """
+        count = len(snakes)
+        legal = np.zeros((1, count, self.output_size), dtype=bool)
+        advisory = np.zeros_like(legal)
+        dead = np.ones((1, count), dtype=bool)
+        from src.game.ai_snake import AISnake
+
+        for row, snake in enumerate(snakes):
+            alive = bool(getattr(snake, "is_alive", False))
+            dead[0, row] = not alive
+            if not alive:
+                continue
+            legal[0, row, :3] = True
+            if int(getattr(snake, "length", 0)) >= GameConfig.MIN_BOOST_LENGTH:
+                legal[0, row, 3:] = True
+            if isinstance(snake, AISnake):
+                safe = snake._get_safe_actions(snakes, allow_fallback=False)
+                for action in safe:
+                    if 0 <= int(action) < self.output_size:
+                        advisory[0, row, int(action)] = True
+            else:
+                # Human/scripted rows do not act through this policy. Their
+                # display row remains well-formed without asserting safety.
+                advisory[0, row] = legal[0, row]
+        return legal, advisory, dead
+
     def _row_for_snake_id(self, snake_id: int) -> int:
         """Return the observation row index for a snake id (0 if unknown)."""
         return int(self._cache_id_to_row.get(int(snake_id), 0))
+
+    def action_context_for(self, snake_id: int) -> RasterActionContext:
+        """Return a v3 action context by exact snake id without consuming a row."""
+        self._ensure_frame()
+        game = self._game
+        if self.obs_spec != RASTER31V3:
+            raise ValueError("Explicit action contexts are only enabled for raster31v3")
+        if (
+            game is None
+            or self._cache_obs is None
+            or self._cache_q is None
+            or self._cache_masks is None
+        ):
+            raise RuntimeError("Raster serving policy has no attached live observation")
+        snake = next((item for item in game.snakes if int(item.id) == int(snake_id)), None)
+        from src.game.ai_snake import AISnake
+
+        if (
+            not isinstance(snake, AISnake)
+            or not bool(getattr(snake, "is_alive", False))
+            or getattr(snake, "policy", None) is not self
+        ):
+            raise ValueError(f"Snake {snake_id} is not a live raster-serving AI")
+        row = self._row_for_snake_id(snake_id)
+        obs = self._observation_at_row(row)
+        return RasterActionContext(
+            snake_id=int(snake_id),
+            q_values=torch.as_tensor(self._cache_q[row], dtype=torch.float32, device=self.device),
+            legal=np.asarray(self._cache_masks.legal)[0, row].copy(),
+            advisory=np.asarray(self._cache_masks.advisory)[0, row].copy(),
+            resolved=np.asarray(self._cache_masks.resolved())[0, row].copy(),
+            observation=obs,
+        )
+
+    def _observation_at_row(self, row: int) -> Dict[str, np.ndarray]:
+        """Slice a cached full-roster observation without changing dispatch state."""
+        assert self._cache_obs is not None
+        obs = self._cache_obs
+        result = {
+            "tactical_uint8": np.asarray(obs["tactical_uint8"])[0, row],
+            "strategic_uint8": np.asarray(obs["strategic_uint8"])[0, row],
+            "scalars": np.asarray(obs["scalars"])[0, row],
+            "mask": np.asarray(obs["mask"])[0, row],
+        }
+        for key in ("legal_mask", "advisory_mask", "resolved_mask"):
+            if key in obs:
+                result[key] = np.asarray(obs[key])[0, row]
+        return result
 
     def _next_dispatch_q(self, state: torch.Tensor) -> torch.Tensor:
         """Return the next queued snake's raster Q-row as an ``(N, out)`` tensor.
@@ -259,16 +371,10 @@ class RasterServingPolicy:
             ``None`` when no live game / observation is available.
         """
         self._ensure_frame()
-        if self._cache_obs is None:
+        if self._cache_obs is None or int(snake_id) not in self._cache_id_to_row:
             return None
         row = self._row_for_snake_id(snake_id)
-        obs = self._cache_obs
-        return {
-            "tactical_uint8": np.asarray(obs["tactical_uint8"])[0, row],
-            "strategic_uint8": np.asarray(obs["strategic_uint8"])[0, row],
-            "scalars": np.asarray(obs["scalars"])[0, row],
-            "mask": np.asarray(obs["mask"])[0, row],
-        }
+        return self._observation_at_row(row)
 
     def hero_activations(self, snake_id: int) -> Optional[Tuple[np.ndarray, Dict[str, np.ndarray]]]:
         """Return ``(q_values, activations)`` for a snake's current raster obs.

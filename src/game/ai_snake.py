@@ -399,10 +399,29 @@ class AISnake(Snake):
 
         # Get Q-values from policy network (6 outputs: 3 dirs × 2 speed modes)
         q_values = None
+        raster_context = None
         should_compute_q = not (explore and not record_q_values)
         if should_compute_q:
             with torch.no_grad():
-                if hasattr(self.policy, "dqn"):
+                action_context_for = getattr(self.policy, "action_context_for", None)
+                if getattr(self.policy, "obs_spec", None) == "raster31v3" and callable(
+                    action_context_for
+                ):
+                    # V3 serving is identity-addressed. This never touches the
+                    # legacy positional dqn shim, so inspector calls, mixed
+                    # rosters and any skipped selection cannot shift a row.
+                    raster_context = action_context_for(self.id)
+                    q_values = raster_context.q_values
+                    safe_actions = [
+                        action for action, enabled in enumerate(raster_context.resolved) if enabled
+                    ]
+                    self.current_action_mask = raster_context.resolved.copy()
+                    self.current_action_mask_semantics = "v3_resolved_legal_advisory"
+                    self.current_legal_action_mask = raster_context.legal.copy()
+                    self.current_advisory_action_mask = raster_context.advisory.copy()
+                    if record_q_values:
+                        self.last_q_values = q_values.cpu().numpy().tolist()
+                elif hasattr(self.policy, "dqn"):
                     q_values = self.policy.dqn(current_state.unsqueeze(0)).squeeze()
                     if record_q_values:
                         self.last_q_values = q_values.cpu().numpy().tolist()
@@ -437,7 +456,10 @@ class AISnake(Snake):
             action_mask = action_mask_from_safe_actions(
                 safe_actions,
                 device=q_values.device,
-                allow_fallback=True,
+                # V3 has already resolved legal/advisory per row, including
+                # boost options. Never replace an advisory-empty resolved row
+                # with the legacy normal-only fallback.
+                allow_fallback=raster_context is None,
             )
             masked_q = torch.where(
                 action_mask,
@@ -452,7 +474,7 @@ class AISnake(Snake):
             fallback_action_mask = action_mask_from_safe_actions(
                 safe_actions,
                 device=current_state.device,
-                allow_fallback=True,
+                allow_fallback=raster_context is None,
             )
             select_action_kwargs = {}
             if "action_mask" in signature(self.policy.select_action).parameters:
@@ -513,6 +535,7 @@ class AISnake(Snake):
 
         # Calculate reward using centralized collision result
         next_action_mask = None
+        self.next_action_mask_semantics = "legacy_advisory"
         if collided:
             next_state = None
         else:
@@ -536,6 +559,11 @@ class AISnake(Snake):
                 exact_safe_actions,
                 device=self.device,
             )
+            if getattr(self.policy, "obs_spec", None) == "raster31v3":
+                # Serving is forward-only, so this tag is provenance for the
+                # later A2 collector rather than a claim that the legacy
+                # carry-forward vector mask has v3 semantics.
+                self.next_action_mask_semantics = "legacy_advisory_pending_v3_context"
             if self.carry_forward_selection:
                 self._carried_selection = {
                     "frame": self._get_frame() + 1,

@@ -1,0 +1,164 @@
+"""Serving gates for the corrected raster31v3 checkpoint contract."""
+
+import copy
+
+import pytest
+import torch
+
+pytest.importorskip("fastapi")
+
+from src.core.runtime_contract import EffectiveWorldConfig  # noqa: E402
+from src.core.runtime_contract import (  # noqa: E402
+    ModelHeadContract,
+    RunProvenance,
+    RuntimeModeContract,
+    canonical_digest,
+)
+from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3, RASTER31V3_CONTRACT  # noqa: E402
+from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
+from web.backend.session import V3_ACTION_MASK_CONTRACT, GameSession  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _restore_global_config():
+    """Do not leak the mechanics-v2 deployment profile to later test modules."""
+    from src.core import game_config
+
+    previous = game_config._current_config
+    yield
+    game_config._current_config = previous
+
+
+def _v3_metadata() -> dict:
+    world = EffectiveWorldConfig(
+        width=1450,
+        height=830,
+        segment_size=10,
+        wall_thickness=10,
+        arena_type="rectangular",
+        mechanics_version=2,
+        num_snakes=6,
+        max_frames=5000,
+        initial_food=250,
+        max_food=300,
+        min_boost_length=5,
+        boost_length_cost_frames=3,
+        normalization={"max_frames": 5000.0, "starvation_max": 500.0, "max_length": 150.0},
+    )
+    runtime = RuntimeModeContract(
+        mode="train", training=True, respawn=False, hero_terminal=True, population_floor=True
+    )
+    head = ModelHeadContract("pqn", "dueling_q", 6)
+    provenance = RunProvenance(
+        effective_seed=7,
+        observation_digest=RASTER31V3_CONTRACT.digest,
+        world_digest=world.digest,
+        runtime_digest=runtime.digest,
+        reward_digest="reward",
+        target_digest="target",
+        sampler_digest="sampler",
+        optimizer_digest="optimizer",
+        model_head_digest=head.digest,
+        source_revision="test",
+    )
+    return {
+        OBS_SPEC_KEY: RASTER31V3,
+        **RASTER31V3_CONTRACT.to_metadata(),
+        **head.to_metadata(),
+        "effective_world": {
+            "width": world.width,
+            "height": world.height,
+            "segment_size": world.segment_size,
+            "wall_thickness": world.wall_thickness,
+            "arena_type": world.arena_type,
+            "mechanics_version": world.mechanics_version,
+            "num_snakes": world.num_snakes,
+            "max_frames": world.max_frames,
+            "initial_food": world.initial_food,
+            "max_food": world.max_food,
+            "min_boost_length": world.min_boost_length,
+            "boost_length_cost_frames": world.boost_length_cost_frames,
+            "frame_rate": world.frame_rate,
+            "max_length": world.max_length,
+            "starvation_max_frames": world.starvation_max_frames,
+            "arena_radius": world.arena_radius,
+            "arena_center_x": world.arena_center_x,
+            "arena_center_y": world.arena_center_y,
+            "max_capacity": world.max_capacity,
+            "kill_scale": world.kill_scale,
+            "death_value": world.death_value,
+            "normalization": dict(world.normalization),
+        },
+        "effective_world_digest": world.digest,
+        "runtime_contract": {
+            "mode": runtime.mode,
+            "training": runtime.training,
+            "respawn": runtime.respawn,
+            "hero_terminal": runtime.hero_terminal,
+            "population_floor": runtime.population_floor,
+            "reset_strategy": runtime.reset_strategy,
+        },
+        "runtime_contract_digest": runtime.digest,
+        "action_mask_contract": copy.deepcopy(V3_ACTION_MASK_CONTRACT),
+        "action_mask_contract_digest": canonical_digest(V3_ACTION_MASK_CONTRACT),
+        **provenance.to_metadata(),
+    }
+
+
+@pytest.fixture()
+def v3_checkpoint(tmp_path):
+    path = tmp_path / "v3.pth"
+    net = RasterDuelingNetwork()
+    torch.save({"dqn_state_dict": net.state_dict(), "output_size": 6, **_v3_metadata()}, path)
+    return str(path)
+
+
+def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
+    session = GameSession(checkpoint=v3_checkpoint)
+    assert session.obs_spec == RASTER31V3
+    assert session.config_path.endswith("mechanics_v2.yaml")
+    assert session.serving_contract["obs_contract_digest"] == RASTER31V3_CONTRACT.digest
+
+
+def test_bad_v3_descriptor_rejects_without_replacing_existing_session(v3_checkpoint, tmp_path):
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game = session.game
+    before_path = session.checkpoint_path
+    bad = tmp_path / "bad.pth"
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["obs_contract_digest"] = "bad"
+    torch.save(blob, bad)
+
+    with pytest.raises(ValueError, match="observation contract"):
+        session._build(str(bad), mode="watch")
+    assert session.game is before_game
+    assert session.checkpoint_path == before_path
+
+
+def test_v3_advisory_empty_uses_legal_boost_and_id_keyed_row(v3_checkpoint):
+    """The human does not consume row 0 and an empty advisory keeps legal boost."""
+    session = GameSession(checkpoint=v3_checkpoint)
+    session.set_play_opponents(2)
+    session.set_mode("play")
+    human, first_ai, second_ai = session.game.snakes
+    first_ai.length = 6
+    first_ai._get_safe_actions = lambda *_args, **_kwargs: []
+
+    class RowLogits:
+        def __call__(self, tensors):
+            q = torch.full((tensors["tactical"].shape[0], 6), -100.0)
+            q[1, 4] = 100.0
+            q[2, 2] = 100.0
+            return q
+
+    # Non-consuming inspector work before the update cannot shift either AI.
+    assert session.policy.hero_observation(second_ai.id) is not None
+    assert session.policy.hero_activations(first_ai.id) is not None
+    session.policy.agent.network = RowLogits()
+    session.game.update(train_mode=False, learn=False, allow_respawn=True)
+
+    assert human.is_alive
+    assert first_ai.last_action == 4
+    assert second_ai.last_action == 2
+    context = session.policy.action_context_for(first_ai.id)
+    assert context.resolved.tolist() == [True] * 6

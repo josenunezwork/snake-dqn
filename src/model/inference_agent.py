@@ -30,6 +30,7 @@ from src.model.obs_spec import (
     KNOWN_OBS_SPECS,
     OBS_SPEC_KEY,
     RASTER31V2,
+    RASTER31V3,
     VECTOR61,
     RasterObsShapes,
 )
@@ -116,7 +117,19 @@ class InferenceAgent:
         state_dict = cls._extract_state_dict(blob)
         obs_spec = cls._detect_obs_spec(blob)
 
-        if obs_spec == RASTER31V2:
+        if obs_spec in (RASTER31V2, RASTER31V3):
+            if obs_spec == RASTER31V3:
+                from src.core.runtime_contract import validate_model_head_contract
+                from src.training.checkpoint_contract import (
+                    validate_observation_checkpoint_metadata,
+                )
+
+                validate_observation_checkpoint_metadata(
+                    blob, RASTER31V3, checkpoint_path, error_type=ValueError
+                )
+                head = validate_model_head_contract(blob, require_digest=True)
+                if (head.algorithm, head.head) != ("pqn", "dueling_q"):
+                    raise ValueError("raster31v3 inference requires a pqn/dueling_q model head")
             network = cls._build_raster_network(blob, state_dict)
         else:
             input_size, hidden_size, output_size = cls._infer_dims(blob, state_dict)
@@ -360,7 +373,7 @@ class InferenceAgent:
             state: A ``vector61`` state vector, or a ``raster31v2`` observation
                 dict (matching this agent's :attr:`obs_spec`).
         """
-        if self._obs_spec == RASTER31V2:
+        if self._obs_spec in (RASTER31V2, RASTER31V3):
             q = self.network(self._prepare_raster(state))
         else:
             q = self.network(self._prepare(state))
@@ -383,7 +396,7 @@ class InferenceAgent:
         Returns:
             The chosen action index.
         """
-        if self._obs_spec == RASTER31V2:
+        if self._obs_spec in (RASTER31V2, RASTER31V3):
             q = self.network(self._prepare_raster(state)).view(-1)
             if action_mask is None:
                 action_mask = self._raster_mask(state)
@@ -409,7 +422,7 @@ class InferenceAgent:
         (the featurizer's 6-bit ``mask``), so this defers to :meth:`act`, which
         applies that embedded mask automatically.
         """
-        if self._obs_spec == RASTER31V2:
+        if self._obs_spec in (RASTER31V2, RASTER31V3):
             return self.act(state)
         try:
             from src.training.action_mask import valid_action_mask_from_states
@@ -428,7 +441,7 @@ class InferenceAgent:
         Both obs_specs expose the same activation keys so ``web.backend.serialize``
         is untouched. For ``raster31v2`` the ``input`` band is the scalar vector.
         """
-        if self._obs_spec == RASTER31V2:
+        if self._obs_spec in (RASTER31V2, RASTER31V3):
             prepared = self._prepare_raster(state)
         else:
             prepared = self._prepare(state)

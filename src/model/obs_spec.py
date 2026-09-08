@@ -31,6 +31,7 @@ __all__ = [
     "VECTOR61",
     "RASTER31V2",
     "RASTER31V3",
+    "RASTER_OBS_SPECS",
     "DEFAULT_OBS_SPEC",
     "KNOWN_OBS_SPECS",
     "RasterObsShapes",
@@ -56,7 +57,13 @@ RASTER31V3 = "raster31v3"
 DEFAULT_OBS_SPEC = VECTOR61
 
 #: All obs_spec strings this build understands.
-KNOWN_OBS_SPECS = (VECTOR61, RASTER31V2)
+RASTER_OBS_SPECS = (RASTER31V2, RASTER31V3)
+
+# A recognized v3 descriptor is not, by itself, a serving guarantee. The
+# loader validates its semantic metadata before construction and Session adds
+# the deployment-world gate. Keeping recognition here lets failures be precise
+# instead of silently treating a v3 checkpoint as a vector model.
+KNOWN_OBS_SPECS = (VECTOR61, *RASTER_OBS_SPECS)
 
 
 @dataclass(frozen=True)

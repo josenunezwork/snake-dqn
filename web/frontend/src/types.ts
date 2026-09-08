@@ -52,6 +52,9 @@ export interface InspectorDTO {
   // The action the hero ACTUALLY took last step (post-masking, post-exploration).
   // Null/absent on older backends.
   executed_action?: number | null;
+  legal_mask?: boolean[];
+  advisory_mask?: boolean[];
+  resolved_mask?: boolean[];
   free_space: number[] | null;
 }
 
@@ -69,6 +72,11 @@ export interface HeroRasterDTO {
   strategic_channels: string[]; // (3,) names
   scalars: number[]; // (26,)
   mask: boolean[]; // (6,) legal-action mask
+  // V3 keeps the domain/action-advice distinction visible. `mask` remains the
+  // resolved display value for older consumers.
+  legal_mask?: boolean[];
+  advisory_mask?: boolean[];
+  resolved_mask?: boolean[];
   // Named index ranges into `scalars` (mirrors the inspector state groups);
   // lets the viewer label scalar clusters. Absent on older backends.
   scalar_groups?: StateGroup[];
@@ -122,6 +130,7 @@ export interface SessionState {
   reward_override_active?: boolean;
   // Observation contract of the served policy ("vector61" | "raster31v2").
   obs_spec?: string;
+  serving_contract?: Record<string, string> | null;
 }
 
 export interface PendingRun {
@@ -161,6 +170,7 @@ export interface Frame {
   // Honest architecture label derived from the served policy's obs spec, e.g.
   // "Apex DQN (vector61)" or "Raster Dueling (raster31v2)".
   architecture?: string;
+  serving_contract?: Record<string, string> | null;
   // Basename of the loaded checkpoint (stable key for trace resets).
   checkpoint_name?: string;
   // True on the single post-pause frame and the ~1 Hz heartbeats that follow;

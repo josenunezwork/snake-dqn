@@ -94,6 +94,7 @@ function Inspector({ inspector, tick = 0, heroId = 0, checkpointName = null }: P
             chosen={acted}
             greedy={greedyDiffers ? chosen : null}
             labels={action_labels}
+            resolvedMask={inspector.resolved_mask}
           />
           <div className="qgrid">
             {q_values.map((q, i) => (
@@ -115,6 +116,13 @@ function Inspector({ inspector, tick = 0, heroId = 0, checkpointName = null }: P
             Action taken: <span className="mono">{action_labels[acted]}</span> · greedy pick:{" "}
             <span className="mono">{action_labels[chosen]}</span> (exploration or masking
             overrode the argmax).
+          </div>
+        )}
+        {inspector.resolved_mask && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            Resolved actions: {inspector.resolved_mask.map((allowed, index) =>
+              allowed ? action_labels[index] : null
+            ).filter(Boolean).join(", ") || "none"}
           </div>
         )}
         <DecisionTrace

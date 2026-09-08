@@ -17,6 +17,7 @@ interface Props {
   // The greedy wedge gets a dashed outline and its own caption line.
   greedy?: number | null;
   labels: string[];
+  resolvedMask?: boolean[];
   size?: number;
 }
 
@@ -53,7 +54,7 @@ export function confidence(margin: number): { label: string; color: string } {
   return { label: "close call", color: "var(--viz-red, #f87171)" };
 }
 
-export default function SteeringWheel({ q, chosen, greedy = null, labels, size = 172 }: Props) {
+export default function SteeringWheel({ q, chosen, greedy = null, labels, resolvedMask, size = 172 }: Props) {
   const greedyDiffers = greedy != null && greedy !== chosen;
   const R = size / 2;
   const ri = R * 0.2;
@@ -95,6 +96,7 @@ export default function SteeringWheel({ q, chosen, greedy = null, labels, size =
         {cells.map((c) => {
           const isChosen = c.a === chosen;
           const isGreedy = greedyDiffers && c.a === greedy;
+          const allowed = resolvedMask?.[c.a] ?? true;
           // teal ramp, brighter with value; the action taken is green + glow;
           // when exploration overrode the greedy pick, that wedge is dash-outlined.
           const base = isChosen ? [52, 211, 153] : [56, 189, 248];
@@ -105,14 +107,14 @@ export default function SteeringWheel({ q, chosen, greedy = null, labels, size =
               key={c.a}
               d={c.path}
               fill={fill}
-              fillOpacity={isChosen ? 0.95 : 0.22 + 0.5 * c.t}
+              fillOpacity={allowed ? (isChosen ? 0.95 : 0.22 + 0.5 * c.t) : 0.08}
               stroke={isChosen ? "#5ff0c0" : isGreedy ? "#38bdf8" : "rgba(120,150,190,0.25)"}
               strokeWidth={isChosen ? 1.4 : isGreedy ? 1.2 : 0.5}
               strokeDasharray={isGreedy ? "3 2" : undefined}
               filter={isChosen ? "url(#wheel-glow)" : undefined}
             >
               <title>
-                {`${labels[c.a]}: ${c.val.toFixed(2)}` +
+                {`${labels[c.a]}: ${c.val.toFixed(2)}${allowed ? "" : " (resolved mask)"}` +
                   (greedyDiffers && isChosen ? " (action taken)" : isGreedy ? " (greedy pick)" : "")}
               </title>
             </path>

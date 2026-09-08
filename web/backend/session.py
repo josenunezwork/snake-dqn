@@ -16,9 +16,16 @@ import torch
 
 from src.core.config_loader import load_config
 from src.core.game_config import GameConfig, initialize_config
+from src.core.runtime_contract import (
+    EffectiveWorldConfig,
+    RunProvenance,
+    RuntimeModeContract,
+    canonical_digest,
+    validate_model_head_contract,
+)
 from src.data.score_store import compute_score
 from src.game.game_state import GameState
-from src.model.obs_spec import DEFAULT_OBS_SPEC, RASTER31V2, VECTOR61
+from src.model.obs_spec import DEFAULT_OBS_SPEC, RASTER31V2, RASTER31V3, VECTOR61
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
 
@@ -39,6 +46,54 @@ CONFIG_61 = os.path.join(REPO_ROOT, "configs", "free_space_v2.yaml")
 CONFIG_58 = os.path.join(REPO_ROOT, "configs", "default.yaml")
 CONFIG_MECHANICS_V2 = os.path.join(REPO_ROOT, "configs", "mechanics_v2.yaml")
 DEFAULT_CHECKPOINT = os.path.join(SAVED_DIR, "champion_a5_freespace_20260621.pth")
+
+V3_ACTION_MASK_CONTRACT = {
+    "version": "legal-advisory-resolved-v1",
+    "action_count": 6,
+    "resolution": "row_local_intersection_else_legal",
+    "dead_rows": "all_false",
+}
+
+
+def _validate_v3_serving_checkpoint(checkpoint_path: str) -> dict:
+    """Fail closed on a v3 checkpoint before a session replaces live state."""
+    from src.training.checkpoint_contract import validate_observation_checkpoint_metadata
+
+    blob = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    if not isinstance(blob, dict):
+        raise ValueError("raster31v3 checkpoint must be a metadata mapping")
+    validate_observation_checkpoint_metadata(
+        blob, RASTER31V3, checkpoint_path, error_type=ValueError
+    )
+    head = validate_model_head_contract(blob, require_digest=True)
+    if (head.algorithm, head.head) != ("pqn", "dueling_q"):
+        raise ValueError("raster31v3 serving requires a pqn/dueling_q model head")
+
+    world = blob.get("effective_world")
+    world_digest = blob.get("effective_world_digest")
+    if not isinstance(world, dict):
+        raise ValueError("raster31v3 checkpoint is missing effective_world metadata")
+    effective_world = EffectiveWorldConfig(**world)
+    if effective_world.digest != world_digest:
+        raise ValueError("raster31v3 checkpoint has an invalid effective_world digest")
+    if effective_world.arena_type != "rectangular":
+        raise ValueError("raster31v3 serving supports rectangular arenas only")
+
+    runtime = blob.get("runtime_contract")
+    runtime_digest = blob.get("runtime_contract_digest")
+    if not isinstance(runtime, dict) or canonical_digest(runtime) != runtime_digest:
+        raise ValueError("raster31v3 checkpoint has an invalid runtime_contract digest")
+    RuntimeModeContract(**runtime)
+
+    action_mask = blob.get("action_mask_contract")
+    action_mask_digest = blob.get("action_mask_contract_digest")
+    if (
+        action_mask != V3_ACTION_MASK_CONTRACT
+        or canonical_digest(action_mask) != action_mask_digest
+    ):
+        raise ValueError("raster31v3 checkpoint has an unsupported action-mask contract")
+    RunProvenance.from_metadata(blob)
+    return blob
 
 
 def _read_input_size(checkpoint_path: str) -> int:
@@ -154,6 +209,7 @@ class GameSession:
         # True while the live training policy was built with the reward override
         # active (surfaced in the Train blurb: warm start, not a resume).
         self.reward_override_active: bool = False
+        self.serving_contract: Optional[Dict[str, object]] = None
 
         # Protocol/connection bookkeeping. viewer_count is maintained by the
         # web app (number of connected WebSocket clients). raster_subscribers
@@ -183,29 +239,38 @@ class GameSession:
 
         ckpt = checkpoint or (DEFAULT_CHECKPOINT if os.path.exists(DEFAULT_CHECKPOINT) else None)
         self._build(ckpt, mode=MODE_WATCH)
+        if ckpt is None:
+            self.last_error = (
+                "No served champion checkpoint is available; Watch uses untrained weights."
+            )
 
     # -- construction -------------------------------------------------------
     def _build(
         self, checkpoint: Optional[str], mode: str, override_reward_contract: bool = False
     ) -> None:
         obs_spec = _read_obs_spec(checkpoint) if checkpoint else VECTOR61
+        # Validate every v3 semantic identity before changing the session's
+        # policy/game fields or initializing a replacement world.
+        v3_metadata = None
+        if obs_spec == RASTER31V3:
+            if not checkpoint:
+                raise RuntimeError("raster31v3 serving requires a checkpoint.")
+            v3_metadata = _validate_v3_serving_checkpoint(checkpoint)
         # Raster checkpoints are served forward-only (no online training path
         # through AISnake's vector replay). A train request on a raster champion
         # falls back to watch so the build still succeeds — but say so, instead
         # of silently dropping out of train mode (e.g. when a raster checkpoint
         # is loaded while training).
-        if obs_spec == RASTER31V2 and mode == MODE_TRAIN:
+        if obs_spec in (RASTER31V2, RASTER31V3) and mode == MODE_TRAIN:
             mode = MODE_WATCH
-            self.last_error = (
-                "Raster (raster31v2) checkpoints are served forward-only; " "dropped to watch mode."
-            )
+            self.last_error = "Raster checkpoints are served forward-only; dropped to watch mode."
         training = mode == MODE_TRAIN
         human = mode == MODE_PLAY
         input_size = _read_input_size(checkpoint) if checkpoint else 61
         config_path = _config_for(input_size)
         initialize_config(load_config(config_path))
 
-        if obs_spec == RASTER31V2:
+        if obs_spec in (RASTER31V2, RASTER31V3):
             from web.backend.raster_policy import RasterServingPolicy
 
             if not checkpoint:
@@ -248,7 +313,7 @@ class GameSession:
 
         # The raster policy reads the live game each frame to build observations
         # through the shared featurizer; give it the game it now serves.
-        if obs_spec == RASTER31V2:
+        if obs_spec in (RASTER31V2, RASTER31V3):
             policy.attach_game(game)
 
         self.policy = policy
@@ -257,6 +322,21 @@ class GameSession:
         self.config_path = config_path
         self.obs_spec = obs_spec
         self.mode = mode
+        self.serving_contract = (
+            {
+                key: v3_metadata[key]
+                for key in (
+                    "obs_contract_digest",
+                    "model_head_digest",
+                    "effective_world_digest",
+                    "runtime_contract_digest",
+                    "action_mask_contract_digest",
+                    "run_provenance_digest",
+                )
+            }
+            if v3_metadata is not None
+            else None
+        )
 
         if human:
             human_snake = self._find_human()
@@ -578,13 +658,12 @@ class GameSession:
         with self._lock:
             if mode == self.mode:
                 return
-            if mode == MODE_TRAIN and self.obs_spec == RASTER31V2:
+            if mode == MODE_TRAIN and self.obs_spec in (RASTER31V2, RASTER31V3):
                 # Forward-only checkpoint: the rebuild would coerce back to
                 # watch, destroying the current game for nothing. Skip it and
                 # surface the reason through the existing error pipeline.
                 self.last_error = (
-                    "Raster (raster31v2) checkpoints are served forward-only; "
-                    "train mode is unavailable for this model."
+                    "Raster checkpoints are served forward-only; train mode is unavailable."
                 )
                 self.last_error_overridable = False
                 return
@@ -665,8 +744,8 @@ class GameSession:
             except Exception as exc:
                 self.last_error = f"Failed to load {safe}: {exc}"
                 self.last_error_overridable = False
-                # fall back to a clean watch build of the previous/default ckpt
-                self._build(self.checkpoint_path, mode=MODE_WATCH)
+                # Preserve the existing live game. A rejected candidate must
+                # not silently reset a user's Watch/Play session.
 
     # -- state report -------------------------------------------------------
     def control_state(self) -> Dict[str, object]:
@@ -692,6 +771,7 @@ class GameSession:
                 # True when re-issuing the failed action with the reward-contract
                 # override would succeed (client offers "Fine-tune anyway").
                 "error_overridable": bool(self.last_error_overridable),
+                "serving_contract": self.serving_contract,
                 # True while the live training run leans on the reward override
                 # (fine-tune under current rewards, not a resume).
                 "reward_override_active": bool(self.reward_override_active),

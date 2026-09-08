@@ -28,6 +28,8 @@ def _architecture_label(obs_spec: str) -> str:
     """Honest architecture label for the served policy's obs spec."""
     if obs_spec == "raster31v2":
         return "Raster Dueling (raster31v2)"
+    if obs_spec == "raster31v3":
+        return "Raster Dueling (raster31v3)"
     return "Apex DQN (vector61)"
 
 
@@ -65,7 +67,7 @@ def _inspector_groups(input_size: int, obs_spec: str) -> List[Dict[str, object]]
     Returns:
         Group dicts (``name``/``start``/``end``) with ``end <= input_size``.
     """
-    if obs_spec == "raster31v2":
+    if obs_spec in {"raster31v2", "raster31v3"}:
         groups = [dict(g) for g in RASTER31V2_SCALAR_GROUPS]
     else:
         groups = state_groups(input_size)
@@ -215,6 +217,19 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
         "executed_action": int(executed) if executed is not None else None,
         "free_space": free_space,
     }
+    if obs_spec == "raster31v3":
+        hero_observation = getattr(session.policy, "hero_observation", None)
+        raster_obs = hero_observation(hero.id) if callable(hero_observation) else None
+        if raster_obs is not None:
+            for source, target in (
+                ("legal_mask", "legal_mask"),
+                ("advisory_mask", "advisory_mask"),
+                ("resolved_mask", "resolved_mask"),
+            ):
+                if source in raster_obs:
+                    inspector[target] = [
+                        bool(value) for value in np.asarray(raster_obs[source]).reshape(-1)
+                    ]
     # Dueling decomposition, when the head exposes it: scalar V(s) and per-action
     # advantages A(s,a) (Q = V + (A - mean A)).
     value = None
@@ -234,7 +249,9 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
         # vector — the conv planes (Raster tab) dominate its real input, so the
         # label must not present the scalars as the whole state.
         "input_label": (
-            "Scalars (26 of raster input)" if obs_spec == "raster31v2" else "Input (state)"
+            "Scalars (26 of raster input)"
+            if obs_spec in {"raster31v2", "raster31v3"}
+            else "Input (state)"
         ),
         "hidden_sample": _downsample(hidden, HIDDEN_DISPLAY_BUCKETS),
         "hidden_count": int(hidden.size),
@@ -289,7 +306,7 @@ def _hero_raster(session, hero_id) -> Optional[dict]:
         "enemy_head": 7,
         "own_head": 8,
     }
-    return {
+    payload = {
         "tactical_size": int(tactical.shape[-1]),
         "tactical_code": tactical[0].astype(int).tolist(),
         "tactical_value": tactical[1].astype(int).tolist(),
@@ -301,6 +318,14 @@ def _hero_raster(session, hero_id) -> Optional[dict]:
         "scalars": [round(float(v), 4) for v in scalars],
         "mask": [bool(v) for v in mask],
     }
+    for source, target in (
+        ("legal_mask", "legal_mask"),
+        ("advisory_mask", "advisory_mask"),
+        ("resolved_mask", "resolved_mask"),
+    ):
+        if source in obs:
+            payload[target] = [bool(v) for v in np.asarray(obs[source]).reshape(-1)]
+    return payload
 
 
 def build_frame(session) -> dict:
@@ -339,7 +364,7 @@ def build_frame(session) -> dict:
     raster_subscribers = int(getattr(session, "raster_subscribers", 1) or 0)
     hero_raster = (
         _hero_raster(session, session.hero_id)
-        if obs_spec == "raster31v2" and raster_subscribers > 0
+        if obs_spec in {"raster31v2", "raster31v3"} and raster_subscribers > 0
         else None
     )
     checkpoint_path = getattr(session, "checkpoint_path", None)
@@ -352,6 +377,7 @@ def build_frame(session) -> dict:
         "viewer_count": int(getattr(session, "viewer_count", 0) or 0),
         "obs_spec": obs_spec,
         "architecture": _architecture_label(obs_spec),
+        "serving_contract": getattr(session, "serving_contract", None),
         "checkpoint_name": os.path.basename(checkpoint_path) if checkpoint_path else None,
         "mechanics_version": int(GameConfig.MECHANICS_VERSION),
         "hero_raster": hero_raster,
