@@ -75,13 +75,14 @@ def test_conflicting_learner_budget_aliases_fail_before_runtime_setup():
 
 def test_coordinator_save_failure_still_stops_buffer_actor_and_learner(monkeypatch, tmp_path):
     """The actual coordinator finalization route releases every runtime owner on disk failure."""
+    import torch
+
     import src.core.device_manager as device_manager
     import src.model.apex_network as apex_network
     import src.scripts.apex_train as apex_train_module
     import src.training.apex_actor as apex_actor_module
     import src.training.apex_buffer as apex_buffer_module
     import src.training.apex_learner as apex_learner_module
-    import torch
 
     class FakeBuffer:
         def __init__(self, **_kwargs):
@@ -189,6 +190,7 @@ def test_coordinator_save_failure_still_stops_buffer_actor_and_learner(monkeypat
     assert fake_buffer.shutdown_called
     assert fake_learner.cleaned
     assert not fake_actor.is_alive()
+    assert not (tmp_path / "apex_final.pth").exists()
 
 
 def test_runtime_snapshot_reconciles_latest_actor_counters():
@@ -1549,3 +1551,315 @@ def test_train_apex_incompatible_resume_checkpoint_fails_before_runtime_setup(tm
         )
 
     assert not (tmp_path / "checkpoints" / "apex_final.pth").exists()
+
+
+# ---------------------------------------------------------------------------
+# Coordinator lifecycle regression fixtures.  These drive train_apex itself;
+# they do not duplicate the supervisor unit tests with a mocked outer loop.
+# ---------------------------------------------------------------------------
+class _LifecycleChild:
+    def __init__(self, *, exitcode=None):
+        self.alive = False
+        self.exitcode = exitcode
+        self.started = 0
+        self.terminated = 0
+
+    def start(self):
+        self.alive = True
+        self.started += 1
+
+    def is_alive(self):
+        return self.alive
+
+    def join(self, _timeout):
+        self.alive = False
+
+    def terminate(self):
+        self.alive = False
+        self.terminated += 1
+
+    def kill(self):
+        self.alive = False
+
+
+def _install_lifecycle_runtime(monkeypatch, *, scenario="wall", learner_steps=0):
+    """Install process-like runtime fakes while retaining the real coordinator flow."""
+    import torch
+
+    import src.core.device_manager as device_manager
+    import src.model.apex_network as apex_network
+    import src.scripts.apex_train as module
+    import src.training.apex_actor as apex_actor_module
+    import src.training.apex_buffer as apex_buffer_module
+    import src.training.apex_learner as apex_learner_module
+
+    events = []
+
+    class Network:
+        def __init__(self, *_args):
+            pass
+
+        def eval(self):
+            return self
+
+        def share_memory(self):
+            return self
+
+        def load_state_dict(self, _state):
+            return self
+
+        def state_dict(self):
+            return {}
+
+    class Buffer:
+        def __init__(self, **_kwargs):
+            self._process = _LifecycleChild()
+            self.started = False
+            self.shutdowns = 0
+
+        @property
+        def is_alive(self):
+            return self.started
+
+        def start(self):
+            self.started = True
+            self._process.start()
+            events.append("buffer.start")
+
+        def shutdown(self, timeout):
+            self.shutdowns += 1
+            self.started = False
+            self._process.alive = False
+            events.append("buffer.shutdown")
+
+        def get_learner_client(self):
+            return SimpleNamespace(get_stats=lambda **_kwargs: {})
+
+        def get_actor_client(self, _actor_id):
+            return SimpleNamespace()
+
+    class Learner:
+        def __init__(self):
+            self.dqn = Network()
+            self.buffer_client = SimpleNamespace(get_stats=lambda **_kwargs: {})
+            self.step_count = learner_steps
+            self.cleaned = 0
+
+        def train_step(self):
+            self.step_count += 1
+            return {"status": "ok", "loss": 0.0, "mean_q_value": 0.0}
+
+        def should_broadcast_weights(self):
+            return False
+
+        def get_weights(self):
+            return {}
+
+        def get_state_dict(self):
+            events.append("learner.get_state")
+            if scenario == "get_state_failure":
+                raise RuntimeError("state capture failed")
+            return {"state": "terminal"}
+
+        def cleanup(self):
+            self.cleaned += 1
+            events.append("learner.cleanup")
+            if scenario == "cleanup_failure":
+                raise RuntimeError("learner cleanup failed")
+
+    class Supervisor:
+        def __init__(self, *, actors, buffer_process, budgets, **_kwargs):
+            self.actors = list(actors)
+            self.buffer_process = buffer_process
+            self.budgets = budgets
+            self.calls = 0
+
+        def register_actor(self, actor):
+            self.actors.append(actor)
+
+        def current_budget_cause(self, *, learner_updates, reserved_environment_frames):
+            self.calls += 1
+            if learner_updates >= self.budgets.max_learner_updates:
+                return "learner_update_budget"
+            if scenario in {"wall", "environment"} and self.calls >= 3:
+                return "wall_time_budget" if scenario == "wall" else "environment_transition_budget"
+            return None
+
+        def check_children(
+            self, _health, expected_stop_cause=None, environment_budget_reached=False
+        ):
+            if scenario == "actor_crash" and self.actors:
+                raise RuntimeError("actor 0 exited (exitcode=1)")
+            return {}
+
+        def stop_cause(self, _snapshot):
+            return None
+
+        def heartbeat_ages(self, _health):
+            return {}
+
+        def elapsed_seconds(self):
+            return 3.0
+
+    buffer = Buffer()
+    learner = Learner()
+    actors = [_LifecycleChild(exitcode=1 if scenario == "actor_crash" else 0) for _ in range(2)]
+    monkeypatch.setattr(apex_buffer_module, "BufferProcess", lambda **_kwargs: buffer)
+    monkeypatch.setattr(apex_network, "ApexNetwork", Network)
+    monkeypatch.setattr(apex_learner_module, "create_apex_learner", lambda **_kwargs: learner)
+    monkeypatch.setattr(apex_actor_module, "spawn_actors", lambda **_kwargs: actors)
+    monkeypatch.setattr(
+        device_manager.DeviceManager, "get_device", staticmethod(lambda: torch.device("cpu"))
+    )
+    monkeypatch.setattr(module, "ApexRuntimeSupervisor", Supervisor)
+
+    def start_actors(items, *, stagger_delay, on_started, on_wait):
+        for index, actor in enumerate(items):
+            if scenario == "startup_failure" and index == 0:
+                raise RuntimeError("actor startup failed")
+            actor.start()
+            events.append(f"actor{index}.start")
+            on_started(actor)
+            if index + 1 < len(items):
+                on_wait()
+
+    monkeypatch.setattr(apex_actor_module, "start_actors", start_actors)
+
+    def stop(items, **_kwargs):
+        events.append("stop_processes")
+        for item in items:
+            item.terminate()
+        if scenario == "stop_failure":
+            raise RuntimeError("stop process failed")
+
+    monkeypatch.setattr(module, "stop_processes", stop)
+    if scenario == "stats_failure":
+        monkeypatch.setattr(
+            module,
+            "collect_actor_stats",
+            lambda _queue: (_ for _ in ()).throw(RuntimeError("stats failed")),
+        )
+    return module, buffer, learner, actors, events
+
+
+def _run_lifecycle(monkeypatch, tmp_path, *, scenario="wall", learner_steps=0, **budgets):
+    module, buffer, learner, actors, events = _install_lifecycle_runtime(
+        monkeypatch, scenario=scenario, learner_steps=learner_steps
+    )
+    kwargs = {
+        "num_actors": 2,
+        "total_steps": 4,
+        "batch_size": 2,
+        "buffer_capacity": 4,
+        "checkpoint_dir": str(tmp_path),
+        "log_dir": str(tmp_path / "logs"),
+        "checkpoint_interval": 10,
+        "log_interval": 10,
+        "stagger_delay": 0.1,
+        **budgets,
+    }
+    return module, buffer, learner, actors, events, kwargs
+
+
+def test_train_apex_wall_budget_during_stagger_stops_before_actor_two_and_saves_normal_final(
+    monkeypatch, tmp_path
+):
+    module, buffer, learner, actors, events, kwargs = _run_lifecycle(
+        monkeypatch, tmp_path, max_wall_time_seconds=1.0
+    )
+    module.train_apex(**kwargs)
+    assert actors[0].started == 1 and actors[1].started == 0
+    assert (tmp_path / "apex_final.pth").exists()
+    assert buffer.shutdowns == learner.cleaned == 1
+    assert events.index("learner.get_state") < events.index("learner.cleanup")
+
+
+def test_train_apex_already_complete_learner_starts_no_actors_and_saves_normal_final(
+    monkeypatch, tmp_path
+):
+    module, buffer, learner, actors, _events, kwargs = _run_lifecycle(
+        monkeypatch, tmp_path, learner_steps=4
+    )
+    module.train_apex(**kwargs)
+    assert [actor.started for actor in actors] == [0, 0]
+    assert buffer.shutdowns == learner.cleaned == 1
+    assert (tmp_path / "apex_final.pth").exists()
+
+
+def test_train_apex_environment_budget_during_stagger_exits_zero_with_terminal_checkpoint(
+    monkeypatch, tmp_path
+):
+    module, _buffer, _learner, actors, _events, kwargs = _run_lifecycle(
+        monkeypatch, tmp_path, scenario="environment", max_environment_transitions=1
+    )
+    module.train_apex(**kwargs)
+    assert actors[0].started == 1 and actors[1].started == 0
+    assert (tmp_path / "apex_final.pth").exists()
+
+
+def test_train_apex_actor_crash_coincident_with_budget_is_still_failure(monkeypatch, tmp_path):
+    module, buffer, learner, _actors, _events, kwargs = _run_lifecycle(
+        monkeypatch, tmp_path, scenario="actor_crash", max_wall_time_seconds=1.0
+    )
+    with pytest.raises(RuntimeError, match="actor 0 exited"):
+        module.train_apex(**kwargs)
+    assert buffer.shutdowns == learner.cleaned == 1
+
+
+@pytest.mark.parametrize(
+    "scenario", ["startup_failure", "stats_failure", "get_state_failure", "stop_failure"]
+)
+def test_train_apex_failure_paths_clean_all_runtime_owners(monkeypatch, tmp_path, scenario):
+    module, buffer, learner, actors, _events, kwargs = _run_lifecycle(
+        monkeypatch, tmp_path, scenario=scenario
+    )
+    with pytest.raises(RuntimeError):
+        module.train_apex(**kwargs)
+    assert buffer.shutdowns == learner.cleaned == 1
+    assert all(not actor.is_alive() for actor in actors)
+
+
+def test_train_apex_cleanup_failure_writes_failed_cleanup_payload_after_cleanup(
+    monkeypatch, tmp_path
+):
+    module, _buffer, learner, _actors, events, kwargs = _run_lifecycle(
+        monkeypatch, tmp_path, scenario="cleanup_failure", learner_steps=4
+    )
+    with pytest.raises(RuntimeError, match="learner cleanup failed"):
+        module.train_apex(**kwargs)
+    checkpoint = next(tmp_path.glob("apex_failed_cleanup_*.pth"))
+    import torch
+
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    assert payload["apex_runtime"]["exit_cause"] == "failed_cleanup"
+    assert events.index("learner.get_state") < events.index("learner.cleanup")
+
+
+def test_train_apex_publishes_terminal_checkpoint_only_after_cleanup(monkeypatch, tmp_path):
+    module, _buffer, _learner, _actors, events, kwargs = _run_lifecycle(
+        monkeypatch, tmp_path, learner_steps=4
+    )
+    import torch
+
+    original_save = torch.save
+
+    def record_save(*args, **kwargs):
+        events.append("torch.save")
+        return original_save(*args, **kwargs)
+
+    monkeypatch.setattr(torch, "save", record_save)
+    module.train_apex(**kwargs)
+    assert events.index("learner.cleanup") < events.index("torch.save")
+
+
+def test_train_apex_records_resolved_budgets_and_wall_overshoot(monkeypatch, tmp_path):
+    module, _buffer, _learner, _actors, _events, kwargs = _run_lifecycle(
+        monkeypatch, tmp_path, max_wall_time_seconds=1.0
+    )
+    module.train_apex(**kwargs)
+    import torch
+
+    payload = torch.load(tmp_path / "apex_final.pth", map_location="cpu", weights_only=False)
+    runtime = payload["apex_runtime"]
+    assert runtime["resolved_budgets"]["max_wall_time_seconds"] == 1.0
+    assert runtime["wall_time_overshoot_seconds"] == pytest.approx(2.0)

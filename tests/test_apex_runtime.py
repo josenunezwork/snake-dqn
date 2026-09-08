@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from select import select
 from pathlib import Path
+from select import select
 
 import pytest
 import torch.multiprocessing as mp
@@ -204,3 +204,41 @@ def test_ignored_shutdown_fixture_is_force_killed_with_hard_deadline():
         if raw_child.poll() is None:
             raw_child.kill()
         assert raw_child.wait(timeout=2.0) < 0
+
+
+def test_environment_budget_exit_is_accepted_even_when_headline_budget_differs():
+    """A normal actor exit after exhausting frames is not recast as a child crash."""
+    actor = FakeChild(alive=False, exitcode=0)
+    buffer = FakeChild(alive=True)
+    supervisor = ApexRuntimeSupervisor(
+        actors=[actor],
+        buffer_process=buffer,
+        budgets=ApexRunBudgets(max_learner_updates=1, max_environment_transitions=1),
+        clock=lambda: 10.0,
+    )
+
+    assert supervisor.check_children({}, environment_budget_reached=True) == {0: 0.0}
+
+
+def test_stop_processes_attempts_later_children_after_an_earlier_join_failure():
+    """One bad child cannot prevent termination of the remaining runtime owners."""
+
+    class Joinable(FakeChild):
+        def join(self, timeout):
+            self.alive = False
+
+        def terminate(self):
+            self.alive = False
+
+        def kill(self):
+            self.alive = False
+
+    class BrokenJoin(Joinable):
+        def join(self, timeout):
+            raise RuntimeError("join failed")
+
+    broken = BrokenJoin(alive=True)
+    later = Joinable(alive=True)
+    with pytest.raises(RuntimeError, match="join failed"):
+        stop_processes([broken, later], timeout_seconds=0.1)
+    assert not later.is_alive()

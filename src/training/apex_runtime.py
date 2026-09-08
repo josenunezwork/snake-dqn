@@ -170,6 +170,10 @@ class ApexRuntimeSupervisor:
         self.actors.append(actor)
         self.actor_started_at[len(self.actors) - 1] = float(self._clock())
 
+    def elapsed_seconds(self) -> float:
+        """Return monotonic runtime including startup and cooperative shutdown."""
+        return max(0.0, float(self._clock()) - self.started_at)
+
     @staticmethod
     def _is_alive(child: object) -> bool:
         value = getattr(child, "is_alive", False)
@@ -220,6 +224,7 @@ class ApexRuntimeSupervisor:
         self,
         actor_stats: Mapping[int, Mapping[str, object]],
         expected_stop_cause: str | None = None,
+        environment_budget_reached: bool = False,
     ) -> dict[int, float | None]:
         """Raise a precise failure before a dead/stalled child can look like warmup."""
         if not self._is_alive(self.buffer_process):
@@ -230,9 +235,9 @@ class ApexRuntimeSupervisor:
         for index, actor in enumerate(self.actors):
             if not self._is_alive(actor):
                 if (
-                    expected_stop_cause == "environment_transition_budget"
-                    and self._exit_code(actor) == 0
-                ):
+                    environment_budget_reached
+                    or expected_stop_cause == "environment_transition_budget"
+                ) and self._exit_code(actor) == 0:
                     continue
                 raise ApexRuntimeFailure(
                     f"actor {index} exited (exitcode={self._exit_code(actor)!r})"
@@ -250,7 +255,7 @@ class ApexRuntimeSupervisor:
         return ages
 
     def stop_cause(self, snapshot: ApexRuntimeSnapshot) -> str | None:
-        """Return the first reached hard budget, preserving declared precedence."""
+        """Return the first reached budget at a cooperative polling boundary."""
         return self.current_budget_cause(
             learner_updates=snapshot.learner_updates,
             reserved_environment_frames=snapshot.reserved_environment_frames,
@@ -262,27 +267,43 @@ def stop_processes(processes: Sequence[object], timeout_seconds: float = 5.0) ->
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
 
+    errors: list[BaseException] = []
+
+    def alive(process: object) -> bool:
+        try:
+            return ApexRuntimeSupervisor._is_alive(process)
+        except BaseException as error:
+            errors.append(error)
+            return True  # A failed health read cannot exempt a child from cleanup.
+
+    def invoke(process: object, method: str, **kwargs: object) -> None:
+        try:
+            operation = getattr(process, method, None)
+            if callable(operation):
+                operation(**kwargs)
+        except BaseException as error:
+            errors.append(error)
+
     def wait_phase(candidates: list[object]) -> None:
         deadline = monotonic() + timeout_seconds
         for process in candidates:
-            join = getattr(process, "join", None)
-            if callable(join):
-                join(timeout=max(0.0, deadline - monotonic()))
+            invoke(process, "join", timeout=max(0.0, deadline - monotonic()))
 
-    active = [process for process in processes if ApexRuntimeSupervisor._is_alive(process)]
+    active = [process for process in processes if alive(process)]
     wait_phase(active)
-    active = [process for process in active if ApexRuntimeSupervisor._is_alive(process)]
+    active = [process for process in active if alive(process)]
     for process in active:
-        terminate = getattr(process, "terminate", None)
-        if callable(terminate):
-            terminate()
+        invoke(process, "terminate")
     wait_phase(active)
-    active = [process for process in active if ApexRuntimeSupervisor._is_alive(process)]
+    active = [process for process in active if alive(process)]
     for process in active:
-        kill = getattr(process, "kill", None)
-        if callable(kill):
-            kill()
+        invoke(process, "kill")
     wait_phase(active)
-    survivors = [process for process in active if ApexRuntimeSupervisor._is_alive(process)]
-    if survivors:
-        raise ApexRuntimeFailure(f"failed to stop {len(survivors)} Ape-X child process(es)")
+    survivors = [process for process in active if alive(process)]
+    if survivors or errors:
+        failure = ApexRuntimeFailure(
+            f"Ape-X child cleanup failed: {len(survivors)} survivors, {len(errors)} errors"
+        )
+        for error in errors:
+            failure.add_note(repr(error))
+        raise failure
