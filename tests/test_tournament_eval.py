@@ -469,6 +469,8 @@ class TestEndToEndMiniature:
         assert rc == 0
         data = json.loads(out.read_text())
         assert data["mode"] == "pilot"
+        assert data["strict_authority"] is False
+        assert data["authority"] == "diagnostic-only"
         mix = data["pilot"]["per_mix"]["scripted"]
         assert mix["mass_integral_mean"] > 0.0
         assert mix["recommended_seeds"] is None or mix["recommended_seeds"] >= 2
@@ -902,7 +904,9 @@ class TestSimdEvalEngine:
 class TestSimdEngineEndToEnd:
     """main(--engine simd) drives the gate through the batched engine."""
 
-    def test_gate_calibration_greedy_beats_random(self, setup_config, tiny_v2_config, tmp_path):
+    def test_gate_calibration_greedy_beats_random(
+        self, setup_config, tiny_v2_config, tmp_path, capsys
+    ):
         # The calibration ordering the blueprint requires (greedy_food anchor
         # beats random_safe with paired significance) must hold via --engine simd.
         out = tmp_path / "simd_gate.json"
@@ -933,6 +937,10 @@ class TestSimdEngineEndToEnd:
         assert rc == 0
         data = json.loads(out.read_text())
         assert data["engine"] == "simd"
+        assert data["mode"] == "eval"
+        assert data["strict_authority"] is False
+        assert data["authority"] == "diagnostic-only"
+        assert "Legacy diagnostic paired results" in capsys.readouterr().out
         (candidate,) = data["candidates"]
         assert "error" not in candidate
         assert set(candidate["per_mix"]) == {"scripted", "mixed"}
@@ -1026,3 +1034,319 @@ class TestSimdEngineEndToEnd:
         assert rc == 0
         data = json.loads(out.read_text())
         assert data["engine"] == "live"
+
+
+def test_strict_runtime_uses_frozen_rows_and_real_artifact_validators(monkeypatch, tmp_path):
+    """Strict execution consumes frozen evidence and persists exact E1 rows."""
+    from src.scripts import tournament_eval as module
+    from tests.test_strict_artifacts import ArtifactFixture
+
+    fixture = ArtifactFixture(tmp_path)
+    calls = []
+
+    def fake_rollout(hero, opponents, frames, seed, *, profile, mix_id, **kwargs):
+        index = len(calls) % len(fixture.rosters)
+        row = fixture.rosters[index]
+        calls.append((hero, tuple(opponents), frames, seed, profile.digest, mix_id))
+        assert row["mix"] == mix_id
+        assert row["world_seed"] == seed
+        return fixture._record(row, 11.0 if len(calls) <= len(fixture.rosters) else 12.0)
+
+    monkeypatch.setattr(module, "rollout", fake_rollout)
+    final = tmp_path / "strict-final.json"
+    rc = module.main(
+        [
+            "--strict-promotion-request",
+            str(fixture.request_path),
+            "--strict-promotion-receipt",
+            str(final),
+            "--strict-e0-receipt",
+            str(fixture.e0_path),
+            "--strict-pilot-artifact",
+            str(fixture.pilot_path),
+            "--strict-calibration-artifact",
+            str(fixture.calibration_path),
+            "--strict-serving-bundle",
+            str(fixture.serving_path),
+        ]
+    )
+    assert rc == 0
+    assert len(calls) == 2 * len(fixture.rosters)
+    e0 = json.loads(fixture.e0_path.read_text())
+    snapshots = {item["sha256"]: item["snapshot_path"] for item in e0["checkpoint_snapshots"]}
+    for index, row in enumerate(fixture.rosters):
+        incumbent, candidate = calls[index], calls[index + len(fixture.rosters)]
+        assert incumbent[0] == ("checkpoint", snapshots[fixture.incumbent["sha256"]])
+        assert candidate[0] == ("checkpoint", snapshots[fixture.candidate["sha256"]])
+        assert incumbent[1] == candidate[1]
+        from src.evaluation.strict_promotion import scripted_agent
+
+        anchors = {
+            scripted_agent("greedy_food")["sha256"]: ("scripted", "greedy_food"),
+            scripted_agent("random_safe")["sha256"]: ("scripted", "random_safe"),
+        }
+        expected_opponents = tuple(
+            (
+                ("checkpoint", snapshots[slot["member_sha256"]])
+                if slot["member_sha256"] in snapshots
+                else anchors[slot["member_sha256"]]
+            )
+            for slot in row["slots"]
+        )
+        assert incumbent[1] == expected_opponents
+        assert candidate[1] == expected_opponents
+    raw = json.loads(final.with_suffix(".raw-worlds.json").read_text())
+    assert len(raw["records"]) == 2 * len(fixture.rosters)
+    assert raw["records"][0]["record"] == fixture._record(fixture.rosters[0], 11.0)
+    assert raw["records"][len(fixture.rosters)]["record"] == fixture._record(
+        fixture.rosters[0], 12.0
+    )
+    assert json.loads(final.read_text())["strict_authority"] is True
+
+
+def test_strict_runtime_freeze_failure_executes_zero_worlds(monkeypatch, tmp_path):
+    from src.scripts import tournament_eval as module
+    from tests.test_strict_artifacts import ArtifactFixture
+
+    fixture = ArtifactFixture(tmp_path)
+    fixture.request["engine"] = "simd"
+    fixture.request_path.write_text(json.dumps(fixture.request))
+    called = []
+    monkeypatch.setattr(module, "rollout", lambda *args, **kwargs: called.append(args))
+    with pytest.raises(SystemExit):
+        module.main(
+            [
+                "--strict-promotion-request",
+                str(fixture.request_path),
+                "--strict-promotion-receipt",
+                str(tmp_path / "final.json"),
+                "--strict-e0-receipt",
+                str(fixture.e0_path),
+                "--strict-pilot-artifact",
+                str(fixture.pilot_path),
+                "--strict-calibration-artifact",
+                str(fixture.calibration_path),
+                "--strict-serving-bundle",
+                str(fixture.serving_path),
+            ]
+        )
+    assert not called
+
+
+def test_strict_runtime_failure_archives_completed_records_without_authority(monkeypatch, tmp_path):
+    from src.scripts import tournament_eval as module
+    from tests.test_strict_artifacts import ArtifactFixture
+
+    fixture = ArtifactFixture(tmp_path)
+    calls = []
+
+    def failing_rollout(*args, **kwargs):
+        calls.append((args, kwargs))
+        if len(calls) == 2:
+            raise RuntimeError("controlled failure")
+        return fixture._record(fixture.rosters[0], 11.0)
+
+    monkeypatch.setattr(module, "rollout", failing_rollout)
+    final = tmp_path / "strict-final.json"
+    argv = [
+        "--strict-promotion-request",
+        str(fixture.request_path),
+        "--strict-promotion-receipt",
+        str(final),
+        "--strict-e0-receipt",
+        str(fixture.e0_path),
+        "--strict-pilot-artifact",
+        str(fixture.pilot_path),
+        "--strict-calibration-artifact",
+        str(fixture.calibration_path),
+        "--strict-serving-bundle",
+        str(fixture.serving_path),
+    ]
+    with pytest.raises(SystemExit):
+        module.main(argv)
+    incident = json.loads(final.with_suffix(".incident.json").read_text())
+    assert len(incident["completed_records"]) == 1
+    assert incident["failing_compound_key"] == {
+        "role": "incumbent",
+        "mix": "frozen",
+        "world_seed": fixture.rosters[1]["world_seed"],
+        "checkpoint_sha256": fixture.incumbent["sha256"],
+    }
+    assert incident["error"] == "controlled failure"
+    assert incident["strict_authority"] is False
+    assert not final.exists() and not final.with_suffix(".raw-worlds.json").exists()
+
+
+@pytest.mark.parametrize("existing_suffix", ("", ".raw-worlds.json", ".incident.json"))
+def test_strict_runtime_refuses_existing_outputs_before_rollout(
+    monkeypatch, tmp_path, existing_suffix
+):
+    from src.scripts import tournament_eval as module
+    from tests.test_strict_artifacts import ArtifactFixture
+
+    fixture = ArtifactFixture(tmp_path)
+    final = tmp_path / "strict-final.json"
+    existing = final if not existing_suffix else final.with_suffix(existing_suffix)
+    existing.write_text("prior bytes")
+    called = []
+    monkeypatch.setattr(module, "rollout", lambda *args, **kwargs: called.append(args))
+    argv = [
+        "--strict-promotion-request",
+        str(fixture.request_path),
+        "--strict-promotion-receipt",
+        str(final),
+        "--strict-e0-receipt",
+        str(fixture.e0_path),
+        "--strict-pilot-artifact",
+        str(fixture.pilot_path),
+        "--strict-calibration-artifact",
+        str(fixture.calibration_path),
+        "--strict-serving-bundle",
+        str(fixture.serving_path),
+    ]
+    with pytest.raises(SystemExit):
+        module.main(argv)
+    assert existing.read_text() == "prior bytes"
+    assert not called
+
+
+def test_strict_runtime_rejects_broken_symlink_output_before_rollout(monkeypatch, tmp_path):
+    from src.scripts import tournament_eval as module
+    from tests.test_strict_artifacts import ArtifactFixture
+
+    fixture = ArtifactFixture(tmp_path)
+    final = tmp_path / "strict-final.json"
+    raw = final.with_suffix(".raw-worlds.json")
+    raw.symlink_to(tmp_path / "missing-raw.json")
+    called = []
+    monkeypatch.setattr(module, "rollout", lambda *args, **kwargs: called.append(args))
+    with pytest.raises(SystemExit):
+        module.main(
+            [
+                "--strict-promotion-request",
+                str(fixture.request_path),
+                "--strict-promotion-receipt",
+                str(final),
+                "--strict-e0-receipt",
+                str(fixture.e0_path),
+                "--strict-pilot-artifact",
+                str(fixture.pilot_path),
+                "--strict-calibration-artifact",
+                str(fixture.calibration_path),
+                "--strict-serving-bundle",
+                str(fixture.serving_path),
+            ]
+        )
+    assert raw.is_symlink()
+    assert not called
+
+
+def test_strict_runtime_rejects_e0_swap_after_freeze_before_worlds(monkeypatch, tmp_path):
+    """A frozen request cannot be redirected by replacing E0 after freeze."""
+    from src.evaluation import strict_promotion
+    from src.scripts import tournament_eval as module
+    from tests.test_strict_artifacts import ArtifactFixture
+
+    fixture = ArtifactFixture(tmp_path)
+    original_freeze = strict_promotion.freeze_strict_request
+
+    def freeze_then_swap(*args, **kwargs):
+        token = original_freeze(*args, **kwargs)
+        fixture.e0_path.write_text('{"swapped": true}', encoding="utf-8")
+        return token
+
+    monkeypatch.setattr(strict_promotion, "freeze_strict_request", freeze_then_swap)
+    called = []
+    monkeypatch.setattr(module, "rollout", lambda *args, **kwargs: called.append(args))
+    final = tmp_path / "strict-final.json"
+    with pytest.raises(SystemExit):
+        module.main(
+            [
+                "--strict-promotion-request",
+                str(fixture.request_path),
+                "--strict-promotion-receipt",
+                str(final),
+                "--strict-e0-receipt",
+                str(fixture.e0_path),
+                "--strict-pilot-artifact",
+                str(fixture.pilot_path),
+                "--strict-calibration-artifact",
+                str(fixture.calibration_path),
+                "--strict-serving-bundle",
+                str(fixture.serving_path),
+            ]
+        )
+    assert not called
+    assert not final.exists()
+    assert not final.with_suffix(".raw-worlds.json").exists()
+
+
+def test_strict_runtime_rejects_snapshot_swap_after_worlds(monkeypatch, tmp_path):
+    """Post-world revalidation prevents a swapped snapshot from reaching raw evidence."""
+    from src.scripts import tournament_eval as module
+    from tests.test_strict_artifacts import ArtifactFixture
+
+    fixture = ArtifactFixture(tmp_path)
+    calls = []
+
+    def mutate_after_first_world(*args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            fixture.candidate_file.write_bytes(b"candidate swapped after freeze")
+        return fixture._record(fixture.rosters[0], 11.0)
+
+    monkeypatch.setattr(module, "rollout", mutate_after_first_world)
+    final = tmp_path / "strict-final.json"
+    with pytest.raises(SystemExit):
+        module.main(
+            [
+                "--strict-promotion-request",
+                str(fixture.request_path),
+                "--strict-promotion-receipt",
+                str(final),
+                "--strict-e0-receipt",
+                str(fixture.e0_path),
+                "--strict-pilot-artifact",
+                str(fixture.pilot_path),
+                "--strict-calibration-artifact",
+                str(fixture.calibration_path),
+                "--strict-serving-bundle",
+                str(fixture.serving_path),
+            ]
+        )
+    incident = json.loads(final.with_suffix(".incident.json").read_text())
+    assert incident["strict_authority"] is False
+    assert incident["phase"] == "post-world-integrity"
+    assert incident["failing_compound_key"] is None
+    assert "strict frozen input changed" in incident["error"]
+    assert len(incident["completed_records"]) == 2 * len(fixture.rosters)
+    assert not final.exists() and not final.with_suffix(".raw-worlds.json").exists()
+
+
+def test_strict_runtime_rejects_diagnostic_override_before_worlds(monkeypatch, tmp_path):
+    from src.scripts import tournament_eval as module
+    from tests.test_strict_artifacts import ArtifactFixture
+
+    fixture = ArtifactFixture(tmp_path)
+    called = []
+    monkeypatch.setattr(module, "rollout", lambda *args, **kwargs: called.append(args))
+    with pytest.raises(SystemExit):
+        module.main(
+            [
+                "--strict-promotion-request",
+                str(fixture.request_path),
+                "--strict-promotion-receipt",
+                str(tmp_path / "strict-final.json"),
+                "--strict-e0-receipt",
+                str(fixture.e0_path),
+                "--strict-pilot-artifact",
+                str(fixture.pilot_path),
+                "--strict-calibration-artifact",
+                str(fixture.calibration_path),
+                "--strict-serving-bundle",
+                str(fixture.serving_path),
+                "--frames",
+                "1",
+            ]
+        )
+    assert not called

@@ -220,7 +220,7 @@ class TestTripwireHandling:
         out = capsys.readouterr().out
 
         assert "Winner:" not in out
-        assert "No clean winner" in out
+        assert "No clean diagnostic configuration" in out
         assert "TRIPWIRE" in out
         entry = json.loads((tmp_path / "leaderboard.json").read_text())[0]
         assert entry["tripped"] is True
@@ -237,7 +237,7 @@ class TestTripwireHandling:
 
         assert results[0]["train_rc"] == 0
         assert sweep.is_clean(results[0])
-        assert "Winner: kill_scale0.3" in out
+        assert "Top diagnostic configuration: kill_scale0.3" in out
 
     def test_crashed_train_records_rc(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

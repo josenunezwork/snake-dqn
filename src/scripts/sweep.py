@@ -2,10 +2,11 @@
 """Config-sweep orchestrator for the PQN raster trainer.
 
 Launches a grid of ``train_pqn.py`` runs (bounded concurrency, thread-capped so
-they don't fight for CPU cores), then gates each finished run through the
-repaired ``tournament_eval --engine simd`` vs the scripted anchors and prints a
-leaderboard ranked by mass-integral. This is how you turn "N pods / N GPU slots"
-into one experiment with one answer — e.g. sweep the reward knobs to probe the
+they don't fight for CPU cores), then runs a legacy diagnostic comparison
+for each finished run through ``tournament_eval --engine simd`` vs the scripted
+anchors and prints a leaderboard ranked by mass-integral. The ranking has no
+promotion authority. This is how you turn "N pods / N GPU slots" into one
+experiment with one answer — e.g. sweep the reward knobs to probe the
 kills-0 / boost-drift pathology.
 
 Grid axes map to ``train_pqn`` flags: ``kill_scale`` -> --kill-scale,
@@ -19,13 +20,13 @@ Usage:
       --total-steps 30000000 --envs 256 --snakes 6 --parallel 3 \
       --out-dir runs/sweep_kill
 
-  # 2-axis grid (kill_scale x lr), pick the best by the simd gate
+  # 2-axis grid (kill_scale x lr), inspect the top SIMD diagnostic
   ./venv/bin/python src/scripts/sweep.py \
       --grid kill_scale=0.3,1.0 lr=2.5e-4,5e-4 \
       --total-steps 30000000 --parallel 4 --out-dir runs/sweep_grid
 
 Each config's checkpoint lands at ``<out-dir>/<name>/latest_pqn.pth`` and its
-gate JSON at ``<out-dir>/<name>/gate.json``; the ranked ``leaderboard.json`` +
+legacy diagnostic JSON at ``<out-dir>/<name>/gate.json``; the ranked ``leaderboard.json`` +
 a printed table land in ``<out-dir>/``.
 """
 
@@ -108,7 +109,7 @@ def build_train_cmd(combo: Dict[str, str], args: argparse.Namespace, out_dir: Pa
 
 
 def build_gate_cmd(ckpt: Path, args: argparse.Namespace, out_json: Path) -> List[str]:
-    """Assemble the tournament_eval --engine simd gate command (raster ckpt)."""
+    """Assemble a legacy diagnostic tournament_eval SIMD command (raster ckpt)."""
     seeds = ",".join(str(s) for s in range(args.gate_seeds))
     return [
         sys.executable,
@@ -134,7 +135,7 @@ def build_gate_cmd(ckpt: Path, args: argparse.Namespace, out_json: Path) -> List
 
 
 def summarize_gate(gate_json: Path) -> Dict[str, object]:
-    """Mean mass-integral / kills / boost / survival across the gate's mixes.
+    """Mean mass-integral / kills / boost / survival across diagnostic mixes.
 
     tournament_eval catches a per-candidate failure, emits ``{"candidate", "error",
     "decision"}`` with no ``per_mix``, still writes the JSON and still exits 0 — so a
@@ -319,8 +320,8 @@ def run_sweep(args: argparse.Namespace) -> List[Dict[str, object]]:
 def write_leaderboard(results: List[Dict[str, object]], out_dir: Path) -> None:
     """Rank by mass-integral (tripped runs below clean ones, errors last).
 
-    Writes ``leaderboard.json`` and prints the table. Only a clean run — gated AND
-    exited 0 — is ever announced as the Winner.
+    Writes diagnostic ``leaderboard.json`` and prints a configuration ranking.
+    It never selects or promotes a winner.
     """
     ranked = sorted(results, key=rank_key, reverse=True)
     (out_dir / "leaderboard.json").write_text(json.dumps(ranked, indent=2))
@@ -343,10 +344,11 @@ def write_leaderboard(results: List[Dict[str, object]], out_dir: Path) -> None:
         return
     top = ranked[0]
     if is_clean(top):
-        print(f"\nWinner: {top['name']}  ->  {top['out_dir']}/latest_pqn.pth")
+        print(f"\nTop diagnostic configuration: {top['name']}  ->  {top['out_dir']}/latest_pqn.pth")
+        print("This diagnostic ranking has no promotion authority.")
         return
     reason = str(top.get("error")) if "error" in top else _status_marker(top)
-    print("\nNo clean winner: every config errored or exited non-zero.")
+    print("\nNo clean diagnostic configuration: every run errored or exited non-zero.")
     print(f"Best-ranked was {top['name']} ({reason}); inspect {top['out_dir']}/train.log.")
 
 

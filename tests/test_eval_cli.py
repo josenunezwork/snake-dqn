@@ -170,23 +170,12 @@ class TestCopyBestGuard:
         monkeypatch.setattr(mod, "evaluate_checkpoints", lambda *a, **k: summaries)
         return mod.main(["a.pth", "b.pth", *argv_extra])
 
-    def test_all_failed_skips_copy_and_returns_nonzero(self, monkeypatch, tmp_path, capsys):
-        from src.scripts.evaluate_checkpoints import _failed_summary
-
+    def test_copy_best_is_rejected_before_any_evaluation(self, monkeypatch, tmp_path):
         target = tmp_path / "promoted" / "best.pth"
-        summaries = [
-            _failed_summary("a.pth", RuntimeError("bad a")),
-            _failed_summary("b.pth", RuntimeError("bad b")),
-        ]
-
-        code = self._run_main(monkeypatch, tmp_path, summaries, ["--copy-best-to", str(target)])
-
-        assert code == 1
+        with pytest.raises(SystemExit) as exc:
+            self._run_main(monkeypatch, tmp_path, [], ["--copy-best-to", str(target)])
+        assert exc.value.code == 2
         assert not target.exists()
-        captured = capsys.readouterr()
-        assert "no checkpoint evaluated successfully" in captured.err
-        assert "Best checkpoint" not in captured.out
-        assert "Copied best checkpoint" not in captured.out
 
     def test_all_failed_still_writes_strict_json(self, monkeypatch, tmp_path):
         from src.scripts.evaluate_checkpoints import _failed_summary
@@ -200,20 +189,19 @@ class TestCopyBestGuard:
         parsed = _strict_loads(out.read_text(encoding="utf-8"))
         assert parsed[0]["error"] == "bad a"
 
-    def test_surviving_checkpoint_is_still_copied(self, monkeypatch, tmp_path, capsys):
+    def test_surviving_checkpoint_is_a_diagnostic_label(self, monkeypatch, tmp_path, capsys):
         from src.scripts.evaluate_checkpoints import _failed_summary, summarize_rollouts
 
         source = tmp_path / "a.pth"
         source.write_bytes(b"weights")
-        target = tmp_path / "promoted" / "best.pth"
         good = summarize_rollouts(
             str(source),
             [{"episode": {"reward": 5.0, "food_eaten": 2, "deaths": 0, "length": 30, "kills": 1}}],
         )
-        summaries = [good, _failed_summary("b.pth", RuntimeError("bad b"))]
-
-        code = self._run_main(monkeypatch, tmp_path, summaries, ["--copy-best-to", str(target)])
-
+        code = self._run_main(
+            monkeypatch, tmp_path, [good, _failed_summary("b.pth", RuntimeError("bad b"))], []
+        )
         assert code == 0
-        assert target.read_bytes() == b"weights"
-        assert "Best checkpoint" in capsys.readouterr().out
+        output = capsys.readouterr().out
+        assert "Top diagnostic checkpoint" in output
+        assert "no promotion or copy authority" in output

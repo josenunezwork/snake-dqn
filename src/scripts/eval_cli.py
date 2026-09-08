@@ -106,3 +106,7 @@ def add_strict_promotion_arguments(parser: argparse.ArgumentParser) -> None:
     group = parser.add_argument_group("strict promotion")
     group.add_argument("--strict-promotion-request", metavar="PATH", default=None)
     group.add_argument("--strict-promotion-receipt", metavar="PATH", default=None)
+    group.add_argument("--strict-e0-receipt", metavar="PATH", default=None)
+    group.add_argument("--strict-pilot-artifact", metavar="PATH", default=None)
+    group.add_argument("--strict-calibration-artifact", metavar="PATH", default=None)
+    group.add_argument("--strict-serving-bundle", metavar="PATH", default=None)

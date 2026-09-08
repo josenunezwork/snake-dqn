@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -222,7 +221,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Temporary checkpoint directory for eval helpers",
     )
     parser.add_argument("--json-output", default=None, help="Optional JSON summary path")
-    parser.add_argument("--copy-best-to", default=None, help="Copy top checkpoint to this path")
+    parser.add_argument(
+        "--copy-best-to",
+        default=None,
+        help="Deprecated and disabled: evaluation never copies or promotes checkpoints",
+    )
     return parser
 
 
@@ -232,6 +235,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
     if args.frames <= 0:
         parser.error("--frames must be positive")
+    if args.copy_best_to:
+        parser.error(
+            "--copy-best-to is disabled; diagnostic evaluation cannot select or promote a checkpoint"
+        )
 
     configure_project(args.config, args.batch_size, args.checkpoint_dir)
     summaries = evaluate_checkpoints(args.checkpoints, frames=args.frames, seeds=args.seeds)
@@ -249,12 +256,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             file=sys.stderr,
         )
     else:
-        print(f"\nBest checkpoint: {best['checkpoint']}")
-        if args.copy_best_to:
-            target = Path(args.copy_best_to)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(best["checkpoint"], target)
-            print(f"Copied best checkpoint to: {target}")
+        print(f"\nTop diagnostic checkpoint: {best['checkpoint']}")
+        print("Diagnostic ranking has no promotion or copy authority.")
 
     if args.json_output:
         output_path = Path(args.json_output)

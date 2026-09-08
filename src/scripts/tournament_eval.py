@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Promotion gate: paired candidate-vs-baseline eval over diverse opponent mixes.
+"""Diagnostic paired candidate-vs-baseline evaluation over opponent mixes.
 
 Repaired per blueprint §5.1-§5.2 (P0). What changed vs the old harness:
 
@@ -15,9 +15,9 @@ Repaired per blueprint §5.1-§5.2 (P0). What changed vs the old harness:
        frozen    slots cycle over the --opponents checkpoint pool
        scripted  all slots are greedy_food scripted anchors (ungameable)
        mixed     alternating frozen-pool and random_safe scripted slots
-  * PROMOTION RULE (printed, and enforced with --gate): promote iff the paired
-    mass-integral delta > 0 at 95% CI on >= 2 mixes AND no regression vs the
-    scripted anchor mix.
+  * LEGACY DIAGNOSTIC RULE (reported, and used for --gate exit status): the
+    paired mass-integral delta is > 0 at 95% CI on >= 2 mixes with no
+    regression vs the scripted anchor. This branch never grants strict authority.
   * --pilot runs the baseline only and recommends a seed count for a minimum
     detectable effect of 3% of baseline mass integral (alpha 0.05, power 0.8).
   * Behavioral probes (src/training/behavior_probes.py) run alongside: boost
@@ -29,7 +29,7 @@ latter need no checkpoint, which is how the gate calibrates itself
 (champion > greedy anchor > random_safe) and how tests run hermetically.
 
 Usage:
-  # Gate a candidate against the incumbent champion on the default mixes
+  # Run a legacy diagnostic comparison on the default mixes
   SNAKE_DQN_DEVICE=cpu ./venv/bin/python src/scripts/tournament_eval.py \
     saved_snakes/latest_apex.pth --gate \
     --frames 3000 --seeds 0,1,2,3,4,5,6,7,8,9 \
@@ -52,8 +52,9 @@ import json
 import os
 import sys
 import types
+import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
 
@@ -90,7 +91,11 @@ from src.game.game_state_factory import (  # noqa: E402
 )
 from src.game.scripted_snake import SCRIPTED_KINDS  # noqa: E402
 from src.game.snake_factory import SnakeFactory  # noqa: E402
-from src.scripts.eval_cli import parse_seed_list, set_seed  # noqa: E402
+from src.scripts.eval_cli import (  # noqa: E402
+    add_strict_promotion_arguments,
+    parse_seed_list,
+    set_seed,
+)
 from src.scripts.eval_stats import (  # noqa: E402
     ci95_halfwidth,
     mass_integral,
@@ -714,7 +719,7 @@ def combined_paired_stats(
     descriptive combined interval therefore averages each world's
     candidate-minus-baseline deltas across the requested mixes, then computes
     the t interval over those distinct world averages. Per-mix paired results
-    remain the promotion authority.
+    remain a legacy diagnostic signal; only a strict receipt can grant authority.
 
     Args:
         candidate_runs_by_mix: Candidate rollout records keyed by mix.
@@ -799,8 +804,8 @@ def print_markdown_report(
     mixes: Sequence[str],
     candidate_results: Sequence[Dict[str, Any]],
 ) -> None:
-    """Print the per-mix paired results as a markdown table plus verdicts."""
-    print("\n## Paired promotion-gate results (metric: mass integral, dead frames = 0)\n")
+    """Print legacy diagnostic paired results and their non-authoritative signal."""
+    print("\n## Legacy diagnostic paired results (metric: mass integral, dead frames = 0)\n")
     print(f"Baseline: `{baseline_label}`\n")
     header = (
         "| candidate | mix | mass_int | Δ vs baseline (95% CI) | wins | surv | deaths |"
@@ -833,8 +838,9 @@ def print_markdown_report(
         )
 
     print(
-        "\nPromotion rule (blueprint §5.2): promote iff paired mass-integral delta > 0 at"
-        " 95% CI on >= 2 opponent mixes AND no regression vs the scripted anchor."
+        "\nLegacy diagnostic rule (blueprint §5.2): paired mass-integral delta > 0 at"
+        " 95% CI on >= 2 opponent mixes and no scripted-anchor regression."
+        " This is a diagnostic recommendation only; strict authority is false."
     )
     for result in candidate_results:
         name = Path(result["candidate"]).name
@@ -843,9 +849,14 @@ def print_markdown_report(
             continue
         decision = result["decision"]
         if decision["promote"]:
-            print(f"  {name}: PROMOTE (significant on {', '.join(decision['significant_mixes'])})")
+            print(
+                f"  {name}: DIAGNOSTIC PASS (significant on "
+                f"{', '.join(decision['significant_mixes'])}; no strict authority)"
+            )
         else:
-            print(f"  {name}: REJECT ({'; '.join(decision['reasons'])})")
+            print(
+                f"  {name}: DIAGNOSTIC FAIL ({'; '.join(decision['reasons'])}; no strict authority)"
+            )
 
 
 def run_pilot(
@@ -894,6 +905,224 @@ def run_pilot(
     return {"per_mix": per_mix, "recommended_seeds": overall}
 
 
+def _sha256_file(path: Path) -> str:
+    """Return the byte digest of a strict input without trusting metadata."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _verify_strict_inputs(expected_hashes: Mapping[Path, str]) -> None:
+    """Fail before authority if an E0-bound input no longer has frozen bytes."""
+    for path, expected in expected_hashes.items():
+        actual = _sha256_file(path)
+        if actual != expected:
+            raise ValueError(f"strict frozen input changed: {path}")
+
+
+def _strict_specs_from_e0(
+    e0_receipt_path: str, role_hashes: Mapping[str, Any], expected_e0_sha256: str
+) -> Tuple[Dict[str, Any], Dict[Path, str]]:
+    """Resolve strict roles from E0 and bind every opened snapshot to its hash."""
+    receipt_path = Path(e0_receipt_path).expanduser().resolve()
+    receipt_bytes = receipt_path.read_bytes()
+    if hashlib.sha256(receipt_bytes).hexdigest() != expected_e0_sha256:
+        raise ValueError("E0 receipt bytes differ from the frozen strict request")
+    receipt = json.loads(receipt_bytes)
+    config = receipt["config"]
+    config_path = Path(config["snapshot_path"]).expanduser().resolve()
+    snapshots = {
+        entry["sha256"]: Path(entry["snapshot_path"]).expanduser().resolve()
+        for entry in receipt["checkpoint_snapshots"]
+    }
+    required = [role_hashes["candidate"], role_hashes["incumbent"], *role_hashes["checkpoint_pool"]]
+    if any(digest not in snapshots for digest in required):
+        raise ValueError("E0 receipt does not resolve every strict checkpoint role")
+    frozen_inputs: Dict[Path, str] = {
+        receipt_path: expected_e0_sha256,
+        config_path: config["sha256"],
+    }
+    frozen_inputs.update({snapshots[digest]: digest for digest in required})
+    _verify_strict_inputs(frozen_inputs)
+    load_and_initialize_config(str(config_path))
+    _verify_strict_inputs(frozen_inputs)
+    return (
+        {
+            "candidate": ("checkpoint", str(snapshots[role_hashes["candidate"]])),
+            "incumbent": ("checkpoint", str(snapshots[role_hashes["incumbent"]])),
+            "pool": {
+                digest: ("checkpoint", str(snapshots[digest]))
+                for digest in role_hashes["checkpoint_pool"]
+            },
+        },
+        frozen_inputs,
+    )
+
+
+def _strict_opponents_for_row(row: Mapping[str, Any], specs: Mapping[str, Any]) -> List[AgentSpec]:
+    from src.evaluation.strict_promotion import scripted_agent
+
+    anchors = {
+        scripted_agent("greedy_food")["sha256"]: ("scripted", "greedy_food"),
+        scripted_agent("random_safe")["sha256"]: ("scripted", "random_safe"),
+    }
+    resolved = {**specs["pool"], **anchors}
+    try:
+        return [resolved[slot["member_sha256"]] for slot in row["slots"]]
+    except KeyError as exc:
+        raise ValueError(
+            "strict roster member is not resolvable through E0 or canonical anchors"
+        ) from exc
+
+
+def _atomic_create_json(path: Path, value: Mapping[str, Any]) -> Path:
+    """Create a durable JSON artifact once; never overwrite another run's bytes."""
+    destination = path.expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(value, indent=2, sort_keys=True, allow_nan=False).encode("utf-8") + b"\n"
+    temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex}.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.close(descriptor)
+        descriptor = -1
+        os.chmod(temporary, 0o444)
+        os.link(temporary, destination)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+    directory = os.open(destination.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return destination
+
+
+def _run_strict_promotion(args: Any) -> int:
+    """Execute the live-only final worlds bound by an already frozen strict request."""
+    from src.evaluation.strict_promotion import (
+        STRICT_RAW_WORLD_VERSION,
+        bind_strict_raw_world_artifact,
+        freeze_strict_request,
+        validate_strict_final_receipt,
+        write_strict_final_receipt,
+    )
+
+    artifact_paths = {
+        "request_path": args.strict_promotion_request,
+        "e0_receipt_path": args.strict_e0_receipt,
+        "pilot_artifact_path": args.strict_pilot_artifact,
+        "calibration_artifact_path": args.strict_calibration_artifact,
+        "serving_bundle_path": args.strict_serving_bundle,
+    }
+    if (
+        any(value is None for value in artifact_paths.values())
+        or args.strict_promotion_receipt is None
+    ):
+        raise ValueError(
+            "strict promotion requires request, final receipt, E0, pilot, calibration, "
+            "and serving paths"
+        )
+    receipt_argument = Path(args.strict_promotion_receipt).expanduser()
+    if os.path.lexists(receipt_argument):
+        raise FileExistsError(
+            "strict final receipt path already exists; strict evidence is create-only"
+        )
+    receipt_path = receipt_argument.resolve()
+    raw_path = receipt_path.with_suffix(".raw-worlds.json")
+    incident_path = receipt_path.with_suffix(".incident.json")
+    if any(os.path.lexists(path) for path in (raw_path, receipt_path, incident_path)):
+        raise FileExistsError("strict output paths already exist; strict evidence is create-only")
+    token = freeze_strict_request(**artifact_paths)
+    request = token.request
+    if request["engine"] != "live":
+        raise ValueError("strict promotion is live-only")
+    profile = EvaluationProfile.from_descriptor(dict(request["profile"]["descriptor"]))
+    specs, frozen_inputs = _strict_specs_from_e0(
+        args.strict_e0_receipt, token.checkpoint_role_sha256, token.artifact_byte_sha256["e0"]
+    )
+    rows = {(row["mix"], row["world_seed"]): row for row in request["materialized_rosters"]}
+    records: List[Dict[str, Any]] = []
+    current: Dict[str, Any] | None = None
+    failure_phase = "rollout"
+    try:
+        for role in ("incumbent", "candidate"):
+            hero = specs[role]
+            hero_hash = token.checkpoint_role_sha256[role]
+            for mix in request["roster_design"]["mixes"]:
+                for seed in request["seed_namespaces"]["final"]:
+                    current = {
+                        "role": role,
+                        "mix": mix,
+                        "world_seed": seed,
+                        "checkpoint_sha256": hero_hash,
+                    }
+                    row = rows[(mix, seed)]
+                    record = rollout(
+                        hero,
+                        _strict_opponents_for_row(row, specs),
+                        profile.scored_horizon,
+                        seed,
+                        profile=profile,
+                        mix_id=mix,
+                    )
+                    records.append({**current, "record": record})
+        failure_phase = "post-world-integrity"
+        _verify_strict_inputs(frozen_inputs)
+    except Exception as exc:
+        _atomic_create_json(
+            incident_path,
+            {
+                "schema_version": "strict-runtime-incident/v1",
+                "strict_request_semantic_digest": token.request_semantic_digest,
+                "completed_records": records,
+                "failing_compound_key": current if failure_phase == "rollout" else None,
+                "phase": failure_phase,
+                "error": str(exc),
+                "strict_authority": False,
+            },
+        )
+        raise ValueError(
+            f"strict rollout failed; incident archived at {incident_path}: {exc}"
+        ) from exc
+    raw = {
+        "schema_version": STRICT_RAW_WORLD_VERSION,
+        "engine": "live",
+        "strict_request_semantic_digest": token.request_semantic_digest,
+        "e0_receipt_sha256": token.artifact_byte_sha256["e0"],
+        "profile_digest": request["profile"]["digest"],
+        "source_closure_sha256": request["evaluator_source"]["closure_sha256"],
+        "materialized_rosters_digest": canonical_digest({"rows": request["materialized_rosters"]}),
+        "records": records,
+    }
+    _atomic_create_json(raw_path, raw)
+    raw_token = bind_strict_raw_world_artifact(token, raw_path)
+    receipt_path = write_strict_final_receipt(
+        receipt_path,
+        token,
+        raw_token,
+        raw_world_artifact_path=raw_path,
+        **artifact_paths,
+    )
+    receipt = validate_strict_final_receipt(
+        receipt_path, token, raw_token, raw_world_artifact_path=raw_path, **artifact_paths
+    )
+    print(
+        json.dumps(
+            {
+                "mode": "strict",
+                "receipt": str(receipt_path),
+                "strict_authority": receipt["strict_authority"],
+            },
+            sort_keys=True,
+        )
+    )
+    return 0 if receipt["strict_authority"] else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -922,7 +1151,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--mixes",
         type=parse_mix_list,
         default=list(MIX_NAMES),
-        help=f"Comma-separated opponent mixes from {MIX_NAMES} (>= 2 required to gate)",
+        help=(
+            f"Comma-separated opponent mixes from {MIX_NAMES} "
+            "(>= 2 for the legacy diagnostic signal)"
+        ),
     )
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument(
@@ -963,7 +1195,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument(
         "--gate",
         action="store_true",
-        help="Exit 0 iff the (single) candidate passes the §5.2 promotion rule",
+        help=(
+            "Legacy diagnostic exit status for one candidate; "
+            "never grants strict promotion authority"
+        ),
     )
     p.add_argument(
         "--pilot",
@@ -976,7 +1211,56 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=0.03,
         help="Pilot minimum detectable effect as a fraction of baseline mass integral",
     )
+    add_strict_promotion_arguments(p)
     args = p.parse_args(argv)
+
+    strict_values = (
+        args.strict_promotion_request,
+        args.strict_promotion_receipt,
+        args.strict_e0_receipt,
+        args.strict_pilot_artifact,
+        args.strict_calibration_artifact,
+        args.strict_serving_bundle,
+    )
+    if any(value is not None for value in strict_values) and args.strict_promotion_request is None:
+        p.error("strict artifact paths require --strict-promotion-request")
+    if args.strict_promotion_request:
+        raw_argv = list(sys.argv[1:] if argv is None else argv)
+        strict_conflicts = {
+            "--engine",
+            "--config",
+            "--frames",
+            "--seeds",
+            "--mixes",
+            "--baseline",
+            "--opponents",
+            "--opponent",
+            "--json-output",
+            "--snapshot-dir",
+            "--evaluation-profile",
+            "--mde-fraction",
+        }
+        supplied_conflicts = sorted(
+            {
+                argument.split("=", 1)[0]
+                for argument in raw_argv
+                if argument.split("=", 1)[0] in strict_conflicts
+            }
+        )
+        if supplied_conflicts:
+            p.error(
+                "strict promotion derives engine, world, roster, and output from its frozen "
+                f"request; unsupported diagnostic flags: {', '.join(supplied_conflicts)}"
+            )
+        if args.gate or args.pilot or args.candidates:
+            p.error(
+                "strict promotion uses its frozen request roles; diagnostic candidates, "
+                "--gate, and --pilot are invalid"
+            )
+        try:
+            return _run_strict_promotion(args)
+        except (OSError, ValueError) as exc:
+            p.error(str(exc))
 
     if not args.pilot and not args.candidates:
         p.error("at least one candidate is required (or use --pilot)")
@@ -1136,6 +1420,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 json.dumps(
                     {
                         "mode": "pilot",
+                        "strict_authority": False,
+                        "authority": "diagnostic-only",
                         "config": args.config,
                         "engine": args.engine,
                         "frames": args.frames,
@@ -1156,7 +1442,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if len(args.mixes) < 2:
         print(
-            "WARNING: only one mix requested; the §5.2 promotion rule needs >= 2 mixes.",
+            "WARNING: only one mix requested; the legacy diagnostic rule needs >= 2 mixes.",
             file=sys.stderr,
         )
 
@@ -1224,6 +1510,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             json.dumps(
                 {
                     "mode": "gate" if args.gate else "eval",
+                    "strict_authority": False,
+                    "authority": "diagnostic-only",
                     "config": args.config,
                     "engine": args.engine,
                     "frames": args.frames,
