@@ -165,11 +165,27 @@ world and readiness evidence. A data engineer now owns the artifact boundary in
 to tournament and diagnostic consumers. Final decisions must be recomputed from
 the frozen request and the actual hashed evidence files.
 
-H0's first runner also remains unaccepted. Independent review found manifest
-reuse, stale-heartbeat supervision, and shakedown-to-screen time projection gaps.
-A data engineer owns the complete runner repair and its orchestration tests.
-Both active lanes have independent reviewers. G0 qualification and actual Mac
-training remain pending until these implementations are accepted.
+H0 is accepted at source `4eb8f21`, integrated as `b673c46`. Its first runner was
+rejected for manifest reuse, stale-heartbeat supervision and time-projection gaps.
+The replacement passed independent review and **43 focused tests**; the root's
+integrated runner, evaluator-trace and schema union passed **72 tests in 9.46s**.
+It freezes source, seeds, configuration and checkpoint lineage, supervises each
+learner and evaluator under separate resource and wall limits, and confirms child
+cleanup before continuing. Failed and unrun arms retain their original positions;
+there are no automatic retries. A real 100,000-step MPS shakedown must supply the
+hashed timing receipt before the five-arm screen can start. Those actual CPU/MPS
+qualification runs remain pending.
+
+E2's remaining serving evidence seam now has a separate producer package. The
+previous validator could accept handwritten success records without showing that
+50 seeded sessions had actually executed. The producer will observe the real S1
+Watch/Play path, actual AI identity dispatch and human updates. The frozen later
+readiness schedule contains one Watch session at the external 5,000-frame horizon
+and 49 Play sessions ending at actual human death or that horizon. These mode
+counts carry no statistical-power claim. Checkpoint source-runtime contracts and
+actual deployment differences remain intact. Implementation uses bounded serving
+oracles; the later 50-session readiness run is not part of the development screen.
+G0 waits for the final combined artifact, runtime and producer checks.
 
 A preliminary full non-slow regression on `c633135` completed in 85.32s with
 **2 failures, 2,411 passes, 6 conditional skips and 3 slow cases deselected**.
