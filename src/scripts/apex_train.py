@@ -499,7 +499,7 @@ def load_validated_apex_resume_checkpoint(
 
 
 def broadcast_weights(
-    weights: Dict[str, torch.Tensor],
+    payload: tuple[int, Dict[str, torch.Tensor]],
     weight_queues: list,
 ) -> None:
     """Broadcast learner weights to all actor weight queues.
@@ -508,7 +508,7 @@ def broadcast_weights(
     always receive the most recent parameters.
 
     Args:
-        weights: State dict from learner (already on CPU)
+        payload: Learner update version and CPU state dict.
         weight_queues: List of mp.Queue, one per actor
     """
     for q in weight_queues:
@@ -521,11 +521,24 @@ def broadcast_weights(
             continue
 
         try:
-            q.put_nowait(weights)
+            q.put_nowait(payload)
         except queue.Full:
             pass
         except Exception:
             pass
+
+
+def learner_weight_payload(learner: Any) -> tuple[int, Dict[str, torch.Tensor]]:
+    """Return the versioned actor payload, retaining test-double compatibility."""
+    get_payload = getattr(learner, "get_weight_payload", None)
+    if get_payload is not None:
+        return get_payload()
+    # Legacy in-process fakes predate versioned transport. Runtime learners
+    # always expose get_weight_payload; this is intentionally not a wire API.
+    get_weights = getattr(learner, "get_weights", None)
+    if get_weights is None:
+        return int(getattr(learner, "update_version", 0)), {}
+    return int(getattr(learner, "update_version", 0)), get_weights()
 
 
 def collect_actor_stats(stats_queue: mp.Queue, max_items: int = 100) -> list:
@@ -1131,6 +1144,8 @@ def train_apex(
     max_environment_transitions: Optional[int] = None,
     max_wall_time_seconds: Optional[float] = None,
     heartbeat_timeout_seconds: float = 30.0,
+    seed: Optional[int] = None,
+    resume_mode: str = "weights-only",
 ) -> None:
     """Run distributed Ape-X DQN training.
 
@@ -1173,6 +1188,21 @@ def train_apex(
         max_wall_time_seconds: Optional coordinator wall-clock budget.
         heartbeat_timeout_seconds: Maximum age of a reported actor heartbeat.
     """
+    if resume_mode not in {"weights-only", "continuation", "legacy-unverified"}:
+        raise ValueError(f"Unsupported Apex resume mode {resume_mode!r}")
+    # This is deliberately the first stochastic operation in the coordinator.
+    # Child actors receive named streams from this one resolved identity.
+    from src.core.seeding import initialize_run_seed
+
+    seed_context = initialize_run_seed(seed)
+    seed_manifest = {
+        "requested_seed": seed_context.requested_seed,
+        "effective_seed": seed_context.effective_seed,
+        "namespace": "apex/distributed",
+    }
+    print(
+        f"Run seed: requested={seed_manifest['requested_seed']}, effective={seed_context.effective_seed}"
+    )
     print("=" * 70)
     print("APE-X DQN DISTRIBUTED TRAINING")
     print("=" * 70)
@@ -1191,6 +1221,13 @@ def train_apex(
     if config_path:
         load_and_initialize_config(config_path)
         print(f"Loaded config: {config_path}")
+
+    # Distributed actors do not implement curriculum coordination. Fail before
+    # importing/constructing the buffer, network, queues, or child processes.
+    if GameConfig.CURRICULUM_ENABLED:
+        raise ValueError(
+            "Distributed Ape-X does not support curriculum; use src/main.py --headless"
+        )
 
     num_actors = int(_resolve_configurable(num_actors, GameConfig.APEX_NUM_ACTORS, 4, use_config))
     batch_size = int(_resolve_configurable(batch_size, GameConfig.APEX_BATCH_SIZE, 512, use_config))
@@ -1428,7 +1465,7 @@ def train_apex(
     # run would re-anneal IS-weight beta from beta_start over a full fresh window.
     resume_start_step = (
         int(resume_checkpoint_state.get("step_count", 0))
-        if resume_checkpoint_state is not None
+        if resume_checkpoint_state is not None and resume_mode != "weights-only"
         else 0
     )
 
@@ -1487,6 +1524,53 @@ def train_apex(
         log_interval=log_interval,
     )
 
+    from src.core.game_config import get_config
+    from src.training.apex_recipe import ApexRecipe, validate_recipe_continuation
+
+    learner_optimizer = getattr(learner, "optimizer", None)
+    requested_recipe = (
+        ApexRecipe.distributed(
+            optimizer=learner_optimizer,
+            input_size=input_size,
+            output_size=output_size,
+            gamma=gamma,
+            n_step=n_step,
+            priority_alpha=GameConfig.APEX_PRIORITY_ALPHA,
+            priority_eps=GameConfig.APEX_PRIORITY_EPSILON,
+            world=asdict(get_config().game),
+            runtime={
+                "mode": "distributed_apex",
+                "training": True,
+                "distributed": True,
+                "curriculum": False,
+                "replay_restored": False,
+                "inflight_actor_state_restored": False,
+                "rng_state_restored": False,
+            },
+            actor_scaling={
+                "num_actors": num_actors,
+                "actor_env_num_snakes": actor_env_num_snakes,
+                "actor_board_scale": actor_board_scale,
+                "actor_food_multiplier": actor_food_multiplier,
+            },
+            seed_identity={**seed_manifest, "actor_namespace": "apex/actor/{actor_id}"},
+            target_clip=100.0,
+        )
+        if learner_optimizer is not None
+        else None
+    )
+    if requested_recipe is not None and hasattr(learner, "config"):
+        learner.config.apex_recipe = requested_recipe
+    if resume_checkpoint_state is not None and resume_mode == "continuation":
+        # All recipe and optimizer checks happen before weights, actors, or
+        # BufferProcess are mutated or started.
+        validate_recipe_continuation(
+            resume_checkpoint_state,
+            requested_recipe,
+            weights_only=False,
+            optimizer=learner_optimizer,
+        )
+
     try:
         # Sync shared network weights from learner
         shared_network.load_state_dict({k: v.cpu() for k, v in learner.dqn.state_dict().items()})
@@ -1495,7 +1579,11 @@ def train_apex(
         start_step = 0
         if resume_checkpoint_state is not None:
             print(f"Resuming from: {resume_checkpoint}")
-            learner.load_state_dict(resume_checkpoint_state)
+            learner.load_state_dict(
+                resume_checkpoint_state,
+                resume_mode=resume_mode,
+                requested_recipe=requested_recipe,
+            )
             start_step = resume_start_step
             # Re-sync shared network
             shared_network.load_state_dict(
@@ -1504,6 +1592,11 @@ def train_apex(
             print(f"  Resumed at step {start_step:,}")
             for line in format_apex_checkpoint_provenance(resume_checkpoint_state):
                 print(f"  {line}")
+
+        # The initial actor message carries the learner's real update version,
+        # including a resumed continuation. Actors must not infer it from queue
+        # receipt count.
+        broadcast_weights(learner_weight_payload(learner), weight_queues)
 
         # ── Spawn actors ──────────────────────────────────────────────────
         print(f"\nSpawning {num_actors} actors...")
@@ -1540,6 +1633,7 @@ def train_apex(
             opponent_pool_dir=opponent_pool_dir,
             pool_latest_fraction=pool_latest_fraction,
             config_path=config_path,
+            base_seed=seed_context.effective_seed,
         )
 
         # ── Checkpoint manager ────────────────────────────────────────────
@@ -1744,8 +1838,7 @@ def train_apex(
 
             # ── Broadcast weights to actors ───────────────────────────
             if learner.should_broadcast_weights():
-                weights = learner.get_weights()
-                broadcast_weights(weights, weight_queues)
+                broadcast_weights(learner_weight_payload(learner), weight_queues)
 
             # ── Collect actor stats ───────────────────────────────────
             update_latest_actor_stats(
@@ -1820,6 +1913,8 @@ def train_apex(
                 ckpt_path = os.path.join(checkpoint_dir, f"apex_checkpoint_{step}.pth")
                 state = learner.get_state_dict()
                 state["apex_config"] = dict(apex_checkpoint_config)
+                state["run_seed_manifest"] = dict(seed_manifest)
+                state["resume_mode"] = resume_mode
                 state["avg_reward"] = _mean_or_zero(episode_rewards)
                 attach_runtime_metadata(state, latest_snapshot, "periodic_checkpoint", budgets)
                 attach_replay_health_metadata(
@@ -1890,6 +1985,8 @@ def train_apex(
                 )
             captured_state = learner.get_state_dict()
             captured_state["apex_config"] = dict(apex_checkpoint_config)
+            captured_state["run_seed_manifest"] = dict(seed_manifest)
+            captured_state["resume_mode"] = resume_mode
             captured_state["avg_reward"] = _mean_or_zero(episode_rewards)
             final_buffer_replay_health = collect_buffer_replay_health(learner.buffer_client)
             attach_replay_health_metadata(
@@ -2070,6 +2167,22 @@ Examples:
         help="Path to checkpoint to resume from",
     )
     parser.add_argument(
+        "--resume-mode",
+        choices=("weights-only", "continuation", "legacy-unverified"),
+        default="weights-only",
+        help=(
+            "Checkpoint restore policy. weights-only creates fresh optimizer, odometer, "
+            "replay, actor and RNG runtime; continuation requires a verified matching "
+            "recipe; legacy-unverified is explicitly noncomparable."
+        ),
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional unsigned 64-bit run seed; omitted uses recorded entropy.",
+    )
+    parser.add_argument(
         "--config",
         type=str,
         default=None,
@@ -2226,6 +2339,8 @@ Examples:
         max_environment_transitions=args.max_environment_transitions,
         max_wall_time_seconds=args.max_wall_time_seconds,
         heartbeat_timeout_seconds=args.heartbeat_timeout_seconds,
+        seed=args.seed,
+        resume_mode=args.resume_mode,
     )
 
 

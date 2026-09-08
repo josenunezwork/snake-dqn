@@ -580,7 +580,11 @@ def validate_offline_resume_checkpoint_config(
     )
 
 
-def load_checkpoint(policy: ApexPolicy, checkpoint_path: Optional[str]) -> bool:
+def load_checkpoint(
+    policy: ApexPolicy,
+    checkpoint_path: Optional[str],
+    resume_mode: str = "weights-only",
+) -> bool:
     """Optionally resume policy weights and optimizer state."""
     import torch
 
@@ -597,8 +601,19 @@ def load_checkpoint(policy: ApexPolicy, checkpoint_path: Optional[str]) -> bool:
         policy,
         checkpoint_path=str(resolved_path),
     )
-    policy.load_state_dict(checkpoint)
+    try:
+        policy.load_state_dict(checkpoint, resume_mode=resume_mode)
+    except TypeError as error:
+        if resume_mode != "weights-only" or "resume_mode" not in str(error):
+            raise
+        policy.load_state_dict(checkpoint)
     print(f"Loaded checkpoint: {resolved_path}")
+    if resume_mode == "weights-only":
+        print(
+            "Resume mode: weights-only (fresh optimizer and odometer; offline dataset validation retained)"
+        )
+    elif resume_mode == "legacy-unverified":
+        print("Resume mode: legacy-unverified (optimizer continuation is noncomparable)")
     for line in format_checkpoint_replay_provenance(checkpoint):
         print(line)
     return True
@@ -1054,6 +1069,12 @@ Examples:
         help="Optional checkpoint path or saved_snakes/ filename to resume",
     )
     parser.add_argument(
+        "--resume-mode",
+        choices=("weights-only", "continuation", "legacy-unverified"),
+        default="weights-only",
+        help="Checkpoint restore policy; defaults to safe weights-only warm start.",
+    )
+    parser.add_argument(
         "--checkpoint-dir",
         type=str,
         default=None,
@@ -1238,7 +1259,7 @@ Examples:
     checkpoint_dir = resolve_output_checkpoint_dir(args.checkpoint_dir)
 
     policy = create_policy()
-    load_checkpoint(policy, args.resume)
+    load_checkpoint(policy, args.resume, resume_mode=args.resume_mode)
 
     replay_count = load_replay_database(
         policy,

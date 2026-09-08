@@ -315,6 +315,7 @@ def load_checkpoint_into_game_state(
     game_state: GameState,
     checkpoint_path: str,
     strict_training_contract: bool = True,
+    resume_mode: str = "weights-only",
 ) -> bool:
     """Load a checkpoint into the shared headless policy.
 
@@ -344,7 +345,14 @@ def load_checkpoint_into_game_state(
                 policy,
                 checkpoint_path=str(resolved_path),
             )
-        policy.load_state_dict(checkpoint)
+        try:
+            policy.load_state_dict(checkpoint, resume_mode=resume_mode)
+        except TypeError as error:
+            # Existing lightweight loader doubles expose the historical one-arg
+            # method. Production ApexPolicy always receives the explicit mode.
+            if resume_mode != "weights-only" or "resume_mode" not in str(error):
+                raise
+            policy.load_state_dict(checkpoint)
     except (OSError, RuntimeError, KeyError, ValueError) as e:
         print(f"Could not load checkpoint {resolved_path}: {e}")
         return False
@@ -715,6 +723,7 @@ def run_learning_health_smoke(
     min_exact_mask_fraction: float = 0.0,
     replay_quality_gates: Optional[Dict[str, float]] = None,
     eval_mode: bool = False,
+    resume_mode: str = "weights-only",
     game_state_factory=None,
     checkpoint_loader=None,
     replay_loader=None,
@@ -743,13 +752,21 @@ def run_learning_health_smoke(
         checkpoint_loaded = False
         if checkpoint_path:
             if checkpoint_loader is None:
-                checkpoint_loaded = bool(
-                    loader(
-                        game_state,
-                        checkpoint_path,
-                        strict_training_contract=not eval_mode,
+                try:
+                    checkpoint_loaded = bool(
+                        loader(
+                            game_state,
+                            checkpoint_path,
+                            strict_training_contract=not eval_mode,
+                            resume_mode=resume_mode,
+                        )
                     )
-                )
+                except TypeError as error:
+                    if resume_mode != "weights-only" or "resume_mode" not in str(error):
+                        raise
+                    checkpoint_loaded = bool(
+                        loader(game_state, checkpoint_path, strict_training_contract=not eval_mode)
+                    )
             else:
                 checkpoint_loaded = bool(loader(game_state, checkpoint_path))
             if not checkpoint_loaded:
@@ -891,6 +908,8 @@ def train_environment(
     min_exact_mask_fraction: float = 0.0,
     replay_quality_gates: Optional[Dict[str, float]] = None,
     eval_mode: bool = False,
+    base_seed: Optional[int] = None,
+    resume_mode: str = "weights-only",
 ):
     game_state = None
     tb_logger = None
@@ -910,9 +929,16 @@ def train_environment(
         if _worker_batch_size:
             apply_training_batch_size_override(int(_worker_batch_size))
 
-        # Set different seeds for each environment
-        torch.manual_seed(env_id)
-        np.random.seed(env_id)
+        # Parent resolves one run seed before spawning. Each worker receives a
+        # stable namespace instead of relying on its process index alone.
+        from src.core.seeding import derive_seed, initialize_run_seed
+
+        resolved_base_seed = (
+            initialize_run_seed().effective_seed if base_seed is None else int(base_seed)
+        )
+        worker_seed = derive_seed(resolved_base_seed, f"apex/local-worker/{env_id}")
+        torch.manual_seed(worker_seed)
+        np.random.seed(worker_seed % 2**32)
 
         rewards_history = deque(maxlen=100)
         start_time = time.time()
@@ -969,11 +995,19 @@ def train_environment(
 
         game_state = create_training_game_state(curriculum, eval_mode=eval_mode)
         if checkpoint_path:
-            checkpoint_loaded = load_checkpoint_into_game_state(
-                game_state,
-                checkpoint_path,
-                strict_training_contract=not eval_mode,
-            )
+            try:
+                checkpoint_loaded = load_checkpoint_into_game_state(
+                    game_state,
+                    checkpoint_path,
+                    strict_training_contract=not eval_mode,
+                    resume_mode=resume_mode,
+                )
+            except TypeError as error:
+                if resume_mode != "weights-only" or "resume_mode" not in str(error):
+                    raise
+                checkpoint_loaded = load_checkpoint_into_game_state(
+                    game_state, checkpoint_path, strict_training_contract=not eval_mode
+                )
             if not checkpoint_loaded:
                 raise RuntimeError(
                     f"Could not load headless training checkpoint: {checkpoint_path}"
@@ -1213,6 +1247,8 @@ def train_headless(
     min_exact_mask_fraction: float = 0.0,
     replay_quality_gates: Optional[Dict[str, float]] = None,
     eval_mode: bool = False,
+    base_seed: Optional[int] = None,
+    resume_mode: str = "weights-only",
 ):
     # Print system info
     print("\nSystem Information:")
@@ -1293,6 +1329,8 @@ def train_headless(
                     min_exact_mask_fraction,
                     active_replay_gates,
                     eval_mode,
+                    base_seed,
+                    resume_mode,
                 ),
             )
             process_entries.append((env_id, p))
@@ -1434,6 +1472,21 @@ The interactive UI (watch / train / human play) is the web app:
         default=None,
         metavar="PATH",
         help="Path to checkpoint file to load (e.g., saved_snakes/snake_apex_4.pth)",
+    )
+    parser.add_argument(
+        "--resume-mode",
+        choices=("weights-only", "continuation", "legacy-unverified"),
+        default="weights-only",
+        help=(
+            "Checkpoint restore policy. weights-only starts fresh optimizer/odometer/runtime; "
+            "continuation requires a verified matching recipe; legacy-unverified is noncomparable."
+        ),
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional unsigned 64-bit run seed; omitted uses recorded entropy.",
     )
     parser.add_argument(
         "--load-memory-db",
@@ -1670,6 +1723,16 @@ The interactive UI (watch / train / human play) is the web app:
                 os.environ["SNAKE_DQN_DEVICE"] = yaml_device
 
     batch_size = apply_training_batch_size_override(args.batch_size)
+    # Resolve and globally seed before any policy, game state, or worker is
+    # constructed. The effective identity is handed to every spawned worker.
+    from src.core.seeding import initialize_run_seed
+
+    seed_context = initialize_run_seed(args.seed)
+    print(
+        "Run seed: "
+        f"requested={seed_context.requested_seed}, effective={seed_context.effective_seed}, "
+        "namespace=apex/local"
+    )
     # Spawned headless workers re-init config from SNAKE_DQN_CONFIG and would
     # otherwise drop this CLI override; stash it so the worker can re-apply it.
     if args.batch_size is not None:
@@ -1709,6 +1772,7 @@ The interactive UI (watch / train / human play) is the web app:
             replay_order=args.load_memory_order,
             replay_quality_gates=replay_quality_gates,
             eval_mode=args.eval,
+            resume_mode=args.resume_mode,
         )
         print(format_learning_health_smoke_report(stats))
         if not args.eval:
@@ -1734,6 +1798,8 @@ The interactive UI (watch / train / human play) is the web app:
             args.load_memory_order,
             replay_quality_gates=replay_quality_gates,
             eval_mode=args.eval,
+            base_seed=seed_context.effective_seed,
+            resume_mode=args.resume_mode,
         )
     else:
         # The desktop PyQt5 GUI has been retired. The interactive UI — including
