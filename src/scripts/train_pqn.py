@@ -58,6 +58,7 @@ from src.training.pqn_trainer import (  # noqa: E402
     PQNTelemetry,
     PQNTrainer,
     TripwireError,
+    validate_checkpoint_numeric_state,
 )
 
 # A --config file carries a flat ``pqn:`` block plus a few shared ``game:``/
@@ -306,8 +307,10 @@ def apply_resume_checkpoint(trainer: PQNTrainer, checkpoint: Dict[str, Any]) -> 
         checkpoint: A checkpoint already validated by
             :func:`load_pqn_resume_checkpoint`.
     """
+    validate_checkpoint_numeric_state(checkpoint)
     trainer.network.load_state_dict(checkpoint["dqn_state_dict"])
     trainer.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    trainer.refresh_numeric_recovery_state()
     trainer.update_idx = int(checkpoint.get("update_counter", 0))
     trainer.agent_steps = int(checkpoint.get("agent_steps", 0))
     trainer._action_collapse_streak = int(checkpoint.get("action_collapse_streak", 0))
@@ -448,9 +451,11 @@ def train_loop(
     """Run updates until ``total_steps`` hero agent-steps are reached.
 
     Prints a telemetry row every ``log_every`` updates, snapshots a checkpoint
-    every ``ckpt_every`` updates (and always at the end), and writes the full
+    every ``ckpt_every`` updates (and at clean completion), and writes the full
     telemetry history to ``out_dir/history.jsonl``. A :class:`TripwireError`
-    halts the loop, still saving a final checkpoint and flagging the run.
+    halts the loop without replacing ``latest_pqn.pth``. Every tripwire gets a
+    durable JSON incident; finite diagnostic alarms additionally get a labelled
+    incident checkpoint rather than silently becoming the latest model.
 
     ``total_steps`` is compared against the trainer's odometer, so a resumed
     trainer counts its restored steps toward the same target.
@@ -473,6 +478,7 @@ def train_loop(
     out_dir.mkdir(parents=True, exist_ok=True)
     history_path = out_dir / "history.jsonl"
     latest_path = out_dir / "latest_pqn.pth"
+    incidents_dir = out_dir / "incidents"
 
     history: List[PQNTelemetry] = []
     start = time.time()
@@ -487,6 +493,27 @@ def train_loop(
                 tel = trainer.update()
             except TripwireError as exc:
                 tripped = str(exc)
+                incident_id = f"update_{trainer.update_idx:08d}_{exc.incident_class}"
+                incident_path = incidents_dir / f"{incident_id}.json"
+                incidents_dir.mkdir(parents=True, exist_ok=True)
+                telemetry = exc.telemetry
+                incident_record = {
+                    "class": exc.incident_class,
+                    "message": str(exc),
+                    "telemetry": None if telemetry is None else _telemetry_record(telemetry),
+                    "details": exc.incident,
+                    "trainer_state": {
+                        "update_idx": trainer.update_idx,
+                        "agent_steps": trainer.agent_steps,
+                    },
+                    "numeric_recovery": trainer.numeric_recovery_metadata(),
+                }
+                with incident_path.open("w", encoding="utf-8") as incident_fh:
+                    json.dump(incident_record, incident_fh, sort_keys=True)
+                    incident_fh.write("\n")
+                    incident_fh.flush()
+                if exc.is_finite_alarm:
+                    trainer.save_incident_checkpoint(str(incidents_dir / f"{incident_id}.pth"), exc)
                 print(f"\n[TRIPWIRE] halting: {exc}", file=sys.stderr)
                 break
 
@@ -502,8 +529,8 @@ def train_loop(
             if ckpt_every and tel.update > 0 and tel.update % ckpt_every == 0:
                 trainer.save_checkpoint(str(latest_path))
 
-    # Always leave a final checkpoint (even on a tripwire halt).
-    trainer.save_checkpoint(str(latest_path))
+    if not tripped:
+        trainer.save_checkpoint(str(latest_path))
     elapsed = time.time() - start
     session_steps = trainer.agent_steps - start_steps
     print(
@@ -512,7 +539,10 @@ def train_loop(
         f"({trainer.agent_steps:,} total) in {elapsed:.1f}s "
         f"({session_steps / elapsed if elapsed > 0 else 0.0:,.0f} steps/s)"
     )
-    print(f"[train_pqn] checkpoint: {latest_path}")
+    if latest_path.exists():
+        print(f"[train_pqn] checkpoint: {latest_path}")
+    else:
+        print("[train_pqn] checkpoint: absent (no accepted finite state)")
     if tripped:
         print(f"[train_pqn] FLAGGED (tripwire): {tripped}", file=sys.stderr)
 

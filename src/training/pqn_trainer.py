@@ -34,7 +34,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from numbers import Complex, Real
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -54,14 +55,16 @@ from src.model.raster_network import (
 from src.simd_env.batch_sim import BatchSim, BatchSimConfig
 from src.simd_env.featurizer import build_observations, obs_inputs_from_batch_sim
 from src.simd_env.gpu_featurizer import build_observations_gpu, obs_inputs_to_torch
-from src.training.pqn_selfplay import (
-    HERO_POLICY_ID,
-    OpponentPool,
-    assign_policy_ids,
-    batched_act,
-)
+from src.training.pqn_selfplay import HERO_POLICY_ID, OpponentPool, assign_policy_ids, batched_act
 
-__all__ = ["PQNConfig", "PQNTrainer", "PQNTelemetry", "TripwireError", "flip_augment"]
+__all__ = [
+    "PQNConfig",
+    "PQNTrainer",
+    "PQNTelemetry",
+    "TripwireError",
+    "flip_augment",
+    "validate_checkpoint_numeric_state",
+]
 
 
 # Lateral scalar indices in the 26-D scalar vector that flip SIGN under a
@@ -240,11 +243,25 @@ class PQNTelemetry:
 
 
 class TripwireError(RuntimeError):
-    """Raised when a training tripwire fires, retaining the triggering telemetry."""
+    """Raised when a training tripwire fires, retaining its class and evidence."""
 
-    def __init__(self, message: str, telemetry: Optional[PQNTelemetry] = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        telemetry: Optional[PQNTelemetry] = None,
+        *,
+        incident_class: str = "unknown",
+        incident: Optional[Dict[str, object]] = None,
+    ) -> None:
         super().__init__(message)
         self.telemetry = telemetry
+        self.incident_class = incident_class
+        self.incident = incident or {}
+
+    @property
+    def is_finite_alarm(self) -> bool:
+        """Whether the flagged model remains finite and is safe to archive separately."""
+        return self.incident_class in {"max_abs_q", "action_collapse"}
 
 
 def flip_augment(
@@ -346,6 +363,116 @@ class PQNTrainer:
         self._action_collapse_evidence_samples = 0
         self._action_collapse_raw_action_mode: Optional[int] = None
         self.last_telemetry: Optional[PQNTelemetry] = None
+        self._last_known_good_state: Dict[str, object] = {}
+        self._last_known_good_snapshot_bytes = 0
+        self.refresh_numeric_recovery_state()
+
+    # -- numeric recovery --------------------------------------------------
+    @staticmethod
+    def _clone_for_recovery(value: Any) -> Any:
+        """Clone nested training state onto CPU so failed device state is replaceable."""
+        if isinstance(value, torch.Tensor):
+            return value.detach().cpu().clone()
+        if isinstance(value, dict):
+            return {key: PQNTrainer._clone_for_recovery(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [PQNTrainer._clone_for_recovery(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(PQNTrainer._clone_for_recovery(item) for item in value)
+        return value
+
+    @staticmethod
+    def _state_tensor_bytes(value: Any) -> int:
+        """Return tensor storage bytes in a nested state snapshot."""
+        if isinstance(value, torch.Tensor):
+            return value.numel() * value.element_size()
+        if isinstance(value, dict):
+            return sum(PQNTrainer._state_tensor_bytes(item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return sum(PQNTrainer._state_tensor_bytes(item) for item in value)
+        return 0
+
+    @staticmethod
+    def _nonfinite_tensor_count(value: Any) -> int:
+        """Count non-finite numeric values recursively without assuming a schema."""
+        if isinstance(value, torch.Tensor):
+            if not (torch.is_floating_point(value) or torch.is_complex(value)):
+                return 0
+            return int((~torch.isfinite(value)).sum().item())
+        if isinstance(value, bool):
+            return 0
+        if isinstance(value, Real):
+            return int(not np.isfinite(value))
+        if isinstance(value, Complex):
+            return int(not np.isfinite(value.real) or not np.isfinite(value.imag))
+        if isinstance(value, dict):
+            return sum(PQNTrainer._nonfinite_tensor_count(item) for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return sum(PQNTrainer._nonfinite_tensor_count(item) for item in value)
+        return 0
+
+    @classmethod
+    def validate_checkpoint_numeric_state(cls, checkpoint: Dict[str, object]) -> None:
+        """Reject a resume payload with non-finite weights or optimizer moments.
+
+        This runs before a checkpoint is installed, so a failed resume cannot
+        mutate a fresh trainer and then turn poisoned tensors into its rollback
+        point.
+        """
+        for key in ("dqn_state_dict", "optimizer_state_dict"):
+            nonfinite = cls._nonfinite_tensor_count(checkpoint.get(key))
+            if nonfinite:
+                raise ValueError(
+                    f"resume checkpoint {key} has {nonfinite} non-finite tensor values"
+                )
+
+    def refresh_numeric_recovery_state(self) -> None:
+        """Capture a finite network plus optimizer state as the rollback point.
+
+        The snapshot is CPU-resident.  It contains weights and Adam moments so a
+        post-step failure cannot leave either half of training advanced.  Its
+        byte count is exposed in incident/checkpoint metadata rather than being
+        an undocumented accelerator-memory cost.
+        """
+        state = {
+            "network": self._clone_for_recovery(self.network.state_dict()),
+            "optimizer": self._clone_for_recovery(self.optimizer.state_dict()),
+        }
+        nonfinite = self._nonfinite_tensor_count(state)
+        if nonfinite:
+            raise RuntimeError(
+                f"cannot capture a numeric recovery state with {nonfinite} non-finite tensor values"
+            )
+        self._last_known_good_state = state
+        self._last_known_good_snapshot_bytes = self._state_tensor_bytes(state)
+
+    def _restore_numeric_recovery_state(self) -> None:
+        """Restore the last successful weights and optimizer moments after a fault."""
+        if not self._last_known_good_state:
+            raise RuntimeError("numeric recovery requested before a good state was captured")
+        self.network.load_state_dict(self._last_known_good_state["network"])
+        self.optimizer.load_state_dict(self._last_known_good_state["optimizer"])
+
+    def _raise_numeric_tripwire(self, stage: str, nonfinite_count: int) -> None:
+        """Roll back and raise a classified numeric incident for the current minibatch."""
+        self._restore_numeric_recovery_state()
+        raise TripwireError(
+            f"non-finite {stage} during SGD at update {self.update_idx}",
+            incident_class=f"nonfinite_{stage}",
+            incident={
+                "stage": stage,
+                "recovered": True,
+                "recovery_snapshot_bytes": self._last_known_good_snapshot_bytes,
+                "nonfinite_counts": {stage: nonfinite_count},
+            },
+        )
+
+    def numeric_recovery_metadata(self) -> Dict[str, object]:
+        """Return measured recovery strategy metadata for durable incident evidence."""
+        return {
+            "strategy": "cpu_last_known_good_network_and_optimizer",
+            "snapshot_bytes": self._last_known_good_snapshot_bytes,
+        }
 
     # -- ε schedule ---------------------------------------------------------
     def epsilon(self) -> float:
@@ -750,14 +877,38 @@ class PQNTrainer:
             if cfg.flip_augment and self.sgd_rng.random() < 0.5:
                 mtac, mstrat, mscal, macts = flip_augment(mtac, mstrat, mscal, macts)
 
+            target_nonfinite = self._nonfinite_tensor_count(mtgt)
+            if target_nonfinite:
+                self._raise_numeric_tripwire("target", target_nonfinite)
             q = self.network(mtac, mstrat, mscal)[:real_count]  # discard forward-only padding
             q_taken = q.gather(1, macts.view(-1, 1)).squeeze(1)
             loss = F.smooth_l1_loss(q_taken, mtgt.detach())
+            if not torch.isfinite(loss):
+                self._raise_numeric_tripwire("loss", self._nonfinite_tensor_count(loss))
 
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            gradient_nonfinite = sum(
+                self._nonfinite_tensor_count(parameter.grad)
+                for parameter in self.network.parameters()
+                if parameter.grad is not None
+            )
+            if gradient_nonfinite:
+                self._raise_numeric_tripwire("gradient", gradient_nonfinite)
             gnorm = nn.utils.clip_grad_norm_(self.network.parameters(), cfg.grad_clip)
+            if not torch.isfinite(gnorm):
+                self._raise_numeric_tripwire("gradient", self._nonfinite_tensor_count(gnorm))
             self.optimizer.step()
+
+            parameter_nonfinite = sum(
+                self._nonfinite_tensor_count(parameter) for parameter in self.network.parameters()
+            )
+            if parameter_nonfinite:
+                self._raise_numeric_tripwire("post_optimizer_parameters", parameter_nonfinite)
+            optimizer_nonfinite = self._nonfinite_tensor_count(self.optimizer.state_dict())
+            if optimizer_nonfinite:
+                self._raise_numeric_tripwire("post_optimizer_state", optimizer_nonfinite)
+            self.refresh_numeric_recovery_state()
 
             losses.append(float(loss.detach()))
             grad_norms.append(float(gnorm))
@@ -838,12 +989,20 @@ class PQNTrainer:
             TripwireError: When any tripwire condition is met.
         """
         if not np.isfinite(tel.loss) or not np.isfinite(tel.grad_norm):
-            raise TripwireError(f"non-finite loss/grad at update {tel.update}", telemetry=tel)
+            raise TripwireError(
+                f"non-finite loss/grad at update {tel.update}",
+                telemetry=tel,
+                incident_class="nonfinite_telemetry",
+            )
         if not np.isfinite(tel.max_abs_q) or tel.max_abs_q > self.cfg.max_abs_q_alarm:
+            incident_class = (
+                "nonfinite_max_abs_q" if not np.isfinite(tel.max_abs_q) else "max_abs_q"
+            )
             raise TripwireError(
                 f"max|Q|={tel.max_abs_q:.3g} exceeded alarm "
                 f"{self.cfg.max_abs_q_alarm:.3g} at update {tel.update}",
                 telemetry=tel,
+                incident_class=incident_class,
             )
         collapse_entropy = (
             tel.raw_action_entropy if self.cfg.action_collapse_raw_actions else tel.action_entropy
@@ -859,6 +1018,7 @@ class PQNTrainer:
                 f"streak={tel.action_collapse_streak}, "
                 f"samples={tel.action_collapse_evidence_samples}) at update {tel.update}",
                 telemetry=tel,
+                incident_class="action_collapse",
             )
 
     # -- public API ---------------------------------------------------------
@@ -1008,6 +1168,7 @@ class PQNTrainer:
             "action_collapse_raw_action_mode": self._action_collapse_raw_action_mode,
             "update_counter": self.update_idx,
             "agent_steps": self.agent_steps,
+            "numeric_recovery": self.numeric_recovery_metadata(),
         }
         state.update(RASTER31V2_SHAPES.to_metadata())
         return state
@@ -1026,3 +1187,21 @@ class PQNTrainer:
             path: Destination file path.
         """
         atomic_torch_save(self.checkpoint_state(), path)
+
+    def save_incident_checkpoint(self, path: str, incident: TripwireError) -> None:
+        """Save a finite flagged state without replacing the accepted rolling checkpoint."""
+        if not incident.is_finite_alarm:
+            raise ValueError("only finite tripwires may be written as incident checkpoints")
+        state = self.checkpoint_state()
+        state["incident"] = {
+            "class": incident.incident_class,
+            "message": str(incident),
+            "telemetry": None if incident.telemetry is None else incident.telemetry.__dict__,
+            "details": incident.incident,
+        }
+        atomic_torch_save(state, path)
+
+
+def validate_checkpoint_numeric_state(checkpoint: Dict[str, object]) -> None:
+    """Reject a non-finite PQN resume payload without relying on a trainer instance."""
+    PQNTrainer.validate_checkpoint_numeric_state(checkpoint)

@@ -4,8 +4,8 @@ The sweep orchestrator treats ``train_rc == 2`` as its ONLY signal that a run
 diverged (:func:`src.scripts.sweep.is_clean`), but tests/test_sweep.py stubs the
 train command out entirely — it proves sweep *reacts* to rc=2, never that
 train_pqn *emits* it. These tests own the producer side of that contract: the
-tripwire -> exit-2 mapping, the "always leave a final checkpoint" guarantee the
-sweep's checkpoint discovery relies on, and ``build_config``'s precedence.
+tripwire -> exit-2 mapping, preservation of an accepted latest checkpoint on a
+tripwire, and ``build_config``'s precedence.
 
 The trainer is stubbed (no GPU, no sim, no real training) for the CLI/loop
 plumbing. The resume tests are the exception: they drive a REAL (tiny)
@@ -93,9 +93,11 @@ class FakeTrainer:
         self.agent_steps = 0
         self.update_idx = 0
         self.updates = 0
+        self.last_telemetry = None
         self.network = _FakeNetwork()
         self.optimizer = _FakeOptimizer()
         self.saved = []
+        self.recovery_refreshes = 0
 
     def epsilon(self) -> float:
         return 0.5
@@ -111,6 +113,17 @@ class FakeTrainer:
         self.saved.append(path)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write("stub-checkpoint")
+
+    def save_incident_checkpoint(self, path: str, incident: TripwireError) -> None:
+        self.saved.append(path)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(f"incident={incident.incident_class}")
+
+    def numeric_recovery_metadata(self):
+        return {"strategy": "fake", "snapshot_bytes": 0}
+
+    def refresh_numeric_recovery_state(self) -> None:
+        self.recovery_refreshes += 1
 
 
 def _install_trainer(monkeypatch, trip_after=None):
@@ -184,14 +197,19 @@ class TestTripwireExitCode:
 
 
 class TestArtifactsOnHalt:
-    """sweep's checkpoint discovery needs a final checkpoint even on a tripwire."""
+    """A tripwire retains diagnostics without replacing an accepted checkpoint."""
 
-    def test_final_checkpoint_saved_even_on_tripwire(self, tmp_path, monkeypatch):
+    def test_no_latest_checkpoint_is_created_on_tripwire_without_prior_acceptance(
+        self, tmp_path, monkeypatch
+    ):
         rc, trainer = _run(tmp_path, monkeypatch, trip_after=2)
 
         assert rc == 2
-        assert (tmp_path / "latest_pqn.pth").exists()
-        assert str(tmp_path / "latest_pqn.pth") in trainer.saved
+        assert not (tmp_path / "latest_pqn.pth").exists()
+        assert not trainer.saved
+        incident = next((tmp_path / "incidents").glob("*.json"))
+        payload = json.loads(incident.read_text())
+        assert payload["class"] == "unknown"
 
     def test_history_jsonl_written_and_parseable(self, tmp_path, monkeypatch):
         _run(tmp_path, monkeypatch, trip_after=3)
