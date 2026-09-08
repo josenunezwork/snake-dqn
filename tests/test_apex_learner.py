@@ -537,7 +537,7 @@ class TestCheckpointing:
         # Create new learner and load
         learner2 = ApexLearner(config, buffer_client=buf, device=torch.device("cpu"))
         assert learner2.step_count == 0
-        learner2.load_state_dict(state)
+        learner2.load_state_dict(state, resume_mode="legacy_unverified")
         assert learner2.step_count == 3
 
         # Verify network weights match
@@ -545,6 +545,25 @@ class TestCheckpointing:
             assert torch.allclose(
                 learner.dqn.state_dict()[key], learner2.dqn.state_dict()[key]
             ), f"Weight mismatch at {key}"
+
+    def test_weights_only_resume_resets_update_clock_and_optimizer(self):
+        config = _small_config(min_buffer_size=32)
+        source = ApexLearner(config, device=torch.device("cpu"))
+        source.step_count = 7
+        source.update_version = 7
+        state = source.get_state_dict()
+        target = ApexLearner(config, device=torch.device("cpu"))
+        target.load_state_dict(state)
+        assert target.step_count == 0
+        assert target.update_version == 0
+        assert target.resume_provenance == "weights_only"
+
+    def test_weight_payload_uses_successful_update_version(self):
+        learner = ApexLearner(_small_config(), device=torch.device("cpu"))
+        learner.update_version = 4
+        version, weights = learner.get_weight_payload()
+        assert version == 4
+        assert set(weights) == set(learner.dqn.state_dict())
 
     def test_load_state_dict_rejects_gamma_mismatch_before_mutation(self):
         """Learner resumes should not silently change the TD-target discount contract."""

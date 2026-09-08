@@ -33,6 +33,7 @@ from .action_mask import summarize_next_action_quality
 from .apex_buffer import LearnerBufferClient, LocalApexBuffer
 from .base_buffer import BatchDict
 from .checkpoint_contract import validate_checkpoint_contract
+from .apex_recipe import ApexRecipe, validate_recipe_continuation
 from .td_targets import double_dqn_next_q, n_step_td_target
 from .tensorboard_logger import TensorBoardLogger
 
@@ -85,6 +86,7 @@ class ApexLearnerConfig:
     # Adam optimizer parameters
     adam_eps: float = 1.5e-4  # Adam epsilon for numerical stability
     weight_decay: float = 0.0  # L2 regularization (typically 0 for DQN)
+    apex_recipe: Optional[ApexRecipe] = None
 
 
 # Type for buffer client: either LearnerBufferClient or LocalApexBuffer
@@ -193,6 +195,9 @@ class ApexLearner:
 
         # Training state
         self.step_count = 0
+        # A version names successful optimizer updates, not queue deliveries.
+        self.update_version = 0
+        self.resume_provenance = "fresh"
 
         # Logging
         self.tb_logger = tensorboard_logger
@@ -441,6 +446,7 @@ class ApexLearner:
 
         # Update target network periodically
         self.step_count += 1
+        self.update_version += 1
         if self.step_count % self.config.target_update_freq == 0:
             hard_update(self.target_dqn, self.dqn)
 
@@ -525,6 +531,10 @@ class ApexLearner:
         """
         return {k: v.cpu().clone() for k, v in self.dqn.state_dict().items()}
 
+    def get_weight_payload(self) -> Tuple[int, Dict[str, torch.Tensor]]:
+        """Return weights together with the actual learner-update version."""
+        return self.update_version, self.get_weights()
+
     def set_weights(self, weights: Dict[str, torch.Tensor]) -> None:
         """Set network weights (useful for loading checkpoints).
 
@@ -545,7 +555,14 @@ class ApexLearner:
             "target_dqn_state_dict": self.target_dqn.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "step_count": self.step_count,
+            "update_version": self.update_version,
+            "resume_provenance": self.resume_provenance,
             "config": self.config.__dict__,
+            **(
+                self.config.apex_recipe.to_metadata()
+                if self.config.apex_recipe is not None
+                else {}
+            ),
         }
 
     def _checkpoint_contract(self) -> Dict[str, Any]:
@@ -558,7 +575,13 @@ class ApexLearner:
             "gamma": self.config.gamma,
         }
 
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
+    def load_state_dict(
+        self,
+        state_dict: Dict[str, Any],
+        *,
+        resume_mode: str = "weights_only",
+        requested_recipe: Optional[ApexRecipe] = None,
+    ) -> None:
         """Load learner state from checkpoint.
 
         Validates that checkpoint dimensions and TD-target semantics match the
@@ -570,6 +593,8 @@ class ApexLearner:
         Raises:
             ValueError: If checkpoint contract does not match learner config
         """
+        if resume_mode not in {"weights_only", "continuation", "legacy_unverified"}:
+            raise ValueError(f"unsupported Apex resume_mode {resume_mode!r}")
         validate_checkpoint_contract(
             state_dict,
             self._checkpoint_contract(),
@@ -577,10 +602,34 @@ class ApexLearner:
             error_type=ValueError,
         )
 
+        if resume_mode == "continuation":
+            if requested_recipe is None:
+                raise ValueError("optimizer continuation requires requested_recipe")
+            validate_recipe_continuation(state_dict, requested_recipe, weights_only=False)
+            optimizer_state = state_dict["optimizer_state_dict"]
+            if not isinstance(self.optimizer, optim.Adam):
+                raise ValueError("distributed continuation requires an Adam optimizer")
+            groups = optimizer_state.get("param_groups") if isinstance(optimizer_state, dict) else None
+            if not isinstance(groups, list) or len(groups) != len(self.optimizer.param_groups):
+                raise ValueError("optimizer continuation has incompatible Adam parameter groups")
+            if any(not isinstance(group, dict) or not group.get("params") for group in groups):
+                raise ValueError("optimizer continuation has malformed Adam parameter groups")
+        elif resume_mode == "legacy_unverified" and "optimizer_state_dict" not in state_dict:
+            raise ValueError("legacy-unverified continuation requires optimizer_state_dict")
+
+        # All validation above precedes mutation. Weights-only deliberately keeps
+        # the fresh optimizer, odometer and runtime state created in __init__.
         self.dqn.load_state_dict(state_dict["dqn_state_dict"])
         self.target_dqn.load_state_dict(state_dict["target_dqn_state_dict"])
-        self.optimizer.load_state_dict(state_dict["optimizer_state_dict"])
-        self.step_count = state_dict.get("step_count", 0)
+        if resume_mode != "weights_only":
+            self.optimizer.load_state_dict(state_dict["optimizer_state_dict"])
+            self.step_count = int(state_dict.get("step_count", 0))
+            self.update_version = int(state_dict.get("update_version", self.step_count))
+            self.resume_provenance = resume_mode
+        else:
+            self.step_count = 0
+            self.update_version = 0
+            self.resume_provenance = "weights_only"
 
     def get_training_stats(self) -> Dict[str, Any]:
         """Get comprehensive training statistics.

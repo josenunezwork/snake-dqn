@@ -602,6 +602,28 @@ class TestWeightSync:
         actor.target_network.load_state_dict.assert_not_called()
         actor._sync_snake_policy_weights.assert_not_called()
 
+    def test_check_weight_queue_records_learner_version_not_message_count(self):
+        class QueueWithVersion:
+            def __init__(self):
+                self.items = [(11, {"layer.weight": torch.ones(3)})]
+
+            def get_nowait(self):
+                if not self.items:
+                    raise queue.Empty
+                return self.items.pop(0)
+
+        actor = ApexActor(
+            actor_id=0, num_actors=1, shared_network=MagicMock(),
+            buffer_client=MagicMock(spec=ActorBufferClient), weight_queue=QueueWithVersion(),
+            stats_queue=MagicMock(spec=mp.Queue), stop_event=MagicMock(spec=mp.Event),
+        )
+        actor.local_network = MagicMock()
+        actor.target_network = MagicMock()
+        actor._sync_snake_policy_weights = MagicMock()
+        assert actor._check_weight_queue()
+        assert actor.last_applied_learner_version == 11
+        assert actor.policy_version == 11
+
 
 # ============================================================================
 # N-step Return

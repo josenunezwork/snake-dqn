@@ -456,6 +456,7 @@ class ApexActor(mp.Process):
         # The coordinator uses these process-local values to distinguish a live
         # actor that is making progress from one that has silently stalled.
         self.policy_version = 0
+        self.last_applied_learner_version = 0
         self._last_heartbeat_monotonic = 0.0
         self.heartbeat_interval_seconds = 1.0
         self.progress_report_interval_frames = max(1, int(progress_report_interval_frames))
@@ -1204,9 +1205,18 @@ class ApexActor(mp.Process):
         applied_update = False
         try:
             while True:
-                state_dict = self.weight_queue.get_nowait()
+                payload = self.weight_queue.get_nowait()
+                if isinstance(payload, tuple) and len(payload) == 2:
+                    learner_version, state_dict = payload
+                    if isinstance(learner_version, bool) or not isinstance(learner_version, int):
+                        raise ValueError("learner weight version must be an integer")
+                else:
+                    # Compatibility payloads are explicitly version zero, rather
+                    # than treating each received queue message as an update.
+                    learner_version, state_dict = 0, payload
                 self.local_network.load_state_dict(state_dict)
                 self.target_network.load_state_dict(state_dict)
+                self.last_applied_learner_version = learner_version
                 applied_update = True
         except queue.Empty:
             pass
@@ -1216,7 +1226,7 @@ class ApexActor(mp.Process):
         if applied_update:
             # Also sync the freshest weights into the snake's policy.
             self._sync_snake_policy_weights()
-            self.policy_version += 1
+            self.policy_version = self.last_applied_learner_version
         return applied_update
 
     def _sync_weights_from_shared(self) -> None:
@@ -1266,6 +1276,7 @@ class ApexActor(mp.Process):
             "environment_transitions": total_steps,
             "replay_rows_emitted": self.sent_experience_count,
             "policy_version": self.policy_version,
+            "last_applied_learner_version": self.last_applied_learner_version,
             "heartbeat_monotonic": heartbeat_monotonic,
             "agent_transitions": self.agent_transition_count,
             "epsilon": self.epsilon,
