@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from src.scripts.eval_cli import parse_seed_list
+from src.scripts.eval_cli import add_strict_promotion_arguments, parse_seed_list
 
 
 class TestParseSeedList:
@@ -58,6 +58,21 @@ class TestParseSeedList:
 
         assert exc_info.value.code == 2
         assert "duplicate seed 1" in capsys.readouterr().err
+
+
+def test_strict_promotion_arguments_are_opt_in_and_paths_are_preserved():
+    parser = argparse.ArgumentParser()
+    add_strict_promotion_arguments(parser)
+
+    defaults = parser.parse_args([])
+    assert defaults.strict_promotion_request is None
+    assert defaults.strict_promotion_receipt is None
+
+    explicit = parser.parse_args(
+        ["--strict-promotion-request", "request.json", "--strict-promotion-receipt", "receipt.json"]
+    )
+    assert explicit.strict_promotion_request == "request.json"
+    assert explicit.strict_promotion_receipt == "receipt.json"
 
 
 class TestSharedAcrossScripts:

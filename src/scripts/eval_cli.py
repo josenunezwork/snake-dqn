@@ -94,3 +94,15 @@ def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+
+def add_strict_promotion_arguments(parser: argparse.ArgumentParser) -> None:
+    """Register strict-promotion artifact paths without granting authority.
+
+    Runtime code consumes these paths through ``src.evaluation.strict_promotion``.
+    This CLI helper intentionally does not parse, validate, or interpret their
+    contents.
+    """
+    group = parser.add_argument_group("strict promotion")
+    group.add_argument("--strict-promotion-request", metavar="PATH", default=None)
+    group.add_argument("--strict-promotion-receipt", metavar="PATH", default=None)
