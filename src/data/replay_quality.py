@@ -1,6 +1,6 @@
 """Stateless replay-quality analytics for the SQLite replay DB.
 
-Validation, coercion, the 58-D state-blob codec, and replay-quality statistics —
+Validation, coercion, the vector state-blob codec, and replay-quality statistics —
 the stateless half of what used to be one 3257-line memory_db_handler module. The
 SQLite I/O lives in memory_db_handler.py (which re-exports this module's public
 API, so existing ``from src.data.memory_db_handler import X`` imports still work).
@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 ACTION_SIZE = 6
 STATE_SIZE = 58
+FREE_SPACE_STATE_SIZE = 61
+SUPPORTED_STATE_SIZES = (STATE_SIZE, FREE_SPACE_STATE_SIZE)
 PER_ACTION_DANGER_START = 54
 PER_ACTION_DANGER_END = 57
 BOOST_AVAILABLE_INDEX = 57
@@ -35,6 +37,21 @@ STATE_FEATURE_BOUNDS = (
     *([(0.0, 1.0)] * 5),
 )
 assert len(STATE_FEATURE_BOUNDS) == STATE_SIZE
+
+
+def _state_blob_format(state_size: int) -> str:
+    """Return the little-endian float32 format for a supported vector width."""
+    if state_size not in SUPPORTED_STATE_SIZES:
+        raise ValueError(f"state size must be one of {SUPPORTED_STATE_SIZES}, got {state_size}")
+    return f"<{state_size}f"
+
+
+def _state_feature_bounds(state_size: int) -> tuple[tuple[float, float], ...]:
+    """Return semantic bounds for the 58-D base and optional free-space tail."""
+    _state_blob_format(state_size)
+    return (*STATE_FEATURE_BOUNDS, *([(0.0, 1.0)] * (state_size - STATE_SIZE)))
+
+
 REPLAY_QUALITY_GATE_ORDER = (
     "min_terminal_fraction",
     "min_immediate_terminal_fraction",
@@ -830,32 +847,45 @@ def _decode_action_mask(value: object) -> tuple[bool, ...] | None:
     return tuple(bool(mask_bits & (1 << idx)) for idx in range(ACTION_MASK_SIZE))
 
 
-def _encode_state_blob(value, field_name: str) -> bytes:
+def _encode_state_blob(value, field_name: str, expected_state_size: int = STATE_SIZE) -> bytes:
     """Encode an observation as the replay database float32 blob format."""
+    state_format = _state_blob_format(expected_state_size)
     values = _flatten_state_values(value, field_name)
-    if len(values) != STATE_SIZE:
-        raise ValueError(f"{field_name} must contain {STATE_SIZE} values, got {len(values)}")
-    return struct.pack(STATE_BLOB_FORMAT, *values)
+    if len(values) != expected_state_size:
+        raise ValueError(
+            f"{field_name} must contain {expected_state_size} values, got {len(values)}"
+        )
+    return struct.pack(state_format, *values)
 
 
-def _decode_state_blob(blob: bytes, field_name: str) -> tuple[float, ...]:
+def _decode_state_blob(
+    blob: bytes, field_name: str, expected_state_size: int = STATE_SIZE
+) -> tuple[float, ...]:
     """Read a fixed-size float32 observation from a replay database blob."""
-    if len(blob) != STATE_BLOB_SIZE:
+    state_format = _state_blob_format(expected_state_size)
+    expected_blob_size = struct.calcsize(state_format)
+    if len(blob) != expected_blob_size:
         value_count = len(blob) // 4
-        raise ValueError(f"{field_name} blob contains {value_count} values, expected {STATE_SIZE}")
-    values = struct.unpack(STATE_BLOB_FORMAT, blob)
+        raise ValueError(
+            f"{field_name} blob contains {value_count} values, expected {expected_state_size}"
+        )
+    values = struct.unpack(state_format, blob)
     if any(not math.isfinite(value) for value in values):
         raise ValueError(f"{field_name} blob must contain only finite values")
     return values
 
 
 def _state_has_out_of_range_features(values: list[float] | tuple[float, ...]) -> bool:
-    """Return whether a 58-feature state violates documented feature ranges."""
+    """Return whether a supported vector state violates documented feature ranges."""
+    try:
+        bounds = _state_feature_bounds(len(values))
+    except ValueError:
+        return True
     return any(
         not math.isfinite(value)
         or value < lower - STATE_RANGE_EPSILON
         or value > upper + STATE_RANGE_EPSILON
-        for value, (lower, upper) in zip(values, STATE_FEATURE_BOUNDS)
+        for value, (lower, upper) in zip(values, bounds)
     )
 
 
@@ -912,7 +942,7 @@ def _state_feature_stats_from_rows(
         except (TypeError, ValueError, OverflowError):
             invalid_state_feature_count += 1
             continue
-        if len(values) != STATE_SIZE:
+        if len(values) not in SUPPORTED_STATE_SIZES:
             invalid_state_feature_count += 1
             continue
         valid_state_count += 1
@@ -1054,8 +1084,10 @@ def current_action_invalid_from_state(action: int, state) -> tuple[bool, bool, b
     """Return current-action invalidity for one replay state/action pair."""
     action_idx = _coerce_action(action)
     values = _flatten_state_values(state, "state")
-    if len(values) != STATE_SIZE:
-        raise ValueError(f"state must contain {STATE_SIZE} values, got {len(values)}")
+    if len(values) not in SUPPORTED_STATE_SIZES:
+        raise ValueError(
+            f"state must contain one of {SUPPORTED_STATE_SIZES} values, got {len(values)}"
+        )
     return _current_action_invalid_from_state(action_idx, values)
 
 
@@ -2037,7 +2069,7 @@ def build_replay_quality_stats(
                 values = _flatten_state_values(state, "state")
             except (TypeError, ValueError):
                 continue
-            if len(values) != STATE_SIZE:
+            if len(values) not in SUPPORTED_STATE_SIZES:
                 continue
             try:
                 action_idx = _coerce_action(action)
@@ -2080,7 +2112,7 @@ def build_replay_quality_stats(
             except (TypeError, ValueError):
                 invalid_next_state_feature_count += 1
                 values = []
-            if len(values) == STATE_SIZE:
+            if len(values) in SUPPORTED_STATE_SIZES:
                 valid_next_state_count += 1
                 if _state_has_out_of_range_features(values):
                     malformed_next_state_range_count += 1

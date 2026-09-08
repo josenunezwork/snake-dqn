@@ -258,6 +258,17 @@ def format_checkpoint_replay_provenance(checkpoint: dict) -> list[str]:
         )
 
     if replay_metadata:
+        validation = replay_metadata.get("replay.load_validation") or replay_metadata.get(
+            "replay.verification", {}
+        )
+        if validation:
+            lines.append(
+                "Checkpoint replay trust: "
+                f"status={validation.get('status')} | "
+                f"contract={validation.get('contract_digest')} | "
+                f"missing={len(validation.get('missing_fields', []))} | "
+                f"fallback_masks={validation.get('fallback_mask_count', 0)}"
+            )
         lines.append(
             "Checkpoint generated replay: "
             f"mode={replay_metadata.get('generation.mode')} | "
@@ -612,6 +623,7 @@ def load_replay_database(
     max_exact_mask_state_mismatch_fraction: float = 1.0,
     max_malformed_state_feature_fraction: float = 1.0,
     min_row_count: int = 0,
+    allow_unverified_legacy: bool = False,
 ) -> int:
     """Load generated replay rows into the policy's prioritized replay buffer."""
     from src.data.memory_db_handler import (
@@ -619,6 +631,15 @@ def load_replay_database(
         build_replay_quality_stats,
         format_replay_quality_stats,
         format_replay_quality_warnings,
+    )
+    from src.data.replay_contract import (
+        ReplayValidation,
+        replay_sqlite_hashes,
+        validate_replay_provenance,
+    )
+    from src.scripts.generate_experiences import (
+        build_verified_replay_contract,
+        resolve_generation_environment_settings,
     )
 
     if not os.path.exists(db_path):
@@ -629,26 +650,62 @@ def load_replay_database(
     capacity = getattr(policy.memory, "capacity", GameConfig.MEMORY_SIZE)
     effective_limit = resolve_replay_load_limit(limit, capacity)
 
-    db_handler = MemoryDBHandler(db_name=db_path)
+    source_file_hashes = replay_sqlite_hashes(db_path)
+    db_handler = MemoryDBHandler(db_name=db_path, read_only=True)
     try:
+        db_handler.conn.execute("BEGIN")
         replay_metadata = db_handler.get_metadata()
+        generation_metadata = {
+            key: value for key, value in replay_metadata.items() if key.startswith("generation.")
+        }
         validate_replay_metadata_contract(
-            replay_metadata,
+            generation_metadata,
             db_path,
             policy_type="apex",
             expected_state_size=GameConfig.INPUT_SIZE,
             expected_action_size=GameConfig.OUTPUT_SIZE,
             expected_gamma=GameConfig.APEX_GAMMA,
             expected_n_step=GameConfig.APEX_N_STEP,
-            expected_reward_contract=current_reward_contract(),
-            expected_reward_death=GameConfig.REWARD_DEATH,
-            expected_reward_food_base=GameConfig.REWARD_FOOD_BASE,
+            expected_reward_contract=(
+                current_reward_contract()
+                if "generation.reward_contract" in generation_metadata
+                else None
+            ),
+            expected_reward_death=(
+                GameConfig.REWARD_DEATH
+                if "generation.reward_death" in generation_metadata
+                else None
+            ),
+            expected_reward_food_base=(
+                GameConfig.REWARD_FOOD_BASE
+                if "generation.reward_food_base" in generation_metadata
+                else None
+            ),
             state_size_name="INPUT_SIZE",
             action_size_name="OUTPUT_SIZE",
             gamma_name="APEX_GAMMA",
             n_step_name="APEX_N_STEP",
             reward_death_name="REWARD_DEATH",
             reward_food_base_name="REWARD_FOOD_BASE",
+        )
+        expected_env_settings = resolve_generation_environment_settings(
+            num_snakes=replay_metadata.get("generation.num_snakes"),
+            board_scale=replay_metadata.get("generation.board_scale", 1.0),
+            food_multiplier=replay_metadata.get("generation.food_multiplier", 1.0),
+        )
+        expected_frame_limit = replay_metadata.get("generation.frame_limit")
+        dataset_fallback_mask_count = db_handler.get_nonterminal_missing_mask_count(
+            policy_type="apex"
+        )
+        replay_validation = validate_replay_provenance(
+            replay_metadata,
+            db_path,
+            expected=build_verified_replay_contract(
+                expected_env_settings,
+                expected_frame_limit,
+            ),
+            allow_unverified_legacy=allow_unverified_legacy,
+            fallback_mask_count=dataset_fallback_mask_count,
         )
         loaded_rows = db_handler.load_memories_for_policy(
             policy_type="apex",
@@ -659,6 +716,8 @@ def load_replay_database(
         )
     finally:
         db_handler.close()
+    if replay_sqlite_hashes(db_path) != source_file_hashes:
+        raise RuntimeError(f"Replay database changed while loading: {db_path}")
     if len(loaded_rows) == 9:
         (
             states,
@@ -687,6 +746,27 @@ def load_replay_database(
         states, actions, rewards, next_states, dones, priorities, bootstrap_steps = loaded_rows
         next_action_masks = None
         snake_ids = None
+
+    fallback_mask_count = (
+        sum(not done for done in dones)
+        if next_action_masks is None
+        else sum(not done and mask is None for done, mask in zip(dones, next_action_masks))
+    )
+    loaded_fallback_mask_count = fallback_mask_count
+    if replay_validation.status == "verified" and loaded_fallback_mask_count:
+        raise RuntimeError(
+            f"Verified replay {db_path} contains {loaded_fallback_mask_count} nonterminal "
+            "row(s) without an exact next-action mask"
+        )
+    replay_validation = ReplayValidation(
+        status=replay_validation.status,
+        contract_digest=replay_validation.contract_digest,
+        missing_fields=replay_validation.missing_fields,
+        fallback_mask_count=max(
+            replay_validation.fallback_mask_count,
+            loaded_fallback_mask_count,
+        ),
+    )
 
     replay_quality = build_replay_quality_stats(
         actions,
@@ -762,7 +842,13 @@ def load_replay_database(
     )
     policy._offline_replay_quality = dict(replay_quality)
     policy._offline_replay_warnings = list(warnings)
-    policy._offline_replay_metadata = dict(replay_metadata)
+    policy._offline_replay_metadata = {
+        **dict(replay_metadata),
+        "replay.load_validation": {
+            **replay_validation.to_metadata(),
+            "loaded_subset_fallback_mask_count": loaded_fallback_mask_count,
+        },
+    }
     policy._offline_replay_gates = {
         "min_terminal_fraction": float(min_terminal_fraction),
         "min_immediate_terminal_fraction": float(min_immediate_terminal_fraction),
@@ -780,6 +866,7 @@ def load_replay_database(
     }
     policy._offline_replay_load = {
         "db_path": db_path,
+        "source_file_hashes": source_file_hashes,
         "effective_limit": int(effective_limit),
         "loaded_rows": len(states),
         "replay_order": replay_order,
@@ -902,6 +989,14 @@ Examples:
         """,
     )
     parser.add_argument("--db", default="snake_memories.db", help="SQLite replay database path")
+    parser.add_argument(
+        "--allow-unverified-legacy-replay",
+        action="store_true",
+        help=(
+            "Explicitly allow replay without a verified replay.contract. The resulting "
+            "checkpoint remains tagged unverified with missing-field and mask-fallback counts."
+        ),
+    )
     parser.add_argument("--iterations", type=int, default=20000, help="Gradient updates to run")
     parser.add_argument(
         "--batch-size",
@@ -1127,6 +1222,7 @@ Examples:
         args.limit,
         args.replay_order,
         min_row_count=min_row_count,
+        allow_unverified_legacy=args.allow_unverified_legacy_replay,
         **replay_gates,
     )
     print(f"Loaded replay rows: {replay_count:,}")

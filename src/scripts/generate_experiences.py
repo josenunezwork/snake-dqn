@@ -28,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig  # noqa: E402
 from src.core.reward_contract import current_reward_contract  # noqa: E402
+from src.core.runtime_contract import RuntimeModeContract, canonical_digest  # noqa: E402
+from src.core.seeding import SeedContext, initialize_run_seed  # noqa: E402
 from src.data.memory_db_handler import (  # noqa: E402
     REPLAY_QUALITY_GATE_ORDER,
     REPLAY_QUALITY_GATE_PRESETS,
@@ -40,6 +42,12 @@ from src.data.memory_db_handler import (  # noqa: E402
 from src.data.memory_db_handler import (  # noqa: E402
     validate_replay_quality_gates as validate_shared_replay_quality_gates,
 )
+from src.data.replay_contract import (  # noqa: E402
+    ReplayContract,
+    validate_replay_provenance,
+)
+from src.game.snake_state import FREE_SPACE_BFS_CAP, FREE_SPACE_MIN_CAP  # noqa: E402
+from src.model.obs_spec import VECTOR61  # noqa: E402
 from src.scripts.audit_replay import format_reusable_gate_args  # noqa: E402
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
 
@@ -51,7 +59,9 @@ DEFAULT_GENERATION_ENV_PRESET = "collision_dense"
 DEFAULT_GENERATION_REPLAY_QUALITY_PRESET = "training"
 DEFAULT_BOOST_EXPLORATION_RATE = 0.25
 DEFAULT_DANGER_EXPLORATION_RATE = 0.02
-DEFAULT_GENERATION_SEED = 0
+DEFAULT_GENERATION_SEED = None
+GENERATOR_IDENTITY = "snake-dqn.generate-experiences"
+GENERATOR_VERSION = 1
 GENERATION_APPEND_CONTRACT_KEYS = (
     "generation.policy_type",
     "generation.state_size",
@@ -408,6 +418,174 @@ def build_generation_replay_contract(env_settings: dict) -> dict:
     }
 
 
+def build_live_game_world_contract(env_settings: dict, frame_limit: int) -> dict:
+    """Return the exact pixel-world semantics used by ``GameState``.
+
+    C0's ``EffectiveWorldConfig`` deliberately requires cell-aligned BatchSim
+    geometry.  The incumbent live generator's collision-dense world is exactly
+    290x166 pixels with 10-pixel movement, so rounding it into that type would
+    falsify the data lineage.  This versioned live-engine mapping uses the same
+    C0 field vocabulary and canonical hashing without weakening that invariant.
+    """
+    board_scale = float(env_settings["board_scale"])
+    food_multiplier = float(env_settings["food_multiplier"])
+    width = int(GameConfig.WIDTH * board_scale)
+    height = int(GameConfig.HEIGHT * board_scale)
+    scale_x = width / max(GameConfig.WIDTH, 1)
+    scale_y = height / max(GameConfig.HEIGHT, 1)
+    arena_scale = min(scale_x, scale_y)
+    circular_geometry = (
+        {
+            "arena_radius": float(GameConfig.ARENA_RADIUS * arena_scale),
+            "arena_center_x": float(GameConfig.ARENA_CENTER_X * scale_x),
+            "arena_center_y": float(GameConfig.ARENA_CENTER_Y * scale_y),
+        }
+        if GameConfig.ARENA_TYPE == "circular"
+        else None
+    )
+    max_dimension = max(width, height)
+    normalization = {
+        "boundary_width": float(width),
+        "boundary_height": float(height),
+        "danger_max_distance_pixels": float(
+            GameConfig.DANGER_MAX_DISTANCE * GameConfig.SEGMENT_SIZE
+        ),
+        "food_density_capacity": float(int(GameConfig.MAX_FOOD * food_multiplier)),
+        "food_distance_board_diagonal": float(math.hypot(width, height)),
+        "food_position_max_dimension": float(max_dimension),
+        "free_space_bfs_cap": float(FREE_SPACE_BFS_CAP),
+        "free_space_min_cap": float(FREE_SPACE_MIN_CAP),
+        "length_max": float(GameConfig.MAX_LENGTH),
+    }
+    world = {
+        "schema_version": 1,
+        "engine": "live",
+        "width": width,
+        "height": height,
+        "segment_size": int(GameConfig.SEGMENT_SIZE),
+        "wall_thickness": int(GameConfig.WALL_THICKNESS),
+        "arena_type": str(GameConfig.ARENA_TYPE),
+        "mechanics_version": int(GameConfig.MECHANICS_VERSION),
+        "num_snakes": int(env_settings["num_snakes"]),
+        "max_frames": int(frame_limit),
+        "initial_food": int(GameConfig.INITIAL_FOOD * food_multiplier),
+        "max_food": int(GameConfig.MAX_FOOD * food_multiplier),
+        "min_boost_length": int(GameConfig.MIN_BOOST_LENGTH),
+        "boost_length_cost_frames": int(GameConfig.BOOST_LENGTH_COST_FRAMES),
+        "frame_rate": int(GameConfig.FRAME_RATE),
+        "max_length": int(GameConfig.MAX_LENGTH),
+        "starvation_max_frames": int(GameConfig.STARVATION_MAX_FRAMES),
+        "circular_geometry": circular_geometry,
+        # Live GameState grows Python containers and has no fixed simulator cap.
+        "max_capacity": None,
+        "kill_scale": float(GameConfig.REWARD_KILL_LENGTH_SCALE),
+        "death_value": float(GameConfig.REWARD_DEATH),
+        "normalization": normalization,
+    }
+    return {**world, "digest": canonical_digest(world)}
+
+
+def build_verified_replay_contract(
+    env_settings: dict,
+    frame_limit: int | None = None,
+) -> ReplayContract:
+    """Build the canonical semantics for rows emitted by this generator."""
+    reward_contract = current_reward_contract()
+    resolved_frame_limit = resolve_generation_frame_limit(frame_limit)
+    world = build_live_game_world_contract(env_settings, resolved_frame_limit)
+    runtime = RuntimeModeContract(
+        mode="offline_replay_generation",
+        training=True,
+        respawn=False,
+        hero_terminal=True,
+        population_floor=bool(GameConfig.MECHANICS_VERSION == 2),
+        reset_strategy="episode",
+    )
+    observation_semantics = {
+        "obs_spec": VECTOR61,
+        "input_size": int(GameConfig.INPUT_SIZE),
+        "use_free_space": bool(GameConfig.USE_FREE_SPACE),
+        "use_boundary_as_danger": bool(GameConfig.USE_BOUNDARY_AS_DANGER),
+        "num_sectors": int(GameConfig.NUM_SECTORS),
+        "danger_max_distance": int(GameConfig.DANGER_MAX_DISTANCE),
+        "state_layout_version": "legacy_vector_features_v1",
+        "dtype": "float32",
+        "direction_order": [list(direction) for direction in GameConfig.ACTIONS],
+        "game_width": int(world["width"]),
+        "game_height": int(world["height"]),
+        "segment_size": int(world["segment_size"]),
+        "food_capacity": int(world["max_food"]),
+        "arena_type": str(world["arena_type"]),
+        "circular_geometry": world["circular_geometry"],
+        "min_boost_length": int(world["min_boost_length"]),
+        "free_space_bfs_cap": int(FREE_SPACE_BFS_CAP),
+        "free_space_min_cap": int(FREE_SPACE_MIN_CAP),
+        "free_space_length_multiplier": 2,
+        "enemy_trend_update_rule": "update_only_when_update_enemy_memory_true_v1",
+        "per_action_tail_vacancy_rule": "exclude_tail_when_body_fills_logical_length_v1",
+        "per_action_danger_rule": "relative3_hard_lt_segment_soft_proximity_cap_0.95_v1",
+        "normalization": dict(world["normalization"]),
+    }
+    return ReplayContract(
+        policy_type="apex",
+        observation={
+            "obs_spec": VECTOR61,
+            "input_size": int(GameConfig.INPUT_SIZE),
+            "use_free_space": bool(GameConfig.USE_FREE_SPACE),
+            "use_boundary_as_danger": bool(GameConfig.USE_BOUNDARY_AS_DANGER),
+            "num_sectors": int(GameConfig.NUM_SECTORS),
+            "danger_max_distance": int(GameConfig.DANGER_MAX_DISTANCE),
+            "state_layout_version": "legacy_vector_features_v1",
+            "dtype": observation_semantics["dtype"],
+            "direction_order": observation_semantics["direction_order"],
+            "game_width": observation_semantics["game_width"],
+            "game_height": observation_semantics["game_height"],
+            "segment_size": observation_semantics["segment_size"],
+            "food_capacity": observation_semantics["food_capacity"],
+            "arena_type": observation_semantics["arena_type"],
+            "circular_geometry": observation_semantics["circular_geometry"],
+            "min_boost_length": observation_semantics["min_boost_length"],
+            "free_space_bfs_cap": observation_semantics["free_space_bfs_cap"],
+            "free_space_min_cap": observation_semantics["free_space_min_cap"],
+            "free_space_length_multiplier": observation_semantics["free_space_length_multiplier"],
+            "enemy_trend_update_rule": observation_semantics["enemy_trend_update_rule"],
+            "per_action_tail_vacancy_rule": observation_semantics["per_action_tail_vacancy_rule"],
+            "per_action_danger_rule": observation_semantics["per_action_danger_rule"],
+            "semantic_digest": canonical_digest(observation_semantics),
+        },
+        action={"count": int(GameConfig.OUTPUT_SIZE), "interpretation": "relative6"},
+        mask={
+            "schema": "exact_safe_actions_v1",
+            "action_count": int(GameConfig.OUTPUT_SIZE),
+            "encoding": "sqlite_integer_lsb_action_index",
+            "presence_rule": "required_nonterminal_nullable_terminal",
+            "missing_row_fallback": "state_vector_danger_v1",
+        },
+        world=world,
+        target={"gamma": float(GameConfig.APEX_GAMMA), "n_step": int(GameConfig.APEX_N_STEP)},
+        reward={
+            "version": int(GameConfig.REWARD_VERSION),
+            "contract": reward_contract,
+            "digest": canonical_digest(reward_contract),
+        },
+        episode={
+            "mode": runtime.mode,
+            "train_mode": runtime.training,
+            "allow_respawn": runtime.respawn,
+            "hero_terminal": runtime.hero_terminal,
+            "population_floor": runtime.population_floor,
+            "reset_strategy": runtime.reset_strategy,
+            "runtime_digest": runtime.digest,
+        },
+        seed={
+            "scope": "per_generation_run",
+            "derivation": "stable_named_sha256",
+            "manifest_key": "replay.runs",
+        },
+        generator={"identity": GENERATOR_IDENTITY, "version": GENERATOR_VERSION},
+    )
+
+
 def _metadata_value_label(value) -> str:
     """Return a concise metadata value for append-contract errors."""
     if isinstance(value, float):
@@ -499,17 +677,26 @@ def validate_append_replay_contract(
     *,
     append: bool,
     policy_type: str = "apex",
+    intended_contract: ReplayContract | None = None,
 ) -> None:
     """Reject append mode when existing rows were generated under a different contract."""
     if not append:
         return
 
-    existing_quality = db_handler.get_replay_quality_stats(policy_type=policy_type)
-    existing_rows = int(existing_quality.get("count", 0))
+    existing_rows = int(db_handler.get_memory_count(policy_type=policy_type))
     if existing_rows <= 0:
         return
 
     existing_metadata = db_handler.get_metadata()
+    if intended_contract is not None:
+        fallback_mask_count = db_handler.get_nonterminal_missing_mask_count(policy_type=policy_type)
+        validate_replay_provenance(
+            existing_metadata,
+            db_path,
+            expected=intended_contract,
+            fallback_mask_count=fallback_mask_count,
+            exact=True,
+        )
     if not existing_metadata or not any(key.startswith("generation.") for key in existing_metadata):
         raise RuntimeError(
             f"Cannot append to {db_path}: found {existing_rows:,} existing replay rows but "
@@ -555,10 +742,21 @@ def build_generation_metadata(
     append: bool,
     config_path: str | None = None,
     num_envs: int | None = None,
+    seed_context: SeedContext | None = None,
+    worker_seeds: list[int] | None = None,
 ) -> dict:
     """Return durable replay-generation metadata for later audits/training."""
+    if seed_context is None:
+        raise ValueError("seed_context is required so effective entropy is persisted")
+    verified_contract = build_verified_replay_contract(env_settings, frame_limit)
+    world = verified_contract.world
+    observation = verified_contract.observation
+    mask = verified_contract.mask
+    episode = verified_contract.episode
+    reward = verified_contract.reward
     return {
         **build_generation_replay_contract(env_settings),
+        **verified_contract.to_metadata(),
         "generation.append": bool(append),
         "generation.boost_exploration_rate": float(boost_exploration_rate),
         "generation.checkpoint_path": checkpoint_path,
@@ -577,6 +775,68 @@ def build_generation_metadata(
         "generation.replay_quality_preset": replay_quality_preset,
         "generation.resolved_checkpoint_path": resolved_checkpoint_path,
         "generation.save_interval": int(save_interval),
+        "generation.effective_seed": int(seed_context.effective_seed),
+        "generation.requested_seed": seed_context.requested_seed,
+        "generation.worker_seeds": [] if worker_seeds is None else list(worker_seeds),
+        "generation.generator_identity": GENERATOR_IDENTITY,
+        "generation.generator_version": GENERATOR_VERSION,
+        "generation.obs_spec": VECTOR61,
+        "generation.use_free_space": bool(GameConfig.USE_FREE_SPACE),
+        "generation.use_boundary_as_danger": bool(GameConfig.USE_BOUNDARY_AS_DANGER),
+        "generation.num_sectors": int(GameConfig.NUM_SECTORS),
+        "generation.danger_max_distance": int(GameConfig.DANGER_MAX_DISTANCE),
+        "generation.state_layout_version": "legacy_vector_features_v1",
+        "generation.observation_dtype": observation["dtype"],
+        "generation.direction_order": observation["direction_order"],
+        "generation.observation_game_width": observation["game_width"],
+        "generation.observation_game_height": observation["game_height"],
+        "generation.observation_segment_size": observation["segment_size"],
+        "generation.observation_food_capacity": observation["food_capacity"],
+        "generation.observation_arena_type": observation["arena_type"],
+        "generation.observation_circular_geometry": observation["circular_geometry"],
+        "generation.observation_min_boost_length": observation["min_boost_length"],
+        "generation.free_space_bfs_cap": observation["free_space_bfs_cap"],
+        "generation.free_space_min_cap": observation["free_space_min_cap"],
+        "generation.free_space_length_multiplier": observation["free_space_length_multiplier"],
+        "generation.enemy_trend_update_rule": observation["enemy_trend_update_rule"],
+        "generation.per_action_tail_vacancy_rule": observation["per_action_tail_vacancy_rule"],
+        "generation.per_action_danger_rule": observation["per_action_danger_rule"],
+        "generation.observation_digest": observation["semantic_digest"],
+        "generation.action_interpretation": "relative6",
+        "generation.mask_schema": "exact_safe_actions_v1",
+        "generation.mask_action_count": mask["action_count"],
+        "generation.mask_encoding": mask["encoding"],
+        "generation.mask_presence_rule": mask["presence_rule"],
+        "generation.mask_missing_row_fallback": mask["missing_row_fallback"],
+        "generation.arena_type": str(GameConfig.ARENA_TYPE),
+        "generation.mechanics_version": int(GameConfig.MECHANICS_VERSION),
+        "generation.rewards_version": int(GameConfig.REWARD_VERSION),
+        "generation.reward_digest": reward["digest"],
+        "generation.world_schema_version": world["schema_version"],
+        "generation.world_engine": world["engine"],
+        "generation.segment_size": world["segment_size"],
+        "generation.wall_thickness": world["wall_thickness"],
+        "generation.min_boost_length": world["min_boost_length"],
+        "generation.boost_length_cost_frames": world["boost_length_cost_frames"],
+        "generation.frame_rate": world["frame_rate"],
+        "generation.max_length": world["max_length"],
+        "generation.starvation_max_frames": world["starvation_max_frames"],
+        "generation.circular_geometry": world["circular_geometry"],
+        "generation.max_capacity": world["max_capacity"],
+        "generation.kill_scale": world["kill_scale"],
+        "generation.death_value": world["death_value"],
+        "generation.normalization": world["normalization"],
+        "generation.world_digest": world["digest"],
+        "generation.episode_mode": episode["mode"],
+        "generation.train_mode": episode["train_mode"],
+        "generation.allow_respawn": episode["allow_respawn"],
+        "generation.hero_terminal": episode["hero_terminal"],
+        "generation.population_floor": episode["population_floor"],
+        "generation.reset_strategy": episode["reset_strategy"],
+        "generation.runtime_digest": episode["runtime_digest"],
+        "generation.seed_scope": verified_contract.seed["scope"],
+        "generation.seed_derivation": verified_contract.seed["derivation"],
+        "generation.seed_manifest_key": verified_contract.seed["manifest_key"],
     } | (
         {}
         if epsilon_min is None or epsilon_max is None
@@ -587,7 +847,40 @@ def build_generation_metadata(
     )
 
 
-def build_generation_quality_metadata(quality: dict) -> dict:
+def write_generation_metadata(
+    db_handler: "MemoryDBHandler",
+    metadata: dict,
+    *,
+    append: bool,
+) -> None:
+    """Persist the dataset contract and append-only generation-run lineage."""
+    prior_runs = db_handler.get_metadata("replay.runs") if append else None
+    if prior_runs is None:
+        prior_runs = []
+    if not isinstance(prior_runs, list):
+        raise RuntimeError("Replay metadata replay.runs must be a list")
+    run = {
+        "mode": metadata["generation.mode"],
+        "effective_seed": metadata["generation.effective_seed"],
+        "requested_seed": metadata["generation.requested_seed"],
+        "worker_seeds": metadata["generation.worker_seeds"],
+        "episodes": metadata["generation.episodes"],
+        "generator_identity": metadata["generation.generator_identity"],
+        "generator_version": metadata["generation.generator_version"],
+    }
+    db_handler.update_metadata({**metadata, "replay.runs": [*prior_runs, run]})
+
+
+def generation_episode_active(game_state, episode_length: int, frame_limit: int) -> bool:
+    """Return whether replay collection should advance the current episode."""
+    return (
+        episode_length < frame_limit
+        and game_state.alive_snakes > 0
+        and not game_state.population_floor_reached
+    )
+
+
+def build_generation_quality_metadata(quality: dict, *, contract_digest: str | None = None) -> dict:
     """Return durable generated-replay quality stats for later diagnosis."""
     action_counts = quality.get("action_counts", {})
     replay_quality = {
@@ -637,7 +930,26 @@ def build_generation_quality_metadata(quality: dict) -> dict:
         ),
         "terminal_fraction": float(quality.get("terminal_fraction", 0.0)),
     }
-    return {"generation.replay_quality": replay_quality}
+    metadata = {"generation.replay_quality": replay_quality}
+    if contract_digest is not None:
+        fallback_mask_count = max(
+            int(quality.get("nonterminal_count", 0))
+            - int(quality.get("nonterminal_mask_count", 0)),
+            0,
+        )
+        if fallback_mask_count:
+            raise RuntimeError(
+                "Verified exact-mask replay contains "
+                f"{fallback_mask_count} nonterminal row(s) without a mask"
+            )
+        metadata["replay.verification"] = {
+            "schema_version": 1,
+            "status": "verified",
+            "contract_digest": contract_digest,
+            "missing_fields": [],
+            "fallback_mask_count": 0,
+        }
+    return metadata
 
 
 def format_audit_replay_command(
@@ -1218,27 +1530,17 @@ def generate_single_env(
     num_snakes=None,
     board_scale=1.0,
     food_multiplier=1.0,
+    worker_seed=None,
 ):
     """Generate Apex-DQN experiences in a single environment (for parallel execution)."""
     db_handler = None
     try:
-        import random
-
         import numpy as np
-        import torch
 
         from src.data.memory_db_handler import MemoryDBHandler
         from src.game.game_state import GameState
 
-        # Seed every RNG deterministically per worker so food spawning, epsilon
-        # exploration, and action selection diverge across workers instead of
-        # replaying the parent's inherited global state (correlated trajectories
-        # under the Linux 'fork' default). Per-worker seed = base_seed + env_id
-        # keeps runs reproducible while diverse across environments.
-        worker_seed = DEFAULT_GENERATION_SEED + int(env_id)
-        random.seed(worker_seed)
-        np.random.seed(worker_seed)
-        torch.manual_seed(worker_seed)
+        seed_context = initialize_run_seed(worker_seed)
 
         apply_generation_config(config_path, env_id=env_id)
         frame_limit = resolve_generation_frame_limit(max_frames)
@@ -1267,6 +1569,32 @@ def generate_single_env(
         )
         # Use separate database per environment to avoid SQLite concurrent write issues
         db_handler = MemoryDBHandler(db_name=env_db_path)
+        worker_metadata = build_generation_metadata(
+            mode="parallel_worker",
+            episodes=episodes,
+            save_interval=save_interval,
+            frame_limit=frame_limit,
+            env_settings=env_settings,
+            load_model=load_model,
+            model_loaded=None,
+            checkpoint_path=checkpoint_path,
+            resolved_checkpoint_path=None,
+            exploration_epsilon=exploration_epsilon,
+            exploration_min_epsilon=resolve_generation_min_epsilon(False),
+            epsilon_min=None,
+            epsilon_max=None,
+            boost_exploration_rate=boost_exploration_rate,
+            danger_exploration_rate=danger_exploration_rate,
+            replay_quality_preset="worker",
+            replay_gates={},
+            min_row_count=0,
+            append=False,
+            config_path=config_path,
+            num_envs=1,
+            seed_context=seed_context,
+            worker_seeds=[seed_context.effective_seed],
+        )
+        write_generation_metadata(db_handler, worker_metadata, append=False)
 
         # Load Apex model if requested
         model_loaded = False
@@ -1305,7 +1633,7 @@ def generate_single_env(
             episode_length = 0
             last_progress_time = time.time()
 
-            while episode_length < frame_limit and game_state.alive_snakes > 0:
+            while generation_episode_active(game_state, episode_length, frame_limit):
                 update_generation_environment(game_state)
                 episode_length += 1
 
@@ -1409,10 +1737,12 @@ def generate_experiences_parallel(
     max_malformed_state_feature_fraction=1.0,
     replay_quality_preset="none",
     min_row_count=0,
+    seed=None,
 ):
     """Generate Apex-DQN experiences using multiple parallel environments."""
     from src.data.memory_db_handler import MemoryDBHandler
 
+    seed_context = initialize_run_seed(seed)
     if exploration_epsilon is None:
         exploration_epsilon = GameConfig.APEX_EPSILON_BASE
     env_settings = resolve_generation_environment_settings(
@@ -1430,14 +1760,16 @@ def generate_experiences_parallel(
     )
     frame_limit = resolve_generation_frame_limit(max_frames)
     output_db_path = prepare_generation_output_database(db_path, append=append)
-    if append:
-        append_db = MemoryDBHandler(db_name=output_db_path)
+    intended_contract = build_verified_replay_contract(env_settings, frame_limit)
+    if append and os.path.exists(output_db_path):
+        append_db = MemoryDBHandler(db_name=output_db_path, read_only=True)
         try:
             validate_append_replay_contract(
                 append_db,
                 build_generation_replay_contract(env_settings),
                 output_db_path,
                 append=append,
+                intended_contract=intended_contract,
             )
         finally:
             append_db.close()
@@ -1447,12 +1779,14 @@ def generate_experiences_parallel(
 
     episode_counts = split_episodes_across_envs(episodes, num_envs)
     active_envs = [(env_id, count) for env_id, count in enumerate(episode_counts) if count > 0]
+    worker_seeds = [seed_context.stream_seed(f"worker/{env_id}") for env_id, _ in active_envs]
 
     print(f"\n🚀 PARALLEL MODE: {num_envs} environments")
     print(f"   Active environments: {len(active_envs)}")
     print(f"   Episodes per env: {episode_counts}")
     print(f"   Total snakes: {len(active_envs) * env_settings['num_snakes']}")
     print(f"   Frame limit: {frame_limit:,}")
+    print(f"   Effective seed: {seed_context.effective_seed}")
     print(
         "   Environment: "
         f"snakes={env_settings['num_snakes']}, "
@@ -1474,7 +1808,7 @@ def generate_experiences_parallel(
     start_time = time.time()
 
     try:
-        for env_id, env_episodes in active_envs:
+        for (env_id, env_episodes), worker_seed in zip(active_envs, worker_seeds):
             p = mp.Process(
                 target=generate_single_env,
                 args=(
@@ -1494,6 +1828,7 @@ def generate_experiences_parallel(
                     env_settings["num_snakes"],
                     env_settings["board_scale"],
                     env_settings["food_multiplier"],
+                    worker_seed,
                 ),
             )
             process_entries.append((env_id, p))
@@ -1537,7 +1872,8 @@ def generate_experiences_parallel(
             max_exact_mask_state_mismatch_fraction=max_exact_mask_state_mismatch_fraction,
             max_malformed_state_feature_fraction=max_malformed_state_feature_fraction,
         )
-        main_db.update_metadata(
+        write_generation_metadata(
+            main_db,
             build_generation_metadata(
                 mode="parallel",
                 episodes=episodes,
@@ -1563,7 +1899,10 @@ def generate_experiences_parallel(
                 append=append,
                 config_path=config_path,
                 num_envs=num_envs,
-            )
+                seed_context=seed_context,
+                worker_seeds=worker_seeds,
+            ),
+            append=append,
         )
         total_merged = 0
         policy_type = "apex"
@@ -1575,6 +1914,12 @@ def generate_experiences_parallel(
                 env_db = None
                 try:
                     env_db = MemoryDBHandler(db_name=env_db_path)
+                    validate_replay_provenance(
+                        env_db.get_metadata(),
+                        env_db_path,
+                        expected=intended_contract,
+                        exact=True,
+                    )
 
                     # Load and merge Apex memories. Use limit=None so large
                     # generation runs do not silently drop rows during merge, and
@@ -1664,7 +2009,9 @@ def generate_experiences_parallel(
         }
         if not merge_errors:
             quality = print_replay_quality_summary(main_db, policy_type=policy_type)
-            main_db.update_metadata(build_generation_quality_metadata(quality))
+            main_db.update_metadata(
+                build_generation_quality_metadata(quality, contract_digest=intended_contract.digest)
+            )
 
         main_db.close()
         if merge_errors:
@@ -1756,6 +2103,7 @@ def generate_experiences(
     replay_quality_preset="none",
     min_row_count=0,
     config_path=None,
+    seed=None,
 ):
     """Generate Apex-DQN experiences in headless mode."""
     import numpy as np
@@ -1763,6 +2111,7 @@ def generate_experiences(
     from src.data.memory_db_handler import MemoryDBHandler
     from src.game.game_state import GameState
 
+    seed_context = initialize_run_seed(seed)
     frame_limit = resolve_generation_frame_limit(max_frames)
     env_settings = resolve_generation_environment_settings(
         num_snakes=num_snakes,
@@ -1770,14 +2119,16 @@ def generate_experiences(
         food_multiplier=food_multiplier,
     )
     output_db_path = prepare_generation_output_database(db_path, append=append)
-    if append:
-        append_db = MemoryDBHandler(db_name=output_db_path)
+    intended_contract = build_verified_replay_contract(env_settings, frame_limit)
+    if append and os.path.exists(output_db_path):
+        append_db = MemoryDBHandler(db_name=output_db_path, read_only=True)
         try:
             validate_append_replay_contract(
                 append_db,
                 build_generation_replay_contract(env_settings),
                 output_db_path,
                 append=append,
+                intended_contract=intended_contract,
             )
         finally:
             append_db.close()
@@ -1785,6 +2136,7 @@ def generate_experiences(
     print(f"⚡ Generating experiences for {episodes} episodes...")
     print("   Headless mode: FAST!")
     print(f"   Frame limit: {frame_limit:,}")
+    print(f"   Effective seed: {seed_context.effective_seed}")
     print(
         "   Environment: "
         f"snakes={env_settings['num_snakes']}, "
@@ -1848,7 +2200,8 @@ def generate_experiences(
         max_exact_mask_state_mismatch_fraction=max_exact_mask_state_mismatch_fraction,
         max_malformed_state_feature_fraction=max_malformed_state_feature_fraction,
     )
-    db_handler.update_metadata(
+    write_generation_metadata(
+        db_handler,
         build_generation_metadata(
             mode="single",
             episodes=episodes,
@@ -1869,7 +2222,11 @@ def generate_experiences(
             replay_gates=replay_gates,
             min_row_count=min_row_count,
             append=append,
-        )
+            config_path=config_path,
+            seed_context=seed_context,
+            worker_seeds=[seed_context.effective_seed],
+        ),
+        append=append,
     )
 
     # Statistics
@@ -1884,7 +2241,7 @@ def generate_experiences(
 
         # Run episode
         last_progress_time = time.time()
-        while episode_length < frame_limit and game_state.alive_snakes > 0:
+        while generation_episode_active(game_state, episode_length, frame_limit):
             update_generation_environment(game_state)
             episode_length += 1
 
@@ -1964,7 +2321,9 @@ def generate_experiences(
                 print(f"   {policy}: {info['count']:,} memories")
 
     quality = print_replay_quality_summary(db_handler)
-    db_handler.update_metadata(build_generation_quality_metadata(quality))
+    db_handler.update_metadata(
+        build_generation_quality_metadata(quality, contract_digest=intended_contract.digest)
+    )
 
     total_time = time.time() - start_time
     db_handler.close()
@@ -2003,6 +2362,15 @@ def generate_experiences(
 def main():
     parser = argparse.ArgumentParser(description="Fast Experience Generation for Apex-DQN")
     parser.add_argument("--episodes", type=int, default=1000, help="Number of episodes")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_GENERATION_SEED,
+        help=(
+            "Unsigned 64-bit run seed used to derive deterministic worker streams; "
+            "omitting it generates and records fresh entropy"
+        ),
+    )
     parser.add_argument(
         "--db",
         type=str,
@@ -2263,6 +2631,8 @@ def main():
 
     if args.episodes <= 0:
         raise ValueError("episodes must be positive")
+    if args.seed is not None and (args.seed < 0 or args.seed >= 2**64):
+        raise ValueError("seed must be an unsigned 64-bit integer")
     if args.save_interval <= 0:
         raise ValueError("save-interval must be positive")
     if args.num_envs is not None and args.num_envs <= 0:
@@ -2355,6 +2725,7 @@ def main():
             food_multiplier=env_settings["food_multiplier"],
             replay_quality_preset=args.replay_quality_preset,
             min_row_count=min_row_count,
+            seed=args.seed,
             **replay_gates,
         )
     else:
@@ -2376,6 +2747,7 @@ def main():
             replay_quality_preset=args.replay_quality_preset,
             min_row_count=min_row_count,
             config_path=worker_config_path,
+            seed=args.seed,
             **replay_gates,
         )
 

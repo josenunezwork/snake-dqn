@@ -1,5 +1,7 @@
 """Tests for offline generated-replay training helpers."""
 
+import sqlite3
+import struct
 import sys
 import types
 
@@ -15,6 +17,7 @@ from src.core.game_config import (
     initialize_config,
 )
 from src.core.reward_contract import current_reward_contract
+from src.core.seeding import SeedContext
 from src.data.memory_db_handler import (
     MemoryDBHandler,
     resolve_min_row_count,
@@ -22,6 +25,11 @@ from src.data.memory_db_handler import (
     validate_min_row_count,
     validate_replay_metadata_contract,
     validate_replay_quality_gates,
+)
+from src.data.replay_contract import replay_sqlite_hashes
+from src.scripts.generate_experiences import (
+    build_generation_metadata,
+    resolve_generation_environment_settings,
 )
 from src.scripts.offline_train import (
     DEFAULT_OFFLINE_REPLAY_QUALITY_PRESET,
@@ -1131,6 +1139,178 @@ class TestLoadReplayDatabase:
         def _min_replay_size(self):
             return 2
 
+    def test_legacy_table_reject_and_explicit_load_are_read_only(self, tmp_path):
+        db_path = tmp_path / "legacy.db"
+        writer = sqlite3.connect(db_path)
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute(
+            "CREATE TABLE memories ("
+            "id INTEGER PRIMARY KEY, snake_id INTEGER, state BLOB, action INTEGER, "
+            "reward REAL, next_state BLOB, done INTEGER, priority REAL)"
+        )
+        state = struct.pack(f"<{GameConfig.INPUT_SIZE}f", *([0.0] * GameConfig.INPUT_SIZE))
+        writer.execute(
+            "INSERT INTO memories VALUES (1, 4, ?, 1, 1.0, ?, 0, 1.0)",
+            (state, state),
+        )
+        writer.commit()
+        before_hashes = replay_sqlite_hashes(db_path)
+        before_schema = writer.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+        try:
+            rejected_policy = self.PolicyStub()
+            with pytest.raises(RuntimeError, match="incomplete or unverified"):
+                load_replay_database(rejected_policy, str(db_path), limit=None)
+            assert replay_sqlite_hashes(db_path) == before_hashes
+            assert (
+                writer.execute(
+                    "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+                ).fetchall()
+                == before_schema
+            )
+
+            loaded_policy = self.PolicyStub()
+            assert (
+                load_replay_database(
+                    loaded_policy,
+                    str(db_path),
+                    limit=None,
+                    allow_unverified_legacy=True,
+                )
+                == 1
+            )
+            assert replay_sqlite_hashes(db_path) == before_hashes
+            assert (
+                writer.execute(
+                    "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+                ).fetchall()
+                == before_schema
+            )
+            assert loaded_policy.memory.add_bulk_kwargs["stream_ids"] == [4]
+        finally:
+            writer.close()
+
+    def test_capped_legacy_load_preserves_dataset_fallback_count(self, tmp_path):
+        db_path = tmp_path / "legacy.db"
+        handler = MemoryDBHandler(str(db_path))
+        try:
+            handler.save_memories(
+                snake_id=0,
+                memories=[
+                    {
+                        "state": [float(index)] * GameConfig.INPUT_SIZE,
+                        "action": index % GameConfig.OUTPUT_SIZE,
+                        "reward": 1.0,
+                        "next_state": [float(index + 1)] * GameConfig.INPUT_SIZE,
+                        "done": False,
+                        "priority": 102.0 - index,
+                        "bootstrap_steps": 1,
+                        "next_action_mask": (
+                            [True] * GameConfig.OUTPUT_SIZE if index < 2 else None
+                        ),
+                    }
+                    for index in range(102)
+                ],
+            )
+        finally:
+            handler.close()
+
+        policy = self.PolicyStub()
+        assert (
+            load_replay_database(
+                policy,
+                str(db_path),
+                limit=2,
+                replay_order="id",
+                allow_unverified_legacy=True,
+            )
+            == 2
+        )
+        validation = policy._offline_replay_metadata["replay.load_validation"]
+        assert validation["fallback_mask_count"] == 100
+        assert validation["loaded_subset_fallback_mask_count"] == 0
+
+    def test_verified_exact_mask_replay_rejects_nonterminal_null_mask(self, tmp_path):
+        db_path = tmp_path / "verified.db"
+        env_settings = resolve_generation_environment_settings()
+        metadata = build_generation_metadata(
+            mode="single",
+            episodes=1,
+            save_interval=1,
+            frame_limit=GameConfig.MAX_FRAMES,
+            env_settings=env_settings,
+            load_model=False,
+            model_loaded=False,
+            checkpoint_path=None,
+            resolved_checkpoint_path=None,
+            exploration_epsilon=1.0,
+            exploration_min_epsilon=1.0,
+            epsilon_min=1.0,
+            epsilon_max=1.0,
+            boost_exploration_rate=0.25,
+            danger_exploration_rate=0.02,
+            replay_quality_preset="none",
+            replay_gates={},
+            min_row_count=0,
+            append=False,
+            seed_context=SeedContext(99, 99),
+            worker_seeds=[99],
+        )
+        handler = MemoryDBHandler(str(db_path))
+        try:
+            handler.update_metadata(metadata)
+            handler.save_memories(
+                snake_id=0,
+                memories=[
+                    {
+                        "state": [0.0] * GameConfig.INPUT_SIZE,
+                        "action": 1,
+                        "reward": 1.0,
+                        "next_state": [1.0] * GameConfig.INPUT_SIZE,
+                        "done": False,
+                        "priority": 1.0,
+                        "bootstrap_steps": 1,
+                    }
+                ],
+            )
+        finally:
+            handler.close()
+
+        policy = self.PolicyStub()
+        with pytest.raises(RuntimeError, match="Verified replay.*without an exact"):
+            load_replay_database(policy, str(db_path), limit=None)
+        assert policy.memory.cleared is False
+
+    def test_normal_load_rejects_unverified_legacy_before_mutating_memory(self, tmp_path):
+        db_path = tmp_path / "legacy.db"
+        handler = MemoryDBHandler(str(db_path))
+        try:
+            handler.save_memories(
+                snake_id=0,
+                memories=[
+                    {
+                        "state": [0.0] * GameConfig.INPUT_SIZE,
+                        "action": 1,
+                        "reward": 1.0,
+                        "next_state": [1.0] * GameConfig.INPUT_SIZE,
+                        "done": False,
+                        "priority": 1.0,
+                        "bootstrap_steps": 1,
+                    }
+                ],
+            )
+        finally:
+            handler.close()
+        policy = self.PolicyStub()
+
+        with pytest.raises(RuntimeError, match="incomplete or unverified"):
+            load_replay_database(policy, str(db_path), limit=None)
+
+        assert policy.memory.cleared is False
+        assert policy.memory.add_bulk_kwargs is None
+
     def test_load_replay_database_passes_next_action_masks_to_memory(self, tmp_path):
         db_path = tmp_path / "replay.db"
         handler = MemoryDBHandler(str(db_path))
@@ -1155,7 +1335,9 @@ class TestLoadReplayDatabase:
             handler.close()
         policy = self.PolicyStub()
 
-        loaded = load_replay_database(policy, str(db_path), limit=None)
+        loaded = load_replay_database(
+            policy, str(db_path), limit=None, allow_unverified_legacy=True
+        )
 
         assert loaded == 1
         assert policy.memory.cleared is True
@@ -1185,7 +1367,7 @@ class TestLoadReplayDatabase:
         policy = self.WarmupPolicyStub()
 
         with pytest.raises(RuntimeError, match="loaded 1 rows.*needs at least 2"):
-            load_replay_database(policy, str(db_path), limit=None)
+            load_replay_database(policy, str(db_path), limit=None, allow_unverified_legacy=True)
 
         assert policy.memory.cleared is False
         assert policy.memory.add_bulk_kwargs is None
@@ -1214,7 +1396,13 @@ class TestLoadReplayDatabase:
         policy = self.PolicyStub()
 
         with pytest.raises(RuntimeError, match="has 1 rows.*at least 2"):
-            load_replay_database(policy, str(db_path), limit=None, min_row_count=2)
+            load_replay_database(
+                policy,
+                str(db_path),
+                limit=None,
+                min_row_count=2,
+                allow_unverified_legacy=True,
+            )
 
         assert policy.memory.cleared is False
         assert policy.memory.add_bulk_kwargs is None
@@ -1224,12 +1412,6 @@ class TestLoadReplayDatabase:
         db_path = tmp_path / "replay.db"
         handler = MemoryDBHandler(str(db_path))
         try:
-            handler.update_metadata(
-                {
-                    "generation.state_size": GameConfig.INPUT_SIZE - 1,
-                    "generation.action_size": GameConfig.OUTPUT_SIZE,
-                }
-            )
             handler.save_memories(
                 snake_id=0,
                 memories=[
@@ -1243,6 +1425,12 @@ class TestLoadReplayDatabase:
                         "bootstrap_steps": 1,
                     }
                 ],
+            )
+            handler.update_metadata(
+                {
+                    "generation.state_size": GameConfig.INPUT_SIZE - 1,
+                    "generation.action_size": GameConfig.OUTPUT_SIZE,
+                }
             )
         finally:
             handler.close()
@@ -1361,7 +1549,7 @@ class TestLoadReplayDatabase:
             handler.close()
         policy = self.PolicyStub()
 
-        with pytest.raises(RuntimeError, match="missing required generation.reward_contract"):
+        with pytest.raises(RuntimeError, match="incomplete or unverified"):
             load_replay_database(policy, str(db_path), limit=None)
 
         assert policy.memory.cleared is False
@@ -1392,7 +1580,9 @@ class TestLoadReplayDatabase:
             handler.close()
         policy = self.PolicyStub()
 
-        loaded = load_replay_database(policy, str(db_path), limit=None)
+        loaded = load_replay_database(
+            policy, str(db_path), limit=None, allow_unverified_legacy=True
+        )
 
         assert loaded == 1
         assert policy.memory.cleared is True
@@ -1422,7 +1612,13 @@ class TestLoadReplayDatabase:
             handler.close()
         policy = self.PolicyStub()
 
-        loaded = load_replay_database(policy, str(db_path), limit=2, replay_order="id")
+        loaded = load_replay_database(
+            policy,
+            str(db_path),
+            limit=2,
+            replay_order="id",
+            allow_unverified_legacy=True,
+        )
         output = capsys.readouterr().out
 
         assert loaded == 2
@@ -1495,6 +1691,7 @@ class TestLoadReplayDatabase:
             max_exact_mask_state_mismatch_fraction=1.0,
             max_malformed_state_feature_fraction=1.0,
             min_row_count=6,
+            allow_unverified_legacy=True,
         )
 
         assert loaded == 6
@@ -1516,7 +1713,12 @@ class TestLoadReplayDatabase:
             "max_exact_mask_state_mismatch_fraction": 1.0,
             "max_malformed_state_feature_fraction": 1.0,
         }
-        assert policy._offline_replay_load == {
+        assert policy._offline_replay_load["source_file_hashes"]["main"]
+        assert {
+            key: value
+            for key, value in policy._offline_replay_load.items()
+            if key != "source_file_hashes"
+        } == {
             "db_path": str(db_path),
             "effective_limit": policy.memory.capacity,
             "loaded_rows": 6,
@@ -1525,7 +1727,7 @@ class TestLoadReplayDatabase:
             "batch_size": GameConfig.APEX_BATCH_SIZE,
             "min_row_count": 6,
         }
-        assert policy._offline_replay_metadata == {
+        expected_generation_metadata = {
             "generation.action_size": GameConfig.OUTPUT_SIZE,
             "generation.episodes": 6,
             "generation.mode": "parallel",
@@ -1534,6 +1736,15 @@ class TestLoadReplayDatabase:
             "generation.reward_food_base": GameConfig.REWARD_FOOD_BASE,
             "generation.state_size": GameConfig.INPUT_SIZE,
         }
+        assert {
+            key: policy._offline_replay_metadata[key] for key in expected_generation_metadata
+        } == expected_generation_metadata
+        validation = policy._offline_replay_metadata["replay.load_validation"]
+        assert validation["status"] == "unverified_legacy"
+        assert validation["contract_digest"] is None
+        # Terminal rows never bootstrap, so their absent mask is not a fallback.
+        assert validation["fallback_mask_count"] == 0
+        assert "target.gamma" in validation["missing_fields"]
 
     def test_load_replay_database_reports_loaded_snake_id_distribution(self, tmp_path, capsys):
         db_path = tmp_path / "replay.db"
@@ -1559,7 +1770,13 @@ class TestLoadReplayDatabase:
             handler.close()
         policy = self.PolicyStub()
 
-        loaded = load_replay_database(policy, str(db_path), limit=None, replay_order="id")
+        loaded = load_replay_database(
+            policy,
+            str(db_path),
+            limit=None,
+            replay_order="id",
+            allow_unverified_legacy=True,
+        )
         output = capsys.readouterr().out
 
         assert loaded == 4
@@ -1593,6 +1810,7 @@ class TestLoadReplayDatabase:
                 str(db_path),
                 limit=None,
                 min_terminal_fraction=0.01,
+                allow_unverified_legacy=True,
             )
 
         assert policy.memory.cleared is False
@@ -1628,6 +1846,7 @@ class TestLoadReplayDatabase:
                 str(db_path),
                 limit=None,
                 min_action_coverage_fraction=0.5,
+                allow_unverified_legacy=True,
             )
 
         assert policy.memory.cleared is False

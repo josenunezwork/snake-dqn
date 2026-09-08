@@ -10,6 +10,9 @@ import json
 import logging
 import sqlite3
 import struct
+from collections.abc import Mapping
+from pathlib import Path
+from urllib.parse import quote
 
 from src.data.replay_quality import (
     ACTION_DANGER_COLLISION_THRESHOLD,
@@ -21,6 +24,7 @@ from src.data.replay_quality import (
     STATE_BLOB_FORMAT,
     STATE_BLOB_SIZE,
     STATE_SIZE,
+    SUPPORTED_STATE_SIZES,
     _action_diversity_stats,
     _coerce_action,
     _coerce_action_mask,
@@ -55,6 +59,8 @@ __all__ = [
     "MemoryDBHandler",
     "REPLAY_QUALITY_GATE_ORDER",
     "REPLAY_QUALITY_GATE_PRESETS",
+    "STATE_BLOB_FORMAT",
+    "STATE_BLOB_SIZE",
     "STATE_SIZE",
     "build_replay_quality_stats",
     "current_action_invalid_from_state",
@@ -72,13 +78,26 @@ __all__ = [
 class MemoryDBHandler:
     """Database handler for Apex-DQN experience replay storage."""
 
-    def __init__(self, db_name="snake_memories.db"):
+    def __init__(self, db_name="snake_memories.db", *, read_only: bool = False):
         """
         Initialize the database connection and create tables.
 
         Args:
             db_name: Path to the SQLite database file.
+            read_only: Open an existing database without PRAGMAs, schema
+                creation, or legacy migration. Replay consumers and append
+                preflights use this mode so rejection cannot mutate input.
         """
+        self.read_only = bool(read_only)
+        if self.read_only:
+            db_path = Path(db_name).expanduser().resolve()
+            self.conn = sqlite3.connect(
+                f"file:{quote(str(db_path))}?mode=ro",
+                uri=True,
+            )
+            self.cursor = self.conn.cursor()
+            return
+
         self.conn = sqlite3.connect(db_name)
         # Performance pragmas for faster bulk inserts/reads
         try:
@@ -244,6 +263,11 @@ class MemoryDBHandler:
 
     def get_metadata(self, key: str | None = None) -> dict | object | None:
         """Return replay database metadata, or one decoded value when key is given."""
+        metadata_table = self.cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='replay_metadata'"
+        ).fetchone()
+        if metadata_table is None:
+            return None if key is not None else {}
         if key is not None:
             key = str(key).strip()
             if not key:
@@ -254,6 +278,31 @@ class MemoryDBHandler:
 
         self.cursor.execute("SELECT key, value FROM replay_metadata ORDER BY key ASC")
         return {row[0]: json.loads(row[1]) for row in self.cursor.fetchall()}
+
+    def _state_size_for_codec(self) -> int:
+        """Resolve vector width from replay metadata, defaulting old databases to 58."""
+        metadata = self.get_metadata()
+        contract_size = None
+        raw_contract = metadata.get("replay.contract")
+        if isinstance(raw_contract, Mapping):
+            observation = raw_contract.get("observation")
+            if isinstance(observation, Mapping):
+                contract_size = observation.get("input_size")
+        generation_size = metadata.get("generation.state_size")
+        sizes = [size for size in (contract_size, generation_size) if size is not None]
+        if not sizes:
+            return STATE_SIZE
+        if any(not isinstance(size, int) or isinstance(size, bool) for size in sizes):
+            raise RuntimeError("Replay state-size metadata must contain integers")
+        if len(set(sizes)) != 1:
+            raise RuntimeError(f"Replay state-size metadata disagrees: {sizes}")
+        state_size = int(sizes[0])
+        if state_size not in SUPPORTED_STATE_SIZES:
+            raise RuntimeError(
+                f"Replay state-size metadata must be one of {SUPPORTED_STATE_SIZES}, "
+                f"got {state_size}"
+            )
+        return state_size
 
     def load_memories_for_policy(
         self,
@@ -303,6 +352,7 @@ class MemoryDBHandler:
             policy_type: Policy type string.
         """
         rows = []
+        state_size = self._state_size_for_codec()
         for memory in memories:
             action = _coerce_action(memory["action"])
             reward = _coerce_finite_float(memory["reward"], "reward")
@@ -311,8 +361,8 @@ class MemoryDBHandler:
             bootstrap_steps = _coerce_bootstrap_steps(memory.get("bootstrap_steps", 1))
             next_action_mask = _coerce_action_mask(memory.get("next_action_mask"))
 
-            state_bytes = _encode_state_blob(memory["state"], "state")
-            next_state_bytes = _encode_state_blob(memory["next_state"], "next_state")
+            state_bytes = _encode_state_blob(memory["state"], "state", state_size)
+            next_state_bytes = _encode_state_blob(memory["next_state"], "next_state", state_size)
 
             rows.append(
                 (
@@ -371,24 +421,43 @@ class MemoryDBHandler:
         if order_by not in {"priority", "id", "id_uniform"}:
             raise ValueError("order_by must be one of 'priority', 'id', or 'id_uniform'")
 
-        select_clause = (
-            "SELECT id, snake_id, policy_type, state, action, reward, next_state, "
-            "done, priority, bootstrap_steps, next_action_mask "
-            "FROM memories_standard"
+        table = self._replay_table_for_read()
+        columns = self._table_columns(table)
+        required = {"id", "state", "action", "reward", "next_state", "done"}
+        missing = required - columns
+        if missing:
+            raise RuntimeError(f"Replay table {table} is missing columns: {sorted(missing)}")
+        expressions = (
+            "id",
+            "snake_id" if "snake_id" in columns else "0 AS snake_id",
+            "policy_type" if "policy_type" in columns else "'apex' AS policy_type",
+            "state",
+            "action",
+            "reward",
+            "next_state",
+            "done",
+            "priority" if "priority" in columns else "1.0 AS priority",
+            "bootstrap_steps" if "bootstrap_steps" in columns else "1 AS bootstrap_steps",
+            "next_action_mask" if "next_action_mask" in columns else "NULL AS next_action_mask",
         )
+        select_clause = f'SELECT {", ".join(expressions)} FROM "{table}"'
         where_clause = " WHERE 1=1"
         params = []
 
-        if policy_type:
+        if policy_type and "policy_type" in columns:
             where_clause += " AND policy_type = ?"
             params.append(policy_type)
+        elif policy_type and policy_type != "apex":
+            return ([], [], [], [], [], [], [])
 
-        if snake_id is not None:
+        if snake_id is not None and "snake_id" in columns:
             where_clause += " AND snake_id = ?"
             params.append(snake_id)
+        elif snake_id is not None:
+            return ([], [], [], [], [], [], [])
 
         if order_by == "id_uniform" and limit is not None:
-            selected_ids = self._select_uniform_memory_ids(where_clause, params, int(limit))
+            selected_ids = self._select_uniform_memory_ids(table, where_clause, params, int(limit))
             if selected_ids:
                 placeholders = ", ".join("?" for _ in selected_ids)
                 query = f"{select_clause}{where_clause} AND id IN ({placeholders}) ORDER BY id ASC"
@@ -418,14 +487,15 @@ class MemoryDBHandler:
         bootstrap_steps = []
         next_action_masks = []
         snake_ids = []
+        state_size = self._state_size_for_codec()
 
         for row in rows:
             try:
                 # Row format:
                 # id, snake_id, policy_type, state, action, reward,
                 # next_state, done, priority, bootstrap_steps, next_action_mask
-                state_data = _decode_state_blob(row[3], "state")
-                next_state_data = _decode_state_blob(row[6], "next_state")
+                state_data = _decode_state_blob(row[3], "state", state_size)
+                next_state_data = _decode_state_blob(row[6], "next_state", state_size)
                 action = _coerce_action(row[4])
                 reward = _coerce_finite_float(row[5], "reward")
                 done = _coerce_done(row[7])
@@ -463,6 +533,7 @@ class MemoryDBHandler:
 
     def _select_uniform_memory_ids(
         self,
+        table: str,
         where_clause: str,
         params: list,
         limit: int,
@@ -471,7 +542,7 @@ class MemoryDBHandler:
         if limit <= 0:
             return []
 
-        query = f"SELECT id FROM memories_standard{where_clause} ORDER BY id ASC"
+        query = f'SELECT id FROM "{table}"{where_clause} ORDER BY id ASC'
         self.cursor.execute(query, params)
         ids = [row[0] for row in self.cursor.fetchall()]
 
@@ -483,6 +554,22 @@ class MemoryDBHandler:
 
         last_index = row_count - 1
         return [ids[round(index * last_index / (limit - 1))] for index in range(limit)]
+
+    def _table_columns(self, table: str) -> set[str]:
+        """Return column names for a trusted table selected from sqlite_master."""
+        return {str(row[1]) for row in self.cursor.execute(f'PRAGMA table_info("{table}")')}
+
+    def _replay_table_for_read(self) -> str:
+        """Select standard replay first, then the untouched legacy table."""
+        tables = {
+            str(row[0])
+            for row in self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "memories_standard" in tables:
+            return "memories_standard"
+        if "memories" in tables:
+            return "memories"
+        raise RuntimeError("Replay database has no recognized experience table")
 
     # ========================
     # LEGACY COMPATIBILITY
@@ -542,18 +629,43 @@ class MemoryDBHandler:
         Returns:
             Number of stored memories matching the filters.
         """
-        query = "SELECT COUNT(*) FROM memories_standard WHERE 1=1"
+        table = self._replay_table_for_read()
+        columns = self._table_columns(table)
+        query = f'SELECT COUNT(*) FROM "{table}" WHERE 1=1'
         params = []
 
-        if policy_type:
+        if policy_type and "policy_type" in columns:
             query += " AND policy_type = ?"
             params.append(policy_type)
-        if snake_id is not None:
+        elif policy_type and policy_type != "apex":
+            return 0
+        if snake_id is not None and "snake_id" in columns:
             query += " AND snake_id = ?"
             params.append(snake_id)
+        elif snake_id is not None:
+            return 0
 
         self.cursor.execute(query, params)
         return self.cursor.fetchone()[0]
+
+    def get_nonterminal_missing_mask_count(self, policy_type: str | None = None) -> int:
+        """Count all rows that need the legacy next-mask fallback."""
+        table = self._replay_table_for_read()
+        columns = self._table_columns(table)
+        predicates = []
+        params = []
+        if "done" in columns:
+            predicates.append("done = 0")
+        if "next_action_mask" in columns:
+            predicates.append("next_action_mask IS NULL")
+        if policy_type and "policy_type" in columns:
+            predicates.append("policy_type = ?")
+            params.append(policy_type)
+        elif policy_type and policy_type != "apex":
+            return 0
+        where_clause = " AND ".join(predicates) if predicates else "1=1"
+        query = f'SELECT COUNT(*) FROM "{table}" WHERE {where_clause}'
+        return int(self.cursor.execute(query, params).fetchone()[0])
 
     def get_memory_stats(self) -> dict:
         """
@@ -593,6 +705,9 @@ class MemoryDBHandler:
         if snake_id is not None:
             where_clause += " AND snake_id = ?"
             params.append(snake_id)
+        state_size = self._state_size_for_codec()
+        state_blob_format = f"<{state_size}f"
+        state_blob_size = struct.calcsize(state_blob_format)
 
         self.cursor.execute(
             f"""
@@ -765,9 +880,9 @@ class MemoryDBHandler:
             for state_blob, action, next_state_blob, done, next_action_mask in self.cursor:
                 if not isinstance(state_blob, (bytes, bytearray, memoryview)):
                     state_blob = None
-                if state_blob is not None and len(state_blob) == STATE_BLOB_SIZE:
+                if state_blob is not None and len(state_blob) == state_blob_size:
                     valid_state_count += 1
-                    state_values = struct.unpack(STATE_BLOB_FORMAT, state_blob)
+                    state_values = struct.unpack(state_blob_format, state_blob)
                     if _state_has_out_of_range_features(state_values):
                         malformed_state_range_count += 1
                     if _state_has_malformed_direction(state_values):
@@ -835,10 +950,10 @@ class MemoryDBHandler:
                         exact_trapped = _mask_all_actions_invalid(decoded_action_mask)
                     if (
                         isinstance(next_state_blob, (bytes, bytearray, memoryview))
-                        and len(next_state_blob) == STATE_BLOB_SIZE
+                        and len(next_state_blob) == state_blob_size
                     ):
                         valid_next_state_count += 1
-                        next_state_values = struct.unpack(STATE_BLOB_FORMAT, next_state_blob)
+                        next_state_values = struct.unpack(state_blob_format, next_state_blob)
                         if _state_has_out_of_range_features(next_state_values):
                             malformed_next_state_range_count += 1
                         if _state_has_malformed_direction(next_state_values):

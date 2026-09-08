@@ -1,5 +1,6 @@
 """Tests for memory_db_handler module."""
 
+import sqlite3
 import struct
 
 import pytest
@@ -97,6 +98,27 @@ class TestMemoryDBHandler:
                 handler.get_metadata("")
         finally:
             handler.close()
+
+    def test_read_only_handler_sees_only_committed_delete_journal_rows(self, temp_db):
+        writer = sqlite3.connect(temp_db)
+        writer.execute("PRAGMA journal_mode=DELETE")
+        writer.execute(
+            "CREATE TABLE memories_standard ("
+            "id INTEGER PRIMARY KEY, policy_type TEXT, done INTEGER, next_action_mask INTEGER)"
+        )
+        writer.execute("INSERT INTO memories_standard VALUES (1, 'apex', 0, NULL)")
+        writer.commit()
+        writer.execute("BEGIN IMMEDIATE")
+        writer.execute("INSERT INTO memories_standard VALUES (2, 'apex', 0, NULL)")
+
+        reader = MemoryDBHandler(temp_db, read_only=True)
+        try:
+            assert reader.get_memory_count("apex") == 1
+            assert reader.get_nonterminal_missing_mask_count("apex") == 1
+        finally:
+            reader.close()
+            writer.rollback()
+            writer.close()
 
     def test_save_and_load_memories(self, temp_db):
         """Test saving and loading memories."""
@@ -980,8 +1002,7 @@ class TestMemoryDBHandler:
         import sqlite3
 
         conn = sqlite3.connect(temp_db)
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE memories_standard (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 snake_id INTEGER,
@@ -994,8 +1015,7 @@ class TestMemoryDBHandler:
                 priority REAL DEFAULT 1.0,
                 bootstrap_steps INTEGER DEFAULT 1
             )
-            """
-        )
+            """)
         conn.commit()
         conn.close()
 
@@ -1232,6 +1252,58 @@ class TestMemoryDBHandler:
         assert states[0] == pytest.approx(state)
         assert next_states[0] == pytest.approx(next_state)
 
+        handler.close()
+
+    def test_verified_width_metadata_round_trips_61_feature_states(self, temp_db):
+        handler = MemoryDBHandler(temp_db)
+        handler.update_metadata(
+            {
+                "generation.state_size": 61,
+                "replay.contract": {"observation": {"input_size": 61}},
+            }
+        )
+        state = [0.0] * 61
+        state[0] = 1.0
+        next_state = list(state)
+        next_state[58:] = [0.25, 0.5, 0.75]
+
+        handler.save_memories(
+            snake_id=0,
+            memories=[
+                {
+                    "state": state,
+                    "action": 1,
+                    "reward": 1.0,
+                    "next_state": next_state,
+                    "done": False,
+                    "priority": 1.0,
+                }
+            ],
+        )
+        state_blob_size = handler.cursor.execute(
+            "SELECT length(state) FROM memories_standard"
+        ).fetchone()[0]
+        states, _, _, next_states, _, _, _ = handler.load_memories_for_policy(
+            "apex", limit=None, order_by="id"
+        )
+        quality = handler.get_replay_quality_stats("apex")
+
+        assert state_blob_size == 61 * 4
+        assert states[0] == pytest.approx(state)
+        assert next_states[0] == pytest.approx(next_state)
+        assert quality["valid_state_feature_count"] == 1
+        assert quality["valid_next_state_feature_count"] == 1
+        handler.close()
+
+    def test_width_metadata_rejects_wrong_state_before_insert(self, temp_db):
+        handler = MemoryDBHandler(temp_db)
+        handler.update_metadata({"generation.state_size": 61})
+        memory = make_memory()
+
+        with pytest.raises(ValueError, match="state must contain 61 values"):
+            handler.save_memories(snake_id=0, memories=[memory])
+
+        assert handler.get_memory_count("apex") == 0
         handler.close()
 
     def test_save_rejects_wrong_state_size(self, temp_db):

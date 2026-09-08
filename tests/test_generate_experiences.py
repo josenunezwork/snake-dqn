@@ -1,28 +1,36 @@
 """Tests for experience generation helpers."""
 
+import sqlite3
 from dataclasses import replace
 
 import pytest
 
 from src.core.game_config import GameConfig, get_config, initialize_config
 from src.core.reward_contract import current_reward_contract
+from src.core.seeding import SeedContext
 from src.data.memory_db_handler import MemoryDBHandler
+from src.data.replay_contract import replay_sqlite_hashes, validate_replay_provenance
 from src.scripts.generate_experiences import (
     DEFAULT_BOOST_EXPLORATION_RATE,
     DEFAULT_DANGER_EXPLORATION_RATE,
     DEFAULT_GENERATION_ENV_PRESET,
     DEFAULT_GENERATION_REPLAY_QUALITY_PRESET,
+    DEFAULT_GENERATION_SEED,
     apply_generated_priority_fallback,
     build_generation_metadata,
     build_generation_quality_metadata,
     build_generation_replay_contract,
     build_generation_replay_quality_gates,
+    build_verified_replay_contract,
     collect_parallel_merge_failures,
     collect_parallel_worker_failures,
     compute_generation_actor_epsilons,
     configure_generation_exploration,
     filter_untrainable_generated_memories,
     format_audit_replay_command,
+    generate_experiences,
+    generate_single_env,
+    generation_episode_active,
     get_env_database_path,
     get_generation_checkpoint_candidates,
     get_parallel_memory_snake_id,
@@ -61,6 +69,7 @@ from src.scripts.generate_experiences import (
     validate_parallel_merge_counts,
     validate_replay_quality_gates,
     validate_replay_terminal_fraction,
+    write_generation_metadata,
 )
 
 
@@ -202,6 +211,89 @@ class TestGenerationDatabasePaths:
         finally:
             handler.close()
 
+    def test_actual_append_preflight_rejects_legacy_table_without_mutation(self, tmp_path):
+        db_path = tmp_path / "legacy_replay.db"
+        writer = sqlite3.connect(db_path)
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("PRAGMA wal_autocheckpoint=0")
+        writer.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY)")
+        writer.execute("INSERT INTO memories VALUES (1)")
+        writer.commit()
+        before_hashes = replay_sqlite_hashes(db_path)
+        before_schema = writer.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+        try:
+            with pytest.raises(RuntimeError, match="incomplete or unverified"):
+                generate_experiences(
+                    episodes=1,
+                    save_interval=1,
+                    load_model=False,
+                    max_frames=1,
+                    db_path=str(db_path),
+                    append=True,
+                    seed=123,
+                )
+            assert replay_sqlite_hashes(db_path) == before_hashes
+            assert (
+                writer.execute(
+                    "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+                ).fetchall()
+                == before_schema
+            )
+        finally:
+            writer.close()
+
+    def test_actual_append_rejects_verified_missing_mask_without_mutation(self, tmp_path):
+        db_path = tmp_path / "verified_missing_mask.db"
+        contract = build_verified_replay_contract(
+            resolve_generation_environment_settings(),
+            frame_limit=1,
+        )
+        handler = MemoryDBHandler(str(db_path))
+        try:
+            handler.update_metadata(contract.to_metadata())
+            memory = _one_replay_memory()
+            memory["next_action_mask"] = None
+            handler.save_memories(0, [memory])
+        finally:
+            handler.close()
+
+        before_hashes = replay_sqlite_hashes(db_path)
+        inspector = sqlite3.connect(db_path)
+        before_schema = inspector.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+        before_count = inspector.execute("SELECT COUNT(*) FROM memories_standard").fetchone()[0]
+        inspector.close()
+
+        with pytest.raises(RuntimeError, match="without an exact next-action mask"):
+            generate_experiences(
+                episodes=1,
+                save_interval=1,
+                load_model=False,
+                max_frames=1,
+                db_path=str(db_path),
+                append=True,
+                seed=123,
+            )
+
+        assert replay_sqlite_hashes(db_path) == before_hashes
+        inspector = sqlite3.connect(db_path)
+        try:
+            assert (
+                inspector.execute(
+                    "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+                ).fetchall()
+                == before_schema
+            )
+            assert (
+                inspector.execute("SELECT COUNT(*) FROM memories_standard").fetchone()[0]
+                == before_count
+            )
+        finally:
+            inspector.close()
+
 
 class TestGenerationNextSteps:
     """Tests for generated replay follow-up command formatting."""
@@ -289,6 +381,7 @@ class TestGenerationMetadata:
             append=False,
             config_path="configs/training_fast.yaml",
             num_envs=None,
+            seed_context=SeedContext(effective_seed=7, requested_seed=7),
         )
 
         assert metadata["generation.policy_type"] == "apex"
@@ -313,6 +406,318 @@ class TestGenerationMetadata:
         assert metadata["generation.reward_food_base"] == get_config().rewards.food_base
         assert metadata["generation.quality_gates"] == {"min_terminal_fraction": 0.005}
         assert metadata["generation.min_row_count"] == 64
+
+    def test_generation_metadata_contains_verified_scoped_contract(self):
+        env_settings = resolve_generation_environment_settings(
+            num_snakes=3, board_scale=0.5, food_multiplier=0.25
+        )
+        seed_context = SeedContext(effective_seed=42, requested_seed=42)
+
+        metadata = build_generation_metadata(
+            mode="single",
+            episodes=2,
+            save_interval=1,
+            frame_limit=10,
+            env_settings=env_settings,
+            load_model=False,
+            model_loaded=False,
+            checkpoint_path=None,
+            resolved_checkpoint_path=None,
+            exploration_epsilon=1.0,
+            exploration_min_epsilon=1.0,
+            epsilon_min=1.0,
+            epsilon_max=1.0,
+            boost_exploration_rate=0.25,
+            danger_exploration_rate=0.02,
+            replay_quality_preset="none",
+            replay_gates={},
+            min_row_count=0,
+            append=False,
+            seed_context=seed_context,
+            worker_seeds=[42],
+        )
+
+        validation = validate_replay_provenance(
+            metadata,
+            "replay.db",
+            expected=build_verified_replay_contract(env_settings, 10),
+            exact=True,
+        )
+        assert validation.status == "verified"
+        assert metadata["generation.effective_seed"] == 42
+        assert metadata["generation.worker_seeds"] == [42]
+
+    def test_omitted_seed_uses_fresh_entropy_while_explicit_seed_repeats(self, monkeypatch):
+        from src.core import seeding
+
+        entropy = iter((101, 202))
+        monkeypatch.setattr(seeding.secrets, "randbits", lambda _bits: next(entropy))
+
+        first = seeding.initialize_run_seed(DEFAULT_GENERATION_SEED)
+        second = seeding.initialize_run_seed(DEFAULT_GENERATION_SEED)
+        explicit_a = seeding.initialize_run_seed(303)
+        explicit_b = seeding.initialize_run_seed(303)
+
+        assert DEFAULT_GENERATION_SEED is None
+        assert (first.effective_seed, second.effective_seed) == (101, 202)
+        assert explicit_a == explicit_b == SeedContext(303, 303)
+
+    def test_live_contract_fingerprints_world_and_observation_semantics(self):
+        original = get_config()
+        env_settings = resolve_generation_environment_settings(
+            num_snakes=3,
+            board_scale=1.0,
+            food_multiplier=1.0,
+        )
+        try:
+            baseline = build_verified_replay_contract(env_settings, 100)
+            other_horizon = build_verified_replay_contract(env_settings, 101)
+            initialize_config(
+                replace(
+                    original, game=replace(original.game, max_length=original.game.max_length + 1)
+                )
+            )
+            other_length = build_verified_replay_contract(env_settings, 100)
+            initialize_config(
+                replace(
+                    original,
+                    network=replace(
+                        original.network,
+                        use_boundary_as_danger=not original.network.use_boundary_as_danger,
+                    ),
+                )
+            )
+            other_boundary_semantics = build_verified_replay_contract(env_settings, 100)
+            initialize_config(
+                replace(
+                    original,
+                    game=replace(
+                        original.game,
+                        segment_size=original.game.segment_size + 1,
+                    ),
+                )
+            )
+            other_segment_size = build_verified_replay_contract(env_settings, 100)
+            initialize_config(
+                replace(
+                    original,
+                    game=replace(
+                        original.game,
+                        min_boost_length=original.game.min_boost_length + 1,
+                    ),
+                )
+            )
+            other_min_boost_length = build_verified_replay_contract(env_settings, 100)
+            initialize_config(
+                replace(
+                    original,
+                    actions=tuple(reversed(original.actions)),
+                )
+            )
+            other_direction_order = build_verified_replay_contract(env_settings, 100)
+            initialize_config(
+                replace(
+                    original,
+                    game=replace(
+                        original.game,
+                        arena_type="circular",
+                        arena_center_x=original.game.arena_center_x + 10,
+                    ),
+                )
+            )
+            circular = build_verified_replay_contract(env_settings, 100)
+        finally:
+            initialize_config(original)
+
+        assert baseline.digest != other_horizon.digest
+        assert baseline.digest != other_length.digest
+        assert baseline.observation["dtype"] == "float32"
+        assert baseline.observation["free_space_length_multiplier"] == 2
+        assert baseline.observation["enemy_trend_update_rule"].endswith("_v1")
+        assert baseline.observation["per_action_tail_vacancy_rule"].endswith("_v1")
+        assert baseline.observation["per_action_danger_rule"].endswith("_v1")
+        assert (
+            baseline.observation["semantic_digest"] != other_length.observation["semantic_digest"]
+        )
+        assert (
+            baseline.observation["semantic_digest"]
+            != other_boundary_semantics.observation["semantic_digest"]
+        )
+        changed_observation_contracts = (
+            other_boundary_semantics,
+            other_segment_size,
+            other_min_boost_length,
+            other_direction_order,
+            circular,
+        )
+        for changed_contract in changed_observation_contracts:
+            assert (
+                baseline.observation["semantic_digest"]
+                != changed_contract.observation["semantic_digest"]
+            )
+            with pytest.raises(RuntimeError, match="Replay contract mismatch"):
+                validate_replay_provenance(
+                    baseline.to_metadata(),
+                    "replay.db",
+                    expected=changed_contract,
+                )
+            with pytest.raises(RuntimeError, match="existing digest"):
+                validate_replay_provenance(
+                    baseline.to_metadata(),
+                    "replay.db",
+                    expected=changed_contract,
+                    exact=True,
+                )
+        assert baseline.digest != circular.digest
+        assert circular.world["circular_geometry"]["arena_center_x"] != 0
+
+    def test_append_only_run_manifest_retains_each_seed(self, tmp_path):
+        db = MemoryDBHandler(str(tmp_path / "replay.db"))
+        env_settings = resolve_generation_environment_settings()
+
+        def metadata(seed: int, append: bool) -> dict:
+            return build_generation_metadata(
+                mode="single",
+                episodes=1,
+                save_interval=1,
+                frame_limit=10,
+                env_settings=env_settings,
+                load_model=False,
+                model_loaded=False,
+                checkpoint_path=None,
+                resolved_checkpoint_path=None,
+                exploration_epsilon=1.0,
+                exploration_min_epsilon=1.0,
+                epsilon_min=1.0,
+                epsilon_max=1.0,
+                boost_exploration_rate=0.25,
+                danger_exploration_rate=0.02,
+                replay_quality_preset="none",
+                replay_gates={},
+                min_row_count=0,
+                append=append,
+                seed_context=SeedContext(seed, seed),
+                worker_seeds=[seed],
+            )
+
+        try:
+            write_generation_metadata(db, metadata(7, False), append=False)
+            write_generation_metadata(db, metadata(9, True), append=True)
+            runs = db.get_metadata("replay.runs")
+        finally:
+            db.close()
+
+        assert [run["effective_seed"] for run in runs] == [7, 9]
+
+
+class TestGenerationEpisodeBoundary:
+    def test_population_floor_stops_episode(self):
+        game_state = type(
+            "GameStateStub",
+            (),
+            {"alive_snakes": 1, "population_floor_reached": True},
+        )()
+
+        assert not generation_episode_active(game_state, episode_length=2, frame_limit=100)
+
+    def test_live_population_continues_within_frame_limit(self):
+        game_state = type(
+            "GameStateStub",
+            (),
+            {"alive_snakes": 2, "population_floor_reached": False},
+        )()
+
+        assert generation_episode_active(game_state, episode_length=2, frame_limit=100)
+
+    def test_worker_repeats_all_rng_traces_and_stops_at_population_floor(
+        self, monkeypatch, tmp_path
+    ):
+        import random
+        from types import SimpleNamespace
+
+        import numpy as np
+        import torch
+
+        traces: list[list[tuple[float, float, float]]] = []
+        current_trace: list[tuple[float, float, float]] = []
+
+        class FakeDB:
+            def __init__(self, db_name):
+                self.metadata = {}
+
+            def get_metadata(self, key=None):
+                return self.metadata.get(key) if key else dict(self.metadata)
+
+            def update_metadata(self, metadata):
+                self.metadata.update(metadata)
+
+            def close(self):
+                return None
+
+        class FakeGameState:
+            def __init__(self, **_kwargs):
+                policy = SimpleNamespace(epsilon=1.0)
+                self.snakes = [
+                    SimpleNamespace(
+                        actor_epsilon=None,
+                        current_epsilon=None,
+                        boost_exploration_rate=0.0,
+                        danger_exploration_rate=0.0,
+                        policy=policy,
+                    )
+                ]
+                self._shared_policy = policy
+                self.alive_snakes = 2
+                self.population_floor_reached = False
+                self.episode_current_reward = 0.0
+                self.episode_best_reward = 0.0
+                self.steps = 0
+
+            def flush_episode_experience(self):
+                return None
+
+            def reset(self):
+                self.population_floor_reached = False
+                self.steps = 0
+
+        def update(game_state):
+            current_trace.append(
+                (random.random(), float(np.random.random()), float(torch.rand(1).item()))
+            )
+            game_state.steps += 1
+            if game_state.steps == 2:
+                game_state.population_floor_reached = True
+
+        monkeypatch.setattr("src.data.memory_db_handler.MemoryDBHandler", FakeDB)
+        monkeypatch.setattr("src.game.game_state.GameState", FakeGameState)
+        monkeypatch.setattr(
+            "src.scripts.generate_experiences.update_generation_environment", update
+        )
+        monkeypatch.setattr(
+            "src.scripts.generate_experiences.save_shared_policy_memories",
+            lambda *_args, **_kwargs: 1,
+        )
+
+        for run in range(2):
+            current_trace = []
+            result = {}
+            generate_single_env(
+                env_id=0,
+                episodes=1,
+                save_interval=1,
+                load_model=False,
+                return_dict=result,
+                exploration_epsilon=1.0,
+                max_frames=20,
+                db_path=str(tmp_path / f"worker-{run}.db"),
+                num_snakes=2,
+                worker_seed=123,
+            )
+            assert result[0]["error"] is None
+            traces.append(current_trace)
+
+        assert len(traces[0]) == 2
+        assert traces[0] == traces[1]
 
     def test_generation_quality_metadata_records_observed_replay_contract(self):
         metadata = build_generation_quality_metadata(
@@ -358,6 +763,13 @@ class TestGenerationMetadata:
         assert quality["terminal_nonnegative_reward_count"] == 1
         assert quality["terminal_nonnegative_reward_fraction"] == pytest.approx(0.5)
         assert quality["invalid_current_action_fraction"] == pytest.approx(0.1)
+
+    def test_verified_quality_rejects_nonterminal_mask_fallback(self):
+        with pytest.raises(RuntimeError, match="without a mask"):
+            build_generation_quality_metadata(
+                {"nonterminal_count": 2, "nonterminal_mask_count": 1},
+                contract_digest="verified-contract",
+            )
 
 
 class TestGenerationCheckpointResolution:
