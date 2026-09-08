@@ -273,6 +273,7 @@ def _trained_learner(learning_rate: float = 0.001) -> tuple[ApexLearner, dict[st
         device=torch.device("cpu"),
     )
     learner.train_step()
+    active_replay = learner.buffer_client._buffer
     learner.config.apex_recipe = ApexRecipe.distributed(
         optimizer=learner.optimizer,
         input_size=8,
@@ -285,11 +286,17 @@ def _trained_learner(learning_rate: float = 0.001) -> tuple[ApexLearner, dict[st
         runtime={"mode": "integration", "training": True},
         actor_scaling={},
         seed_identity={"effective_seed": 9},
+        batch_size=learner.config.batch_size,
+        replay_capacity=active_replay.capacity,
+        min_replay_size=learner.config.min_buffer_size,
+        beta_frames=active_replay.beta_frames,
+        initial_beta_clock=learner.step_count,
     )
     return learner, learner.get_state_dict()
 
 
 def _requested_recipe(learner: ApexLearner) -> ApexRecipe:
+    active_replay = learner.buffer_client._buffer
     return ApexRecipe.distributed(
         optimizer=learner.optimizer,
         input_size=8,
@@ -302,16 +309,36 @@ def _requested_recipe(learner: ApexLearner) -> ApexRecipe:
         runtime={"mode": "integration", "training": True},
         actor_scaling={},
         seed_identity={"effective_seed": 9},
+        batch_size=learner.config.batch_size,
+        replay_capacity=active_replay.capacity,
+        min_replay_size=learner.config.min_buffer_size,
+        beta_frames=active_replay.beta_frames,
+        initial_beta_clock=1,
+    )
+
+
+def _fresh_continuation_receiver(learning_rate: float) -> ApexLearner:
+    """Build a receiver with the same resolved replay geometry as the source."""
+    replay = LocalApexBuffer(capacity=4, state_size=8)
+    return ApexLearner(
+        ApexLearnerConfig(
+            input_size=8,
+            hidden_size=8,
+            output_size=6,
+            batch_size=1,
+            min_buffer_size=1,
+            learning_rate=learning_rate,
+            use_compile=False,
+        ),
+        buffer_client=replay,
+        device=torch.device("cpu"),
     )
 
 
 def test_learner_continuation_rejects_lr_conflict_before_mutating_receiver() -> None:
     """A changed optimizer LR fails the public continuation load preflight."""
     source, checkpoint = _trained_learner(0.001)
-    receiver = ApexLearner(
-        ApexLearnerConfig(input_size=8, hidden_size=8, output_size=6, learning_rate=0.002),
-        device=torch.device("cpu"),
-    )
+    receiver = _fresh_continuation_receiver(0.002)
     before = {key: value.clone() for key, value in receiver.dqn.state_dict().items()}
     with pytest.raises(ValueError, match="conflicts"):
         receiver.load_state_dict(
@@ -328,10 +355,7 @@ def test_learner_continuation_rejects_forged_optimizer_before_mutating_receiver(
     _source, checkpoint = _trained_learner(0.001)
     forged = copy.deepcopy(checkpoint)
     forged["optimizer_state_dict"]["param_groups"][0]["lr"] = 0.5
-    receiver = ApexLearner(
-        ApexLearnerConfig(input_size=8, hidden_size=8, output_size=6, learning_rate=0.001),
-        device=torch.device("cpu"),
-    )
+    receiver = _fresh_continuation_receiver(0.001)
     before = {key: value.clone() for key, value in receiver.dqn.state_dict().items()}
     with pytest.raises(ValueError, match="state conflicts"):
         receiver.load_state_dict(
