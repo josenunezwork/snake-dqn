@@ -405,7 +405,6 @@ class ApexLearner:
         next_action_quality = self.compute_next_action_quality_metrics(
             next_states,
             next_action_masks=next_action_masks,
-            next_action_mask_modes=next_action_mask_modes,
             next_action_mask_present=next_action_mask_present,
             sample_mask=1.0 - dones,
         )

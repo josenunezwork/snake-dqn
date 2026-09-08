@@ -398,7 +398,12 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                 continue
             priority = float(self._tree.tree[data_index + self._tree.capacity - 1])
             stream_id = None
-            if len(data) == 8:
+            if len(data) == 9:
+                (
+                    state, action, reward, next_state, done, bootstrap_steps,
+                    next_action_mask, next_action_mask_mode, stream_id,
+                ) = data
+            elif len(data) == 8:
                 (
                     state,
                     action,
@@ -409,16 +414,25 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                     next_action_mask,
                     stream_id,
                 ) = data
+                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
             elif len(data) == 7:
                 state, action, reward, next_state, done, bootstrap_steps, next_action_mask = data
+                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
             elif len(data) == 6:
                 state, action, reward, next_state, done, bootstrap_steps = data
                 next_action_mask = None
+                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
             else:
                 state, action, reward, next_state, done = data
                 bootstrap_steps = 1
                 next_action_mask = None
-            if stream_id is not None:
+                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
+            if next_action_mask_mode != MASK_MODE_LEGACY_ADVISORY:
+                memories.append(
+                    (state, action, reward, next_state, done, priority, bootstrap_steps,
+                     next_action_mask, next_action_mask_mode, stream_id)
+                )
+            elif stream_id is not None:
                 memories.append(
                     (
                         state,

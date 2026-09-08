@@ -345,6 +345,7 @@ class TestTrainStep:
             dones=torch.zeros(1),
             bootstrap_steps=torch.ones(1),
             next_action_masks=exact_mask,
+            next_action_mask_modes=torch.tensor([1]),
         )
 
         assert targets.tolist() == [25.0]
@@ -357,7 +358,7 @@ class TestTrainStep:
         learner.target_dqn = FixedQ([0.0, 5.0, 0.0, 0.0, 50.0, 0.0])
         wrong_shape_mask = torch.tensor([[False, True, False]])
 
-        with pytest.raises(ValueError, match="action_mask shape must match q_values shape"):
+        with pytest.raises(ValueError, match="next_action_masks must have shape"):
             learner.compute_td_targets(
                 rewards=torch.zeros(1),
                 next_states=_full_state_batch(),

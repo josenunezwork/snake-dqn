@@ -994,6 +994,7 @@ class BufferProcess:
                                     steps,
                                     next_action_mask,
                                 ) = msg.data
+                                next_action_mask_modes = None
                                 next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
                             elif len(msg.data) == 7:
                                 state, action, reward, next_state, done, priority, steps = msg.data
@@ -1031,6 +1032,7 @@ class BufferProcess:
                                     bootstrap_steps,
                                     next_action_masks,
                                 ) = msg.data
+                                next_action_mask_modes = None
                             elif len(msg.data) == 7:
                                 (
                                     states,

@@ -543,8 +543,9 @@ class TestApexBufferClientsActionMasks:
 
         assert msg.msg_type == MessageType.ADD_BATCH
         assert msg.sender_id == 3
-        assert len(msg.data) == 8
+        assert len(msg.data) == 9
         assert msg.data[7][0].tolist() == mask.tolist()
+        assert msg.data[8] == [0]
 
     def test_actor_client_allows_empty_exact_next_action_mask(self):
         queue = torch.multiprocessing.Queue()
