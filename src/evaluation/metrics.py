@@ -95,8 +95,12 @@ class EvaluationMetricsAccumulator:
         # terminal hero acts at most while alive.  New adapters pass `acted`
         # so decision accounting also remains correct for masked/no-op rows.
         decision = pre_alive if acted is None else acted
+        if decision and not pre_alive:
+            raise ValueError("a dead hero cannot execute a decision")
         if events.boost_executed and not decision:
             raise ValueError("a boost event requires an executed decision")
+        if events.death and not pre_alive:
+            raise ValueError("a death event requires a previously alive hero")
         self._frames += 1
         self._food_eaten += events.food_eaten
         self._kills += events.kills

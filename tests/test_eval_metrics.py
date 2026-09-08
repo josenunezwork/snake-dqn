@@ -76,3 +76,13 @@ def test_no_decisions_is_null_not_a_plausible_zero_probe() -> None:
     result = metrics.result()
     assert result["probes"]["boost_frame_fraction"] is None
     assert result["probe_unavailable_reasons"]["boost_frame_fraction"]
+
+
+def test_dead_padding_cannot_be_counted_as_a_decision() -> None:
+    metrics = EvaluationMetricsAccumulator(scored_horizon=1)
+    try:
+        metrics.observe(False, PostStepState(False, 0), StepEvents(), acted=True)
+    except ValueError as error:
+        assert "dead hero" in str(error)
+    else:
+        raise AssertionError("dead padding cannot be a decision frame")
