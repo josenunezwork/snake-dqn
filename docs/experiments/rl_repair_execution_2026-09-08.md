@@ -126,21 +126,37 @@ starts keep all training state fresh. Streamed checkpoint snapshots bind saved
 parent lineage to the exact loaded bytes without duplicating a large checkpoint
 in memory. Snake episode rewards remain separate from policy cumulative rewards.
 
+E1 and the ACTION-RNG amendment are accepted on integrated source `0896caa`.
+The combined evaluator, serving, simulator and PQN regression run passed
+**252 tests, 1 conditional checkpoint skip in 12.86s**. An actual zero-update
+PQN checkpoint from that same source loaded and stepped in Watch and Play,
+and both evaluation engines received identical tactical, strategic and scalar
+tensors over three frames including a food replacement. The checkpoint and
+receipt are preserved under `integration/p2-e1-roundtrip/` in the evidence root.
+
+Two runtime counterexamples explain the additional amendments. The SIMD evaluator
+previously selected actions before Watch food maintenance and respawn; the new
+callback puts selection at the same phase as live Watch. The live v3 attachment
+also referenced classes imported only in the v2 branch; the actual producer test
+caught and now covers that path. Finally, AISnake consumed the shared Python RNG
+even when epsilon was zero. This changed later food replacements only in live
+evaluation. The zero-epsilon guard fixes that coupling while retaining positive-
+epsilon draw order. This intentionally corrects zero-epsilon live trajectories;
+it does not claim legacy trajectory identity.
+
+The additional hermetic regression at `c079970` builds its own checkpoint and
+asserts all three input tensors, all anchor contexts/actions, and zero inference
+RNG draws. Full diagnostic traces and failing attempts remain in durable evidence.
+No learner update or skill qualification is implied by these checks.
+
 ## Active integration wave
 
-E1 remains in implementation and independent review. Its profile, metric and
-immutable-roster helpers are reviewed, and controlled runtime tests exposed an
-additional action-timing mismatch: live Watch advances the frame, maintains food
-and respawns before selecting actions, while SIMD callers previously selected
-before those steps. The ENV-WATCH-ACTION amendment adds a callback at the actual
-pre-action phase while preserving the existing direct-action training step.
-Actual policy traces must prove food visibility and action selection on the
-respawn transition before E1 can be accepted. A synthetic observation-frame offset
-alone is insufficient.
-
-E2 and H0 remain pending until E1 is accepted; their independent design preparation
-can proceed without claiming implementation or qualification. No repaired learner
-training campaign has run yet.
+E2 and H0 have started from the accepted `0896caa` source. E2 first separates
+statistical calculations from strict request/receipt validation across two owners.
+One later owner will connect their reviewed APIs to the tournament and diagnostic
+consumers. H0 independently implements the manifest-first, resource-limited
+experiment runner. Each lane has an independent reviewer. G0 qualification and
+actual Mac training remain pending until these implementations are accepted.
 
 The campaign's `cpu_test_slot.py` now enforces at most two concurrent one-thread
 focused test processes. Owned-file repair/rerun attempts are continuously authorized
