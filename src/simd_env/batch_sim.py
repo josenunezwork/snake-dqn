@@ -514,6 +514,10 @@ class BatchSim:
         The selector runs once after frame, food maintenance, and respawn, with
         refreshed masks. Its returned action grid is deliberately strict: unlike
         the legacy array API, invalid shapes, dtypes, or action codes are errors.
+        The selector is read-only: it must not step this simulator. Selection or
+        validation errors occur after lifecycle preparation; internal guards are
+        cleared but no rollback is attempted, so evaluators must discard that
+        failed frame/run rather than continue it.
         """
         if not callable(action_selector):
             raise TypeError("action_selector must be callable")
