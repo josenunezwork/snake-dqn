@@ -4,17 +4,26 @@ The paired-CI values are checked against hand-computed numbers so a silent
 change to the t-tables or the CI formula fails loudly.
 """
 
+import json
 import math
 
 import pytest
 
 from src.scripts.eval_stats import (
     ci95_halfwidth,
+    holm,
+    holm_three_mix_superiority,
     mass_integral,
     mean,
+    paired_delta_pilot_size,
+    paired_delta_test,
     paired_stats,
     recommended_seed_count,
     sample_std,
+    scripted_noninferiority,
+    strict_promotion_decision,
+    student_t_isf,
+    student_t_sf,
     t_critical_80,
     t_critical_975,
 )
@@ -148,3 +157,123 @@ class TestRecommendedSeedCount:
             recommended_seed_count(1.0, 1.0, alpha=0.01)
         with pytest.raises(ValueError):
             recommended_seed_count(1.0, 1.0, power=0.9)
+
+
+class TestStrictNumerics:
+    def test_student_t_df_one_matches_independent_cauchy_formula(self):
+        # The Cauchy survival function is analytic, independent of the
+        # incomplete-beta implementation used by the production function.
+        for value in (-10.0, -2.5, -1.0, 0.0, 1.0, 2.5, 10.0):
+            expected = 0.5 - math.atan(value) / math.pi
+            assert student_t_sf(value, 1) == pytest.approx(expected, rel=5e-12)
+
+    def test_student_t_inverse_round_trips_at_one_sided_gate_probability(self):
+        critical = student_t_isf(0.05 / 3.0, 39)
+        assert student_t_sf(critical, 39) <= 0.05 / 3.0
+        assert student_t_sf(math.nextafter(critical, -math.inf), 39) > 0.05 / 3.0
+
+    def test_holm_matches_exact_boundary_and_step_down_behavior(self):
+        rejected, adjusted = holm([0.05 / 3.0, 0.025, 0.05])
+        assert rejected == [True, True, True]
+        assert adjusted == pytest.approx([0.05, 0.05, 0.05])
+        # A second-rank failure stops the third rejection even though 0.03
+        # would meet that third-rank threshold of 0.05 on its own.
+        rejected, _ = holm([0.001, 0.03, 0.03])
+        assert rejected == [True, False, False]
+
+
+class TestStrictPairedDeltas:
+    def test_zero_standard_error_is_json_safe_and_positive_limit_succeeds(self):
+        result = paired_delta_test([0.25, 0.25, 0.25])
+        assert result["superior"] is True
+        assert result["t_statistic"] is None
+        assert result["t_statistic_limit"] == "positive_infinity"
+        assert result["p_value"] == 0.0
+        json.dumps(result, allow_nan=False)
+
+    def test_n_less_than_two_is_explicit_invalid_not_a_significant_result(self):
+        result = paired_delta_test([1.0])
+        assert result["valid"] is False
+        assert result["superior"] is False
+        assert result["p_value"] is None
+        assert result["descriptive_ci95"] == {
+            "half_width": None,
+            "low": None,
+            "high": None,
+        }
+
+    def test_nonfinite_and_boolean_deltas_are_rejected(self):
+        with pytest.raises(ValueError):
+            paired_delta_test([1.0, float("nan")])
+        with pytest.raises(TypeError):
+            paired_delta_test([1.0, True])
+
+    def test_holm_requires_three_raw_mix_tests_and_two_rejections(self):
+        result = holm_three_mix_superiority(
+            {
+                "frozen": [0.1, 0.1, 0.1],
+                "scripted": [0.2, 0.2, 0.2],
+                "mixed": [-0.1, -0.1, -0.1],
+            }
+        )
+        assert result["valid"] is True
+        assert result["successful_mixes"] == ["frozen", "scripted"]
+        assert result["passes"] is True
+
+        invalid = holm_three_mix_superiority(
+            {"frozen": [1.0], "scripted": [1.0, 1.0], "mixed": [1.0, 1.0]}
+        )
+        assert invalid["valid"] is False
+        assert invalid["passes"] is False
+        assert invalid["invalid_mixes"] == ["frozen"]
+
+    def test_scripted_noninferiority_boundary_is_strict(self):
+        equality = scripted_noninferiority([-1.0, -1.0, -1.0], absolute_delta_ni=1.0)
+        assert equality["lower_bound"] == -1.0
+        assert equality["passes"] is False
+        above = scripted_noninferiority([-0.999, -0.999, -0.999], absolute_delta_ni=1.0)
+        assert above["passes"] is True
+
+    def test_strict_decision_joins_holm_and_separate_scripted_ni(self):
+        result = strict_promotion_decision(
+            {
+                "frozen": [0.2, 0.2, 0.2],
+                "scripted": [-0.01, -0.01, -0.01],
+                "mixed": [0.2, 0.2, 0.2],
+            },
+            scripted_mix="scripted",
+            absolute_delta_ni=0.02,
+        )
+        assert result["superiority"]["passes"] is True
+        assert result["scripted_noninferiority"]["passes"] is True
+        assert result["passes"] is True
+        assert result["descriptive_combined_ci95"]["n"] == 3
+
+
+class TestStrictPilotSizing:
+    def test_pilot_uses_paired_delta_variance_and_hard_floor(self):
+        plan = paired_delta_pilot_size(
+            {
+                "frozen": [1.0, 1.0, 1.0],
+                "scripted": [0.0, 4.0, -4.0],
+                "mixed": [1.0, 1.0, 1.0],
+            },
+            {"frozen": 1.0, "scripted": 1.0, "mixed": 1.0},
+        )
+        assert plan["minimum_final_worlds"] == 40
+        assert plan["required_final_worlds"] >= 40
+        assert plan["required_final_worlds"] == plan["per_mix"]["scripted"]["recommended_n"]
+        assert plan["joint_power_claim"] is None
+        assert plan["planning_alpha_per_mix"] == pytest.approx(0.05 / 3.0)
+
+    def test_pilot_rejects_baseline_style_missing_or_undersized_raw_pairs(self):
+        with pytest.raises(ValueError):
+            paired_delta_pilot_size(
+                {"frozen": [1.0], "scripted": [1.0, 1.0], "mixed": [1.0, 1.0]},
+                {"frozen": 1.0, "scripted": 1.0, "mixed": 1.0},
+            )
+        with pytest.raises(ValueError):
+            paired_delta_pilot_size(
+                {"frozen": [1.0, 1.0], "scripted": [1.0, 1.0], "mixed": [1.0, 1.0]},
+                {"frozen": 1.0, "scripted": 1.0},
+            )
