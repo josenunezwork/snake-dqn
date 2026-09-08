@@ -144,6 +144,7 @@ def test_partial_legacy_metadata_only_removes_directly_recorded_facts() -> None:
         "generation.action_size": 6,
         "generation.gamma": 0.99,
         "generation.max_capacity": None,
+        "generation.world_engine": "live",
     }
 
     missing = missing_legacy_fields(metadata)
@@ -164,7 +165,9 @@ def test_null_required_legacy_facts_remain_unknown() -> None:
             "generation.gamma": None,
             "generation.apex_n_step": None,
             "generation.circular_geometry": None,
+            "generation.arena_type": "rectangular",
             "generation.max_capacity": None,
+            "generation.world_engine": "live",
         }
     )
 

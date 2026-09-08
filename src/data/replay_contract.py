@@ -140,11 +140,6 @@ LEGACY_PROVENANCE_KEYS: dict[str, str | None] = {
     "generator.version": "generation.generator_version",
 }
 
-_LEGACY_NULLABLE_PATHS = {
-    "observation.circular_geometry",
-    "world.circular_geometry",
-    "world.max_capacity",
-}
 _LEGACY_BOOL_PATHS = {
     "observation.use_free_space",
     "observation.use_boundary_as_danger",
@@ -203,10 +198,20 @@ _LEGACY_MAPPING_PATHS = {
 _LEGACY_SEQUENCE_PATHS = {"observation.direction_order"}
 
 
-def _legacy_fact_is_known(path: str, value: object) -> bool:
+def _legacy_fact_is_known(
+    path: str,
+    value: object,
+    metadata: Mapping[str, Any],
+) -> bool:
     """Return whether a legacy value truthfully establishes its semantic fact."""
     if value is None:
-        return path in _LEGACY_NULLABLE_PATHS
+        if path == "observation.circular_geometry":
+            return metadata.get("generation.observation_arena_type") == "rectangular"
+        if path == "world.circular_geometry":
+            return metadata.get("generation.arena_type") == "rectangular"
+        if path == "world.max_capacity":
+            return metadata.get("generation.world_engine") == "live"
+        return False
     if path in _LEGACY_BOOL_PATHS:
         return isinstance(value, bool)
     if path in _LEGACY_INT_PATHS:
@@ -404,7 +409,9 @@ def missing_legacy_fields(metadata: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(
         path
         for path, key in LEGACY_PROVENANCE_KEYS.items()
-        if key is None or key not in metadata or not _legacy_fact_is_known(path, metadata[key])
+        if key is None
+        or key not in metadata
+        or not _legacy_fact_is_known(path, metadata[key], metadata)
     )
 
 
