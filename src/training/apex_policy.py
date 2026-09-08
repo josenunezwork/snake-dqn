@@ -10,6 +10,7 @@ Key difference from Rainbow: Uses epsilon-greedy instead of noisy networks,
 and does not use distributional RL (C51) for simplicity.
 """
 
+import copy
 import os
 import math
 from collections import deque
@@ -661,6 +662,8 @@ class ApexPolicy(BaseDQNPolicy):
             state_dict["target_dqn_state_dict"] = self.target_dqn.state_dict()
         if self.optimizer is not None:
             state_dict["optimizer_state_dict"] = self.optimizer.state_dict()
+        if hasattr(self, "_resume_parent"):
+            state_dict["resume_parent"] = copy.deepcopy(self._resume_parent)
         return state_dict
 
     def _recipe(self) -> ApexRecipe:
@@ -687,7 +690,7 @@ class ApexPolicy(BaseDQNPolicy):
         provide requested/effective uint64 values and the derived namespace.
         """
         required = {"requested_seed", "effective_seed", "namespace"}
-        if set(seed_context) < required:
+        if not required.issubset(seed_context):
             raise ValueError("Apex seed_context requires requested_seed, effective_seed, and namespace")
         for key in ("effective_seed",):
             value = seed_context[key]

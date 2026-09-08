@@ -1042,6 +1042,19 @@ def test_inference_policy_state_export_remains_recipe_free() -> None:
         DeviceManager.reset_for_testing()
 
 
+def test_seed_identity_rejects_missing_required_key_with_extra_metadata() -> None:
+    """Malformed C0 provenance has one stable public failure mode."""
+    DeviceManager.override_device(torch.device("cpu"))
+    try:
+        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3)
+        with pytest.raises(ValueError, match="requested_seed"):
+            policy.set_seed_identity(
+                {"effective_seed": 7, "namespace": "test", "worker_seed": 8}
+            )
+    finally:
+        DeviceManager.reset_for_testing()
+
+
 def test_load_state_dict_rejects_inconsistent_checkpoint_contract_before_replay_mutation():
     """A checkpoint with conflicting target semantics should fail before replay is rescaled."""
     DeviceManager.override_device(torch.device("cpu"))
