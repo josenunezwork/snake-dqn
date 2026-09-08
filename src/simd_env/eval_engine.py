@@ -249,7 +249,7 @@ class _ProfileAnchorSimdPolicy(SimdPolicy):
                 AnchorContext(
                     world_seed=self._world_seeds[env_i],
                     slot=slot_i,
-                    frame=int(sim.frame[env_i]),
+                    frame=int(sim.frame[env_i]) - 1,
                     head_cell=tuple(int(v) for v in heads[env_i, slot_i]),
                     heading=tuple(int(v) for v in headings[env_i, slot_i]),
                     food_cells=tuple(tuple(int(v) for v in cell) for cell in sim.get_food(env_i)),
@@ -325,12 +325,6 @@ class NetworkSimdPolicy(SimdPolicy):
                 starvation_max=int(norm["starvation_max"]),
                 max_length=int(norm["max_length"]),
             )
-            # Watch increments GameState.frame before the serving policy builds
-            # its observation. SIMD dispatch happens immediately before step(),
-            # so advance only the v3 serving scalar snapshot by one. Anchors
-            # intentionally retain their pre-step frame identity.
-            if self._obs_spec == "raster31v3":
-                inputs.frame = inputs.frame + 1
             obs = build_observations(
                 inputs,
                 mask=sim.get_resolved_action_mask(),
@@ -647,14 +641,20 @@ def run_simd_eval(
     env_idx = np.arange(E)
 
     for _ in range(frames):
-        masks = (
-            sim.get_resolved_action_mask() if profile is not None else sim.get_action_mask()
-        )  # (E, S, 6)
         actions = np.ones((E, num_snakes), dtype=np.int64)
+        if profile is not None:
+            # The callback sees the exact Watch pre-action snapshot: frame
+            # increment, ambient-food maintenance, and respawns are complete.
+            def choose_actions(prepared_sim: BatchSim) -> np.ndarray:
+                masks = prepared_sim.get_resolved_action_mask()
+                _dispatch_actions(prepared_sim, masks, actions, hero_policies, opp_policies)
+                return actions
 
-        _dispatch_actions(sim, masks, actions, hero_policies, opp_policies)
-
-        sim.step(actions)
+            sim.step_with_policy(choose_actions)
+        else:
+            masks = sim.get_action_mask()
+            _dispatch_actions(sim, masks, actions, hero_policies, opp_policies)
+            sim.step(actions)
         if profile is not None and np.any(sim.get_lengths() >= profile.world.max_capacity):
             raise RuntimeError("evaluation world exceeded its declared max_capacity")
 
