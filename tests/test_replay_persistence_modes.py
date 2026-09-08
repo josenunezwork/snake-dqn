@@ -3,9 +3,10 @@
 import sqlite3
 import struct
 
+import pytest
 import torch
 
-from src.data.memory_db_handler import MemoryDBHandler
+from src.data.memory_db_handler import MemoryDBHandler, validate_replay_quality_gates
 from src.training.multistep_buffer import MultiStepBuffer
 from src.training.replay_buffer import restore_replay_memories
 from src.training.td_targets import (
@@ -200,10 +201,49 @@ def test_read_only_old_database_synthesizes_legacy_advisory_mode(temp_db):
             include_action_masks=True,
             include_action_mask_modes=True,
         )
+        quality = handler.get_replay_quality_stats(policy_type="apex")
         columns = handler._table_columns("memories_standard")
     finally:
         handler.close()
 
     assert loaded[7] == [(True, False, False, False, False, False)]
     assert loaded[8] == [MASK_MODE_LEGACY_ADVISORY]
+    assert quality["mask_count"] == 1
+    assert quality["exact_mask_count"] == 0
+    assert quality["nonterminal_exact_mask_fraction"] == 0.0
     assert "next_action_mask_mode" not in columns
+
+
+def test_sql_quality_counts_and_rejects_corrupt_unknown_mask_mode(temp_db):
+    """A corrupted stored mode remains present evidence but never exact evidence."""
+    handler = MemoryDBHandler(temp_db)
+    try:
+        handler.save_memories(
+            snake_id=0,
+            memories=[
+                {
+                    "state": _state(0.0),
+                    "action": 0,
+                    "reward": 0.0,
+                    "next_state": _state(1.0),
+                    "done": False,
+                    "priority": 1.0,
+                    "bootstrap_steps": 1,
+                    "next_action_mask": [True, False, False, False, False, False],
+                    "next_action_mask_mode": MASK_MODE_LEGACY_ADVISORY,
+                }
+            ],
+        )
+        handler.cursor.execute("PRAGMA ignore_check_constraints = ON")
+        handler.cursor.execute("UPDATE memories_standard SET next_action_mask_mode = 99")
+        handler.conn.commit()
+
+        stats = handler.get_replay_quality_stats(policy_type="apex")
+    finally:
+        handler.close()
+
+    assert stats["mask_count"] == 1
+    assert stats["exact_mask_count"] == 0
+    assert stats["invalid_action_mask_mode_count"] == 1
+    with pytest.raises(RuntimeError, match="invalid next-action mask modes"):
+        validate_replay_quality_gates(stats)

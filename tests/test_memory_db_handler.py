@@ -275,8 +275,8 @@ class TestMemoryDBHandler:
         finally:
             handler.close()
 
-    def test_replay_quality_uses_empty_exact_mask_for_trapped_next_state(self, temp_db):
-        """Exact empty masks should mark trapped targets even when state features look safe."""
+    def test_replay_quality_does_not_treat_legacy_empty_mask_as_exact(self, temp_db):
+        """Legacy empty masks cannot claim a safe-looking successor is trapped."""
         handler = MemoryDBHandler(temp_db)
         memories = [
             make_memory(
@@ -288,8 +288,10 @@ class TestMemoryDBHandler:
 
         stats = handler.get_replay_quality_stats(policy_type="apex", snake_id=0)
 
-        assert stats["nonterminal_trapped_next_state_count"] == 1
-        assert stats["nonterminal_trapped_next_state_fraction"] == pytest.approx(1.0)
+        assert stats["mask_count"] == 1
+        assert stats["exact_mask_count"] == 0
+        assert stats["nonterminal_trapped_next_state_count"] == 0
+        assert stats["nonterminal_trapped_next_state_fraction"] == pytest.approx(0.0)
         handler.close()
 
     def test_replay_quality_uses_nonempty_exact_mask_over_trapped_state_features(self, temp_db):
@@ -299,6 +301,7 @@ class TestMemoryDBHandler:
             make_memory(
                 next_state=make_state(100.0, per_action_danger=(1.0, 1.0, 1.0)),
                 next_action_mask=[False, True, False, False, False, False],
+                next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
             )
         ]
         handler.save_memories(snake_id=0, memories=memories)
@@ -331,14 +334,13 @@ class TestMemoryDBHandler:
         assert stats["nonterminal_mask_count"] == 0
         assert stats["boost_mask_count"] == 0
         assert any(
-            "Invalid exact next-action masks: 1/1" in line
-            for line in format_replay_quality_stats(stats)
+            "Invalid next-action masks: 1/1" in line for line in format_replay_quality_stats(stats)
         )
         assert any(
-            "invalid exact next-action masks" in warning
+            "invalid next-action masks" in warning
             for warning in format_replay_quality_warnings(stats)
         )
-        with pytest.raises(RuntimeError, match="invalid exact next-action masks"):
+        with pytest.raises(RuntimeError, match="invalid next-action masks"):
             validate_replay_quality_gates(stats)
         handler.close()
 
@@ -421,7 +423,8 @@ class TestMemoryDBHandler:
         lines = format_replay_quality_stats(stats)
 
         assert any("Rows: 3" in line for line in lines)
-        assert any("Nonterminal exact masks: 2/2 (100.0%)" in line for line in lines)
+        assert any("Nonterminal masks present: 2/2 (100.0%)" in line for line in lines)
+        assert any("Resolved exact masks (mode 1): 0/3" in line for line in lines)
         assert any("Actions: 0:1, 1:2" in line for line in lines)
         assert any(
             "Action coverage: 2/6 | dominant: 1 (66.7%) | entropy: 35.5%" in line for line in lines
@@ -434,7 +437,7 @@ class TestMemoryDBHandler:
         )
         assert any("Rows per snake_id min/avg/max: 3/3.00/3" in line for line in lines)
         assert any("Boost available states: 0 (0.0%)" in line for line in lines)
-        assert any("Exact masks allowing boost: 0 (0.0%)" in line for line in lines)
+        assert any("Resolved exact masks allowing boost: 0 (0.0%)" in line for line in lines)
         handler.close()
 
     def test_replay_quality_rejects_nonnegative_terminal_rewards_from_db(self, temp_db):
@@ -646,9 +649,14 @@ class TestMemoryDBHandler:
         memories = [
             make_memory(
                 state=make_state(0.0, boost_available=1.0),
-                next_state=make_state(100.0, per_action_danger=(1.0, 1.0, 1.0)),
                 action=0,
                 next_action_mask=[True, False, False, False, True, False],
+                next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
+                next_state=make_state(
+                    100.0,
+                    boost_available=1.0,
+                    per_action_danger=(1.0, 1.0, 1.0),
+                ),
             ),
             make_memory(
                 state=make_state(
@@ -658,12 +666,18 @@ class TestMemoryDBHandler:
                 ),
                 action=1,
                 next_action_mask=[False, True, False, False, False, False],
+                next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
             ),
             make_memory(
                 state=make_state(20.0, boost_available=0.0),
-                next_state=make_state(120.0, per_action_danger=(0.0, 2.0, 0.0)),
                 action=4,
                 next_action_mask=[False, False, True, False, False, True],
+                next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
+                next_state=make_state(
+                    120.0,
+                    boost_available=1.0,
+                    per_action_danger=(0.0, 2.0, 0.0),
+                ),
             ),
             make_memory(
                 state=make_state(
@@ -681,6 +695,7 @@ class TestMemoryDBHandler:
 
         assert stats["mask_count"] == 3
         assert stats["nonterminal_mask_count"] == 3
+        assert stats["exact_mask_count"] == 3
         assert stats["boost_mask_count"] == 2
         assert stats["boost_mask_fraction"] == pytest.approx(0.5)
         assert stats["boost_available_count"] == 3
@@ -697,6 +712,41 @@ class TestMemoryDBHandler:
         assert stats["nonterminal_trapped_next_state_fraction"] == pytest.approx(0.0)
         assert stats["malformed_next_per_action_danger_count"] == 1
         handler.close()
+
+    def test_sql_quality_gate_uses_resolved_mode_not_mask_presence(self, temp_db):
+        """SQLite rows with identical masks retain distinct authority semantics."""
+        handler = MemoryDBHandler(temp_db)
+        mask = [True, False, False, False, False, False]
+        try:
+            handler.save_memories(
+                snake_id=3,
+                memories=[
+                    make_memory(
+                        next_action_mask=mask,
+                        next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
+                    ),
+                    make_memory(
+                        next_action_mask=mask,
+                        next_action_mask_mode=MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+                    ),
+                    make_memory(
+                        next_action_mask=mask,
+                        next_action_mask_mode=MASK_MODE_LEGACY_ADVISORY,
+                    ),
+                ],
+            )
+
+            stats = handler.get_replay_quality_stats(policy_type="apex", snake_id=3)
+        finally:
+            handler.close()
+
+        assert stats["mask_count"] == 3
+        assert stats["nonterminal_mask_fraction"] == pytest.approx(1.0)
+        assert stats["exact_mask_count"] == 1
+        assert stats["nonterminal_exact_mask_count"] == 1
+        assert stats["nonterminal_exact_mask_fraction"] == pytest.approx(1 / 3)
+        with pytest.raises(RuntimeError, match="1/3 nonterminal rows carry resolved mode 1"):
+            validate_replay_quality_gates(stats, min_exact_mask_fraction=0.5)
 
     def test_replay_quality_warnings_flag_suspicious_datasets(self):
         """Replay warnings should point at issues that can make learning misleading."""
@@ -728,10 +778,12 @@ class TestMemoryDBHandler:
 
         warnings = format_replay_quality_warnings(stats)
 
-        assert any("lack exact next-action masks" in warning for warning in warnings)
+        assert any("lack resolved exact next-action masks" in warning for warning in warnings)
         assert any("normal action(s) 1, 2" in warning for warning in warnings)
         assert any("No terminal rows" in warning for warning in warnings)
-        assert any("exact next-action masks allow boost" in warning for warning in warnings)
+        assert any(
+            "resolved exact next-action masks allow boost" in warning for warning in warnings
+        )
         assert any("rows mark boost available" in warning for warning in warnings)
         assert any("boost-available state feature outside" in warning for warning in warnings)
         assert any("per-action danger features outside" in warning for warning in warnings)
@@ -928,6 +980,9 @@ class TestMemoryDBHandler:
             "nonterminal_count": 2,
             "mask_count": 2,
             "nonterminal_mask_count": 2,
+            "exact_mask_count": 2,
+            "nonterminal_exact_mask_count": 2,
+            "nonterminal_exact_mask_fraction": 1.0,
             "reward_min": -1.0,
             "reward_max": 1.0,
             "reward_negative_count": 1,
@@ -941,7 +996,7 @@ class TestMemoryDBHandler:
 
         warnings = format_replay_quality_warnings(stats)
 
-        assert not any("lack exact next-action masks" in warning for warning in warnings)
+        assert not any("lack resolved exact next-action masks" in warning for warning in warnings)
 
     def test_replay_quality_warnings_flag_boost_action_state_mismatch(self):
         """Boost actions without boost-available states indicate action/state drift."""
@@ -975,7 +1030,11 @@ class TestMemoryDBHandler:
         ]
         next_states = [
             make_state(10.0, per_action_danger=(0.0, 2.0, 0.0)),
-            make_state(11.0, per_action_danger=(1.0, 1.0, 1.0)),
+            make_state(
+                11.0,
+                boost_available=1.0,
+                per_action_danger=(1.0, 1.0, 1.0),
+            ),
             make_state(12.0, per_action_danger=(1.0, 1.0, 1.0)),
         ]
 
@@ -990,6 +1049,11 @@ class TestMemoryDBHandler:
                 [False, False, False, True, False, False],
                 None,
             ],
+            next_action_mask_modes=[
+                MASK_MODE_RASTER_RESOLVED_V3,
+                MASK_MODE_RASTER_RESOLVED_V3,
+                MASK_MODE_LEGACY_ADVISORY,
+            ],
             states=states,
             next_states=next_states,
         )
@@ -999,6 +1063,8 @@ class TestMemoryDBHandler:
         assert stats["nonterminal_count"] == 2
         assert stats["nonterminal_mask_count"] == 2
         assert stats["nonterminal_mask_fraction"] == pytest.approx(1.0)
+        assert stats["nonterminal_exact_mask_count"] == 2
+        assert stats["nonterminal_exact_mask_fraction"] == pytest.approx(1.0)
         assert stats["boost_mask_count"] == 1
         assert stats["boost_mask_fraction"] == pytest.approx(1 / 2)
         assert stats["reward_negative_count"] == 1
@@ -1017,8 +1083,8 @@ class TestMemoryDBHandler:
         assert stats["nonterminal_trapped_next_state_count"] == 0
         assert stats["nonterminal_trapped_next_state_fraction"] == pytest.approx(0.0)
 
-    def test_loaded_replay_quality_uses_exact_masks_for_trapped_next_states(self):
-        """Loaded-subset diagnostics should match learner target-mask semantics."""
+    def test_loaded_replay_quality_uses_only_resolved_masks_as_exact(self):
+        """Advisory masks do not override state evidence; resolved masks do."""
         states = [
             make_state(0.0),
             make_state(1.0),
@@ -1038,14 +1104,20 @@ class TestMemoryDBHandler:
                 [False, False, False, False, False, False],
                 [False, True, False, False, False, False],
             ],
+            next_action_mask_modes=[
+                MASK_MODE_LEGACY_ADVISORY,
+                MASK_MODE_RASTER_RESOLVED_V3,
+            ],
             states=states,
             next_states=next_states,
         )
 
-        assert stats["trapped_next_state_count"] == 1
-        assert stats["trapped_next_state_fraction"] == pytest.approx(0.5)
-        assert stats["nonterminal_trapped_next_state_count"] == 1
-        assert stats["nonterminal_trapped_next_state_fraction"] == pytest.approx(0.5)
+        assert stats["mask_count"] == 2
+        assert stats["exact_mask_count"] == 1
+        assert stats["trapped_next_state_count"] == 0
+        assert stats["trapped_next_state_fraction"] == pytest.approx(0.0)
+        assert stats["nonterminal_trapped_next_state_count"] == 0
+        assert stats["nonterminal_trapped_next_state_fraction"] == pytest.approx(0.0)
         assert stats["malformed_next_per_action_danger_count"] == 0
         assert stats["valid_next_state_feature_count"] == 2
 
@@ -1676,7 +1748,7 @@ class TestMemoryDBHandler:
                     "next_action_mask_mode": MASK_MODE_TERMINAL_NO_SUCCESSOR,
                     "next_action_mask": [True, False, False, False, False, False],
                 },
-                "cannot carry a nonempty mask",
+                "requires no next_action_mask",
             ),
             (
                 {"next_action_mask_mode": MASK_MODE_DATASET_VECTOR_ADVISORY_V1},

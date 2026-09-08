@@ -8,8 +8,18 @@ API, so existing ``from src.data.memory_db_handler import X`` imports still work
 
 import logging
 import math
+import operator
 import struct
 from collections.abc import Iterable, Mapping
+
+from src.training.td_targets import (
+    MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_RASTER_RESOLVED_V3,
+    MASK_MODE_TERMINAL_NO_SUCCESSOR,
+    validate_mask_mode,
+    validate_replay_mask_row,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -361,8 +371,8 @@ def validate_replay_quality_gates(
     done_count = int(replay_quality.get("done_count", 0))
     terminal_fraction = float(replay_quality.get("terminal_fraction", 0.0))
     nonterminal_count = int(replay_quality.get("nonterminal_count", max(count - done_count, 0)))
-    nonterminal_mask_count = int(replay_quality.get("nonterminal_mask_count", 0))
-    exact_mask_fraction = float(replay_quality.get("nonterminal_mask_fraction", 0.0))
+    nonterminal_exact_mask_count = int(replay_quality.get("nonterminal_exact_mask_count", 0))
+    exact_mask_fraction = float(replay_quality.get("nonterminal_exact_mask_fraction", 0.0))
     boost_mask_count = int(replay_quality.get("boost_mask_count", 0))
     boost_mask_fraction = float(replay_quality.get("boost_mask_fraction", 0.0))
     action_counts = replay_quality.get("action_counts", {})
@@ -511,6 +521,7 @@ def validate_replay_quality_gates(
     invalid_bootstrap_steps_count = int(replay_quality.get("invalid_bootstrap_steps_count", 0))
     invalid_done_count = int(replay_quality.get("invalid_done_count", 0))
     invalid_action_mask_count = int(replay_quality.get("invalid_action_mask_count", 0))
+    invalid_action_mask_mode_count = int(replay_quality.get("invalid_action_mask_mode_count", 0))
 
     if invalid_scalar_row_count > 0:
         raise RuntimeError(
@@ -522,8 +533,13 @@ def validate_replay_quality_gates(
         )
     if invalid_action_mask_count > 0:
         raise RuntimeError(
-            f"{context} has {invalid_action_mask_count:,}/{count:,} rows with invalid exact "
+            f"{context} has {invalid_action_mask_count:,}/{count:,} rows with invalid "
             "next-action masks"
+        )
+    if invalid_action_mask_mode_count > 0:
+        raise RuntimeError(
+            f"{context} has {invalid_action_mask_mode_count:,}/{count:,} rows with invalid "
+            "next-action mask modes"
         )
     if terminal_immediate_nonnegative_reward_count > 0:
         raise RuntimeError(
@@ -560,8 +576,9 @@ def validate_replay_quality_gates(
     ):
         raise RuntimeError(
             f"{context} exact-mask fraction "
-            f"{exact_mask_fraction:.2%} ({nonterminal_mask_count:,}/{nonterminal_count:,} "
-            "nonterminal rows) is below the requested minimum "
+            f"{exact_mask_fraction:.2%} ({nonterminal_exact_mask_count:,}/"
+            f"{nonterminal_count:,} nonterminal rows carry resolved mode 1) is below the "
+            "requested minimum "
             f"{min_exact_mask_fraction:.2%}"
         )
     if min_boost_mask_fraction > 0.0 and (
@@ -1038,6 +1055,73 @@ def _coerce_quality_action_masks(
     return valid_masks, len(invalid_rows), invalid_rows
 
 
+_MISSING_NEXT_STATE = object()
+
+
+def _validate_quality_action_mask_mode(
+    mode,
+    done,
+    mask,
+    next_state=_MISSING_NEXT_STATE,
+) -> int:
+    """Validate one quality row's closed mask-mode contract.
+
+    Quality inspection counts malformed metadata instead of aborting the scan.
+    When no next state was loaded, resolved masks still require a nonempty mask;
+    domain legality is checked whenever the successor observation is available.
+    """
+    if isinstance(mode, bool):
+        raise ValueError(f"unknown next_action_mask_mode: {mode!r}")
+    try:
+        mode = validate_mask_mode(operator.index(mode))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"unknown next_action_mask_mode: {mode!r}") from exc
+    done = _coerce_done(done)
+
+    if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR:
+        if not done:
+            raise ValueError("terminal_no_successor mode requires done=True")
+        if mask is not None:
+            raise ValueError("terminal_no_successor mode requires no next_action_mask")
+    elif mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1}:
+        if done:
+            raise ValueError("explicit nonterminal mask mode requires done=False")
+        if mask is None:
+            raise ValueError("explicit mask mode requires a six-action mask")
+        if mode == MASK_MODE_RASTER_RESOLVED_V3:
+            if not any(bool(value) for value in mask):
+                raise ValueError("nonterminal resolved next_action_mask cannot be all false")
+            if next_state is not _MISSING_NEXT_STATE:
+                validate_replay_mask_row(next_state, done, mask, mode)
+    return mode
+
+
+def _coerce_quality_action_mask_modes(
+    next_action_mask_modes: list | None,
+    dones: list,
+    valid_action_masks: list | None,
+    next_states: list | None = None,
+) -> tuple[list[int | None], int, set[int]]:
+    """Return aligned valid modes, conservatively labeling omitted modes legacy."""
+    row_count = len(dones)
+    modes = (
+        [MASK_MODE_LEGACY_ADVISORY] * row_count
+        if next_action_mask_modes is None
+        else next_action_mask_modes
+    )
+    masks = valid_action_masks if valid_action_masks is not None else [None] * row_count
+    valid_modes: list[int | None] = []
+    invalid_rows: set[int] = set()
+    for idx, (mode, done, mask) in enumerate(zip(modes, dones, masks)):
+        next_state = next_states[idx] if next_states is not None else _MISSING_NEXT_STATE
+        try:
+            valid_modes.append(_validate_quality_action_mask_mode(mode, done, mask, next_state))
+        except (TypeError, ValueError, OverflowError):
+            valid_modes.append(None)
+            invalid_rows.add(idx)
+    return valid_modes, len(invalid_rows), invalid_rows
+
+
 def _mask_all_actions_invalid(mask: Iterable | None) -> bool | None:
     """Return whether an exact action mask proves a trapped next state."""
     if mask is None:
@@ -1190,6 +1274,8 @@ def format_replay_quality_stats(stats: dict, indent: str = "   ") -> list[str]:
     nonterminal_count = int(stats.get("nonterminal_count", count - done_count))
     mask_count = int(stats.get("mask_count", 0))
     nonterminal_mask_count = int(stats.get("nonterminal_mask_count", mask_count))
+    exact_mask_count = int(stats.get("exact_mask_count", 0))
+    nonterminal_exact_mask_count = int(stats.get("nonterminal_exact_mask_count", 0))
     reward_min = float(stats.get("reward_min", 0.0))
     reward_avg = float(stats.get("reward_avg", 0.0))
     reward_max = float(stats.get("reward_max", 0.0))
@@ -1245,6 +1331,7 @@ def format_replay_quality_stats(stats: dict, indent: str = "   ") -> list[str]:
     invalid_bootstrap_steps_count = int(stats.get("invalid_bootstrap_steps_count", 0))
     invalid_done_count = int(stats.get("invalid_done_count", 0))
     invalid_action_mask_count = int(stats.get("invalid_action_mask_count", 0))
+    invalid_action_mask_mode_count = int(stats.get("invalid_action_mask_mode_count", 0))
     snake_count = int(stats.get("snake_count", 0))
     snake_rows_min = stats.get("snake_rows_min")
     snake_rows_avg = stats.get("snake_rows_avg")
@@ -1280,9 +1367,12 @@ def format_replay_quality_stats(stats: dict, indent: str = "   ") -> list[str]:
 
     lines = [
         f"{indent}Rows: {count:,} | terminal: {done_count:,} "
-        f"({terminal_fraction:.1%}) | exact masks: {mask_count:,}",
-        f"{indent}Nonterminal exact masks: {nonterminal_mask_count:,}/{nonterminal_count:,} "
+        f"({terminal_fraction:.1%}) | masks present: {mask_count:,}",
+        f"{indent}Nonterminal masks present: {nonterminal_mask_count:,}/{nonterminal_count:,} "
         f"({float(stats.get('nonterminal_mask_fraction', 0.0)):.1%})",
+        f"{indent}Resolved exact masks (mode 1): {exact_mask_count:,}/{count:,}; "
+        f"nonterminal={nonterminal_exact_mask_count:,}/{nonterminal_count:,} "
+        f"({float(stats.get('nonterminal_exact_mask_fraction', 0.0)):.1%})",
         f"{indent}Actions: {actions}",
         f"{indent}Action coverage: {active_action_count}/{ACTION_SIZE} | "
         f"dominant: {dominant_action} ({dominant_action_fraction:.1%}) | "
@@ -1316,8 +1406,14 @@ def format_replay_quality_stats(stats: dict, indent: str = "   ") -> list[str]:
         )
     if invalid_action_mask_count:
         lines.append(
-            f"{indent}Invalid exact next-action masks: {invalid_action_mask_count:,}/{count:,} "
+            f"{indent}Invalid next-action masks: {invalid_action_mask_count:,}/{count:,} "
             f"({float(stats.get('invalid_action_mask_fraction', 0.0)):.1%})"
+        )
+    if invalid_action_mask_mode_count:
+        lines.append(
+            f"{indent}Invalid next-action mask modes: "
+            f"{invalid_action_mask_mode_count:,}/{count:,} "
+            f"({float(stats.get('invalid_action_mask_mode_fraction', 0.0)):.1%})"
         )
     if snake_count > 0 and snake_rows_min is not None:
         lines.append(
@@ -1333,7 +1429,7 @@ def format_replay_quality_stats(stats: dict, indent: str = "   ") -> list[str]:
     if boost_mask_count is not None:
         boost_mask_fraction = float(stats.get("boost_mask_fraction", 0.0))
         lines.append(
-            f"{indent}Exact masks allowing boost: {int(boost_mask_count):,} "
+            f"{indent}Resolved exact masks allowing boost: {int(boost_mask_count):,} "
             f"({boost_mask_fraction:.1%})"
         )
     if current_action_comparison_count is not None:
@@ -1444,8 +1540,7 @@ def format_replay_quality_warnings(stats: dict, indent: str = "   ") -> list[str
     done_count = int(stats.get("done_count", 0))
     terminal_fraction = float(stats.get("terminal_fraction", done_count / count if count else 0.0))
     nonterminal_count = int(stats.get("nonterminal_count", count - done_count))
-    mask_count = int(stats.get("mask_count", 0))
-    nonterminal_mask_count = int(stats.get("nonterminal_mask_count", mask_count))
+    nonterminal_exact_mask_count = int(stats.get("nonterminal_exact_mask_count", 0))
     reward_min = float(stats.get("reward_min", 0.0))
     reward_max = float(stats.get("reward_max", 0.0))
     reward_negative_count = int(stats.get("reward_negative_count", 0))
@@ -1482,6 +1577,7 @@ def format_replay_quality_warnings(stats: dict, indent: str = "   ") -> list[str
     invalid_bootstrap_steps_count = int(stats.get("invalid_bootstrap_steps_count", 0))
     invalid_done_count = int(stats.get("invalid_done_count", 0))
     invalid_action_mask_count = int(stats.get("invalid_action_mask_count", 0))
+    invalid_action_mask_mode_count = int(stats.get("invalid_action_mask_mode_count", 0))
     snake_count = int(stats.get("snake_count", 0))
     snake_rows_min = int(stats.get("snake_rows_min", 0))
     snake_rows_max = int(stats.get("snake_rows_max", 0))
@@ -1556,16 +1652,24 @@ def format_replay_quality_warnings(stats: dict, indent: str = "   ") -> list[str
         )
     if invalid_action_mask_count:
         warnings.append(
-            f"{indent}{invalid_action_mask_count:,} replay rows contain invalid exact "
+            f"{indent}{invalid_action_mask_count:,} replay rows contain invalid "
             "next-action masks; training gates will reject this replay"
         )
-
-    missing_nonterminal_masks = max(nonterminal_count - nonterminal_mask_count, 0)
-    if missing_nonterminal_masks:
+    if invalid_action_mask_mode_count:
         warnings.append(
-            f"{indent}{missing_nonterminal_masks:,} nonterminal rows lack exact "
-            "next-action masks; "
-            "target masking will fall back to state-derived normal actions"
+            f"{indent}{invalid_action_mask_mode_count:,} replay rows contain invalid "
+            "next-action mask modes; training gates will reject this replay"
+        )
+
+    missing_nonterminal_exact_masks = max(
+        nonterminal_count - nonterminal_exact_mask_count,
+        0,
+    )
+    if missing_nonterminal_exact_masks:
+        warnings.append(
+            f"{indent}{missing_nonterminal_exact_masks:,} nonterminal rows lack resolved exact "
+            "next-action masks (mode 1); legacy and advisory masks do not prove simulator "
+            "legality"
         )
 
     missing_normal_actions = [
@@ -1625,13 +1729,14 @@ def format_replay_quality_warnings(stats: dict, indent: str = "   ") -> list[str
         boost_mask_count = int(boost_mask_count)
         if boost_count == 0 and boost_mask_count > 0:
             warnings.append(
-                f"{indent}{boost_mask_count:,} exact next-action masks allow boost but no "
+                f"{indent}{boost_mask_count:,} resolved exact next-action masks allow boost but no "
                 "boost actions were recorded; exploration may under-sample boost"
             )
         elif boost_count > 0 and boost_mask_count == 0:
             warnings.append(
                 f"{indent}{boost_count:,} boost-action rows were recorded but no nonterminal "
-                "exact next-action masks allow boost; boost target values may be undertrained"
+                "resolved exact next-action masks allow boost; boost target values may be "
+                "undertrained"
             )
     if boost_available_count is not None:
         boost_available_count = int(boost_available_count)
@@ -1801,6 +1906,7 @@ def build_replay_quality_stats(
     states: list | None = None,
     next_states: list | None = None,
     snake_ids: list | None = None,
+    next_action_mask_modes: list | None = None,
 ) -> dict:
     """Build replay quality diagnostics from already-loaded replay rows.
 
@@ -1820,6 +1926,7 @@ def build_replay_quality_stats(
         states=states,
         next_states=next_states,
         snake_ids=snake_ids,
+        next_action_mask_modes=next_action_mask_modes,
     )
     if count == 0:
         return {
@@ -1831,6 +1938,10 @@ def build_replay_quality_stats(
             "mask_fraction": 0.0,
             "nonterminal_mask_count": 0,
             "nonterminal_mask_fraction": 0.0,
+            "exact_mask_count": 0,
+            "exact_mask_fraction": 0.0,
+            "nonterminal_exact_mask_count": 0,
+            "nonterminal_exact_mask_fraction": 0.0,
             **_action_diversity_stats({}, 0),
             "boost_mask_count": 0,
             "boost_mask_fraction": 0.0,
@@ -1859,6 +1970,8 @@ def build_replay_quality_stats(
             "invalid_done_count": 0,
             "invalid_action_mask_count": 0,
             "invalid_action_mask_fraction": 0.0,
+            "invalid_action_mask_mode_count": 0,
+            "invalid_action_mask_mode_fraction": 0.0,
             "malformed_per_action_danger_count": 0,
             "trapped_next_state_count": 0,
             "trapped_next_state_fraction": 0.0,
@@ -2009,6 +2122,12 @@ def build_replay_quality_stats(
     valid_action_masks, invalid_action_mask_count, _ = _coerce_quality_action_masks(
         next_action_masks
     )
+    valid_action_mask_modes, invalid_action_mask_mode_count, _ = _coerce_quality_action_mask_modes(
+        next_action_mask_modes,
+        dones,
+        valid_action_masks,
+        next_states,
+    )
     mask_count = (
         sum(mask is not None for mask in valid_action_masks)
         if valid_action_masks is not None
@@ -2019,7 +2138,15 @@ def build_replay_quality_stats(
         if valid_action_masks is not None
         else 0
     )
-    boost_mask_count = _boost_mask_count_from_masks(valid_action_masks, done_values)
+    exact_action_masks = [
+        mask if mode == MASK_MODE_RASTER_RESOLVED_V3 else None
+        for mask, mode in zip(valid_action_masks or [None] * count, valid_action_mask_modes)
+    ]
+    exact_mask_count = sum(mask is not None for mask in exact_action_masks)
+    nonterminal_exact_mask_count = sum(
+        mask is not None and not done for mask, done in zip(exact_action_masks, done_values)
+    )
+    boost_mask_count = _boost_mask_count_from_masks(exact_action_masks, done_values)
     boost_available_count = None
     malformed_boost_count = 0
     trapped_state_count = 0
@@ -2101,7 +2228,7 @@ def build_replay_quality_stats(
                 if not done_value:
                     nonterminal_invalid_current_boost_action_count += 1
     if next_states is not None:
-        masks = valid_action_masks if valid_action_masks is not None else [None] * count
+        masks = exact_action_masks
         for next_state, done, mask in zip(next_states, done_values, masks):
             if done:
                 continue
@@ -2197,6 +2324,12 @@ def build_replay_quality_stats(
         "nonterminal_mask_fraction": (
             nonterminal_mask_count / nonterminal_count if nonterminal_count else 0.0
         ),
+        "exact_mask_count": exact_mask_count,
+        "exact_mask_fraction": exact_mask_count / count,
+        "nonterminal_exact_mask_count": nonterminal_exact_mask_count,
+        "nonterminal_exact_mask_fraction": (
+            nonterminal_exact_mask_count / nonterminal_count if nonterminal_count else 0.0
+        ),
         "boost_mask_count": boost_mask_count,
         "boost_mask_fraction": boost_mask_count / nonterminal_count if nonterminal_count else 0.0,
         "reward_min": reward_min,
@@ -2250,6 +2383,8 @@ def build_replay_quality_stats(
         "invalid_done_count": invalid_done_count,
         "invalid_action_mask_count": invalid_action_mask_count,
         "invalid_action_mask_fraction": invalid_action_mask_count / count,
+        "invalid_action_mask_mode_count": invalid_action_mask_mode_count,
+        "invalid_action_mask_mode_fraction": invalid_action_mask_mode_count / count,
         "action_counts": action_counts,
         **action_diversity,
     }

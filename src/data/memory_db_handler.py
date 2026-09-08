@@ -41,6 +41,7 @@ from src.data.replay_quality import (
     _state_has_malformed_direction,
     _state_has_malformed_semantic_features,
     _state_has_out_of_range_features,
+    _validate_quality_action_mask_mode,
     build_replay_quality_stats,
     current_action_invalid_from_state,
     format_replay_quality_stats,
@@ -52,7 +53,7 @@ from src.data.replay_quality import (
     validate_replay_metadata_contract,
     validate_replay_quality_gates,
 )
-from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY
+from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY, MASK_MODE_RASTER_RESOLVED_V3
 from src.utils.tensor_utils import validate_replay_mask_metadata
 
 logger = logging.getLogger(__name__)
@@ -812,15 +813,21 @@ class MemoryDBHandler:
         intentionally disagree on mask/reward-zero keys; only the per-row state-feature
         checks (the atomic _state_has_* helpers) are genuinely shared.
         """
+        table = self._replay_table_for_read()
+        columns = self._table_columns(table)
         where_clause = "WHERE 1=1"
         params = []
 
-        if policy_type:
+        if policy_type and "policy_type" in columns:
             where_clause += " AND policy_type = ?"
             params.append(policy_type)
-        if snake_id is not None:
+        elif policy_type and policy_type != "apex":
+            return {"count": 0}
+        if snake_id is not None and "snake_id" in columns:
             where_clause += " AND snake_id = ?"
             params.append(snake_id)
+        elif snake_id is not None:
+            return {"count": 0}
         state_size = self._state_size_for_codec()
         state_blob_format = f"<{state_size}f"
         state_blob_size = struct.calcsize(state_blob_format)
@@ -865,7 +872,7 @@ class MemoryDBHandler:
                 COALESCE(MAX(bootstrap_steps), 0),
                 COALESCE(SUM(CASE WHEN bootstrap_steps > 1 THEN 1 ELSE 0 END), 0),
                 COUNT(DISTINCT snake_id)
-            FROM memories_standard
+            FROM "{table}"
             {where_clause}
             """,
             params,
@@ -920,7 +927,7 @@ class MemoryDBHandler:
         self.cursor.execute(
             f"""
             SELECT action, COUNT(*)
-            FROM memories_standard
+            FROM "{table}"
             {where_clause}
             GROUP BY action
             ORDER BY action
@@ -932,7 +939,7 @@ class MemoryDBHandler:
         self.cursor.execute(
             f"""
             SELECT COUNT(*)
-            FROM memories_standard
+            FROM "{table}"
             {where_clause}
             GROUP BY snake_id
             """,
@@ -972,6 +979,7 @@ class MemoryDBHandler:
         invalid_state_feature_count = 0
         invalid_next_state_feature_count = 0
         invalid_action_mask_count = 0
+        invalid_action_mask_mode_count = 0
         current_action_comparison_count = 0
         invalid_current_action_count = 0
         invalid_current_normal_action_count = 0
@@ -983,17 +991,34 @@ class MemoryDBHandler:
         nonterminal_invalid_current_boost_action_count = 0
         mask_count = 0
         nonterminal_mask_count = 0
+        exact_mask_count = 0
+        nonterminal_exact_mask_count = 0
         boost_mask_count = 0
         if count:
+            mask_expression = (
+                "next_action_mask" if "next_action_mask" in columns else "NULL AS next_action_mask"
+            )
+            mode_expression = (
+                "next_action_mask_mode"
+                if "next_action_mask_mode" in columns
+                else f"{MASK_MODE_LEGACY_ADVISORY} AS next_action_mask_mode"
+            )
             self.cursor.execute(
                 f"""
-                SELECT state, action, next_state, done, next_action_mask
-                FROM memories_standard
+                SELECT state, action, next_state, done, {mask_expression}, {mode_expression}
+                FROM "{table}"
                 {where_clause}
                 """,
                 params,
             )
-            for state_blob, action, next_state_blob, done, next_action_mask in self.cursor:
+            for (
+                state_blob,
+                action,
+                next_state_blob,
+                done,
+                next_action_mask,
+                next_action_mask_mode,
+            ) in self.cursor:
                 if not isinstance(state_blob, (bytes, bytearray, memoryview)):
                     state_blob = None
                 if state_blob is not None and len(state_blob) == state_blob_size:
@@ -1057,13 +1082,19 @@ class MemoryDBHandler:
                         mask_count += 1
                         if not bool(done):
                             nonterminal_mask_count += 1
-                            if any(decoded_action_mask[3:ACTION_SIZE]):
-                                boost_mask_count += 1
+
+                validated_mask_mode = None
+                try:
+                    validated_mask_mode = _validate_quality_action_mask_mode(
+                        next_action_mask_mode,
+                        done,
+                        decoded_action_mask,
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    invalid_action_mask_mode_count += 1
 
                 if not bool(done):
-                    exact_trapped = None
-                    if decoded_action_mask is not None:
-                        exact_trapped = _mask_all_actions_invalid(decoded_action_mask)
+                    exact_action_mask = None
                     if (
                         isinstance(next_state_blob, (bytes, bytearray, memoryview))
                         and len(next_state_blob) == state_blob_size
@@ -1083,10 +1114,27 @@ class MemoryDBHandler:
                         )
                         if any(value < 0.0 or value > 1.0 for value in next_danger_values):
                             malformed_next_danger_count += 1
-                        if decoded_action_mask is not None:
+                        if validated_mask_mode == MASK_MODE_RASTER_RESOLVED_V3:
+                            try:
+                                _validate_quality_action_mask_mode(
+                                    validated_mask_mode,
+                                    done,
+                                    decoded_action_mask,
+                                    next_state_values,
+                                )
+                            except (TypeError, ValueError, OverflowError):
+                                invalid_action_mask_mode_count += 1
+                                validated_mask_mode = None
+                            else:
+                                exact_action_mask = decoded_action_mask
+                                exact_mask_count += 1
+                                nonterminal_exact_mask_count += 1
+                                if any(exact_action_mask[3:ACTION_SIZE]):
+                                    boost_mask_count += 1
+                        if exact_action_mask is not None:
                             exact_mask_state_comparison_count += 1
                             mismatch, unsafe_allowed, safe_blocked = _exact_mask_state_disagreement(
-                                decoded_action_mask,
+                                exact_action_mask,
                                 next_danger_values,
                             )
                             if mismatch:
@@ -1102,6 +1150,10 @@ class MemoryDBHandler:
                     else:
                         invalid_next_state_feature_count += 1
                         state_trapped = False
+                        if validated_mask_mode == MASK_MODE_RASTER_RESOLVED_V3:
+                            invalid_action_mask_mode_count += 1
+                            validated_mask_mode = None
+                    exact_trapped = _mask_all_actions_invalid(exact_action_mask)
                     if exact_trapped if exact_trapped is not None else state_trapped:
                         trapped_next_state_count += 1
                         nonterminal_trapped_next_state_count += 1
@@ -1128,6 +1180,14 @@ class MemoryDBHandler:
             "nonterminal_mask_count": int(nonterminal_mask_count),
             "nonterminal_mask_fraction": (
                 float(nonterminal_mask_count) / nonterminal_count if nonterminal_count else 0.0
+            ),
+            "exact_mask_count": int(exact_mask_count),
+            "exact_mask_fraction": (float(exact_mask_count) / count) if count else 0.0,
+            "nonterminal_exact_mask_count": int(nonterminal_exact_mask_count),
+            "nonterminal_exact_mask_fraction": (
+                float(nonterminal_exact_mask_count) / nonterminal_count
+                if nonterminal_count
+                else 0.0
             ),
             "boost_mask_count": int(boost_mask_count),
             "boost_mask_fraction": (
@@ -1226,6 +1286,10 @@ class MemoryDBHandler:
             "invalid_action_mask_count": int(invalid_action_mask_count),
             "invalid_action_mask_fraction": (
                 float(invalid_action_mask_count) / count if count else 0.0
+            ),
+            "invalid_action_mask_mode_count": int(invalid_action_mask_mode_count),
+            "invalid_action_mask_mode_fraction": (
+                float(invalid_action_mask_mode_count) / count if count else 0.0
             ),
             "trapped_next_state_count": int(trapped_next_state_count),
             "trapped_next_state_fraction": (
