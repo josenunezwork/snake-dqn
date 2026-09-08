@@ -55,6 +55,11 @@ class GameSettings:
     # floor). See src/core/mechanics_constants.py for the v2 constants.
     mechanics_version: int = 1
 
+    def __post_init__(self) -> None:
+        """Keep the fixed-width vector observation contract valid."""
+        if self.num_sectors != 16:
+            raise ValueError("num_sectors must be exactly 16 for the vector58/vector61 contract")
+
 
 @dataclass(frozen=True)
 class NetworkSettings:
@@ -264,6 +269,7 @@ class PQNOverrides:
     flip_augment: Optional[bool] = None
     max_frames: Optional[int] = None
     max_abs_q_alarm: Optional[float] = None
+    max_capacity: Optional[int] = None
     seed: Optional[int] = None
     arena_type: Optional[str] = None
     mechanics_version: Optional[int] = None

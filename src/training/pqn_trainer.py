@@ -204,6 +204,8 @@ class PQNConfig:
     recipe: str = "legacy"
     field_sources: Optional[Dict[str, str]] = None
     source_revision: str = "unknown"
+    requested_device: str = "auto"
+    effective_device: str = "cpu"
 
     def __post_init__(self) -> None:
         """Reject an invalid opt-in exact-coverage epoch count."""
@@ -555,7 +557,13 @@ class PQNTrainer:
             ``(E, S, 6)`` bool tensor on ``device``.
         """
         E, S = self.cfg.num_envs, self.cfg.num_snakes
-        mask_np = self.sim.get_resolved_action_mask()  # (E, S, 6)
+        # Legacy v2 learned under the historical advisory mask. Corrected v3
+        # records and consumes ENV's legal/advisory row-local resolution.
+        mask_np = (
+            self.sim.get_resolved_action_mask()
+            if self.cfg.obs_spec == RASTER31V3
+            else self.sim.get_action_mask()
+        )  # (E, S, 6)
         if self.device.type == "cuda":
             # GPU featurizer: transfer only the compact sim state, build the
             # rasters on the (idle) GPU. Byte-identical tactical/strategic planes
@@ -731,7 +739,13 @@ class PQNTrainer:
             # Mask of the NEXT state s_{t+1} for the bootstrap of non-terminal
             # transitions (already updated by step()).
             next_mask_buf[t] = torch.as_tensor(
-                self.sim.get_resolved_action_mask(), dtype=torch.bool, device=self.device
+                (
+                    self.sim.get_resolved_action_mask()
+                    if self.cfg.obs_spec == RASTER31V3
+                    else self.sim.get_action_mask()
+                ),
+                dtype=torch.bool,
+                device=self.device,
             )
 
         # Final observation (s_T) for truncation bootstrap of the last step.
@@ -1307,6 +1321,12 @@ class PQNTrainer:
         state: Dict[str, object] = {
             "dqn_state_dict": self.network.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
+            "optimizer_contract": {
+                "param_groups": [
+                    {"lr": group["lr"], "eps": group["eps"]}
+                    for group in self.optimizer.param_groups
+                ]
+            },
             OBS_SPEC_KEY: self.cfg.obs_spec,
             "output_size": self.network.output_size,
             "gamma": self.cfg.gamma,
@@ -1334,6 +1354,25 @@ class PQNTrainer:
             "agent_steps": self.agent_steps,
             "numeric_recovery": self.numeric_recovery_metadata(),
             "recipe": self.cfg.recipe,
+            "device": {
+                "requested": self.cfg.requested_device,
+                "effective": self.cfg.effective_device,
+            },
+            "deployment_profile": "promotion-v2-watch-rect",
+            "deployment_target_manifest": {
+                "source_world": effective_world,
+                "source_world_digest": world.digest,
+                "deployed_world": effective_world,
+                "deployed_world_digest": world.digest,
+                "normalization": {
+                    "source": dict(world.normalization),
+                    "deployed": dict(world.normalization),
+                },
+                "runtime_contract": runtime.__dict__,
+                "runtime_contract_digest": runtime.digest,
+                "deployment_profile": "promotion-v2-watch-rect",
+                "distribution_differences": {},
+            },
             "field_sources": dict(self.cfg.field_sources or {}),
             "effective_world": effective_world,
             "effective_world_digest": world.digest,
@@ -1345,6 +1384,9 @@ class PQNTrainer:
             "resume_state": dict(self._resume_state),
         }
         state.update(ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
+        state["deployment_target_manifest_digest"] = canonical_digest(
+            state["deployment_target_manifest"]
+        )
         state.update(provenance.to_metadata())
         if self.cfg.obs_spec == RASTER31V3:
             state.update(RASTER31V3_CONTRACT.to_metadata())

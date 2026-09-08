@@ -41,6 +41,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import time
 from dataclasses import asdict
@@ -51,10 +53,23 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config_loader import load_config  # noqa: E402
+from src.core.config_loader import load_config, resolve_yaml_device  # noqa: E402
 from src.core.device_manager import DeviceManager  # noqa: E402
+from src.core.runtime_contract import (  # noqa: E402
+    EffectiveWorldConfig,
+    RunProvenance,
+    RuntimeModeContract,
+    canonical_digest,
+    validate_model_head_contract,
+)
 from src.core.seeding import initialize_run_seed  # noqa: E402
-from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES  # noqa: E402
+from src.model.obs_spec import (  # noqa: E402
+    OBS_SPEC_KEY,
+    RASTER31V2,
+    RASTER31V2_SHAPES,
+    RASTER31V3,
+    RASTER31V3_CONTRACT,
+)
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
 from src.training.pqn_trainer import (  # noqa: E402
     PQNConfig,
@@ -83,6 +98,16 @@ def _nonnegative_int(value: str) -> int:
     if parsed < 0:
         raise argparse.ArgumentTypeError("must be non-negative")
     return parsed
+
+
+def _source_revision() -> str:
+    """Return the concrete checkout revision, without making training depend on git."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).parents[2], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unavailable"
 
 
 def _load_config_overrides(path: str) -> Dict[str, Any]:
@@ -136,6 +161,14 @@ def _load_config_overrides(path: str) -> Dict[str, Any]:
         if path_name in provided:
             section, name = path_name.split(".", 1)
             overrides[field] = getattr(getattr(app, section), name)
+    unsupported_rewards = {
+        path_name for path_name in provided if path_name.startswith("rewards.")
+    } - {"rewards.version", "rewards.starvation_max_frames"}
+    if unsupported_rewards:
+        raise ValueError(
+            "PQN does not dispatch explicitly requested reward fields: "
+            + ", ".join(sorted(unsupported_rewards))
+        )
     # A dedicated PQN setting is more specific than a shared game/reward
     # default.  Apply it last while retaining the single parsed AppConfig as
     # the authoritative source of all values.
@@ -171,7 +204,7 @@ def resume_contract(config: PQNConfig) -> Dict[str, Any]:
         Mapping of checkpoint-metadata key -> expected value.
     """
     contract: Dict[str, Any] = {
-        OBS_SPEC_KEY: RASTER31V2,
+        OBS_SPEC_KEY: config.obs_spec,
         "algo": "pqn",
         "gamma": config.gamma,
         "lambda": config.lambda_,
@@ -179,7 +212,45 @@ def resume_contract(config: PQNConfig) -> Dict[str, Any]:
         "reward_version": int(config.reward_version),
     }
     contract.update(RASTER31V2_SHAPES.to_metadata())
+    if config.obs_spec == RASTER31V3:
+        contract.update(RASTER31V3_CONTRACT.to_metadata())
     return contract
+
+
+def _effective_world(config: PQNConfig) -> EffectiveWorldConfig:
+    """Construct the exact world descriptor used by PQN checkpoint metadata."""
+    return EffectiveWorldConfig(
+        width=config.game_width,
+        height=config.game_height,
+        segment_size=config.segment_size,
+        wall_thickness=config.wall_thickness,
+        arena_type=config.arena_type,
+        mechanics_version=config.mechanics_version,
+        num_snakes=config.num_snakes,
+        max_frames=config.max_frames,
+        initial_food=config.initial_food,
+        max_food=config.max_food,
+        min_boost_length=config.min_boost_length,
+        boost_length_cost_frames=config.boost_length_cost_frames,
+        frame_rate=config.frame_rate,
+        max_length=config.max_length,
+        starvation_max_frames=config.starvation_max,
+        max_capacity=config.max_capacity,
+        kill_scale=config.kill_scale,
+        death_value=config.death_value,
+        normalization={
+            "max_frames": float(config.max_frames),
+            "starvation_max": float(config.starvation_max),
+            "max_length": float(config.max_length),
+        },
+    )
+
+
+def _require_counter(checkpoint: Dict[str, Any], key: str) -> None:
+    """Require a non-boolean non-negative resume odometer."""
+    value = checkpoint.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"continuation requires non-negative integer {key}")
 
 
 def validate_pqn_resume_checkpoint_config(
@@ -222,6 +293,61 @@ def validate_pqn_resume_checkpoint_config(
         required_keys=("algo", "gamma", "lambda", "mechanics_version", "reward_version"),
         error_type=ValueError,
     )
+    expected_world = _effective_world(config)
+    raw_world = checkpoint.get("effective_world")
+    if not isinstance(raw_world, dict):
+        raise ValueError("continuation requires effective_world mapping")
+    try:
+        recorded_world = EffectiveWorldConfig(**raw_world)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid effective_world metadata") from exc
+    if checkpoint.get("effective_world_digest") != recorded_world.digest:
+        raise ValueError("effective_world_digest does not match effective_world")
+    if recorded_world.digest != expected_world.digest:
+        raise ValueError("continuation effective_world conflicts with requested world")
+    raw_runtime = checkpoint.get("runtime_contract")
+    if not isinstance(raw_runtime, dict):
+        raise ValueError("continuation requires runtime_contract mapping")
+    try:
+        recorded_runtime = RuntimeModeContract(**raw_runtime)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid runtime_contract metadata") from exc
+    if checkpoint.get("runtime_contract_digest") != recorded_runtime.digest:
+        raise ValueError("runtime_contract_digest does not match runtime_contract")
+    expected_runtime = RuntimeModeContract("pqn_train", True, False, True, True, "batch_episode")
+    if recorded_runtime != expected_runtime:
+        raise ValueError("continuation runtime_contract conflicts with PQN training")
+    mask = checkpoint.get("action_mask_contract")
+    if not isinstance(mask, dict) or checkpoint.get(
+        "action_mask_contract_digest"
+    ) != canonical_digest(mask):
+        raise ValueError("invalid action_mask_contract metadata")
+    if mask != {
+        "version": "legal-advisory-resolved-v1",
+        "action_count": 6,
+        "resolution": "row_local_intersection_else_legal",
+        "dead_rows": "all_false",
+    }:
+        raise ValueError("continuation action_mask_contract conflicts with requested recipe")
+    model_head = validate_model_head_contract(checkpoint, require_digest=True)
+    provenance = RunProvenance.from_metadata(checkpoint)
+    expected_obs_digest = (
+        RASTER31V3_CONTRACT.digest if config.obs_spec == RASTER31V3 else RASTER31V2
+    )
+    if (
+        provenance.observation_digest != expected_obs_digest
+        or provenance.world_digest != recorded_world.digest
+        or provenance.runtime_digest != recorded_runtime.digest
+        or provenance.model_head_digest != model_head.digest
+    ):
+        raise ValueError("run_provenance does not agree with top-level descriptors")
+    for key in (
+        "update_counter",
+        "agent_steps",
+        "action_collapse_streak",
+        "action_collapse_evidence_samples",
+    ):
+        _require_counter(checkpoint, key)
     # Sampler fields are fit-provenance rather than inference/promotion
     # semantics, but changing any of them on resume silently changes the
     # optimizer trajectory. Missing fields predate this metadata and mean the
@@ -262,6 +388,21 @@ def validate_pqn_resume_checkpoint_config(
                 f"{checkpoint_path}: continuation provenance mismatch for {key}: "
                 f"checkpoint={checkpoint.get(key)!r}, config={expected!r}"
             )
+    optimizer_state = checkpoint.get("optimizer_state_dict")
+    if not isinstance(optimizer_state, dict) or not isinstance(
+        optimizer_state.get("param_groups"), list
+    ):
+        raise ValueError("continuation requires optimizer param_groups")
+    groups = optimizer_state["param_groups"]
+    if not groups:
+        raise ValueError("continuation requires at least one optimizer param_group")
+    for index, group in enumerate(groups):
+        if (
+            not isinstance(group, dict)
+            or group.get("lr") != config.lr
+            or group.get("eps") != config.adam_eps
+        ):
+            raise ValueError(f"optimizer param_group {index} conflicts with requested lr/adam_eps")
 
 
 def load_pqn_resume_checkpoint(
@@ -288,12 +429,12 @@ def load_pqn_resume_checkpoint(
         RuntimeError: If the payload is unreadable, is not a checkpoint dict,
             lacks the state needed to resume, or violates the contract.
     """
-    if not resume_checkpoint:
-        return None
     if mode == "exact":
         raise RuntimeError(
             "exact PQN resume is unsupported: simulator and pool continuation is deferred"
         )
+    if not resume_checkpoint:
+        return None
     if mode not in {"weights-only", "continuation"}:
         raise ValueError(f"Unknown PQN resume mode {mode!r}")
 
@@ -308,6 +449,10 @@ def load_pqn_resume_checkpoint(
         # This private loader annotation becomes auditable output metadata on
         # the next checkpoint; it never participates in the resume contract.
         checkpoint["_p1_parent_hash"] = hashlib.sha256(checkpoint_path.read_bytes()).hexdigest()
+        required_state = ("dqn_state_dict",) if mode == "weights-only" else _RESUME_REQUIRED_STATE
+        for key in required_state:
+            if key not in checkpoint:
+                raise KeyError(key)
         if mode == "continuation":
             validate_pqn_resume_checkpoint_config(
                 checkpoint, config, checkpoint_path=str(checkpoint_path)
@@ -331,10 +476,6 @@ def load_pqn_resume_checkpoint(
             for key in required_provenance:
                 if key not in checkpoint:
                     raise KeyError(f"continuation requires training provenance {key}")
-        required_state = ("dqn_state_dict",) if mode == "weights-only" else _RESUME_REQUIRED_STATE
-        for key in required_state:
-            if key not in checkpoint:
-                raise KeyError(key)
     except (OSError, RuntimeError, EOFError, KeyError, ValueError) as e:
         raise RuntimeError(f"Failed to load resume checkpoint {checkpoint_path}: {e}") from e
 
@@ -452,17 +593,37 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
     if cfg_kwargs.get("recipe") == "corrected-v3":
         # Recipe selection is explicit; omitted shared AppConfig values never
         # leak their legacy v1 defaults into this corrected training world.
-        cfg_kwargs.setdefault("obs_spec", "raster31v3")
-        cfg_kwargs.setdefault("mechanics_version", 2)
-        cfg_kwargs.setdefault("reward_version", 2)
-        cfg_kwargs.setdefault("arena_type", "rectangular")
-        cfg_kwargs.setdefault("flip_augment", False)
+        recipe_values = {
+            "obs_spec": "raster31v3",
+            "mechanics_version": 2,
+            "reward_version": 2,
+            "arena_type": "rectangular",
+            "flip_augment": False,
+        }
+        for field, expected in recipe_values.items():
+            if field in cfg_kwargs and cfg_kwargs[field] != expected:
+                raise ValueError(
+                    f"corrected-v3 recipe conflicts with explicit {field}={cfg_kwargs[field]!r}"
+                )
+            if field not in cfg_kwargs:
+                cfg_kwargs[field] = expected
 
     sources = {key: "config" for key in cfg_kwargs}
+    if cfg_kwargs.get("recipe") == "corrected-v3":
+        for key in (
+            "obs_spec",
+            "mechanics_version",
+            "reward_version",
+            "arena_type",
+            "flip_augment",
+        ):
+            if key not in cli_map or cli_map.get(key) is None:
+                sources.setdefault(key, "recipe")
     for key, value in cli_map.items():
         if value is not None:
             sources[key] = "cli"
     cfg_kwargs["field_sources"] = sources
+    cfg_kwargs["source_revision"] = _source_revision()
 
     return PQNConfig(**cfg_kwargs)
 
@@ -801,7 +962,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     config = build_config(args)
     seed_context = initialize_run_seed(config.seed)
     config.seed = seed_context.effective_seed
-    device = _resolve_device(args.device)
+    # CLI > explicitly-set environment > validated YAML hardware > auto.
+    yaml_device = (
+        resolve_yaml_device(args.config) if not os.environ.get("SNAKE_DQN_DEVICE") else None
+    )
+    requested_device = args.device or os.environ.get("SNAKE_DQN_DEVICE") or yaml_device or "auto"
+    device = _resolve_device(args.device or yaml_device)
+    config.requested_device = requested_device
+    config.effective_device = str(device)
     out_dir = Path(args.out_dir)
 
     print("[train_pqn] device:", device)

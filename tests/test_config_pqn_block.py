@@ -33,8 +33,26 @@ PQN_BLOCK = {
 
 
 def test_pqn_schema_field_parity_with_pqn_config_and_recipe_selector():
-    """Every PQNConfig knob plus the C0 recipe selector is settable from YAML."""
-    config_fields = {f.name for f in dc.fields(PQNConfig)}
+    """YAML exposes trainer knobs, while world/runtime provenance stays internal."""
+    runtime_or_shared = {
+        "game_width",
+        "game_height",
+        "segment_size",
+        "wall_thickness",
+        "initial_food",
+        "max_food",
+        "min_boost_length",
+        "boost_length_cost_frames",
+        "frame_rate",
+        "starvation_max",
+        "max_length",
+        "obs_spec",
+        "field_sources",
+        "source_revision",
+        "requested_device",
+        "effective_device",
+    }
+    config_fields = {f.name for f in dc.fields(PQNConfig)} - runtime_or_shared
     schema_fields = set(PQNSettingsSchema.model_fields.keys())
     assert config_fields | {"recipe"} == schema_fields, (
         "pqn: dataclass/schema field drift — "
@@ -89,6 +107,11 @@ def test_pqn_typo_is_still_rejected():
 def test_pqn_wrong_type_is_rejected():
     with pytest.raises(ValidationError):
         ConfigSchema(**{"pqn": {"num_envs": "sixty-four"}})
+
+
+def test_fixed_vector_observation_rejects_non_sixteen_sector_game():
+    with pytest.raises(ValidationError, match="num_sectors"):
+        ConfigSchema(**{"game": {"num_sectors": 8}})
 
 
 def test_pqn_out_of_range_is_rejected():

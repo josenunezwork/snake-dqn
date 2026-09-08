@@ -3,6 +3,7 @@
 import pytest
 import torch
 
+from src.model.obs_spec import RASTER31V3
 from src.scripts import train_pqn
 from src.training.pqn_trainer import PQNConfig, PQNTrainer
 
@@ -40,3 +41,32 @@ def test_exact_resume_is_rejected_and_weights_only_starts_fresh_world(tmp_path):
     assert fresh.update_idx == 0
     assert fresh.checkpoint_state()["resume_mode"] == "weights-only"
     assert fresh.checkpoint_state()["resume_state"]["environment"] == "fresh"
+
+
+def test_v3_checkpoint_continues_only_with_identical_world_and_optimizer(tmp_path):
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=2,
+        max_frames=100,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+    )
+    path = tmp_path / "v3.pth"
+    PQNTrainer(config).save_checkpoint(str(path))
+
+    assert train_pqn.load_pqn_resume_checkpoint(str(path), config, mode="continuation")
+    conflicting = PQNConfig(**{**config.__dict__, "max_frames": 120})
+    with pytest.raises(RuntimeError, match="effective_world conflicts"):
+        train_pqn.load_pqn_resume_checkpoint(str(path), conflicting, mode="continuation")
+
+
+def test_resume_requires_real_counters_and_optimizer_group_settings(tmp_path):
+    config = _config()
+    state = PQNTrainer(config).checkpoint_state()
+    state["agent_steps"] = -1
+    path = tmp_path / "bad_counter.pth"
+    torch.save(state, path)
+    with pytest.raises(RuntimeError, match="non-negative integer agent_steps"):
+        train_pqn.load_pqn_resume_checkpoint(str(path), config, mode="continuation")
