@@ -66,6 +66,8 @@ from src.simd_env.featurizer import (
     CODE_OWN_BODY,
     CODE_OWN_HEAD,
     CODE_WALL,
+    RASTER31V2,
+    RASTER31V3,
     SCALARS_DIM,
     STRATEGIC_CELL,
     STRATEGIC_CHANNELS,
@@ -77,8 +79,6 @@ from src.simd_env.featurizer import (
     TACTICAL_HEAD_ROW,
     TACTICAL_SIZE,
     ObsInputs,
-    RASTER31V2,
-    RASTER31V3,
     build_observations,
     expand_tactical,
 )
