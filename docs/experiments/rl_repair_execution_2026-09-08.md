@@ -69,15 +69,22 @@ recomputed; it also validates actual Adam state. Weights-only loading requires
 fresh optimizer, counters, pool and RNG state. Target and self-play descriptors
 explicitly identify the remaining pre-P2 behavior rather than claiming it fixed.
 
-S1 is closing final independent review. The final package source `b2d2f91` passed
-**206 Python tests, 5 conditional skips**, **32 frontend tests**, and its production
-build. A checkpoint actually serialized by accepted P1 source `64530856` loaded in
-Watch and Play with nondefault normalization values and passed the executable
-serving spot check. These are initialization/serialization/serving checks; no
-model was trained. The detached serving manifest describes manual reset, no live
-episode horizon, the external evaluator's separate 5,000-frame horizon, and the
-live world's unbounded storage adapter. Real GameState oracles cover pre-human-move
-observation bytes, sparse IDs, mixed policies, reorder, deaths and respawns.
+S1 is accepted at source `0d88879`, integrated at `03336522`. Its final package
+union passed **229 Python tests, 5 conditional skips**, with **32 frontend tests**
+and a production build. The integrated P1/S1 union passed **271 tests, 2 skips**.
+A checkpoint serialized on that same integrated source loaded in Watch and Play
+with nondefault normalization values and passed the executable serving spot check.
+These are initialization, serialization and serving checks; no model was trained.
+The detached serving manifest describes manual reset, no live episode horizon,
+the external evaluator's separate 5,000-frame horizon, and the live world's
+unbounded storage adapter. Real GameState oracles cover pre-human-move observation
+bytes, sparse IDs, mixed policies, reorder, deaths and respawns. Raw checkpoint
+world, runtime and model-head descriptors must be complete before construction;
+tests remove and re-sign each field to prove defaults cannot fabricate source truth.
+
+The P1-WORLD amendment at `f85e4ea` serializes all 23 effective-world fields,
+including inactive circle geometry for a rectangular world. Its focused gate
+passed 96 tests. This is a provenance completion, with no numerical recipe change.
 
 E1 preparation identified a further nontraining food-replenishment mismatch:
 actual GameState maintains ambient food after each eater, while the previous
@@ -102,3 +109,29 @@ These are E2 implementation oracles, not evidence that the inferential gate exis
 The campaign ledger records exact package/integration/test SHAs and durable
 evidence manifests. No repaired-model training or model-quality qualification
 has run yet in this execution campaign.
+
+## Active integration wave
+
+P2, A2 and E1 are in implementation and independent review. No consumer package
+may treat a green helper test as acceptance of an unfinished runtime path.
+
+- P2's immutable opponent pool passed source review and 39 focused tests. The
+  trainer remains under repair for episode completion accounting, fixed-opponent
+  exploration, truthful source descriptors and pristine continuation state.
+- A2 is split into recipe/local policy, actor/replay/learner, entrypoints and
+  persistent replay storage. An independent test owner exercises actual transport
+  and load paths. Mask modes must survive every consumer, not merely serialization.
+- E1 has profile/metric/anchor helpers and live/SIMD wiring. A separate verifier
+  is adding controlled actual-runtime action and event oracles; source review and
+  immutable input closure are still required.
+
+The campaign's `cpu_test_slot.py` now enforces at most two concurrent one-thread
+focused test processes. Owned-file repair/rerun attempts are continuously authorized
+through that wrapper. Full-suite, evaluation, corpus and MPS work remains exclusive.
+The recorded event stream has observed at most two concurrent test children.
+
+Two ambiguous A2 card phrases are resolved explicitly in the execution ledger:
+50/100 are local/distributed TD-target clipping values, while gradient clipping
+must record its actual separate value. Historical checkpoints remain loadable for
+inference or weights-only starts; restoring optimizer/counters requires verified
+continuation, with no unverified optimizer-continuation escape hatch.
