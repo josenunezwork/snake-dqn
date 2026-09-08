@@ -18,7 +18,9 @@ const MODE_BLURB: Record<string, string> = {
 // Human-readable description of what the served network actually consumes,
 // keyed by the session's observation contract.
 function inputLabel(obsSpec: string | undefined, inputSize: number): string {
-  if (obsSpec === "raster31v2") return "raster 31×31 + 25×25 + 26 scalars";
+  if (obsSpec === "raster31v2" || obsSpec === "raster31v3") {
+    return "raster 31×31 + 25×25 + 26 scalars";
+  }
   return `${inputSize}-D vector`;
 }
 

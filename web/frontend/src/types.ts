@@ -128,7 +128,7 @@ export interface SessionState {
   // True while the live training run leans on the reward-contract override
   // (fine-tune under current rewards, not a resume).
   reward_override_active?: boolean;
-  // Observation contract of the served policy ("vector61" | "raster31v2").
+  // Observation contract of the served policy ("vector61" | "raster31v2" | "raster31v3").
   obs_spec?: string;
   serving_contract?: Record<string, string> | null;
 }

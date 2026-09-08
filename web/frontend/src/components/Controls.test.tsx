@@ -82,6 +82,7 @@ describe("Controls", () => {
       />,
     );
     expect(await screen.findByText(/fixed game setup/i)).toBeInTheDocument();
+    expect(screen.getByText(/raster 31×31 \+ 25×25 \+ 26 scalars/i)).toBeInTheDocument();
     expect(screen.queryByLabelText("slider-food")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /crimson/i })).toBeDisabled();
   });
