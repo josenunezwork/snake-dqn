@@ -43,8 +43,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH
+from src.core.runtime_contract import (
+    EffectiveWorldConfig,
+    ModelHeadContract,
+    RunProvenance,
+    RuntimeModeContract,
+    canonical_digest,
+)
 from src.model.checkpoint_io import atomic_torch_save
-from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES
+from src.model.obs_spec import (
+    OBS_SPEC_KEY,
+    RASTER31V2,
+    RASTER31V2_SHAPES,
+    RASTER31V3,
+    RASTER31V3_CONTRACT,
+)
 from src.model.raster_network import (
     SCALARS_DIM,
     STRATEGIC_SHAPE,
@@ -173,6 +186,24 @@ class PQNConfig:
     mechanics_version: int = 2
     reward_version: int = 2
     profile: bool = False  # print a CUDA-synced per-phase time breakdown each update
+    # Resolved world and observation normalization. Defaults preserve the old
+    # PQN recipe; P1's CLI resolver supplies explicit values for named recipes.
+    game_width: int = 1450
+    game_height: int = 830
+    segment_size: int = 10
+    wall_thickness: int = 10
+    initial_food: int = 250
+    max_food: int = 300
+    min_boost_length: int = 5
+    boost_length_cost_frames: int = 3
+    frame_rate: int = 1
+    max_capacity: int = 400
+    starvation_max: int = 500
+    max_length: int = 400
+    obs_spec: str = RASTER31V2
+    recipe: str = "legacy"
+    field_sources: Optional[Dict[str, str]] = None
+    source_revision: str = "unknown"
 
     def __post_init__(self) -> None:
         """Reject an invalid opt-in exact-coverage epoch count."""
@@ -189,6 +220,18 @@ class PQNConfig:
             if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
                 comparator = "positive" if minimum else "non-negative"
                 raise ValueError(f"{name} must be a {comparator} integer")
+        if self.reward_version != 2:
+            raise ValueError("PQN supports reward_version=2 only")
+        if self.obs_spec not in {RASTER31V2, RASTER31V3}:
+            raise ValueError(f"Unsupported PQN observation spec {self.obs_spec!r}")
+        if self.recipe not in {"legacy", "corrected-v3"}:
+            raise ValueError(f"Unsupported PQN recipe {self.recipe!r}")
+        if self.recipe == "corrected-v3" and self.obs_spec != RASTER31V3:
+            raise ValueError("corrected-v3 recipe requires obs_spec='raster31v3'")
+        if self.game_width % self.segment_size or self.game_height % self.segment_size:
+            raise ValueError("PQN world width and height must align to segment_size")
+        if self.wall_thickness % self.segment_size:
+            raise ValueError("PQN world wall_thickness must align to segment_size")
 
 
 @dataclass
@@ -339,9 +382,19 @@ class PQNTrainer:
         sim_cfg = BatchSimConfig(
             num_envs=config.num_envs,
             num_snakes=config.num_snakes,
+            game_width=config.game_width,
+            game_height=config.game_height,
+            segment_size=config.segment_size,
+            wall_thickness=config.wall_thickness,
+            initial_food=config.initial_food,
+            max_food=config.max_food,
+            min_boost_length=config.min_boost_length,
+            boost_length_cost_frames=config.boost_length_cost_frames,
             mechanics_version=config.mechanics_version,
             gamma=config.gamma,
             arena_type=config.arena_type,
+            frame_rate=config.frame_rate,
+            max_capacity=config.max_capacity,
             kill_scale=config.kill_scale,
             death_value=config.death_value,
         )
@@ -353,6 +406,12 @@ class PQNTrainer:
 
         self.update_idx = 0
         self.agent_steps = 0
+        self._resume_mode = "fresh"
+        self._resume_state: Dict[str, object] = {
+            "environment": "fresh",
+            "pool": "fresh",
+            "rng": "fresh",
+        }
         self._last_sgd_sampling = {
             "eligible_hero_transitions": 0,
             "sampled_transition_draws": 0,
@@ -496,23 +555,34 @@ class PQNTrainer:
             ``(E, S, 6)`` bool tensor on ``device``.
         """
         E, S = self.cfg.num_envs, self.cfg.num_snakes
-        mask_np = self.sim.get_action_mask()  # (E, S, 6)
+        mask_np = self.sim.get_resolved_action_mask()  # (E, S, 6)
         if self.device.type == "cuda":
             # GPU featurizer: transfer only the compact sim state, build the
             # rasters on the (idle) GPU. Byte-identical tactical/strategic planes
             # and <=1e-4 scalars vs the NumPy path (parity-tested), so a
             # GPU-trained policy sees the same inputs the web app serves via the
             # NumPy featurizer. Returns (E, S, ...) tensors directly.
-            state = obs_inputs_to_torch(self.sim, self.device, max_frames=self.cfg.max_frames)
-            obs_es = build_observations_gpu(state)
+            state = obs_inputs_to_torch(
+                self.sim,
+                self.device,
+                max_frames=self.cfg.max_frames,
+                starvation_max=self.cfg.starvation_max,
+                max_length=self.cfg.max_length,
+            )
+            obs_es = build_observations_gpu(state, obs_spec=self.cfg.obs_spec)
             obs_es = {
                 "tactical": obs_es["tactical"],
                 "strategic": obs_es["strategic"],
                 "scalars": obs_es["scalars"],
             }
         else:
-            inp = obs_inputs_from_batch_sim(self.sim, max_frames=self.cfg.max_frames)
-            obs = build_observations(inp, mask=mask_np)
+            inp = obs_inputs_from_batch_sim(
+                self.sim,
+                max_frames=self.cfg.max_frames,
+                starvation_max=self.cfg.starvation_max,
+                max_length=self.cfg.max_length,
+            )
+            obs = build_observations(inp, mask=mask_np, obs_spec=self.cfg.obs_spec)
             tensors = raster_tensors_from_obs(obs, device=self.device)
             # Reshape flat (E*S, ...) back to (E, S, ...).
             obs_es = {
@@ -641,7 +711,6 @@ class PQNTrainer:
             # EARLIER step contributes no transitions, but the step that trips
             # the floor is itself the episode's last real transition.
             live_env = ~self.sim.population_floor_reached()
-            valid_buf[t] = alive & live_env[:, None]
             no_valid = ~mask.any(dim=2).cpu().numpy()
             trapped_buf[t] = no_valid & alive
 
@@ -652,6 +721,9 @@ class PQNTrainer:
                 sim_t += self._sync() - t3
 
             rew_buf[t] = self.sim.get_reward()
+            # ENV reports validity for the step just executed. It includes a
+            # death-causing action and excludes rows dead at entry.
+            valid_buf[t] = self.sim.get_transition_valid() & live_env[:, None]
             done_buf[t] = self.sim.get_done()
             boost_buf[t] = self.sim.get_boosted_this_step()
             kills_total += int(self.sim.get_kill_credit().sum())
@@ -659,7 +731,7 @@ class PQNTrainer:
             # Mask of the NEXT state s_{t+1} for the bootstrap of non-terminal
             # transitions (already updated by step()).
             next_mask_buf[t] = torch.as_tensor(
-                self.sim.get_action_mask(), dtype=torch.bool, device=self.device
+                self.sim.get_resolved_action_mask(), dtype=torch.bool, device=self.device
             )
 
         # Final observation (s_T) for truncation bootstrap of the last step.
@@ -1145,13 +1217,105 @@ class PQNTrainer:
         Returns:
             A ``torch.save``-able dict.
         """
+        world = EffectiveWorldConfig(
+            width=self.cfg.game_width,
+            height=self.cfg.game_height,
+            segment_size=self.cfg.segment_size,
+            wall_thickness=self.cfg.wall_thickness,
+            arena_type=self.cfg.arena_type,
+            mechanics_version=self.cfg.mechanics_version,
+            num_snakes=self.cfg.num_snakes,
+            max_frames=self.cfg.max_frames,
+            initial_food=self.cfg.initial_food,
+            max_food=self.cfg.max_food,
+            min_boost_length=self.cfg.min_boost_length,
+            boost_length_cost_frames=self.cfg.boost_length_cost_frames,
+            frame_rate=self.cfg.frame_rate,
+            max_length=self.cfg.max_length,
+            starvation_max_frames=self.cfg.starvation_max,
+            max_capacity=self.cfg.max_capacity,
+            kill_scale=self.cfg.kill_scale,
+            death_value=self.cfg.death_value,
+            normalization={
+                "max_frames": float(self.cfg.max_frames),
+                "starvation_max": float(self.cfg.starvation_max),
+                "max_length": float(self.cfg.max_length),
+            },
+        )
+        runtime = RuntimeModeContract(
+            mode="pqn_train",
+            training=True,
+            respawn=False,
+            hero_terminal=True,
+            population_floor=True,
+            reset_strategy="batch_episode",
+        )
+        mask_contract = {
+            "version": "legal-advisory-resolved-v1",
+            "action_count": 6,
+            "resolution": "row_local_intersection_else_legal",
+            "dead_rows": "all_false",
+        }
+        observation_digest = (
+            RASTER31V3_CONTRACT.digest if self.cfg.obs_spec == RASTER31V3 else RASTER31V2
+        )
+        provenance = RunProvenance(
+            effective_seed=self.cfg.seed,
+            observation_digest=observation_digest,
+            world_digest=world.digest,
+            runtime_digest=runtime.digest,
+            reward_digest=canonical_digest(
+                {
+                    "version": self.cfg.reward_version,
+                    "kill_scale": self.cfg.kill_scale,
+                    "death_value": self.cfg.death_value,
+                }
+            ),
+            target_digest=canonical_digest({"gamma": self.cfg.gamma, "lambda": self.cfg.lambda_}),
+            sampler_digest=canonical_digest(
+                {
+                    "sgd_epochs": self.cfg.sgd_epochs,
+                    "pad_sgd_batches": self.cfg.pad_sgd_batches,
+                    "sgd_seed": self.cfg.sgd_seed,
+                }
+            ),
+            optimizer_digest=canonical_digest({"lr": self.cfg.lr, "adam_eps": self.cfg.adam_eps}),
+            model_head_digest=ModelHeadContract("pqn", "dueling_q", 6).digest,
+            source_revision=self.cfg.source_revision,
+        )
+        effective_world = {
+            "width": world.width,
+            "height": world.height,
+            "segment_size": world.segment_size,
+            "wall_thickness": world.wall_thickness,
+            "arena_type": world.arena_type,
+            "mechanics_version": world.mechanics_version,
+            "num_snakes": world.num_snakes,
+            "max_frames": world.max_frames,
+            "initial_food": world.initial_food,
+            "max_food": world.max_food,
+            "min_boost_length": world.min_boost_length,
+            "boost_length_cost_frames": world.boost_length_cost_frames,
+            "frame_rate": world.frame_rate,
+            "max_length": world.max_length,
+            "starvation_max_frames": world.starvation_max_frames,
+            "max_capacity": world.max_capacity,
+            "kill_scale": world.kill_scale,
+            "death_value": world.death_value,
+            "normalization": dict(world.normalization),
+        }
         state: Dict[str, object] = {
             "dqn_state_dict": self.network.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
-            OBS_SPEC_KEY: RASTER31V2,
+            OBS_SPEC_KEY: self.cfg.obs_spec,
             "output_size": self.network.output_size,
             "gamma": self.cfg.gamma,
             "lambda": self.cfg.lambda_,
+            "lr": self.cfg.lr,
+            "adam_eps": self.cfg.adam_eps,
+            "eps_start": self.cfg.eps_start,
+            "eps_end": self.cfg.eps_end,
+            "eps_decay_steps": self.cfg.eps_decay_steps,
             "algo": "pqn",
             "mechanics_version": int(self.cfg.mechanics_version),
             "reward_version": int(self.cfg.reward_version),
@@ -1169,7 +1333,21 @@ class PQNTrainer:
             "update_counter": self.update_idx,
             "agent_steps": self.agent_steps,
             "numeric_recovery": self.numeric_recovery_metadata(),
+            "recipe": self.cfg.recipe,
+            "field_sources": dict(self.cfg.field_sources or {}),
+            "effective_world": effective_world,
+            "effective_world_digest": world.digest,
+            "runtime_contract": runtime.__dict__,
+            "runtime_contract_digest": runtime.digest,
+            "action_mask_contract": mask_contract,
+            "action_mask_contract_digest": canonical_digest(mask_contract),
+            "resume_mode": self._resume_mode,
+            "resume_state": dict(self._resume_state),
         }
+        state.update(ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
+        state.update(provenance.to_metadata())
+        if self.cfg.obs_spec == RASTER31V3:
+            state.update(RASTER31V3_CONTRACT.to_metadata())
         state.update(RASTER31V2_SHAPES.to_metadata())
         return state
 

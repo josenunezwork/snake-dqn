@@ -512,7 +512,7 @@ class TestConfigBlockIsValidated:
                     "game": {"mechanics_version": 2, "arena_type": "circular", "num_snakes": 6},
                     "rewards": {"version": 2},
                     "apex": {"batch_size": 512},
-                    "network": {"input_size": 61},
+                    "network": {"input_size": 61, "use_free_space": True},
                     "pqn": {"num_envs": 32},
                 }
             )
@@ -693,7 +693,8 @@ class TestResumeContract:
             train_pqn.validate_pqn_resume_checkpoint_config(blob, _tiny_config(mechanics_version=2))
 
     def test_mismatched_reward_version_is_rejected(self, tmp_path):
-        blob = self._blob(tmp_path, reward_version=1)
+        blob = self._blob(tmp_path)
+        blob["reward_version"] = 1
 
         with pytest.raises(ValueError, match="reward_version"):
             train_pqn.validate_pqn_resume_checkpoint_config(blob, _tiny_config(reward_version=2))
@@ -763,7 +764,9 @@ class TestResumeCLI:
     checkpoint so the two cannot drift.
     """
 
-    def _run_resume(self, tmp_path, monkeypatch, *, blob=None, total_steps="1000"):
+    def _run_resume(
+        self, tmp_path, monkeypatch, *, blob=None, total_steps="1000", mode="weights-only"
+    ):
         path = tmp_path / "latest_pqn.pth"
         torch.save(blob if blob is not None else _resumable_blob(), path)
         made = _install_trainer(monkeypatch)
@@ -777,6 +780,8 @@ class TestResumeCLI:
                 total_steps,
                 "--resume",
                 str(path),
+                "--resume-mode",
+                mode,
             ]
         )
         return rc, made[0]
@@ -785,9 +790,10 @@ class TestResumeCLI:
         rc, trainer = self._run_resume(tmp_path, monkeypatch)
 
         assert rc == 0
-        assert trainer.update_idx == 42
-        # 700 restored + 3 x 100 to cross the 1000 target — NOT 10 updates from 0.
-        assert trainer.updates == 3
+        assert trainer.update_idx == 0
+        # A legacy blob has insufficient training provenance for continuation,
+        # so the explicit weights-only mode starts a fresh odometer.
+        assert trainer.updates == 10
         assert trainer.agent_steps == 1000
 
     def test_resume_loads_weights_and_optimizer_into_the_trainer(self, tmp_path, monkeypatch):
@@ -795,7 +801,7 @@ class TestResumeCLI:
 
         assert trainer.network.loaded_state is not None, "weights must be restored"
         assert "marker" in trainer.network.loaded_state
-        assert trainer.optimizer.loaded_state is not None, "Adam state must be restored"
+        assert trainer.optimizer.loaded_state is None, "weights-only must not restore Adam state"
 
     def test_resume_appends_to_history_instead_of_truncating_it(self, tmp_path, monkeypatch):
         history = tmp_path / "history.jsonl"
@@ -805,9 +811,9 @@ class TestResumeCLI:
         self._run_resume(tmp_path, monkeypatch)
 
         lines = history.read_text().splitlines()
-        assert len(lines) == 4, "the pre-preemption row must survive"
+        assert len(lines) == 11, "the pre-preemption row must survive"
         assert json.loads(lines[0])["update"] == 1
-        assert json.loads(lines[-1])["update"] == 3
+        assert json.loads(lines[-1])["update"] == 10
 
     def test_a_fresh_run_still_truncates_history(self, tmp_path, monkeypatch):
         """Append mode is resume-only; a fresh run into a reused dir starts clean."""
@@ -827,7 +833,7 @@ class TestResumeCLI:
         rc, trainer = self._run_resume(tmp_path, monkeypatch, total_steps="700")
 
         assert rc == 0
-        assert trainer.updates == 0
+        assert trainer.updates == 7
         assert (tmp_path / "latest_pqn.pth").exists()
 
     def test_a_contract_violating_resume_aborts_before_the_trainer_is_built(
@@ -848,6 +854,8 @@ class TestResumeCLI:
                     "1000",
                     "--resume",
                     str(path),
+                    "--resume-mode",
+                    "continuation",
                 ]
             )
 

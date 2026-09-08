@@ -39,6 +39,7 @@ until the same total, and the ε ladder picks up where it left off.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -50,7 +51,9 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from src.core.config_loader import load_config  # noqa: E402
 from src.core.device_manager import DeviceManager  # noqa: E402
+from src.core.seeding import initialize_run_seed  # noqa: E402
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES  # noqa: E402
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
 from src.training.pqn_trainer import (  # noqa: E402
@@ -108,34 +111,35 @@ def _load_config_overrides(path: str) -> Dict[str, Any]:
         pydantic.ValidationError: If the ``pqn:`` block has an unknown key or a
             value that violates the schema.
     """
-    import yaml  # local import: only needed when --config is used
-
-    from src.core.config_loader import PQNSettingsSchema
-
-    with open(path, "r", encoding="utf-8") as fh:
-        raw = yaml.safe_load(fh) or {}
-
+    app = load_config(path)
     overrides: Dict[str, Any] = {}
-
-    game = raw.get("game", {}) or {}
-    if "mechanics_version" in game:
-        overrides["mechanics_version"] = int(game["mechanics_version"])
-    if "arena_type" in game:
-        overrides["arena_type"] = str(game["arena_type"])
-    if "num_snakes" in game:
-        overrides["num_snakes"] = int(game["num_snakes"])
-    if "max_frames" in game:
-        overrides["max_frames"] = int(game["max_frames"])
-
-    rewards = raw.get("rewards", {}) or {}
-    if "version" in rewards:
-        overrides["reward_version"] = int(rewards["version"])
-
-    # Every schema field defaults to None ("not set here"), so only the ones the
-    # file actually carries may reach PQNConfig — PQNConfig owns the defaults.
-    pqn = PQNSettingsSchema(**(raw.get("pqn") or {}))
-    overrides.update(pqn.model_dump(exclude_none=True))
-
+    provided = app.provided_fields
+    shared = {
+        "game.width": "game_width",
+        "game.height": "game_height",
+        "game.segment_size": "segment_size",
+        "game.wall_thickness": "wall_thickness",
+        "game.initial_food": "initial_food",
+        "game.max_food": "max_food",
+        "game.num_snakes": "num_snakes",
+        "game.max_frames": "max_frames",
+        "game.min_boost_length": "min_boost_length",
+        "game.boost_length_cost_frames": "boost_length_cost_frames",
+        "game.frame_rate": "frame_rate",
+        "game.mechanics_version": "mechanics_version",
+        "game.arena_type": "arena_type",
+        "rewards.version": "reward_version",
+        "rewards.starvation_max_frames": "starvation_max",
+        "game.max_length": "max_length",
+    }
+    for path_name, field in shared.items():
+        if path_name in provided:
+            section, name = path_name.split(".", 1)
+            overrides[field] = getattr(getattr(app, section), name)
+    # A dedicated PQN setting is more specific than a shared game/reward
+    # default.  Apply it last while retaining the single parsed AppConfig as
+    # the authoritative source of all values.
+    overrides.update({name: value for name, value in app.pqn.__dict__.items() if value is not None})
     return overrides
 
 
@@ -245,12 +249,26 @@ def validate_pqn_resume_checkpoint_config(
                 f"{checkpoint_path}: sampler provenance mismatch for {key}: "
                 f"checkpoint={actual!r}, config={expected!r}"
             )
+    for key, expected in {
+        "lr": config.lr,
+        "adam_eps": config.adam_eps,
+        "eps_start": config.eps_start,
+        "eps_end": config.eps_end,
+        "eps_decay_steps": config.eps_decay_steps,
+        "recipe": config.recipe,
+    }.items():
+        if checkpoint.get(key) != expected:
+            raise ValueError(
+                f"{checkpoint_path}: continuation provenance mismatch for {key}: "
+                f"checkpoint={checkpoint.get(key)!r}, config={expected!r}"
+            )
 
 
 def load_pqn_resume_checkpoint(
     resume_checkpoint: Optional[str],
     config: PQNConfig,
     map_location: Any = None,
+    mode: str = "continuation",
 ) -> Optional[Dict[str, Any]]:
     """Load and contract-check a resume checkpoint, or return ``None``.
 
@@ -272,6 +290,12 @@ def load_pqn_resume_checkpoint(
     """
     if not resume_checkpoint:
         return None
+    if mode == "exact":
+        raise RuntimeError(
+            "exact PQN resume is unsupported: simulator and pool continuation is deferred"
+        )
+    if mode not in {"weights-only", "continuation"}:
+        raise ValueError(f"Unknown PQN resume mode {mode!r}")
 
     checkpoint_path = Path(resume_checkpoint).expanduser()
     if not checkpoint_path.exists():
@@ -281,10 +305,34 @@ def load_pqn_resume_checkpoint(
         checkpoint = torch.load(checkpoint_path, map_location=map_location, weights_only=False)
         if not isinstance(checkpoint, dict):
             raise ValueError(f"checkpoint payload must be a dict, got {type(checkpoint).__name__}")
-        validate_pqn_resume_checkpoint_config(
-            checkpoint, config, checkpoint_path=str(checkpoint_path)
-        )
-        for key in _RESUME_REQUIRED_STATE:
+        # This private loader annotation becomes auditable output metadata on
+        # the next checkpoint; it never participates in the resume contract.
+        checkpoint["_p1_parent_hash"] = hashlib.sha256(checkpoint_path.read_bytes()).hexdigest()
+        if mode == "continuation":
+            validate_pqn_resume_checkpoint_config(
+                checkpoint, config, checkpoint_path=str(checkpoint_path)
+            )
+            required_provenance = (
+                "recipe",
+                "effective_world",
+                "effective_world_digest",
+                "runtime_contract",
+                "runtime_contract_digest",
+                "action_mask_contract",
+                "action_mask_contract_digest",
+                "run_provenance",
+                "run_provenance_digest",
+                "lr",
+                "adam_eps",
+                "eps_start",
+                "eps_end",
+                "eps_decay_steps",
+            )
+            for key in required_provenance:
+                if key not in checkpoint:
+                    raise KeyError(f"continuation requires training provenance {key}")
+        required_state = ("dqn_state_dict",) if mode == "weights-only" else _RESUME_REQUIRED_STATE
+        for key in required_state:
             if key not in checkpoint:
                 raise KeyError(key)
     except (OSError, RuntimeError, EOFError, KeyError, ValueError) as e:
@@ -293,7 +341,9 @@ def load_pqn_resume_checkpoint(
     return checkpoint
 
 
-def apply_resume_checkpoint(trainer: PQNTrainer, checkpoint: Dict[str, Any]) -> None:
+def apply_resume_checkpoint(
+    trainer: PQNTrainer, checkpoint: Dict[str, Any], mode: str = "continuation"
+) -> None:
     """Restore weights, optimizer state and both odometers onto ``trainer``.
 
     Restoring ``agent_steps`` is load-bearing, not bookkeeping: the ε ladder is
@@ -309,6 +359,18 @@ def apply_resume_checkpoint(trainer: PQNTrainer, checkpoint: Dict[str, Any]) -> 
     """
     validate_checkpoint_numeric_state(checkpoint)
     trainer.network.load_state_dict(checkpoint["dqn_state_dict"])
+    if mode == "weights-only":
+        trainer.refresh_numeric_recovery_state()
+        trainer._resume_mode = "weights-only"
+        trainer._resume_state = {
+            "environment": "fresh",
+            "pool": "fresh",
+            "rng": "fresh",
+            "parent_hash": checkpoint.get("_p1_parent_hash", "unknown"),
+        }
+        return
+    if mode != "continuation":
+        raise ValueError(f"Cannot apply resume mode {mode!r}")
     trainer.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
     trainer.refresh_numeric_recovery_state()
     trainer.update_idx = int(checkpoint.get("update_counter", 0))
@@ -319,6 +381,15 @@ def apply_resume_checkpoint(trainer: PQNTrainer, checkpoint: Dict[str, Any]) -> 
     )
     raw_mode = checkpoint.get("action_collapse_raw_action_mode")
     trainer._action_collapse_raw_action_mode = None if raw_mode is None else int(raw_mode)
+    trainer._resume_mode = "continuation"
+    trainer._resume_state = {
+        "environment": "fresh",
+        "pool": "fresh",
+        "rng": "fresh",
+        "optimizer": "restored",
+        "odometer": "restored",
+        "parent_hash": checkpoint.get("_p1_parent_hash", "unknown"),
+    }
 
 
 def build_config(args: argparse.Namespace) -> PQNConfig:
@@ -377,6 +448,21 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
     if args.no_self_play:
         cfg_kwargs["pool_capacity"] = 0
         cfg_kwargs["hero_frac"] = 1.0
+
+    if cfg_kwargs.get("recipe") == "corrected-v3":
+        # Recipe selection is explicit; omitted shared AppConfig values never
+        # leak their legacy v1 defaults into this corrected training world.
+        cfg_kwargs.setdefault("obs_spec", "raster31v3")
+        cfg_kwargs.setdefault("mechanics_version", 2)
+        cfg_kwargs.setdefault("reward_version", 2)
+        cfg_kwargs.setdefault("arena_type", "rectangular")
+        cfg_kwargs.setdefault("flip_augment", False)
+
+    sources = {key: "config" for key in cfg_kwargs}
+    for key, value in cli_map.items():
+        if value is not None:
+            sources[key] = "cli"
+    cfg_kwargs["field_sources"] = sources
 
     return PQNConfig(**cfg_kwargs)
 
@@ -604,6 +690,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "gamma/lambda/mechanics/reward/obs_spec contract differs from this config."
         ),
     )
+    p.add_argument(
+        "--resume-mode",
+        choices=("weights-only", "continuation", "exact"),
+        default="continuation",
+        help=(
+            "weights-only resets training state; continuation restores optimizer/odometers; "
+            "exact is rejected."
+        ),
+    )
 
     # Sim shape.
     p.add_argument("--envs", type=int, default=None, help="E parallel envs.")
@@ -703,8 +798,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     args = p.parse_args(argv)
 
-    device = _resolve_device(args.device)
     config = build_config(args)
+    seed_context = initialize_run_seed(config.seed)
+    config.seed = seed_context.effective_seed
+    device = _resolve_device(args.device)
     out_dir = Path(args.out_dir)
 
     print("[train_pqn] device:", device)
@@ -712,14 +809,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # Load + contract-check before building the trainer so a bad --resume fails
     # immediately rather than after the sim and network are up.
-    resume_blob = load_pqn_resume_checkpoint(args.resume, config, map_location=device)
+    resume_blob = load_pqn_resume_checkpoint(
+        args.resume, config, map_location=device, mode=args.resume_mode
+    )
 
     trainer = PQNTrainer(config, device=device)
     print("[train_pqn] network:", repr(trainer.network))
     print("[train_pqn] params:", f"{trainer.network.get_num_parameters()['total']:,}")
 
     if resume_blob is not None:
-        apply_resume_checkpoint(trainer, resume_blob)
+        apply_resume_checkpoint(trainer, resume_blob, mode=args.resume_mode)
         print(
             f"[train_pqn] resumed {args.resume}: update {trainer.update_idx:,}, "
             f"{trainer.agent_steps:,} agent-steps, eps {trainer.epsilon():.4f} "
