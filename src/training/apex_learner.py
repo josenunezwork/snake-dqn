@@ -306,6 +306,7 @@ class ApexLearner:
         dones: torch.Tensor,
         bootstrap_steps: Optional[torch.Tensor] = None,
         next_action_masks: Optional[torch.Tensor] = None,
+        next_action_mask_modes: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Compute TD targets using Double DQN.
 
@@ -330,6 +331,7 @@ class ApexLearner:
                 self.target_dqn(next_states),
                 next_states,
                 next_action_masks,
+                next_action_mask_modes,
             )
             td_targets = n_step_td_target(
                 rewards,
@@ -393,10 +395,12 @@ class ApexLearner:
         dones = batch["dones"]
         bootstrap_steps = batch.get("bootstrap_steps")
         next_action_masks = batch.get("next_action_masks")
+        next_action_mask_modes = batch.get("next_action_mask_modes")
         next_action_mask_present = batch.get("next_action_mask_present")
         next_action_quality = self.compute_next_action_quality_metrics(
             next_states,
             next_action_masks=next_action_masks,
+            next_action_mask_modes=next_action_mask_modes,
             next_action_mask_present=next_action_mask_present,
             sample_mask=1.0 - dones,
         )

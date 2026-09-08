@@ -40,6 +40,7 @@ from src.training.base_buffer import (
     validate_next_action_mask,
 )
 from src.training.sum_tree import SumTree
+from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY, validate_mask_mode
 
 
 @dataclass(frozen=True)
@@ -479,6 +480,7 @@ class SharedPrioritizedBuffer:
         priority: Optional[float] = None,
         bootstrap_steps: int = 1,
         next_action_mask: Optional[np.ndarray] = None,
+        next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY,
     ) -> None:
         """
         Add a single experience to the buffer.
@@ -510,6 +512,7 @@ class SharedPrioritizedBuffer:
             # twice and skew fresh replay against learner-updated replay.
             priority = _coerce_priority(priority, self.priority_eps)
             bootstrap_steps = _coerce_bootstrap_steps(bootstrap_steps)
+            next_action_mask_mode = validate_mask_mode(next_action_mask_mode)
             if next_action_mask is not None:
                 next_action_mask = _coerce_exact_action_mask(next_action_mask)
 
@@ -522,6 +525,7 @@ class SharedPrioritizedBuffer:
                 done,
                 bootstrap_steps,
                 next_action_mask,
+                next_action_mask_mode,
             )
             self._tree.add(priority, experience)
 
@@ -537,6 +541,7 @@ class SharedPrioritizedBuffer:
         priorities: Optional[List[float]] = None,
         bootstrap_steps: Optional[List[int]] = None,
         next_action_masks: Optional[List[Optional[np.ndarray]]] = None,
+        next_action_mask_modes: Optional[List[int]] = None,
     ) -> None:
         """
         Add a batch of experiences to the buffer.
@@ -561,6 +566,8 @@ class SharedPrioritizedBuffer:
                 bootstrap_steps = [1] * n
             if next_action_masks is None:
                 next_action_masks = [None] * n
+            if next_action_mask_modes is None:
+                next_action_mask_modes = [MASK_MODE_LEGACY_ADVISORY] * n
             _validate_batch_field_lengths(
                 states,
                 actions=actions,
@@ -570,6 +577,7 @@ class SharedPrioritizedBuffer:
                 priorities=priorities,
                 bootstrap_steps=bootstrap_steps,
                 next_action_masks=next_action_masks,
+                next_action_mask_modes=next_action_mask_modes,
             )
 
             validated_experiences = []
@@ -585,6 +593,7 @@ class SharedPrioritizedBuffer:
                 pri = _coerce_priority(pri, self.priority_eps)
                 steps = _coerce_bootstrap_steps(bootstrap_steps[i])
                 next_action_mask = next_action_masks[i]
+                next_action_mask_mode = validate_mask_mode(next_action_mask_modes[i])
                 if next_action_mask is not None:
                     next_action_mask = _coerce_exact_action_mask(next_action_mask)
                 experience = (
@@ -595,6 +604,7 @@ class SharedPrioritizedBuffer:
                     done,
                     steps,
                     next_action_mask,
+                    next_action_mask_mode,
                 )
                 validated_experiences.append((pri, experience))
 
@@ -670,6 +680,7 @@ class SharedPrioritizedBuffer:
             dones_list = []
             bootstrap_steps = []
             next_action_masks = []
+            next_action_mask_modes = []
 
             for i in range(batch_size):
                 low = segment * i
@@ -684,15 +695,20 @@ class SharedPrioritizedBuffer:
                     )
                 )
                 priorities_list.append(pri)
-                if len(data) == 7:
+                if len(data) == 8:
+                    state, action, reward, next_state, done, steps, next_action_mask, next_action_mask_mode = data
+                elif len(data) == 7:
                     state, action, reward, next_state, done, steps, next_action_mask = data
+                    next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
                 elif len(data) == 6:
                     state, action, reward, next_state, done, steps = data
                     next_action_mask = None
+                    next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
                 else:
                     state, action, reward, next_state, done = data
                     steps = 1
                     next_action_mask = None
+                    next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
                 states.append(state)
                 actions.append(action)
                 rewards.append(reward)
@@ -700,6 +716,7 @@ class SharedPrioritizedBuffer:
                 dones_list.append(done)
                 bootstrap_steps.append(steps)
                 next_action_masks.append(next_action_mask)
+                next_action_mask_modes.append(next_action_mask_mode)
 
             # Compute importance sampling weights
             priorities_arr = np.array(priorities_list, dtype=np.float64)
@@ -717,7 +734,9 @@ class SharedPrioritizedBuffer:
                 "dones": np.array(dones_list, dtype=np.float32),
                 "bootstrap_steps": np.array(bootstrap_steps, dtype=np.float32),
             }
-            if any(mask is not None for mask in next_action_masks):
+            # Modes are transport data even for terminal/legacy rows; fabricate
+            # only the tensor placeholder, never infer a different mode from it.
+            if True:
                 batch_dict["next_action_masks"] = np.array(
                     [
                         _mask_to_numpy(mask, next_state)
@@ -728,6 +747,9 @@ class SharedPrioritizedBuffer:
                 batch_dict["next_action_mask_present"] = np.array(
                     [mask is not None for mask in next_action_masks],
                     dtype=np.bool_,
+                )
+                batch_dict["next_action_mask_modes"] = np.array(
+                    next_action_mask_modes, dtype=np.int64
                 )
 
             self._total_sampled += batch_size
@@ -958,7 +980,10 @@ class BufferProcess:
 
                     try:
                         if msg.msg_type == MessageType.ADD_EXPERIENCE:
-                            if len(msg.data) == 8:
+                            if len(msg.data) == 9:
+                                (state, action, reward, next_state, done, priority, steps,
+                                 next_action_mask, next_action_mask_mode) = msg.data
+                            elif len(msg.data) == 8:
                                 (
                                     state,
                                     action,
@@ -969,13 +994,16 @@ class BufferProcess:
                                     steps,
                                     next_action_mask,
                                 ) = msg.data
+                                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
                             elif len(msg.data) == 7:
                                 state, action, reward, next_state, done, priority, steps = msg.data
                                 next_action_mask = None
+                                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
                             else:
                                 state, action, reward, next_state, done, priority = msg.data
                                 steps = 1
                                 next_action_mask = None
+                                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
                             buffer.add(
                                 state,
                                 action,
@@ -985,10 +1013,14 @@ class BufferProcess:
                                 priority,
                                 bootstrap_steps=steps,
                                 next_action_mask=next_action_mask,
+                                next_action_mask_mode=next_action_mask_mode,
                             )
 
                         elif msg.msg_type == MessageType.ADD_BATCH:
-                            if len(msg.data) == 8:
+                            if len(msg.data) == 9:
+                                (states, actions, rewards, next_states, dones, priorities,
+                                 bootstrap_steps, next_action_masks, next_action_mask_modes) = msg.data
+                            elif len(msg.data) == 8:
                                 (
                                     states,
                                     actions,
@@ -1010,10 +1042,12 @@ class BufferProcess:
                                     bootstrap_steps,
                                 ) = msg.data
                                 next_action_masks = None
+                                next_action_mask_modes = None
                             else:
                                 states, actions, rewards, next_states, dones, priorities = msg.data
                                 bootstrap_steps = None
                                 next_action_masks = None
+                                next_action_mask_modes = None
                             buffer.add_batch(
                                 states,
                                 actions,
@@ -1023,6 +1057,7 @@ class BufferProcess:
                                 priorities,
                                 bootstrap_steps=bootstrap_steps,
                                 next_action_masks=next_action_masks,
+                                next_action_mask_modes=next_action_mask_modes,
                             )
                     except Exception as exc:
                         buffer.record_rejected_actor_message(exc)
@@ -1259,6 +1294,7 @@ class ActorBufferClient:
         flush: bool = False,
         bootstrap_steps: int = 1,
         next_action_mask: Optional[np.ndarray] = None,
+        next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY,
     ) -> None:
         """
         Add experience to the shared buffer.
@@ -1293,6 +1329,7 @@ class ActorBufferClient:
         bootstrap_steps = _coerce_bootstrap_steps(bootstrap_steps)
         if next_action_mask is not None:
             next_action_mask = _coerce_exact_action_mask(next_action_mask)
+        next_action_mask_mode = validate_mask_mode(next_action_mask_mode)
 
         self._local_buffer.append(
             (
@@ -1304,6 +1341,7 @@ class ActorBufferClient:
                 priority,
                 bootstrap_steps,
                 next_action_mask,
+                next_action_mask_mode,
             )
         )
 
@@ -1331,6 +1369,7 @@ class ActorBufferClient:
             priorities = [x[5] for x in self._local_buffer]
             bootstrap_steps = [x[6] for x in self._local_buffer]
             next_action_masks = [x[7] for x in self._local_buffer]
+            next_action_mask_modes = [x[8] for x in self._local_buffer]
 
             msg = BufferMessage(
                 MessageType.ADD_BATCH,
@@ -1343,6 +1382,7 @@ class ActorBufferClient:
                     priorities,
                     bootstrap_steps,
                     next_action_masks,
+                    next_action_mask_modes,
                 ),
                 sender_id=self._actor_id,
             )
@@ -1361,6 +1401,7 @@ class ActorBufferClient:
         priorities: Optional[List[float]] = None,
         bootstrap_steps: Optional[List[int]] = None,
         next_action_masks: Optional[List[Optional[np.ndarray]]] = None,
+        next_action_mask_modes: Optional[List[int]] = None,
     ) -> None:
         """
         Add a batch of experiences directly.
@@ -1382,6 +1423,8 @@ class ActorBufferClient:
             bootstrap_steps = [1] * n
         if next_action_masks is None:
             next_action_masks = [None] * n
+        if next_action_mask_modes is None:
+            next_action_mask_modes = [MASK_MODE_LEGACY_ADVISORY] * n
         _validate_batch_field_lengths(
             states,
             actions=actions,
@@ -1391,12 +1434,14 @@ class ActorBufferClient:
             priorities=priorities,
             bootstrap_steps=bootstrap_steps,
             next_action_masks=next_action_masks,
+            next_action_mask_modes=next_action_mask_modes,
         )
         if next_action_masks is not None:
             next_action_masks = [
                 None if mask is None else _coerce_exact_action_mask(mask)
                 for mask in next_action_masks
             ]
+        next_action_mask_modes = [validate_mask_mode(mode) for mode in next_action_mask_modes]
         states = [_coerce_state_vector(state, "state", self._state_size) for state in states]
         actions = [_coerce_action(action) for action in actions]
         rewards = [_coerce_reward(reward) for reward in rewards]
@@ -1420,6 +1465,7 @@ class ActorBufferClient:
                 priorities,
                 bootstrap_steps,
                 next_action_masks,
+                next_action_mask_modes,
             ),
             sender_id=self._actor_id,
         )
@@ -1557,6 +1603,10 @@ class LearnerBufferClient:
                         dtype=torch.bool,
                         device=device,
                     )
+                if "next_action_mask_modes" in raw_batch:
+                    batch["next_action_mask_modes"] = torch.tensor(
+                        raw_batch["next_action_mask_modes"], dtype=torch.long, device=device
+                    )
                 weights = torch.tensor(weights, dtype=torch.float32, device=device)
 
             return batch, handles, weights
@@ -1692,6 +1742,7 @@ class LocalApexBuffer(BaseReplayBuffer):
         priority: Optional[float] = None,
         bootstrap_steps: int = 1,
         next_action_mask: Optional[np.ndarray] = None,
+        next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY,
     ) -> None:
         """Add experience to buffer, using max priority when none is supplied."""
         # Convert tensors to numpy
@@ -1713,6 +1764,7 @@ class LocalApexBuffer(BaseReplayBuffer):
             priority,
             bootstrap_steps=bootstrap_steps,
             next_action_mask=next_action_mask,
+            next_action_mask_mode=next_action_mask_mode,
         )
 
     def sample(
@@ -1746,6 +1798,10 @@ class LocalApexBuffer(BaseReplayBuffer):
                 batch["next_action_mask_present"],
                 dtype=torch.bool,
                 device=device,
+            )
+        if "next_action_mask_modes" in batch:
+            batch_dict["next_action_mask_modes"] = torch.tensor(
+                batch["next_action_mask_modes"], dtype=torch.long, device=device
             )
         weights_tensor = torch.tensor(weights, dtype=torch.float32, device=device)
 

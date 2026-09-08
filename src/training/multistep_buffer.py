@@ -6,6 +6,7 @@ from typing import Deque, Dict, Hashable, Optional, Tuple
 import torch
 
 from .replay_buffer import PrioritizedReplayBuffer
+from .td_targets import MASK_MODE_LEGACY_ADVISORY, MASK_MODE_TERMINAL_NO_SUCCESSOR, validate_mask_mode
 
 
 class MultiStepBuffer(PrioritizedReplayBuffer):
@@ -66,6 +67,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
         priority: Optional[float] = None,
         stream_id: Optional[Hashable] = None,
         next_action_mask=None,
+        next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY,
     ) -> None:
         """
         Add transition and compute n-step return.
@@ -85,7 +87,10 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
         n_step_buffer = self._get_stream_buffer(stream_id)
 
         # Add to n-step buffer
-        n_step_buffer.append((state, action, reward, next_state, done, next_action_mask))
+        n_step_buffer.append(
+            (state, action, reward, next_state, done, next_action_mask,
+             validate_mask_mode(next_action_mask_mode))
+        )
 
         # If a short episode ends before the n-step window fills, still
         # materialize its terminal transitions. Early crashes are high-value
@@ -98,7 +103,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
             return
 
         # Compute n-step return
-        n_step_return, n_step_next_state, n_step_done, bootstrap_steps, next_action_mask = (
+        n_step_return, n_step_next_state, n_step_done, bootstrap_steps, next_action_mask, next_action_mask_mode = (
             self._compute_n_step_return(n_step_buffer)
         )
 
@@ -115,6 +120,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
             priority,
             bootstrap_steps=bootstrap_steps,
             next_action_mask=next_action_mask,
+            next_action_mask_mode=next_action_mask_mode,
             stream_id=stream_id,
         )
 
@@ -129,7 +135,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
 
     def _compute_n_step_return(
         self, n_step_buffer: Optional[Deque] = None
-    ) -> Tuple[float, torch.Tensor, bool, int, Optional[torch.Tensor]]:
+    ) -> Tuple[float, torch.Tensor, bool, int, Optional[torch.Tensor], int]:
         """
         Compute n-step return from buffer.
 
@@ -145,8 +151,9 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
         n_step_done = False
         bootstrap_steps = 0
         n_step_next_action_mask = None
+        n_step_next_action_mask_mode = MASK_MODE_TERMINAL_NO_SUCCESSOR
 
-        for i, (state, action, reward, next_state, done, next_action_mask) in enumerate(
+        for i, (state, action, reward, next_state, done, next_action_mask, next_action_mask_mode) in enumerate(
             n_step_buffer
         ):
             # Accumulate discounted rewards
@@ -158,6 +165,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
                 n_step_next_state = next_state
                 n_step_done = True
                 n_step_next_action_mask = next_action_mask
+                n_step_next_action_mask_mode = next_action_mask_mode
                 break
 
         # If no terminal state, use last next_state
@@ -165,6 +173,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
             n_step_next_state = n_step_buffer[-1][3]
             n_step_done = n_step_buffer[-1][4]
             n_step_next_action_mask = n_step_buffer[-1][5]
+            n_step_next_action_mask_mode = n_step_buffer[-1][6]
 
         return (
             n_step_return,
@@ -172,6 +181,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
             n_step_done,
             bootstrap_steps,
             n_step_next_action_mask,
+            n_step_next_action_mask_mode,
         )
 
     def _flush_buffer(self, n_step_buffer: Optional[Deque] = None, stream_id=None):
@@ -185,7 +195,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
 
         while len(n_step_buffer) > 0:
             # Compute partial n-step return with remaining transitions
-            n_step_return, n_step_next_state, n_step_done, bootstrap_steps, next_action_mask = (
+            n_step_return, n_step_next_state, n_step_done, bootstrap_steps, next_action_mask, next_action_mask_mode = (
                 self._compute_n_step_return(n_step_buffer)
             )
             first_state, first_action = n_step_buffer[0][0], n_step_buffer[0][1]
@@ -199,6 +209,7 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
                 priority=None,
                 bootstrap_steps=bootstrap_steps,
                 next_action_mask=next_action_mask,
+                next_action_mask_mode=next_action_mask_mode,
                 stream_id=stream_id,
             )
 

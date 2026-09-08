@@ -14,6 +14,7 @@ from src.training.base_buffer import (
     validate_next_action_mask,
 )
 from src.training.sum_tree import SumTree
+from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY, validate_mask_mode
 
 
 def _validate_bulk_field_lengths(states, **fields) -> int:
@@ -152,7 +153,7 @@ def restore_replay_memories(
             priorities,
             bootstrap_steps=bootstrap_steps,
             next_action_masks=(
-                next_action_masks if any(mask is not None for mask in next_action_masks) else None
+            next_action_masks
             ),
             stream_ids=(
                 stream_ids if any(stream_id is not None for stream_id in stream_ids) else None
@@ -229,6 +230,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
         priority: Optional[float] = None,
         bootstrap_steps: int = 1,
         next_action_mask=None,
+        next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY,
         stream_id=None,
     ) -> None:
         """
@@ -250,6 +252,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             priority_eps=self.priority_eps,
         )
         next_action_mask = validate_next_action_mask(next_action_mask)
+        next_action_mask_mode = validate_mask_mode(next_action_mask_mode)
 
         self._tree.add(
             priority,
@@ -261,6 +264,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                 done,
                 max(1, int(bootstrap_steps)),
                 next_action_mask,
+                next_action_mask_mode,
                 stream_id,
             ),
         )
@@ -304,6 +308,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
         dones = []
         bootstrap_steps = []
         next_action_masks = []
+        next_action_mask_modes = []
 
         for i in range(batch_size):
             low = segment * i
@@ -312,17 +317,23 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             idx, pri, data = self._tree.get(s)
             indices.append(idx)
             priorities.append(pri)
-            if len(data) == 8:
+            if len(data) == 9:
+                state, action, reward, next_state, done, steps, next_action_mask, next_action_mask_mode, _stream_id = data
+            elif len(data) == 8:
                 state, action, reward, next_state, done, steps, next_action_mask, _stream_id = data
+                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
             elif len(data) == 7:
                 state, action, reward, next_state, done, steps, next_action_mask = data
+                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
             elif len(data) == 6:
                 state, action, reward, next_state, done, steps = data
                 next_action_mask = None
+                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
             else:
                 state, action, reward, next_state, done = data
                 steps = 1
                 next_action_mask = None
+                next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
             states.append(state)
             actions.append(action)
             rewards.append(reward)
@@ -330,6 +341,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             dones.append(done)
             bootstrap_steps.append(steps)
             next_action_masks.append(next_action_mask)
+            next_action_mask_modes.append(next_action_mask_mode)
 
         # Compute importance sampling weights
         self.beta = min(self.beta_end, self.beta + self.beta_increment)
@@ -353,6 +365,10 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                 next_action_masks if any(mask is not None for mask in next_action_masks) else None
             ),
         )
+        if "next_action_masks" in batch_dict:
+            batch_dict["next_action_mask_modes"] = torch.tensor(
+                next_action_mask_modes, dtype=torch.long, device=device
+            )
         weights_tensor = torch.tensor(weights, dtype=torch.float32, device=device)
 
         return batch_dict, indices, weights_tensor

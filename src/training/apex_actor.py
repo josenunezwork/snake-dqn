@@ -34,6 +34,7 @@ import torch.multiprocessing as mp
 from torch.multiprocessing import Queue
 
 from src.core.game_config import GameConfig, StateIndices
+from src.core.seeding import derive_seed, initialize_run_seed
 from src.game.game_state import GameState
 from src.model.apex_network import ApexNetwork
 from src.model.inference_agent import InferenceAgent
@@ -41,6 +42,7 @@ from src.training.action_mask import has_valid_actions, mask_invalid_q_values
 from src.training.apex_buffer import ActorBufferClient, BufferProcess
 from src.training.apex_runtime import SharedActorProgress, SharedEnvironmentFrameBudget
 from src.training.base_buffer import compute_priority
+from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY, MASK_MODE_TERMINAL_NO_SUCCESSOR, validate_mask_mode
 from src.utils.tensor_utils import ensure_tensor_on_device, tensor_to_numpy
 
 ACTION_DANGER_COLLISION_THRESHOLD = 1.0
@@ -198,6 +200,7 @@ class Experience:
     # priority mode, which requests a max-priority insert from the buffer.
     td_error: Optional[float]
     next_action_mask: Optional[np.ndarray] = None
+    next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY
 
 
 def compute_actor_epsilon(
@@ -320,6 +323,7 @@ class ApexActor(mp.Process):
         progress_report_interval_frames: int = 8,
         shared_progress: Optional[SharedActorProgress] = None,
         environment_frame_budget: Optional[SharedEnvironmentFrameBudget] = None,
+        base_seed: Optional[int] = None,
     ):
         """
         Initialize Ape-X Actor.
@@ -457,6 +461,7 @@ class ApexActor(mp.Process):
         self.progress_report_interval_frames = max(1, int(progress_report_interval_frames))
         self.shared_progress = shared_progress
         self.environment_frame_budget = environment_frame_budget
+        self.base_seed = base_seed
         self.agent_transition_count = 0
 
         # Compute actor-specific epsilon using Ape-X formula
@@ -489,10 +494,13 @@ class ApexActor(mp.Process):
 
             load_and_initialize_config(self.config_path)
 
-        # Set unique random seed for this actor
-        seed = self.actor_id + int(time.time() * 1000) % 10000
+        # A coordinator passes its resolved run seed.  Direct actor use still
+        # resolves entropy exactly once, never from wall-clock time.
+        if self.base_seed is None:
+            self.base_seed = initialize_run_seed().effective_seed
+        seed = derive_seed(self.base_seed, f"apex/actor/{self.actor_id}")
         torch.manual_seed(seed)
-        np.random.seed(seed)
+        np.random.seed(seed % 2**32)
 
         # Initialize device (CPU for actors to save GPU for learner)
         self.device = torch.device("cpu")
@@ -885,6 +893,9 @@ class ApexActor(mp.Process):
                         "reward": reward,
                         "next_state": next_state,
                         "next_action_mask": getattr(snake, "last_next_action_mask", None),
+                        "next_action_mask_mode": getattr(
+                            snake, "last_next_action_mask_mode", MASK_MODE_LEGACY_ADVISORY
+                        ),
                         "done": done,
                     }
                 )
@@ -964,6 +975,7 @@ class ApexActor(mp.Process):
         gamma_power = 1.0
         final_next_state = None
         final_next_action_mask = None
+        final_next_action_mask_mode = MASK_MODE_TERMINAL_NO_SUCCESSOR
         final_done = False
         bootstrap_steps = 0
 
@@ -978,6 +990,9 @@ class ApexActor(mp.Process):
 
             final_next_state = transition["next_state"]
             final_next_action_mask = transition.get("next_action_mask")
+            final_next_action_mask_mode = validate_mask_mode(
+                transition.get("next_action_mask_mode", MASK_MODE_LEGACY_ADVISORY)
+            )
 
         if not final_done and final_next_state is None:
             self.dropped_missing_next_state_count += 1
@@ -1018,6 +1033,7 @@ class ApexActor(mp.Process):
             bootstrap_steps=bootstrap_steps,
             td_error=td_error,
             next_action_mask=next_action_mask_np,
+            next_action_mask_mode=final_next_action_mask_mode,
         )
 
     def _compute_td_error_estimate(
@@ -1126,6 +1142,7 @@ class ApexActor(mp.Process):
             for e in experiences
         ]
         next_action_masks = [e.next_action_mask for e in experiences]
+        next_action_mask_modes = [validate_mask_mode(e.next_action_mask_mode) for e in experiences]
         self._record_sent_experience_stats(experiences)
 
         self.buffer_client.add_batch(
@@ -1136,9 +1153,8 @@ class ApexActor(mp.Process):
             dones=dones_list,
             priorities=priorities,
             bootstrap_steps=bootstrap_steps,
-            next_action_masks=(
-                next_action_masks if any(mask is not None for mask in next_action_masks) else None
-            ),
+            next_action_masks=next_action_masks,
+            next_action_mask_modes=next_action_mask_modes,
         )
 
     def _record_sent_experience_stats(self, experiences: List[Experience]) -> None:
