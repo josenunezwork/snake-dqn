@@ -766,6 +766,7 @@ def load_replay_database(
             next_action_masks,
             snake_ids,
         ) = loaded_rows
+        next_action_mask_modes = None
     elif len(loaded_rows) == 8:
         (
             states,
