@@ -1013,6 +1013,20 @@ def train_environment(
                 )
 
         game_state = create_training_game_state(curriculum, eval_mode=eval_mode)
+        policy = get_shared_apex_policy(game_state)
+        if policy is not None and hasattr(policy, "set_seed_identity"):
+            policy.set_seed_identity(
+                {
+                    "requested_seed": (
+                        None
+                        if not os.environ.get("SNAKE_DQN_REQUESTED_SEED")
+                        else int(os.environ["SNAKE_DQN_REQUESTED_SEED"])
+                    ),
+                    "effective_seed": resolved_base_seed,
+                    "worker_seed": worker_seed,
+                    "namespace": f"apex/local-worker/{env_id}",
+                }
+            )
         if checkpoint_path:
             try:
                 checkpoint_loaded = load_checkpoint_into_game_state(
@@ -1747,6 +1761,9 @@ The interactive UI (watch / train / human play) is the web app:
     from src.core.seeding import initialize_run_seed
 
     seed_context = initialize_run_seed(args.seed)
+    os.environ["SNAKE_DQN_REQUESTED_SEED"] = (
+        "" if seed_context.requested_seed is None else str(seed_context.requested_seed)
+    )
     print(
         "Run seed: "
         f"requested={seed_context.requested_seed}, effective={seed_context.effective_seed}, "

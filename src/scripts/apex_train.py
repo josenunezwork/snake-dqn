@@ -1581,6 +1581,11 @@ def train_apex(
             seed_identity={**seed_manifest, "actor_namespace": "apex/actor/{actor_id}"},
             target_clip=100.0,
             grad_clip_norm=learner.config.grad_clip_norm,
+            batch_size=batch_size,
+            replay_capacity=buffer_capacity,
+            min_replay_size=min_buffer_size,
+            beta_frames=total_steps,
+            initial_beta_clock=resume_start_step,
         )
         if learner_optimizer is not None
         else None
