@@ -1358,21 +1358,6 @@ class PQNTrainer:
                 "requested": self.cfg.requested_device,
                 "effective": self.cfg.effective_device,
             },
-            "deployment_profile": "promotion-v2-watch-rect",
-            "deployment_target_manifest": {
-                "source_world": effective_world,
-                "source_world_digest": world.digest,
-                "deployed_world": effective_world,
-                "deployed_world_digest": world.digest,
-                "normalization": {
-                    "source": dict(world.normalization),
-                    "deployed": dict(world.normalization),
-                },
-                "runtime_contract": runtime.__dict__,
-                "runtime_contract_digest": runtime.digest,
-                "deployment_profile": "promotion-v2-watch-rect",
-                "distribution_differences": {},
-            },
             "field_sources": dict(self.cfg.field_sources or {}),
             "effective_world": effective_world,
             "effective_world_digest": world.digest,
@@ -1384,9 +1369,6 @@ class PQNTrainer:
             "resume_state": dict(self._resume_state),
         }
         state.update(ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
-        state["deployment_target_manifest_digest"] = canonical_digest(
-            state["deployment_target_manifest"]
-        )
         state.update(provenance.to_metadata())
         if self.cfg.obs_spec == RASTER31V3:
             state.update(RASTER31V3_CONTRACT.to_metadata())
