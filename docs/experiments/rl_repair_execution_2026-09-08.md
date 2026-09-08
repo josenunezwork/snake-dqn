@@ -48,7 +48,26 @@ A1 and ENV are also accepted on integrated source `8b11f924`:
   inactive-world semantics. The exclusive run used about one CPU core; observed
   RSS was 345,440 KiB. This is a sampled resource observation, not peak memory.
 
-OBS and OFF remain in independent review. Their acceptance must precede their
-dependent training and serving packages. The campaign ledger records exact
-package/integration/test SHAs and durable evidence manifests. No repaired-model
-training or model-quality qualification has run yet in this execution campaign.
+OBS is accepted after an integrated **117 passed, 3 slow deselected** in 31.96s
+on `cb3d03d1`. The slow cases had already passed in the ENV gate above. A later
+import-only ordering fix gives the clean dispatch base `60747fb5`. The raster
+tests compare a reconstructible v2 fixture from the pre-change producer and
+independent v3 paint-order oracles, including complete enemy-slot permutations.
+Legacy adapter defaults remain intact; v3 callers must supply semantic
+normalization values explicitly. The Torch v3 surface currently delegates to
+the canonical NumPy renderer; no CUDA throughput claim is made.
+
+P1 (effective PQN config, seeding and explicit resume modes) and S1 (inference
+identity, masks and serving contracts) are implementing in parallel from
+`60747fb5`. OFF remains in independent review. Its live pixel-world descriptor
+will preserve actual scaled geometry rather than silently rounding it to fit
+the separate aligned SIMD contract.
+
+E1 preparation identified a further nontraining food-replenishment mismatch:
+actual GameState maintains ambient food after each eater, while the previous
+SIMD path spawned unconditionally. The bounded ENV-WATCH amendment is isolated
+for actual-live-oracle tests and review before E1 inherits it.
+
+The campaign ledger records exact package/integration/test SHAs and durable
+evidence manifests. No repaired-model training or model-quality qualification
+has run yet in this execution campaign.
