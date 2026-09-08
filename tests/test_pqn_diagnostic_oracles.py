@@ -79,17 +79,6 @@ def make_plan(tmp_path: Path, mode: str = "smoke") -> Any:
     )
 
 
-def write_lineage_pair(arm_dir: Path, manifest: dict[str, Any], *, seed: int | None = None) -> None:
-    arm_dir.mkdir(parents=True, exist_ok=True)
-    value = {
-        "h0_manifest_digest": manifest["manifest_digest"],
-        "effective_world_digest": manifest["world_digest"],
-        "effective_seed": seed if seed is not None else manifest["arms"][0]["training_seed"],
-    }
-    torch.save(value, arm_dir / "initial.pth")
-    torch.save(value, arm_dir / "final.pth")
-
-
 def complete_payload(manifest: dict[str, Any], arm_name: str, steps: int) -> dict[str, Any]:
     config = h0.PQNConfig(**manifest["configs"][arm_name])
     contracts = {
@@ -106,8 +95,6 @@ def complete_payload(manifest: dict[str, Any], arm_name: str, steps: int) -> dic
         "h0_manifest_digest": manifest["manifest_digest"],
         "effective_world": manifest["world"],
         "effective_world_digest": manifest["world_digest"],
-        "effective_seed": config.seed,
-        "source_revision": manifest["git"]["commit"],
         "agent_steps": steps,
         "update_counter": int(steps > 0),
         "obs_spec": config.obs_spec,
@@ -129,6 +116,20 @@ def complete_payload(manifest: dict[str, Any], arm_name: str, steps: int) -> dic
     for name, contract in contracts.items():
         value[name] = contract
         value[f"{name}_digest"] = h0.canonical_digest(contract)
+    provenance = h0.RunProvenance(
+        effective_seed=config.seed,
+        observation_digest=h0.RASTER31V3_CONTRACT.digest,
+        world_digest=manifest["world_digest"],
+        runtime_digest=value["runtime_contract_digest"],
+        reward_digest=value["reward_contract_digest"],
+        target_digest=value["target_contract_digest"],
+        sampler_digest=value["sampler_contract_digest"],
+        optimizer_digest=value["optimizer_contract_digest"],
+        model_head_digest=h0.ModelHeadContract("pqn", "dueling_q", 6).digest,
+        source_revision=manifest["git"]["commit"],
+    )
+    value.update(provenance.to_metadata())
+    value.update(h0.ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
     return value
 
 

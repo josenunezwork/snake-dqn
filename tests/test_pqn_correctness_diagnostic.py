@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import itertools
 import json
@@ -282,6 +283,28 @@ def test_actual_pqn_constructor_checkpoint_passes_full_uint64_seed_lineage(tmp_p
     saved = torch.load(checkpoint, map_location="cpu", weights_only=False)
     assert saved["h0_manifest_digest"] == manifest["manifest_digest"]
     assert h0._checkpoint_contract(saved, manifest, arm.name, initial=True) is None
+
+    wrong_seed = copy.deepcopy(saved)
+    wrong_seed["run_provenance"]["effective_seed"] -= 1
+    wrong_seed["run_provenance_digest"] = h0.canonical_digest(wrong_seed["run_provenance"])
+    assert h0._checkpoint_contract(wrong_seed, manifest, arm.name, initial=True) == "seed_lineage_mismatch"
+
+    wrong_source = copy.deepcopy(saved)
+    wrong_source["run_provenance"]["source_revision"] = "not-the-frozen-source"
+    wrong_source["run_provenance_digest"] = h0.canonical_digest(wrong_source["run_provenance"])
+    assert h0._checkpoint_contract(wrong_source, manifest, arm.name, initial=True) == "source_revision_mismatch"
+
+    invalid_digest = copy.deepcopy(saved)
+    invalid_digest["run_provenance_digest"] = "invalid"
+    assert h0._checkpoint_contract(invalid_digest, manifest, arm.name, initial=True) == "invalid_run_provenance"
+
+    wrong_crosslink = copy.deepcopy(saved)
+    wrong_crosslink["run_provenance"]["target_digest"] = "wrong"
+    wrong_crosslink["run_provenance_digest"] = h0.canonical_digest(wrong_crosslink["run_provenance"])
+    assert (
+        h0._checkpoint_contract(wrong_crosslink, manifest, arm.name, initial=True)
+        == "run_provenance_crosslink_mismatch"
+    )
 
 
 def test_manifest_original_bytes_and_sidecar_are_not_adopted_after_mutation(
