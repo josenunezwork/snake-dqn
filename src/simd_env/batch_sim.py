@@ -651,11 +651,15 @@ class BatchSim:
     def _maintain_food(self) -> None:
         """Top ambient food up to ``max_food`` per env (spec §4.4, RNG)."""
         for e in range(self.E):
-            if not self._active_envs()[e]:
-                continue
-            deficit = self.cfg.max_food - self._ambient_count(e)
-            if deficit > 0:
-                self._spawn(e, deficit)
+            self._maintain_food_env(e)
+
+    def _maintain_food_env(self, e: int) -> None:
+        """Apply one environment's GameState ``maintain_count`` operation."""
+        if not self._active_envs()[e]:
+            return
+        deficit = self.cfg.max_food - self._ambient_count(e)
+        if deficit > 0:
+            self._spawn(e, deficit)
 
     def _spawn(self, e: int, count: int, corpse: bool = False) -> int:
         """Spawn up to ``count`` pellets in env ``e`` via nested rejection RNG."""
@@ -711,9 +715,12 @@ class BatchSim:
                         ate[e, sidx] = True
                         any_ate[e] = True
                         break
-                # Not-train replacement: one spawn(1) per eating snake, in order.
+                # Non-training GameState calls maintain_count once per eating
+                # snake. This tops up ambient food only, so consuming a
+                # corpse pellet while ambient food is already at cap consumes
+                # no RNG and cannot overfill ambient food.
                 if ate[e, sidx] and not self.train_mode:
-                    self._spawn(e, 1)
+                    self._maintain_food_env(e)
         # Train-mode replacement: one maintain_count if anyone ate.
         if self.train_mode:
             for e in range(E):

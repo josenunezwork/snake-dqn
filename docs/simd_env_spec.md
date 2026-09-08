@@ -113,7 +113,9 @@ below is the **actual** order).
      pellet, if any, is checked second — see §4.1.)
    - Record `ate_food_map[snake.id] = ate`. If ate: `episode_food_eaten += 1`,
      update `episode_best_length`.
-   - **If `ate and not train_mode`**: `food_manager.spawn(1, self.snakes)` — spawns
+   - **If `ate and not train_mode`**: `food_manager.maintain_count(self.snakes)` — tops
+     up ambient food only. If a corpse pellet was eaten while ambient food is already
+     at cap, this performs no spawn and consumes no RNG.
      one replacement pellet immediately (**RNG**, §5).
    - `self.frame_ate_food = ate_food_map` (l.385).
    - **If `train_mode and any snake ate`** (l.387-391): a single
@@ -473,7 +475,8 @@ and then re-checks food-overlap. **Draw budget per accepted food pellet is varia
 ### 5.3 Where draws happen per frame (`update`):
 1. **Step 2** `maintain_count` → `spawn(deficit)` → per pellet: `_find_spawn_position`
    → `find_empty_position` rejection draws (5.2). deficit = `max_food - ambient_count`.
-2. **Step 7 (not train_mode)** per eating snake: `spawn(1)` → same nested draws.
+2. **Step 7 (not train_mode)** per eating snake: `maintain_count` → nested draws only
+   when that eater leaves ambient food below cap.
 3. **Step 7 (train_mode, if anyone ate)** one `maintain_count` → `spawn(deficit)`.
 4. **Step 4 (respawn, allow_respawn only)** per respawning snake:
    `find_empty_position` draws (5.2). (Skipped when `allow_respawn=False`.)
