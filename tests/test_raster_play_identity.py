@@ -5,8 +5,7 @@ import torch
 
 pytest.importorskip("fastapi")
 
-from src.model.obs_spec import (OBS_SPEC_KEY, RASTER31V2,  # noqa: E402
-                                RASTER31V2_SHAPES)
+from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2, RASTER31V2_SHAPES  # noqa: E402
 from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
 from web.backend.session import MODE_PLAY, GameSession  # noqa: E402
 

@@ -237,7 +237,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         parser.error("--frames must be positive")
     if args.copy_best_to:
         parser.error(
-            "--copy-best-to is disabled; diagnostic evaluation cannot select or promote a checkpoint"
+            "--copy-best-to is disabled; diagnostic evaluation "
+            "cannot select or promote a checkpoint"
         )
 
     configure_project(args.config, args.batch_size, args.checkpoint_dir)

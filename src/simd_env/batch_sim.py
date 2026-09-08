@@ -40,7 +40,11 @@ from src.core.mechanics_constants import (
     corpse_food_cap,
     evict_oldest_corpse,
 )
-from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH, PHI_LENGTH_DIVISOR
+from src.core.reward_events import (
+    DEATH_REWARD,
+    KILL_REWARD_PER_VICTIM_LENGTH,
+    PHI_LENGTH_DIVISOR,
+)
 from src.core.runtime_contract import ActionMaskSet
 from src.simd_env.rng import EnvRng, make_env_rngs
 

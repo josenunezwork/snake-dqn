@@ -36,7 +36,7 @@ from typing import Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
 
-from src.core.runtime_contract import EffectiveWorldConfig, RuntimeModeContract
+from src.core.runtime_contract import RuntimeModeContract
 from src.evaluation.anchors import AnchorContext, ScriptedAnchor
 from src.evaluation.metrics import (
     EvaluationMetricsAccumulator,

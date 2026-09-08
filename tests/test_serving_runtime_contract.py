@@ -11,7 +11,10 @@ pytest.importorskip("fastapi")
 from src.core.runtime_contract import EffectiveWorldConfig  # noqa: E402
 from src.core.runtime_contract import ModelHeadContract  # noqa: E402
 from src.core.runtime_contract import RunProvenance  # noqa: E402
-from src.core.runtime_contract import RuntimeModeContract, canonical_digest  # noqa: E402
+from src.core.runtime_contract import (  # noqa: E402
+    RuntimeModeContract,
+    canonical_digest,
+)
 from src.model.inference_agent import InferenceAgent  # noqa: E402
 from src.model.obs_spec import RASTER31V3  # noqa: E402
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3_CONTRACT  # noqa: E402

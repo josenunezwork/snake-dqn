@@ -773,7 +773,11 @@ class TestSimdEvalEngine:
         from src.core.game_config import initialize_config
         from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2
         from src.model.raster_network import RasterDuelingNetwork
-        from src.simd_env.eval_engine import NetworkSimdPolicy, build_simd_policy, run_simd_eval
+        from src.simd_env.eval_engine import (
+            NetworkSimdPolicy,
+            build_simd_policy,
+            run_simd_eval,
+        )
 
         cfg = load_config(str(tiny_v2_config))
         initialize_config(cfg)
@@ -833,7 +837,11 @@ class TestSimdEvalEngine:
         from src.core.config_loader import apply_config_to_game_config, load_config
         from src.core.game_config import initialize_config
         from src.simd_env import eval_engine
-        from src.simd_env.eval_engine import GreedyFoodSimdPolicy, SimdPolicy, run_simd_eval
+        from src.simd_env.eval_engine import (
+            GreedyFoodSimdPolicy,
+            SimdPolicy,
+            run_simd_eval,
+        )
 
         cfg = load_config(str(tiny_v2_config))
         initialize_config(cfg)

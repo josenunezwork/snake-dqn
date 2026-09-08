@@ -10,7 +10,10 @@ from pathlib import Path
 import pytest
 
 from src.scripts import migrate_replay_metadata as migration_module
-from src.scripts.migrate_replay_metadata import migrate_replay_metadata, sqlite_file_hashes
+from src.scripts.migrate_replay_metadata import (
+    migrate_replay_metadata,
+    sqlite_file_hashes,
+)
 
 
 def _open_wal_fixture(path: Path) -> tuple[sqlite3.Connection, sqlite3.Connection]:

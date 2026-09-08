@@ -75,7 +75,9 @@ def _validate_v3_serving_checkpoint(
     blob: dict, checkpoint_sha256: str, checkpoint_path: str
 ) -> dict:
     """Fail closed on a v3 checkpoint before a session replaces live state."""
-    from src.training.checkpoint_contract import validate_observation_checkpoint_metadata
+    from src.training.checkpoint_contract import (
+        validate_observation_checkpoint_metadata,
+    )
 
     validate_observation_checkpoint_metadata(
         blob, RASTER31V3, checkpoint_path, error_type=ValueError

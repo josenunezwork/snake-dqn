@@ -25,9 +25,15 @@ import torch
 
 from src.core.device_manager import DeviceManager
 from src.model.apex_network import ApexNetwork
-from src.model.obs_spec import (DEFAULT_OBS_SPEC, KNOWN_OBS_SPECS,
-                                OBS_SPEC_KEY, RASTER31V2, RASTER31V3, VECTOR61,
-                                RasterObsShapes)
+from src.model.obs_spec import (
+    DEFAULT_OBS_SPEC,
+    KNOWN_OBS_SPECS,
+    OBS_SPEC_KEY,
+    RASTER31V2,
+    RASTER31V3,
+    VECTOR61,
+    RasterObsShapes,
+)
 
 __all__ = ["InferenceAgent"]
 
@@ -130,10 +136,10 @@ class InferenceAgent:
 
         if obs_spec in (RASTER31V2, RASTER31V3):
             if obs_spec == RASTER31V3:
-                from src.core.runtime_contract import \
-                    validate_model_head_contract
-                from src.training.checkpoint_contract import \
-                    validate_observation_checkpoint_metadata
+                from src.core.runtime_contract import validate_model_head_contract
+                from src.training.checkpoint_contract import (
+                    validate_observation_checkpoint_metadata,
+                )
 
                 validate_observation_checkpoint_metadata(
                     blob, RASTER31V3, checkpoint_path, error_type=ValueError

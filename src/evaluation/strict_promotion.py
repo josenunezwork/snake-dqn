@@ -20,7 +20,11 @@ from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
-from src.core.runtime_contract import EffectiveWorldConfig, RuntimeModeContract, canonical_digest
+from src.core.runtime_contract import (
+    EffectiveWorldConfig,
+    RuntimeModeContract,
+    canonical_digest,
+)
 from src.core.seeding import derive_seed
 from src.evaluation.anchors import SCRIPTED_ANCHOR_KINDS, SCRIPTED_ANCHOR_VERSION
 from src.evaluation.artifacts import EVALUATOR_ARTIFACT_VERSION
