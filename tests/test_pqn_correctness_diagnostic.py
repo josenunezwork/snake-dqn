@@ -287,20 +287,31 @@ def test_actual_pqn_constructor_checkpoint_passes_full_uint64_seed_lineage(tmp_p
     wrong_seed = copy.deepcopy(saved)
     wrong_seed["run_provenance"]["effective_seed"] -= 1
     wrong_seed["run_provenance_digest"] = h0.canonical_digest(wrong_seed["run_provenance"])
-    assert h0._checkpoint_contract(wrong_seed, manifest, arm.name, initial=True) == "seed_lineage_mismatch"
+    assert (
+        h0._checkpoint_contract(wrong_seed, manifest, arm.name, initial=True)
+        == "seed_lineage_mismatch"
+    )
 
     wrong_source = copy.deepcopy(saved)
     wrong_source["run_provenance"]["source_revision"] = "not-the-frozen-source"
     wrong_source["run_provenance_digest"] = h0.canonical_digest(wrong_source["run_provenance"])
-    assert h0._checkpoint_contract(wrong_source, manifest, arm.name, initial=True) == "source_revision_mismatch"
+    assert (
+        h0._checkpoint_contract(wrong_source, manifest, arm.name, initial=True)
+        == "source_revision_mismatch"
+    )
 
     invalid_digest = copy.deepcopy(saved)
     invalid_digest["run_provenance_digest"] = "invalid"
-    assert h0._checkpoint_contract(invalid_digest, manifest, arm.name, initial=True) == "invalid_run_provenance"
+    assert (
+        h0._checkpoint_contract(invalid_digest, manifest, arm.name, initial=True)
+        == "invalid_run_provenance"
+    )
 
     wrong_crosslink = copy.deepcopy(saved)
     wrong_crosslink["run_provenance"]["target_digest"] = "wrong"
-    wrong_crosslink["run_provenance_digest"] = h0.canonical_digest(wrong_crosslink["run_provenance"])
+    wrong_crosslink["run_provenance_digest"] = h0.canonical_digest(
+        wrong_crosslink["run_provenance"]
+    )
     assert (
         h0._checkpoint_contract(wrong_crosslink, manifest, arm.name, initial=True)
         == "run_provenance_crosslink_mismatch"
