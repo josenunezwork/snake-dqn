@@ -151,12 +151,25 @@ No learner update or skill qualification is implied by these checks.
 
 ## Active integration wave
 
-E2 and H0 have started from the accepted `0896caa` source. E2 first separates
-statistical calculations from strict request/receipt validation across two owners.
-One later owner will connect their reviewed APIs to the tournament and diagnostic
-consumers. H0 independently implements the manifest-first, resource-limited
-experiment runner. Each lane has an independent reviewer. G0 qualification and
-actual Mac training remain pending until these implementations are accepted.
+E2 and H0 started from the accepted `0896caa` source. The E2 statistical slice is
+accepted through integrated `cd82c09`: the statistics and tournament union passed
+**74 tests, 1 conditional checkpoint skip in 4.71s**. The one-sided paired tests,
+three-mix Holm correction, separate scripted noninferiority test, and conservative
+pilot sizing were independently reviewed against the frozen numerical oracles.
+Pilot power is a marginal approximation, not a claim of joint power across mixes.
+
+Strict evaluation authority remains pending. Review rejected the first contract
+prototype because it could accept claimed statistics without reading the actual
+world and readiness evidence. A data engineer now owns the artifact boundary in
+`src/evaluation/strict_promotion.py`; a later sole runtime owner will connect it
+to tournament and diagnostic consumers. Final decisions must be recomputed from
+the frozen request and the actual hashed evidence files.
+
+H0's first runner also remains unaccepted. Independent review found manifest
+reuse, stale-heartbeat supervision, and shakedown-to-screen time projection gaps.
+A data engineer owns the complete runner repair and its orchestration tests.
+Both active lanes have independent reviewers. G0 qualification and actual Mac
+training remain pending until these implementations are accepted.
 
 The campaign's `cpu_test_slot.py` now enforces at most two concurrent one-thread
 focused test processes. Owned-file repair/rerun attempts are continuously authorized
