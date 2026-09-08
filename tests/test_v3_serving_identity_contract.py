@@ -145,6 +145,20 @@ def _make_game() -> tuple[GameState, RasterServingPolicy, list[AISnake], _Foreig
     game.snakes[3].policy = foreign
     own_ais = [snake for snake in game.snakes[1:] if snake.policy is policy]
     assert len(own_ais) == 2
+    original_prepare = policy.prepare_frame
+    policy.expected_actions = {}
+
+    def capture_independent_action_oracle():
+        # Compute expected actions directly from each ID's live head BEFORE
+        # movement, independently of every policy row/context/cache lookup.
+        policy.expected_actions = {
+            snake.id: (int(snake.segments[0][0]) // GameConfig.SEGMENT_SIZE) % 3
+            for snake in game.snakes
+            if snake.is_alive and getattr(snake, "policy", None) is policy
+        }
+        original_prepare()
+
+    policy.prepare_frame = capture_independent_action_oracle
     return game, policy, own_ais, foreign
 
 
@@ -234,7 +248,8 @@ def test_identity_context_survives_inspector_order_roster_reorder_and_foreign_po
     assert foreign.prepare_calls == 2
     for snake in own_ais:
         context = policy.action_context_for(snake.id)
-        assert snake.last_action == _selected_action(context)
+        assert snake.last_action == policy.expected_actions[snake.id]
+        assert _selected_action(context) == policy.expected_actions[snake.id]
         _assert_observation_equal(context.observation, policy.hero_observation(snake.id))
     assert foreign_snake.last_action == 0
 
@@ -257,7 +272,8 @@ def test_dead_owned_ai_does_not_act_then_respawns_with_same_sparse_id():
     assert dead_ai.is_alive
     assert dead_ai.id == original_id
     context = policy.action_context_for(original_id)
-    assert dead_ai.last_action == _selected_action(context)
+    assert dead_ai.last_action == policy.expected_actions[original_id]
+    assert _selected_action(context) == policy.expected_actions[original_id]
     _assert_observation_equal(context.observation, policy.hero_observation(original_id))
 
 
@@ -277,7 +293,8 @@ def test_game_state_prepares_each_distinct_policy_once_with_actual_rows():
     assert foreign.prepare_calls == 1
     for snake in own_ais:
         context = policy.action_context_for(snake.id)
-        assert snake.last_action == _selected_action(context)
+        assert snake.last_action == policy.expected_actions[snake.id]
+        assert _selected_action(context) == policy.expected_actions[snake.id]
 
 
 def test_v3_epsilon_skip_still_populates_id_context_without_row_shift():
