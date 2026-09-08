@@ -57,19 +57,27 @@ Legacy adapter defaults remain intact; v3 callers must supply semantic
 normalization values explicitly. The Torch v3 surface currently delegates to
 the canonical NumPy renderer; no CUDA throughput claim is made.
 
-P1 (effective PQN config, seeding and explicit resume modes) and S1 (inference
-identity, masks and serving contracts) are closing independent review findings
-from `60747fb5`. Review found a corrected-v3 self-resume mismatch and live
-serving normalization drift despite passing focused tests. The repair requires
-a real producer-to-resume and producer-to-serving round trip. A detached serving
-receipt binds the exact checkpoint bytes to the named deployment profile;
-training checkpoints do not embed a self-referential artifact hash.
+OFF and P1 are accepted and integrated through `64530856`. Their combined
+regression run passed **668 tests in 14.83s**. OFF preserves full replay dataset
+provenance across repeated copy-first migrations, validates both 58- and 61-D
+rows, and labels the stored masks as advisory. Its complete live-world descriptor
+preserves actual scaled pixel geometry without weakening the aligned SIMD contract.
 
-OFF remains in independent review. Its live pixel-world descriptor preserves
-actual scaled geometry rather than rounding it to fit the separate aligned
-SIMD contract. Further review exposed the replay quality codec accepting only
-58 features although the incumbent uses 61. Both widths require explicit
-validation and tests before the package is accepted.
+P1 now freezes the actual world, reward, target, sampler and optimizer recipes.
+Continuation rejects changed semantic descriptors even if their digests are
+recomputed; it also validates actual Adam state. Weights-only loading requires
+fresh optimizer, counters, pool and RNG state. Target and self-play descriptors
+explicitly identify the remaining pre-P2 behavior rather than claiming it fixed.
+
+S1 is closing final independent review. The final package source `b2d2f91` passed
+**206 Python tests, 5 conditional skips**, **32 frontend tests**, and its production
+build. A checkpoint actually serialized by accepted P1 source `64530856` loaded in
+Watch and Play with nondefault normalization values and passed the executable
+serving spot check. These are initialization/serialization/serving checks; no
+model was trained. The detached serving manifest describes manual reset, no live
+episode horizon, the external evaluator's separate 5,000-frame horizon, and the
+live world's unbounded storage adapter. Real GameState oracles cover pre-human-move
+observation bytes, sparse IDs, mixed policies, reorder, deaths and respawns.
 
 E1 preparation identified a further nontraining food-replenishment mismatch:
 actual GameState maintains ambient food after each eater, while the previous
@@ -86,8 +94,10 @@ the S1 frontend passed 166 tests and its production build. Main was not edited.
 
 Independent preparation produced a 70-digit mpmath Student-t reference fixture,
 cross-checked with higher-precision density quadrature and analytic cases, plus
-exact rational Holm boundary cases. These are E2 implementation oracles, not
-evidence that the new statistical gate has been implemented.
+exact rational Holm boundary cases. The binary64 extension uses 80-digit exact-input references, with 422 independent
+assertions. A bounded pure-Python numerical prototype passed 12 tests and independent
+review against these fixtures, including direct quadrature and exact Holm boundaries.
+These are E2 implementation oracles, not evidence that the inferential gate exists.
 
 The campaign ledger records exact package/integration/test SHAs and durable
 evidence manifests. No repaired-model training or model-quality qualification
