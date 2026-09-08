@@ -579,7 +579,7 @@ class ApexLearner:
         self,
         state_dict: Dict[str, Any],
         *,
-        resume_mode: str = "weights_only",
+        resume_mode: str = "weights-only",
         requested_recipe: Optional[ApexRecipe] = None,
     ) -> None:
         """Load learner state from checkpoint.
@@ -593,7 +593,7 @@ class ApexLearner:
         Raises:
             ValueError: If checkpoint contract does not match learner config
         """
-        if resume_mode not in {"weights_only", "continuation", "legacy_unverified"}:
+        if resume_mode not in {"weights-only", "continuation", "legacy-unverified"}:
             raise ValueError(f"unsupported Apex resume_mode {resume_mode!r}")
         validate_checkpoint_contract(
             state_dict,
@@ -614,14 +614,14 @@ class ApexLearner:
                 raise ValueError("optimizer continuation has incompatible Adam parameter groups")
             if any(not isinstance(group, dict) or not group.get("params") for group in groups):
                 raise ValueError("optimizer continuation has malformed Adam parameter groups")
-        elif resume_mode == "legacy_unverified" and "optimizer_state_dict" not in state_dict:
+        elif resume_mode == "legacy-unverified" and "optimizer_state_dict" not in state_dict:
             raise ValueError("legacy-unverified continuation requires optimizer_state_dict")
 
         # All validation above precedes mutation. Weights-only deliberately keeps
         # the fresh optimizer, odometer and runtime state created in __init__.
         self.dqn.load_state_dict(state_dict["dqn_state_dict"])
         self.target_dqn.load_state_dict(state_dict["target_dqn_state_dict"])
-        if resume_mode != "weights_only":
+        if resume_mode != "weights-only":
             self.optimizer.load_state_dict(state_dict["optimizer_state_dict"])
             self.step_count = int(state_dict.get("step_count", 0))
             self.update_version = int(state_dict.get("update_version", self.step_count))
@@ -629,7 +629,7 @@ class ApexLearner:
         else:
             self.step_count = 0
             self.update_version = 0
-            self.resume_provenance = "weights_only"
+            self.resume_provenance = "weights-only"
 
     def get_training_stats(self) -> Dict[str, Any]:
         """Get comprehensive training statistics.

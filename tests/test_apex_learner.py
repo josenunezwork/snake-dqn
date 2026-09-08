@@ -537,7 +537,7 @@ class TestCheckpointing:
         # Create new learner and load
         learner2 = ApexLearner(config, buffer_client=buf, device=torch.device("cpu"))
         assert learner2.step_count == 0
-        learner2.load_state_dict(state, resume_mode="legacy_unverified")
+        learner2.load_state_dict(state, resume_mode="legacy-unverified")
         assert learner2.step_count == 3
 
         # Verify network weights match
@@ -556,7 +556,7 @@ class TestCheckpointing:
         target.load_state_dict(state)
         assert target.step_count == 0
         assert target.update_version == 0
-        assert target.resume_provenance == "weights_only"
+        assert target.resume_provenance == "weights-only"
 
     def test_weight_payload_uses_successful_update_version(self):
         learner = ApexLearner(_small_config(), device=torch.device("cpu"))
