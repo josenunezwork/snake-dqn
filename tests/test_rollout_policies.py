@@ -20,6 +20,15 @@ class _BadShapePolicy(_SparsePolicy):
         return np.array([[1]])
 
 
+class _RawActionPolicy(_SparsePolicy):
+    def __init__(self, actions):
+        self._actions = actions
+
+    def actions(self, masks, sim, slots):
+        del masks, sim, slots
+        return self._actions
+
+
 def test_fixed_source_retains_sparse_slot_order_for_scatter():
     source = FixedPolicySource(_SparsePolicy(), "scripted:row-and-slot-v1")
     slots = np.array([[2, 4], [0, 3], [5, 0]], dtype=np.int64)
@@ -43,3 +52,19 @@ def test_fixed_policy_identity_and_output_contract_are_validated():
         fixed_policy_actions(
             _SparsePolicy(), np.ones((1, 5), dtype=bool), sim=None, slots=np.array([[0, 0]])
         )
+
+
+@pytest.mark.parametrize("raw", [np.array([1.9]), np.array([True])])
+def test_fixed_policy_rejects_fractional_and_boolean_actions_before_cast(raw):
+    with pytest.raises(ValueError, match="integral|boolean"):
+        fixed_policy_actions(
+            _RawActionPolicy(raw), np.ones((1, 6), dtype=bool), sim=None, slots=np.array([[0, 0]])
+        )
+
+
+def test_fixed_source_fails_closed_if_wrapped_identity_changes():
+    policy = _SparsePolicy()
+    source = FixedPolicySource(policy, policy.identity)
+    policy.identity = "scripted:mutated"
+    with pytest.raises(ValueError, match="changed"):
+        source.actions(np.ones((1, 6), dtype=bool), sim=None, slots=np.array([[0, 0]]))

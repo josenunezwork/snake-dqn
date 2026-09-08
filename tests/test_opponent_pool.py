@@ -136,6 +136,16 @@ class TestPinnedOpponentPool:
         with pytest.raises(RuntimeError, match="closed"):
             lease.get(policy_id)
 
+    def test_failed_multi_id_acquire_does_not_leak_a_pin(self):
+        hero = _action_biased_network(2)
+        pool = PinnedOpponentPool(capacity=1)
+        policy_id = pool.add_snapshot(hero)
+        with pytest.raises(KeyError):
+            pool.acquire([policy_id, 999])
+        # The failed acquire left no pin, so capacity can evict id 0 and admit
+        # a new snapshot. A leaked pin would defer this admission.
+        assert pool.add_snapshot(hero) == 1
+
     def test_batched_act_accepts_episode_lease_as_pool_getter(self):
         hero = _action_biased_network(5)
         pool = PinnedOpponentPool(capacity=1)

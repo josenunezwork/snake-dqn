@@ -189,8 +189,11 @@ class PinnedOpponentPool:
         return OpponentLease(self, policy_ids)
 
     def _pin(self, policy_ids: Iterable[int]) -> None:
-        for policy_id in policy_ids:
-            self._snapshots[policy_id].pins += 1
+        # Resolve every id before changing any pin count. A failed multi-id
+        # acquire must not leave an earlier resident pinned without a lease.
+        snapshots = [self._snapshots[policy_id] for policy_id in policy_ids]
+        for snapshot in snapshots:
+            snapshot.pins += 1
 
     def _unpin(self, policy_ids: Iterable[int]) -> None:
         for policy_id in policy_ids:

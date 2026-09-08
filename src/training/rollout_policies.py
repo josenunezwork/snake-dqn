@@ -45,6 +45,8 @@ class FixedPolicySource:
 
     def actions(self, masks: np.ndarray, sim: BatchSim, slots: np.ndarray) -> np.ndarray:
         """Validate and return actions for exactly the requested sparse rows."""
+        if self.policy.identity != self.identity:
+            raise ValueError("fixed policy identity changed after source construction")
         return fixed_policy_actions(self.policy, masks, sim, slots)
 
 
@@ -62,9 +64,23 @@ def fixed_policy_actions(
         raise ValueError("masks must have shape (N, 6)")
     if slots.shape != (masks.shape[0], 2):
         raise ValueError("slots must have shape (N, 2) matching masks")
-    actions = np.asarray(policy.actions(masks, sim, slots), dtype=np.int64)
-    if actions.shape != (masks.shape[0],):
+    raw_actions = np.asarray(policy.actions(masks, sim, slots))
+    if raw_actions.shape != (masks.shape[0],):
         raise ValueError("fixed policy actions must have shape (N,)")
+    if np.issubdtype(raw_actions.dtype, np.bool_):
+        raise ValueError("fixed policy actions must be non-boolean integers")
+    if not (
+        np.issubdtype(raw_actions.dtype, np.integer)
+        or np.issubdtype(raw_actions.dtype, np.floating)
+    ):
+        raise ValueError("fixed policy actions must be numeric integers")
+    if not np.all(np.isfinite(raw_actions)):
+        raise ValueError("fixed policy actions must be finite")
+    if np.issubdtype(raw_actions.dtype, np.floating) and not np.all(
+        raw_actions == np.floor(raw_actions)
+    ):
+        raise ValueError("fixed policy actions must be integral")
+    actions = raw_actions.astype(np.int64)
     if np.any((actions < 0) | (actions >= 6)):
         raise ValueError("fixed policy actions must be in [0, 5]")
     return actions
