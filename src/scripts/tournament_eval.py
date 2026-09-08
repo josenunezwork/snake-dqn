@@ -462,6 +462,7 @@ def rollout(
     seed: int,
     profile: EvaluationProfile | None = None,
     world_identity: Dict[str, Any] | None = None,
+    mix_id: str = "unspecified",
 ) -> Dict[str, Any]:
     """One paired rollout: hero (slot 0) vs the mix's opponents.
 
@@ -493,98 +494,111 @@ def rollout(
     if profile is not None and _evaluation_world_from_config().digest != profile.world.digest:
         gs.full_cleanup()
         raise ValueError("evaluation profile world does not match the configured live world")
+    derived_identity = (
+        _roster_identity(seed, opponent_specs, mix_id) if profile is not None else None
+    )
+    if world_identity is not None:
+        if profile is None or world_identity != derived_identity:
+            gs.full_cleanup()
+            raise ValueError("world_identity does not match the materialized opponent roster")
 
-    policy_cache: Dict[str, Any] = {}
-    _attach_agent(gs, 0, hero_spec, seed, policy_cache, profile)
-    for slot, spec in enumerate(opponent_specs, start=1):
-        _attach_agent(gs, slot, spec, seed, policy_cache, profile)
-    # Disable centralized training so no policy is ever updated.
-    gs._shared_policy = None
-    # Greedy, inference-only for every policy now attached to the roster.
-    configure_eval_game_state(gs)
+    try:
+        policy_cache: Dict[str, Any] = {}
+        _attach_agent(gs, 0, hero_spec, seed, policy_cache, profile)
+        for slot, spec in enumerate(opponent_specs, start=1):
+            _attach_agent(gs, slot, spec, seed, policy_cache, profile)
+        # Disable centralized training so no policy is ever updated.
+        gs._shared_policy = None
+        # Greedy, inference-only for every policy now attached to the roster.
+        configure_eval_game_state(gs)
 
-    hero = gs.snakes[0]
-    hero.auto_respawn = False  # hero death is terminal; opponents keep respawning
-    hero_id = hero.id
+        hero = gs.snakes[0]
+        hero.auto_respawn = False  # hero death is terminal; opponents keep respawning
+        hero_id = hero.id
 
-    probes = BehaviorProbes()
-    accumulator = EvaluationMetricsAccumulator(profile.scored_horizon) if profile else None
-    max_mass = len(hero.segments)
-    mass_sum = 0.0
-    alive_frames = 0
-    deaths = 0
-    kills = 0
-    prev_alive = hero.is_alive
+        probes = BehaviorProbes()
+        accumulator = EvaluationMetricsAccumulator(profile.scored_horizon) if profile else None
+        max_mass = len(hero.segments)
+        mass_sum = 0.0
+        alive_frames = 0
+        deaths = 0
+        kills = 0
+        prev_alive = hero.is_alive
 
-    for _ in range(frames):
-        gs.update(
-            train_mode=profile.runtime.training if profile else True,
-            learn=False,
-            allow_respawn=profile.runtime.respawn if profile else True,
-        )
-        if profile is not None:
-            # The named Watch transition includes its session-side ambient-food
-            # enforcement. Corpse food is intentionally retained by this helper.
-            gs.food_manager.trim_ambient(profile.world.max_food)
-            if any(snake._logical_length() >= profile.world.max_capacity for snake in gs.snakes):
-                raise RuntimeError("evaluation world exceeded its declared max_capacity")
-        probes.observe(gs)
-        alive = hero.is_alive
-        if accumulator is not None:
-            cause = gs.frame_death_causes.get(hero_id)
-            accumulator.observe(
-                pre_alive=bool(prev_alive),
-                post=PostStepState(alive=bool(alive), logical_mass=float(hero._logical_length())),
-                events=StepEvents(
-                    food_eaten=int(bool(gs.frame_ate_food.get(hero_id, False))),
-                    boost_executed=bool(prev_alive and hero.is_boosting),
-                    kills=len(gs.frame_kills.get(hero_id, [])),
-                    death=bool(prev_alive and not alive),
-                    death_cause=cause,
-                ),
-                acted=bool(prev_alive),
+        for _ in range(frames):
+            gs.update(
+                train_mode=profile.runtime.training if profile else True,
+                learn=False,
+                allow_respawn=profile.runtime.respawn if profile else True,
             )
-        if alive:
-            m = len(hero.segments)
-            max_mass = max(max_mass, m)
-            mass_sum += m
-            alive_frames += 1
-        if prev_alive and not alive:
-            deaths += 1
-        prev_alive = alive
-        kills += len(gs.frame_kills.get(hero_id, []))
+            if profile is not None:
+                # The named Watch transition includes its session-side ambient-food
+                # enforcement. Corpse food is intentionally retained by this helper.
+                gs.food_manager.trim_ambient(profile.world.max_food)
+                if any(
+                    snake._logical_length() >= profile.world.max_capacity for snake in gs.snakes
+                ):
+                    raise RuntimeError("evaluation world exceeded its declared max_capacity")
+            probes.observe(gs)
+            alive = hero.is_alive
+            if accumulator is not None:
+                cause = gs.frame_death_causes.get(hero_id)
+                accumulator.observe(
+                    pre_alive=bool(prev_alive),
+                    post=PostStepState(
+                        alive=bool(alive), logical_mass=float(hero._logical_length())
+                    ),
+                    events=StepEvents(
+                        food_eaten=int(bool(gs.frame_ate_food.get(hero_id, False))),
+                        boost_executed=bool(prev_alive and hero.is_boosting),
+                        kills=len(gs.frame_kills.get(hero_id, [])),
+                        death=bool(prev_alive and not alive),
+                        death_cause=cause,
+                    ),
+                    acted=bool(prev_alive),
+                )
+            if alive:
+                m = len(hero.segments)
+                max_mass = max(max_mass, m)
+                mass_sum += m
+                alive_frames += 1
+            if prev_alive and not alive:
+                deaths += 1
+            prev_alive = alive
+            kills += len(gs.frame_kills.get(hero_id, []))
 
-    records = probes.finalize_episode()
-    hero_record = next((r for r in records if r["snake_id"] == hero_id), {})
-    gs.full_cleanup()
-    if accumulator is not None:
-        result = accumulator.result()
-        result.update(
-            {
-                "seed": seed,
-                "evaluation_profile": profile.descriptor(),
-                "evaluation_profile_digest": profile.digest,
-            }
-        )
-        result["world_identity"] = world_identity or _roster_identity(seed, opponent_specs)
-        return result
-    return {
-        "seed": seed,
-        "mass_integral": mass_integral(mass_sum, frames),
-        "max_mass": float(max_mass),
-        "mean_mass_alive": float(mass_sum / alive_frames) if alive_frames else 0.0,
-        "kills": float(kills),
-        "deaths": float(deaths),
-        "survival_fraction": float(alive_frames / frames),
-        "probes": {
-            "death_cause": hero_record.get("death_cause"),
-            "boost_frame_fraction": hero_record.get("boost_frame_fraction", 0.0),
-            "food_eaten": hero_record.get("food_eaten", 0),
-            "kill_opportunity_count": hero_record.get("kill_opportunity_count", 0),
-            "entrapment_event": bool(hero_record.get("entrapment_event", False)),
-            "peak_length": hero_record.get("peak_length", 0),
-        },
-    }
+        records = probes.finalize_episode()
+        hero_record = next((r for r in records if r["snake_id"] == hero_id), {})
+        if accumulator is not None:
+            result = accumulator.result()
+            result.update(
+                {
+                    "seed": seed,
+                    "evaluation_profile": profile.descriptor(),
+                    "evaluation_profile_digest": profile.digest,
+                }
+            )
+            result["world_identity"] = derived_identity
+            return result
+        return {
+            "seed": seed,
+            "mass_integral": mass_integral(mass_sum, frames),
+            "max_mass": float(max_mass),
+            "mean_mass_alive": float(mass_sum / alive_frames) if alive_frames else 0.0,
+            "kills": float(kills),
+            "deaths": float(deaths),
+            "survival_fraction": float(alive_frames / frames),
+            "probes": {
+                "death_cause": hero_record.get("death_cause"),
+                "boost_frame_fraction": hero_record.get("boost_frame_fraction", 0.0),
+                "food_eaten": hero_record.get("food_eaten", 0),
+                "kill_opportunity_count": hero_record.get("kill_opportunity_count", 0),
+                "entrapment_event": bool(hero_record.get("entrapment_event", False)),
+                "peak_length": hero_record.get("peak_length", 0),
+            },
+        }
+    finally:
+        gs.full_cleanup()
 
 
 def run_mix(
@@ -626,10 +640,15 @@ def run_mix(
             gamma=float(GameConfig.GAMMA),
             profile=profile,
             opponent_specs_by_world=assignments,
-            world_identities={
-                int(seed): _roster_identity(int(seed), assignments[int(seed)], mix_id)
-                for seed in seeds
-            },
+            world_identities=(
+                {
+                    int(seed): _roster_identity(int(seed), assignments[int(seed)], mix_id)
+                    for seed in seeds
+                }
+                if profile is not None
+                else None
+            ),
+            mix_id=mix_id,
         )
     return [
         rollout(
@@ -638,7 +657,12 @@ def run_mix(
             frames,
             int(seed),
             profile=profile,
-            world_identity=_roster_identity(int(seed), assignments[int(seed)], mix_id),
+            world_identity=(
+                _roster_identity(int(seed), assignments[int(seed)], mix_id)
+                if profile is not None
+                else None
+            ),
+            mix_id=mix_id,
         )
         for seed in seeds
     ]

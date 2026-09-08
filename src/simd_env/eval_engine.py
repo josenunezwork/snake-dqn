@@ -30,6 +30,8 @@ checkpoint under ``--engine simd`` raises with a clear message pointing at
 
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
@@ -63,6 +65,34 @@ _DEATH_CAUSE_LABEL = {
     DEATH_HEAD: "head_on",
     DEATH_BODY: "enemy_body",
 }
+
+
+def _slot_content_hash(kind: str, reference: str) -> str:
+    if kind == "checkpoint":
+        digest = hashlib.sha256()
+        with Path(reference).open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+    from src.core.runtime_contract import canonical_digest
+    from src.evaluation.anchors import SCRIPTED_ANCHOR_VERSION
+
+    return canonical_digest(
+        {"scripted_anchor": reference, "anchor_version": SCRIPTED_ANCHOR_VERSION}
+    )
+
+
+def _roster_identity(seed: int, specs: Sequence[AgentSpec], mix_id: str) -> Dict[str, object]:
+    from src.core.runtime_contract import canonical_digest
+
+    hashes = [_slot_content_hash(kind, ref) for kind, ref in specs]
+    return {
+        "seed_namespace": "evaluation-world/v1",
+        "seed": int(seed),
+        "mix_id": mix_id,
+        "ordered_slot_content_hashes": hashes,
+        "roster_id": canonical_digest({"slots": hashes}),
+    }
 
 
 def validate_v3_checkpoint_for_profile(checkpoint_path: str, profile: EvaluationProfile) -> None:
@@ -476,6 +506,7 @@ def run_simd_eval(
     profile: EvaluationProfile | None = None,
     opponent_specs_by_world: Mapping[int, Sequence[AgentSpec]] | None = None,
     world_identities: Mapping[int, Dict[str, object]] | None = None,
+    mix_id: str = "unspecified",
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -526,8 +557,21 @@ def run_simd_eval(
         assigned_specs = [list(opponent_specs_by_world[seed]) for seed in seeds]
         if any(len(row) != len(assigned_specs[0]) for row in assigned_specs):
             raise ValueError("all materialized world rosters must have the same slot count")
-    if world_identities is not None and set(world_identities) != set(seeds):
-        raise ValueError("world_identities must provide exactly one identity per seed")
+    derived_identities = (
+        {
+            int(seed): _roster_identity(int(seed), assigned_specs[index], mix_id)
+            for index, seed in enumerate(seeds)
+        }
+        if profile is not None
+        else {}
+    )
+    if world_identities is not None:
+        if profile is None:
+            raise ValueError("world_identities require an explicit evaluation profile")
+        if set(world_identities) != set(seeds):
+            raise ValueError("world_identities must provide exactly one identity per seed")
+        if any(dict(world_identities[seed]) != derived_identities[seed] for seed in seeds):
+            raise ValueError("world_identities do not match the materialized opponent rosters")
     num_snakes = len(assigned_specs[0]) + 1
     cfg = _config_from_game_config(num_snakes, gamma, profile)
     E = len(seeds)
@@ -604,6 +648,8 @@ def run_simd_eval(
         _dispatch_actions(sim, masks, actions, hero_policies, opp_policies)
 
         sim.step(actions)
+        if profile is not None and np.any(sim.get_lengths() >= profile.world.max_capacity):
+            raise RuntimeError("evaluation world exceeded its declared max_capacity")
 
         alive0 = sim.get_alive()[:, 0]
         len0 = sim.get_lengths()[:, 0].astype(np.int64)
@@ -668,9 +714,7 @@ def run_simd_eval(
                     "seed": int(seeds[e]),
                     "evaluation_profile": profile.descriptor(),
                     "evaluation_profile_digest": profile.digest,
-                    "world_identity": (
-                        world_identities[int(seeds[e])] if world_identities else None
-                    ),
+                    "world_identity": derived_identities[int(seeds[e])],
                 }
             )
             records.append(record)

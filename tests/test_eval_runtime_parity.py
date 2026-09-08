@@ -116,3 +116,66 @@ def test_live_rollout_rejects_profile_for_another_world():
             seed=29,
             profile=replace(profile, world=wrong_world),
         )
+
+
+def test_profiled_roster_identity_is_derived_and_rejects_tampering():
+    profile = _short_watch_profile()
+    hero = ("scripted", "greedy_food")
+    opponents = [("scripted", "random_safe")] * (profile.world.num_snakes - 1)
+    live = rollout(hero, opponents, frames=3, seed=41, profile=profile)
+    simd = run_simd_eval(hero, opponents, frames=3, seeds=[41], profile=profile)[0]
+
+    assert live["world_identity"] == simd["world_identity"]
+    assert live["world_identity"]["mix_id"] == "unspecified"
+    forged = {**live["world_identity"], "roster_id": "forged"}
+    with pytest.raises(ValueError, match="world_identity"):
+        rollout(hero, opponents, frames=3, seed=41, profile=profile, world_identity=forged)
+    with pytest.raises(ValueError, match="world_identities"):
+        run_simd_eval(
+            hero,
+            opponents,
+            frames=3,
+            seeds=[41],
+            profile=profile,
+            world_identities={41: forged},
+        )
+
+
+def test_profile_capacity_boundary_fails_closed_in_both_public_wrappers(monkeypatch):
+    """Reaching the declared capacity on the final scored frame never returns a score."""
+    import src.scripts.tournament_eval as tournament_eval
+    import src.simd_env.eval_engine as eval_engine
+
+    profile = replace(
+        _short_watch_profile(), world=replace(_short_watch_profile().world, max_capacity=2)
+    )
+    hero = ("scripted", "greedy_food")
+    opponents = [("scripted", "random_safe")] * (profile.world.num_snakes - 1)
+
+    original_update = tournament_eval.create_training_game_state
+
+    def live_at_cap(*args, **kwargs):
+        game_state = original_update(*args, **kwargs)
+        original_step = game_state.update
+
+        def step(*step_args, **step_kwargs):
+            original_step(*step_args, **step_kwargs)
+            snake = game_state.snakes[0]
+            snake.length = 2
+
+        game_state.update = step
+        return game_state
+
+    original_sim_step = eval_engine._TerminalHeroBatchSim.step
+
+    def sim_at_cap(self, actions, active_env_mask=None):
+        original_sim_step(self, actions, active_env_mask)
+        self.length[:, 0] = 2
+
+    monkeypatch.setattr(tournament_eval, "create_training_game_state", live_at_cap)
+    monkeypatch.setattr(tournament_eval, "_evaluation_world_from_config", lambda: profile.world)
+    monkeypatch.setattr(eval_engine._TerminalHeroBatchSim, "step", sim_at_cap)
+    with pytest.raises(RuntimeError, match="max_capacity"):
+        rollout(hero, opponents, frames=3, seed=43, profile=profile)
+    with pytest.raises(RuntimeError, match="max_capacity"):
+        run_simd_eval(hero, opponents, frames=3, seeds=[43], profile=profile)
