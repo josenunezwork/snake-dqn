@@ -31,9 +31,9 @@ from ..model.apex_network import ApexNetwork
 from ..utils import clip_gradients, hard_update
 from .action_mask import summarize_next_action_quality
 from .apex_buffer import LearnerBufferClient, LocalApexBuffer
+from .apex_recipe import ApexRecipe, validate_recipe_continuation
 from .base_buffer import BatchDict
 from .checkpoint_contract import validate_checkpoint_contract
-from .apex_recipe import ApexRecipe, validate_recipe_continuation
 from .td_targets import (
     MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
     MASK_MODE_LEGACY_ADVISORY,
@@ -41,7 +41,6 @@ from .td_targets import (
     MASK_MODE_TERMINAL_NO_SUCCESSOR,
     double_dqn_next_q,
     n_step_td_target,
-    resolve_bootstrap_action_masks,
 )
 from .tensorboard_logger import TensorBoardLogger
 

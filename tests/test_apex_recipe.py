@@ -119,12 +119,16 @@ def test_recipe_continuation_rejects_replay_horizon_or_batch_change() -> None:
     altered["replay_contract"]["beta_frames"] = 2_000_000
     changed_horizon = ApexRecipe(**altered)
     with pytest.raises(ValueError, match="conflicts"):
-        validate_recipe_continuation(checkpoint, changed_horizon, weights_only=False, optimizer=optimizer)
+        validate_recipe_continuation(
+            checkpoint, changed_horizon, weights_only=False, optimizer=optimizer
+        )
     altered = copy.deepcopy(recipe.semantic_dict())
     altered["replay_contract"]["batch_size"] = 256
     changed_batch = ApexRecipe(**altered)
     with pytest.raises(ValueError, match="conflicts"):
-        validate_recipe_continuation(checkpoint, changed_batch, weights_only=False, optimizer=optimizer)
+        validate_recipe_continuation(
+            checkpoint, changed_batch, weights_only=False, optimizer=optimizer
+        )
 
 
 def test_distributed_continuation_accepts_nonzero_checkpoint_beta_clock() -> None:
@@ -132,9 +136,7 @@ def test_distributed_continuation_accepts_nonzero_checkpoint_beta_clock() -> Non
     recipe, optimizer = _recipe_and_optimizer()
     checkpoint = _nonzero_checkpoint(recipe, optimizer)
     _set_adam_step(checkpoint, 100)
-    requested = ApexRecipe(
-        **recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 100}
-    )
+    requested = ApexRecipe(**recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 100})
     assert requested.digest == recipe.digest
     validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
 
@@ -170,7 +172,9 @@ def test_optimizer_continuation_rejects_malformed_adam_state_before_load() -> No
     checkpoint["optimizer_state_dict"] = copy.deepcopy(checkpoint["optimizer_state_dict"])
     checkpoint["optimizer_state_dict"]["state"] = {0: {"step": 1}}
     with pytest.raises(ValueError, match="missing exp_avg"):
-        requested = ApexRecipe(**recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 1})
+        requested = ApexRecipe(
+            **recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 1}
+        )
         validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
 
 
@@ -188,7 +192,9 @@ def test_nonzero_continuation_requires_complete_integral_adam_state(corruption: 
         state[parameter_id]["step"] = 1.5
         expected = "invalid Adam step"
     with pytest.raises(ValueError, match=expected):
-        requested = ApexRecipe(**recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 1})
+        requested = ApexRecipe(
+            **recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 1}
+        )
         validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
 
 

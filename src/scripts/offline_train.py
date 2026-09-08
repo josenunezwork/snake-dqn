@@ -587,8 +587,6 @@ def load_checkpoint(
     resume_mode: str = "weights-only",
 ) -> bool:
     """Optionally resume policy weights and optimizer state."""
-    import torch
-
     if not checkpoint_path:
         return False
 
@@ -611,7 +609,8 @@ def load_checkpoint(
     print(f"Loaded checkpoint: {resolved_path}")
     if resume_mode == "weights-only":
         print(
-            "Resume mode: weights-only (fresh optimizer and odometer; offline dataset validation retained)"
+            "Resume mode: weights-only (fresh optimizer and odometer; "
+            "offline dataset validation retained)"
         )
     for line in format_checkpoint_replay_provenance(checkpoint):
         print(line)

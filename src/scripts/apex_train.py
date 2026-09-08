@@ -487,8 +487,6 @@ def load_validated_apex_resume_checkpoint(
     if not resume_checkpoint:
         return None
 
-    import torch
-
     checkpoint_path = Path(resume_checkpoint).expanduser()
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"Resume checkpoint not found: {resume_checkpoint}")
@@ -1226,7 +1224,8 @@ def train_apex(
         "buffer_namespace": "apex/buffer",
     }
     print(
-        f"Run seed: requested={seed_manifest['requested_seed']}, effective={seed_context.effective_seed}"
+        f"Run seed: requested={seed_manifest['requested_seed']}, "
+        f"effective={seed_context.effective_seed}"
     )
     print("=" * 70)
     print("APE-X DQN DISTRIBUTED TRAINING")

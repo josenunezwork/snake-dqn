@@ -433,7 +433,11 @@ def test_local_multistep_sample_preserves_mask_modes_into_resolved_targets():
         def sampled_td_error(mode: int, done: bool = False) -> float:
             policy.memory.clear()
             policy.memory.add(
-                torch.zeros(58), 0, 1.25 if done else 0.0, _full_state_batch().squeeze(0), done,
+                torch.zeros(58),
+                0,
+                1.25 if done else 0.0,
+                _full_state_batch().squeeze(0),
+                done,
                 next_action_mask=None if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR else resolved_safe,
                 next_action_mask_mode=mode,
             )
@@ -443,8 +447,13 @@ def test_local_multistep_sample_preserves_mask_modes_into_resolved_targets():
             else:
                 assert batch["next_action_mask_modes"].tolist() == [mode]
             _, errors = policy._compute_double_dqn_loss(
-                batch["states"], batch["actions"], batch["rewards"], batch["next_states"],
-                batch["dones"], weights, bootstrap_steps=batch["bootstrap_steps"],
+                batch["states"],
+                batch["actions"],
+                batch["rewards"],
+                batch["next_states"],
+                batch["dones"],
+                weights,
+                bootstrap_steps=batch["bootstrap_steps"],
                 next_action_masks=batch.get("next_action_masks"),
                 next_action_mask_modes=batch.get("next_action_mask_modes"),
             )
@@ -514,9 +523,9 @@ def test_local_train_step_records_target_action_quality_metrics():
             reward=0.5,
             next_state=torch.ones(58),
             done=False,
-                snake_id=0,
-                next_action_mask=exact_mask,
-                next_action_mask_mode=1,
+            snake_id=0,
+            next_action_mask=exact_mask,
+            next_action_mask_mode=1,
         )
 
         assert loss is not None
@@ -1050,9 +1059,7 @@ def test_seed_identity_rejects_missing_required_key_with_extra_metadata() -> Non
     try:
         policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3)
         with pytest.raises(ValueError, match="requested_seed"):
-            policy.set_seed_identity(
-                {"effective_seed": 7, "namespace": "test", "worker_seed": 8}
-            )
+            policy.set_seed_identity({"effective_seed": 7, "namespace": "test", "worker_seed": 8})
     finally:
         DeviceManager.reset_for_testing()
 
@@ -1244,7 +1251,11 @@ def test_constructor_checkpoint_path_loads_weights_as_a_fresh_run(tmp_path):
         torch.save(checkpoint, checkpoint_path)
 
         reader = ApexPolicy(
-            input_size=4, hidden_size=64, output_size=3, n_step=1, checkpoint_path=str(checkpoint_path)
+            input_size=4,
+            hidden_size=64,
+            output_size=3,
+            n_step=1,
+            checkpoint_path=str(checkpoint_path),
         )
         assert reader.n_step == 1
         assert reader.gamma == pytest.approx(0.9)

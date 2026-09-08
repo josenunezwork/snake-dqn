@@ -35,10 +35,12 @@ def _policy(seed: int) -> ApexPolicy:
 @pytest.mark.parametrize("entrypoint", ["main", "offline", "snake"])
 def test_public_resume_save_retains_parent_and_fresh_seed(tmp_path, monkeypatch, mode, entrypoint):
     source = _policy(789)
+    source.total_reward = 123.0
     checkpoint = source.get_state_dict()
     checkpoint["run_seed_manifest"] = {"requested_seed": None, "effective_seed": 789}
     checkpoint["memories"] = [("archival", "must not enter new replay")]
     checkpoint["frame"] = 999
+    checkpoint["episode_reward"] = 9999.0
     source_path = tmp_path / "source.pth"
     torch.save(checkpoint, source_path)
     source_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
@@ -61,6 +63,8 @@ def test_public_resume_save_retains_parent_and_fresh_seed(tmp_path, monkeypatch,
         assert snake.load_state(str(source_path), resume_mode=mode)
     assert len(receiver.memory) == 0
     assert frame[0] == 0
+    assert snake.total_reward == 0.0
+    assert receiver.total_reward == (123.0 if mode == "continuation" else 0.0)
     monkeypatch.setattr("src.main.get_checkpoint_path", lambda name: tmp_path / name)
     saved = save_training_checkpoint(game, "descendant.pth")
     descendant = torch.load(saved, map_location="cpu", weights_only=False)
@@ -73,6 +77,8 @@ def test_public_resume_save_retains_parent_and_fresh_seed(tmp_path, monkeypatch,
     assert parent["replay_state_restored"] is False
     assert descendant["apex_recipe_runtime"]["seed_identity"]["effective_seed"] == 987
     assert descendant["memories"] == []
+    assert descendant["episode_reward"] == 0.0
+    assert descendant["total_reward"] == (123.0 if mode == "continuation" else 0.0)
 
 
 def test_snapshot_binds_loaded_bytes_despite_path_replacement(tmp_path, monkeypatch):

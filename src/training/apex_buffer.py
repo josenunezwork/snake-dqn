@@ -59,7 +59,10 @@ def _validate_replay_mask_row(next_state, done, mask, mode) -> int:
         raise ValueError("terminal_no_successor mode requires no next_action_mask")
     if done and mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1}:
         raise ValueError("explicit nonterminal mask mode requires done=False")
-    if mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1} and mask is None:
+    if (
+        mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1}
+        and mask is None
+    ):
         raise ValueError("explicit mask mode requires a six-action mask")
     if mode == MASK_MODE_RASTER_RESOLVED_V3 and mask is not None:
         tensor = torch.as_tensor(next_state, dtype=torch.float32).reshape(1, -1)
@@ -731,7 +734,16 @@ class SharedPrioritizedBuffer:
                 )
                 priorities_list.append(pri)
                 if len(data) == 8:
-                    state, action, reward, next_state, done, steps, next_action_mask, next_action_mask_mode = data
+                    (
+                        state,
+                        action,
+                        reward,
+                        next_state,
+                        done,
+                        steps,
+                        next_action_mask,
+                        next_action_mask_mode,
+                    ) = data
                 elif len(data) == 7:
                     state, action, reward, next_state, done, steps, next_action_mask = data
                     next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
@@ -1021,8 +1033,17 @@ class BufferProcess:
                     try:
                         if msg.msg_type == MessageType.ADD_EXPERIENCE:
                             if len(msg.data) == 9:
-                                (state, action, reward, next_state, done, priority, steps,
-                                 next_action_mask, next_action_mask_mode) = msg.data
+                                (
+                                    state,
+                                    action,
+                                    reward,
+                                    next_state,
+                                    done,
+                                    priority,
+                                    steps,
+                                    next_action_mask,
+                                    next_action_mask_mode,
+                                ) = msg.data
                             elif len(msg.data) == 8:
                                 (
                                     state,
@@ -1059,8 +1080,17 @@ class BufferProcess:
 
                         elif msg.msg_type == MessageType.ADD_BATCH:
                             if len(msg.data) == 9:
-                                (states, actions, rewards, next_states, dones, priorities,
-                                 bootstrap_steps, next_action_masks, next_action_mask_modes) = msg.data
+                                (
+                                    states,
+                                    actions,
+                                    rewards,
+                                    next_states,
+                                    dones,
+                                    priorities,
+                                    bootstrap_steps,
+                                    next_action_masks,
+                                    next_action_mask_modes,
+                                ) = msg.data
                             elif len(msg.data) == 8:
                                 (
                                     states,

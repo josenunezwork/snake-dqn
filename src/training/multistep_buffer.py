@@ -6,7 +6,11 @@ from typing import Deque, Dict, Hashable, Optional, Tuple
 import torch
 
 from .replay_buffer import PrioritizedReplayBuffer
-from .td_targets import MASK_MODE_LEGACY_ADVISORY, MASK_MODE_TERMINAL_NO_SUCCESSOR, validate_mask_mode
+from .td_targets import (
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_TERMINAL_NO_SUCCESSOR,
+    validate_mask_mode,
+)
 
 
 class MultiStepBuffer(PrioritizedReplayBuffer):
@@ -88,8 +92,15 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
 
         # Add to n-step buffer
         n_step_buffer.append(
-            (state, action, reward, next_state, done, next_action_mask,
-             validate_mask_mode(next_action_mask_mode))
+            (
+                state,
+                action,
+                reward,
+                next_state,
+                done,
+                next_action_mask,
+                validate_mask_mode(next_action_mask_mode),
+            )
         )
 
         # If a short episode ends before the n-step window fills, still
@@ -103,9 +114,14 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
             return
 
         # Compute n-step return
-        n_step_return, n_step_next_state, n_step_done, bootstrap_steps, next_action_mask, next_action_mask_mode = (
-            self._compute_n_step_return(n_step_buffer)
-        )
+        (
+            n_step_return,
+            n_step_next_state,
+            n_step_done,
+            bootstrap_steps,
+            next_action_mask,
+            next_action_mask_mode,
+        ) = self._compute_n_step_return(n_step_buffer)
 
         # Get first transition for state and action
         first_state, first_action = n_step_buffer[0][0], n_step_buffer[0][1]
@@ -153,9 +169,15 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
         n_step_next_action_mask = None
         n_step_next_action_mask_mode = MASK_MODE_TERMINAL_NO_SUCCESSOR
 
-        for i, (state, action, reward, next_state, done, next_action_mask, next_action_mask_mode) in enumerate(
-            n_step_buffer
-        ):
+        for i, (
+            state,
+            action,
+            reward,
+            next_state,
+            done,
+            next_action_mask,
+            next_action_mask_mode,
+        ) in enumerate(n_step_buffer):
             # Accumulate discounted rewards
             n_step_return += (self.gamma**i) * reward
             bootstrap_steps = i + 1
@@ -195,9 +217,14 @@ class MultiStepBuffer(PrioritizedReplayBuffer):
 
         while len(n_step_buffer) > 0:
             # Compute partial n-step return with remaining transitions
-            n_step_return, n_step_next_state, n_step_done, bootstrap_steps, next_action_mask, next_action_mask_mode = (
-                self._compute_n_step_return(n_step_buffer)
-            )
+            (
+                n_step_return,
+                n_step_next_state,
+                n_step_done,
+                bootstrap_steps,
+                next_action_mask,
+                next_action_mask_mode,
+            ) = self._compute_n_step_return(n_step_buffer)
             first_state, first_action = n_step_buffer[0][0], n_step_buffer[0][1]
 
             super().add(

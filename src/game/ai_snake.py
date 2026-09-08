@@ -848,7 +848,7 @@ class AISnake(Snake):
         policy_state = self.policy.get_state_dict()
         metadata = {
             **policy_state,
-            "total_reward": self._total_reward,
+            "episode_reward": self._total_reward,
             "memories": self.policy.get_all_memories(),
             "frame": self._get_frame(),
         }
@@ -887,9 +887,7 @@ class AISnake(Snake):
 
             self.policy.load_state_dict(checkpoint, resume_mode=resume_mode)
             self.policy._resume_parent = {**parent, "resume_mode": resume_mode}
-            self._total_reward = (
-                checkpoint.get("total_reward", 0) if resume_mode == "continuation" else 0
-            )
+            self._total_reward = 0.0
             # Both modes start fresh episodes/replay; source memories and frame
             # are archival data, never an implicit training-data import.
 

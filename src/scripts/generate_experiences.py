@@ -28,7 +28,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig  # noqa: E402
 from src.core.reward_contract import current_reward_contract  # noqa: E402
-from src.core.runtime_contract import RuntimeModeContract, canonical_digest  # noqa: E402
+from src.core.runtime_contract import (  # noqa: E402
+    RuntimeModeContract,
+    canonical_digest,
+)
 from src.core.seeding import SeedContext, initialize_run_seed  # noqa: E402
 from src.data.memory_db_handler import (  # noqa: E402
     REPLAY_QUALITY_GATE_ORDER,

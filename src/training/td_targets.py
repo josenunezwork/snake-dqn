@@ -53,11 +53,20 @@ def validate_replay_mask_row(next_state, done: bool, mask, mode: int) -> int:
         raise ValueError("terminal_no_successor mode requires no next_action_mask")
     if done and mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1}:
         raise ValueError("explicit nonterminal mask mode requires done=False")
-    if mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1} and mask is None:
+    if (
+        mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1}
+        and mask is None
+    ):
         raise ValueError("explicit mask mode requires a six-action mask")
     if mode == MASK_MODE_RASTER_RESOLVED_V3 and mask is not None:
         values = np.asarray(mask, dtype=np.bool_)
-        legal = domain_legal_action_mask(torch.as_tensor(next_state, dtype=torch.float32).reshape(1, -1))[0].cpu().numpy()
+        legal = (
+            domain_legal_action_mask(
+                torch.as_tensor(next_state, dtype=torch.float32).reshape(1, -1)
+            )[0]
+            .cpu()
+            .numpy()
+        )
         if not bool(values.any()):
             raise ValueError("nonterminal resolved next_action_mask cannot be all false")
         if bool((values & ~legal).any()):
@@ -78,8 +87,12 @@ def resolve_bootstrap_action_masks(
     if next_action_masks.ndim != 2 or next_action_masks.shape[-1] != 6:
         raise ValueError("next_action_masks must have shape (batch, 6)")
     if next_action_mask_modes is None:
-        modes = torch.full((next_action_masks.shape[0],), MASK_MODE_LEGACY_ADVISORY,
-                           dtype=torch.long, device=next_action_masks.device)
+        modes = torch.full(
+            (next_action_masks.shape[0],),
+            MASK_MODE_LEGACY_ADVISORY,
+            dtype=torch.long,
+            device=next_action_masks.device,
+        )
     else:
         modes = next_action_mask_modes.to(device=next_action_masks.device)
         if modes.ndim != 1 or modes.shape[0] != next_action_masks.shape[0]:
@@ -89,7 +102,9 @@ def resolve_bootstrap_action_masks(
             raise ValueError("unknown next_action_mask_mode in batch")
     masks = next_action_masks.to(dtype=torch.bool)
     legal = domain_legal_action_mask(next_states)
-    advisory = (modes == MASK_MODE_LEGACY_ADVISORY) | (modes == MASK_MODE_DATASET_VECTOR_ADVISORY_V1)
+    advisory = (modes == MASK_MODE_LEGACY_ADVISORY) | (
+        modes == MASK_MODE_DATASET_VECTOR_ADVISORY_V1
+    )
     intersection = legal & masks
     advisory_resolved = torch.where(intersection.any(dim=1, keepdim=True), intersection, legal)
     exact = modes == MASK_MODE_RASTER_RESOLVED_V3
@@ -120,12 +135,8 @@ def double_dqn_next_q(
         if next_states is not None
         else next_action_masks
     )
-    masked_online = mask_invalid_q_values(
-        next_q_online, next_states, action_masks=resolved_masks
-    )
-    valid_next_actions = has_valid_actions(
-        next_q_online, next_states, action_masks=resolved_masks
-    )
+    masked_online = mask_invalid_q_values(next_q_online, next_states, action_masks=resolved_masks)
+    valid_next_actions = has_valid_actions(next_q_online, next_states, action_masks=resolved_masks)
     next_actions = masked_online.argmax(dim=1, keepdim=True)
     next_q = next_q_target.gather(1, next_actions).squeeze(1)
     return torch.where(valid_next_actions, next_q, torch.zeros_like(next_q))
