@@ -181,7 +181,7 @@ def test_actual_wrappers_match_independent_poststep_mass_and_profile_horizons(
             def actions(self, masks: np.ndarray, sim: BatchSim, slots: np.ndarray) -> np.ndarray:
                 del masks
                 return np.asarray(
-                    [tape[int(sim.frame[e]), int(slot)] for e, slot in slots], dtype=np.int64
+                    [tape[int(sim.frame[e]) - 1, int(slot)] for e, slot in slots], dtype=np.int64
                 )
 
         monkeypatch.setattr(te, "_attach_agent", attach_fixed)
@@ -337,9 +337,9 @@ def test_actual_wrappers_share_anchor_trace_and_canonical_random_order(
 def test_actual_wrappers_keep_opponent_respawn_in_the_action_trace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A straight opponent dies, is absent for one step, then acts after respawn."""
+    """A respawned opponent receives and applies a post-respawn nonstraight action."""
     cfg = replace(
-        _tiny_config(num_snakes=2), initial_food=0, max_food=0, game_width=120, game_height=100
+        _tiny_config(num_snakes=2), initial_food=0, max_food=1, game_width=120, game_height=100
     )
     old = _configure_global(cfg)
     try:
@@ -352,6 +352,7 @@ def test_actual_wrappers_keep_opponent_respawn_in_the_action_trace(
             observation_progress_horizon=29,
         )
         live_respawns: list[int] = []
+        live_calls: list[tuple] = []
 
         def attach_fixed(
             game_state: object,
@@ -365,11 +366,26 @@ def test_actual_wrappers_keep_opponent_respawn_in_the_action_trace(
             snake = game_state.snakes[slot]
 
             def update(self: object, others: object, food: object, **kwargs: object) -> None:
-                del others, food, kwargs
-                action = 0 if slot == 0 else 1
+                del others, kwargs
+                frame = int(game_state.frame)
+                action = 0 if slot == 0 else (2 if frame >= 12 else 1)
+                before = (int(self.head[0] // 10), int(self.head[1] // 10))
+                heading = tuple(int(value) for value in self.direction)
                 self.direction = GameLogic.relative_to_absolute_direction(self.direction, action)
                 self.is_boosting = False
                 self.move()
+                live_calls.append(
+                    (
+                        frame,
+                        slot,
+                        before,
+                        heading,
+                        action,
+                        tuple((int(x // 10), int(y // 10)) for x, y in food),
+                        (int(self.head[0] // 10), int(self.head[1] // 10)),
+                        tuple(int(value) for value in self.direction),
+                    )
+                )
 
             snake.update = types.MethodType(update, snake)
             snake.policy = None
@@ -385,28 +401,64 @@ def test_actual_wrappers_keep_opponent_respawn_in_the_action_trace(
 
         class FixedSimdPolicy(ee.SimdPolicy):
             def __init__(self) -> None:
-                self.opponent_calls: list[int] = []
+                self.opponent_calls: list[tuple] = []
 
             def actions(self, masks: np.ndarray, sim: BatchSim, slots: np.ndarray) -> np.ndarray:
                 del masks
                 for env, slot in slots:
                     if int(slot) == 1:
-                        self.opponent_calls.append(int(sim.frame[int(env)]))
-                return np.asarray([0 if int(slot) == 0 else 1 for _, slot in slots], dtype=np.int64)
+                        env_i = int(env)
+                        frame = int(sim.frame[env_i])
+                        action = 2 if frame >= 12 else 1
+                        head = tuple(int(value) for value in sim.get_heads()[env_i, 1])
+                        heading = tuple(
+                            int(value) for value in sim.get_direction_vectors()[env_i, 1]
+                        )
+                        food = tuple(
+                            tuple(int(value) for value in cell) for cell in sim.get_food(env_i)
+                        )
+                        self.opponent_calls.append((frame, 1, head, heading, action, food))
+                return np.asarray(
+                    [
+                        0 if int(slot) == 0 else (2 if int(sim.frame[int(env)]) >= 12 else 1)
+                        for env, slot in slots
+                    ],
+                    dtype=np.int64,
+                )
 
         policy = FixedSimdPolicy()
+        real_sim_class = ee._TerminalHeroBatchSim
+        sim_posts: dict[int, tuple] = {}
+
+        class TrackedSim(real_sim_class):
+            def step(self, actions: np.ndarray, active_env_mask: np.ndarray | None = None) -> None:
+                super().step(actions, active_env_mask=active_env_mask)
+                frame = int(self.frame[0])
+                sim_posts[frame] = (
+                    tuple(int(value) for value in self.get_heads()[0, 1]),
+                    tuple(int(value) for value in self.get_direction_vectors()[0, 1]),
+                )
+
         monkeypatch.setattr(te, "_attach_agent", attach_fixed)
         monkeypatch.setattr(ee, "build_simd_policy", lambda *args, **kwargs: policy)
+        monkeypatch.setattr(ee, "_TerminalHeroBatchSim", TrackedSim)
         live = te.rollout(("scripted", "fixed"), [("scripted", "fixed")], frames, seed, profile)
         simd = ee.run_simd_eval(
             ("scripted", "fixed"), [("scripted", "fixed")], frames, [seed], profile=profile
         )[0]
 
-        # The opponent is absent from action dispatch on frames 11 and 16, then
-        # present again on frames 12 and 17 after frame-rate-1 respawns.
-        assert live_respawns == [12, 17]
-        assert [f for f in range(frames) if f not in policy.opponent_calls] == [11, 16]
-        assert live["deaths"] == simd["deaths"] == 0
+        assert live_respawns, "the controlled opponent did not respawn"
+        live_by_frame = {row[0]: row for row in live_calls if row[1] == 1}
+        sim_by_frame = {row[0]: row for row in policy.opponent_calls}
+        assert set(live_by_frame) == set(sim_by_frame)
+        for frame, live_row in live_by_frame.items():
+            sim_row = sim_by_frame[frame]
+            assert live_row[:6] == sim_row
+            if frame in live_respawns:
+                assert live_row[4] == 2, (frame, live_row, sim_row)
+                assert live_row[5], "respawn selector did not see maintained food"
+                assert sim_posts[frame] == (live_row[6], live_row[7])
+        assert live["deaths"] == simd["deaths"]
     finally:
         initialize_config(old)
 
