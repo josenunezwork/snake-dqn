@@ -62,6 +62,8 @@ def _validate_replay_mask_row(next_state, done, mask, mode) -> int:
         legal = domain_legal_action_mask(tensor).squeeze(0).cpu().numpy()
         if bool((np.asarray(mask, dtype=np.bool_) & ~legal).any()):
             raise ValueError("resolved next_action_mask includes domain-illegal action")
+        if not done and not bool(np.asarray(mask, dtype=np.bool_).any()):
+            raise ValueError("nonterminal resolved next_action_mask cannot be all false")
     return mode
 
 

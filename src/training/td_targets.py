@@ -71,6 +71,8 @@ def resolve_bootstrap_action_masks(
     intersection = legal & masks
     advisory_resolved = torch.where(intersection.any(dim=1, keepdim=True), intersection, legal)
     exact = modes == MASK_MODE_RASTER_RESOLVED_V3
+    if bool((exact & ~masks.any(dim=1)).any()):
+        raise ValueError("nonterminal resolved next_action_mask cannot be all false")
     if bool((masks[exact] & ~legal[exact]).any()):
         raise ValueError("resolved next_action_mask includes domain-illegal action")
     resolved = torch.where(advisory.unsqueeze(1), advisory_resolved, masks)

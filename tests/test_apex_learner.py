@@ -561,6 +561,14 @@ class TestCheckpointing:
         assert target.update_version == 0
         assert target.resume_provenance == "weights-only"
 
+    def test_weights_only_resume_accepts_online_only_legacy_checkpoint(self):
+        source = ApexLearner(_small_config(), device=torch.device("cpu"))
+        target = ApexLearner(_small_config(), device=torch.device("cpu"))
+        target.load_state_dict({"dqn_state_dict": source.dqn.state_dict(), "config": source.config.__dict__})
+        for key, value in source.dqn.state_dict().items():
+            assert torch.equal(value, target.dqn.state_dict()[key])
+            assert torch.equal(value, target.target_dqn.state_dict()[key])
+
     def test_weight_payload_uses_successful_update_version(self):
         learner = ApexLearner(_small_config(), device=torch.device("cpu"))
         learner.update_version = 4

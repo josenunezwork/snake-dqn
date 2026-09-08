@@ -642,12 +642,12 @@ class ApexLearner:
         candidate_online = ApexNetwork(
             self.config.input_size, self.config.hidden_size, self.config.output_size
         ).to(self.device)
-        candidate_target = ApexNetwork(
-            self.config.input_size, self.config.hidden_size, self.config.output_size
-        ).to(self.device)
         candidate_online.load_state_dict(state_dict["dqn_state_dict"])
-        candidate_target.load_state_dict(state_dict["target_dqn_state_dict"])
         if resume_mode != "weights-only":
+            candidate_target = ApexNetwork(
+                self.config.input_size, self.config.hidden_size, self.config.output_size
+            ).to(self.device)
+            candidate_target.load_state_dict(state_dict["target_dqn_state_dict"])
             candidate_optimizer = optim.Adam(
                 candidate_online.parameters(),
                 lr=self.config.learning_rate,

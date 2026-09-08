@@ -41,3 +41,13 @@ def test_unknown_mode_and_bad_width_fail_closed():
         resolve_bootstrap_action_masks(torch.zeros(1, 58), torch.ones(1, 6, dtype=torch.bool), torch.tensor([99]))
     with pytest.raises(ValueError, match="shape"):
         resolve_bootstrap_action_masks(torch.zeros(1, 58), torch.ones(1, 5, dtype=torch.bool), torch.tensor([0]))
+
+
+def test_local_buffer_rejects_impossible_live_resolved_empty_mask():
+    buffer = LocalApexBuffer(capacity=8, state_size=58)
+    with pytest.raises(ValueError, match="nonterminal resolved"):
+        buffer.add(
+            _state(1), 0, 0.0, _state(1), False,
+            next_action_mask=[False] * 6,
+            next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
+        )
