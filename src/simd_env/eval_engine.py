@@ -319,13 +319,20 @@ class NetworkSimdPolicy(SimdPolicy):
             obs = build_observations(obs_inputs_from_batch_sim(sim), obs_spec=self._obs_spec)
         else:
             norm = self._profile.world.normalization
+            inputs = obs_inputs_from_batch_sim(
+                sim,
+                max_frames=int(self._profile.observation_progress_horizon),
+                starvation_max=int(norm["starvation_max"]),
+                max_length=int(norm["max_length"]),
+            )
+            # Watch increments GameState.frame before the serving policy builds
+            # its observation. SIMD dispatch happens immediately before step(),
+            # so advance only the v3 serving scalar snapshot by one. Anchors
+            # intentionally retain their pre-step frame identity.
+            if self._obs_spec == "raster31v3":
+                inputs.frame = inputs.frame + 1
             obs = build_observations(
-                obs_inputs_from_batch_sim(
-                    sim,
-                    max_frames=int(self._profile.observation_progress_horizon),
-                    starvation_max=int(norm["starvation_max"]),
-                    max_length=int(norm["max_length"]),
-                ),
+                inputs,
                 mask=sim.get_resolved_action_mask(),
                 obs_spec=self._obs_spec,
             )
