@@ -569,6 +569,11 @@ class PQNTrainer:
             "pool": "fresh",
             "rng": "fresh",
         }
+        # Corrected-v3 assigns policy sources once per batch episode. A world
+        # that ends early is frozen by BatchSim's active mask until the batch
+        # reaches the shared reset boundary.
+        self._episode_policy_ids: Optional[np.ndarray] = None
+        self._episode_reset_count = 0
         self._last_sgd_sampling = {
             "eligible_hero_transitions": 0,
             "sampled_transition_draws": 0,
@@ -800,6 +805,8 @@ class PQNTrainer:
 
         if self._episode_over():
             self.sim.reset()
+            self._episode_policy_ids = None
+            self._episode_reset_count += 1
 
         # A rollout may not cross the frame-cap episode boundary.  In
         # particular, when ``max_frames`` is not divisible by ``rollout_len``,
@@ -812,9 +819,14 @@ class PQNTrainer:
         if T <= 0:
             raise RuntimeError("rollout started at or beyond the episode frame cap")
 
-        policy_ids = assign_policy_ids(
-            E, S, self.pool.policy_ids(), cfg.hero_frac, self.rng, hero_slot0=True
-        )
+        if self.cfg.obs_spec == RASTER31V3 and self._episode_policy_ids is not None:
+            policy_ids = self._episode_policy_ids
+        else:
+            policy_ids = assign_policy_ids(
+                E, S, self.pool.policy_ids(), cfg.hero_frac, self.rng, hero_slot0=True
+            )
+            if self.cfg.obs_spec == RASTER31V3:
+                self._episode_policy_ids = policy_ids.copy()
 
         tac_buf = torch.zeros((T, E, S, *TACTICAL_SHAPE), dtype=torch.float32, device=self.device)
         strat_buf = torch.zeros(
@@ -874,12 +886,13 @@ class PQNTrainer:
             # EARLIER step contributes no transitions, but the step that trips
             # the floor is itself the episode's last real transition.
             live_env = ~self.sim.population_floor_reached()
+            live_env &= self.sim.frame < cfg.max_frames
             no_valid = ~mask.any(dim=2).cpu().numpy()
             trapped_buf[t] = no_valid & alive
 
             if prof:
                 t3 = self._sync()
-            self.sim.step(actions)
+            self.sim.step(actions, active_env_mask=live_env)
             if prof:
                 sim_t += self._sync() - t3
 
@@ -922,6 +935,7 @@ class PQNTrainer:
             "hero_q": hero_q_buf,
             "boost": boost_buf,
             "policy_ids": policy_ids,
+            "episode_reset_count": self._episode_reset_count,
             "final_obs": final_obs,
             "final_mask": final_mask,
             "kills_total": kills_total,
@@ -971,6 +985,12 @@ class PQNTrainer:
         trapped = torch.as_tensor(roll["trapped"], dtype=torch.bool, device=self.device)
         valid = torch.as_tensor(roll["valid"], dtype=torch.bool, device=self.device)
         next_mask = roll["next_mask"]  # (T, E, S, 6) bool
+        if self.cfg.obs_spec == RASTER31V3:
+            empty_live_successor = valid & ~dones & ~next_mask.any(dim=3)
+            if bool(empty_live_successor.any()):
+                raise RuntimeError(
+                    "corrected-v3 received an alive successor with no resolved legal action"
+                )
 
         # Masked-max Q(s_{t+1}) for every stored step. s_{t+1}'s obs == the stored
         # obs of step t+1 (for t<T-1), which the rollout already forwarded under
@@ -1005,7 +1025,11 @@ class PQNTrainer:
         for t in reversed(range(T)):
             r = rewards[t]
             done_t = dones[t]
-            trapped_t = trapped[t] & ~done_t  # trapped only if not also dead
+            trapped_t = (
+                trapped[t] & ~done_t
+                if self.cfg.obs_spec != RASTER31V3
+                else torch.zeros_like(done_t)
+            )
 
             # boot_t is the masked-max Q(s_{t+1}) computed above.
             boot_t = boot[t]
@@ -1032,7 +1056,7 @@ class PQNTrainer:
             # (not valid) does not seed the carry, so its garbage return never
             # chains into an earlier real transition.
             carry = g
-            succ_valid = valid[t]
+            succ_valid = valid[t] & ~done_t
         return targets
 
     # -- SGD ----------------------------------------------------------------
