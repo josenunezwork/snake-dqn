@@ -27,7 +27,7 @@ circular raises. Reward reuses ``src.core.reward_events.compute_reward_v2``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -412,16 +412,22 @@ class BatchSim:
                 byte-for-byte, including their RNG state and last transition
                 outputs. ``get_transition_valid()`` is false for those rows.
         """
+        if getattr(self, "_policy_step_in_progress", False):
+            raise RuntimeError("action_selector may not recursively step BatchSim")
         actions = np.clip(np.asarray(actions, dtype=np.int64), 0, 5)
         if actions.shape != (self.E, self.S):
             raise ValueError(f"actions must have shape {(self.E, self.S)}, got {actions.shape}")
         active = self._normalize_active_env_mask(active_env_mask)
         self._active_env_mask = active
         try:
-            self.frame[active] += 1
+            prepared = getattr(self, "_policy_phase_prepared", False)
+            if prepared:
+                del self._policy_phase_prepared
+            else:
+                self.frame[active] += 1
 
-            # --- Step 2: maintain food count (RNG) ---
-            self._maintain_food()
+                # --- Step 2: maintain food count (RNG) ---
+                self._maintain_food()
 
             # --- Step 4: respawn dead snakes (only when allow_respawn) ---
             # Ordering is load-bearing twice over. It must follow _maintain_food
@@ -431,7 +437,7 @@ class BatchSim:
             # respawn. And it must precede the prev_length capture below, because a
             # respawn resets _reward_prev_length to 1 and the live game's step-9
             # reward reads that fresh baseline on the respawn frame.
-            if self.allow_respawn:
+            if self.allow_respawn and not prepared:
                 self._respawn_dead()
 
             # A row is a fresh transition only when it actually has a living
@@ -497,6 +503,45 @@ class BatchSim:
             self._last_transition_valid[:] = active[:, None] & acted
         finally:
             del self._active_env_mask
+
+    def step_with_policy(
+        self,
+        action_selector: Callable[["BatchSim"], np.ndarray],
+        active_env_mask: Optional[np.ndarray] = None,
+    ) -> None:
+        """Advance one frame after selecting actions from the live Watch phase.
+
+        The selector runs once after frame, food maintenance, and respawn, with
+        refreshed masks. Its returned action grid is deliberately strict: unlike
+        the legacy array API, invalid shapes, dtypes, or action codes are errors.
+        """
+        if not callable(action_selector):
+            raise TypeError("action_selector must be callable")
+        if getattr(self, "_policy_step_in_progress", False):
+            raise RuntimeError("action_selector may not recursively step BatchSim")
+        active = self._normalize_active_env_mask(active_env_mask)
+        self._policy_step_in_progress = True
+        self._active_env_mask = active
+        try:
+            self.frame[active] += 1
+            self._maintain_food()
+            if self.allow_respawn:
+                self._respawn_dead()
+            self._refresh_action_masks(active)
+            actions = np.asarray(action_selector(self))
+            if actions.shape != (self.E, self.S):
+                raise ValueError(
+                    f"selector actions must have shape {(self.E, self.S)}, got {actions.shape}"
+                )
+            if not np.issubdtype(actions.dtype, np.integer):
+                raise ValueError("selector actions must use an integer dtype")
+            if np.any(actions < 0) or np.any(actions > 5):
+                raise ValueError("selector actions must be in [0, 5]")
+            self._policy_phase_prepared = True
+        finally:
+            del self._active_env_mask
+            self._policy_step_in_progress = False
+        self.step(actions.astype(np.int64, copy=False), active_env_mask=active)
 
     # ------------------------------------------------------------------
     # Movement
