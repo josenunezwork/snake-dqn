@@ -32,11 +32,11 @@ PQN_BLOCK = {
 }
 
 
-def test_pqn_schema_field_parity_with_pqn_config():
-    """Every PQNConfig knob is settable from YAML, and nothing else is."""
+def test_pqn_schema_field_parity_with_pqn_config_and_recipe_selector():
+    """Every PQNConfig knob plus the C0 recipe selector is settable from YAML."""
     config_fields = {f.name for f in dc.fields(PQNConfig)}
     schema_fields = set(PQNSettingsSchema.model_fields.keys())
-    assert config_fields == schema_fields, (
+    assert config_fields | {"recipe"} == schema_fields, (
         "pqn: dataclass/schema field drift — "
         f"only in PQNConfig: {sorted(config_fields - schema_fields)}, "
         f"only in schema: {sorted(schema_fields - config_fields)}"
@@ -57,6 +57,28 @@ def test_config_schema_accepts_pqn_block():
 
 def test_pqn_block_is_optional():
     assert ConfigSchema().pqn.num_envs is None
+    assert ConfigSchema().pqn.recipe is None
+
+
+def test_pqn_recipe_selector_is_closed_and_preserved_by_appconfig(tmp_path):
+    schema = ConfigSchema(**{"pqn": {"recipe": "corrected-v3"}})
+    assert schema.pqn.recipe == "corrected-v3"
+    with pytest.raises(ValidationError, match="recipe"):
+        ConfigSchema(**{"pqn": {"recipe": "experimental"}})
+    path = tmp_path / "corrected_recipe.yaml"
+    path.write_text("pqn:\n  recipe: corrected-v3\n", encoding="utf-8")
+    config = load_config(str(path))
+    assert config.pqn.recipe == "corrected-v3"
+    assert "pqn.recipe" in config.provided_fields
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("seed", True), ("sgd_seed", True), ("seed", -1), ("sgd_seed", 2**64)],
+)
+def test_pqn_seed_fields_are_strict_unsigned_64_bit_integers(key, value):
+    with pytest.raises(ValidationError, match=key):
+        ConfigSchema(**{"pqn": {key: value}})
 
 
 def test_pqn_typo_is_still_rejected():
@@ -90,8 +112,8 @@ def test_unknown_top_level_section_still_rejected():
         ConfigSchema(**{"pqnn": PQN_BLOCK})
 
 
-def test_load_config_with_pqn_block_yields_appconfig(tmp_path):
-    """The vector loader accepts a config carrying a pqn block and drops it."""
+def test_load_config_with_pqn_block_yields_frozen_appconfig_overrides(tmp_path):
+    """The vector loader exposes validated PQN overrides without reparsing YAML."""
     import yaml
 
     path = tmp_path / "mechanics_v2_with_pqn.yaml"
@@ -105,7 +127,34 @@ def test_load_config_with_pqn_block_yields_appconfig(tmp_path):
 
     assert config.game.mechanics_version == 2
     assert config.rewards.version == 2
-    assert not hasattr(config, "pqn")
+    assert config.pqn.num_envs == 64
+    assert config.pqn.lambda_ == 0.65
+    assert config.pqn.lr is None
+    assert "pqn.num_envs" in config.provided_fields
+
+
+def test_provided_fields_distinguishes_omitted_and_explicit_legacy_values(tmp_path):
+    path = tmp_path / "sources.yaml"
+    path.write_text(
+        "game:\n  mechanics_version: 1\n  arena_type: rectangular\n  num_snakes: 4\n"
+        "  max_frames: 5000\nrewards:\n  version: 1\npqn:\n  lr: 0.001\n",
+        encoding="utf-8",
+    )
+    config = load_config(str(path))
+    assert config.provided_fields >= {
+        "game.mechanics_version",
+        "game.arena_type",
+        "game.num_snakes",
+        "game.max_frames",
+        "rewards.version",
+        "pqn.lr",
+    }
+    assert "game.width" not in config.provided_fields
+    assert config.pqn.lr == pytest.approx(0.001)
+
+
+def test_no_config_has_no_provided_yaml_paths():
+    assert load_config().provided_fields == frozenset()
 
 
 def test_train_pqn_reads_the_same_block(tmp_path):

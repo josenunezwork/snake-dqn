@@ -14,10 +14,10 @@ Usage:
 """
 
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Mapping, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from src.core.game_config import (
     ApexSettings,
@@ -26,6 +26,7 @@ from src.core.game_config import (
     CurriculumSettings,
     GameSettings,
     NetworkSettings,
+    PQNOverrides,
     RewardSettings,
     TrainingSettings,
     assert_reward_return_invariant,
@@ -222,10 +223,10 @@ class PQNSettingsSchema(_StrictModel):
     pipeline (``load_config`` -> tournament_eval / main / apex_train) and PQN
     without ``extra='forbid'`` rejecting the file.
 
-    Fields mirror ``PQNConfig`` by name so a typo is still rejected, but every one
-    is optional and defaults to ``None`` ("not set here"): ``PQNConfig`` owns the
-    defaults, and duplicating them would let the two drift apart silently.
-    Field-name parity with ``PQNConfig`` is locked by test_config_pqn_block.
+    Fields mirror ``PQNConfig`` by name plus ``recipe``, the C0 semantic recipe
+    selector. Every one is optional and defaults to ``None`` ("not set here"):
+    ``PQNConfig`` owns execution defaults, while P1 resolves the recipe.
+    Field-name parity is locked by test_config_pqn_block.
     """
 
     num_envs: Optional[int] = Field(default=None, ge=1)
@@ -240,7 +241,7 @@ class PQNSettingsSchema(_StrictModel):
     minibatch_size: Optional[int] = Field(default=None, ge=1)
     sgd_epochs: Optional[int] = Field(default=None, ge=1)
     pad_sgd_batches: Optional[bool] = Field(default=None)
-    sgd_seed: Optional[int] = Field(default=None)
+    sgd_seed: Optional[StrictInt] = Field(default=None, ge=0, lt=2**64)
     action_collapse_patience: Optional[int] = Field(default=None, ge=1)
     action_collapse_min_samples: Optional[int] = Field(default=None, ge=0)
     action_collapse_raw_actions: Optional[bool] = Field(default=None)
@@ -255,11 +256,12 @@ class PQNSettingsSchema(_StrictModel):
     flip_augment: Optional[bool] = Field(default=None)
     max_frames: Optional[int] = Field(default=None, ge=1)
     max_abs_q_alarm: Optional[float] = Field(default=None, gt=0)
-    seed: Optional[int] = Field(default=None)
+    seed: Optional[StrictInt] = Field(default=None, ge=0, lt=2**64)
     arena_type: Optional[Literal["rectangular", "circular"]] = Field(default=None)
     mechanics_version: Optional[int] = Field(default=None, ge=1, le=2)
     reward_version: Optional[int] = Field(default=None, ge=1, le=2)
     profile: Optional[bool] = Field(default=None)
+    recipe: Optional[Literal["legacy", "corrected-v3"]] = Field(default=None)
 
     @model_validator(mode="after")
     def _check_epsilon_order(self) -> "PQNSettingsSchema":
@@ -420,6 +422,9 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
 
     with open(path, "r") as f:
         yaml_config = yaml.safe_load(f) or {}
+    if not isinstance(yaml_config, dict):
+        raise ValueError("Configuration root must be a mapping")
+    provided_fields = _provided_yaml_paths(yaml_config)
 
     # Validate with pydantic schema
     validated = ConfigSchema(**yaml_config)
@@ -427,7 +432,21 @@ def load_config(config_path: Optional[str] = None) -> AppConfig:
     validate_config_invariants(validated)
 
     # Convert to AppConfig dataclasses
-    return _schema_to_appconfig(validated)
+    return _schema_to_appconfig(validated, provided_fields=provided_fields)
+
+
+def _provided_yaml_paths(value: Mapping[str, Any], prefix: str = "") -> frozenset[str]:
+    """Return dotted paths explicitly present in raw YAML before defaults apply."""
+    paths: set[str] = set()
+    for key, child in value.items():
+        if not isinstance(key, str):
+            raise ValueError("Configuration mapping keys must be strings")
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(child, dict):
+            paths.update(_provided_yaml_paths(child, path))
+        else:
+            paths.add(path)
+    return frozenset(paths)
 
 
 def resolve_yaml_device(config_path: Optional[str]) -> Optional[str]:
@@ -474,7 +493,9 @@ def load_and_initialize_config(config_path: Optional[str] = None) -> AppConfig:
     return initialize_config(config)
 
 
-def _schema_to_appconfig(schema: ConfigSchema) -> AppConfig:
+def _schema_to_appconfig(
+    schema: ConfigSchema, *, provided_fields: frozenset[str] = frozenset()
+) -> AppConfig:
     """Convert the validated pydantic schema to AppConfig dataclasses.
 
     Each *Schema's field names match its dataclass 1:1 (locked by
@@ -491,6 +512,8 @@ def _schema_to_appconfig(schema: ConfigSchema) -> AppConfig:
         checkpoint=CheckpointSettings(**schema.checkpoint.model_dump()),
         apex=ApexSettings(**schema.apex.model_dump()),
         curriculum=CurriculumSettings(**schema.curriculum.model_dump()),
+        pqn=PQNOverrides(**schema.pqn.model_dump()),
+        provided_fields=provided_fields,
     )
 
 

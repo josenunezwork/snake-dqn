@@ -2,6 +2,8 @@
 
 import pytest
 
+from src.core.runtime_contract import ModelHeadContract
+from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3, RASTER31V3_CONTRACT
 from src.training.checkpoint_contract import validate_checkpoint_contract
 
 EXPECTED_CONFIG = {
@@ -126,3 +128,58 @@ def test_validate_checkpoint_contract_rejects_mapping_child_mismatch():
             mapping_keys=("reward_contract",),
             required_keys=("reward_contract",),
         )
+
+
+def test_raster_v3_requires_its_complete_semantic_digest():
+    expected = {OBS_SPEC_KEY: RASTER31V3}
+    matching = {
+        OBS_SPEC_KEY: RASTER31V3,
+        "obs_contract": RASTER31V3_CONTRACT.semantic_dict(),
+        "obs_contract_digest": RASTER31V3_CONTRACT.digest,
+    }
+    validate_checkpoint_contract(matching, expected)
+    mismatched_descriptor = dict(RASTER31V3_CONTRACT.semantic_dict())
+    mismatched_descriptor["paint_rule"] = "legacy"
+    with pytest.raises(RuntimeError, match="observation contract descriptor"):
+        validate_checkpoint_contract(
+            {
+                OBS_SPEC_KEY: RASTER31V3,
+                "obs_contract": mismatched_descriptor,
+                "obs_contract_digest": RASTER31V3_CONTRACT.digest,
+            },
+            expected,
+        )
+    with pytest.raises(RuntimeError, match="observation contract"):
+        validate_checkpoint_contract({OBS_SPEC_KEY: RASTER31V3}, expected)
+    with pytest.raises(RuntimeError, match="obs_spec"):
+        validate_checkpoint_contract({}, expected)
+    with pytest.raises(ValueError, match="invalid raster31v3"):
+        validate_checkpoint_contract(
+            {
+                OBS_SPEC_KEY: RASTER31V3,
+                "obs_contract": {"bad": float("nan")},
+                "obs_contract_digest": RASTER31V3_CONTRACT.digest,
+            },
+            expected,
+            error_type=ValueError,
+        )
+
+
+def test_checkpoint_contract_validates_closed_model_head_metadata():
+    head = {"algorithm": "pqn", "head": "dueling_q", "action_count": 6, "critic_outputs": 0}
+    metadata = ModelHeadContract("pqn", "dueling_q", 6).to_metadata()
+    validate_checkpoint_contract(metadata, {"model_head": head})
+    with pytest.raises(RuntimeError, match="model_head"):
+        validate_checkpoint_contract(
+            {
+                "model_head": {**head, "action_count": 5},
+                "model_head_digest": metadata["model_head_digest"],
+            },
+            {"model_head": head},
+        )
+    with pytest.raises(RuntimeError, match="model_head"):
+        validate_checkpoint_contract(
+            {"model_head": head, "model_head_digest": "tampered"}, {"model_head": head}
+        )
+    with pytest.raises(RuntimeError, match="model_head"):
+        validate_checkpoint_contract({"model_head": head}, {"model_head": head})

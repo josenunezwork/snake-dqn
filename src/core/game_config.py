@@ -19,7 +19,7 @@ Usage:
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import FrozenSet, Optional, Tuple
 
 import yaml
 
@@ -229,6 +229,52 @@ class CurriculumSettings:
 
 
 @dataclass(frozen=True)
+class PQNOverrides:
+    """Optional YAML overrides for :class:`PQNConfig`, without duplicate defaults.
+
+    ``None`` means the value was not supplied. The PQN trainer remains the sole
+    owner of its execution defaults; consumers receive this object from the
+    already validated AppConfig rather than reopening the YAML file.
+    """
+
+    num_envs: Optional[int] = None
+    num_snakes: Optional[int] = None
+    rollout_len: Optional[int] = None
+    gamma: Optional[float] = None
+    lambda_: Optional[float] = None
+    lr: Optional[float] = None
+    adam_eps: Optional[float] = None
+    grad_clip: Optional[float] = None
+    minibatches: Optional[int] = None
+    minibatch_size: Optional[int] = None
+    sgd_epochs: Optional[int] = None
+    pad_sgd_batches: Optional[bool] = None
+    sgd_seed: Optional[int] = None
+    action_collapse_patience: Optional[int] = None
+    action_collapse_min_samples: Optional[int] = None
+    action_collapse_raw_actions: Optional[bool] = None
+    eps_start: Optional[float] = None
+    eps_end: Optional[float] = None
+    eps_decay_steps: Optional[int] = None
+    hero_frac: Optional[float] = None
+    pool_capacity: Optional[int] = None
+    pool_add_interval: Optional[int] = None
+    death_value: Optional[float] = None
+    kill_scale: Optional[float] = None
+    flip_augment: Optional[bool] = None
+    max_frames: Optional[int] = None
+    max_abs_q_alarm: Optional[float] = None
+    seed: Optional[int] = None
+    arena_type: Optional[str] = None
+    mechanics_version: Optional[int] = None
+    reward_version: Optional[int] = None
+    profile: Optional[bool] = None
+    # Selects observation/target semantics, distinct from the timing profiler.
+    # None preserves legacy recipe resolution until P1 explicitly selects one.
+    recipe: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class AppConfig:
     """Complete application configuration (immutable).
 
@@ -243,6 +289,11 @@ class AppConfig:
     checkpoint: CheckpointSettings = field(default_factory=CheckpointSettings)
     apex: ApexSettings = field(default_factory=ApexSettings)
     curriculum: CurriculumSettings = field(default_factory=CurriculumSettings)
+    pqn: PQNOverrides = field(default_factory=PQNOverrides)
+    # Explicit YAML paths captured before pydantic materializes schema defaults.
+    # This lets downstream recipes distinguish an explicit legacy choice from an
+    # omitted value that merely happens to equal the current default.
+    provided_fields: FrozenSet[str] = field(default_factory=frozenset)
 
     # Actions (immutable tuple)
     actions: Tuple[Tuple[int, int], ...] = (
@@ -263,6 +314,12 @@ class AppConfig:
         (255, 165, 0),  # Orange
         (128, 0, 128),  # Purple
     )
+
+    def __post_init__(self) -> None:
+        """Freeze raw-YAML field provenance for direct AppConfig callers too."""
+        if not all(isinstance(path, str) and path for path in self.provided_fields):
+            raise ValueError("provided_fields must contain non-empty dotted string paths")
+        object.__setattr__(self, "provided_fields", frozenset(self.provided_fields))
 
     @classmethod
     def from_defaults(cls) -> "AppConfig":
@@ -308,6 +365,7 @@ class AppConfig:
             "checkpoint": asdict(self.checkpoint),
             "apex": asdict(self.apex),
             "curriculum": asdict(self.curriculum),
+            "pqn": asdict(self.pqn),
         }
 
     def save_yaml(self, path: str) -> None:

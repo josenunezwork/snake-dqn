@@ -24,6 +24,7 @@ game:
   arena_radius: 400                # Radius for circular arena (pixels)
   arena_center_x: 725              # Center X for circular arena (WIDTH // 2)
   arena_center_y: 415              # Center Y for circular arena (HEIGHT // 2)
+  mechanics_version: 1             # Legacy mechanics remain the default
 
 # Neural network architecture (NetworkSettings dataclass)
 network:
@@ -95,10 +96,13 @@ rewards:
   kill_base: 1.0
   kill_length_scale: 0.05
   kill_max: 5.0
+  boost_segment: 0.0
+  death_length_scale: 0.0
 
   # Reward clamping
   reward_max: 5.0
   reward_min: -12.0
+  version: 1
 
 # Curriculum learning (CurriculumSettings dataclass)
 curriculum:
@@ -151,6 +155,10 @@ apex:
   # H100 optimizations
   use_compile: true           # Use torch.compile for faster training
   pin_memory: true            # Pin memory for faster GPU transfer
+
+# PQN overrides are intentionally empty: omitted keys remain None in
+# AppConfig.pqn, leaving PQNConfig as the single owner of execution defaults.
+pqn: {}
 
 # Logging and monitoring.
 # NOTE: advisory only — these keys are validated but NOT consumed at runtime.

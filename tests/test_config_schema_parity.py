@@ -20,6 +20,7 @@ SECTIONS = [
     ("rewards", gc.RewardSettings, cl.RewardSettingsSchema),
     ("apex", gc.ApexSettings, cl.ApexSettingsSchema),
     ("curriculum", gc.CurriculumSettings, cl.CurriculumSettingsSchema),
+    ("pqn", gc.PQNOverrides, cl.PQNSettingsSchema),
     ("checkpoint", gc.CheckpointSettings, cl.CheckpointSettingsSchema),
 ]
 

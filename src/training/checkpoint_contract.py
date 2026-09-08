@@ -6,9 +6,59 @@ import logging
 import math
 from collections.abc import Mapping, Sequence
 
-from src.model.obs_spec import DEFAULT_OBS_SPEC, OBS_SPEC_KEY
+from src.core.runtime_contract import canonical_digest, validate_model_head_contract
+from src.model.obs_spec import (
+    DEFAULT_OBS_SPEC,
+    OBS_SPEC_KEY,
+    RASTER31V3,
+    RASTER31V3_CONTRACT,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def validate_observation_checkpoint_metadata(
+    checkpoint: Mapping[str, object],
+    expected_obs_spec: str,
+    checkpoint_path: str = "checkpoint",
+    *,
+    error_type: type[Exception] = RuntimeError,
+) -> None:
+    """Validate the stricter v3 observation descriptor through this shared gate.
+
+    Legacy vector and raster-v2 artifacts retain their historic missing-metadata
+    adapters. A corrected v3 artifact is never accepted without its semantic
+    digest, because matching tensor shapes alone do not establish equivalence.
+    """
+    if expected_obs_spec != RASTER31V3:
+        return
+    values = checkpoint_contract_values(checkpoint, OBS_SPEC_KEY)
+    if not values or any(value != RASTER31V3 for value in values):
+        raise error_type(
+            f"Checkpoint {checkpoint_path} must declare obs_spec={RASTER31V3!r} exactly"
+        )
+    descriptors = checkpoint_contract_values(checkpoint, "obs_contract")
+    try:
+        descriptor_matches = descriptors and all(
+            isinstance(descriptor, Mapping)
+            and canonical_digest(descriptor) == RASTER31V3_CONTRACT.digest
+            for descriptor in descriptors
+        )
+    except ValueError as exc:
+        raise error_type(
+            f"Checkpoint {checkpoint_path} contains an invalid raster31v3 observation descriptor"
+        ) from exc
+    if not descriptor_matches:
+        raise error_type(
+            f"Checkpoint {checkpoint_path} is missing or mismatches the required "
+            "raster31v3 observation contract descriptor"
+        )
+    digests = checkpoint_contract_values(checkpoint, "obs_contract_digest")
+    if not digests or any(digest != RASTER31V3_CONTRACT.digest for digest in digests):
+        raise error_type(
+            f"Checkpoint {checkpoint_path} is missing or mismatches the required "
+            "raster31v3 observation contract digest"
+        )
 
 
 def _is_reward_contract_key(key: str) -> bool:
@@ -69,6 +119,38 @@ def validate_checkpoint_contract(
             abort. Default False keeps full enforcement.
     """
     overridden_violations: list[str] = []
+    expected_obs_spec = expected_config.get(OBS_SPEC_KEY)
+    if expected_obs_spec is not None:
+        validate_observation_checkpoint_metadata(
+            checkpoint, str(expected_obs_spec), checkpoint_path, error_type=error_type
+        )
+    expected_model_head = expected_config.get("model_head")
+    if expected_model_head is not None:
+        try:
+            expected_head = validate_model_head_contract({"model_head": expected_model_head})
+        except ValueError as exc:
+            raise error_type("Current model_head contract is invalid") from exc
+        checkpoint_head_metadata: list[Mapping[str, object]] = []
+        if "model_head" in checkpoint:
+            checkpoint_head_metadata.append(checkpoint)
+        for config_key in ("apex_config", "config"):
+            config = checkpoint.get(config_key)
+            if isinstance(config, Mapping) and "model_head" in config:
+                checkpoint_head_metadata.append(config)
+        if not checkpoint_head_metadata:
+            raise error_type(
+                f"Checkpoint missing required model_head contract metadata for {checkpoint_path}"
+            )
+        for metadata in checkpoint_head_metadata:
+            try:
+                checkpoint_head = validate_model_head_contract(metadata, require_digest=True)
+            except ValueError as exc:
+                raise error_type(f"Checkpoint model_head is invalid for {checkpoint_path}") from exc
+            if checkpoint_head != expected_head:
+                raise error_type(
+                    f"Checkpoint model_head={checkpoint_head!r} does not match current "
+                    f"model_head={expected_head!r} for {checkpoint_path}"
+                )
 
     def _report(key: str, message: str, cause: Exception | None = None) -> None:
         """Raise for the violation, or collect it when the reward override applies."""
