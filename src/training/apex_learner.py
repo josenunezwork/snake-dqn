@@ -596,6 +596,32 @@ class ApexLearner:
             "gamma": self.config.gamma,
         }
 
+    def _validate_checkpoint_network(self, weights: object, *, label: str) -> None:
+        """Validate every checkpoint tensor before mutating a live network."""
+        if not isinstance(weights, dict):
+            raise ValueError(f"checkpoint {label} weights must be a mapping")
+        expected = self.dqn.state_dict()
+        if set(weights) != set(expected):
+            raise ValueError(f"checkpoint {label} weights do not match the Apex network")
+        for key, expected_tensor in expected.items():
+            candidate = weights[key]
+            if not isinstance(candidate, torch.Tensor) or candidate.shape != expected_tensor.shape:
+                raise ValueError(f"checkpoint {label} tensor {key!r} has incompatible shape")
+            if not bool(torch.isfinite(candidate).all()):
+                raise ValueError(f"checkpoint {label} tensor {key!r} is non-finite")
+
+    @staticmethod
+    def _validate_continuation_counters(state_dict: Dict[str, Any]) -> tuple[int, int]:
+        """Return exact nonnegative clocks before a continuation changes live state."""
+        step_count = state_dict.get("step_count", 0)
+        update_version = state_dict.get("update_version", step_count)
+        for name, value in (("step_count", step_count), ("update_version", update_version)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"continuation checkpoint has invalid {name}")
+        if update_version != step_count:
+            raise ValueError("continuation checkpoint update_version must equal step_count")
+        return step_count, update_version
+
     def load_state_dict(
         self,
         state_dict: Dict[str, Any],
@@ -637,13 +663,18 @@ class ApexLearner:
                 raise ValueError("optimizer continuation has incompatible Adam parameter groups")
             if any(not isinstance(group, dict) or not group.get("params") for group in groups):
                 raise ValueError("optimizer continuation has malformed Adam parameter groups")
+            step_count, update_version = self._validate_continuation_counters(state_dict)
+        else:
+            step_count, update_version = 0, 0
         # Fully preflight checkpoint tensors and optimizer state on disposable
         # modules before changing any live parameter/counter.
+        self._validate_checkpoint_network(state_dict["dqn_state_dict"], label="online")
         candidate_online = ApexNetwork(
             self.config.input_size, self.config.hidden_size, self.config.output_size
         ).to(self.device)
         candidate_online.load_state_dict(state_dict["dqn_state_dict"])
         if resume_mode != "weights-only":
+            self._validate_checkpoint_network(state_dict["target_dqn_state_dict"], label="target")
             candidate_target = ApexNetwork(
                 self.config.input_size, self.config.hidden_size, self.config.output_size
             ).to(self.device)
@@ -663,8 +694,8 @@ class ApexLearner:
         if resume_mode != "weights-only":
             self.target_dqn.load_state_dict(state_dict["target_dqn_state_dict"])
             self.optimizer.load_state_dict(state_dict["optimizer_state_dict"])
-            self.step_count = int(state_dict.get("step_count", 0))
-            self.update_version = int(state_dict.get("update_version", self.step_count))
+            self.step_count = step_count
+            self.update_version = update_version
             self.resume_provenance = resume_mode
         else:
             hard_update(self.target_dqn, self.dqn)

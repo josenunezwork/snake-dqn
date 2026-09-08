@@ -569,6 +569,16 @@ class TestCheckpointing:
             assert torch.equal(value, target.dqn.state_dict()[key])
             assert torch.equal(value, target.target_dqn.state_dict()[key])
 
+    def test_weights_only_rejects_nonfinite_online_weights_without_mutation(self):
+        learner = ApexLearner(_small_config(), device=torch.device("cpu"))
+        before = {key: value.clone() for key, value in learner.dqn.state_dict().items()}
+        poisoned = {key: value.clone() for key, value in before.items()}
+        poisoned[next(iter(poisoned))].fill_(float("nan"))
+        with pytest.raises(ValueError, match="non-finite"):
+            learner.load_state_dict({"dqn_state_dict": poisoned, "config": learner.config.__dict__})
+        for key, value in before.items():
+            assert torch.equal(value, learner.dqn.state_dict()[key])
+
     def test_weight_payload_uses_successful_update_version(self):
         learner = ApexLearner(_small_config(), device=torch.device("cpu"))
         learner.update_version = 4
