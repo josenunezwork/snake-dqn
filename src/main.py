@@ -433,7 +433,20 @@ def load_replay_db_into_game_state(
         )
     finally:
         db_handler.close()
-    if len(loaded_rows) == 9:
+    if len(loaded_rows) == 10:
+        (
+            states,
+            actions,
+            rewards,
+            next_states,
+            dones,
+            priorities,
+            bootstrap_steps,
+            next_action_masks,
+            next_action_mask_modes,
+            snake_ids,
+        ) = loaded_rows
+    elif len(loaded_rows) == 9:
         (
             states,
             actions,
@@ -457,9 +470,11 @@ def load_replay_db_into_game_state(
             next_action_masks,
         ) = loaded_rows
         snake_ids = None
+        next_action_mask_modes = None
     else:
         states, actions, rewards, next_states, dones, priorities, bootstrap_steps = loaded_rows
         next_action_masks = None
+        next_action_mask_modes = None
         snake_ids = None
 
     replay_quality = build_replay_quality_stats(
@@ -518,6 +533,7 @@ def load_replay_db_into_game_state(
             priorities,
             bootstrap_steps=bootstrap_steps,
             next_action_masks=masks_to_load,
+            next_action_mask_modes=next_action_mask_modes,
             stream_ids=snake_ids,
         )
     else:
@@ -584,6 +600,7 @@ def load_prefill_replay_rows(db_handler, limit: int, replay_order: str = "id_uni
             limit=limit,
             order_by=replay_order,
             include_action_masks=True,
+            include_action_mask_modes=True,
             include_snake_ids=True,
         )
     except TypeError:

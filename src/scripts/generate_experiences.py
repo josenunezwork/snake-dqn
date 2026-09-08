@@ -1424,6 +1424,7 @@ def load_generated_memories_for_merge(db_handler: MemoryDBHandler, policy_type: 
             limit=None,
             order_by="id",
             include_action_masks=True,
+            include_action_mask_modes=True,
             include_snake_ids=True,
         )
     except TypeError:
@@ -1950,7 +1951,20 @@ def generate_experiences_parallel(
                     # generation runs do not silently drop rows during merge, and
                     # order_by=id preserves each worker's generated data sequence.
                     loaded_rows = load_generated_memories_for_merge(env_db, policy_type)
-                    if len(loaded_rows) == 9:
+                    if len(loaded_rows) == 10:
+                        (
+                            states,
+                            actions,
+                            rewards,
+                            next_states,
+                            dones,
+                            priorities,
+                            bootstrap_steps,
+                            next_action_masks,
+                            next_action_mask_modes,
+                            snake_ids,
+                        ) = loaded_rows
+                    elif len(loaded_rows) == 9:
                         (
                             states,
                             actions,
@@ -1974,6 +1988,7 @@ def generate_experiences_parallel(
                             next_action_masks,
                         ) = loaded_rows
                         snake_ids = None
+                        next_action_mask_modes = None
                     else:
                         (
                             states,
@@ -1985,6 +2000,7 @@ def generate_experiences_parallel(
                             bootstrap_steps,
                         ) = loaded_rows
                         next_action_masks = None
+                        next_action_mask_modes = None
                         snake_ids = None
                     if len(states) > 0:
                         memories = []
@@ -2001,6 +2017,8 @@ def generate_experiences_parallel(
                             }
                             if next_action_masks is not None and next_action_masks[i] is not None:
                                 memory["next_action_mask"] = next_action_masks[i]
+                            if next_action_mask_modes is not None:
+                                memory["next_action_mask_mode"] = next_action_mask_modes[i]
                             if snake_ids is not None:
                                 memory["snake_id"] = get_parallel_memory_snake_id(
                                     env_id,
