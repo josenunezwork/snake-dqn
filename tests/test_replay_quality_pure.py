@@ -138,6 +138,25 @@ def test_replay_quality_invalid_mask_modes_are_counted_and_rejected():
         validate_replay_quality_gates(stats, min_exact_mask_fraction=0.0)
 
 
+def test_replay_quality_resolved_mode_requires_successor_for_exact_gate():
+    """Untrusted mode 1 metadata is not exact until domain legality can be checked."""
+    stats = build_replay_quality_stats(
+        actions=[0],
+        rewards=[0.0],
+        dones=[False],
+        priorities=[1.0],
+        bootstrap_steps=[1],
+        next_action_masks=[[True, False, False, False, False, False]],
+        next_action_mask_modes=[MASK_MODE_RASTER_RESOLVED_V3],
+    )
+
+    assert stats["mask_count"] == 1
+    assert stats["exact_mask_count"] == 0
+    assert stats["invalid_action_mask_mode_count"] == 1
+    with pytest.raises(RuntimeError, match="invalid next-action mask modes"):
+        validate_replay_quality_gates(stats, min_exact_mask_fraction=1.0)
+
+
 def test_replay_quality_stats_flag_current_actions_invalid_under_state_features():
     """Replay audits should reveal actions contradicted by their current-state features."""
     safe_normal = make_semantically_valid_state()

@@ -53,7 +53,10 @@ from src.data.replay_quality import (
     validate_replay_metadata_contract,
     validate_replay_quality_gates,
 )
-from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY, MASK_MODE_RASTER_RESOLVED_V3
+from src.training.td_targets import (
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_RASTER_RESOLVED_V3,
+)
 from src.utils.tensor_utils import validate_replay_mask_metadata
 
 logger = logging.getLogger(__name__)
@@ -831,6 +834,11 @@ class MemoryDBHandler:
         state_size = self._state_size_for_codec()
         state_blob_format = f"<{state_size}f"
         state_blob_size = struct.calcsize(state_blob_format)
+        priority_expression = "priority" if "priority" in columns else "1.0"
+        bootstrap_steps_expression = (
+            "COALESCE(bootstrap_steps, 1)" if "bootstrap_steps" in columns else "1"
+        )
+        snake_id_expression = "snake_id" if "snake_id" in columns else "0"
 
         self.cursor.execute(
             f"""
@@ -851,27 +859,28 @@ class MemoryDBHandler:
                 COALESCE(SUM(CASE
                     WHEN done = 1 AND reward > 0.0 THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE
-                    WHEN done = 1 AND COALESCE(bootstrap_steps, 1) <= 1
+                    WHEN done = 1 AND {bootstrap_steps_expression} <= 1
                     THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE
-                    WHEN done = 1 AND COALESCE(bootstrap_steps, 1) > 1
+                    WHEN done = 1 AND {bootstrap_steps_expression} > 1
                     THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE
-                    WHEN done = 1 AND COALESCE(bootstrap_steps, 1) <= 1
+                    WHEN done = 1 AND {bootstrap_steps_expression} <= 1
                          AND reward >= 0.0
                     THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE
-                    WHEN done = 1 AND COALESCE(bootstrap_steps, 1) > 1
+                    WHEN done = 1 AND {bootstrap_steps_expression} > 1
                          AND reward >= 0.0
                     THEN 1 ELSE 0 END), 0),
-                COALESCE(MIN(priority), 0.0),
-                COALESCE(AVG(priority), 0.0),
-                COALESCE(MAX(priority), 0.0),
-                COALESCE(MIN(bootstrap_steps), 0),
-                COALESCE(AVG(bootstrap_steps), 0.0),
-                COALESCE(MAX(bootstrap_steps), 0),
-                COALESCE(SUM(CASE WHEN bootstrap_steps > 1 THEN 1 ELSE 0 END), 0),
-                COUNT(DISTINCT snake_id)
+                COALESCE(MIN({priority_expression}), 0.0),
+                COALESCE(AVG({priority_expression}), 0.0),
+                COALESCE(MAX({priority_expression}), 0.0),
+                COALESCE(MIN({bootstrap_steps_expression}), 0),
+                COALESCE(AVG({bootstrap_steps_expression}), 0.0),
+                COALESCE(MAX({bootstrap_steps_expression}), 0),
+                COALESCE(SUM(CASE
+                    WHEN {bootstrap_steps_expression} > 1 THEN 1 ELSE 0 END), 0),
+                COUNT(DISTINCT {snake_id_expression})
             FROM "{table}"
             {where_clause}
             """,
@@ -936,16 +945,19 @@ class MemoryDBHandler:
         )
         action_counts = {int(action): int(action_count) for action, action_count in self.cursor}
         action_diversity = _action_diversity_stats(action_counts, int(count))
-        self.cursor.execute(
-            f"""
-            SELECT COUNT(*)
-            FROM "{table}"
-            {where_clause}
-            GROUP BY snake_id
-            """,
-            params,
-        )
-        snake_row_counts = [int(row_count) for (row_count,) in self.cursor]
+        if "snake_id" in columns:
+            self.cursor.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM "{table}"
+                {where_clause}
+                GROUP BY snake_id
+                """,
+                params,
+            )
+            snake_row_counts = [int(row_count) for (row_count,) in self.cursor]
+        else:
+            snake_row_counts = [int(count)] if count else []
         if snake_row_counts:
             snake_rows_min = min(snake_row_counts)
             snake_rows_max = max(snake_row_counts)

@@ -247,3 +247,47 @@ def test_sql_quality_counts_and_rejects_corrupt_unknown_mask_mode(temp_db):
     assert stats["invalid_action_mask_mode_count"] == 1
     with pytest.raises(RuntimeError, match="invalid next-action mask modes"):
         validate_replay_quality_gates(stats)
+
+
+def test_read_only_populated_legacy_table_quality_synthesizes_missing_columns(temp_db):
+    """Quality inspection shares loader defaults for the oldest replay schema."""
+    state_blob = struct.pack("<58f", *([0.0] * 58))
+    conn = sqlite3.connect(temp_db)
+    conn.execute("""
+        CREATE TABLE memories (
+            id INTEGER PRIMARY KEY,
+            state BLOB,
+            action INTEGER,
+            reward REAL,
+            next_state BLOB,
+            done INTEGER
+        )
+        """)
+    conn.execute(
+        "INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?)",
+        (1, state_blob, 0, 0.0, state_blob, 0),
+    )
+    conn.commit()
+    before_schema = conn.execute(
+        "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+    ).fetchall()
+    conn.close()
+
+    handler = MemoryDBHandler(temp_db, read_only=True)
+    try:
+        stats = handler.get_replay_quality_stats(policy_type="apex")
+        after_schema = handler.cursor.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+    finally:
+        handler.close()
+
+    assert stats["count"] == 1
+    assert stats["priority_min"] == 1.0
+    assert stats["bootstrap_steps_min"] == 1
+    assert stats["bootstrap_steps_max"] == 1
+    assert stats["snake_count"] == 1
+    assert stats["snake_rows_min"] == 1
+    assert stats["mask_count"] == 0
+    assert stats["exact_mask_count"] == 0
+    assert after_schema == before_schema

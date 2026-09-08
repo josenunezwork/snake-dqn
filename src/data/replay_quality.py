@@ -1063,12 +1063,15 @@ def _validate_quality_action_mask_mode(
     done,
     mask,
     next_state=_MISSING_NEXT_STATE,
+    *,
+    require_resolved_next_state: bool = False,
 ) -> int:
     """Validate one quality row's closed mask-mode contract.
 
     Quality inspection counts malformed metadata instead of aborting the scan.
-    When no next state was loaded, resolved masks still require a nonempty mask;
-    domain legality is checked whenever the successor observation is available.
+    Resolved masks require a nonempty mask. Callers can also require the
+    successor observation so resolved authority is counted only after domain
+    legality has been checked.
     """
     if isinstance(mode, bool):
         raise ValueError(f"unknown next_action_mask_mode: {mode!r}")
@@ -1091,6 +1094,8 @@ def _validate_quality_action_mask_mode(
         if mode == MASK_MODE_RASTER_RESOLVED_V3:
             if not any(bool(value) for value in mask):
                 raise ValueError("nonterminal resolved next_action_mask cannot be all false")
+            if next_state is _MISSING_NEXT_STATE and require_resolved_next_state:
+                raise ValueError("resolved next_action_mask quality requires next_state")
             if next_state is not _MISSING_NEXT_STATE:
                 validate_replay_mask_row(next_state, done, mask, mode)
     return mode
@@ -1115,7 +1120,15 @@ def _coerce_quality_action_mask_modes(
     for idx, (mode, done, mask) in enumerate(zip(modes, dones, masks)):
         next_state = next_states[idx] if next_states is not None else _MISSING_NEXT_STATE
         try:
-            valid_modes.append(_validate_quality_action_mask_mode(mode, done, mask, next_state))
+            valid_modes.append(
+                _validate_quality_action_mask_mode(
+                    mode,
+                    done,
+                    mask,
+                    next_state,
+                    require_resolved_next_state=True,
+                )
+            )
         except (TypeError, ValueError, OverflowError):
             valid_modes.append(None)
             invalid_rows.add(idx)
