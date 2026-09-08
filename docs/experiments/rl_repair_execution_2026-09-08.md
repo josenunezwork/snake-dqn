@@ -110,20 +110,37 @@ The campaign ledger records exact package/integration/test SHAs and durable
 evidence manifests. No repaired-model training or model-quality qualification
 has run yet in this execution campaign.
 
+P2 is accepted at source `3692585`, integrated through `c080f6a`. The integrated
+PQN union passed **291 tests in 21.80s**. Hero-only updates now use actual episode
+completion and event counts; immutable opponent leases are released before new
+admission. Fixed opponents do not consume phantom exploration randomness. Target
+recurrence, sampler descriptors, and fresh continuation preconditions have actual
+consumer oracles.
+
+A2 is accepted at source `847bc07`, integrated through `d208afb`. The combined
+Apex, PQN and serving union passed **1,241 tests in 32.50s** on that source.
+Mask semantics survive actors, n-step returns, replay, persistence and TD targets.
+Recipes record actual optimizer and target behavior. Verified continuation starts
+fresh RNG/replay streams while preserving validated optimizer clocks; weights-only
+starts keep all training state fresh. Streamed checkpoint snapshots bind saved
+parent lineage to the exact loaded bytes without duplicating a large checkpoint
+in memory. Snake episode rewards remain separate from policy cumulative rewards.
+
 ## Active integration wave
 
-P2, A2 and E1 are in implementation and independent review. No consumer package
-may treat a green helper test as acceptance of an unfinished runtime path.
+E1 remains in implementation and independent review. Its profile, metric and
+immutable-roster helpers are reviewed, and controlled runtime tests exposed an
+additional action-timing mismatch: live Watch advances the frame, maintains food
+and respawns before selecting actions, while SIMD callers previously selected
+before those steps. The ENV-WATCH-ACTION amendment adds a callback at the actual
+pre-action phase while preserving the existing direct-action training step.
+Actual policy traces must prove food visibility and action selection on the
+respawn transition before E1 can be accepted. A synthetic observation-frame offset
+alone is insufficient.
 
-- P2's immutable opponent pool passed source review and 39 focused tests. The
-  trainer remains under repair for episode completion accounting, fixed-opponent
-  exploration, truthful source descriptors and pristine continuation state.
-- A2 is split into recipe/local policy, actor/replay/learner, entrypoints and
-  persistent replay storage. An independent test owner exercises actual transport
-  and load paths. Mask modes must survive every consumer, not merely serialization.
-- E1 has profile/metric/anchor helpers and live/SIMD wiring. A separate verifier
-  is adding controlled actual-runtime action and event oracles; source review and
-  immutable input closure are still required.
+E2 and H0 remain pending until E1 is accepted; their independent design preparation
+can proceed without claiming implementation or qualification. No repaired learner
+training campaign has run yet.
 
 The campaign's `cpu_test_slot.py` now enforces at most two concurrent one-thread
 focused test processes. Owned-file repair/rerun attempts are continuously authorized
