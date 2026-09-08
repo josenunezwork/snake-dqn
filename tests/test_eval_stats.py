@@ -191,6 +191,20 @@ class TestStrictPairedDeltas:
         assert result["p_value"] == 0.0
         json.dumps(result, allow_nan=False)
 
+    def test_zero_standard_error_zero_and_negative_limits_are_explicit(self):
+        zero = paired_delta_test([0.0, 0.0])
+        negative = paired_delta_test([-0.25, -0.25])
+        assert (zero["t_statistic"], zero["t_statistic_limit"], zero["p_value"]) == (
+            None,
+            "zero",
+            0.5,
+        )
+        assert (
+            negative["t_statistic"],
+            negative["t_statistic_limit"],
+            negative["p_value"],
+        ) == (None, "negative_infinity", 1.0)
+
     def test_n_less_than_two_is_explicit_invalid_not_a_significant_result(self):
         result = paired_delta_test([1.0])
         assert result["valid"] is False
@@ -249,6 +263,30 @@ class TestStrictPairedDeltas:
         assert result["passes"] is True
         assert result["descriptive_combined_ci95"]["n"] == 3
 
+    def test_strict_decision_fails_closed_for_unequal_lengths_and_alt_alpha(self):
+        unequal = strict_promotion_decision(
+            {
+                "frozen": [0.2, 0.2],
+                "scripted": [0.2, 0.2, 0.2],
+                "mixed": [0.2, 0.2, 0.2],
+            },
+            scripted_mix="scripted",
+            absolute_delta_ni=0.02,
+        )
+        assert unequal["valid"] is False
+        assert unequal["passes"] is False
+        with pytest.raises(ValueError, match="fixes family alpha"):
+            strict_promotion_decision(
+                {
+                    "frozen": [0.2, 0.2],
+                    "scripted": [0.2, 0.2],
+                    "mixed": [0.2, 0.2],
+                },
+                scripted_mix="scripted",
+                absolute_delta_ni=0.02,
+                alpha=0.049,
+            )
+
 
 class TestStrictPilotSizing:
     def test_pilot_uses_paired_delta_variance_and_hard_floor(self):
@@ -277,3 +315,25 @@ class TestStrictPilotSizing:
                 {"frozen": [1.0, 1.0], "scripted": [1.0, 1.0], "mixed": [1.0, 1.0]},
                 {"frozen": 1.0, "scripted": 1.0},
             )
+
+    def test_pilot_terminates_at_an_adjacent_integer_fixed_point_cycle(self):
+        # Select a paired-delta SD that maps 40 -> 41 and 41 -> 40 under the
+        # raw fixed-point formula.  The monotone search must choose 41 rather
+        # than oscillating until an arbitrary iteration cap.
+        alpha = 0.05 / 3.0
+        critical_40 = student_t_isf(alpha, 39) + student_t_isf(0.2, 39)
+        critical_41 = student_t_isf(alpha, 40) + student_t_isf(0.2, 40)
+        lower = math.sqrt(40.0) / critical_40
+        upper = min(math.sqrt(41.0) / critical_40, math.sqrt(40.0) / critical_41)
+        ratio = (lower + upper) / 2.0
+        two_point_deltas = [0.0, ratio * math.sqrt(2.0)]
+        plan = paired_delta_pilot_size(
+            {
+                "frozen": two_point_deltas,
+                "scripted": [0.0, 0.0],
+                "mixed": [0.0, 0.0],
+            },
+            {"frozen": 1.0, "scripted": 1.0, "mixed": 1.0},
+        )
+        assert plan["per_mix"]["frozen"]["recommended_n"] >= 40
+        assert math.isfinite(plan["required_final_worlds"])

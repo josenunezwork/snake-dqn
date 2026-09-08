@@ -559,12 +559,17 @@ def _paired_delta_required_count(delta_std: float, mde: float, alpha: float) -> 
         return PAIRED_DELTA_PILOT_FLOOR
     ratio = delta_std / mde
     count = PAIRED_DELTA_PILOT_FLOOR
-    for _ in range(100):
+    # The finite-sample critical value declines with n.  Integer rounding can
+    # therefore make the fixed-point map oscillate, e.g. 40 -> 41 -> 40.  Start
+    # at the hard floor and only move upward; if the next approximation is at
+    # or below the current count, the current count is conservative and is the
+    # smallest count found by this monotone search.
+    for _ in range(10_000):
         critical = student_t_isf(alpha, count - 1) + student_t_isf(
             1.0 - PAIRED_DELTA_PILOT_POWER, count - 1
         )
         next_count = max(PAIRED_DELTA_PILOT_FLOOR, int(math.ceil((critical * ratio) ** 2)))
-        if next_count == count:
+        if next_count <= count:
             return count
         count = next_count
     raise ArithmeticError("paired-delta pilot sizing did not converge")
@@ -626,6 +631,8 @@ def strict_promotion_decision(
     deltas at each matched world position and never contributes to ``passes``.
     Runtime validates world identities before it calls this pure numeric helper.
     """
+    if alpha != PAIRED_DELTA_PILOT_FAMILY_ALPHA:
+        raise ValueError("strict-promotion-v1 fixes family alpha at 0.05")
     superiority = holm_three_mix_superiority(deltas_by_mix, alpha=alpha)
     if scripted_mix not in deltas_by_mix:
         raise ValueError(f"scripted mix {scripted_mix!r} is not one of the three strict mixes")
