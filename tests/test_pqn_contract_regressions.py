@@ -41,6 +41,12 @@ def test_legacy_recipe_rejects_the_v3_observation_spec_before_pool_setup():
         _config(obs_spec=RASTER31V3)
 
 
+def test_fixed_rollout_policy_rejects_the_legacy_recipe_before_pool_setup():
+    """Fixed policy provenance is a corrected-v3-only runtime contract."""
+    with pytest.raises(ValueError, match="fixed rollout policy requires recipe"):
+        _config(rollout_policy_mode="fixed", fixed_policy_identity="fixed:oracle:v1")
+
+
 @pytest.mark.parametrize(
     ("descriptor", "mutation"),
     [

@@ -250,6 +250,8 @@ class PQNConfig:
             raise ValueError("corrected-v3 requires mechanics_version=2 and flip_augment=False")
         if self.rollout_policy_mode not in {"snapshot_pool", "fixed"}:
             raise ValueError("rollout_policy_mode must be 'snapshot_pool' or 'fixed'")
+        if self.rollout_policy_mode == "fixed" and self.recipe != "corrected-v3":
+            raise ValueError("fixed rollout policy requires recipe='corrected-v3'")
         if self.rollout_policy_mode == "fixed" and not self.fixed_policy_identity:
             raise ValueError("fixed rollout policy requires fixed_policy_identity")
         if self.rollout_policy_mode == "snapshot_pool" and self.fixed_policy_identity is not None:
@@ -619,13 +621,11 @@ class PQNTrainer:
         # Legacy checkpoints retain the historical mutable FIFO pool. Corrected
         # v3 uses stable identities and a lease that prevents a live assignment
         # from being replaced by a later snapshot admission.
+        pool_capacity = 0 if config.rollout_policy_mode == "fixed" else config.pool_capacity
         self.pool = (
-            PinnedOpponentPool(
-                capacity=0 if config.rollout_policy_mode == "fixed" else config.pool_capacity,
-                device=self.device,
-            )
+            PinnedOpponentPool(capacity=pool_capacity, device=self.device)
             if config.recipe == "corrected-v3"
-            else OpponentPool(capacity=config.pool_capacity, device=self.device)
+            else OpponentPool(capacity=pool_capacity, device=self.device)
         )
         self.rng = np.random.default_rng(config.seed)
         # The default deliberately aliases the rollout generator: existing runs
