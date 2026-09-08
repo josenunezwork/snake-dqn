@@ -385,6 +385,7 @@ class TestSendExperienceBatch:
                 bootstrap_steps=1,
                 td_error=1.0,
                 next_action_mask=mask,
+                next_action_mask_mode=1,
             )
         ]
 
@@ -406,6 +407,7 @@ class TestSendExperienceBatch:
                 bootstrap_steps=3,
                 td_error=1.0,
                 next_action_mask=mask,
+                next_action_mask_mode=1,
             ),
             Experience(
                 state=np.zeros(58, dtype=np.float32),

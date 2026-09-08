@@ -1,6 +1,9 @@
 """Pure replay quality tests that avoid importing the Torch runtime."""
 
 import pytest
+import torch
+
+from src.training.replay_buffer import PrioritizedReplayBuffer, restore_replay_memories
 
 from src.data.memory_db_handler import (
     build_replay_quality_stats,
@@ -28,6 +31,17 @@ def make_semantically_valid_state() -> list[float]:
     state[51] = 0.2
     state[52] = 0.1
     return state
+
+
+def test_restore_ten_field_replay_mode_round_trip():
+    state = torch.zeros(58)
+    state[57] = 1.0
+    source = PrioritizedReplayBuffer(capacity=4)
+    source.add(state, 0, 0.0, state, False, next_action_mask=[True, False, False, False, False, False], next_action_mask_mode=1, stream_id="s")
+    target = PrioritizedReplayBuffer(capacity=4)
+    assert restore_replay_memories(target, source.get_all_memories(), torch.device("cpu")) == 1
+    saved = target.get_all_memories()[0]
+    assert len(saved) == 10 and saved[8] == 1 and saved[9] == "s"
 
 
 def test_replay_quality_stats_reject_misaligned_required_fields():

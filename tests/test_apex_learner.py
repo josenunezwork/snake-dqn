@@ -404,6 +404,7 @@ class TestTrainStep:
                 _full_state_batch().squeeze(0),
                 False,
                 next_action_mask=exact_mask,
+                next_action_mask_mode=1,
             )
         learner = ApexLearner(config, buffer_client=buf, device=torch.device("cpu"))
 
@@ -434,6 +435,7 @@ class TestTrainStep:
         metrics = learner.compute_next_action_quality_metrics(
             next_states,
             next_action_masks=next_action_masks,
+            next_action_mask_modes=torch.tensor([1, 1]),
             next_action_mask_present=next_action_mask_present,
             sample_mask=torch.tensor([0.0, 1.0]),
         )

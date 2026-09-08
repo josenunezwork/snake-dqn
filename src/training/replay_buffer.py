@@ -14,7 +14,11 @@ from src.training.base_buffer import (
     validate_next_action_mask,
 )
 from src.training.sum_tree import SumTree
-from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY, validate_replay_mask_row
+from src.training.td_targets import (
+    MASK_MODE_LEGACY_ADVISORY,
+    validate_mask_mode,
+    validate_replay_mask_row,
+)
 
 
 def _validate_bulk_field_lengths(states, **fields) -> int:

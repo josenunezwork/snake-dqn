@@ -43,6 +43,7 @@ def test_summarize_next_action_quality_ignores_masked_samples():
         next_states,
         output_size=6,
         next_action_masks=next_action_masks,
+        next_action_mask_modes=torch.tensor([1, 1]),
         next_action_mask_present=torch.ones(2),
         sample_mask=torch.tensor([0.0, 1.0]),
     )
