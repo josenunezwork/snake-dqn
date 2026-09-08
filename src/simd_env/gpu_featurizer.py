@@ -175,9 +175,9 @@ class GpuObsState:
 def obs_inputs_to_torch(
     sim,
     device: torch.device,
-    max_frames: int = 5000,
-    starvation_max: int = 500,
-    max_length: int = 400,
+    max_frames: Optional[int] = None,
+    starvation_max: Optional[int] = None,
+    max_length: Optional[int] = None,
 ) -> GpuObsState:
     """Extract the compact sim state and move it to ``device`` in one shot.
 
@@ -189,8 +189,10 @@ def obs_inputs_to_torch(
     Args:
         sim: A :class:`~src.simd_env.batch_sim.BatchSim` instance.
         device: Target compute device.
-        max_frames: Episode-length cap for the episode-progress scalar.
-        starvation_max: Starvation frame cap for the hunger scalar.
+        max_frames: Episode-length cap for the episode-progress scalar. ``None``
+            preserves the legacy 5000-frame fallback (or sim config horizon).
+        starvation_max: Starvation frame cap for the hunger scalar. ``None``
+            preserves the legacy sim-config/fallback value.
         max_length: Logical-length cap for length scalars; independent of the
             simulator's ring-buffer capacity.
 
@@ -198,6 +200,11 @@ def obs_inputs_to_torch(
         A :class:`GpuObsState` with all arrays resident on ``device``.
     """
     E, S = sim.E, sim.S
+    max_frames = int(getattr(sim.cfg, "max_frames", 5000) if max_frames is None else max_frames)
+    starvation_max = int(
+        getattr(sim.cfg, "starvation_max", 500) if starvation_max is None else starvation_max
+    )
+    max_length = int(sim.cfg.max_capacity if max_length is None else max_length)
 
     heads = sim.get_heads().astype(np.int64)  # (E, S, 2)
     lengths = sim.get_lengths().astype(np.int64)

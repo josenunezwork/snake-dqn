@@ -470,7 +470,9 @@ def test_default_mask_all_true():
 def test_gpu_adapter_propagates_explicit_normalizations_not_ring_capacity():
     """Torch bridge preserves feature normalization independently of capacity."""
     sim = BatchSim(BatchSimConfig(num_envs=1, num_snakes=2, max_capacity=17), seeds=[9])
+    legacy = obs_inputs_to_torch(sim, DEVICE)
     state = obs_inputs_to_torch(sim, DEVICE, max_frames=47, starvation_max=31, max_length=71)
+    assert (legacy.max_frames, legacy.starvation_max, legacy.max_length) == (5000, 500, 17)
     assert (state.max_frames, state.starvation_max, state.max_length) == (47, 31, 71)
 
 

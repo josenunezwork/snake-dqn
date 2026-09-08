@@ -9,6 +9,7 @@ GameState via the adapter.
 """
 
 import hashlib
+from dataclasses import replace
 from itertools import combinations
 
 import numpy as np
@@ -170,7 +171,9 @@ def test_batch_adapter_propagates_explicit_normalizations_not_ring_capacity():
     from src.simd_env.batch_sim import BatchSim, BatchSimConfig
 
     sim = BatchSim(BatchSimConfig(num_envs=1, num_snakes=2, max_capacity=17), seeds=[4])
+    legacy = obs_inputs_from_batch_sim(sim)
     inp = obs_inputs_from_batch_sim(sim, max_frames=47, starvation_max=31, max_length=71)
+    assert (legacy.max_frames, legacy.starvation_max, legacy.max_length) == (5000, 500, 17)
     assert (inp.max_frames, inp.starvation_max, inp.max_length) == (47, 31, 71)
 
 
@@ -299,21 +302,53 @@ def test_v3_wall_beats_prediction_and_drops_out_of_world_prediction():
     assert out[0, 0, 0, TACTICAL_HEAD_ROW + 1, TACTICAL_HEAD_COL] == _ORACLE_CODE["wall"]
 
 
-def test_v3_enemy_slot_permutation_and_same_type_max_byte_tie():
-    """Two enemy body candidates have the same result after source-slot permutation."""
-    kinds = ("enemy_body", "enemy_body")
-    rendered = []
-    for order in ((0, 1), (1, 0)):
-        inp, target, observer = _v3_contended_input(kinds, enemy_order=order)
-        out = build_observations(inp, obs_spec=RASTER31V3)["tactical_uint8"]
-        row, col = (
-            TACTICAL_HEAD_ROW - (target[0] - observer[0]),
-            TACTICAL_HEAD_COL + target[1] - observer[1],
-        )
-        rendered.append(out[0, 0, :, row, col].copy())
-    assert np.array_equal(rendered[0], rendered[1])
-    assert rendered[0][0] == _ORACLE_CODE["enemy_body"]
-    assert rendered[0][1] == 191
+def _swap_enemy_slots(inp: ObsInputs) -> ObsInputs:
+    """Swap complete enemy records, preserving the observer in slot zero."""
+
+    def swapped(array):
+        copy = array.copy()
+        copy[:, [1, 2]] = copy[:, [2, 1]]
+        return copy
+
+    return replace(
+        inp,
+        heads=swapped(inp.heads),
+        bodies=swapped(inp.bodies),
+        body_len=swapped(inp.body_len),
+        lengths=swapped(inp.lengths),
+        alive=swapped(inp.alive),
+        heading=swapped(inp.heading),
+        boost_frames=swapped(inp.boost_frames),
+        frames_since_food=swapped(inp.frames_since_food),
+        boosting=swapped(inp.boosting),
+    )
+
+
+def test_v3_enemy_head_body_priority_is_invariant_to_complete_slot_swap():
+    """A distinct enemy head and body still resolve head-first after slot swap."""
+    inp, target, observer = _v3_contended_input(("enemy_head", "enemy_body"))
+    original = build_observations(inp, obs_spec=RASTER31V3)["tactical_uint8"]
+    swapped = build_observations(_swap_enemy_slots(inp), obs_spec=RASTER31V3)["tactical_uint8"]
+    row, col = (
+        TACTICAL_HEAD_ROW - (target[0] - observer[0]),
+        TACTICAL_HEAD_COL + target[1] - observer[1],
+    )
+    assert np.array_equal(original[0, 0], swapped[0, 0])
+    assert original[0, 0, 0, row, col] == _ORACLE_CODE["enemy_head"]
+
+
+def test_v3_enemy_body_max_byte_tie_is_invariant_to_complete_slot_swap():
+    """Distinct body TTLs retain the maximum byte after a complete slot swap."""
+    inp, target, observer = _v3_contended_input(("enemy_body", "enemy_body"))
+    original = build_observations(inp, obs_spec=RASTER31V3)["tactical_uint8"]
+    swapped = build_observations(_swap_enemy_slots(inp), obs_spec=RASTER31V3)["tactical_uint8"]
+    row, col = (
+        TACTICAL_HEAD_ROW - (target[0] - observer[0]),
+        TACTICAL_HEAD_COL + target[1] - observer[1],
+    )
+    assert np.array_equal(original[0, 0], swapped[0, 0])
+    assert original[0, 0, 0, row, col] == _ORACLE_CODE["enemy_body"]
+    assert original[0, 0, 1, row, col] == 191
 
 
 def test_expand_and_network_input_shapes():
