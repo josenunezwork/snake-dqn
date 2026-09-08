@@ -116,15 +116,15 @@ below is the **actual** order).
    - **If `ate and not train_mode`**: `food_manager.maintain_count(self.snakes)` — tops
      up ambient food only. If a corpse pellet was eaten while ambient food is already
      at cap, this performs no spawn and consumes no RNG.
-     one replacement pellet immediately (**RNG**, §5).
    - `self.frame_ate_food = ate_food_map` (l.385).
    - **If `train_mode and any snake ate`** (l.387-391): a single
      `food_manager.maintain_count(self.snakes)` (**RNG**, §5) to keep post-eat food
      count in the same world the snake will next observe.
-   > **Food replacement RNG differs by mode.** Not-train: one `spawn(1)` per eating
-   > snake, interleaved in snake order. Train: no per-eat spawn; one bulk
-   > `maintain_count` after the loop iff anyone ate. The batched sim MUST branch on
-   > `train_mode` here to match the RNG draw sequence.
+   > **Food replacement RNG differs by mode.** Not-train: one `maintain_count` call
+   > per eating snake, interleaved in snake order; each call may spawn its ambient
+   > deficit or do nothing. Train: no per-eat call; one bulk `maintain_count` after
+   > the loop iff anyone ate. The batched sim MUST branch on `train_mode` here to
+   > match the RNG draw sequence.
 
 8. **Collision detection + resolution** (l.394): `frame_collisions = self.handle_collisions()`
    — the single source of truth (see §3). Sets `self.frame_collisions`,
@@ -481,9 +481,10 @@ and then re-checks food-overlap. **Draw budget per accepted food pellet is varia
 4. **Step 4 (respawn, allow_respawn only)** per respawning snake:
    `find_empty_position` draws (5.2). (Skipped when `allow_respawn=False`.)
 
-Within a frame the order is exactly: (initial `maintain_count` spawns) →
-(respawns, in snake list order) → (per-eating-snake replacement spawns in snake
-order) OR (one train-mode `maintain_count`). **Reproduce this exact call order.**
+Within a frame the order is exactly: (initial `maintain_count` resulting spawns) →
+(respawns, in snake list order) → (per-eating-snake `maintain_count` calls and
+their resulting spawns in snake order) OR (one train-mode `maintain_count`).
+**Reproduce this exact call order.**
 
 ### 5.4 Episode reset draws (`GameState.reset` → `FoodManager.reset` → `_spawn_initial`)
 `reset()` (game_state.py l.133-175): on soft-reset it repositions each existing snake
