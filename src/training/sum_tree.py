@@ -33,6 +33,10 @@ class SumTree:
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1, dtype=np.float64)
         self.data: list = [None] * capacity
+        # A slot is reused as the ring advances.  The generation lets a client
+        # distinguish the transition it sampled from a later occupant of the
+        # same slot without changing the established ``get`` return shape.
+        self._generations = np.zeros(capacity, dtype=np.int64)
         self.position = 0
         self.size = 0
         self._max_priority = 1.0
@@ -62,6 +66,7 @@ class SumTree:
         """
         tree_index = self._leaf_index(self.position)
 
+        self._generations[self.position] += 1
         self.data[self.position] = data
         self._update_node(tree_index, priority)
 
@@ -127,6 +132,12 @@ class SumTree:
 
         data_index = node - (self.capacity - 1)
         return data_index, self.tree[node], self.data[data_index]
+
+    def generation(self, data_index: int) -> int:
+        """Return the current monotonic generation for one ring-buffer slot."""
+        if data_index < 0 or data_index >= self.capacity:
+            raise IndexError(f"Data index {data_index} out of range [0, {self.capacity})")
+        return int(self._generations[data_index])
 
     def total(self) -> float:
         """Return the total sum of all priorities (root node value). O(1)."""

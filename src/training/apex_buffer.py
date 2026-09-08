@@ -41,6 +41,21 @@ from src.training.base_buffer import (
 )
 from src.training.sum_tree import SumTree
 
+
+@dataclass(frozen=True)
+class ReplaySlotHandle:
+    """Identity of a sampled distributed replay row.
+
+    ``slot`` alone is unsafe because the ring may overwrite it before a learner
+    sends TD errors back. The buffer accepts an update only while this exact
+    generation still occupies the slot.
+    """
+
+    slot: int
+    generation: int
+    epoch: int = 0
+
+
 # =============================================================================
 # Constants and Configuration
 # =============================================================================
@@ -165,10 +180,42 @@ def _coerce_bootstrap_steps(bootstrap_steps: Any) -> int:
     return steps
 
 
-def _coerce_priority_update_indices(
+def _coerce_priority_update_handles(
+    handles: List[ReplaySlotHandle], capacity: Optional[int] = None
+) -> List[ReplaySlotHandle]:
+    """Validate versioned replay handles before mutating distributed priorities."""
+    if isinstance(handles, (str, bytes, bytearray, memoryview)):
+        raise ValueError("priority update handles must be a sequence of ReplaySlotHandle")
+    validated = []
+    for handle in handles:
+        if not isinstance(handle, ReplaySlotHandle):
+            raise ValueError(
+                "priority update requires ReplaySlotHandle values; "
+                "legacy index-only updates are unsupported"
+            )
+        slot, generation = handle.slot, handle.generation
+        if isinstance(slot, bool) or isinstance(generation, bool):
+            raise ValueError("replay handle slot and generation must be integers")
+        if not isinstance(slot, (int, np.integer)) or not isinstance(generation, (int, np.integer)):
+            raise ValueError("replay handle slot and generation must be integers")
+        if slot < 0 or (capacity is not None and slot >= capacity):
+            raise ValueError("replay handle slot out of range")
+        if generation < 1:
+            raise ValueError("replay handle generation must be positive")
+        if isinstance(handle.epoch, bool) or not isinstance(handle.epoch, (int, np.integer)):
+            raise ValueError("replay handle epoch must be an integer")
+        if handle.epoch < 0:
+            raise ValueError("replay handle epoch must be non-negative")
+        validated.append(
+            ReplaySlotHandle(slot=int(slot), generation=int(generation), epoch=int(handle.epoch))
+        )
+    return validated
+
+
+def _coerce_local_priority_update_indices(
     indices: List[int], capacity: Optional[int] = None
 ) -> List[int]:
-    """Validate sampled replay indices before updating SumTree priorities."""
+    """Validate legacy indices retained by the synchronous local buffer API."""
     if isinstance(indices, (str, bytes, bytearray, memoryview)):
         raise ValueError("priority update indices must be a sequence of integers")
     validated = []
@@ -202,19 +249,19 @@ def _coerce_priority_update_td_errors(td_errors: Any) -> np.ndarray:
 
 
 def _coerce_priority_update_payload(
-    indices: List[int],
+    handles: List[ReplaySlotHandle],
     td_errors: Any,
     capacity: Optional[int] = None,
-) -> Tuple[List[int], np.ndarray]:
+) -> Tuple[List[ReplaySlotHandle], np.ndarray]:
     """Validate priority-update fields as one atomic learner payload."""
-    validated_indices = _coerce_priority_update_indices(indices, capacity=capacity)
+    validated_handles = _coerce_priority_update_handles(handles, capacity=capacity)
     validated_errors = _coerce_priority_update_td_errors(td_errors)
-    if len(validated_indices) != len(validated_errors):
+    if len(validated_handles) != len(validated_errors):
         raise ValueError(
             "Priority update fields are misaligned: "
-            f"indices={len(validated_indices)}, td_errors={len(validated_errors)}"
+            f"handles={len(validated_handles)}, td_errors={len(validated_errors)}"
         )
-    return validated_indices, validated_errors
+    return validated_handles, validated_errors
 
 
 def _mask_to_numpy(mask: Optional[Any], next_state: np.ndarray) -> np.ndarray:
@@ -393,6 +440,7 @@ class SharedPrioritizedBuffer:
 
         # SumTree for O(log N) prioritized sampling
         self._tree = SumTree(capacity)
+        self._epoch = 0
 
         # Thread lock for safe concurrent access
         self._lock = threading.RLock()
@@ -404,6 +452,9 @@ class SharedPrioritizedBuffer:
         self._last_rejected_actor_message: Optional[str] = None
         self._total_rejected_priority_updates = 0
         self._last_rejected_priority_update: Optional[str] = None
+        self._total_accepted_priority_updates = 0
+        self._total_stale_priority_updates = 0
+        self._total_malformed_priority_updates = 0
         self._total_dropped_responses = 0
         self._last_dropped_response: Optional[str] = None
 
@@ -562,6 +613,7 @@ class SharedPrioritizedBuffer:
         """Record a learner priority update that could not be applied."""
         with self._lock:
             self._total_rejected_priority_updates += 1
+            self._total_malformed_priority_updates += 1
             self._last_rejected_priority_update = str(exc)
 
     def record_dropped_response(self, kind: str) -> None:
@@ -570,7 +622,9 @@ class SharedPrioritizedBuffer:
             self._total_dropped_responses += 1
             self._last_dropped_response = kind
 
-    def sample(self, batch_size: int) -> Tuple[Dict[str, np.ndarray], List[int], np.ndarray]:
+    def sample(
+        self, batch_size: int
+    ) -> Tuple[Dict[str, np.ndarray], List[ReplaySlotHandle], np.ndarray]:
         """
         Sample a batch of experiences with stratified prioritized sampling.
 
@@ -581,10 +635,10 @@ class SharedPrioritizedBuffer:
             batch_size: Number of experiences to sample
 
         Returns:
-            Tuple of (batch_dict, indices, weights):
+            Tuple of (batch_dict, handles, weights):
             - batch_dict: Dictionary with 'states', 'actions', 'rewards',
                          'next_states', 'dones' as numpy arrays
-            - indices: List of sampled data indices for priority updates
+            - handles: List of versioned identities for priority updates
             - weights: Importance sampling weights (numpy array)
 
         Raises:
@@ -607,7 +661,7 @@ class SharedPrioritizedBuffer:
                 raise ValueError("Cannot sample from buffer with zero total priority")
 
             segment = total / batch_size
-            indices = []
+            handles = []
             priorities_list = []
             states = []
             actions = []
@@ -622,7 +676,13 @@ class SharedPrioritizedBuffer:
                 high = segment * (i + 1)
                 s = np.random.uniform(low, high)
                 idx, pri, data = self._tree.get(s)
-                indices.append(idx)
+                handles.append(
+                    ReplaySlotHandle(
+                        slot=idx,
+                        generation=self._tree.generation(idx),
+                        epoch=self._epoch,
+                    )
+                )
                 priorities_list.append(pri)
                 if len(data) == 7:
                     state, action, reward, next_state, done, steps, next_action_mask = data
@@ -672,28 +732,35 @@ class SharedPrioritizedBuffer:
 
             self._total_sampled += batch_size
 
-            return batch_dict, indices, weights.astype(np.float32)
+            return batch_dict, handles, weights.astype(np.float32)
 
-    def update_priorities(self, indices: List[int], td_errors: np.ndarray) -> None:
+    def update_priorities(self, handles: List[ReplaySlotHandle], td_errors: np.ndarray) -> None:
         """
         Update priorities based on TD errors from the learner.
 
         Args:
-            indices: Data indices of experiences to update (from SumTree)
+            handles: Versioned identities returned by ``sample``
             td_errors: TD errors for computing new priorities
         """
         with self._lock:
-            indices, td_errors = _coerce_priority_update_payload(
-                indices,
+            handles, td_errors = _coerce_priority_update_payload(
+                handles,
                 td_errors,
                 capacity=self._tree.capacity,
             )
-            for idx, td_error in zip(indices, td_errors):
+            for handle, td_error in zip(handles, td_errors):
+                if (
+                    self._epoch != handle.epoch
+                    or self._tree.generation(handle.slot) != handle.generation
+                ):
+                    self._total_stale_priority_updates += 1
+                    continue
                 # Compute new priority
                 new_priority = compute_priority(td_error, self.alpha, self.priority_eps)
 
                 # Update priority in SumTree
-                self._tree.update(idx, new_priority)
+                self._tree.update(handle.slot, new_priority)
+                self._total_accepted_priority_updates += 1
 
     def __len__(self) -> int:
         """Return current buffer size."""
@@ -704,6 +771,7 @@ class SharedPrioritizedBuffer:
         """Clear all experiences from the buffer."""
         with self._lock:
             self._tree = SumTree(self.capacity)
+            self._epoch += 1
             self._total_added = 0
             self._total_sampled = 0
 
@@ -722,10 +790,14 @@ class SharedPrioritizedBuffer:
                 "fill_ratio": tree_size / self.capacity,
                 "total_added": self._total_added,
                 "total_sampled": self._total_sampled,
+                "replay_epoch": self._epoch,
                 "total_rejected_actor_messages": self._total_rejected_actor_messages,
                 "last_rejected_actor_message": self._last_rejected_actor_message,
                 "total_rejected_priority_updates": self._total_rejected_priority_updates,
                 "last_rejected_priority_update": self._last_rejected_priority_update,
+                "total_accepted_priority_updates": self._total_accepted_priority_updates,
+                "total_stale_priority_updates": self._total_stale_priority_updates,
+                "total_malformed_priority_updates": self._total_malformed_priority_updates,
                 "total_dropped_responses": self._total_dropped_responses,
                 "last_dropped_response": self._last_dropped_response,
                 "max_priority": self._tree.max_priority,
@@ -757,8 +829,8 @@ class BufferProcess:
 
         # Use clients from different processes/threads
         actor_client.add(state, action, reward, next_state, done)
-        batch, indices, weights = learner_client.sample(batch_size=256)
-        learner_client.update_priorities(indices, td_errors)
+        batch, handles, weights = learner_client.sample(batch_size=256)
+        learner_client.update_priorities(handles, td_errors)
 
         # Shutdown
         buffer_proc.shutdown()
@@ -966,9 +1038,9 @@ class BufferProcess:
                     if msg.msg_type == MessageType.SAMPLE_REQUEST:
                         batch_size = msg.data
                         try:
-                            batch, indices, weights = buffer.sample(batch_size)
+                            batch, handles, weights = buffer.sample(batch_size)
                             response = BufferMessage(
-                                MessageType.SAMPLE_RESPONSE, data=(batch, indices, weights)
+                                MessageType.SAMPLE_RESPONSE, data=(batch, handles, weights)
                             )
                         except ValueError:
                             # Not enough samples
@@ -987,9 +1059,9 @@ class BufferProcess:
                     processed_any = True
 
                     if msg.msg_type == MessageType.UPDATE_PRIORITIES:
-                        indices, td_errors = msg.data
                         try:
-                            buffer.update_priorities(indices, td_errors)
+                            handles, td_errors = msg.data
+                            buffer.update_priorities(handles, td_errors)
                         except Exception as exc:
                             buffer.record_rejected_priority_update(exc)
             except Empty:
@@ -1424,7 +1496,7 @@ class LearnerBufferClient:
 
     def sample(
         self, batch_size: int, device: Optional[torch.device] = None, timeout: float = 5.0
-    ) -> Optional[Tuple[BatchDict, List[int], torch.Tensor]]:
+    ) -> Optional[Tuple[BatchDict, List[ReplaySlotHandle], torch.Tensor]]:
         """
         Sample a batch of experiences with prioritization.
 
@@ -1434,10 +1506,10 @@ class LearnerBufferClient:
             timeout: Maximum time to wait for response
 
         Returns:
-            Tuple of (batch_dict, indices, weights) or None if not enough samples.
+            Tuple of (batch_dict, handles, weights) or None if not enough samples.
             - batch_dict: Dictionary with 'states', 'actions', 'rewards',
                          'next_states', 'dones' as tensors
-            - indices: List of sampled indices
+            - handles: List of versioned sampled replay handles
             - weights: Importance sampling weights
         """
         # Send sample request
@@ -1452,7 +1524,7 @@ class LearnerBufferClient:
             if response.data is None:
                 return None
 
-            batch, indices, weights = response.data
+            batch, handles, weights = response.data
 
             # Convert to tensors if device specified
             if device is not None:
@@ -1487,7 +1559,7 @@ class LearnerBufferClient:
                     )
                 weights = torch.tensor(weights, dtype=torch.float32, device=device)
 
-            return batch, indices, weights
+            return batch, handles, weights
 
         except Empty:
             return None  # no batch ready within timeout — expected "not ready"
@@ -1499,18 +1571,18 @@ class LearnerBufferClient:
             self._last_client_read_error = f"sample: {exc}"
             return None
 
-    def update_priorities(self, indices: List[int], td_errors: np.ndarray) -> None:
+    def update_priorities(self, handles: List[ReplaySlotHandle], td_errors: np.ndarray) -> None:
         """
         Update priorities for sampled experiences.
 
         Args:
-            indices: Indices of experiences to update
+            handles: Versioned identities returned from ``sample``
             td_errors: TD errors for computing new priorities
         """
         # Convert tensor to numpy if needed
-        indices, td_errors = _coerce_priority_update_payload(indices, td_errors)
+        handles, td_errors = _coerce_priority_update_payload(handles, td_errors)
 
-        msg = BufferMessage(MessageType.UPDATE_PRIORITIES, data=(indices, td_errors))
+        msg = BufferMessage(MessageType.UPDATE_PRIORITIES, data=(handles, td_errors))
 
         try:
             self._priority_update_queue.put_nowait(msg)
@@ -1646,8 +1718,9 @@ class LocalApexBuffer(BaseReplayBuffer):
     def sample(
         self, batch_size: int, device: torch.device
     ) -> Tuple[BatchDict, List[int], torch.Tensor]:
-        """Sample batch with prioritization."""
-        batch, indices, weights = self._buffer.sample(batch_size)
+        """Sample batch with the established synchronous index API."""
+        batch, handles, weights = self._buffer.sample(batch_size)
+        indices = [handle.slot for handle in handles]
 
         # Convert to tensors
         batch_dict = {
@@ -1679,10 +1752,21 @@ class LocalApexBuffer(BaseReplayBuffer):
         return batch_dict, indices, weights_tensor
 
     def update_priorities(self, indices: List[int], td_errors: np.ndarray) -> None:
-        """Update priorities based on TD errors."""
+        """Update local priorities using the established synchronous index API."""
         if torch.is_tensor(td_errors):
             td_errors = td_errors.detach().cpu().numpy()
-        self._buffer.update_priorities(indices, td_errors)
+        validated_indices = _coerce_local_priority_update_indices(
+            indices, capacity=self._buffer.capacity
+        )
+        handles = [
+            ReplaySlotHandle(
+                slot=index,
+                generation=self._buffer._tree.generation(index),
+                epoch=self._buffer._epoch,
+            )
+            for index in validated_indices
+        ]
+        self._buffer.update_priorities(handles, td_errors)
 
     def __len__(self) -> int:
         """Return current buffer size."""

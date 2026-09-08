@@ -15,6 +15,7 @@ from src.training.apex_buffer import (
     LearnerBufferClient,
     LocalApexBuffer,
     MessageType,
+    ReplaySlotHandle,
     SharedPrioritizedBuffer,
     _deliver_response,
 )
@@ -25,6 +26,15 @@ from src.training.replay_buffer import PrioritizedReplayBuffer
 def _state(value: float = 0.0) -> np.ndarray:
     """Create a fixed-size replay state."""
     return np.full(58, value, dtype=np.float32)
+
+
+def _current_handle(buffer: SharedPrioritizedBuffer, slot: int) -> ReplaySlotHandle:
+    """Build the current distributed handle for a test fixture slot."""
+    return ReplaySlotHandle(
+        slot=slot,
+        generation=buffer._tree.generation(slot),
+        epoch=buffer._epoch,
+    )
 
 
 def _reply_to_sample_request(request_queue, response_queue, message) -> None:
@@ -105,7 +115,9 @@ class TestSharedPrioritizedBufferPriorityScale:
         )
         buffer.add(_state(), 0, 0.0, _state(1.0), False, priority=actor_priority)
 
-        buffer.update_priorities([0], np.array([td_error], dtype=np.float32))
+        buffer.update_priorities(
+            [_current_handle(buffer, 0)], np.array([td_error], dtype=np.float32)
+        )
 
         assert buffer._tree.total() == pytest.approx(actor_priority)
 
@@ -115,7 +127,10 @@ class TestSharedPrioritizedBufferPriorityScale:
         original_total = buffer._tree.total()
 
         with pytest.raises(ValueError, match="misaligned"):
-            buffer.update_priorities([0, 1], np.array([2.0], dtype=np.float32))
+            buffer.update_priorities(
+                [_current_handle(buffer, 0), ReplaySlotHandle(slot=1, generation=1)],
+                np.array([2.0], dtype=np.float32),
+            )
 
         assert buffer._tree.total() == pytest.approx(original_total)
 
@@ -126,7 +141,9 @@ class TestSharedPrioritizedBufferPriorityScale:
         original_total = buffer._tree.total()
 
         with pytest.raises(ValueError, match="td_errors"):
-            buffer.update_priorities([0], np.array([td_error], dtype=np.float32))
+            buffer.update_priorities(
+                [_current_handle(buffer, 0)], np.array([td_error], dtype=np.float32)
+            )
 
         assert buffer._tree.total() == pytest.approx(original_total)
 
@@ -136,7 +153,9 @@ class TestSharedPrioritizedBufferPriorityScale:
         original_total = buffer._tree.total()
 
         with pytest.raises(ValueError, match="out of range"):
-            buffer.update_priorities([4], np.array([2.0], dtype=np.float32))
+            buffer.update_priorities(
+                [ReplaySlotHandle(slot=4, generation=1)], np.array([2.0], dtype=np.float32)
+            )
 
         assert buffer._tree.total() == pytest.approx(original_total)
 
@@ -759,7 +778,10 @@ class TestApexBufferClientsActionMasks:
             args=(
                 sample_queue,
                 response_queue,
-                BufferMessage(MessageType.SAMPLE_RESPONSE, data=(batch, [0], np.ones(1))),
+                BufferMessage(
+                    MessageType.SAMPLE_RESPONSE,
+                    data=(batch, [ReplaySlotHandle(slot=0, generation=1)], np.ones(1)),
+                ),
             ),
         )
         responder.start()
@@ -770,8 +792,8 @@ class TestApexBufferClientsActionMasks:
             responder.join(timeout=5.0)
 
         assert result is not None
-        sampled_batch, indices, weights = result
-        assert indices == [0]
+        sampled_batch, handles, weights = result
+        assert handles == [ReplaySlotHandle(slot=0, generation=1)]
         assert weights.dtype is torch.float32
         assert sampled_batch["next_action_masks"].dtype is torch.bool
         assert sampled_batch["next_action_masks"].tolist() == mask.tolist()
@@ -793,7 +815,10 @@ class TestApexBufferClientsActionMasks:
         )
 
         with pytest.raises(ValueError, match="misaligned"):
-            client.update_priorities([0, 1], np.array([1.0], dtype=np.float32))
+            client.update_priorities(
+                [ReplaySlotHandle(slot=0, generation=1), ReplaySlotHandle(slot=1, generation=1)],
+                np.array([1.0], dtype=np.float32),
+            )
 
         assert priority_queue.empty()
 
@@ -812,7 +837,10 @@ class TestApexBufferClientsActionMasks:
         )
 
         with pytest.raises(ValueError, match="td_errors"):
-            client.update_priorities([0], np.array([float("nan")], dtype=np.float32))
+            client.update_priorities(
+                [ReplaySlotHandle(slot=0, generation=1)],
+                np.array([float("nan")], dtype=np.float32),
+            )
 
         assert priority_queue.empty()
 
@@ -1151,7 +1179,10 @@ class TestBufferProcessActorRejections:
             buffer_process._priority_update_queue.put(
                 BufferMessage(
                     MessageType.UPDATE_PRIORITIES,
-                    data=([0, 1], np.array([float("nan")], dtype=np.float32)),
+                    data=(
+                        [ReplaySlotHandle(slot=0, generation=1)],
+                        np.array([float("nan")], dtype=np.float32),
+                    ),
                 )
             )
 
@@ -1165,6 +1196,44 @@ class TestBufferProcessActorRejections:
 
             assert stats["total_rejected_priority_updates"] == 1
             assert "td_errors" in stats["last_rejected_priority_update"]
+            assert stats["size"] == 1
+        finally:
+            buffer_process.shutdown()
+
+    def test_rejects_malformed_priority_message_structure_and_keeps_processing(self):
+        """Malformed IPC payloads must not terminate the dedicated buffer process."""
+        buffer_process = BufferProcess(capacity=8, max_queue_size=8)
+        buffer_process.start()
+
+        try:
+            buffer_process._priority_update_queue.put(
+                BufferMessage(MessageType.UPDATE_PRIORITIES, data=None)
+            )
+            actor_client = buffer_process.get_actor_client(actor_id=1)
+            actor_client.add(
+                _state(),
+                0,
+                0.0,
+                _state(1.0),
+                False,
+                priority=1.0,
+                flush=True,
+            )
+
+            stats = {}
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                stats = buffer_process.get_stats(timeout=0.2)
+                if (
+                    stats.get("total_rejected_priority_updates") == 1
+                    and stats.get("total_added") == 1
+                ):
+                    break
+                time.sleep(0.02)
+
+            assert stats["total_rejected_priority_updates"] == 1
+            assert stats["total_malformed_priority_updates"] == 1
+            assert "cannot unpack" in stats["last_rejected_priority_update"]
             assert stats["size"] == 1
         finally:
             buffer_process.shutdown()

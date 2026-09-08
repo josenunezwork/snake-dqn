@@ -263,7 +263,7 @@ class ApexLearner:
         returns a tuple (raises on insufficient data).
 
         Returns:
-            (batch_dict, indices, weights) or None if not ready.
+            (batch_dict, replay_handles, weights) or None if not ready.
         """
         try:
             result = self.buffer_client.sample(self.config.batch_size, device=self.device)
@@ -383,7 +383,7 @@ class ApexLearner:
                 metrics.update(self._sample_error_metrics())
             return metrics
 
-        batch, indices, weights = sample_result
+        batch, replay_handles, weights = sample_result
 
         # Extract batch components
         states = batch["states"]
@@ -433,7 +433,7 @@ class ApexLearner:
         self.optimizer.step()
 
         # Update priorities in buffer
-        self.buffer_client.update_priorities(indices, td_errors_np)
+        self.buffer_client.update_priorities(replay_handles, td_errors_np)
 
         # Update target network periodically
         self.step_count += 1
