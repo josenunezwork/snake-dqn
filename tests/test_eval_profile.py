@@ -26,6 +26,7 @@ def _world(*, max_frames: int = 5000) -> EffectiveWorldConfig:
         min_boost_length=5,
         boost_length_cost_frames=3,
         frame_rate=1,
+        normalization={"max_frames": 5000.0, "starvation_max": 500.0, "max_length": 100.0},
     )
 
 
@@ -48,7 +49,7 @@ def test_promotion_profile_freezes_watch_runtime_and_separate_horizons() -> None
     assert changed_progress.digest != profile.digest
     assert changed_score.digest != changed_progress.digest
     descriptor = profile.descriptor()
-    assert descriptor["world"]["normalization"] == {}
+    assert descriptor["world"]["normalization"]["max_frames"] == 5000.0
     assert descriptor["runtime"]["reset_strategy"] == "manual"
     assert profile.from_descriptor(descriptor) == profile
 
@@ -58,6 +59,19 @@ def test_profile_descriptor_rejects_omitted_world_fields_before_defaults() -> No
     descriptor["world"].pop("max_capacity")
     with pytest.raises(ValueError, match="effective world"):
         promotion_v2_watch_rect(_world()).from_descriptor(descriptor)
+
+
+def test_profile_descriptor_rejects_truthy_runtime_and_missing_normalization() -> None:
+    profile = promotion_v2_watch_rect(_world())
+    descriptor = profile.descriptor()
+    descriptor["runtime"]["respawn"] = 1
+    with pytest.raises(ValueError, match="respawn"):
+        profile.from_descriptor(descriptor)
+
+    descriptor = profile.descriptor()
+    descriptor["world"]["normalization"].pop("max_length")
+    with pytest.raises(ValueError, match="complete positive"):
+        profile.from_descriptor(descriptor)
 
 
 def test_legacy_profiles_are_explicitly_nonpromotion_identities() -> None:

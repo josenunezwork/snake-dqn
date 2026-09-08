@@ -8,6 +8,7 @@ observation-progress normalization without relying on a CLI default.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
+from math import isfinite
 from typing import Any, Mapping
 
 from src.core.runtime_contract import (
@@ -59,11 +60,14 @@ class EvaluationProfile:
     observation_progress_horizon: int = 5000
     metric_version: str = "logical-mass/v1"
     anchor_version: str = "scripted-anchor/v1"
+    learn: bool = False
     legacy_diagnostic: bool = False
 
     def __post_init__(self) -> None:
         if not self.name or not self.evaluator_version:
             raise ValueError("evaluation profiles require a name and evaluator version")
+        if not isinstance(self.learn, bool):
+            raise ValueError("learn must be a boolean")
         for label, value in (
             ("scored_horizon", self.scored_horizon),
             ("observation_progress_horizon", self.observation_progress_horizon),
@@ -80,6 +84,8 @@ class EvaluationProfile:
                 raise ValueError("promotion v2 Watch profile requires rectangular mechanics v2")
             if self.world.frame_rate != 1:
                 raise ValueError("promotion v2 Watch profile requires frame_rate=1")
+            if self.runtime.mode != "watch":
+                raise ValueError("promotion v2 Watch profile requires runtime mode='watch'")
             if self.runtime.training or not self.runtime.respawn or not self.runtime.hero_terminal:
                 raise ValueError(
                     "promotion v2 Watch profile requires watch respawn and terminal hero"
@@ -90,6 +96,20 @@ class EvaluationProfile:
                 raise ValueError("promotion v2 requires the logical-mass/v1 metric")
             if self.anchor_version != _PROMOTION_ANCHOR_VERSION:
                 raise ValueError("promotion v2 requires the scripted-anchor/v1 anchor")
+            if self.learn:
+                raise ValueError("promotion v2 evaluation requires learn=False")
+            normalization = self.world.normalization
+            required_normalization = {"max_frames", "starvation_max", "max_length"}
+            if set(normalization) != required_normalization or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not isfinite(value)
+                or value <= 0
+                for value in normalization.values()
+            ):
+                raise ValueError(
+                    "promotion v2 requires complete positive observation normalization"
+                )
 
     def descriptor(self) -> dict[str, Any]:
         """Return canonical, JSON-ready identity data for results and manifests."""
@@ -104,6 +124,7 @@ class EvaluationProfile:
             "observation_progress_horizon": self.observation_progress_horizon,
             "metric_version": self.metric_version,
             "anchor_version": self.anchor_version,
+            "learn": self.learn,
             "legacy_diagnostic": self.legacy_diagnostic,
         }
 
@@ -129,6 +150,7 @@ class EvaluationProfile:
             "observation_progress_horizon",
             "metric_version",
             "anchor_version",
+            "learn",
             "legacy_diagnostic",
         }
         _require_exact_keys(raw, expected, "evaluation profile descriptor")
@@ -142,6 +164,35 @@ class EvaluationProfile:
         _require_exact_keys(
             runtime_raw, {field.name for field in fields(RuntimeModeContract)}, "runtime contract"
         )
+        if not isinstance(runtime_raw["mode"], str) or not runtime_raw["mode"]:
+            raise ValueError("runtime contract mode must be a non-empty string")
+        if not isinstance(runtime_raw["reset_strategy"], str) or not runtime_raw["reset_strategy"]:
+            raise ValueError("runtime contract reset_strategy must be a non-empty string")
+        for field_name in ("training", "respawn", "hero_terminal", "population_floor"):
+            if not isinstance(runtime_raw[field_name], bool):
+                raise ValueError(f"runtime contract {field_name} must be a boolean")
+        if not isinstance(raw["learn"], bool):
+            raise ValueError("evaluation profile learn must be a boolean")
+        if raw["name"] == PROMOTION_V2_WATCH_RECT:
+            normalization = world_raw.get("normalization")
+            required_normalization = {"max_frames", "starvation_max", "max_length"}
+            if (
+                not isinstance(normalization, Mapping)
+                or set(normalization) != required_normalization
+            ):
+                raise ValueError(
+                    "promotion v2 requires complete positive observation normalization"
+                )
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not isfinite(value)
+                or value <= 0
+                for value in normalization.values()
+            ):
+                raise ValueError(
+                    "promotion v2 requires complete positive observation normalization"
+                )
         world = EffectiveWorldConfig(**dict(world_raw))
         runtime = RuntimeModeContract(**dict(runtime_raw))
         if raw["world_digest"] != world.digest or raw["runtime_digest"] != runtime.digest:
@@ -155,6 +206,7 @@ class EvaluationProfile:
             observation_progress_horizon=raw["observation_progress_horizon"],
             metric_version=raw["metric_version"],
             anchor_version=raw["anchor_version"],
+            learn=raw["learn"],
             legacy_diagnostic=raw["legacy_diagnostic"],
         )
 

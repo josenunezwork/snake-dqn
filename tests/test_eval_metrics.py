@@ -86,3 +86,13 @@ def test_dead_padding_cannot_be_counted_as_a_decision() -> None:
         assert "dead hero" in str(error)
     else:
         raise AssertionError("dead padding cannot be a decision frame")
+
+
+def test_death_event_cannot_claim_a_live_post_step_hero() -> None:
+    metrics = EvaluationMetricsAccumulator(scored_horizon=1)
+    try:
+        metrics.observe(True, PostStepState(True, 2), StepEvents(death=True), acted=True)
+    except ValueError as error:
+        assert "dead post-step" in str(error)
+    else:
+        raise AssertionError("death event requires a terminal post-step state")

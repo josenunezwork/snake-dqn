@@ -101,6 +101,8 @@ class EvaluationMetricsAccumulator:
             raise ValueError("a boost event requires an executed decision")
         if events.death and not pre_alive:
             raise ValueError("a death event requires a previously alive hero")
+        if events.death and post.alive:
+            raise ValueError("a death event requires a dead post-step hero")
         self._frames += 1
         self._food_eaten += events.food_eaten
         self._kills += events.kills
