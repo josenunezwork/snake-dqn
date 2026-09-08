@@ -26,6 +26,7 @@ circular raises. Reward reuses ``src.core.reward_events.compute_reward_v2``.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
@@ -40,11 +41,8 @@ from src.core.mechanics_constants import (
     corpse_food_cap,
     evict_oldest_corpse,
 )
-from src.core.reward_events import (
-    DEATH_REWARD,
-    KILL_REWARD_PER_VICTIM_LENGTH,
-    PHI_LENGTH_DIVISOR,
-)
+from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH, PHI_LENGTH_DIVISOR
+from src.core.runtime_contract import ActionMaskSet
 from src.simd_env.rng import EnvRng, make_env_rngs
 
 # Cardinal direction table: up, right, down, left (matches GameLogic.CARDINAL).
@@ -164,6 +162,11 @@ class BatchSim:
             self.s,
             config.wall_thickness,
         )
+        # FoodManager consumes a constructor-only batch of random food draws
+        # before GameState.reset() creates the first playable world.  A later
+        # GameState.reset() reuses the same FoodManager and must *not* replay
+        # those discarded constructor draws.
+        self._constructor_food_draws_pending = True
 
         # --- Core state arrays (cell indices, not pixels) ---
         # bodies[e, s, k] = (col, row) of ring slot k.
@@ -209,8 +212,15 @@ class BatchSim:
 
         # Per-step outputs (filled by step()).
         self._last_reward = np.zeros((E, S), dtype=np.float64)
+        # ``_last_mask`` is deliberately the legacy advisory/fatality mask.
+        # Consumers that need an execution-valid mask use the legal/advisory
+        # pair through the accessors below.
         self._last_mask = np.ones((E, S, 6), dtype=bool)
+        self._last_legal_mask = np.ones((E, S, 6), dtype=bool)
+        self._last_resolved_mask = np.ones((E, S, 6), dtype=bool)
         self._last_done = np.zeros((E, S), dtype=bool)
+        self._last_transition_valid = np.zeros((E, S), dtype=bool)
+        self._last_food_ate = np.zeros((E, S), dtype=bool)
         self._last_death_cause = np.zeros((E, S), dtype=np.int64)
         self._last_kills = np.zeros((E, S), dtype=np.int64)
         # Per-killer victim logical-length lists from the last step (E, S) object
@@ -269,22 +279,20 @@ class BatchSim:
         for e in range(E):
             rng = self._rngs[e]
 
-            # Constructor-time food draw (spec §5.4): FoodManager.__init__ calls
-            # _spawn_initial(initial_food) with snakes=None, routing through
-            # _get_random_position (NO snake rejection) with food-overlap
-            # de-dup. GameState then calls reset() which discards this food and
-            # re-spawns with snakes. The food is thrown away but the RNG draws
-            # advance the shared stream, so we must reproduce them to stay in
-            # lockstep with the live game's snake/reset-food positions.
-            ctor_fset: set = set()
-            for _ in range(self.cfg.initial_food):
-                pos = rng.find_spawn_position_no_snakes(ctor_fset)
-                if pos is None:
-                    continue
-                cell = cell_index(pos, self.s)
-                if cell in ctor_fset:
-                    continue
-                ctor_fset.add(cell)
+            if self._constructor_food_draws_pending:
+                # FoodManager.__init__ calls _spawn_initial(initial_food) with
+                # snakes=None before GameState's first reset.  The food itself
+                # is discarded, but its RNG draws are not.  This happens once
+                # per live GameState lifetime, never on a later soft reset.
+                ctor_fset: set = set()
+                for _ in range(self.cfg.initial_food):
+                    pos = rng.find_spawn_position_no_snakes(ctor_fset)
+                    if pos is None:
+                        continue
+                    cell = cell_index(pos, self.s)
+                    if cell in ctor_fset:
+                        continue
+                    ctor_fset.add(cell)
 
             placed_cells: List[Tuple[int, int]] = []
             for sidx in range(S):
@@ -320,13 +328,16 @@ class BatchSim:
         # Prime per-step outputs and initial masks against the fresh world.
         self._last_reward[:] = 0.0
         self._last_done[:] = False
+        self._last_transition_valid[:] = False
+        self._last_food_ate[:] = False
         self._last_death_cause[:] = DEATH_NONE
         self._last_kills[:] = 0
         for e in range(E):
             for sidx in range(S):
                 self._last_kill_victim_len[e, sidx] = []
         self._rebuild_traversed_from_heads()
-        self._last_mask = self._compute_action_masks()
+        self._refresh_action_masks()
+        self._constructor_food_draws_pending = False
 
     def _all_snake_cells(self, e: int) -> np.ndarray:
         """All living snake segment cells in env ``e`` as an (N, 2) int array."""
@@ -349,10 +360,91 @@ class BatchSim:
         self._trav_valid[:, :, 0] = True
         self._trav_valid[:, :, 1] = False
 
+    def _normalize_active_env_mask(self, active_env_mask: Optional[np.ndarray]) -> np.ndarray:
+        """Validate an optional per-environment transition selection mask."""
+        if active_env_mask is None:
+            return np.ones(self.E, dtype=bool)
+        active = np.asarray(active_env_mask)
+        if active.shape != (self.E,):
+            raise ValueError(f"active_env_mask must have shape {(self.E,)}, got {active.shape}")
+        if active.dtype != np.bool_:
+            raise ValueError("active_env_mask must have boolean dtype")
+        return active.copy()
+
+    def _snapshot_inactive_envs(self, inactive: np.ndarray) -> dict:
+        """Capture all mutable per-environment state before a masked step.
+
+        BatchSim's mechanics are independent across environments, but its
+        vectorized implementation advances every row together.  Restoring a
+        complete snapshot for inactive rows preserves the public synchronous
+        default while giving the trainer a safe, explicit active-row contract.
+        """
+        arrays = (
+            "bodies",
+            "head_ptr",
+            "seg_count",
+            "length",
+            "alive",
+            "direction",
+            "boost_frames",
+            "frames_since_food",
+            "respawn_timer",
+            "_reward_prev_length",
+            "_boosted_this_step",
+            "_trav",
+            "_trav_valid",
+            "frame",
+            "_last_reward",
+            "_last_mask",
+            "_last_legal_mask",
+            "_last_resolved_mask",
+            "_last_done",
+            "_last_food_ate",
+            "_last_death_cause",
+            "_last_kills",
+            "_last_transition_valid",
+            "_last_kill_victim_len",
+        )
+        indices = np.flatnonzero(inactive)
+        return {
+            "indices": indices,
+            "arrays": {name: copy.deepcopy(getattr(self, name)[inactive]) for name in arrays},
+            "food_cells": {e: list(self.food_cells[e]) for e in indices},
+            "corpse_cells": {e: set(self.corpse_cells[e]) for e in indices},
+            "food_set": {e: set(self.food_set[e]) for e in indices},
+            "rng_states": {e: self._rngs[e]._rng.getstate() for e in indices},
+        }
+
+    def _restore_inactive_envs(self, snapshot: dict) -> None:
+        """Restore inactive rows after vectorized mechanics ran for active rows."""
+        indices = snapshot["indices"]
+        for name, values in snapshot["arrays"].items():
+            getattr(self, name)[indices] = values
+        for e, values in snapshot["food_cells"].items():
+            self.food_cells[e] = values
+        for e, values in snapshot["corpse_cells"].items():
+            self.corpse_cells[e] = values
+        for e, values in snapshot["food_set"].items():
+            self.food_set[e] = values
+        for e, rng_state in snapshot["rng_states"].items():
+            self._rngs[e]._rng.setstate(rng_state)
+
+    def _refresh_action_masks(self) -> None:
+        """Recompute legal, advisory, and C0-resolved masks for this world."""
+        advisory = self._compute_action_masks()
+        legal = np.zeros((self.E, self.S, 6), dtype=bool)
+        legal[:, :, :3] = self.alive[:, :, None]
+        boost_legal = self.alive & (self.length >= self.cfg.min_boost_length)
+        legal[:, :, 3:] = boost_legal[:, :, None]
+        masks = ActionMaskSet(legal=legal, advisory=advisory, dead=~self.alive)
+        self._last_legal_mask = legal
+        self._last_mask = advisory
+        self._last_resolved_mask = masks.resolved()
+
     # ==================================================================
     # Step
     # ==================================================================
-    def step(self, actions: np.ndarray) -> None:
+    def step(self, actions: np.ndarray, active_env_mask: Optional[np.ndarray] = None) -> None:
         """Advance every env/snake one frame given integer actions (E, S).
 
         Executes the live game's per-frame order: maintain food (RNG) -> respawn
@@ -366,8 +458,16 @@ class BatchSim:
         Args:
             actions: Integer array (E, S) with values in [0, 5]. Actions for dead
                 snakes are ignored.
+            active_env_mask: Optional boolean array (E,). False rows are frozen
+                byte-for-byte, including their RNG state and last transition
+                outputs. ``get_transition_valid()`` is false for those rows.
         """
         actions = np.clip(np.asarray(actions, dtype=np.int64), 0, 5)
+        if actions.shape != (self.E, self.S):
+            raise ValueError(f"actions must have shape {(self.E, self.S)}, got {actions.shape}")
+        active = self._normalize_active_env_mask(active_env_mask)
+        inactive = ~active
+        snapshot = self._snapshot_inactive_envs(inactive) if inactive.any() else None
 
         self.frame += 1
 
@@ -429,12 +529,21 @@ class BatchSim:
 
         # Rebuild traversed heads to current heads for next-frame masks.
         self._rebuild_traversed_from_heads()
-        self._last_mask = self._compute_action_masks()
+        self._refresh_action_masks()
 
         self._last_death_cause = death_cause
         self._last_kills = kill_credit
         self._last_kill_victim_len = kill_victim_len
         self._last_done = died
+        self._last_food_ate = ate
+        self._last_transition_valid[:] = active[:, None]
+
+        if snapshot is not None:
+            self._restore_inactive_envs(snapshot)
+            # Validity is intentionally a transition-output field rather than
+            # part of frozen world state: callers must not train/evaluate an
+            # inactive row as though it produced a new transition.
+            self._last_transition_valid[inactive] = False
 
     # ------------------------------------------------------------------
     # Movement
@@ -1297,8 +1406,29 @@ class BatchSim:
         return self.frames_since_food.copy()
 
     def get_action_mask(self) -> np.ndarray:
-        """Per-agent 6-bit safe-action mask from the last step, shape (E, S, 6)."""
+        """Legacy advisory/fatality mask from the last step, shape ``(E, S, 6)``.
+
+        This compatibility accessor intentionally keeps its historic meaning.
+        New training and serving callers should use :meth:`get_resolved_action_mask`.
+        """
         return self._last_mask.copy()
+
+    def get_advisory_action_mask(self) -> np.ndarray:
+        """Collision/fatality advisory mask, shape ``(E, S, 6)``."""
+        return self._last_mask.copy()
+
+    def get_legal_action_mask(self) -> np.ndarray:
+        """Domain-legal mask, shape ``(E, S, 6)``.
+
+        Every normal relative action is legal for a living snake. Boost actions
+        additionally require the configured minimum length. This mask does not
+        predict collision fatality.
+        """
+        return self._last_legal_mask.copy()
+
+    def get_resolved_action_mask(self) -> np.ndarray:
+        """C0 row-resolved legal/advisory action mask, shape ``(E, S, 6)``."""
+        return self._last_resolved_mask.copy()
 
     def get_reward(self) -> np.ndarray:
         """Per-agent reward from the last step, shape (E, S)."""
@@ -1307,6 +1437,30 @@ class BatchSim:
     def get_done(self) -> np.ndarray:
         """Per-agent done (died this step) from the last step, shape (E, S)."""
         return self._last_done.copy()
+
+    def get_transition_valid(self) -> np.ndarray:
+        """Whether a row produced a fresh transition, shape ``(E, S)``.
+
+        Rows from a false ``active_env_mask`` are false even though their prior
+        transition outputs remain available for inspection.
+        """
+        return self._last_transition_valid.copy()
+
+    def get_step_events(self) -> dict[str, np.ndarray]:
+        """Return existing post-step facts without deriving new game events.
+
+        Every field has shape ``(E, S)``. Consumers must respect
+        ``transition_valid`` before aggregating a row; inactive environments
+        intentionally retain their previous world and event snapshots.
+        """
+        return {
+            "food_ate": self._last_food_ate.copy(),
+            "boosted": self._boosted_this_step.copy(),
+            "done": self._last_done.copy(),
+            "death_cause": self._last_death_cause.copy(),
+            "kills": self._last_kills.copy(),
+            "transition_valid": self._last_transition_valid.copy(),
+        }
 
     def get_death_cause(self) -> np.ndarray:
         """Per-agent death cause code (DEATH_*) from the last step, shape (E, S)."""
