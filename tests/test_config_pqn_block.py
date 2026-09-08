@@ -51,6 +51,10 @@ def test_pqn_schema_field_parity_with_pqn_config_and_recipe_selector():
         "source_revision",
         "requested_device",
         "effective_device",
+        # Fixed-policy mode requires a concrete constructor-injected policy;
+        # its identity is runtime provenance, not an executable YAML setting.
+        "rollout_policy_mode",
+        "fixed_policy_identity",
     }
     config_fields = {f.name for f in dc.fields(PQNConfig)} - runtime_or_shared
     schema_fields = set(PQNSettingsSchema.model_fields.keys())
