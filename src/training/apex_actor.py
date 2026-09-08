@@ -43,7 +43,13 @@ from src.training.action_mask import has_valid_actions, mask_invalid_q_values
 from src.training.apex_buffer import ActorBufferClient, BufferProcess
 from src.training.apex_runtime import SharedActorProgress, SharedEnvironmentFrameBudget
 from src.training.base_buffer import compute_priority
-from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY, MASK_MODE_TERMINAL_NO_SUCCESSOR, validate_mask_mode
+from src.training.td_targets import (
+    MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_RASTER_RESOLVED_V3,
+    MASK_MODE_TERMINAL_NO_SUCCESSOR,
+    validate_mask_mode,
+)
 from src.utils.tensor_utils import ensure_tensor_on_device, tensor_to_numpy
 
 ACTION_DANGER_COLLISION_THRESHOLD = 1.0
@@ -59,6 +65,22 @@ DEFAULT_ACTOR_DANGER_EXPLORATION_RATE = 0.0
 # - "td": legacy behavior — compute a local TD-error estimate per transition
 #   (3 batch-1 forwards) and insert with the derived priority.
 ACTOR_PRIORITY_MODES = ("max", "td")
+MASK_SEMANTICS_TO_MODE = {
+    "legacy_advisory": MASK_MODE_LEGACY_ADVISORY,
+    "raster_resolved_v3": MASK_MODE_RASTER_RESOLVED_V3,
+    "terminal_no_successor": MASK_MODE_TERMINAL_NO_SUCCESSOR,
+    "dataset_vector_advisory_v1": MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+}
+
+
+def mask_semantics_to_mode(semantics: Optional[str]) -> int:
+    """Translate the serving producer's explicit semantic tag to replay mode."""
+    if semantics is None:
+        return MASK_MODE_LEGACY_ADVISORY
+    try:
+        return MASK_SEMANTICS_TO_MODE[semantics]
+    except KeyError as exc:
+        raise ValueError(f"unknown next_action_mask semantics: {semantics!r}") from exc
 
 
 def _resolve_actor_priority_mode(value: Optional[str]) -> str:
@@ -896,8 +918,8 @@ class ApexActor(mp.Process):
                         "reward": reward,
                         "next_state": next_state,
                         "next_action_mask": getattr(snake, "last_next_action_mask", None),
-                        "next_action_mask_mode": getattr(
-                            snake, "last_next_action_mask_mode", MASK_MODE_LEGACY_ADVISORY
+                        "next_action_mask_mode": mask_semantics_to_mode(
+                            getattr(snake, "last_next_action_mask_semantics", None)
                         ),
                         "done": done,
                     }

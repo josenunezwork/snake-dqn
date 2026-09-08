@@ -119,11 +119,31 @@ def summarize_next_action_quality(
     next_states: torch.Tensor,
     output_size: int,
     next_action_masks: torch.Tensor | None = None,
+    next_action_mask_modes: torch.Tensor | None = None,
     next_action_mask_present: torch.Tensor | None = None,
     sample_mask: torch.Tensor | None = None,
 ) -> dict[str, float]:
     """Summarize target-action coverage for replay rows that can bootstrap."""
     with torch.no_grad():
+        if next_action_masks is not None and next_action_mask_modes is not None:
+            modes = next_action_mask_modes.to(device=next_states.device)
+            if modes.ndim != 1 or modes.shape[0] != next_action_masks.shape[0]:
+                raise ValueError("next_action_mask_modes must have one entry per batch row")
+            if not bool(torch.isin(modes, torch.tensor([0, 1, 2, 3], device=modes.device)).all()):
+                raise ValueError("unknown next_action_mask_mode in batch")
+            legal = torch.ones_like(next_action_masks, dtype=torch.bool)
+            if next_states.shape[-1] >= 58:
+                legal[..., 3:] = (
+                    torch.isfinite(next_states[..., 57]) & (next_states[..., 57] >= 0.5)
+                ).unsqueeze(-1)
+            advisory = (modes == 0) | (modes == 3)
+            intersection = legal & next_action_masks.to(dtype=torch.bool)
+            next_action_masks = torch.where(
+                advisory.unsqueeze(1),
+                torch.where(intersection.any(dim=1, keepdim=True), intersection, legal),
+                next_action_masks.to(dtype=torch.bool),
+            )
+            next_action_masks = torch.where((modes == 2).unsqueeze(1), False, next_action_masks)
         q_probe = torch.empty(
             (*next_states.shape[:-1], output_size),
             dtype=torch.float32,

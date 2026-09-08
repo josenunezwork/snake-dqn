@@ -432,6 +432,7 @@ class SharedPrioritizedBuffer:
         priority_eps: float = 1e-6,
         state_size: int = GameConfig.INPUT_SIZE,
         initial_frame_count: int = 0,
+        base_seed: Optional[int] = None,
     ):
         """
         Initialize the shared prioritized buffer.
@@ -452,6 +453,8 @@ class SharedPrioritizedBuffer:
         self.beta_start = beta_start
         self.beta_end = beta_end
         self.beta_frames = beta_frames
+        self.base_seed = base_seed
+        self._rng = np.random.default_rng(base_seed)
         self.priority_eps = priority_eps
         self.state_size = int(state_size)
 
@@ -711,7 +714,7 @@ class SharedPrioritizedBuffer:
             for i in range(batch_size):
                 low = segment * i
                 high = segment * (i + 1)
-                s = np.random.uniform(low, high)
+                s = self._rng.uniform(low, high)
                 idx, pri, data = self._tree.get(s)
                 handles.append(
                     ReplaySlotHandle(
@@ -894,6 +897,7 @@ class BufferProcess:
         max_queue_size: int = 1000,
         state_size: int = GameConfig.INPUT_SIZE,
         initial_frame_count: int = 0,
+        base_seed: Optional[int] = None,
     ):
         """
         Initialize buffer process manager.
@@ -918,6 +922,7 @@ class BufferProcess:
         self.max_queue_size = max_queue_size
         self.state_size = int(state_size)
         self.initial_frame_count = int(initial_frame_count)
+        self.base_seed = base_seed
 
         # Create multiprocessing queues
         self._experience_queue: mp.Queue = mp.Queue(maxsize=max_queue_size)
@@ -948,6 +953,7 @@ class BufferProcess:
                 self.beta_frames,
                 self.state_size,
                 self.initial_frame_count,
+                self.base_seed,
                 self._experience_queue,
                 self._sample_request_queue,
                 self._sample_response_queue,
@@ -969,6 +975,7 @@ class BufferProcess:
         beta_frames: int,
         state_size: int,
         initial_frame_count: int,
+        base_seed: Optional[int],
         experience_queue: mp.Queue,
         sample_request_queue: mp.Queue,
         sample_response_queue: mp.Queue,
@@ -991,6 +998,7 @@ class BufferProcess:
             beta_frames=beta_frames,
             state_size=state_size,
             initial_frame_count=initial_frame_count,
+            base_seed=base_seed,
         )
 
         poll_interval = 0.001  # 1ms polling interval

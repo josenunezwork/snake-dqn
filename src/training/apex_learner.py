@@ -34,7 +34,15 @@ from .apex_buffer import LearnerBufferClient, LocalApexBuffer
 from .base_buffer import BatchDict
 from .checkpoint_contract import validate_checkpoint_contract
 from .apex_recipe import ApexRecipe, validate_recipe_continuation
-from .td_targets import double_dqn_next_q, n_step_td_target
+from .td_targets import (
+    MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_RASTER_RESOLVED_V3,
+    MASK_MODE_TERMINAL_NO_SUCCESSOR,
+    double_dqn_next_q,
+    n_step_td_target,
+    resolve_bootstrap_action_masks,
+)
 from .tensorboard_logger import TensorBoardLogger
 
 
@@ -354,17 +362,29 @@ class ApexLearner:
         self,
         next_states: torch.Tensor,
         next_action_masks: Optional[torch.Tensor] = None,
+        next_action_mask_modes: Optional[torch.Tensor] = None,
         next_action_mask_present: Optional[torch.Tensor] = None,
         sample_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, float]:
         """Summarize whether sampled replay can bootstrap from valid next actions."""
-        return summarize_next_action_quality(
+        metrics = summarize_next_action_quality(
             next_states,
             self.config.output_size,
             next_action_masks=next_action_masks,
+            next_action_mask_modes=next_action_mask_modes,
             next_action_mask_present=next_action_mask_present,
             sample_mask=sample_mask,
         )
+        if next_action_mask_modes is not None:
+            modes = next_action_mask_modes.to(device=next_states.device)
+            for name, mode in (
+                ("legacy_advisory", MASK_MODE_LEGACY_ADVISORY),
+                ("raster_resolved_v3", MASK_MODE_RASTER_RESOLVED_V3),
+                ("terminal_no_successor", MASK_MODE_TERMINAL_NO_SUCCESSOR),
+                ("dataset_vector_advisory_v1", MASK_MODE_DATASET_VECTOR_ADVISORY_V1),
+            ):
+                metrics[f"next_action_mask_mode_{name}_fraction"] = float((modes == mode).float().mean().item())
+        return metrics
 
     def train_step(self) -> Dict[str, float]:
         """Execute one training step.
@@ -405,6 +425,7 @@ class ApexLearner:
         next_action_quality = self.compute_next_action_quality_metrics(
             next_states,
             next_action_masks=next_action_masks,
+            next_action_mask_modes=next_action_mask_modes,
             next_action_mask_present=next_action_mask_present,
             sample_mask=1.0 - dones,
         )
@@ -593,7 +614,7 @@ class ApexLearner:
         Raises:
             ValueError: If checkpoint contract does not match learner config
         """
-        if resume_mode not in {"weights-only", "continuation", "legacy-unverified"}:
+        if resume_mode not in {"weights-only", "continuation"}:
             raise ValueError(f"unsupported Apex resume_mode {resume_mode!r}")
         validate_checkpoint_contract(
             state_dict,
@@ -616,9 +637,6 @@ class ApexLearner:
                 raise ValueError("optimizer continuation has incompatible Adam parameter groups")
             if any(not isinstance(group, dict) or not group.get("params") for group in groups):
                 raise ValueError("optimizer continuation has malformed Adam parameter groups")
-        elif resume_mode == "legacy-unverified" and "optimizer_state_dict" not in state_dict:
-            raise ValueError("legacy-unverified continuation requires optimizer_state_dict")
-
         # Fully preflight checkpoint tensors and optimizer state on disposable
         # modules before changing any live parameter/counter.
         candidate_online = ApexNetwork(

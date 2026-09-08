@@ -540,8 +540,8 @@ class TestCheckpointing:
         # Create new learner and load
         learner2 = ApexLearner(config, buffer_client=buf, device=torch.device("cpu"))
         assert learner2.step_count == 0
-        learner2.load_state_dict(state, resume_mode="legacy-unverified")
-        assert learner2.step_count == 3
+        learner2.load_state_dict(state, resume_mode="weights-only")
+        assert learner2.step_count == 0
 
         # Verify network weights match
         for key in learner.dqn.state_dict():
