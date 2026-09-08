@@ -171,6 +171,28 @@ A data engineer owns the complete runner repair and its orchestration tests.
 Both active lanes have independent reviewers. G0 qualification and actual Mac
 training remain pending until these implementations are accepted.
 
+A preliminary full non-slow regression on `c633135` completed in 85.32s with
+**2 failures, 2,411 passes, 6 conditional skips and 3 slow cases deselected**.
+Its sampled process-tree RSS reached 1.28 GB and available system memory stayed
+above 18.8 GB. This early run is not the final-source G0 qualification.
+Both failures are resolved: `010a0b8` corrects the schema parity test's treatment
+of constructor-injected policy provenance, and `ce169b4` supplies explicit resolved
+masks in the positive audit fixture. The latter also fixes a real report label:
+legacy mask presence is no longer called exact coverage. Focused checks passed
+25 and 22 tests respectively. The raw failed run and its interpretation remain
+in the evidence folder.
+
+The parser-only E2 addition at `f143865` passed 34 integrated tests. It registers
+request/receipt paths and carries no decision authority. Only the net safe patch
+was integrated; the rejected prototype's validators were removed in its worktree.
+
+G0 command recording is prepared and independently reviewed. Actual bounded
+process checks covered normal exit, error exit, and a detached child surviving
+its parent; the latter was detected and terminated. This recorder is separate
+from H0's learner executor. CPU, shakedown and screen root seeds are predeclared
+under `g0-root-seed-intent.json`; final expanded namespaces and source identity
+will be frozen by the accepted runner before any training begins.
+
 The campaign's `cpu_test_slot.py` now enforces at most two concurrent one-thread
 focused test processes. Owned-file repair/rerun attempts are continuously authorized
 through that wrapper. Full-suite, evaluation, corpus and MPS work remains exclusive.
