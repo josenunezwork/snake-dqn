@@ -334,3 +334,25 @@ def test_boosting_producer_divergence_is_isolated():
 
     assert not leaked_divs, f"producers diverged (boost fields not in parity): {leaked_divs[:5]}"
     assert boosting_frames > 0, "no boosting frames — parity check is vacuous"
+
+
+@pytest.mark.parametrize(
+    "name,value", [("max_frames", 0), ("starvation_max", True), ("max_length", 1.5)]
+)
+def test_live_adapter_rejects_invalid_normalization_constants(name, value):
+    """Adapter validates normalization fields before inspecting a live state."""
+    kwargs = {"max_frames": 100, "starvation_max": 50, "max_length": 20}
+    kwargs[name] = value
+    with pytest.raises(ValueError, match=name):
+        game_state_to_obs_inputs(None, **kwargs)
+
+
+def test_live_adapter_rejects_circular_geometry():
+    """Circular live worlds cannot silently be represented as rectangular rasters."""
+    saved = get_config()
+    initialize_config(replace(saved, game=replace(saved.game, arena_type="circular")))
+    try:
+        with pytest.raises(ValueError, match="rectangular"):
+            game_state_to_obs_inputs(None)
+    finally:
+        initialize_config(saved)

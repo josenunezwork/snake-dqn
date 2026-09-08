@@ -76,6 +76,11 @@ from src.simd_env.featurizer import (
     TACTICAL_HEAD_COL,
     TACTICAL_HEAD_ROW,
     TACTICAL_SIZE,
+    ObsInputs,
+    RASTER31V2,
+    RASTER31V3,
+    build_observations,
+    expand_tactical,
 )
 
 __all__ = [
@@ -843,7 +848,7 @@ def _build_scalars(state: GpuObsState) -> torch.Tensor:
 # Public build
 # ---------------------------------------------------------------------------
 def build_observations_gpu(
-    state: GpuObsState, mask: Optional[torch.Tensor] = None
+    state: GpuObsState, mask: Optional[torch.Tensor] = None, *, obs_spec: str = RASTER31V2
 ) -> Dict[str, torch.Tensor]:
     """Build the full dual-scale ego observation on the GPU for every agent.
 
@@ -855,13 +860,72 @@ def build_observations_gpu(
         state: The GPU world snapshot from :func:`obs_inputs_to_torch`.
         mask: Optional ``(E, S, 6)`` bool safe-action mask to pass through. When
             None an all-True mask is emitted.
+        obs_spec: ``raster31v2`` keeps the historical torch implementation.
+            ``raster31v3`` dispatches through the canonical corrected renderer
+            and returns Torch tensors on ``state.device``. This explicit path is
+            intentionally a correctness bridge while v3 is still gated from
+            training; its CPU result is the oracle for future native kernels.
 
     Returns:
         Dict with ``tactical`` ``(E, S, 9, 31, 31)``, ``strategic``
         ``(E, S, 3, 25, 25)``, ``scalars`` ``(E, S, 26)`` float32 tensors and
         ``mask`` ``(E, S, 6)`` bool — all on ``state.device``.
     """
+    if obs_spec not in {RASTER31V2, RASTER31V3}:
+        raise ValueError(f"Unsupported raster observation spec: {obs_spec!r}")
+    if state.arena_type_flag not in (0.0, 0):
+        raise ValueError("Raster observations support rectangular arena geometry only")
+
     E, S = state.E, state.S
+    if obs_spec == RASTER31V3:
+        # The corrected contract is shared with NumPy so source-order reduction,
+        # maximum-byte ties, and out-of-world prediction exclusion have one
+        # executable definition. Retain torch outputs/device for callers.
+        def host(tensor: torch.Tensor) -> np.ndarray:
+            return tensor.detach().to("cpu").numpy()
+
+        inp = ObsInputs(
+            heads=host(state.heads),
+            bodies=host(state.bodies),
+            body_len=host(state.body_len),
+            lengths=host(state.lengths),
+            alive=host(state.alive),
+            heading=host(state.heading),
+            boost_frames=host(state.boost_frames),
+            frames_since_food=host(state.frames_since_food),
+            boosting=host(state.boosting),
+            food_cells=host(state.food_cells),
+            food_mass=host(state.food_mass),
+            food_is_corpse=host(state.food_is_corpse),
+            grid_w=state.grid_w,
+            grid_h=state.grid_h,
+            max_snakes=state.max_snakes,
+            starvation_max=state.starvation_max,
+            max_length=state.max_length,
+            min_boost_length=state.min_boost_length,
+            boost_cost_frames=state.boost_cost_frames,
+            frame=host(state.frame),
+            max_frames=state.max_frames,
+            arena_type_flag=state.arena_type_flag,
+        )
+        numpy_mask = None if mask is None else host(mask).astype(bool, copy=False)
+        corrected = build_observations(inp, mask=numpy_mask, obs_spec=RASTER31V3)
+        return {
+            "tactical": torch.as_tensor(
+                expand_tactical(corrected["tactical_uint8"]),
+                dtype=torch.float32,
+                device=state.device,
+            ),
+            "strategic": torch.as_tensor(
+                corrected["strategic_uint8"].astype(np.float32) / 255.0,
+                dtype=torch.float32,
+                device=state.device,
+            ),
+            "scalars": torch.as_tensor(
+                corrected["scalars"], dtype=torch.float32, device=state.device
+            ),
+            "mask": torch.as_tensor(corrected["mask"], dtype=torch.bool, device=state.device),
+        }
     tactical = _build_tactical(state)
     strategic = _build_strategic(state)
     scalars = _build_scalars(state)

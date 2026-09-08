@@ -13,6 +13,14 @@ import pytest
 
 from src.model.obs_spec import RASTER31V3
 from src.simd_env.featurizer import (
+    CODE_AMBIENT_FOOD,
+    CODE_CORPSE_FOOD,
+    CODE_ENEMY_BODY,
+    CODE_ENEMY_HEAD,
+    CODE_ENEMY_PRED,
+    CODE_OWN_BODY,
+    CODE_OWN_HEAD,
+    CODE_WALL,
     SCALARS_DIM,
     STRATEGIC_CHANNELS,
     STRATEGIC_SIZE,
@@ -21,6 +29,9 @@ from src.simd_env.featurizer import (
     TACTICAL_HEAD_ROW,
     TACTICAL_SIZE,
     ObsInputs,
+    _V3_CODE_BY_PRIORITY,
+    _V3_PRIORITY,
+    _paint,
     build_observations,
     expand_tactical,
     obs_inputs_from_batch_sim,
@@ -126,6 +137,58 @@ def test_v2_golden_fixture_and_v3_shape_contract():
     assert v3["tactical_uint8"].shape == (1, 1, 2, TACTICAL_SIZE, TACTICAL_SIZE)
     assert v3["scalars"].shape[-1] == SCALARS_DIM
     assert v3["tactical_uint8"][0, 0, 0, TACTICAL_HEAD_ROW, TACTICAL_HEAD_COL - 1] == 1
+
+
+@pytest.mark.parametrize(
+    "left,right,expected",
+    [
+        (CODE_WALL, CODE_OWN_HEAD, CODE_WALL),
+        (CODE_OWN_HEAD, CODE_ENEMY_HEAD, CODE_OWN_HEAD),
+        (CODE_ENEMY_HEAD, CODE_ENEMY_BODY, CODE_ENEMY_HEAD),
+        (CODE_ENEMY_BODY, CODE_OWN_BODY, CODE_ENEMY_BODY),
+        (CODE_OWN_BODY, CODE_ENEMY_PRED, CODE_OWN_BODY),
+        (CODE_ENEMY_PRED, CODE_CORPSE_FOOD, CODE_ENEMY_PRED),
+        (CODE_CORPSE_FOOD, CODE_AMBIENT_FOOD, CODE_CORPSE_FOOD),
+    ],
+)
+def test_v3_pair_priority_is_order_independent(left, right, expected):
+    """Every adjacent v3 priority pair resolves identically in either order."""
+    for codes in ((left, right), (right, left)):
+        code_plane = np.zeros((1, 1, 1, 1), dtype=np.int32)
+        val_plane = np.zeros((1, 1, 1, 1), dtype=np.uint16)
+        _paint(
+            code_plane,
+            val_plane,
+            np.array([0, 0]),
+            np.array([0, 0]),
+            np.array([0, 0]),
+            np.array([0, 0]),
+            np.asarray(codes),
+            np.array([11, 19]),
+            1,
+        )
+        assert _V3_CODE_BY_PRIORITY[code_plane[0, 0, 0, 0]] == expected
+
+
+def test_v3_max_byte_tie_and_permutation_are_deterministic():
+    """Same-type collisions retain their maximum byte under every input order."""
+    values = np.array([7, 251, 99], dtype=np.uint16)
+    for order in ((0, 1, 2), (2, 1, 0), (1, 0, 2)):
+        code_plane = np.zeros((1, 1, 1, 1), dtype=np.int32)
+        val_plane = np.zeros((1, 1, 1, 1), dtype=np.uint16)
+        _paint(
+            code_plane,
+            val_plane,
+            np.zeros(3, dtype=np.int64),
+            np.zeros(3, dtype=np.int64),
+            np.zeros(3, dtype=np.int64),
+            np.zeros(3, dtype=np.int64),
+            np.full(3, CODE_ENEMY_BODY),
+            values[list(order)],
+            1,
+        )
+        assert code_plane[0, 0, 0, 0] == _V3_PRIORITY[CODE_ENEMY_BODY]
+        assert val_plane[0, 0, 0, 0] == 251
 
 
 def test_expand_and_network_input_shapes():

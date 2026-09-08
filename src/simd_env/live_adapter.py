@@ -69,6 +69,27 @@ def game_state_to_obs_inputs(
     Returns:
         A filled :class:`ObsInputs` with ``E = 1``.
     """
+    for name, value in (
+        ("max_frames", max_frames),
+        ("starvation_max", starvation_max),
+        ("max_length", max_length),
+    ):
+        if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+
+    # Raster coordinates encode rectangular walls. Circular geometry needs a
+    # separately versioned representation rather than silently treating its
+    # bounding box as the arena.
+    arena_type = 1.0
+    try:
+        from src.core.game_config import GameConfig
+
+        arena_type = 1.0 if GameConfig.ARENA_TYPE == "circular" else 0.0
+    except Exception:  # pragma: no cover - config not initialized
+        arena_type = 0.0
+    if arena_type:
+        raise ValueError("Raster observations support rectangular arena geometry only")
+
     snakes = list(game_state.snakes)
     S = len(snakes)
     seg = game_state.food_manager.segment_size if hasattr(game_state, "food_manager") else 10
@@ -122,14 +143,6 @@ def game_state_to_obs_inputs(
 
     grid_w = int(getattr(game_state, "_game_width", fm.game_width)) // seg
     grid_h = int(getattr(game_state, "_game_height", fm.game_height)) // seg
-    arena_type = 1.0
-    try:
-        from src.core.game_config import GameConfig
-
-        arena_type = 1.0 if GameConfig.ARENA_TYPE == "circular" else 0.0
-    except Exception:  # pragma: no cover - config not initialized
-        arena_type = 0.0
-
     return ObsInputs(
         heads=heads,
         bodies=bodies,

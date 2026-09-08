@@ -27,10 +27,12 @@ device-agnostic, so CPU parity of the identical ops implies GPU parity.
 import time
 
 import numpy as np
+import pytest
 import torch
 
 from src.simd_env.batch_sim import BatchSim, BatchSimConfig
 from src.simd_env.featurizer import (
+    RASTER31V3,
     SCALARS_DIM,
     ObsInputs,
     build_observations,
@@ -303,6 +305,53 @@ def test_constructed_overlap_priority_winner_matches():
     assert ref_tac[0, 0, 4, 21, 13].item() == 0, "ambient_food should be overwritten by corpse"
     assert torch.equal(g["tactical"][0, 0, 5, 21, 13], ref_tac[0, 0, 5, 21, 13])
     assert torch.equal(g["tactical"][0, 0, 4, 21, 13], ref_tac[0, 0, 4, 21, 13])
+
+
+def test_v3_torch_cpu_dispatch_matches_numpy_oracle():
+    """Corrected v3 dispatch retains the canonical NumPy semantics on Torch CPU."""
+    inp = ObsInputs(
+        heads=np.array([[[20, 20], [25, 15]]]),
+        bodies=np.array([[[[20, 20], [19, 20]], [[25, 15], [25, 16]]]]),
+        body_len=np.array([[2, 2]]),
+        lengths=np.array([[2, 7]]),
+        alive=np.array([[True, True]]),
+        heading=np.array([[0, 0]]),
+        boost_frames=np.zeros((1, 2), np.int64),
+        frames_since_food=np.zeros((1, 2), np.int64),
+        boosting=np.array([[False, True]]),
+        food_cells=np.array([[[18, 18], [18, 18]]]),
+        food_mass=np.array([[1.0, 1.0]]),
+        food_is_corpse=np.array([[False, True]]),
+        grid_w=40,
+        grid_h=40,
+        max_snakes=2,
+        starvation_max=500,
+        max_length=400,
+        min_boost_length=5,
+        boost_cost_frames=3,
+        frame=np.array([13]),
+        max_frames=5000,
+        arena_type_flag=0.0,
+    )
+    expected = build_observations(inp, obs_spec=RASTER31V3)
+    actual = build_observations_gpu(_obsinputs_to_gpustate(inp), obs_spec=RASTER31V3)
+    assert torch.equal(
+        actual["tactical"], torch.as_tensor(expand_tactical(expected["tactical_uint8"]))
+    )
+    assert torch.equal(
+        actual["strategic"],
+        torch.as_tensor(expected["strategic_uint8"], dtype=torch.float32) / 255.0,
+    )
+    assert torch.equal(actual["scalars"], torch.as_tensor(expected["scalars"], dtype=torch.float32))
+
+
+def test_gpu_v3_rejects_circular_geometry():
+    """The Torch API fails rather than rendering a circular arena as a rectangle."""
+    cfg = BatchSimConfig(num_envs=1, num_snakes=2, mechanics_version=2)
+    state = obs_inputs_to_torch(BatchSim(cfg, seeds=[0], train_mode=True), DEVICE)
+    state.arena_type_flag = 1.0
+    with pytest.raises(ValueError, match="rectangular"):
+        build_observations_gpu(state, obs_spec=RASTER31V3)
 
 
 def test_food_overlap_priority_corpse_at_lower_index():
