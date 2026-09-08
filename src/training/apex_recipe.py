@@ -136,6 +136,10 @@ class ApexRecipe:
         # learner step. That launch-local value must not invalidate the recipe
         # which created the checkpoint; it is checked against step_count below.
         descriptor.pop("runtime_provenance")
+        # Continuations deliberately start fresh coordinator/actor RNG streams.
+        # Seed identity is provenance for the source and new run, not algorithm
+        # compatibility that can make entropy-seeded checkpoints unresumable.
+        descriptor.pop("seeding_contract")
         return descriptor
 
     @property
@@ -146,7 +150,10 @@ class ApexRecipe:
         return {
             "apex_recipe": self.semantic_dict(),
             "apex_recipe_digest": self.digest,
-            "apex_recipe_runtime": dict(self.runtime_provenance),
+            "apex_recipe_runtime": {
+                **dict(self.runtime_provenance),
+                "seed_identity": dict(self.seeding_contract),
+            },
         }
 
     @classmethod

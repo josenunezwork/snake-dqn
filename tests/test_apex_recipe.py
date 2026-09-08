@@ -116,20 +116,28 @@ def test_distributed_continuation_accepts_nonzero_checkpoint_beta_clock() -> Non
     validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
 
 
-def test_omitted_seed_continuation_accepts_hydrated_verified_seed_manifest() -> None:
-    """An entropy-seeded run resumes with its persisted identity, not new entropy."""
+def test_entropy_seeded_continuation_accepts_new_run_seed_with_source_labeling() -> None:
+    """Continuation starts fresh RNG streams while retaining source seed provenance."""
     recipe, optimizer = _recipe_and_optimizer()
     checkpoint = _checkpoint(recipe, optimizer)
     checkpoint["step_count"] = 7
-    hydrated = ApexRecipe(
-        **recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 7}
+    resumed = ApexRecipe(
+        **recipe.semantic_dict(),
+        seeding_contract={
+            "requested_seed": None,
+            "effective_seed": 987,
+            "actor_namespace": "seed+actor_id",
+        },
+        runtime_provenance={"initial_beta_clock": 7},
     )
-    assert hydrated.seeding_contract == {
+    assert resumed.digest == recipe.digest
+    assert checkpoint["apex_recipe_runtime"]["seed_identity"] == {
         "requested_seed": None,
         "effective_seed": 789,
         "actor_namespace": "seed+actor_id",
     }
-    validate_recipe_continuation(checkpoint, hydrated, weights_only=False, optimizer=optimizer)
+    assert resumed.to_metadata()["apex_recipe_runtime"]["seed_identity"]["effective_seed"] == 987
+    validate_recipe_continuation(checkpoint, resumed, weights_only=False, optimizer=optimizer)
 
 
 def test_optimizer_continuation_rejects_malformed_adam_state_before_load() -> None:
