@@ -40,7 +40,29 @@ from src.training.base_buffer import (
     validate_next_action_mask,
 )
 from src.training.sum_tree import SumTree
-from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY, validate_mask_mode
+from src.training.td_targets import (
+    MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_RASTER_RESOLVED_V3,
+    MASK_MODE_TERMINAL_NO_SUCCESSOR,
+    domain_legal_action_mask,
+    validate_mask_mode,
+)
+
+
+def _validate_replay_mask_row(next_state, done, mask, mode) -> int:
+    """Validate explicit mask provenance before local/shared replay insertion."""
+    mode = validate_mask_mode(mode)
+    if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR and not done:
+        raise ValueError("terminal_no_successor mode requires done=True")
+    if mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1} and mask is None:
+        raise ValueError("explicit mask mode requires a six-action mask")
+    if mode == MASK_MODE_RASTER_RESOLVED_V3 and mask is not None:
+        tensor = torch.as_tensor(next_state, dtype=torch.float32).reshape(1, -1)
+        legal = domain_legal_action_mask(tensor).squeeze(0).cpu().numpy()
+        if bool((np.asarray(mask, dtype=np.bool_) & ~legal).any()):
+            raise ValueError("resolved next_action_mask includes domain-illegal action")
+    return mode
 
 
 @dataclass(frozen=True)
@@ -512,7 +534,9 @@ class SharedPrioritizedBuffer:
             # twice and skew fresh replay against learner-updated replay.
             priority = _coerce_priority(priority, self.priority_eps)
             bootstrap_steps = _coerce_bootstrap_steps(bootstrap_steps)
-            next_action_mask_mode = validate_mask_mode(next_action_mask_mode)
+            next_action_mask_mode = _validate_replay_mask_row(
+                next_state, done, next_action_mask, next_action_mask_mode
+            )
             if next_action_mask is not None:
                 next_action_mask = _coerce_exact_action_mask(next_action_mask)
 
@@ -593,7 +617,9 @@ class SharedPrioritizedBuffer:
                 pri = _coerce_priority(pri, self.priority_eps)
                 steps = _coerce_bootstrap_steps(bootstrap_steps[i])
                 next_action_mask = next_action_masks[i]
-                next_action_mask_mode = validate_mask_mode(next_action_mask_modes[i])
+                next_action_mask_mode = _validate_replay_mask_row(
+                    next_state, done, next_action_mask, next_action_mask_modes[i]
+                )
                 if next_action_mask is not None:
                     next_action_mask = _coerce_exact_action_mask(next_action_mask)
                 experience = (

@@ -22,6 +22,7 @@ Epsilon Formula (from Ape-X paper):
 """
 
 import queue
+import random
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -500,6 +501,7 @@ class ApexActor(mp.Process):
         if self.base_seed is None:
             self.base_seed = initialize_run_seed().effective_seed
         seed = derive_seed(self.base_seed, f"apex/actor/{self.actor_id}")
+        random.seed(seed)
         torch.manual_seed(seed)
         np.random.seed(seed % 2**32)
 

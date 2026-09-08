@@ -44,7 +44,9 @@ def _coerce_replay_priority(priority, default_priority: float, priority_eps: flo
 
 def _unpack_replay_memory(memory_item, default_bootstrap_steps: int = 1):
     """Return a normalized replay tuple from legacy or current serialized memory."""
-    if len(memory_item) == 9:
+    if len(memory_item) == 10:
+        state, action, reward, next_state, done, priority, bootstrap_steps, next_action_mask, next_action_mask_mode, stream_id = memory_item
+    elif len(memory_item) == 9:
         (
             state,
             action,
@@ -56,6 +58,7 @@ def _unpack_replay_memory(memory_item, default_bootstrap_steps: int = 1):
             next_action_mask,
             stream_id,
         ) = memory_item
+        next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
     elif len(memory_item) == 8:
         (
             state,
@@ -68,22 +71,25 @@ def _unpack_replay_memory(memory_item, default_bootstrap_steps: int = 1):
             next_action_mask,
         ) = memory_item
         stream_id = None
+        next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
     elif len(memory_item) == 7:
         state, action, reward, next_state, done, priority, bootstrap_steps = memory_item
         next_action_mask = None
         stream_id = None
+        next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
     elif len(memory_item) == 6:
         state, action, reward, next_state, done, priority = memory_item
         bootstrap_steps = default_bootstrap_steps
         next_action_mask = None
         stream_id = None
+        next_action_mask_mode = MASK_MODE_LEGACY_ADVISORY
     else:
         raise ValueError(
             "Replay memory must have 6 fields "
             "(state, action, reward, next_state, done, priority) "
             "or 7 fields with bootstrap_steps "
             "or 8 fields with next_action_mask "
-            "or 9 fields with stream_id"
+            "or 9 fields with stream_id or 10 fields with mask mode and stream_id"
         )
 
     return (
@@ -95,6 +101,7 @@ def _unpack_replay_memory(memory_item, default_bootstrap_steps: int = 1):
         priority,
         int(bootstrap_steps),
         next_action_mask,
+        validate_mask_mode(next_action_mask_mode),
         stream_id,
     )
 
@@ -121,10 +128,11 @@ def restore_replay_memories(
     priorities = []
     bootstrap_steps = []
     next_action_masks = []
+    next_action_mask_modes = []
     stream_ids = []
 
     for memory_item in memories:
-        state, action, reward, next_state, done, priority, steps, next_action_mask, stream_id = (
+        state, action, reward, next_state, done, priority, steps, next_action_mask, next_action_mask_mode, stream_id = (
             _unpack_replay_memory(
                 memory_item,
                 default_bootstrap_steps=default_bootstrap_steps,
@@ -138,6 +146,7 @@ def restore_replay_memories(
         priorities.append(priority)
         bootstrap_steps.append(steps)
         next_action_masks.append(next_action_mask)
+        next_action_mask_modes.append(next_action_mask_mode)
         stream_ids.append(stream_id)
 
     if clear:
@@ -155,12 +164,13 @@ def restore_replay_memories(
             next_action_masks=(
             next_action_masks
             ),
+            next_action_mask_modes=next_action_mask_modes,
             stream_ids=(
                 stream_ids if any(stream_id is not None for stream_id in stream_ids) else None
             ),
         )
     else:
-        for state, action, reward, next_state, done, priority, steps, next_action_mask in zip(
+        for state, action, reward, next_state, done, priority, steps, next_action_mask, next_action_mask_mode in zip(
             states,
             actions,
             rewards,
@@ -169,6 +179,7 @@ def restore_replay_memories(
             priorities,
             bootstrap_steps,
             next_action_masks,
+            next_action_mask_modes,
         ):
             try:
                 memory.add(
@@ -180,6 +191,7 @@ def restore_replay_memories(
                     priority,
                     bootstrap_steps=steps,
                     next_action_mask=next_action_mask,
+                    next_action_mask_mode=next_action_mask_mode,
                 )
             except TypeError:
                 memory.add(state, action, reward, next_state, done)
@@ -475,6 +487,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
         priorities,
         bootstrap_steps=None,
         next_action_masks=None,
+        next_action_mask_modes=None,
         stream_ids=None,
     ) -> None:
         """Add multiple memories at once."""
@@ -484,6 +497,8 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             next_action_masks = [None] * len(states)
         if stream_ids is None:
             stream_ids = [None] * len(states)
+        if next_action_mask_modes is None:
+            next_action_mask_modes = [MASK_MODE_LEGACY_ADVISORY] * len(states)
         _validate_bulk_field_lengths(
             states,
             actions=actions,
@@ -493,6 +508,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             priorities=priorities,
             bootstrap_steps=bootstrap_steps,
             next_action_masks=next_action_masks,
+            next_action_mask_modes=next_action_mask_modes,
             stream_ids=stream_ids,
         )
 
@@ -506,6 +522,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             priority,
             steps,
             next_action_mask,
+            next_action_mask_mode,
             stream_id,
         ) in zip(
             states,
@@ -516,6 +533,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
             priorities,
             bootstrap_steps,
             next_action_masks,
+            next_action_mask_modes,
             stream_ids,
         ):
             priority = _coerce_replay_priority(
@@ -524,6 +542,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                 priority_eps=self.priority_eps,
             )
             next_action_mask = validate_next_action_mask(next_action_mask)
+            next_action_mask_mode = validate_mask_mode(next_action_mask_mode)
             validated_memories.append(
                 (
                     priority,
@@ -535,6 +554,7 @@ class PrioritizedReplayBuffer(BaseReplayBuffer):
                         done,
                         max(1, int(steps)),
                         next_action_mask,
+                        next_action_mask_mode,
                         stream_id,
                     ),
                 )

@@ -9,7 +9,7 @@ from typing import Optional
 
 import torch
 
-from .action_mask import has_valid_actions, mask_invalid_q_values, valid_action_mask_from_states
+from .action_mask import has_valid_actions, mask_invalid_q_values
 
 # Stored replay/IPC values.  A mask's presence never says whether it is advice
 # or a resolved simulator fact; that distinction is carried by this field.
@@ -25,6 +25,22 @@ def validate_mask_mode(mode: int) -> int:
     if isinstance(mode, bool) or not isinstance(mode, int) or mode not in KNOWN_MASK_MODES:
         raise ValueError(f"unknown next_action_mask_mode: {mode!r}")
     return mode
+
+
+def domain_legal_action_mask(next_states: torch.Tensor) -> torch.Tensor:
+    """Return executable controls, independent of collision-danger advice.
+
+    Every alive vector row can make each normal turn. Boost controls additionally
+    require the successor state's explicit availability feature (index 57).
+    """
+    if next_states.ndim < 1:
+        raise ValueError("next_states requires an action-independent state axis")
+    shape = (*next_states.shape[:-1], 6)
+    legal = torch.ones(shape, dtype=torch.bool, device=next_states.device)
+    if next_states.shape[-1] >= 58:
+        boost_available = torch.isfinite(next_states[..., 57]) & (next_states[..., 57] >= 0.5)
+        legal[..., 3:] = boost_available.unsqueeze(-1)
+    return legal
 
 
 def resolve_bootstrap_action_masks(
@@ -50,10 +66,13 @@ def resolve_bootstrap_action_masks(
         if not bool(torch.isin(modes, known).all()):
             raise ValueError("unknown next_action_mask_mode in batch")
     masks = next_action_masks.to(dtype=torch.bool)
-    legal = valid_action_mask_from_states(next_states)
+    legal = domain_legal_action_mask(next_states)
     advisory = (modes == MASK_MODE_LEGACY_ADVISORY) | (modes == MASK_MODE_DATASET_VECTOR_ADVISORY_V1)
     intersection = legal & masks
     advisory_resolved = torch.where(intersection.any(dim=1, keepdim=True), intersection, legal)
+    exact = modes == MASK_MODE_RASTER_RESOLVED_V3
+    if bool((masks[exact] & ~legal[exact]).any()):
+        raise ValueError("resolved next_action_mask includes domain-illegal action")
     resolved = torch.where(advisory.unsqueeze(1), advisory_resolved, masks)
     return torch.where((modes == MASK_MODE_TERMINAL_NO_SUCCESSOR).unsqueeze(1), False, resolved)
 

@@ -338,10 +338,12 @@ class TestTrainStep:
         learner.dqn = FixedQ([0.0, 3.0, 0.0, 0.0, 100.0, 0.0])
         learner.target_dqn = FixedQ([0.0, 5.0, 0.0, 0.0, 50.0, 0.0])
         exact_mask = torch.tensor([[False, False, False, False, True, False]])
+        successor = _full_state_batch()
+        successor[:, 57] = 1.0
 
         targets = learner.compute_td_targets(
             rewards=torch.zeros(1),
-            next_states=_full_state_batch(),
+            next_states=successor,
             dones=torch.zeros(1),
             bootstrap_steps=torch.ones(1),
             next_action_masks=exact_mask,

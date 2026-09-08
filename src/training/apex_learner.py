@@ -420,6 +420,7 @@ class ApexLearner:
             dones,
             bootstrap_steps=bootstrap_steps,
             next_action_masks=next_action_masks,
+            next_action_mask_modes=next_action_mask_modes,
         )
 
         # Compute TD errors for priority updates
@@ -604,7 +605,9 @@ class ApexLearner:
         if resume_mode == "continuation":
             if requested_recipe is None:
                 raise ValueError("optimizer continuation requires requested_recipe")
-            validate_recipe_continuation(state_dict, requested_recipe, weights_only=False)
+            validate_recipe_continuation(
+                state_dict, requested_recipe, weights_only=False, optimizer=self.optimizer
+            )
             optimizer_state = state_dict["optimizer_state_dict"]
             if not isinstance(self.optimizer, optim.Adam):
                 raise ValueError("distributed continuation requires an Adam optimizer")
@@ -616,16 +619,37 @@ class ApexLearner:
         elif resume_mode == "legacy-unverified" and "optimizer_state_dict" not in state_dict:
             raise ValueError("legacy-unverified continuation requires optimizer_state_dict")
 
-        # All validation above precedes mutation. Weights-only deliberately keeps
-        # the fresh optimizer, odometer and runtime state created in __init__.
-        self.dqn.load_state_dict(state_dict["dqn_state_dict"])
-        self.target_dqn.load_state_dict(state_dict["target_dqn_state_dict"])
+        # Fully preflight checkpoint tensors and optimizer state on disposable
+        # modules before changing any live parameter/counter.
+        candidate_online = ApexNetwork(
+            self.config.input_size, self.config.hidden_size, self.config.output_size
+        ).to(self.device)
+        candidate_target = ApexNetwork(
+            self.config.input_size, self.config.hidden_size, self.config.output_size
+        ).to(self.device)
+        candidate_online.load_state_dict(state_dict["dqn_state_dict"])
+        candidate_target.load_state_dict(state_dict["target_dqn_state_dict"])
         if resume_mode != "weights-only":
+            candidate_optimizer = optim.Adam(
+                candidate_online.parameters(),
+                lr=self.config.learning_rate,
+                eps=self.config.adam_eps,
+                weight_decay=self.config.weight_decay,
+            )
+            candidate_optimizer.load_state_dict(state_dict["optimizer_state_dict"])
+
+        # All validation above precedes mutation. Weights-only deliberately keeps
+        # a fresh optimizer/odometer and derives target weights from the online
+        # checkpoint rather than importing a stale target network.
+        self.dqn.load_state_dict(state_dict["dqn_state_dict"])
+        if resume_mode != "weights-only":
+            self.target_dqn.load_state_dict(state_dict["target_dqn_state_dict"])
             self.optimizer.load_state_dict(state_dict["optimizer_state_dict"])
             self.step_count = int(state_dict.get("step_count", 0))
             self.update_version = int(state_dict.get("update_version", self.step_count))
             self.resume_provenance = resume_mode
         else:
+            hard_update(self.target_dqn, self.dqn)
             self.step_count = 0
             self.update_version = 0
             self.resume_provenance = "weights-only"
