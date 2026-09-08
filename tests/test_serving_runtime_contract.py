@@ -1,6 +1,7 @@
 """Serving gates for the corrected raster31v3 checkpoint contract."""
 
 import copy
+from dataclasses import fields
 
 import pytest
 import torch
@@ -444,3 +445,44 @@ def test_incomplete_resigned_runtime_rejects_before_session_mutation(
         session._build(str(path), mode="watch")
     assert session.game is before_game
     assert get_config() is before_config
+
+
+@pytest.mark.parametrize("missing", [field.name for field in fields(EffectiveWorldConfig)])
+def test_incomplete_resigned_world_rejects_before_session_mutation(
+    v3_checkpoint, tmp_path, missing
+):
+    from src.core.game_config import get_config
+
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game, before_config = session.game, get_config()
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["effective_world"].pop(missing)
+    try:
+        world_digest = EffectiveWorldConfig(**blob["effective_world"]).digest
+    except TypeError:
+        # Required constructor fields already cannot be synthesized. They still
+        # fail through the same explicit loader contract before any mutation.
+        world_digest = blob["effective_world_digest"]
+    blob["effective_world_digest"] = world_digest
+    provenance = RunProvenance.from_metadata(blob)
+    blob["run_provenance"] = {**provenance.__dict__, "world_digest": world_digest}
+    blob["run_provenance_digest"] = canonical_digest(blob["run_provenance"])
+    path = tmp_path / "incomplete-world.pth"
+    torch.save(blob, path)
+    with pytest.raises(ValueError, match="complete effective_world"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game
+    assert get_config() is before_config
+
+
+def test_v3_missing_model_head_default_is_not_synthesized(v3_checkpoint, tmp_path):
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game = session.game
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["model_head"].pop("critic_outputs")
+    # The class would default this to zero, preserving its expanded digest.
+    path = tmp_path / "incomplete-head.pth"
+    torch.save(blob, path)
+    with pytest.raises(ValueError, match="complete model_head"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game

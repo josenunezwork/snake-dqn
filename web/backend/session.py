@@ -22,6 +22,7 @@ from src.core.game_config import GameConfig, get_config, initialize_config
 from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH
 from src.core.runtime_contract import (
     EffectiveWorldConfig,
+    ModelHeadContract,
     RunProvenance,
     RuntimeModeContract,
     canonical_digest,
@@ -79,14 +80,21 @@ def _validate_v3_serving_checkpoint(
     validate_observation_checkpoint_metadata(
         blob, RASTER31V3, checkpoint_path, error_type=ValueError
     )
+    model_head = blob.get("model_head")
+    if not isinstance(model_head, dict) or set(model_head) != {
+        field.name for field in fields(ModelHeadContract)
+    }:
+        raise ValueError("raster31v3 checkpoint requires complete model_head metadata")
     head = validate_model_head_contract(blob, require_digest=True)
     if (head.algorithm, head.head) != ("pqn", "dueling_q"):
         raise ValueError("raster31v3 serving requires a pqn/dueling_q model head")
 
     world = blob.get("effective_world")
     world_digest = blob.get("effective_world_digest")
-    if not isinstance(world, dict):
-        raise ValueError("raster31v3 checkpoint is missing effective_world metadata")
+    if not isinstance(world, dict) or set(world) != {
+        field.name for field in fields(EffectiveWorldConfig)
+    }:
+        raise ValueError("raster31v3 checkpoint requires complete effective_world metadata")
     effective_world = EffectiveWorldConfig(**world)
     if effective_world.digest != world_digest:
         raise ValueError("raster31v3 checkpoint has an invalid effective_world digest")
