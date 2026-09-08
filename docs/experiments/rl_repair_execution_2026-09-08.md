@@ -27,5 +27,14 @@ threads with the plan's 4 GiB RSS, 8 GiB driver and 6 GiB available-memory caps.
 
 ## Accepted packages
 
-None yet. Wave 0 C0, N0, A0, A1, S0 and E0 are assigned to isolated builders.
-Current execution status and all command receipts are in the campaign ledger.
+C0, A0, N0, S0 and E0 are accepted. The combined regression gate on
+`572f089` passed **486 tests, 1 checkpoint-dependent skip** in 28.55s.
+A subsequent import-lint comment correction leaves the tournament AST
+unchanged; changed-file Black, isort and flake8 checks passed afterward.
+An initial integration run caught the new `provided_fields` frozen set failing
+JSON receipt serialization; `572f089` fixes the explicit receipt projection
+and adds a regression. Failed and passing logs remain under `integration/`.
+
+A1 remains isolated for process-budget/finalization review fixes. ENV, OBS and
+OFF may proceed because their C0 dependency is accepted. The campaign ledger
+records exact package/integration/test SHAs and durable evidence manifests.
