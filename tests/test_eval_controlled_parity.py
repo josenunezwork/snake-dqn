@@ -17,8 +17,7 @@ import numpy as np
 import pytest
 
 from src.core.game_config import AppConfig, GameSettings, get_config, initialize_config
-from src.core.runtime_contract import RuntimeModeContract
-from src.evaluation.protocol import legacy_diagnostic_profile
+from src.evaluation.protocol import promotion_v2_watch_rect
 from src.game.game_logic import GameLogic
 from src.scripts import tournament_eval as te
 from src.simd_env import eval_engine as ee
@@ -80,10 +79,15 @@ def _configure_global(cfg: BatchSimConfig) -> object:
                 width=cfg.game_width,
                 height=cfg.game_height,
                 num_snakes=cfg.num_snakes,
+                segment_size=cfg.segment_size,
+                wall_thickness=cfg.wall_thickness,
                 initial_food=cfg.initial_food,
                 max_food=cfg.max_food,
                 mechanics_version=cfg.mechanics_version,
                 frame_rate=cfg.frame_rate,
+                min_boost_length=cfg.min_boost_length,
+                boost_length_cost_frames=cfg.boost_length_cost_frames,
+                arena_type=cfg.arena_type,
             )
         )
     )
@@ -135,16 +139,8 @@ def test_actual_wrappers_match_independent_poststep_mass_and_profile_horizons(
         seed = 17
         tape = _fixed_tape(seed, frames, cfg.num_snakes)
         world = te._evaluation_world_from_config()
-        profile = legacy_diagnostic_profile(
-            world,
-            RuntimeModeContract(
-                mode="watch",
-                training=False,
-                respawn=True,
-                hero_terminal=True,
-                population_floor=False,
-                reset_strategy="serving",
-            ),
+        profile = replace(
+            promotion_v2_watch_rect(world),
             scored_horizon=frames,
             observation_progress_horizon=29,
         )
@@ -203,6 +199,64 @@ def test_actual_wrappers_match_independent_poststep_mass_and_profile_horizons(
             }
             assert record["evaluation_profile"]["scored_horizon"] == frames
             assert record["evaluation_profile"]["observation_progress_horizon"] == 29
+    finally:
+        initialize_config(old)
+
+
+def test_actual_wrappers_pad_terminal_death_to_the_profile_horizon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A terminal hero may die early while the profile still scores all frames."""
+    cfg = replace(_tiny_config(num_snakes=1), initial_food=0, max_food=0)
+    old = _configure_global(cfg)
+    try:
+        frames = 3
+        seed = 6  # fixed straight tape reaches the right wall on frame 2
+        world = te._evaluation_world_from_config()
+        profile = replace(
+            promotion_v2_watch_rect(world),
+            scored_horizon=frames,
+            observation_progress_horizon=29,
+        )
+
+        def attach_straight(
+            game_state: object,
+            slot: int,
+            spec: tuple[str, str],
+            run_seed: int,
+            cache: dict[str, object],
+            active_profile: object,
+        ) -> None:
+            del spec, run_seed, cache, active_profile
+            snake = game_state.snakes[slot]
+
+            def update(self: object, others: object, food: object, **kwargs: object) -> None:
+                del others, food, kwargs
+                self.is_boosting = False
+                self.move()
+
+            snake.update = types.MethodType(update, snake)
+            snake.policy = None
+            snake.ai = None
+
+        class AlwaysStraight(ee.SimdPolicy):
+            def actions(self, masks: np.ndarray, sim: BatchSim, slots: np.ndarray) -> np.ndarray:
+                del masks, sim
+                return np.ones(len(slots), dtype=np.int64)
+
+        monkeypatch.setattr(te, "_attach_agent", attach_straight)
+        monkeypatch.setattr(ee, "build_simd_policy", lambda *args, **kwargs: AlwaysStraight())
+
+        live = te.rollout(("scripted", "straight"), [], frames, seed, profile)
+        simd = ee.run_simd_eval(("scripted", "straight"), [], frames, [seed], profile=profile)[0]
+
+        for record in (live, simd):
+            assert record["mass_integral"] == pytest.approx(2 / 3)
+            assert record["survival_fraction"] == pytest.approx(2 / 3)
+            assert record["deaths"] == 1
+            assert record["denominators"]["scored_frames"] == frames
+            assert record["denominators"]["decision_frames"] == frames
+            assert record["probes"]["death_cause"] == "wall"
     finally:
         initialize_config(old)
 
