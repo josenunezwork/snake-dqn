@@ -35,7 +35,11 @@ def _recipe_and_optimizer() -> tuple[ApexRecipe, torch.optim.Optimizer]:
 
 
 def _checkpoint(recipe: ApexRecipe, optimizer: torch.optim.Optimizer) -> dict:
-    return {**recipe.to_metadata(), "optimizer_state_dict": optimizer.state_dict()}
+    return {
+        **recipe.to_metadata(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "step_count": 0,
+    }
 
 
 def test_optimizer_continuation_rejects_forged_descriptor_before_use() -> None:
@@ -94,6 +98,18 @@ def test_recipe_continuation_rejects_replay_horizon_or_batch_change() -> None:
     changed_batch = ApexRecipe(**altered)
     with pytest.raises(ValueError, match="conflicts"):
         validate_recipe_continuation(checkpoint, changed_batch, weights_only=False, optimizer=optimizer)
+
+
+def test_distributed_continuation_accepts_nonzero_checkpoint_beta_clock() -> None:
+    """A resume clock is launch provenance, while the beta horizon is semantic."""
+    recipe, optimizer = _recipe_and_optimizer()
+    checkpoint = _checkpoint(recipe, optimizer)
+    checkpoint["step_count"] = 100
+    requested = ApexRecipe(
+        **recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 100}
+    )
+    assert requested.digest == recipe.digest
+    validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
 
 
 def test_optimizer_continuation_rejects_malformed_adam_state_before_load() -> None:

@@ -116,6 +116,7 @@ class ApexRecipe:
     reward_contract: Mapping[str, Any] = field(default_factory=dict)
     exploration_contract: Mapping[str, Any] = field(default_factory=dict)
     seeding_contract: Mapping[str, Any] = field(default_factory=dict)
+    runtime_provenance: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.mode not in {"local", "distributed"}:
@@ -130,14 +131,23 @@ class ApexRecipe:
 
     def semantic_dict(self) -> dict[str, Any]:
         """Return every persisted semantic field in one canonical mapping."""
-        return asdict(self)
+        descriptor = asdict(self)
+        # A resume starts the buffer beta clock at the checkpoint's current
+        # learner step. That launch-local value must not invalidate the recipe
+        # which created the checkpoint; it is checked against step_count below.
+        descriptor.pop("runtime_provenance")
+        return descriptor
 
     @property
     def digest(self) -> str:
         return canonical_digest(self.semantic_dict())
 
     def to_metadata(self) -> dict[str, Any]:
-        return {"apex_recipe": self.semantic_dict(), "apex_recipe_digest": self.digest}
+        return {
+            "apex_recipe": self.semantic_dict(),
+            "apex_recipe_digest": self.digest,
+            "apex_recipe_runtime": dict(self.runtime_provenance),
+        }
 
     @classmethod
     def local(
@@ -190,10 +200,11 @@ class ApexRecipe:
             replay_geometry={"batch_size": batch_size, "capacity": replay_capacity,
                              "warmup_samples": min_replay_size,
                              "beta_schedule": "linear_over_successful_distributed_samples",
-                             "beta_frames": beta_frames, "initial_beta_clock": initial_beta_clock},
+                             "beta_frames": beta_frames},
             exploration={"epsilon_base": cfg.apex.epsilon_base, "epsilon_alpha": cfg.apex.epsilon_alpha,
                          "selection": "epsilon_greedy_actor_namespace", "actor_scaling": dict(actor_scaling)},
             seed_identity=seed_identity,
+            runtime_provenance={"initial_beta_clock": initial_beta_clock},
         )
 
     @classmethod
@@ -203,6 +214,7 @@ class ApexRecipe:
         priority_alpha: float, priority_eps: float,
         beta_clock: str, world: Mapping[str, Any], runtime: Mapping[str, Any],
         exploration: Mapping[str, Any], seed_identity: Mapping[str, Any], replay_geometry: Mapping[str, Any],
+        runtime_provenance: Optional[Mapping[str, Any]] = None,
     ) -> "ApexRecipe":
         cfg = get_config()
         return cls(
@@ -225,7 +237,7 @@ class ApexRecipe:
                                   "mask_mode": "legacy_advisory_rowwise_legal_intersection"},
             world_contract=dict(world), runtime_contract=dict(runtime),
             reward_contract=current_reward_contract(), exploration_contract=dict(exploration),
-            seeding_contract=dict(seed_identity),
+            seeding_contract=dict(seed_identity), runtime_provenance=dict(runtime_provenance or {}),
         )
 
 
@@ -244,6 +256,19 @@ def validate_recipe_continuation(
         raise ValueError("checkpoint Apex recipe digest does not match its descriptor")
     if stored_digest != recipe.digest:
         raise ValueError("checkpoint Apex recipe conflicts with requested continuation")
+    if recipe.mode == "distributed":
+        clock = recipe.runtime_provenance.get("initial_beta_clock")
+        checkpoint_step = checkpoint.get("step_count")
+        if (
+            isinstance(clock, bool)
+            or not isinstance(clock, int)
+            or clock < 0
+            or isinstance(checkpoint_step, bool)
+            or not isinstance(checkpoint_step, int)
+            or checkpoint_step < 0
+            or clock != checkpoint_step
+        ):
+            raise ValueError("distributed continuation beta clock must equal checkpoint step_count")
     optimizer_state = checkpoint.get("optimizer_state_dict")
     if not isinstance(optimizer_state, Mapping):
         raise ValueError("optimizer continuation requires optimizer_state_dict")
