@@ -116,8 +116,18 @@ class RasterServingPolicy:
         self.total_reward = 0.0
         self.memory = None  # AISnake skips replay when training is False.
         self.dqn = _RasterDQNShim(self)
-        # Only v3 passes this explicit adapter contract. V2 keeps the historic
-        # live-adapter defaults byte-for-byte.
+        # V3 never gets implicit live-adapter defaults. Direct serving callers
+        # must supply the validated checkpoint normalizers explicitly; v2 keeps
+        # the historic default path byte-for-byte.
+        if self.obs_spec == RASTER31V3:
+            required = {"max_frames", "starvation_max", "max_length"}
+            if normalization is None or set(normalization) != required:
+                raise ValueError("raster31v3 serving requires explicit validated normalization")
+            if any(
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+                for value in normalization.values()
+            ):
+                raise ValueError("raster31v3 normalization values must be positive integers")
         self._normalization = dict(normalization or {})
 
         # Live game reference, set by the session after the game is built.
@@ -158,7 +168,11 @@ class RasterServingPolicy:
     # -- construction -------------------------------------------------------
     @classmethod
     def from_checkpoint(
-        cls, checkpoint_path: str, device: Optional[torch.device] = None
+        cls,
+        checkpoint_path: str,
+        device: Optional[torch.device] = None,
+        *,
+        normalization: Optional[Dict[str, int]] = None,
     ) -> "RasterServingPolicy":
         """Build from a raster checkpoint path.
 
@@ -170,7 +184,7 @@ class RasterServingPolicy:
             A ready :class:`RasterServingPolicy`.
         """
         agent = InferenceAgent.from_checkpoint(checkpoint_path, device=device)
-        return cls(agent)
+        return cls(agent, normalization=normalization)
 
     @classmethod
     def from_checkpoint_blob(

@@ -12,11 +12,13 @@ from src.core.runtime_contract import ModelHeadContract  # noqa: E402
 from src.core.runtime_contract import RunProvenance  # noqa: E402
 from src.core.runtime_contract import (RuntimeModeContract,  # noqa: E402
                                        canonical_digest)
+from src.model.inference_agent import InferenceAgent  # noqa: E402
 from src.model.obs_spec import RASTER31V3  # noqa: E402
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3_CONTRACT  # noqa: E402
 from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
 from src.simd_env.featurizer import build_observations  # noqa: E402
 from src.simd_env.live_adapter import game_state_to_obs_inputs  # noqa: E402
+from web.backend.raster_policy import RasterServingPolicy  # noqa: E402
 from web.backend.session import (V3_ACTION_MASK_CONTRACT,  # noqa: E402
                                  GameSession)
 
@@ -50,6 +52,8 @@ def _v3_metadata(normalization=None) -> dict:
         max_food=300,
         min_boost_length=5,
         boost_length_cost_frames=3,
+        kill_scale=0.3,
+        death_value=-3.0,
         normalization=normalization,
     )
     runtime = RuntimeModeContract(
@@ -126,7 +130,17 @@ def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
     assert session.obs_spec == RASTER31V3
     assert session.config_path == "promotion-v2-watch-rect"
     assert session.serving_contract["obs_contract_digest"] == RASTER31V3_CONTRACT.digest
+    assert len(session.game.snakes) == 6
+    manifest = session.serving_contract["deployment_target_manifest"]
+    assert manifest["deployed_world"]["engine"] == "live"
+    assert manifest["deployed_world"]["max_capacity"] is None
+    with pytest.raises(ValueError, match="food target"):
+        session.set_food(42)
+    assert session.game.food_manager.max_food == 300
+    with pytest.raises(ValueError, match="Play roster"):
+        session.set_play_opponents(2)
     session.set_mode("play")
+    assert len(session.game.snakes) == 6
     assert (
         session.serving_contract["deployment_target_manifest"]["deployed_runtime"]["mode"] == "play"
     )
@@ -145,6 +159,16 @@ def test_v3_watch_hero_is_terminal_while_opponents_respawn(v3_checkpoint):
     assert session.serving_contract["deployment_target_manifest"]["deployed_runtime"][
         "hero_terminal"
     ]
+
+
+def test_v3_direct_raster_policy_requires_explicit_normalization(v3_checkpoint):
+    agent = InferenceAgent.from_checkpoint(v3_checkpoint, device=torch.device("cpu"))
+    with pytest.raises(ValueError, match="explicit validated normalization"):
+        RasterServingPolicy(agent)
+    policy = RasterServingPolicy(
+        agent, normalization={"max_frames": 5000, "starvation_max": 500, "max_length": 150}
+    )
+    assert policy.obs_spec == RASTER31V3
 
 
 def test_bad_v3_descriptor_rejects_without_replacing_existing_session(v3_checkpoint, tmp_path):
@@ -223,9 +247,9 @@ def test_bad_v3_normalization_rejects_before_mutating_session(
 def test_v3_advisory_empty_uses_legal_boost_and_id_keyed_row(v3_checkpoint):
     """The human does not consume row 0 and an empty advisory keeps legal boost."""
     session = GameSession(checkpoint=v3_checkpoint)
-    session.set_play_opponents(2)
+    session.set_play_opponents(5)
     session.set_mode("play")
-    human, first_ai, second_ai = session.game.snakes
+    human, first_ai, second_ai = session.game.snakes[:3]
     first_ai.length = 6
     first_ai._get_safe_actions = lambda *_args, **_kwargs: []
 

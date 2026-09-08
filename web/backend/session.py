@@ -89,6 +89,11 @@ def _validate_v3_serving_checkpoint(
         raise ValueError("raster31v3 checkpoint has an invalid effective_world digest")
     if effective_world.arena_type != "rectangular":
         raise ValueError("raster31v3 serving supports rectangular arenas only")
+    if not (
+        math.isclose(effective_world.kill_scale, 0.3)
+        and math.isclose(effective_world.death_value, -3.0)
+    ):
+        raise ValueError("promotion-v2-watch-rect requires canonical kill_scale=0.3/death_value=-3")
     normalization_args = _v3_normalization_args(effective_world)
 
     runtime = blob.get("runtime_contract")
@@ -292,22 +297,19 @@ def _deployment_target_manifest(
     """Describe the sole supported watch deployment derived from source world."""
     source = {field.name: getattr(world, field.name) for field in fields(world)}
     source["normalization"] = dict(world.normalization)
-    deployed = dict(source)
-    deployed["frame_rate"] = 1
-    deployed_world = EffectiveWorldConfig(**deployed)
-    deployed_descriptor = {
-        field.name: getattr(deployed_world, field.name) for field in fields(deployed_world)
-    }
-    deployed_descriptor["normalization"] = dict(deployed_world.normalization)
+    deployed_descriptor = dict(source)
+    deployed_descriptor.update(
+        {"schema": "live_game_world_v1", "engine": "live", "frame_rate": 1, "max_capacity": None}
+    )
     return {
         "checkpoint_sha256": checkpoint_sha256,
         "deployment_profile": V3_DEPLOYMENT_PROFILE,
         "source_world": source,
         "source_world_digest": world.digest,
         "deployed_world": deployed_descriptor,
-        "deployed_world_digest": deployed_world.digest,
+        "deployed_world_digest": canonical_digest(deployed_descriptor),
         "source_normalization": dict(world.normalization),
-        "deployed_normalization": dict(deployed_world.normalization),
+        "deployed_normalization": dict(world.normalization),
         "deployed_runtime": {
             "mode": mode,
             "training": False,
@@ -316,7 +318,14 @@ def _deployment_target_manifest(
             "population_floor": False,
             "reset_strategy": "episode",
         },
-        "distribution_differences": {"frame_rate": {"source": world.frame_rate, "deployed": 1}},
+        "distribution_differences": {
+            "frame_rate": {"source": world.frame_rate, "deployed": 1},
+            "storage_adapter": {
+                "source_max_capacity": world.max_capacity,
+                "deployed_max_capacity": None,
+                "note": "live GameState has no SIMD ring-buffer capacity",
+            },
+        },
     }
 
 
@@ -444,6 +453,14 @@ class GameSession:
         config_path = _config_for(input_size)
         if v3_metadata is not None:
             world = EffectiveWorldConfig(**v3_metadata["effective_world"])
+            if (
+                mode == MODE_PLAY
+                and self.play_opponents is not None
+                and self.play_opponents != world.num_snakes - 1
+            ):
+                raise ValueError(
+                    "promotion-v2-watch-rect Play roster is pinned to checkpoint num_snakes"
+                )
             initialize_config(_v3_serving_config(world))
             config_path = V3_DEPLOYMENT_PROFILE
         else:
@@ -488,6 +505,8 @@ class GameSession:
         num_snakes = GameConfig.NUM_SNAKES
         if human and self.play_opponents is not None:
             num_snakes = max(2, min(12, int(self.play_opponents) + 1))
+        elif human and v3_metadata is not None:
+            num_snakes = world.num_snakes
         game = GameState(
             headless=True,
             num_snakes=num_snakes,
@@ -631,6 +650,13 @@ class GameSession:
         """
         with self._lock:
             target = max(0, min(1000, int(target)))
+            if self.obs_spec == RASTER31V3:
+                expected = int(getattr(self.game.food_manager, "max_food", target))
+                if target != expected:
+                    raise ValueError(
+                        "promotion-v2-watch-rect food target is pinned to checkpoint world"
+                    )
+                return
             fm = self.game.food_manager
             fm.max_food = target
             # reset() / new spawns read these effective counts on the GameState.
@@ -807,7 +833,14 @@ class GameSession:
         except to remember the choice for the next time play mode is entered.
         """
         with self._lock:
-            self.play_opponents = max(1, min(11, int(count)))
+            requested = max(1, min(11, int(count)))
+            if self.obs_spec == RASTER31V3:
+                required = int(GameConfig.NUM_SNAKES) - 1
+                if requested != required:
+                    raise ValueError(
+                        "promotion-v2-watch-rect Play roster is pinned to checkpoint num_snakes"
+                    )
+            self.play_opponents = requested
             if self.mode == MODE_PLAY:
                 self._build(self.checkpoint_path, mode=MODE_PLAY)
 

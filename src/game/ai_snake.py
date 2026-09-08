@@ -15,7 +15,8 @@ from src.core.game_config import GameConfig
 from src.game.game_logic import GameLogic
 from src.game.snake import Snake
 from src.model.checkpoint_manager import CheckpointManager
-from src.training.action_mask import INVALID_Q_VALUE, action_mask_from_safe_actions
+from src.training.action_mask import (INVALID_Q_VALUE,
+                                      action_mask_from_safe_actions)
 
 if TYPE_CHECKING:
     from src.training.apex_policy import ApexPolicy
@@ -185,6 +186,7 @@ class AISnake(Snake):
         self.last_reward = 0.0
         self.last_next_state = None
         self.last_next_action_mask = None
+        self.last_next_action_mask_semantics = None
         self.last_done = False
         self.last_transition_frame = None
         self._total_reward = 0
@@ -598,6 +600,7 @@ class AISnake(Snake):
         self.last_reward = reward
         self.last_next_state = next_state
         self.last_next_action_mask = next_action_mask
+        self.last_next_action_mask_semantics = self.next_action_mask_semantics
         self.last_done = collided
         self.last_transition_frame = self._get_frame()
         self._total_reward += reward
@@ -714,6 +717,7 @@ class AISnake(Snake):
         self.last_reward = 0.0
         self.last_next_state = None
         self.last_next_action_mask = None
+        self.last_next_action_mask_semantics = None
         self.last_done = False
         self.last_transition_frame = None
         self._carried_selection = None
@@ -752,6 +756,7 @@ class AISnake(Snake):
         self.last_reward = 0.0
         self.last_next_state = None
         self.last_next_action_mask = None
+        self.last_next_action_mask_semantics = None
         self.last_done = False
         self.last_transition_frame = None
         self._carried_selection = None
@@ -847,7 +852,8 @@ class AISnake(Snake):
             if "memories" in checkpoint and checkpoint["memories"]:
                 if hasattr(self.policy, "memory") and hasattr(self.policy.memory, "add"):
                     try:
-                        from src.training.replay_buffer import restore_replay_memories
+                        from src.training.replay_buffer import \
+                            restore_replay_memories
 
                         restore_replay_memories(
                             self.policy.memory,
