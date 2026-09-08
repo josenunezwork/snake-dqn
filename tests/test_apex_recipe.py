@@ -24,7 +24,11 @@ def _recipe_and_optimizer() -> tuple[ApexRecipe, torch.optim.Optimizer]:
         world={"width": 290, "height": 170, "num_snakes": 6, "mechanics_version": 1},
         runtime={"mode": "apex_train", "training": True, "respawn": True},
         actor_scaling={"num_actors": 2, "board_scale": 0.2, "food_multiplier": 0.5},
-        seed_identity={"effective_seed": 0, "actor_namespace": "seed+actor_id"},
+        seed_identity={
+            "requested_seed": None,
+            "effective_seed": 789,
+            "actor_namespace": "seed+actor_id",
+        },
         batch_size=512,
         replay_capacity=1_000_000,
         min_replay_size=50_000,
@@ -110,6 +114,22 @@ def test_distributed_continuation_accepts_nonzero_checkpoint_beta_clock() -> Non
     )
     assert requested.digest == recipe.digest
     validate_recipe_continuation(checkpoint, requested, weights_only=False, optimizer=optimizer)
+
+
+def test_omitted_seed_continuation_accepts_hydrated_verified_seed_manifest() -> None:
+    """An entropy-seeded run resumes with its persisted identity, not new entropy."""
+    recipe, optimizer = _recipe_and_optimizer()
+    checkpoint = _checkpoint(recipe, optimizer)
+    checkpoint["step_count"] = 7
+    hydrated = ApexRecipe(
+        **recipe.semantic_dict(), runtime_provenance={"initial_beta_clock": 7}
+    )
+    assert hydrated.seeding_contract == {
+        "requested_seed": None,
+        "effective_seed": 789,
+        "actor_namespace": "seed+actor_id",
+    }
+    validate_recipe_continuation(checkpoint, hydrated, weights_only=False, optimizer=optimizer)
 
 
 def test_optimizer_continuation_rejects_malformed_adam_state_before_load() -> None:
