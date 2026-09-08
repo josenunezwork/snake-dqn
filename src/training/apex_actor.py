@@ -1211,7 +1211,8 @@ class ApexActor(mp.Process):
                 if experience.next_action_mask_mode == MASK_MODE_RASTER_RESOLVED_V3:
                     self.sent_exact_mask_count += 1
                 if not experience.done:
-                    self.sent_nonterminal_exact_mask_count += 1
+                    if experience.next_action_mask_mode == MASK_MODE_RASTER_RESOLVED_V3:
+                        self.sent_nonterminal_exact_mask_count += 1
                     if not bool(np.asarray(experience.next_action_mask, dtype=np.bool_).any()):
                         self.sent_nonterminal_trapped_next_count += 1
             if experience.reward > 0.0:

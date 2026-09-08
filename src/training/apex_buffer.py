@@ -55,6 +55,8 @@ def _validate_replay_mask_row(next_state, done, mask, mode) -> int:
     mode = validate_mask_mode(mode)
     if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR and not done:
         raise ValueError("terminal_no_successor mode requires done=True")
+    if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR and mask is not None:
+        raise ValueError("terminal_no_successor mode requires no next_action_mask")
     if done and mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1}:
         raise ValueError("explicit nonterminal mask mode requires done=False")
     if mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1} and mask is None:
