@@ -16,6 +16,12 @@ from src.data.memory_db_handler import (
     resolve_replay_quality_fraction,
     validate_replay_quality_gates,
 )
+from src.training.td_targets import (
+    MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_RASTER_RESOLVED_V3,
+    MASK_MODE_TERMINAL_NO_SUCCESSOR,
+)
 from src.utils.tensor_utils import memories_to_dicts
 
 
@@ -205,6 +211,69 @@ class TestMemoryDBHandler:
         handler.cursor.execute("SELECT next_action_mask FROM memories_standard")
         assert handler.cursor.fetchone()[0] == 0
         handler.close()
+
+    def test_save_and_load_explicit_mask_modes_when_requested(self, temp_db):
+        """SQLite persists advisory, resolved, and terminal semantics row-wise."""
+        handler = MemoryDBHandler(temp_db)
+        handler.save_memories(
+            snake_id=0,
+            memories=[
+                make_memory(
+                    next_action_mask=[True, False, False, False, False, False],
+                    next_action_mask_mode=MASK_MODE_LEGACY_ADVISORY,
+                ),
+                make_memory(
+                    next_action_mask=[False, True, False, False, False, False],
+                    next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
+                ),
+                make_memory(
+                    done=True,
+                    next_action_mask_mode=MASK_MODE_TERMINAL_NO_SUCCESSOR,
+                ),
+            ],
+        )
+
+        rows = handler.load_memories_for_policy(
+            "apex",
+            limit=None,
+            order_by="id",
+            include_action_masks=True,
+            include_action_mask_modes=True,
+        )
+
+        assert rows[7] == [
+            (True, False, False, False, False, False),
+            (False, True, False, False, False, False),
+            None,
+        ]
+        assert rows[8] == [
+            MASK_MODE_LEGACY_ADVISORY,
+            MASK_MODE_RASTER_RESOLVED_V3,
+            MASK_MODE_TERMINAL_NO_SUCCESSOR,
+        ]
+        handler.close()
+
+    def test_mask_load_without_modes_rejects_explicit_semantics(self, temp_db):
+        """A mask-aware caller cannot silently downgrade resolved rows to legacy advice."""
+        handler = MemoryDBHandler(temp_db)
+        try:
+            handler.save_memories(
+                snake_id=0,
+                memories=[
+                    make_memory(
+                        next_action_mask=[True, False, False, False, False, False],
+                        next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
+                    )
+                ],
+            )
+
+            with pytest.raises(RuntimeError, match="include_action_mask_modes=True"):
+                handler.load_memories_for_policy(
+                    "apex",
+                    include_action_masks=True,
+                )
+        finally:
+            handler.close()
 
     def test_replay_quality_uses_empty_exact_mask_for_trapped_next_state(self, temp_db):
         """Exact empty masks should mark trapped targets even when state features look safe."""
@@ -997,8 +1066,8 @@ class TestMemoryDBHandler:
         assert stats["snake_rows_max"] == 3
         assert stats["dominant_snake_fraction"] == pytest.approx(0.75)
 
-    def test_save_migrates_existing_db_with_next_action_mask_column(self, temp_db):
-        """Older databases should gain the nullable next_action_mask column."""
+    def test_save_migrates_existing_db_with_replay_mask_columns(self, temp_db):
+        """Older databases gain mask fields with conservative advisory semantics."""
         import sqlite3
 
         conn = sqlite3.connect(temp_db)
@@ -1016,6 +1085,16 @@ class TestMemoryDBHandler:
                 bootstrap_steps INTEGER DEFAULT 1
             )
             """)
+        state_blob = struct.pack(f"<{STATE_SIZE}f", *make_state())
+        conn.execute(
+            """
+            INSERT INTO memories_standard
+                (snake_id, policy_type, state, action, reward, next_state, done,
+                 priority, bootstrap_steps)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (0, "apex", state_blob, 0, 0.0, state_blob, 0, 1.0, 1),
+        )
         conn.commit()
         conn.close()
 
@@ -1024,6 +1103,15 @@ class TestMemoryDBHandler:
             handler.cursor.execute("PRAGMA table_info(memories_standard)")
             columns = {row[1] for row in handler.cursor.fetchall()}
             assert "next_action_mask" in columns
+            assert "next_action_mask_mode" in columns
+            handler.save_memories(snake_id=0, memories=[make_memory()])
+            modes = handler.cursor.execute(
+                "SELECT next_action_mask_mode FROM memories_standard ORDER BY id"
+            ).fetchall()
+            assert modes == [
+                (MASK_MODE_LEGACY_ADVISORY,),
+                (MASK_MODE_LEGACY_ADVISORY,),
+            ]
         finally:
             handler.close()
 
@@ -1446,6 +1534,53 @@ class TestMemoryDBHandler:
         finally:
             handler.close()
 
+    def test_load_rejects_unknown_stored_mask_mode(self, temp_db):
+        """Reader validates the closed mode registry even for externally written rows."""
+        handler = MemoryDBHandler(temp_db)
+        try:
+            handler.save_memories(snake_id=0, memories=[make_memory()])
+            handler.cursor.execute("PRAGMA ignore_check_constraints = ON")
+            handler.cursor.execute("UPDATE memories_standard SET next_action_mask_mode = 99")
+            handler.conn.commit()
+
+            with pytest.raises(
+                ValueError, match="Stored replay row.*unknown next_action_mask_mode"
+            ):
+                handler.load_memories_for_policy(
+                    "apex",
+                    limit=None,
+                    include_action_masks=True,
+                    include_action_mask_modes=True,
+                )
+        finally:
+            handler.close()
+
+    def test_load_rejects_domain_illegal_resolved_mask(self, temp_db):
+        """Reader does not trust a resolved-mode label on impossible boost controls."""
+        handler = MemoryDBHandler(temp_db)
+        try:
+            handler.save_memories(
+                snake_id=0,
+                memories=[
+                    make_memory(
+                        next_action_mask=[True, False, False, False, False, False],
+                        next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
+                    )
+                ],
+            )
+            handler.cursor.execute("UPDATE memories_standard SET next_action_mask = ?", (1 << 3,))
+            handler.conn.commit()
+
+            with pytest.raises(ValueError, match="Stored replay row.*domain-illegal"):
+                handler.load_memories_for_policy(
+                    "apex",
+                    limit=None,
+                    include_action_masks=True,
+                    include_action_mask_modes=True,
+                )
+        finally:
+            handler.close()
+
     def test_memories_to_dicts_preserves_next_action_mask(self):
         """Policy replay export should keep exact masks for SQLite persistence."""
         mask = torch.tensor([False, True, False, False, False, False])
@@ -1482,6 +1617,85 @@ class TestMemoryDBHandler:
 
         assert memory["stream_id"] == 7
         assert memory["snake_id"] == 7
+
+    @pytest.mark.parametrize("tuple_size", [6, 7, 8, 9])
+    def test_memories_to_dicts_labels_old_tuple_layouts_legacy_advisory(self, tuple_size):
+        """Historical inline checkpoints never acquire resolved-mask authority."""
+        values = [
+            torch.zeros(STATE_SIZE),
+            1,
+            1.0,
+            torch.ones(STATE_SIZE),
+            False,
+            1.0,
+            2,
+            torch.tensor([True, False, False, False, False, False]),
+            7,
+        ]
+
+        memory = memories_to_dicts([tuple(values[:tuple_size])])[0]
+
+        assert memory["next_action_mask_mode"] == MASK_MODE_LEGACY_ADVISORY
+
+    @pytest.mark.parametrize(
+        ("overrides", "match"),
+        [
+            (
+                {"next_action_mask_mode": MASK_MODE_RASTER_RESOLVED_V3},
+                "explicit mask mode requires a six-action mask",
+            ),
+            (
+                {
+                    "next_action_mask_mode": MASK_MODE_RASTER_RESOLVED_V3,
+                    "next_action_mask": [False] * 6,
+                },
+                "cannot be all false",
+            ),
+            (
+                {
+                    "next_action_mask_mode": MASK_MODE_RASTER_RESOLVED_V3,
+                    "next_action_mask": [False, False, False, True, False, False],
+                },
+                "domain-illegal",
+            ),
+            (
+                {
+                    "done": True,
+                    "next_action_mask_mode": MASK_MODE_RASTER_RESOLVED_V3,
+                    "next_action_mask": [True, False, False, False, False, False],
+                },
+                "explicit nonterminal mask mode requires done=False",
+            ),
+            (
+                {"done": False, "next_action_mask_mode": MASK_MODE_TERMINAL_NO_SUCCESSOR},
+                "requires done=True",
+            ),
+            (
+                {
+                    "done": True,
+                    "next_action_mask_mode": MASK_MODE_TERMINAL_NO_SUCCESSOR,
+                    "next_action_mask": [True, False, False, False, False, False],
+                },
+                "cannot carry a nonempty mask",
+            ),
+            (
+                {"next_action_mask_mode": MASK_MODE_DATASET_VECTOR_ADVISORY_V1},
+                "explicit mask mode requires a six-action mask",
+            ),
+            (
+                {
+                    "done": True,
+                    "next_action_mask_mode": MASK_MODE_DATASET_VECTOR_ADVISORY_V1,
+                    "next_action_mask": [True, False, False, False, False, False],
+                },
+                "explicit nonterminal mask mode requires done=False",
+            ),
+            ({"next_action_mask_mode": 99}, "unknown next_action_mask_mode"),
+        ],
+    )
+    def test_save_rejects_inconsistent_mask_mode_rows(self, temp_db, overrides, match):
+        """Persistence ingress rejects mask data that contradicts its authority tag."""
+        assert_rejects_memory(temp_db, make_memory(**overrides), match)
 
     def test_load_memories_can_include_snake_ids(self, temp_db):
         """Parallel merge can preserve per-row snake ownership from worker DBs."""

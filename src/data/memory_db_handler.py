@@ -52,6 +52,8 @@ from src.data.replay_quality import (
     validate_replay_metadata_contract,
     validate_replay_quality_gates,
 )
+from src.training.td_targets import MASK_MODE_LEGACY_ADVISORY
+from src.utils.tensor_utils import validate_replay_mask_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +138,9 @@ class MemoryDBHandler:
                 done INTEGER,
                 priority REAL DEFAULT 1.0,
                 bootstrap_steps INTEGER DEFAULT 1,
-                next_action_mask INTEGER
+                next_action_mask INTEGER,
+                next_action_mask_mode INTEGER NOT NULL DEFAULT 0
+                    CHECK (next_action_mask_mode IN (0, 1, 2, 3))
             )
         """)
 
@@ -167,6 +171,13 @@ class MemoryDBHandler:
             self.conn.commit()
         if "next_action_mask" not in columns:
             self.cursor.execute("ALTER TABLE memories_standard ADD COLUMN next_action_mask INTEGER")
+            self.conn.commit()
+        if "next_action_mask_mode" not in columns:
+            self.cursor.execute(
+                "ALTER TABLE memories_standard "
+                "ADD COLUMN next_action_mask_mode INTEGER NOT NULL DEFAULT 0 "
+                "CHECK (next_action_mask_mode IN (0, 1, 2, 3))"
+            )
             self.conn.commit()
 
     def _migrate_legacy_table(self):
@@ -312,6 +323,7 @@ class MemoryDBHandler:
         order_by: str = "priority",
         include_action_masks: bool = False,
         include_snake_ids: bool = False,
+        include_action_mask_modes: bool = False,
     ):
         """
         Load memories for the Apex-DQN policy.
@@ -324,6 +336,9 @@ class MemoryDBHandler:
             include_action_masks: If True, append optional next_action_masks
                 to the returned tuple.
             include_snake_ids: If True, append row snake IDs to the returned tuple.
+            include_action_mask_modes: If True, append closed numeric mask modes
+                after next_action_masks and before snake IDs. Requires
+                include_action_masks=True.
 
         Returns:
             Tuple of (states, actions, rewards, next_states, dones, priorities,
@@ -335,6 +350,7 @@ class MemoryDBHandler:
             limit,
             order_by=order_by,
             include_action_masks=include_action_masks,
+            include_action_mask_modes=include_action_mask_modes,
             include_snake_ids=include_snake_ids,
         )
 
@@ -359,7 +375,13 @@ class MemoryDBHandler:
             done = _coerce_done(memory["done"])
             priority = _coerce_priority(memory.get("priority", 1.0))
             bootstrap_steps = _coerce_bootstrap_steps(memory.get("bootstrap_steps", 1))
-            next_action_mask = _coerce_action_mask(memory.get("next_action_mask"))
+            next_action_mask_mode, normalized_mask = validate_replay_mask_metadata(
+                done,
+                memory["next_state"],
+                memory.get("next_action_mask"),
+                memory.get("next_action_mask_mode", MASK_MODE_LEGACY_ADVISORY),
+            )
+            next_action_mask = _coerce_action_mask(normalized_mask)
 
             state_bytes = _encode_state_blob(memory["state"], "state", state_size)
             next_state_bytes = _encode_state_blob(memory["next_state"], "next_state", state_size)
@@ -376,6 +398,7 @@ class MemoryDBHandler:
                     priority,
                     bootstrap_steps,
                     next_action_mask,
+                    next_action_mask_mode,
                 )
             )
 
@@ -384,9 +407,10 @@ class MemoryDBHandler:
             INSERT INTO memories_standard
                 (
                     snake_id, policy_type, state, action, reward,
-                    next_state, done, priority, bootstrap_steps, next_action_mask
+                    next_state, done, priority, bootstrap_steps, next_action_mask,
+                    next_action_mask_mode
                 )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             rows,
         )
@@ -400,6 +424,7 @@ class MemoryDBHandler:
         order_by: str = "priority",
         include_action_masks: bool = False,
         include_snake_ids: bool = False,
+        include_action_mask_modes: bool = False,
     ):
         """
         Load standard format memories.
@@ -413,6 +438,9 @@ class MemoryDBHandler:
                 spaced subset when limit is smaller than the matching row count.
             include_action_masks: Whether to append optional next_action_masks.
             include_snake_ids: Whether to append row snake IDs.
+            include_action_mask_modes: Whether to append closed numeric mask
+                modes after next_action_masks and before snake IDs. Requires
+                include_action_masks.
 
         Returns:
             Tuple of (states, actions, rewards, next_states, dones, priorities,
@@ -420,6 +448,8 @@ class MemoryDBHandler:
         """
         if order_by not in {"priority", "id", "id_uniform"}:
             raise ValueError("order_by must be one of 'priority', 'id', or 'id_uniform'")
+        if include_action_mask_modes and not include_action_masks:
+            raise ValueError("include_action_mask_modes requires include_action_masks=True")
 
         table = self._replay_table_for_read()
         columns = self._table_columns(table)
@@ -439,6 +469,11 @@ class MemoryDBHandler:
             "priority" if "priority" in columns else "1.0 AS priority",
             "bootstrap_steps" if "bootstrap_steps" in columns else "1 AS bootstrap_steps",
             "next_action_mask" if "next_action_mask" in columns else "NULL AS next_action_mask",
+            (
+                "next_action_mask_mode"
+                if "next_action_mask_mode" in columns
+                else f"{MASK_MODE_LEGACY_ADVISORY} AS next_action_mask_mode"
+            ),
         )
         select_clause = f'SELECT {", ".join(expressions)} FROM "{table}"'
         where_clause = " WHERE 1=1"
@@ -486,6 +521,7 @@ class MemoryDBHandler:
         priorities = []
         bootstrap_steps = []
         next_action_masks = []
+        next_action_mask_modes = []
         snake_ids = []
         state_size = self._state_size_for_codec()
 
@@ -493,7 +529,8 @@ class MemoryDBHandler:
             try:
                 # Row format:
                 # id, snake_id, policy_type, state, action, reward,
-                # next_state, done, priority, bootstrap_steps, next_action_mask
+                # next_state, done, priority, bootstrap_steps, next_action_mask,
+                # next_action_mask_mode
                 state_data = _decode_state_blob(row[3], "state", state_size)
                 next_state_data = _decode_state_blob(row[6], "next_state", state_size)
                 action = _coerce_action(row[4])
@@ -502,6 +539,12 @@ class MemoryDBHandler:
                 priority = _coerce_priority(row[8])
                 steps = _coerce_bootstrap_steps(row[9])
                 next_action_mask = _decode_action_mask(row[10])
+                next_action_mask_mode, _ = validate_replay_mask_metadata(
+                    done,
+                    next_state_data,
+                    next_action_mask,
+                    row[11],
+                )
 
                 states.append(state_data)
                 actions.append(action)
@@ -511,6 +554,7 @@ class MemoryDBHandler:
                 priorities.append(priority)
                 bootstrap_steps.append(steps)
                 next_action_masks.append(next_action_mask)
+                next_action_mask_modes.append(next_action_mask_mode)
                 snake_ids.append(int(row[1]))
             except ValueError as e:
                 raise ValueError(f"Stored replay row {row[0]} is invalid: {e}") from e
@@ -527,6 +571,15 @@ class MemoryDBHandler:
         )
         if include_action_masks:
             result = (*result, next_action_masks)
+        if include_action_mask_modes:
+            result = (*result, next_action_mask_modes)
+        elif include_action_masks and any(
+            mode != MASK_MODE_LEGACY_ADVISORY for mode in next_action_mask_modes
+        ):
+            raise RuntimeError(
+                "Replay rows contain explicit next_action_mask_mode values; "
+                "reload with include_action_mask_modes=True"
+            )
         if include_snake_ids:
             result = (*result, snake_ids)
         return result
