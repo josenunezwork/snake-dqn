@@ -8,6 +8,7 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 import argparse
 import pickle
 import random
+import hashlib
 import shutil
 import sys
 import tempfile
@@ -259,6 +260,12 @@ def save_training_checkpoint(
         key=lambda snake: float(getattr(snake, "total_reward", 0.0)),
     )
     current_best.save_state(str(checkpoint_path))
+    policy = getattr(current_best, "policy", None)
+    resume_parent = getattr(policy, "_resume_parent", None)
+    if resume_parent is not None:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        checkpoint["resume_parent"] = dict(resume_parent)
+        torch.save(checkpoint, checkpoint_path)
 
     if curriculum is not None and env_id is not None:
         curriculum_path = get_env_curriculum_checkpoint_path(env_id)
@@ -1047,6 +1054,12 @@ def train_environment(
                 raise RuntimeError(
                     f"Could not load headless training checkpoint: {checkpoint_path}"
                 )
+            source_path = resolve_checkpoint_path(checkpoint_path)
+            if policy is not None and source_path is not None:
+                policy._resume_parent = {
+                    "source_content_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+                    "rng_state_restored": False,
+                }
             if eval_mode:
                 configure_eval_game_state(game_state)
         if replay_db_path:
