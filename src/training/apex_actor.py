@@ -316,6 +316,7 @@ class ApexActor(mp.Process):
         opponent_pool_dir: Optional[str] = None,
         pool_latest_fraction: Optional[float] = None,
         config_path: Optional[str] = None,
+        progress_report_interval_frames: int = 8,
     ):
         """
         Initialize Ape-X Actor.
@@ -361,6 +362,8 @@ class ApexActor(mp.Process):
                 snake slot runs the shared latest policy instead of a frozen
                 pool checkpoint. None uses GameConfig.APEX_POOL_LATEST_FRACTION
                 (default 0.8). The hero slot always runs the latest policy.
+            progress_report_interval_frames: Maximum actor frames between
+                heartbeat/counter reports, which bounds frame-budget in-flight work.
         """
         super(ApexActor, self).__init__()
 
@@ -441,6 +444,12 @@ class ApexActor(mp.Process):
         self.sent_nonterminal_trapped_next_count = 0
         self.dropped_missing_next_state_count = 0
         self.sent_action_counts = [0 for _ in range(GameConfig.OUTPUT_SIZE)]
+        # The coordinator uses these process-local values to distinguish a live
+        # actor that is making progress from one that has silently stalled.
+        self.policy_version = 0
+        self._last_heartbeat_monotonic = 0.0
+        self.heartbeat_interval_seconds = 1.0
+        self.progress_report_interval_frames = max(1, int(progress_report_interval_frames))
 
         # Compute actor-specific epsilon using Ape-X formula
         self.epsilon = compute_actor_epsilon(actor_id, num_actors, base_epsilon, epsilon_alpha)
@@ -545,6 +554,7 @@ class ApexActor(mp.Process):
                 # Run one episode
                 episode_reward, episode_steps, experiences = self._run_episode(
                     stream_to_buffer=True,
+                    total_steps_before_episode=total_steps,
                 )
 
                 # Add experiences to buffer
@@ -582,6 +592,11 @@ class ApexActor(mp.Process):
                         f"[Actor {self.actor_id}] Episode {episode} | "
                         f"Avg Reward: {avg_reward:.2f} | Steps: {total_steps}"
                     )
+                elif (
+                    time.monotonic() - self._last_heartbeat_monotonic
+                    >= self.heartbeat_interval_seconds
+                ):
+                    self._send_stats(episode, float(np.mean(rewards_history)), total_steps)
 
             # Send remaining experiences
             if experience_buffer:
@@ -755,7 +770,11 @@ class ApexActor(mp.Process):
 
         self._episode_frozen_opponent_count = len(self._episode_frozen_snake_ids)
 
-    def _run_episode(self, stream_to_buffer: bool = False) -> Tuple[float, int, List[Experience]]:
+    def _run_episode(
+        self,
+        stream_to_buffer: bool = False,
+        total_steps_before_episode: int = 0,
+    ) -> Tuple[float, int, List[Experience]]:
         """
         Run a single episode and collect experiences.
 
@@ -766,6 +785,8 @@ class ApexActor(mp.Process):
         Args:
             stream_to_buffer: Whether to send full actor batches during the
                 episode instead of waiting for the whole episode to finish.
+            total_steps_before_episode: Actor transition count before this
+                episode, used only for bounded-progress telemetry.
 
         Returns:
             Tuple of (episode_reward, episode_steps, unsent experiences)
@@ -868,6 +889,12 @@ class ApexActor(mp.Process):
 
                 episode_reward += reward
             episode_steps += 1
+            if episode_steps % self.progress_report_interval_frames == 0:
+                self._send_stats(
+                    episode=0,
+                    avg_reward=episode_reward,
+                    total_steps=total_steps_before_episode + episode_steps,
+                )
 
             # Mechanics-v2 population floor (blueprint §1.7): end the episode
             # once too few snakes remain, instead of farming lone-survivor
@@ -1157,6 +1184,7 @@ class ApexActor(mp.Process):
         if applied_update:
             # Also sync the freshest weights into the snake's policy.
             self._sync_snake_policy_weights()
+            self.policy_version += 1
         return applied_update
 
     def _sync_weights_from_shared(self) -> None:
@@ -1167,6 +1195,8 @@ class ApexActor(mp.Process):
 
     def _send_stats(self, episode: int, avg_reward: float, total_steps: int) -> None:
         """Send actor statistics to coordinator."""
+        heartbeat_monotonic = time.monotonic()
+        self._last_heartbeat_monotonic = heartbeat_monotonic
         sent_count = max(1, self.sent_experience_count)
         nonterminal_count = max(1, self.sent_nonterminal_count)
         replay_candidate_count = max(
@@ -1201,6 +1231,10 @@ class ApexActor(mp.Process):
             "episode": episode,
             "avg_reward": avg_reward,
             "total_steps": total_steps,
+            "environment_transitions": total_steps,
+            "replay_rows_emitted": self.sent_experience_count,
+            "policy_version": self.policy_version,
+            "heartbeat_monotonic": heartbeat_monotonic,
             "epsilon": self.epsilon,
             "sent_experience_count": self.sent_experience_count,
             "sent_action_counts": list(self.sent_action_counts),
@@ -1339,9 +1373,19 @@ def stop_actors(actors: List[ApexActor], timeout: float = 5.0) -> None:
         actors: List of ApexActor processes
         timeout: Maximum time to wait for each actor to terminate
     """
+    survivors = []
     for actor in actors:
         if actor.is_alive():
             actor.join(timeout=timeout)
         if actor.is_alive():
             actor.terminate()
             actor.join(timeout=timeout)
+        if actor.is_alive():
+            kill = getattr(actor, "kill", None)
+            if callable(kill):
+                kill()
+                actor.join(timeout=timeout)
+        if actor.is_alive():
+            survivors.append(actor)
+    if survivors:
+        raise RuntimeError(f"failed to stop {len(survivors)} Apex actor process(es)")

@@ -13,6 +13,7 @@ from src.scripts.apex_train import (
     broadcast_weights,
     build_actor_replay_quality_gates,
     build_apex_checkpoint_config,
+    build_apex_runtime_snapshot,
     collect_buffer_replay_health,
     format_actor_replay_summary,
     format_actor_replay_warnings,
@@ -24,6 +25,7 @@ from src.scripts.apex_train import (
     log_learner_sample_health,
     resolve_actor_replay_quality_fraction,
     resolve_apex_min_buffer_size,
+    resolve_apex_run_budgets,
     should_report_buffer_replay_warnings,
     should_report_learner_sample_warnings,
     summarize_actor_replay_coverage,
@@ -33,6 +35,58 @@ from src.scripts.apex_train import (
     validate_apex_resume_checkpoint_config,
     validate_apex_training_config,
 )
+
+
+def test_total_steps_remains_learner_update_budget_alias():
+    """Existing API callers retain the original update-count interpretation."""
+    budgets = resolve_apex_run_budgets(total_steps=12)
+
+    assert budgets.max_learner_updates == 12
+    assert budgets.max_environment_transitions is None
+
+
+def test_explicit_apex_work_budgets_are_recorded_separately():
+    """Actor frames cannot silently masquerade as learner updates."""
+    budgets = resolve_apex_run_budgets(
+        total_steps=12,
+        max_learner_updates=12,
+        max_environment_transitions=80,
+        max_wall_time_seconds=3.5,
+    )
+
+    assert budgets.max_learner_updates == 12
+    assert budgets.max_environment_transitions == 80
+    assert budgets.max_wall_time_seconds == pytest.approx(3.5)
+
+
+def test_conflicting_learner_budget_aliases_fail_before_runtime_setup():
+    """Two different update ceilings would make a completed run ambiguous."""
+    with pytest.raises(ValueError, match="must match"):
+        resolve_apex_run_budgets(total_steps=12, max_learner_updates=13)
+
+
+def test_runtime_snapshot_reconciles_latest_actor_counters():
+    """Coordinator telemetry preserves actor work, replay and learner counters."""
+    snapshot = build_apex_runtime_snapshot(
+        learner_updates=7,
+        actor_stats=[
+            {
+                "environment_transitions": 11,
+                "replay_rows_emitted": 9,
+                "policy_version": 2,
+            },
+            {"total_steps": 13, "sent_experience_count": 10, "policy_version": 3},
+        ],
+        buffer_replay_health={"total_sampled": 14},
+        elapsed_seconds=2.0,
+        actor_heartbeat_ages={0: 0.1, 1: 0.2},
+    )
+
+    assert snapshot.learner_updates == 7
+    assert snapshot.environment_transitions == 24
+    assert snapshot.replay_rows_emitted == 19
+    assert snapshot.learner_samples == 14
+    assert snapshot.policy_version == 3
 
 
 def test_resolve_configurable_prefers_explicit_value():

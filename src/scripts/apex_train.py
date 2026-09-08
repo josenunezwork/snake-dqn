@@ -54,6 +54,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig  # noqa: E402
 from src.core.reward_contract import current_reward_contract  # noqa: E402
+from src.training.apex_runtime import (  # noqa: E402
+    ApexRunBudgets,  # noqa: E402
+    ApexRuntimeSnapshot,
+    ApexRuntimeSupervisor,
+    stop_processes,
+)
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
 
 if TYPE_CHECKING:
@@ -124,6 +130,78 @@ def resolve_apex_min_buffer_size(
 
     capped_target = min(configured_min_buffer_size, max(batch_size, buffer_capacity // 2))
     return max(batch_size, min(capped_target, buffer_capacity))
+
+
+def resolve_apex_run_budgets(
+    total_steps: int,
+    max_learner_updates: Optional[int] = None,
+    max_environment_transitions: Optional[int] = None,
+    max_wall_time_seconds: Optional[float] = None,
+) -> ApexRunBudgets:
+    """Resolve explicit Ape-X work budgets.
+
+    ``--total-steps`` remains the compatibility spelling for the learner-update
+    ceiling.  Supplying both spellings with different values is ambiguous and
+    therefore rejected before child processes are created.
+    """
+    if max_learner_updates is not None and int(max_learner_updates) != int(total_steps):
+        raise ValueError("total_steps and max_learner_updates must match when both are set")
+    return ApexRunBudgets(
+        max_learner_updates=int(
+            total_steps if max_learner_updates is None else max_learner_updates
+        ),
+        max_environment_transitions=(
+            None if max_environment_transitions is None else int(max_environment_transitions)
+        ),
+        max_wall_time_seconds=(
+            None if max_wall_time_seconds is None else float(max_wall_time_seconds)
+        ),
+    )
+
+
+def build_apex_runtime_snapshot(
+    *,
+    learner_updates: int,
+    actor_stats: Sequence[dict],
+    buffer_replay_health: dict,
+    elapsed_seconds: float,
+    actor_heartbeat_ages: dict[int, float | None],
+    environment_transition_reservation: int = 0,
+) -> ApexRuntimeSnapshot:
+    """Build one reconciled runtime receipt from coordinator-owned counters."""
+    return ApexRuntimeSnapshot(
+        learner_updates=int(learner_updates),
+        environment_transitions=sum(
+            int(stats.get("environment_transitions", stats.get("total_steps", 0)))
+            for stats in actor_stats
+        ),
+        replay_rows_emitted=sum(
+            int(stats.get("replay_rows_emitted", stats.get("sent_experience_count", 0)))
+            for stats in actor_stats
+        ),
+        learner_samples=int(buffer_replay_health.get("total_sampled", 0)),
+        policy_version=max(
+            (int(stats.get("policy_version", 0)) for stats in actor_stats), default=0
+        ),
+        elapsed_seconds=float(elapsed_seconds),
+        actor_heartbeat_ages=dict(actor_heartbeat_ages),
+        environment_transition_reservation=int(environment_transition_reservation),
+    )
+
+
+def attach_runtime_metadata(state: dict, snapshot: ApexRuntimeSnapshot, exit_cause: str) -> dict:
+    """Attach bounded-work telemetry with an explicit terminal cause."""
+    state["apex_runtime"] = {
+        "exit_cause": exit_cause,
+        "learner_updates": snapshot.learner_updates,
+        "environment_transitions": snapshot.environment_transitions,
+        "replay_rows_emitted": snapshot.replay_rows_emitted,
+        "learner_samples": snapshot.learner_samples,
+        "policy_version": snapshot.policy_version,
+        "elapsed_seconds": snapshot.elapsed_seconds,
+        "actor_heartbeat_ages": dict(snapshot.actor_heartbeat_ages),
+    }
+    return state
 
 
 def validate_apex_training_config(
@@ -1008,6 +1086,10 @@ def train_apex(
     min_actor_terminal_fraction: Optional[float] = None,
     override_reward_contract: bool = False,
     stagger_delay: float = 0.5,
+    max_learner_updates: Optional[int] = None,
+    max_environment_transitions: Optional[int] = None,
+    max_wall_time_seconds: Optional[float] = None,
+    heartbeat_timeout_seconds: float = 30.0,
 ) -> None:
     """Run distributed Ape-X DQN training.
 
@@ -1044,10 +1126,25 @@ def train_apex(
         min_actor_terminal_fraction: Optional final actor replay-quality gate.
             Fails after cleanup when terminal actor replay is below this fraction.
         stagger_delay: Seconds between starting each actor
+        max_learner_updates: Explicit learner-update budget. When omitted,
+            ``total_steps`` is its backward-compatible alias.
+        max_environment_transitions: Optional aggregate actor-frame budget.
+        max_wall_time_seconds: Optional coordinator wall-clock budget.
+        heartbeat_timeout_seconds: Maximum age of a reported actor heartbeat.
     """
     print("=" * 70)
     print("APE-X DQN DISTRIBUTED TRAINING")
     print("=" * 70)
+
+    budgets = resolve_apex_run_budgets(
+        total_steps,
+        max_learner_updates=max_learner_updates,
+        max_environment_transitions=max_environment_transitions,
+        max_wall_time_seconds=max_wall_time_seconds,
+    )
+    total_steps = budgets.max_learner_updates
+    if heartbeat_timeout_seconds <= 0:
+        raise ValueError("heartbeat_timeout_seconds must be positive")
 
     use_config = config_path is not None
     if config_path:
@@ -1118,7 +1215,6 @@ def train_apex(
         DEFAULT_ACTOR_DANGER_EXPLORATION_RATE,
         spawn_actors,
         start_actors,
-        stop_actors,
     )
     from src.training.apex_buffer import BufferProcess
     from src.training.apex_learner import create_apex_learner
@@ -1255,6 +1351,9 @@ def train_apex(
         print(f"  Config path:      {config_path}")
     print(f"  Actors:          {num_actors}")
     print(f"  Total steps:     {total_steps:,}")
+    print(f"  Update budget:   {budgets.max_learner_updates:,}")
+    print(f"  Env budget:      {budgets.max_environment_transitions or '(unbounded)'}")
+    print(f"  Wall budget:     {budgets.max_wall_time_seconds or '(unbounded)'} seconds")
     print(f"  Batch size:      {batch_size}")
     print(f"  Buffer capacity: {buffer_capacity:,}")
     print(f"  Min buffer size: {min_buffer_size:,}")
@@ -1315,9 +1414,6 @@ def train_apex(
         # offset would be double-counted.
         initial_frame_count=resume_start_step,
     )
-    buffer_process.start()
-    print("  BufferProcess running.")
-
     # ── Create shared network (CPU) for initial actor weight sync ─────
     shared_network = ApexNetwork(input_size, hidden_size, output_size)
     shared_network.eval()
@@ -1406,9 +1502,28 @@ def train_apex(
     signal.signal(signal.SIGTERM, signal_handler)
 
     # ── Start actors with staggered delay ─────────────────────────────
-    print("Starting actors...")
-    start_actors(actors, stagger_delay=stagger_delay)
+    print("Starting BufferProcess and actors...")
+    buffer_process.start()
+    try:
+        start_actors(actors, stagger_delay=stagger_delay)
+    except BaseException:
+        stop_event.set()
+        stop_processes(actors, timeout_seconds=5.0)
+        buffer_process.shutdown(timeout=5.0)
+        buffer_child = getattr(buffer_process, "_process", None)
+        if buffer_child is not None:
+            stop_processes([buffer_child], timeout_seconds=5.0)
+        learner.cleanup()
+        raise
     print(f"  All {num_actors} actors started.\n")
+    environment_transition_reservation = num_actors * actors[0].progress_report_interval_frames
+    runtime_supervisor = ApexRuntimeSupervisor(
+        actors=actors,
+        buffer_process=buffer_process,
+        budgets=budgets,
+        heartbeat_timeout_seconds=heartbeat_timeout_seconds,
+        environment_transition_reservation=environment_transition_reservation,
+    )
 
     # ── Main training loop ────────────────────────────────────────────
     print("Waiting for buffer to fill...")
@@ -1421,9 +1536,32 @@ def train_apex(
     last_reported_buffer_priority_rejection_count = 0
     last_reported_learner_sample_error_count = 0
     step = start_step
+    exit_cause = "signal"
+    run_failure: BaseException | None = None
+    latest_snapshot: ApexRuntimeSnapshot | None = None
 
     try:
-        while step < total_steps and not shutdown_requested[0]:
+        while not shutdown_requested[0]:
+            update_latest_actor_stats(
+                actor_stats_by_id,
+                collect_actor_stats(stats_queue),
+                episode_rewards=episode_rewards,
+            )
+            actor_stats = list(actor_stats_by_id.values())
+            heartbeat_ages = runtime_supervisor.check_children(actor_stats_by_id)
+            buffer_replay_health = collect_buffer_replay_health(learner.buffer_client)
+            latest_snapshot = build_apex_runtime_snapshot(
+                learner_updates=learner.step_count,
+                actor_stats=actor_stats,
+                buffer_replay_health=buffer_replay_health,
+                elapsed_seconds=time.time() - start_time,
+                actor_heartbeat_ages=heartbeat_ages,
+                environment_transition_reservation=environment_transition_reservation,
+            )
+            exit_cause = runtime_supervisor.stop_cause(latest_snapshot) or ""
+            if exit_cause:
+                break
+
             # ── Learner training step ─────────────────────────────────
             metrics = learner.train_step()
 
@@ -1485,6 +1623,18 @@ def train_apex(
                 collect_actor_stats(stats_queue),
                 episode_rewards=episode_rewards,
             )
+            heartbeat_ages = runtime_supervisor.check_children(actor_stats_by_id)
+            latest_snapshot = build_apex_runtime_snapshot(
+                learner_updates=learner.step_count,
+                actor_stats=list(actor_stats_by_id.values()),
+                buffer_replay_health=collect_buffer_replay_health(learner.buffer_client),
+                elapsed_seconds=time.time() - start_time,
+                actor_heartbeat_ages=heartbeat_ages,
+                environment_transition_reservation=environment_transition_reservation,
+            )
+            exit_cause = runtime_supervisor.stop_cause(latest_snapshot) or ""
+            if exit_cause:
+                break
 
             # ── Logging ───────────────────────────────────────────────
             if step - last_log_step >= log_interval:
@@ -1535,6 +1685,7 @@ def train_apex(
                 state = learner.get_state_dict()
                 state["apex_config"] = dict(apex_checkpoint_config)
                 state["avg_reward"] = _mean_or_zero(episode_rewards)
+                attach_runtime_metadata(state, latest_snapshot, "periodic_checkpoint")
                 attach_replay_health_metadata(
                     state,
                     actor_replay=summarize_actor_replay_coverage(list(actor_stats_by_id.values())),
@@ -1557,8 +1708,10 @@ def train_apex(
                 print(f"  Checkpoint saved: {ckpt_path}")
                 last_save_step = step
 
-    except Exception as e:
-        print(f"\n[Coordinator] Error: {e}")
+    except Exception as error:
+        run_failure = error
+        exit_cause = "failed"
+        print(f"\n[Coordinator] Error: {error}")
         import traceback
 
         traceback.print_exc()
@@ -1569,7 +1722,7 @@ def train_apex(
 
         # Signal actors to stop
         stop_event.set()
-        stop_actors(actors, timeout=5.0)
+        stop_processes(actors, timeout_seconds=5.0)
         print("  Actors stopped.")
         update_latest_actor_stats(
             actor_stats_by_id,
@@ -1578,8 +1731,25 @@ def train_apex(
         )
         final_actor_replay = summarize_actor_replay_coverage(list(actor_stats_by_id.values()))
 
-        # Save final checkpoint
-        final_path = os.path.join(checkpoint_dir, "apex_final.pth")
+        # A failure or signal may retain a diagnostic recovery checkpoint, but
+        # must never publish a success-named final artifact.
+        completed = run_failure is None and not shutdown_requested[0] and bool(exit_cause)
+        if completed:
+            try:
+                validate_actor_replay_quality_gates(
+                    final_actor_replay,
+                    min_terminal_fraction=actor_replay_gates["min_actor_terminal_fraction"],
+                )
+            except Exception as error:
+                run_failure = error
+                exit_cause = "failed"
+                completed = False
+        final_name = (
+            "apex_final.pth"
+            if completed
+            else f"apex_{exit_cause or 'interrupted'}_{learner.step_count}.pth"
+        )
+        final_path = os.path.join(checkpoint_dir, final_name)
         final_state = learner.get_state_dict()
         final_state["apex_config"] = dict(apex_checkpoint_config)
         final_state["avg_reward"] = _mean_or_zero(episode_rewards)
@@ -1591,11 +1761,24 @@ def train_apex(
             buffer_replay_health=final_buffer_replay_health,
             actor_replay_gates=actor_replay_gates,
         )
+        final_heartbeat_ages = runtime_supervisor.heartbeat_ages(actor_stats_by_id)
+        final_snapshot = build_apex_runtime_snapshot(
+            learner_updates=learner.step_count,
+            actor_stats=list(actor_stats_by_id.values()),
+            buffer_replay_health=final_buffer_replay_health,
+            elapsed_seconds=time.time() - start_time,
+            actor_heartbeat_ages=final_heartbeat_ages,
+            environment_transition_reservation=environment_transition_reservation,
+        )
+        attach_runtime_metadata(final_state, final_snapshot, exit_cause or "interrupted")
         torch.save(final_state, final_path)
-        print(f"  Final checkpoint: {final_path}")
+        print(f"  {'Final' if completed else 'Recovery'} checkpoint: {final_path}")
 
         # Shutdown buffer process
         buffer_process.shutdown(timeout=5.0)
+        buffer_child = getattr(buffer_process, "_process", None)
+        if buffer_child is not None:
+            stop_processes([buffer_child], timeout_seconds=5.0)
         print("  BufferProcess stopped.")
 
         # Cleanup learner
@@ -1618,12 +1801,12 @@ def train_apex(
                 print("  Actor replay warnings:")
                 for warning in final_actor_replay_warnings:
                     print(warning)
-        print(f"  Final Checkpoint: {final_path}")
+        print(f"  {'Final' if completed else 'Recovery'} Checkpoint: {final_path}")
         print("=" * 70)
-        validate_actor_replay_quality_gates(
-            final_actor_replay,
-            min_terminal_fraction=actor_replay_gates["min_actor_terminal_fraction"],
-        )
+        if run_failure is not None:
+            raise run_failure
+        if shutdown_requested[0]:
+            raise RuntimeError("Ape-X run interrupted before a declared budget was reached")
 
 
 # =============================================================================
@@ -1660,8 +1843,32 @@ Examples:
     parser.add_argument(
         "--total-steps",
         type=int,
-        default=1_000_000,
-        help="Total learner update steps (default: 1,000,000)",
+        default=None,
+        help="Deprecated compatibility alias for --max-learner-updates (default: 1,000,000)",
+    )
+    parser.add_argument(
+        "--max-learner-updates",
+        type=int,
+        default=None,
+        help="Hard ceiling on learner updates; must match --total-steps when both are supplied",
+    )
+    parser.add_argument(
+        "--max-environment-transitions",
+        type=int,
+        default=None,
+        help="Optional hard ceiling on aggregate actor environment transitions",
+    )
+    parser.add_argument(
+        "--max-wall-time-seconds",
+        type=float,
+        default=None,
+        help="Optional hard wall-clock ceiling for the coordinator run",
+    )
+    parser.add_argument(
+        "--heartbeat-timeout-seconds",
+        type=float,
+        default=30.0,
+        help="Fail when a live actor heartbeat is older than this many seconds",
     )
     parser.add_argument(
         "--batch-size",
@@ -1817,9 +2024,16 @@ Examples:
 
     args = parser.parse_args()
 
+    if args.total_steps is not None and args.max_learner_updates is not None:
+        requested_total_steps = args.total_steps
+    elif args.max_learner_updates is not None:
+        requested_total_steps = args.max_learner_updates
+    else:
+        requested_total_steps = args.total_steps if args.total_steps is not None else 1_000_000
+
     train_apex(
         num_actors=args.num_actors,
-        total_steps=args.total_steps,
+        total_steps=requested_total_steps,
         batch_size=args.batch_size,
         buffer_capacity=args.buffer_size,
         n_step=args.n_step,
@@ -1839,6 +2053,10 @@ Examples:
         pool_latest_fraction=args.pool_latest_fraction,
         min_actor_terminal_fraction=args.min_actor_terminal_fraction,
         override_reward_contract=args.override_reward_contract,
+        max_learner_updates=args.max_learner_updates,
+        max_environment_transitions=args.max_environment_transitions,
+        max_wall_time_seconds=args.max_wall_time_seconds,
+        heartbeat_timeout_seconds=args.heartbeat_timeout_seconds,
     )
 
 
