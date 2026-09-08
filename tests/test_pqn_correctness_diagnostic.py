@@ -174,8 +174,6 @@ def complete_checkpoint_state(
     state = {
         "effective_world": manifest["world"],
         "effective_world_digest": manifest["world_digest"],
-        "effective_seed": manifest["configs"][arm_name]["seed"],
-        "source_revision": manifest["git"]["commit"],
         "agent_steps": steps,
         "update_counter": updates,
         "h0_manifest_digest": manifest["manifest_digest"],
@@ -198,6 +196,20 @@ def complete_checkpoint_state(
     for name, contract in contracts.items():
         state[name] = contract
         state[f"{name}_digest"] = h0.canonical_digest(contract)
+    provenance = h0.RunProvenance(
+        effective_seed=manifest["configs"][arm_name]["seed"],
+        observation_digest=h0.RASTER31V3_CONTRACT.digest,
+        world_digest=manifest["world_digest"],
+        runtime_digest=state["runtime_contract_digest"],
+        reward_digest=state["reward_contract_digest"],
+        target_digest=state["target_contract_digest"],
+        sampler_digest=state["sampler_contract_digest"],
+        optimizer_digest=state["optimizer_contract_digest"],
+        model_head_digest=h0.ModelHeadContract("pqn", "dueling_q", 6).digest,
+        source_revision=manifest["git"]["commit"],
+    )
+    state.update(provenance.to_metadata())
+    state.update(h0.ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
     return state
 
 
@@ -252,6 +264,24 @@ def test_manifest_is_new_immutable_complete_and_covers_serving_and_evaluation(
     assert h0._verify_boundary(manifest) is None
     with pytest.raises(FileExistsError):
         h0.run_plan(candidate)
+
+
+def test_actual_pqn_constructor_checkpoint_passes_full_uint64_seed_lineage(tmp_path: Path) -> None:
+    candidate = plan(tmp_path)
+    manifest = h0.freeze_manifest(candidate)
+    arm = candidate.arms[0]
+    config = h0.PQNConfig(**manifest["configs"][arm.name])
+    assert config.seed > 2**63  # exercise the failed G0 unsigned-64-bit shape
+    h0.initialize_run_seed(config.seed)
+    trainer = h0.PQNTrainer(config, device=torch.device("cpu"))
+    state = trainer.checkpoint_state()
+    assert state["run_provenance"]["effective_seed"] == config.seed
+    assert h0._checkpoint_contract(state, manifest, arm.name, initial=True) is None
+    checkpoint = tmp_path / "initial.pth"
+    h0._save_child_checkpoint(trainer, checkpoint, manifest["manifest_digest"])
+    saved = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    assert saved["h0_manifest_digest"] == manifest["manifest_digest"]
+    assert h0._checkpoint_contract(saved, manifest, arm.name, initial=True) is None
 
 
 def test_manifest_original_bytes_and_sidecar_are_not_adopted_after_mutation(

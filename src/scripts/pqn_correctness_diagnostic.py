@@ -34,13 +34,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 # isort: off
 from src.core.runtime_contract import (  # noqa: E402
     EffectiveWorldConfig,
+    ModelHeadContract,
+    RunProvenance,
     RuntimeModeContract,
     canonical_digest,
 )
 from src.core.seeding import derive_seed, initialize_run_seed  # noqa: E402
 from src.evaluation.protocol import promotion_v2_watch_rect  # noqa: E402
 from src.model.checkpoint_io import atomic_torch_save  # noqa: E402
-from src.model.obs_spec import RASTER31V3  # noqa: E402
+from src.model.obs_spec import RASTER31V3, RASTER31V3_CONTRACT  # noqa: E402
 from src.training.pqn_trainer import (  # noqa: E402
     PQNConfig,
     PQNTrainer,
@@ -662,9 +664,16 @@ def _checkpoint_contract(
     ):
         return "world_lineage_mismatch"
     config = manifest["configs"][arm_name]
-    if state.get("effective_seed") != config["seed"]:
+    # PQN stores this as provenance metadata, not as a top-level checkpoint key.
+    # Preserve the full unsigned-64-bit value; it is deliberately not folded for
+    # NumPy/Torch global seeding.
+    try:
+        provenance = RunProvenance.from_metadata(state)
+    except (TypeError, ValueError):
+        return "invalid_run_provenance"
+    if provenance.effective_seed != config["seed"]:
         return "seed_lineage_mismatch"
-    if state.get("source_revision") != manifest["git"]["commit"]:
+    if provenance.source_revision != manifest["git"]["commit"]:
         return "source_revision_mismatch"
     try:
         typed_config = PQNConfig(**config)
@@ -718,6 +727,18 @@ def _checkpoint_contract(
         digest_key = f"{key}_digest"
         if state.get(digest_key) != canonical_digest(expected):
             return f"{digest_key}_mismatch"
+    expected_provenance = {
+        "observation_digest": RASTER31V3_CONTRACT.digest,
+        "world_digest": world.digest,
+        "runtime_digest": canonical_digest(expected_contracts["runtime_contract"]),
+        "reward_digest": canonical_digest(expected_contracts["reward_contract"]),
+        "target_digest": canonical_digest(expected_contracts["target_contract"]),
+        "sampler_digest": canonical_digest(expected_contracts["sampler_contract"]),
+        "optimizer_digest": canonical_digest(expected_contracts["optimizer_contract"]),
+        "model_head_digest": ModelHeadContract("pqn", "dueling_q", 6).digest,
+    }
+    if any(getattr(provenance, name) != value for name, value in expected_provenance.items()):
+        return "run_provenance_crosslink_mismatch"
     if initial and (state.get("agent_steps") != 0 or state.get("update_counter") != 0):
         return "nonzero_initial_clocks"
     return None
