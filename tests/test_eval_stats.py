@@ -325,6 +325,7 @@ class TestStrictPilotSizing:
         critical_41 = student_t_isf(alpha, 40) + student_t_isf(0.2, 40)
         lower = math.sqrt(40.0) / critical_40
         upper = min(math.sqrt(41.0) / critical_40, math.sqrt(40.0) / critical_41)
+        assert upper > lower
         ratio = (lower + upper) / 2.0
         two_point_deltas = [0.0, ratio * math.sqrt(2.0)]
         plan = paired_delta_pilot_size(
@@ -335,5 +336,5 @@ class TestStrictPilotSizing:
             },
             {"frozen": 1.0, "scripted": 1.0, "mixed": 1.0},
         )
-        assert plan["per_mix"]["frozen"]["recommended_n"] >= 40
-        assert math.isfinite(plan["required_final_worlds"])
+        assert plan["per_mix"]["frozen"]["recommended_n"] == 41
+        assert plan["required_final_worlds"] == 41
