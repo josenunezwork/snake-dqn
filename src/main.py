@@ -611,6 +611,7 @@ def load_prefill_replay_rows(db_handler, limit: int, replay_order: str = "id_uni
                 limit=limit,
                 order_by=replay_order,
                 include_action_masks=True,
+                include_snake_ids=True,
             )
         except TypeError:
             return db_handler.load_memories_for_policy(
