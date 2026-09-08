@@ -142,7 +142,7 @@ def test_tripwire_keeps_applied_update_in_history(
         epsilon=0.02,
         mean_reward=0.0,
         action_entropy=0.0,
-        kills_per_ep=0.0,
+        legacy_kills_per_rollout=0.0,
         boost_fraction=0.0,
         pool_size=0,
         eligible_hero_transitions=64,

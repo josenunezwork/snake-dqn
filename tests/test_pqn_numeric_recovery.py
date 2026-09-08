@@ -208,7 +208,7 @@ class _PreSgdNumericTrainer:
             epsilon=0.2,
             mean_reward=0.0,
             action_entropy=1.0,
-            kills_per_ep=0.0,
+            legacy_kills_per_rollout=0.0,
             boost_fraction=0.0,
             pool_size=0,
         )
@@ -265,7 +265,7 @@ class _FiniteAlarmTrainer:
                 epsilon=0.1,
                 mean_reward=0.0,
                 action_entropy=1.0,
-                kills_per_ep=0.0,
+                legacy_kills_per_rollout=0.0,
                 boost_fraction=0.0,
                 pool_size=0,
             ),

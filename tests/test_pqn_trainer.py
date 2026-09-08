@@ -1070,7 +1070,7 @@ def _telemetry(**overrides):
         epsilon=0.1,
         mean_reward=0.0,
         action_entropy=1.0,
-        kills_per_ep=0.0,
+        legacy_kills_per_rollout=0.0,
         boost_fraction=0.0,
         pool_size=0,
         action_collapse_streak=1,

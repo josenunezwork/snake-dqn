@@ -103,6 +103,18 @@ def test_corrected_all_floor_at_first_step_slices_the_rollout() -> None:
     assert roll["batch_episode_finished"] is True
 
 
+def test_corrected_all_floor_at_first_step_updates_without_event_shape_leak() -> None:
+    """The shortened rollout must keep every event tensor aligned for telemetry."""
+    trainer = _corrected_trainer()
+    trainer.sim.population_floor_reached = lambda: trainer.sim.frame >= 1
+
+    telemetry = trainer.update()
+
+    assert telemetry.completed_episodes == 1
+    assert telemetry.rollout_capacity == 1
+    assert telemetry.valid_transitions <= telemetry.rollout_capacity
+
+
 class _FixedRight:
     identity = "fixed:right:v1"
 
@@ -139,7 +151,86 @@ def test_fixed_source_actions_and_identity_are_real_rollout_contract_inputs() ->
         "mode": "fixed",
         "identity": policy.identity,
     }
+    sampler = checkpoint["sampler_contract"]
+    assert sampler["policy_assignment"] == "common_fixed_policy_for_nonhero_slots"
+    assert sampler["pool_capacity"] == 0
+    assert sampler["pool_add_interval"] is None
+    assert sampler["requested_pool_capacity"] == config.pool_capacity
+    assert sampler["requested_pool_add_interval"] == config.pool_add_interval
+    assert sampler["empty_pool"] == "not_applicable_fixed_source"
+    assert sampler["snapshot_identity"] == "not_applicable_fixed_source"
+    assert sampler["episode_pinning"] is False
+    assert sampler["pool_mutation"] == "not_applicable_fixed_source"
+    assert sampler["snapshot_admission"] == "disabled_fixed_source"
     assert checkpoint["rollout_policy_source"] == {"mode": "fixed", "identity": policy.identity}
+
+
+def test_fixed_source_only_draws_exploration_for_actual_hero_slots() -> None:
+    """The all-row Q forward must not consume an epsilon draw for fixed slots."""
+    policy = _FixedRight()
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=1,
+        max_frames=1,
+        hero_frac=0.0,
+        eps_start=1.0,
+        eps_end=1.0,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        rollout_policy_mode="fixed",
+        fixed_policy_identity=policy.identity,
+    )
+    trainer = PQNTrainer(config, fixed_policy=FixedPolicySource(policy, policy.identity))
+
+    class RecordingRng:
+        def __init__(self) -> None:
+            self.random_shapes: list[object] = []
+            self.integer_calls: list[tuple[object, object, object]] = []
+
+        def random(self, size=None):
+            self.random_shapes.append(size)
+            return np.zeros(size) if size is not None else 0.0
+
+        def integers(self, low, high=None, size=None):
+            self.integer_calls.append((low, high, size))
+            return np.zeros(size, dtype=np.int64) if size is not None else 0
+
+    rng = RecordingRng()
+    trainer.rng = rng
+    trainer._rollout()
+
+    # Assignment draws one E×S selector; only forced HERO slot 0 draws epsilon.
+    assert rng.random_shapes == [(1, 2), 1]
+    # Assignment chooses fixed source IDs, then hero exploration chooses one legal action.
+    assert rng.integer_calls == [(0, 1, (1, 2)), (3, None, None)]
+
+
+def test_fixed_source_update_uses_its_actions_without_snapshot_admission() -> None:
+    """The public update path uses fixed actions and keeps its pool disabled."""
+    policy = _FixedRight()
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=1,
+        max_frames=1,
+        hero_frac=0.0,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        pool_capacity=1,
+        pool_add_interval=1,
+        rollout_policy_mode="fixed",
+        fixed_policy_identity=policy.identity,
+    )
+    trainer = PQNTrainer(config, fixed_policy=FixedPolicySource(policy, policy.identity))
+
+    telemetry = trainer.update()
+
+    assert policy.calls and policy.calls[0][1].tolist() == [[0, 1]]
+    assert len(trainer.pool) == 0
+    assert telemetry.policy_exposure[policy.identity] > 0
 
 
 def test_pinned_assignment_and_lease_survive_two_rollouts_until_batch_reset() -> None:
@@ -164,3 +255,31 @@ def test_pinned_assignment_and_lease_survive_two_rollouts_until_batch_reset() ->
     assert lease is not None and trainer._episode_lease is lease and not lease.closed
     assert np.array_equal(first["policy_ids"], second["policy_ids"])
     assert first["policy_identities"] == second["policy_identities"]
+
+
+def test_due_admission_waits_for_pinned_episode_then_succeeds_after_completion() -> None:
+    """A cap-one pool cannot replace a leased policy until the episode finishes."""
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=1,
+        max_frames=2,
+        hero_frac=0.0,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        pool_capacity=1,
+        pool_add_interval=1,
+    )
+    trainer = PQNTrainer(config)
+    first_id = trainer.pool.add_snapshot(trainer.network)
+    assert first_id is not None
+    trainer.update_idx = 1  # Make both update boundaries due for admission.
+
+    trainer.update()
+    assert trainer.pool.policy_ids() == [first_id]
+    assert trainer._episode_lease is not None and not trainer._episode_lease.closed
+
+    trainer.update()
+    assert trainer._episode_lease is None
+    assert trainer.pool.policy_ids() != [first_id]

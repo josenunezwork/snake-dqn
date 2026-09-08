@@ -244,6 +244,8 @@ class PQNConfig:
             raise ValueError(f"Unsupported PQN recipe {self.recipe!r}")
         if self.recipe == "corrected-v3" and self.obs_spec != RASTER31V3:
             raise ValueError("corrected-v3 recipe requires obs_spec='raster31v3'")
+        if self.recipe == "legacy" and self.obs_spec != RASTER31V2:
+            raise ValueError("legacy recipe requires obs_spec='raster31v2'")
         if self.recipe == "corrected-v3" and (self.mechanics_version != 2 or self.flip_augment):
             raise ValueError("corrected-v3 requires mechanics_version=2 and flip_augment=False")
         if self.rollout_policy_mode not in {"snapshot_pool", "fixed"}:
@@ -335,7 +337,8 @@ def pqn_target_contract(config: PQNConfig) -> Dict[str, object]:
 def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
     """Describe sampling and policy assignment without inventing resume state."""
     corrected = config.recipe == "corrected-v3"
-    return {
+    fixed = config.rollout_policy_mode == "fixed"
+    contract: Dict[str, object] = {
         "version": "pqn-sampler-corrected-v3" if corrected else "pqn-sampler-pre-p2-v1",
         "mode": "exact_coverage" if config.sgd_epochs is not None else "minibatch",
         "minibatches": config.minibatches,
@@ -360,22 +363,36 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
         "num_snakes": config.num_snakes,
         "rollout_len": config.rollout_len,
         "hero_frac": config.hero_frac,
-        "pool_capacity": config.pool_capacity,
-        "pool_add_interval": config.pool_add_interval,
+        "pool_capacity": 0 if fixed else config.pool_capacity,
+        "pool_add_interval": None if fixed else config.pool_add_interval,
+        "requested_pool_capacity": config.pool_capacity if fixed else None,
+        "requested_pool_add_interval": config.pool_add_interval if fixed else None,
         "policy_assignment": (
-            "episode_pinned_bernoulli_hero_else_immutable_snapshot_pool"
-            if corrected
-            else "resample_each_rollout_bernoulli_hero_else_uniform_pool"
+            "common_fixed_policy_for_nonhero_slots"
+            if fixed
+            else (
+                "episode_pinned_bernoulli_hero_else_immutable_snapshot_pool"
+                if corrected
+                else "resample_each_rollout_bernoulli_hero_else_uniform_pool"
+            )
         ),
         "forced_hero_slot": 0,
-        "empty_pool": "all_heroes",
+        "empty_pool": "not_applicable_fixed_source" if fixed else "all_heroes",
         "snapshot_identity": (
-            "immutable_content_hash_stable_id" if corrected else "mutable_fifo_indices_unpinned"
+            "not_applicable_fixed_source"
+            if fixed
+            else (
+                "immutable_content_hash_stable_id" if corrected else "mutable_fifo_indices_unpinned"
+            )
         ),
-        "assignment_lifetime": "batch_episode" if corrected else "rollout",
-        "episode_pinning": corrected,
+        "assignment_lifetime": "batch_episode" if fixed or corrected else "rollout",
+        "episode_pinning": corrected and not fixed,
         "pool_mutation": (
-            "admission_deferred_when_all_snapshots_pinned" if corrected else "between_rollouts"
+            "not_applicable_fixed_source"
+            if fixed
+            else (
+                "admission_deferred_when_all_snapshots_pinned" if corrected else "between_rollouts"
+            )
         ),
         "rollout_policy_source": {
             "mode": config.rollout_policy_mode,
@@ -385,7 +402,11 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
                 else "episode-assigned"
             ),
         },
-        "snapshot_admission": "after_sgd_positive_update_index_divisible_by_interval",
+        "snapshot_admission": (
+            "disabled_fixed_source"
+            if fixed
+            else "after_sgd_positive_update_index_divisible_by_interval"
+        ),
         "exploration": {
             "policy": "hero_only_epsilon_greedy_constant_within_rollout",
             "clock": "valid_hero_agent_steps",
@@ -394,6 +415,7 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
             "decay_steps": config.eps_decay_steps,
         },
     }
+    return contract
 
 
 def pqn_optimizer_contract(
@@ -478,7 +500,7 @@ class PQNTelemetry:
     epsilon: float
     mean_reward: float
     action_entropy: float
-    kills_per_ep: float
+    legacy_kills_per_rollout: Optional[float]
     boost_fraction: float
     pool_size: int
     eligible_hero_transitions: int = 0
@@ -598,7 +620,10 @@ class PQNTrainer:
         # v3 uses stable identities and a lease that prevents a live assignment
         # from being replaced by a later snapshot admission.
         self.pool = (
-            PinnedOpponentPool(capacity=config.pool_capacity, device=self.device)
+            PinnedOpponentPool(
+                capacity=0 if config.rollout_policy_mode == "fixed" else config.pool_capacity,
+                device=self.device,
+            )
             if config.recipe == "corrected-v3"
             else OpponentPool(capacity=config.pool_capacity, device=self.device)
         )
@@ -1083,6 +1108,8 @@ class PQNTrainer:
             "next_mask": next_mask_buf[:T],
             "hero_q": hero_q_buf[:T],
             "boost": boost_buf[:T],
+            "kills": kill_buf[:T],
+            "deaths": death_buf[:T],
             "policy_ids": policy_ids,
             "policy_identities": (
                 {
@@ -1107,8 +1134,6 @@ class PQNTrainer:
             "batch_episode_finished": bool(self._episode_finished_env.all()),
             "final_obs": final_obs,
             "final_mask": final_mask,
-            "kills": kill_buf,
-            "deaths": death_buf,
             "epsilon": eps,
         }
 
@@ -1542,9 +1567,9 @@ class PQNTrainer:
             epsilon=roll["epsilon"],
             mean_reward=mean_reward,
             action_entropy=entropy,
-            # Retained for history-file compatibility. It is a rollout count,
-            # not an episode-normalized metric; consumers should use hero_kills.
-            kills_per_ep=float(hero_kills),
+            # Only legacy history has this compatibility field. Corrected
+            # telemetry exposes the exact hero_kills count instead.
+            legacy_kills_per_rollout=(float(hero_kills) if cfg.recipe == "legacy" else None),
             boost_fraction=boost_fraction,
             pool_size=len(self.pool),
             valid_slot_fraction=valid_slot_fraction,

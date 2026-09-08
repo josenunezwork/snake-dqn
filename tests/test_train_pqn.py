@@ -52,7 +52,7 @@ def _telemetry(update: int, agent_steps: int) -> PQNTelemetry:
         epsilon=0.5,
         mean_reward=0.01,
         action_entropy=1.5,
-        kills_per_ep=0.0,
+        legacy_kills_per_rollout=0.0,
         boost_fraction=0.1,
         pool_size=0,
     )

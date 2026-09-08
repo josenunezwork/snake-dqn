@@ -35,6 +35,12 @@ def test_legacy_and_corrected_v3_checkpoints_record_their_distinct_mask_resoluti
     assert legacy["action_mask_contract_digest"] != corrected["action_mask_contract_digest"]
 
 
+def test_legacy_recipe_rejects_the_v3_observation_spec_before_pool_setup():
+    """The legacy contracts cannot run against the corrected pool/observation path."""
+    with pytest.raises(ValueError, match="legacy recipe requires obs_spec"):
+        _config(obs_spec=RASTER31V3)
+
+
 @pytest.mark.parametrize(
     ("descriptor", "mutation"),
     [

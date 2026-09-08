@@ -408,7 +408,14 @@ def batched_act(
         idx_t = torch.as_tensor(idx, device=device)
         greedy = _greedy_masked_actions(hero_q_flat[idx_t], mask_flat[idx_t])
         greedy_np = greedy.cpu().numpy()
-        explore = rng.random(idx.shape[0]) < epsilon
+        # Callers may deliberately request greedy all-row Q evaluation while
+        # applying exploration only to a sparse subset themselves. In that
+        # epsilon-zero path, do not perturb the rollout RNG at all.
+        explore = (
+            rng.random(idx.shape[0]) < epsilon
+            if epsilon > 0.0
+            else np.zeros(idx.shape[0], dtype=bool)
+        )
         if np.any(explore):
             valid_np = mask_flat[idx_t].cpu().numpy()
             rand_actions = _sample_valid(valid_np, rng)

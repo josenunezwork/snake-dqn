@@ -744,7 +744,7 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
         "max_abs_q": tel.max_abs_q,
         "mean_reward": tel.mean_reward,
         "action_entropy": tel.action_entropy,
-        "kills_per_ep": tel.kills_per_ep,
+        "legacy_kills_per_rollout": tel.legacy_kills_per_rollout,
         "boost_fraction": tel.boost_fraction,
         "pool_size": tel.pool_size,
         "eligible_hero_transitions": tel.eligible_hero_transitions,
