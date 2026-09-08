@@ -51,3 +51,13 @@ def test_local_buffer_rejects_impossible_live_resolved_empty_mask():
             next_action_mask=[False] * 6,
             next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
         )
+
+
+def test_local_buffer_rejects_terminal_resolved_mode_before_target_sampling():
+    buffer = LocalApexBuffer(capacity=8, state_size=58)
+    with pytest.raises(ValueError, match="explicit nonterminal"):
+        buffer.add(
+            _state(1), 0, 0.0, _state(1), True,
+            next_action_mask=[True, False, False, False, False, False],
+            next_action_mask_mode=MASK_MODE_RASTER_RESOLVED_V3,
+        )

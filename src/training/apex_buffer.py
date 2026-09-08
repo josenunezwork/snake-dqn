@@ -55,6 +55,8 @@ def _validate_replay_mask_row(next_state, done, mask, mode) -> int:
     mode = validate_mask_mode(mode)
     if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR and not done:
         raise ValueError("terminal_no_successor mode requires done=True")
+    if done and mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1}:
+        raise ValueError("explicit nonterminal mask mode requires done=False")
     if mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1} and mask is None:
         raise ValueError("explicit mask mode requires a six-action mask")
     if mode == MASK_MODE_RASTER_RESOLVED_V3 and mask is not None:
@@ -62,7 +64,7 @@ def _validate_replay_mask_row(next_state, done, mask, mode) -> int:
         legal = domain_legal_action_mask(tensor).squeeze(0).cpu().numpy()
         if bool((np.asarray(mask, dtype=np.bool_) & ~legal).any()):
             raise ValueError("resolved next_action_mask includes domain-illegal action")
-        if not done and not bool(np.asarray(mask, dtype=np.bool_).any()):
+        if not bool(np.asarray(mask, dtype=np.bool_).any()):
             raise ValueError("nonterminal resolved next_action_mask cannot be all false")
     return mode
 
