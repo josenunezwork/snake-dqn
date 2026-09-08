@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { fetchLeaderboard, fetchPlayer, fetchRecent, submitScore } from "../api";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import {
+  fetchLeaderboard,
+  fetchPlayer,
+  fetchRecent,
+  submitScore,
+} from "../api";
 import {
   getClientId,
   getStoredPlayerName,
@@ -32,6 +43,7 @@ interface Props {
   // sends so the component works standalone (tests).
   onStartRun?: () => void;
   onEndRun?: () => void;
+  fixedProfile?: boolean;
 }
 
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -52,7 +64,8 @@ function hasCoarsePointer(): boolean {
 }
 
 function fmtDuration(seconds: number): string {
-  if (seconds >= 60) return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  if (seconds >= 60)
+    return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   return `${seconds.toFixed(1)}s`;
 }
 
@@ -71,7 +84,13 @@ function TouchPad({ send }: { send: SendControl }) {
     <button
       className="btn dpad-btn"
       aria-label={`Steer ${dir}`}
-      style={{ gridArea: area, touchAction: "none", minWidth: 52, minHeight: 44, fontSize: 16 }}
+      style={{
+        gridArea: area,
+        touchAction: "none",
+        minWidth: 52,
+        minHeight: 44,
+        fontSize: 16,
+      }}
       onPointerDown={steer(dir)}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -98,7 +117,12 @@ function TouchPad({ send }: { send: SendControl }) {
         className="btn dpad-boost"
         aria-label="Hold to boost"
         title={`Hold to boost — ${BOOST_COST}`}
-        style={{ marginTop: 6, width: "100%", touchAction: "none", minHeight: 40 }}
+        style={{
+          marginTop: 6,
+          width: "100%",
+          touchAction: "none",
+          minHeight: 40,
+        }}
         onPointerDown={boost(true)}
         onPointerUp={boost(false)}
         onPointerCancel={boost(false)}
@@ -124,6 +148,7 @@ export default function Play({
   pendingMode,
   onStartRun,
   onEndRun,
+  fixedProfile = false,
 }: Props) {
   const [board, setBoard] = useState<LeaderboardData | null>(null);
   const [recent, setRecent] = useState<RecentData | null>(null);
@@ -156,7 +181,7 @@ export default function Play({
     (e: { player_name: string; client_id?: string | null }) => {
       return e.client_id ? e.client_id === clientId : e.player_name === myName;
     },
-    [clientId, myName]
+    [clientId, myName],
   );
 
   const refresh = useCallback(async () => {
@@ -238,18 +263,22 @@ export default function Play({
           setName(canonical);
         }
         const entry = resp.leaderboard?.find(
-          (e) => isMe(e) || e.player_name === canonical
+          (e) => isMe(e) || e.player_name === canonical,
         );
         // Only claim a placement if THIS run is the player's best: the leaderboard
         // has one row per player (their best game), so a weaker re-submit under the
         // same name would otherwise show the OLD best's rank/medal. Require the
         // matched row's score to equal this run's score.
-        const rank = entry && result && entry.score === result.score ? entry.rank : null;
+        const rank =
+          entry && result && entry.score === result.score ? entry.rank : null;
         setPlaced(result);
         setPlacedRank(rank);
         setDidSubmit(true);
         // Celebrate a leaderboard placement or a new personal best.
-        if (rank != null || (result != null && result.score > bestBeforeRun.current)) {
+        if (
+          rank != null ||
+          (result != null && result.score > bestBeforeRun.current)
+        ) {
           setCelebrate(true);
         }
         await refresh();
@@ -257,7 +286,11 @@ export default function Play({
         setError(resp.error ?? "Submit failed");
       }
     } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : "Could not reach the server");
+      setError(
+        e instanceof Error && e.message
+          ? e.message
+          : "Could not reach the server",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -284,7 +317,8 @@ export default function Play({
 
   // App's pending-mode state (cleared on the first post-connect frame) is
   // authoritative when provided; the local latch covers standalone mounting.
-  const switching = pendingMode !== undefined ? pendingMode === "play" : starting;
+  const switching =
+    pendingMode !== undefined ? pendingMode === "play" : starting;
 
   if (!play?.active) {
     // Pure navigation brought us here — the engine is still in watch/train mode.
@@ -294,8 +328,9 @@ export default function Play({
         <div className="card">
           <div className="section-title">🎮 Race the AI</div>
           <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
-            Steer your own snake in the live arena — eat food, dodge the AI, climb the
-            leaderboard. Starting a run rebuilds the game around your snake.
+            Steer your own snake in the live arena — eat food, dodge the AI,
+            climb the leaderboard. Starting a run rebuilds the game around your
+            snake.
           </div>
           {sessionError ? (
             <>
@@ -303,7 +338,8 @@ export default function Play({
                 {sessionError}
               </div>
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                Play mode couldn't start. Try another model in Controls, then try again.
+                Play mode couldn't start. Try another model in Controls, then
+                try again.
               </div>
             </>
           ) : connected === false ? (
@@ -341,10 +377,16 @@ export default function Play({
   return (
     <div className="panel">
       {celebrate && <Confetti onDone={() => setCelebrate(false)} />}
-      <div className="statgrid" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
+      <div
+        className="statgrid"
+        style={{ gridTemplateColumns: "repeat(5, 1fr)" }}
+      >
         <div className="stat">
           <div className="k">Score</div>
-          <div className={"v" + (scoreBumped ? " bump" : "")} style={{ color: "var(--green)" }}>
+          <div
+            className={"v" + (scoreBumped ? " bump" : "")}
+            style={{ color: "var(--green)" }}
+          >
             {preRun ? "—" : play.score}
           </div>
         </div>
@@ -372,31 +414,41 @@ export default function Play({
             <>
               <div className="section-title">You're alive — good luck</div>
               <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
-                <span className="kbd">← ↑ ↓ →</span> or <span className="kbd">W A S D</span> to
-                steer
+                <span className="kbd">← ↑ ↓ →</span> or{" "}
+                <span className="kbd">W A S D</span> to steer
                 <br />
-                <span className="kbd">Space</span> to boost ({BOOST_COST}) · eat food to grow ·
-                outlast the AI
+                <span className="kbd">Space</span> to boost ({BOOST_COST}) · eat
+                food to grow · outlast the AI
               </div>
             </>
           ) : (
             <>
               <div className="section-title" style={{ color: "var(--accent)" }}>
-                {touch ? "Tap the pad (or press an arrow key) to start" : "Press an arrow key to start"}
+                {touch
+                  ? "Tap the pad (or press an arrow key) to start"
+                  : "Press an arrow key to start"}
               </div>
               <div className="muted" style={{ fontSize: 12, lineHeight: 1.7 }}>
-                <span className="kbd">← ↑ ↓ →</span> or <span className="kbd">W A S D</span> to
-                steer · <span className="kbd">Space</span> to boost ({BOOST_COST})
+                <span className="kbd">← ↑ ↓ →</span> or{" "}
+                <span className="kbd">W A S D</span> to steer ·{" "}
+                <span className="kbd">Space</span> to boost ({BOOST_COST})
               </div>
               <div className="row" style={{ marginTop: 10, marginBottom: 0 }}>
-                <label style={{ width: "auto" }}>Opponents</label>
+                <label style={{ width: "auto" }}>
+                  {fixedProfile ? "Opponents fixed" : "Opponents"}
+                </label>
                 <div className="seg">
                   {OPPONENT_PRESETS.map((n) => (
                     <button
                       key={n}
-                      className={"btn" + (play.opponents === n ? " active" : "")}
+                      className={
+                        "btn" + (play.opponents === n ? " active" : "")
+                      }
                       aria-label={`${n} AI opponents`}
-                      onClick={() => send("set_play_opponents", n)}
+                      disabled={fixedProfile}
+                      onClick={() =>
+                        !fixedProfile && send("set_play_opponents", n)
+                      }
                     >
                       {n}
                     </button>
@@ -405,7 +457,10 @@ export default function Play({
               </div>
             </>
           )}
-          <div className="row" style={{ marginTop: 10, marginBottom: 0, alignItems: "center" }}>
+          <div
+            className="row"
+            style={{ marginTop: 10, marginBottom: 0, alignItems: "center" }}
+          >
             <label style={{ width: 44 }}>Boost</label>
             <div
               className="meter"
@@ -417,12 +472,20 @@ export default function Play({
             >
               <div
                 className="meter-fill"
-                style={{ width: `${boostPct}%`, background: boostReady ? "var(--green)" : "var(--amber)" }}
+                style={{
+                  width: `${boostPct}%`,
+                  background: boostReady ? "var(--green)" : "var(--amber)",
+                }}
               />
             </div>
             <span
               className="mono"
-              style={{ fontSize: 11, width: 64, textAlign: "right", color: boostReady ? "var(--green)" : "var(--muted)" }}
+              style={{
+                fontSize: 11,
+                width: 64,
+                textAlign: "right",
+                color: boostReady ? "var(--green)" : "var(--muted)",
+              }}
             >
               {boostReady ? "ready" : `+${MIN_BOOST_LEN - play.length}`}
             </span>
@@ -432,11 +495,19 @@ export default function Play({
             <div className="muted mono" style={{ fontSize: 11, marginTop: 8 }}>
               your best: {player.best_score} · {player.games_played} games · avg{" "}
               {Math.round(player.average_score)}
-              {playerStale && <span title="Couldn't refresh your stats — showing the last known values."> (may be stale)</span>}
+              {playerStale && (
+                <span title="Couldn't refresh your stats — showing the last known values.">
+                  {" "}
+                  (may be stale)
+                </span>
+              )}
             </div>
           ) : (
             myBest != null && (
-              <div className="muted mono" style={{ fontSize: 11, marginTop: 8 }}>
+              <div
+                className="muted mono"
+                style={{ fontSize: 11, marginTop: 8 }}
+              >
                 your best: {myBest}
               </div>
             )
@@ -449,7 +520,11 @@ export default function Play({
             {isNewPB && <span className="pb-badge">★ personal best</span>}
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
-            survived {fmtDuration(play.pending?.duration_seconds ?? play.frames / Math.max(1, speed))}{" "}
+            survived{" "}
+            {fmtDuration(
+              play.pending?.duration_seconds ??
+                play.frames / Math.max(1, speed),
+            )}{" "}
             · {play.pending?.food_eaten ?? play.food_eaten} food ·{" "}
             {play.pending?.kills ?? play.kills} kills
           </div>
@@ -476,7 +551,11 @@ export default function Play({
                     padding: "7px 10px",
                   }}
                 />
-                <button className="btn primary" disabled={submitting} onClick={onSubmit}>
+                <button
+                  className="btn primary"
+                  disabled={submitting}
+                  onClick={onSubmit}
+                >
                   {submitting ? "…" : "Submit"}
                 </button>
               </div>
@@ -489,8 +568,12 @@ export default function Play({
           ) : (
             <div style={{ marginTop: 6 }}>
               {placedRank != null ? (
-                <div className={"placement-banner tier-" + Math.min(placedRank, 4)}>
-                  {placedRank === 1 ? "🏆 New #1!" : `You placed #${placedRank}!`}{" "}
+                <div
+                  className={"placement-banner tier-" + Math.min(placedRank, 4)}
+                >
+                  {placedRank === 1
+                    ? "🏆 New #1!"
+                    : `You placed #${placedRank}!`}{" "}
                   {MEDALS[placedRank - 1] ?? ""}
                 </div>
               ) : placed ? (
@@ -505,13 +588,20 @@ export default function Play({
             </div>
           )}
           <button className="btn" style={{ marginTop: 10 }} onClick={newGame}>
-            ▶ New game <span className="kbd" style={{ marginLeft: 6 }}>R</span>
+            ▶ New game{" "}
+            <span className="kbd" style={{ marginLeft: 6 }}>
+              R
+            </span>
           </button>
         </div>
       )}
 
       <div className="row" style={{ marginTop: 10, marginBottom: 0 }}>
-        <button className="btn" title="Leave play mode and return the arena to the AI" onClick={endRun}>
+        <button
+          className="btn"
+          title="Leave play mode and return the arena to the AI"
+          onClick={endRun}
+        >
           ← End run · back to watch
         </button>
       </div>
@@ -553,8 +643,8 @@ export default function Play({
         )}
         {board?.stats && board.stats.total_games > 0 && (
           <div className="muted mono" style={{ fontSize: 11, marginTop: 8 }}>
-            {board.stats.total_players} players · {board.stats.total_games} games · best{" "}
-            {board.stats.best_score} ({board.stats.best_player})
+            {board.stats.total_players} players · {board.stats.total_games}{" "}
+            games · best {board.stats.best_score} ({board.stats.best_player})
           </div>
         )}
       </div>

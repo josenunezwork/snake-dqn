@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { fetchCheckpoints } from "../api";
-import type { CheckpointInfo, SendControl, SessionState, SnakeDTO } from "../types";
+import type {
+  CheckpointInfo,
+  SendControl,
+  SessionState,
+  SnakeDTO,
+} from "../types";
 import { SPEED_PRESETS, activePresetIndex } from "../lib/presets";
 import Slider from "./Slider";
 
@@ -81,6 +86,9 @@ export default function Controls({
   };
 
   const obsSpec = session.obs_spec;
+  const fixedProfile =
+    obsSpec === "raster31v3" &&
+    session.serving_contract?.deployment_profile === "promotion-v2-watch-rect";
   const checkpointSpec = (c: CheckpointInfo) => c.obs_spec;
 
   const loadedName = session.checkpoint ?? "";
@@ -90,7 +98,11 @@ export default function Controls({
   return (
     <div className="panel">
       {offline && (
-        <div className="muted" role="status" style={{ fontSize: 12, marginBottom: 6 }}>
+        <div
+          className="muted"
+          role="status"
+          style={{ fontSize: 12, marginBottom: 6 }}
+        >
           Reconnecting — controls are paused until the server is back.
         </div>
       )}
@@ -103,7 +115,12 @@ export default function Controls({
         >
           {session.playing ? "❚❚ Pause" : "▶ Play"}
         </button>
-        <button className="btn" aria-label="Reset game" disabled={offline} onClick={() => send("reset")}>
+        <button
+          className="btn"
+          aria-label="Reset game"
+          disabled={offline}
+          onClick={() => send("reset")}
+        >
           ⟲ Reset
         </button>
         <button
@@ -157,6 +174,12 @@ export default function Controls({
           )}
         </div>
       )}
+      {fixedProfile && (
+        <div className="mode-blurb muted" role="status">
+          This model uses a fixed game setup, so the snake, food, and player
+          count stay set.
+        </div>
+      )}
 
       <div className="row" style={{ marginBottom: 4 }}>
         <label>Speed</label>
@@ -164,7 +187,10 @@ export default function Controls({
           {SPEED_PRESETS.map((p, i) => (
             <button
               key={p.fps}
-              className={"btn" + (activePresetIndex(session.speed) === i ? " active" : "")}
+              className={
+                "btn" +
+                (activePresetIndex(session.speed) === i ? " active" : "")
+              }
               title={`${p.fps} fps · key ${i + 1}`}
               onClick={() => send("set_speed", p.fps)}
             >
@@ -191,17 +217,29 @@ export default function Controls({
         onChange={(v) => send("set_epsilon", v)}
       />
       <div title="Live food count · ambient target. Corpse drops are exempt from the target, so the count can legitimately exceed it.">
-        <Slider
-          label="Food"
-          value={session.food_target}
-          min={0}
-          max={600}
-          step={10}
-          accent="#f59e0b"
-          format={(v) => `${session.food_count} · target ${v}`}
-          onChange={(v) => send("set_food", v)}
-        />
-        <div className="muted" style={{ fontSize: 11, marginTop: -2, marginBottom: 6 }}>
+        {fixedProfile ? (
+          <div className="row">
+            <label>Food</label>
+            <span className="muted">
+              {session.food_count} · target {session.food_target}
+            </span>
+          </div>
+        ) : (
+          <Slider
+            label="Food"
+            value={session.food_target}
+            min={0}
+            max={600}
+            step={10}
+            accent="#f59e0b"
+            format={(v) => `${session.food_count} · target ${v}`}
+            onChange={(v) => send("set_food", v)}
+          />
+        )}
+        <div
+          className="muted"
+          style={{ fontSize: 11, marginTop: -2, marginBottom: 6 }}
+        >
           Corpse drops are cap-exempt — the live count can exceed the target.
         </div>
       </div>
@@ -222,11 +260,17 @@ export default function Controls({
       </div>
 
       <div className="section-title" style={{ marginTop: 8 }}>
-        Snakes · tap to inspect
+        Snakes {fixedProfile ? "· fixed view" : "· tap to inspect"}
       </div>
-      <div className="roster" role="group" aria-label="Snakes — select the hero to inspect">
+      <div
+        className="roster"
+        role="group"
+        aria-label="Snakes — select the hero to inspect"
+      >
         {[...snakes]
-          .sort((a, b) => Number(b.alive) - Number(a.alive) || b.length - a.length)
+          .sort(
+            (a, b) => Number(b.alive) - Number(a.alive) || b.length - a.length,
+          )
           .map((s) => {
             const hero = s.id === session.hero_id;
             const rgb = `rgb(${s.color[0]},${s.color[1]},${s.color[2]})`;
@@ -234,10 +278,18 @@ export default function Controls({
               <button
                 key={s.id}
                 aria-pressed={hero}
-                className={"roster-row" + (hero ? " hero" : "") + (s.alive ? "" : " dead")}
-                onClick={() => send("set_hero", s.id)}
+                disabled={fixedProfile}
+                className={
+                  "roster-row" +
+                  (hero ? " hero" : "") +
+                  (s.alive ? "" : " dead")
+                }
+                onClick={() => !fixedProfile && send("set_hero", s.id)}
               >
-                <span className="swatch" style={{ background: rgb, color: rgb }} />
+                <span
+                  className="swatch"
+                  style={{ background: rgb, color: rgb }}
+                />
                 <span className="rname">{s.name}</span>
                 {s.boosting && <span className="rbadge">boost</span>}
                 {!s.alive && <span className="rbadge dead">dead</span>}
@@ -264,7 +316,8 @@ export default function Controls({
             const spec = checkpointSpec(c);
             return (
               <option key={c.name} value={c.name}>
-                {c.name} ({c.size_mb} MB{spec && spec !== "unknown" ? ` · ${spec}` : ""})
+                {c.name} ({c.size_mb} MB
+                {spec && spec !== "unknown" ? ` · ${spec}` : ""})
               </option>
             );
           })}
@@ -298,7 +351,11 @@ export default function Controls({
         <div className="section-title">
           Session
           {obsSpec && (
-            <span className="rbadge" style={{ marginLeft: 6 }} title="Observation contract of the served policy">
+            <span
+              className="rbadge"
+              style={{ marginLeft: 6 }}
+              title="Observation contract of the served policy"
+            >
               {obsSpec}
             </span>
           )}
@@ -306,7 +363,8 @@ export default function Controls({
         <div className="muted mono" style={{ fontSize: 12, lineHeight: 1.7 }}>
           config: {session.config}
           <br />
-          input: {inputLabel(obsSpec, session.input_size)} · snakes: {session.num_snakes}
+          input: {inputLabel(obsSpec, session.input_size)} · snakes:{" "}
+          {session.num_snakes}
           <br />
           training: {session.training ? "on" : "off"}
         </div>

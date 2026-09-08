@@ -70,6 +70,22 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe("Controls", () => {
+  it("keeps fixed-profile food and hero controls unavailable", async () => {
+    render(
+      <Controls
+        {...baseProps}
+        session={sessionState({
+          obs_spec: "raster31v3",
+          serving_contract: { deployment_profile: "promotion-v2-watch-rect" },
+        })}
+        send={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText(/fixed game setup/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("slider-food")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /crimson/i })).toBeDisabled();
+  });
+
   it("browsing the model select does NOT load; the Load button commits", async () => {
     const user = userEvent.setup();
     const send = vi.fn();
@@ -77,14 +93,18 @@ describe("Controls", () => {
     const select = await screen.findByLabelText(/model checkpoint/i);
     await user.selectOptions(select, "latest_pqn.pth");
     expect(send).not.toHaveBeenCalledWith("load_checkpoint", expect.anything());
-    await user.click(screen.getByRole("button", { name: /load selected checkpoint/i }));
+    await user.click(
+      screen.getByRole("button", { name: /load selected checkpoint/i }),
+    );
     expect(send).toHaveBeenCalledWith("load_checkpoint", "latest_pqn.pth");
   });
 
   it("disables Load while the selection equals the loaded checkpoint", async () => {
     render(<Controls {...baseProps} session={sessionState()} send={vi.fn()} />);
     await screen.findByLabelText(/model checkpoint/i);
-    expect(screen.getByRole("button", { name: /load selected checkpoint/i })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: /load selected checkpoint/i }),
+    ).toBeDisabled();
   });
 
   it("routes checkpoint loads through onLoadCheckpoint when provided", async () => {
@@ -97,30 +117,38 @@ describe("Controls", () => {
         session={sessionState()}
         send={send}
         onLoadCheckpoint={onLoadCheckpoint}
-      />
+      />,
     );
     const select = await screen.findByLabelText(/model checkpoint/i);
     await user.selectOptions(select, "latest_pqn.pth");
-    await user.click(screen.getByRole("button", { name: /load selected checkpoint/i }));
+    await user.click(
+      screen.getByRole("button", { name: /load selected checkpoint/i }),
+    );
     expect(onLoadCheckpoint).toHaveBeenCalledWith("latest_pqn.pth");
     expect(send).not.toHaveBeenCalledWith("load_checkpoint", expect.anything());
   });
 
   it("shows obs_spec in the checkpoint options", async () => {
     render(<Controls {...baseProps} session={sessionState()} send={vi.fn()} />);
-    expect(await screen.findByText(/latest_pqn\.pth \(6\.1 MB · raster31v2\)/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/latest_pqn\.pth \(6\.1 MB · raster31v2\)/),
+    ).toBeInTheDocument();
   });
 
   it("surfaces a checkpoint-list failure with a Retry, keeping the loaded model selectable", async () => {
     vi.mocked(fetchCheckpoints).mockRejectedValueOnce(new Error("down"));
     const user = userEvent.setup();
     render(<Controls {...baseProps} session={sessionState()} send={vi.fn()} />);
-    expect(await screen.findByText(/couldn't fetch the checkpoint list/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/couldn't fetch the checkpoint list/i),
+    ).toBeInTheDocument();
     // The select never renders blank: the loaded checkpoint is kept as an option.
     expect(screen.getByText(/champ\.pth \(loaded\)/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /retry/i }));
     await waitFor(() =>
-      expect(screen.queryByText(/couldn't fetch the checkpoint list/i)).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(/couldn't fetch the checkpoint list/i),
+      ).not.toBeInTheDocument(),
     );
     expect(await screen.findByText(/latest_pqn\.pth/)).toBeInTheDocument();
   });
@@ -130,7 +158,12 @@ describe("Controls", () => {
     const send = vi.fn();
     const onModeChange = vi.fn();
     render(
-      <Controls {...baseProps} session={sessionState()} send={send} onModeChange={onModeChange} />
+      <Controls
+        {...baseProps}
+        session={sessionState()}
+        send={send}
+        onModeChange={onModeChange}
+      />,
     );
     await user.click(screen.getByRole("button", { name: "Play" }));
     expect(onModeChange).toHaveBeenCalledWith("play");
@@ -156,7 +189,9 @@ describe("Controls", () => {
   });
 
   it("uses honest ARIA for the roster: toggle buttons, no listbox", async () => {
-    const { container } = render(<Controls {...baseProps} session={sessionState()} send={vi.fn()} />);
+    const { container } = render(
+      <Controls {...baseProps} session={sessionState()} send={vi.fn()} />,
+    );
     await screen.findByText(/latest_pqn\.pth/); // settle the checkpoint fetch
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     // No composite roles inside the roster — its rows are plain toggle buttons.
@@ -164,7 +199,10 @@ describe("Controls", () => {
     expect(roster.querySelectorAll("[role]")).toHaveLength(0);
     const hero = screen.getByRole("button", { name: /crimson/i });
     expect(hero).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /azure/i })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /azure/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("describes the raster input contract when serving a raster model", async () => {
@@ -174,7 +212,9 @@ describe("Controls", () => {
     } as SessionState;
     render(<Controls {...baseProps} session={session} send={vi.fn()} />);
     await screen.findByText(/latest_pqn\.pth/); // settle the checkpoint fetch
-    expect(screen.getByText(/raster 31×31 \+ 25×25 \+ 26 scalars/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/raster 31×31 \+ 25×25 \+ 26 scalars/),
+    ).toBeInTheDocument();
     expect(screen.getByText("raster31v2")).toBeInTheDocument();
     expect(screen.queryByText(/61-D vector/)).not.toBeInTheDocument();
   });
@@ -183,14 +223,21 @@ describe("Controls", () => {
     render(<Controls {...baseProps} session={sessionState()} send={vi.fn()} />);
     await screen.findByText(/latest_pqn\.pth/); // settle the checkpoint fetch
     expect(screen.getByText("450 · target 300")).toBeInTheDocument();
-    expect(screen.getByText(/corpse drops are cap-exempt/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/corpse drops are cap-exempt/i),
+    ).toBeInTheDocument();
   });
 
   it("shows a visible Copy run summary button when App provides the handler", async () => {
     const user = userEvent.setup();
     const onCopySummary = vi.fn();
     render(
-      <Controls {...baseProps} session={sessionState()} send={vi.fn()} onCopySummary={onCopySummary} />
+      <Controls
+        {...baseProps}
+        session={sessionState()}
+        send={vi.fn()}
+        onCopySummary={onCopySummary}
+      />,
     );
     await user.click(screen.getByRole("button", { name: /copy run summary/i }));
     expect(onCopySummary).toHaveBeenCalled();

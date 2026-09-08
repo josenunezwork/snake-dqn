@@ -21,10 +21,13 @@ import { SPEED_PRESETS, activePresetIndex } from "./lib/presets";
 import { runSummary, copyText } from "./lib/runSummary";
 import { resolveMoveKey } from "./keys";
 
-const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+const IS_MAC =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad/.test(navigator.platform);
 const CMDK_LABEL = IS_MAC ? "⌘K" : "Ctrl K";
 
-type Tab = "controls" | "play" | "inspector" | "raster" | "network" | "dashboard";
+type Tab =
+  "controls" | "play" | "inspector" | "raster" | "network" | "dashboard";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "controls", label: "Controls" },
@@ -79,20 +82,33 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [showHelp, setShowHelp] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
-  const [showTour, setShowTour] = useState(() => !localStorage.getItem("snake_onboarded"));
-  const [showGhosts, setShowGhosts] = useState(() => localStorage.getItem("snake_ghosts") !== "0");
+  const [showTour, setShowTour] = useState(
+    () => !localStorage.getItem("snake_onboarded"),
+  );
+  const [showGhosts, setShowGhosts] = useState(
+    () => localStorage.getItem("snake_ghosts") !== "0",
+  );
   const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
-  const [toast, setToast] = useState<{ msg: string; tone: "error" | "ok" } | null>(null);
+  const [toast, setToast] = useState<{
+    msg: string;
+    tone: "error" | "ok";
+  } | null>(null);
   // Mode change requested but not yet confirmed by a frame ("Switching…" UI).
   const [pendingMode, setPendingMode] = useState<string | null>(null);
   // Destructive-action confirm ("Training progress lives only in memory…").
-  const [confirmGuard, setConfirmGuard] = useState<{ run: () => void } | null>(null);
+  const [confirmGuard, setConfirmGuard] = useState<{ run: () => void } | null>(
+    null,
+  );
   // Offer to retry a reward-contract-refused action as an explicit fine-tune.
-  const [overrideOffer, setOverrideOffer] = useState<{ message: string } | null>(null);
+  const [overrideOffer, setOverrideOffer] = useState<{
+    message: string;
+  } | null>(null);
   // The last destructive action issued, so an overridable refusal can be
   // re-sent with override_reward_contract once the user consents.
   const lastIntentRef = useRef<
-    { action: "set_mode"; mode: string } | { action: "load_checkpoint"; name: string } | null
+    | { action: "set_mode"; mode: string }
+    | { action: "load_checkpoint"; name: string }
+    | null
   >(null);
   const [view, updateView] = useViewSettings();
   const lastErrorRef = useRef<string | null>(null);
@@ -101,10 +117,28 @@ export default function App() {
   const [errorAttempt, setErrorAttempt] = useState(0);
   // Latest snakes + hero for keyboard hero-cycling, without re-binding the
   // listener every frame.
-  const heroCycleRef = useRef<{ snakes: SnakeDTO[]; heroId: number }>({ snakes: [], heroId: 0 });
-  heroCycleRef.current = { snakes: frame?.snakes ?? [], heroId: frame?.session?.hero_id ?? 0 };
+  const heroCycleRef = useRef<{
+    snakes: SnakeDTO[];
+    heroId: number;
+    fixed: boolean;
+  }>({
+    snakes: [],
+    heroId: 0,
+    fixed: false,
+  });
+  heroCycleRef.current = {
+    snakes: frame?.snakes ?? [],
+    heroId: frame?.session?.hero_id ?? 0,
+    fixed:
+      frame?.obs_spec === "raster31v3" &&
+      frame?.session?.serving_contract?.deployment_profile ===
+        "promotion-v2-watch-rect",
+  };
   const stats = frame?.stats;
   const session = frame?.session;
+  const fixedProfile =
+    frame?.obs_spec === "raster31v3" &&
+    session?.serving_contract?.deployment_profile === "promotion-v2-watch-rect";
   const playing = session?.mode === "play";
   // Fresh in stable closures/effects without re-binding per frame:
   const runOverRef = useRef(false);
@@ -186,7 +220,8 @@ export default function App() {
     if (awaitingFirstFrameRef.current) {
       awaitingFirstFrameRef.current = false;
       setPendingMode(null);
-      if (frame.session?.mode === "play" && tabRef.current !== "play") setTab("play");
+      if (frame.session?.mode === "play" && tabRef.current !== "play")
+        setTab("play");
     } else if (pendingMode && frame.session?.mode === pendingMode) {
       setPendingMode(null);
     }
@@ -200,29 +235,43 @@ export default function App() {
   // One shared, tracked auto-dismiss timer so the error toast and the "copied ✓"
   // toast never clobber each other's lifetime.
   const toastTimerRef = useRef<number | null>(null);
-  const showToast = useCallback((msg: string, tone: "error" | "ok", ms: number) => {
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    setToast({ msg, tone });
-    toastTimerRef.current = window.setTimeout(() => setToast(null), ms);
-  }, []);
+  const showToast = useCallback(
+    (msg: string, tone: "error" | "ok", ms: number) => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      setToast({ msg, tone });
+      toastTimerRef.current = window.setTimeout(() => setToast(null), ms);
+    },
+    [],
+  );
   const dismissToast = useCallback(() => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     setToast(null);
   }, []);
-  useEffect(() => () => {
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    },
+    [],
+  );
 
   const copySummary = useCallback(async () => {
     const ok = await copyText(runSummary(frame));
-    showToast(ok ? "Run summary copied ✓" : "Copy failed", ok ? "ok" : "error", 2500);
+    showToast(
+      ok ? "Run summary copied ✓" : "Copy failed",
+      ok ? "ok" : "error",
+      2500,
+    );
   }, [frame, showToast]);
 
   // Server-pushed {type:"error"|"info"} messages (engine crashes, "Saved …"
   // confirmations) surface as toasts — previously they were silently dropped.
   useEffect(() => {
     if (!notice) return;
-    showToast(notice.message, notice.tone === "error" ? "error" : "ok", notice.tone === "error" ? 6000 : 4000);
+    showToast(
+      notice.message,
+      notice.tone === "error" ? "error" : "ok",
+      notice.tone === "error" ? 6000 : 4000,
+    );
   }, [notice, showToast]);
 
   // One-time warning if the server speaks a protocol version we don't know
@@ -230,12 +279,16 @@ export default function App() {
   const protocolVersion = frame?.protocol_version;
   const protoWarnedRef = useRef(false);
   useEffect(() => {
-    if (protocolVersion !== undefined && protocolVersion !== 2 && !protoWarnedRef.current) {
+    if (
+      protocolVersion !== undefined &&
+      protocolVersion !== 2 &&
+      !protoWarnedRef.current
+    ) {
       protoWarnedRef.current = true;
       showToast(
         `Server protocol v${protocolVersion} — this page expects v2. Hard-refresh to update.`,
         "error",
-        8000
+        8000,
       );
     }
   }, [protocolVersion, showToast]);
@@ -245,7 +298,8 @@ export default function App() {
   // save_weights escape hatch) when leaving train mode with progress.
   const guardDestructive = useCallback((run: () => void) => {
     const s = sessionRef.current;
-    if (s?.mode === "train" && statsFrameRef.current > 0) setConfirmGuard({ run });
+    if (s?.mode === "train" && statsFrameRef.current > 0)
+      setConfirmGuard({ run });
     else run();
   }, []);
 
@@ -262,7 +316,7 @@ export default function App() {
         send("set_mode", m);
       });
     },
-    [guardDestructive, send]
+    [guardDestructive, send],
   );
 
   const loadCheckpoint = useCallback(
@@ -274,7 +328,7 @@ export default function App() {
         send("load_checkpoint", name);
       });
     },
-    [guardDestructive, send]
+    [guardDestructive, send],
   );
 
   // Explicit start of a scored human run — the ONLY place (besides the palette
@@ -350,9 +404,27 @@ export default function App() {
         active: showGhosts,
         run: () => setShowGhosts((g) => !g),
       },
-      { id: "help", title: "Keyboard shortcuts", group: "View", hint: "?", run: () => setShowHelp(true) },
-      { id: "tour", title: "Replay welcome tour", group: "View", keywords: "onboarding help intro", run: replayTour },
-      { id: "copy", title: "Copy run summary", group: "View", keywords: "clipboard export share log stats", run: copySummary },
+      {
+        id: "help",
+        title: "Keyboard shortcuts",
+        group: "View",
+        hint: "?",
+        run: () => setShowHelp(true),
+      },
+      {
+        id: "tour",
+        title: "Replay welcome tour",
+        group: "View",
+        keywords: "onboarding help intro",
+        run: replayTour,
+      },
+      {
+        id: "copy",
+        title: "Copy run summary",
+        group: "View",
+        keywords: "clipboard export share log stats",
+        run: copySummary,
+      },
     ];
     const ai = activePresetIndex(session.speed);
     SPEED_PRESETS.forEach((p, i) =>
@@ -364,7 +436,7 @@ export default function App() {
         keywords: `${p.label.replace("×", "x")} fast slow`,
         active: ai === i,
         run: () => send("set_speed", p.fps),
-      })
+      }),
     );
     [0, 0.05, 0.1, 0.25, 0.5, 1].forEach((e) =>
       cmds.push({
@@ -373,16 +445,17 @@ export default function App() {
         group: "Exploration",
         keywords: "randomness explore",
         run: () => send("set_epsilon", e),
-      })
+      }),
     );
-    [50, 100, 200, 300, 600].forEach((f) =>
-      cmds.push({
-        id: `food-${f}`,
-        title: `Food target ${f}`,
-        group: "Food",
-        run: () => send("set_food", f),
-      })
-    );
+    if (!heroCycleRef.current.fixed)
+      [50, 100, 200, 300, 600].forEach((f) =>
+        cmds.push({
+          id: `food-${f}`,
+          title: `Food target ${f}`,
+          group: "Food",
+          run: () => send("set_food", f),
+        }),
+      );
     TABS.forEach((t) =>
       cmds.push({
         id: `tab-${t.id}`,
@@ -390,9 +463,9 @@ export default function App() {
         group: "Panel",
         active: tab === t.id,
         run: () => setTab(t.id),
-      })
+      }),
     );
-    if (session.mode !== "play") {
+    if (session.mode !== "play" && !heroCycleRef.current.fixed) {
       for (const s of frame.snakes) {
         cmds.push({
           id: `hero-${s.id}`,
@@ -418,7 +491,21 @@ export default function App() {
       });
     }
     return cmds;
-  }, [showPalette, session, frame, tab, checkpoints, showGhosts, playing, send, changeMode, startRun, loadCheckpoint, replayTour, copySummary]);
+  }, [
+    showPalette,
+    session,
+    frame,
+    tab,
+    checkpoints,
+    showGhosts,
+    playing,
+    send,
+    changeMode,
+    startRun,
+    loadCheckpoint,
+    replayTour,
+    copySummary,
+  ]);
 
   // Surface session errors (bad checkpoint / mode swap) as a transient toast,
   // firing only on the transition to a new error (it persists across frames).
@@ -479,7 +566,13 @@ export default function App() {
     };
     const isActivatable = (el: Element | null) => {
       const t = el?.tagName;
-      return t === "BUTTON" || t === "A" || t === "INPUT" || t === "SELECT" || t === "TEXTAREA";
+      return (
+        t === "BUTTON" ||
+        t === "A" ||
+        t === "INPUT" ||
+        t === "SELECT" ||
+        t === "TEXTAREA"
+      );
     };
     const speedPreset = (e: KeyboardEvent): boolean => {
       if (e.key >= "1" && e.key <= "5") {
@@ -537,8 +630,12 @@ export default function App() {
         // After a run ends, R or Enter starts a fresh game instantly — but Enter
         // must NOT hijack a focused button/link/input (e.g. Tab-to-Submit-Enter
         // must SUBMIT the score, not destroy it with a new game).
-        if (runOverRef.current && (e.key === "r" || e.key === "R" || e.key === "Enter")) {
-          if (e.key === "Enter" && isActivatable(document.activeElement)) return;
+        if (
+          runOverRef.current &&
+          (e.key === "r" || e.key === "R" || e.key === "Enter")
+        ) {
+          if (e.key === "Enter" && isActivatable(document.activeElement))
+            return;
           e.preventDefault();
           send("new_game");
           return;
@@ -559,7 +656,8 @@ export default function App() {
         } else if (e.code === "Space") {
           // After the run, let Space activate a focused control (Submit button)
           // instead of being a dead boost key.
-          if (runOverRef.current && isActivatable(document.activeElement)) return;
+          if (runOverRef.current && isActivatable(document.activeElement))
+            return;
           e.preventDefault();
           // hold-to-boost: send once on press, not on every auto-repeat keydown
           if (!e.repeat) send("human_boost", true);
@@ -580,8 +678,11 @@ export default function App() {
       } else if (e.key === "[" || e.key === "]") {
         // cycle the inspected snake, alive-first / longest-first (roster order)
         e.preventDefault();
-        const { snakes, heroId } = heroCycleRef.current;
-        const order = snakes.filter((s) => s.alive).sort((a, b) => b.length - a.length);
+        const { snakes, heroId, fixed } = heroCycleRef.current;
+        if (fixed) return;
+        const order = snakes
+          .filter((s) => s.alive)
+          .sort((a, b) => b.length - a.length);
         if (order.length) {
           const cur = order.findIndex((s) => s.id === heroId);
           const base = cur < 0 ? 0 : cur;
@@ -631,7 +732,16 @@ export default function App() {
       window.removeEventListener("blur", releaseBoost);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [send, playing, session?.playing, showHelp, showPalette, showTour, confirmGuard, showToast]);
+  }, [
+    send,
+    playing,
+    session?.playing,
+    showHelp,
+    showPalette,
+    showTour,
+    confirmGuard,
+    showToast,
+  ]);
 
   // Dynamic tab title: a backgrounded trainer/game should tell its status from
   // the tab strip alone (disconnected > play score > paused > train progress).
@@ -643,14 +753,20 @@ export default function App() {
         ? `run over · score ${frame.play.score} · snake-dqn`
         : `▶ score ${frame.play.score} · snake-dqn`;
     else if (session && !session.playing) t = "⏸ paused · snake-dqn";
-    else if (session?.mode === "train" && stats) t = `train · f ${compactNum(stats.frame)} · snake-dqn`;
+    else if (session?.mode === "train" && stats)
+      t = `train · f ${compactNum(stats.frame)} · snake-dqn`;
     else if (stats) t = `watch · best ${stats.best_length} · snake-dqn`;
     else t = "snake-dqn · live";
     if (document.title !== t) document.title = t;
   }, [connected, playing, frame, session, stats]);
 
   // Stable callbacks so memoized panels don't re-render on identity churn.
-  const pickHero = useCallback((id: number) => send("set_hero", id), [send]);
+  const pickHero = useCallback(
+    (id: number) => {
+      if (!heroCycleRef.current.fixed) send("set_hero", id);
+    },
+    [send],
+  );
   const toggleGhosts = useCallback(() => setShowGhosts((g) => !g), []);
 
   const linkLabel = {
@@ -659,7 +775,12 @@ export default function App() {
     reconnecting: "○ reconnecting…",
     offline: "○ offline",
   }[link];
-  const linkClass = { live: "on", stale: "warn", reconnecting: "warn", offline: "off" }[link];
+  const linkClass = {
+    live: "on",
+    stale: "warn",
+    reconnecting: "warn",
+    offline: "off",
+  }[link];
 
   const confirmSave = useCallback(() => {
     if (!confirmGuard) return;
@@ -690,7 +811,10 @@ export default function App() {
       setPendingMode(intent.mode);
       send("set_mode", { mode: intent.mode, override_reward_contract: true });
     } else {
-      send("load_checkpoint", { name: intent.name, override_reward_contract: true });
+      send("load_checkpoint", {
+        name: intent.name,
+        override_reward_contract: true,
+      });
     }
   }, [send]);
   const overrideCancel = useCallback(() => setOverrideOffer(null), []);
@@ -714,7 +838,9 @@ export default function App() {
         <span className={"pill " + linkClass} title={`Stream: ${link}`}>
           {linkLabel}
         </span>
-        {session && <span className="pill">{session.checkpoint ?? "no model"}</span>}
+        {session && (
+          <span className="pill">{session.checkpoint ?? "no model"}</span>
+        )}
         <div className="spacer" />
         {/* the per-metric stats live in the telemetry band now; the header stays lean */}
         {playing && frame?.play ? (
@@ -727,7 +853,9 @@ export default function App() {
           stats && (
             <>
               <span className="pill">frame {stats.frame.toLocaleString()}</span>
-              {session && <span className="pill mode-pill">{session.mode}</span>}
+              {session && (
+                <span className="pill mode-pill">{session.mode}</span>
+              )}
             </>
           )
         )}
@@ -773,14 +901,15 @@ export default function App() {
               const i = TABS.findIndex((t) => t.id === tab);
               let ni = i;
               if (e.key === "ArrowRight") ni = (i + 1) % TABS.length;
-              else if (e.key === "ArrowLeft") ni = (i - 1 + TABS.length) % TABS.length;
+              else if (e.key === "ArrowLeft")
+                ni = (i - 1 + TABS.length) % TABS.length;
               else if (e.key === "Home") ni = 0;
               else if (e.key === "End") ni = TABS.length - 1;
               else return;
               e.preventDefault();
               setTab(TABS[ni].id);
               requestAnimationFrame(() =>
-                document.getElementById(`tab-${TABS[ni].id}`)?.focus()
+                document.getElementById(`tab-${TABS[ni].id}`)?.focus(),
               );
             }}
           >
@@ -803,7 +932,12 @@ export default function App() {
             ))}
           </div>
 
-          <div className="tabpanel" role="tabpanel" id="tabpanel" aria-labelledby={`tab-${tab}`}>
+          <div
+            className="tabpanel"
+            role="tabpanel"
+            id="tabpanel"
+            aria-labelledby={`tab-${tab}`}
+          >
             {!frame ? (
               <div className="panel">
                 <div className="empty-state">
@@ -840,6 +974,7 @@ export default function App() {
                 pendingMode={pendingMode}
                 onStartRun={startRun}
                 onEndRun={endRun}
+                fixedProfile={fixedProfile}
               />
             ) : tab === "inspector" ? (
               <Inspector
@@ -863,7 +998,12 @@ export default function App() {
       </div>
 
       {showTour && <WelcomeTour onClose={() => setShowTour(false)} />}
-      {showPalette && <CommandPalette commands={commands} onClose={() => setShowPalette(false)} />}
+      {showPalette && (
+        <CommandPalette
+          commands={commands}
+          onClose={() => setShowPalette(false)}
+        />
+      )}
       {showHelp && (
         <HelpOverlay
           onClose={() => setShowHelp(false)}
@@ -889,8 +1029,19 @@ export default function App() {
             <p className="muted" style={{ margin: "6px 0 14px", fontSize: 13 }}>
               Training progress lives only in memory. Save weights first?
             </p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-              <button className="btn primary" onClick={confirmSave} disabled={!connected}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                className="btn primary"
+                onClick={confirmSave}
+                disabled={!connected}
+              >
                 Save &amp; continue
               </button>
               <button className="btn" onClick={confirmDiscard}>
@@ -914,18 +1065,31 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="overlay-head">
-              <h2 id="override-offer-title">Fine-tune across reward versions?</h2>
+              <h2 id="override-offer-title">
+                Fine-tune across reward versions?
+              </h2>
             </div>
             <p className="muted" style={{ margin: "6px 0 10px", fontSize: 13 }}>
               {overrideOffer.message}
             </p>
             <p className="muted" style={{ margin: "0 0 14px", fontSize: 13 }}>
-              Continuing warm-starts the weights and trains them under the arena&rsquo;s
-              current reward economics — a deliberate fine-tune, not a resume. Saved
-              weights get stamped with the new contract.
+              Continuing warm-starts the weights and trains them under the
+              arena&rsquo;s current reward economics — a deliberate fine-tune,
+              not a resume. Saved weights get stamped with the new contract.
             </p>
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-              <button className="btn primary" onClick={overrideAccept} disabled={!connected}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                className="btn primary"
+                onClick={overrideAccept}
+                disabled={!connected}
+              >
                 Fine-tune anyway
               </button>
               <button className="btn" onClick={overrideCancel} autoFocus>
@@ -935,7 +1099,9 @@ export default function App() {
           </div>
         </div>
       )}
-      {toast && <Toast message={toast.msg} tone={toast.tone} onClose={dismissToast} />}
+      {toast && (
+        <Toast message={toast.msg} tone={toast.tone} onClose={dismissToast} />
+      )}
     </div>
   );
 }
