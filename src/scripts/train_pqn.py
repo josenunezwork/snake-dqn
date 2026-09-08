@@ -53,7 +53,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.core.config_loader import load_config, resolve_yaml_device  # noqa: E402
+from src.core.config_loader import load_config  # noqa: E402
 from src.core.device_manager import DeviceManager  # noqa: E402
 from src.core.runtime_contract import (  # noqa: E402
     EffectiveWorldConfig,
@@ -110,7 +110,7 @@ def _source_revision() -> str:
         return "unavailable"
 
 
-def _load_config_overrides(path: str) -> Dict[str, Any]:
+def _load_config_overrides(path: str, app_config: Any = None) -> Dict[str, Any]:
     """Read PQN overrides from a YAML config file.
 
     Recognized sources (later ones win):
@@ -136,7 +136,7 @@ def _load_config_overrides(path: str) -> Dict[str, Any]:
         pydantic.ValidationError: If the ``pqn:`` block has an unknown key or a
             value that violates the schema.
     """
-    app = load_config(path)
+    app = app_config or load_config(path)
     overrides: Dict[str, Any] = {}
     provided = app.provided_fields
     shared = {
@@ -322,13 +322,48 @@ def validate_pqn_resume_checkpoint_config(
         "action_mask_contract_digest"
     ) != canonical_digest(mask):
         raise ValueError("invalid action_mask_contract metadata")
-    if mask != {
-        "version": "legal-advisory-resolved-v1",
-        "action_count": 6,
-        "resolution": "row_local_intersection_else_legal",
-        "dead_rows": "all_false",
-    }:
+    expected_mask = (
+        {
+            "version": "legal-advisory-resolved-v1",
+            "action_count": 6,
+            "resolution": "row_local_intersection_else_legal",
+            "dead_rows": "all_false",
+        }
+        if config.obs_spec == RASTER31V3
+        else {
+            "version": "legacy-advisory-v1",
+            "action_count": 6,
+            "resolution": "advisory_only",
+            "dead_rows": "legacy",
+        }
+    )
+    if mask != expected_mask:
         raise ValueError("continuation action_mask_contract conflicts with requested recipe")
+    for name in ("target_contract", "sampler_contract", "optimizer_contract"):
+        raw = checkpoint.get(name)
+        if not isinstance(raw, dict) or checkpoint.get(f"{name}_digest") != canonical_digest(raw):
+            raise ValueError(f"invalid {name} metadata")
+    if checkpoint["target_contract"].get("death_value") != config.death_value:
+        raise ValueError("continuation target_contract conflicts with requested death_value")
+    expected_sampler_contract = {
+        "mode": "exact_coverage" if config.sgd_epochs else "minibatch",
+        "minibatches": config.minibatches,
+        "minibatch_size": config.minibatch_size,
+        "sgd_epochs": config.sgd_epochs,
+        "flip_augment": config.flip_augment,
+        "hero_frac": config.hero_frac,
+        "pool_capacity": config.pool_capacity,
+    }
+    if checkpoint["sampler_contract"] != expected_sampler_contract:
+        differing = sorted(
+            key
+            for key, value in expected_sampler_contract.items()
+            if checkpoint["sampler_contract"].get(key) != value
+        )
+        raise ValueError(
+            "continuation sampler_contract conflicts with requested sampler: "
+            + ", ".join(differing)
+        )
     model_head = validate_model_head_contract(checkpoint, require_digest=True)
     provenance = RunProvenance.from_metadata(checkpoint)
     expected_obs_digest = (
@@ -546,9 +581,20 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
     Returns:
         The resolved :class:`PQNConfig`.
     """
-    cfg_kwargs: Dict[str, Any] = {}
+    defaults = PQNConfig()
+    cfg_kwargs: Dict[str, Any] = {
+        key: value
+        for key, value in defaults.__dict__.items()
+        if key not in {"field_sources", "source_revision", "requested_device", "effective_device"}
+    }
+    sources = {key: "default" for key in cfg_kwargs}
     if args.config:
-        cfg_kwargs.update(_load_config_overrides(args.config))
+        app_config = load_config(args.config)
+        config_values = _load_config_overrides(args.config, app_config)
+        cfg_kwargs.update(config_values)
+        sources.update({key: "config" for key in config_values})
+        # ConfigSchema already validated the hardware section in this one read.
+        cfg_kwargs["requested_device"] = app_config.hardware.device
 
     # Map CLI flags (only those explicitly provided) onto config fields.
     cli_map = {
@@ -584,11 +630,13 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
     for key, value in cli_map.items():
         if value is not None:
             cfg_kwargs[key] = value
+            sources[key] = "cli"
 
     # --no-self-play collapses the opponent pool and forces every slot to hero.
     if args.no_self_play:
         cfg_kwargs["pool_capacity"] = 0
         cfg_kwargs["hero_frac"] = 1.0
+        sources["pool_capacity"] = sources["hero_frac"] = "cli"
 
     if cfg_kwargs.get("recipe") == "corrected-v3":
         # Recipe selection is explicit; omitted shared AppConfig values never
@@ -601,27 +649,14 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
             "flip_augment": False,
         }
         for field, expected in recipe_values.items():
-            if field in cfg_kwargs and cfg_kwargs[field] != expected:
+            if sources.get(field) != "default" and cfg_kwargs[field] != expected:
                 raise ValueError(
                     f"corrected-v3 recipe conflicts with explicit {field}={cfg_kwargs[field]!r}"
                 )
-            if field not in cfg_kwargs:
+            if sources.get(field) == "default":
                 cfg_kwargs[field] = expected
+                sources[field] = "recipe"
 
-    sources = {key: "config" for key in cfg_kwargs}
-    if cfg_kwargs.get("recipe") == "corrected-v3":
-        for key in (
-            "obs_spec",
-            "mechanics_version",
-            "reward_version",
-            "arena_type",
-            "flip_augment",
-        ):
-            if key not in cli_map or cli_map.get(key) is None:
-                sources.setdefault(key, "recipe")
-    for key, value in cli_map.items():
-        if value is not None:
-            sources[key] = "cli"
     cfg_kwargs["field_sources"] = sources
     cfg_kwargs["source_revision"] = _source_revision()
 
@@ -963,9 +998,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     seed_context = initialize_run_seed(config.seed)
     config.seed = seed_context.effective_seed
     # CLI > explicitly-set environment > validated YAML hardware > auto.
-    yaml_device = (
-        resolve_yaml_device(args.config) if not os.environ.get("SNAKE_DQN_DEVICE") else None
-    )
+    yaml_device = config.requested_device if config.requested_device != "auto" else None
     requested_device = args.device or os.environ.get("SNAKE_DQN_DEVICE") or yaml_device or "auto"
     device = _resolve_device(args.device or yaml_device)
     config.requested_device = requested_device

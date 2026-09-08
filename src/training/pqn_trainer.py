@@ -224,6 +224,10 @@ class PQNConfig:
                 raise ValueError(f"{name} must be a {comparator} integer")
         if self.reward_version != 2:
             raise ValueError("PQN supports reward_version=2 only")
+        if self.mechanics_version not in {1, 2}:
+            raise ValueError("PQN supports mechanics_version 1 or 2 only")
+        if self.arena_type != "rectangular":
+            raise ValueError("PQN supports rectangular arenas only")
         if self.obs_spec not in {RASTER31V2, RASTER31V3}:
             raise ValueError(f"Unsupported PQN observation spec {self.obs_spec!r}")
         if self.recipe not in {"legacy", "corrected-v3"}:
@@ -1264,12 +1268,21 @@ class PQNTrainer:
             population_floor=True,
             reset_strategy="batch_episode",
         )
-        mask_contract = {
-            "version": "legal-advisory-resolved-v1",
-            "action_count": 6,
-            "resolution": "row_local_intersection_else_legal",
-            "dead_rows": "all_false",
-        }
+        mask_contract = (
+            {
+                "version": "legal-advisory-resolved-v1",
+                "action_count": 6,
+                "resolution": "row_local_intersection_else_legal",
+                "dead_rows": "all_false",
+            }
+            if self.cfg.obs_spec == RASTER31V3
+            else {
+                "version": "legacy-advisory-v1",
+                "action_count": 6,
+                "resolution": "advisory_only",
+                "dead_rows": "legacy",
+            }
+        )
         observation_digest = (
             RASTER31V3_CONTRACT.digest if self.cfg.obs_spec == RASTER31V3 else RASTER31V2
         )
@@ -1327,6 +1340,22 @@ class PQNTrainer:
                     for group in self.optimizer.param_groups
                 ]
             },
+            "target_contract": {
+                "death_value": self.cfg.death_value,
+                "trapped_bootstrap": self.cfg.death_value,
+                "truncation_bootstrap": "masked_max_q",
+                "transition_validity": "env_transition_valid",
+                "action_mask": mask_contract,
+            },
+            "sampler_contract": {
+                "mode": "exact_coverage" if self.cfg.sgd_epochs else "minibatch",
+                "minibatches": self.cfg.minibatches,
+                "minibatch_size": self.cfg.minibatch_size,
+                "sgd_epochs": self.cfg.sgd_epochs,
+                "flip_augment": self.cfg.flip_augment,
+                "hero_frac": self.cfg.hero_frac,
+                "pool_capacity": self.cfg.pool_capacity,
+            },
             OBS_SPEC_KEY: self.cfg.obs_spec,
             "output_size": self.network.output_size,
             "gamma": self.cfg.gamma,
@@ -1369,6 +1398,9 @@ class PQNTrainer:
             "resume_state": dict(self._resume_state),
         }
         state.update(ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
+        state["target_contract_digest"] = canonical_digest(state["target_contract"])
+        state["sampler_contract_digest"] = canonical_digest(state["sampler_contract"])
+        state["optimizer_contract_digest"] = canonical_digest(state["optimizer_contract"])
         state.update(provenance.to_metadata())
         if self.cfg.obs_spec == RASTER31V3:
             state.update(RASTER31V3_CONTRACT.to_metadata())

@@ -179,6 +179,15 @@ class CheckpointSettings:
 
 
 @dataclass(frozen=True)
+class HardwareSettings:
+    """Validated hardware preference retained by the immutable app config."""
+
+    device: str = "auto"
+    num_threads: int = 4
+    num_parallel_envs: int = 4
+
+
+@dataclass(frozen=True)
 class ApexSettings:
     """Ape-X DQN configuration parameters for distributed training."""
 
@@ -293,6 +302,7 @@ class AppConfig:
     training: TrainingSettings = field(default_factory=TrainingSettings)
     rewards: RewardSettings = field(default_factory=RewardSettings)
     checkpoint: CheckpointSettings = field(default_factory=CheckpointSettings)
+    hardware: HardwareSettings = field(default_factory=HardwareSettings)
     apex: ApexSettings = field(default_factory=ApexSettings)
     curriculum: CurriculumSettings = field(default_factory=CurriculumSettings)
     pqn: PQNOverrides = field(default_factory=PQNOverrides)
