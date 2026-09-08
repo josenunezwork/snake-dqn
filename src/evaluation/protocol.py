@@ -7,7 +7,7 @@ observation-progress normalization without relying on a CLI default.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from math import isfinite
 from typing import Any, Mapping
 
@@ -64,10 +64,23 @@ class EvaluationProfile:
     legacy_diagnostic: bool = False
 
     def __post_init__(self) -> None:
-        if not self.name or not self.evaluator_version:
+        if not isinstance(self.name, str) or not self.name:
+            raise ValueError("evaluation profile name must be a non-empty string")
+        if not isinstance(self.evaluator_version, str) or not self.evaluator_version:
             raise ValueError("evaluation profiles require a name and evaluator version")
         if not isinstance(self.learn, bool):
             raise ValueError("learn must be a boolean")
+        if self.learn:
+            raise ValueError("evaluation profiles require learn=False")
+        if not isinstance(self.legacy_diagnostic, bool):
+            raise ValueError("legacy_diagnostic must be a boolean")
+        if not isinstance(self.runtime.mode, str) or not self.runtime.mode:
+            raise ValueError("runtime mode must be a non-empty string")
+        if not isinstance(self.runtime.reset_strategy, str) or not self.runtime.reset_strategy:
+            raise ValueError("runtime reset_strategy must be a non-empty string")
+        for field_name in ("training", "respawn", "hero_terminal", "population_floor"):
+            if not isinstance(getattr(self.runtime, field_name), bool):
+                raise ValueError(f"runtime {field_name} must be a boolean")
         for label, value in (
             ("scored_horizon", self.scored_horizon),
             ("observation_progress_horizon", self.observation_progress_horizon),
@@ -96,8 +109,6 @@ class EvaluationProfile:
                 raise ValueError("promotion v2 requires the logical-mass/v1 metric")
             if self.anchor_version != _PROMOTION_ANCHOR_VERSION:
                 raise ValueError("promotion v2 requires the scripted-anchor/v1 anchor")
-            if self.learn:
-                raise ValueError("promotion v2 evaluation requires learn=False")
             normalization = self.world.normalization
             required_normalization = {"max_frames", "starvation_max", "max_length"}
             if set(normalization) != required_normalization or any(
@@ -105,10 +116,16 @@ class EvaluationProfile:
                 or not isinstance(value, (int, float))
                 or not isfinite(value)
                 or value <= 0
+                or int(value) != value
                 for value in normalization.values()
             ):
                 raise ValueError(
-                    "promotion v2 requires complete positive observation normalization"
+                    "promotion v2 requires complete positive integer observation normalization"
+                )
+            canonical_normalization = {key: int(value) for key, value in normalization.items()}
+            if dict(normalization) != canonical_normalization:
+                object.__setattr__(
+                    self, "world", replace(self.world, normalization=canonical_normalization)
                 )
 
     def descriptor(self) -> dict[str, Any]:
@@ -188,10 +205,11 @@ class EvaluationProfile:
                 or not isinstance(value, (int, float))
                 or not isfinite(value)
                 or value <= 0
+                or int(value) != value
                 for value in normalization.values()
             ):
                 raise ValueError(
-                    "promotion v2 requires complete positive observation normalization"
+                    "promotion v2 requires complete positive integer observation normalization"
                 )
         world = EffectiveWorldConfig(**dict(world_raw))
         runtime = RuntimeModeContract(**dict(runtime_raw))
