@@ -25,6 +25,11 @@ def _recipe_and_optimizer() -> tuple[ApexRecipe, torch.optim.Optimizer]:
         runtime={"mode": "apex_train", "training": True, "respawn": True},
         actor_scaling={"num_actors": 2, "board_scale": 0.2, "food_multiplier": 0.5},
         seed_identity={"effective_seed": 0, "actor_namespace": "seed+actor_id"},
+        batch_size=512,
+        replay_capacity=1_000_000,
+        min_replay_size=50_000,
+        beta_frames=1_000_000,
+        initial_beta_clock=0,
     )
     return recipe, optimizer
 
@@ -72,6 +77,23 @@ def test_complete_recipe_keeps_target_and_gradient_clipping_distinct() -> None:
     assert recipe.observation_contract["mask_mode"] == "legacy_advisory_rowwise_legal_intersection"
     assert recipe.world_contract["width"] == 290
     assert recipe.runtime_contract["respawn"] is True
+    assert recipe.replay_contract["batch_size"] == 512
+    assert recipe.replay_contract["beta_frames"] == 1_000_000
+
+
+def test_recipe_continuation_rejects_replay_horizon_or_batch_change() -> None:
+    recipe, optimizer = _recipe_and_optimizer()
+    checkpoint = _checkpoint(recipe, optimizer)
+    altered = copy.deepcopy(recipe.semantic_dict())
+    altered["replay_contract"]["beta_frames"] = 2_000_000
+    changed_horizon = ApexRecipe(**altered)
+    with pytest.raises(ValueError, match="conflicts"):
+        validate_recipe_continuation(checkpoint, changed_horizon, weights_only=False, optimizer=optimizer)
+    altered = copy.deepcopy(recipe.semantic_dict())
+    altered["replay_contract"]["batch_size"] = 256
+    changed_batch = ApexRecipe(**altered)
+    with pytest.raises(ValueError, match="conflicts"):
+        validate_recipe_continuation(checkpoint, changed_batch, weights_only=False, optimizer=optimizer)
 
 
 def test_optimizer_continuation_rejects_malformed_adam_state_before_load() -> None:

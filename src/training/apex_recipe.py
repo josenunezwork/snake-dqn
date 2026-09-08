@@ -143,7 +143,8 @@ class ApexRecipe:
     def local(
         cls, *, optimizer: torch.optim.Optimizer, input_size: int, output_size: int,
         gamma: float, n_step: int, target_clip: float = 50.0,
-        seed_identity: Optional[Mapping[str, Any]] = None,
+        seed_identity: Optional[Mapping[str, Any]] = None, batch_size: Optional[int] = None,
+        replay_capacity: Optional[int] = None, min_replay_size: Optional[int] = None,
     ) -> "ApexRecipe":
         """Build the complete descriptor for the actual local AdamW path."""
         cfg = get_config()
@@ -153,6 +154,11 @@ class ApexRecipe:
             grad_clip_norm=10.0,
             priority_alpha=cfg.apex.priority_alpha, priority_eps=cfg.apex.priority_epsilon,
             beta_clock="successful_local_sample", world=asdict(cfg.game),
+            replay_geometry={"batch_size": cfg.apex.batch_size if batch_size is None else batch_size,
+                             "capacity": cfg.apex.buffer_size if replay_capacity is None else replay_capacity,
+                             "warmup_samples": cfg.apex.min_buffer_size if min_replay_size is None else min_replay_size,
+                             "beta_schedule": "increment_per_successful_local_sample",
+                             "beta_increment": cfg.training.priority_beta_increment},
             runtime={"mode": "local_apex_policy", "training": True, "distributed": False,
                      "episode_lifecycle": "GameState-owned"},
             exploration={"epsilon_start": cfg.training.epsilon_start,
@@ -168,8 +174,12 @@ class ApexRecipe:
         gamma: float, n_step: int, priority_alpha: float, priority_eps: float,
         world: Mapping[str, Any], runtime: Mapping[str, Any], actor_scaling: Mapping[str, Any],
         seed_identity: Mapping[str, Any], target_clip: float = 100.0, grad_clip_norm: Optional[float] = None,
+        batch_size: int = 0, replay_capacity: int = 0, min_replay_size: int = 0,
+        beta_frames: int = 0, initial_beta_clock: int = 0,
     ) -> "ApexRecipe":
         """Build a coordinator-bound distributed descriptor, never ambient world values."""
+        if min(batch_size, replay_capacity, min_replay_size, beta_frames) <= 0 or initial_beta_clock < 0:
+            raise ValueError("distributed Apex recipe requires resolved replay geometry and beta horizon")
         cfg = get_config()
         return cls._build(
             mode="distributed", optimizer=optimizer, input_size=input_size, output_size=output_size,
@@ -177,6 +187,10 @@ class ApexRecipe:
             grad_clip_norm=float(cfg.training.grad_clip_norm if grad_clip_norm is None else grad_clip_norm),
             priority_alpha=priority_alpha, priority_eps=priority_eps,
             beta_clock="successful_distributed_sample", world=world, runtime=runtime,
+            replay_geometry={"batch_size": batch_size, "capacity": replay_capacity,
+                             "warmup_samples": min_replay_size,
+                             "beta_schedule": "linear_over_successful_distributed_samples",
+                             "beta_frames": beta_frames, "initial_beta_clock": initial_beta_clock},
             exploration={"epsilon_base": cfg.apex.epsilon_base, "epsilon_alpha": cfg.apex.epsilon_alpha,
                          "selection": "epsilon_greedy_actor_namespace", "actor_scaling": dict(actor_scaling)},
             seed_identity=seed_identity,
@@ -188,7 +202,7 @@ class ApexRecipe:
         gamma: float, n_step: int, target_clip: float, grad_clip_norm: float,
         priority_alpha: float, priority_eps: float,
         beta_clock: str, world: Mapping[str, Any], runtime: Mapping[str, Any],
-        exploration: Mapping[str, Any], seed_identity: Mapping[str, Any],
+        exploration: Mapping[str, Any], seed_identity: Mapping[str, Any], replay_geometry: Mapping[str, Any],
     ) -> "ApexRecipe":
         cfg = get_config()
         return cls(
@@ -203,9 +217,8 @@ class ApexRecipe:
                              "target_q_clip": target_clip, "gradient_clip_norm": grad_clip_norm},
             replay_contract={"kind": "prioritized_n_step", "alpha": priority_alpha,
                              "priority_epsilon": priority_eps, "beta_start": cfg.apex.priority_beta_start,
-                             "beta_end": cfg.apex.priority_beta_end,
-                             "beta_increment": cfg.training.priority_beta_increment,
-                             "beta_clock": beta_clock},
+                             "beta_end": cfg.apex.priority_beta_end, "beta_clock": beta_clock,
+                             **dict(replay_geometry)},
             observation_contract={"spec": "vector61" if input_size == 61 else "vector58",
                                   "input_size": input_size, "output_size": output_size,
                                   "layout": "relative6_vector",

@@ -80,6 +80,7 @@ class ApexPolicy(BaseDQNPolicy):
         init_type: str = "orthogonal",
         device: Optional[torch.device] = None,
         override_reward_contract: bool = False,
+        seed_context: Optional[Dict[str, object]] = None,
     ):
         """
         Initialize Ape-X policy.
@@ -104,6 +105,8 @@ class ApexPolicy(BaseDQNPolicy):
                 aborting, e.g. fine-tuning a reward-v1 champion under reward v2.
                 Non-reward contract violations (gamma, n_step, shapes) still
                 abort. Only consulted when ``training`` is True.
+            seed_context: Explicit C0 requested/effective seed identity for a
+                local training run. Omit only for direct library callers.
         """
         resolved_device = device if device is not None else DeviceManager.get_device()
         super().__init__(policy_name="apex", device=resolved_device)
@@ -120,6 +123,11 @@ class ApexPolicy(BaseDQNPolicy):
         self.training = training
         self.override_reward_contract = bool(override_reward_contract)
         self.init_type = init_type
+        self._seed_identity: Dict[str, object] = {
+            "status": "unknown", "source": "direct-library-caller"
+        }
+        if seed_context is not None:
+            self.set_seed_identity(seed_context)
         self._last_train_metrics: Dict[str, float] = {}
 
         # Create Dueling DQN models (ApexNetwork)
@@ -633,7 +641,6 @@ class ApexPolicy(BaseDQNPolicy):
         reward_contract = current_reward_contract()
         state_dict.update(
             {
-                **self._recipe().to_metadata(),
                 "apex_config": self._apex_config_snapshot(),
                 "dqn_state_dict": self.dqn.state_dict(),
                 "n_step": self.n_step,
@@ -648,6 +655,8 @@ class ApexPolicy(BaseDQNPolicy):
                 "reward_food_base": float(reward_contract["food_base"]),
             }
         )
+        if self.optimizer is not None:
+            state_dict.update(self._recipe().to_metadata())
         if self.target_dqn is not None:
             state_dict["target_dqn_state_dict"] = self.target_dqn.state_dict()
         if self.optimizer is not None:
@@ -665,7 +674,33 @@ class ApexPolicy(BaseDQNPolicy):
             gamma=self.gamma,
             n_step=self.n_step,
             target_clip=50.0,
+            seed_identity=self._seed_identity,
+            batch_size=self._batch_size(),
+            replay_capacity=int(getattr(self.memory, "capacity", self._replay_capacity())),
+            min_replay_size=self._min_replay_size(),
         )
+
+    def set_seed_identity(self, seed_context: Dict[str, object]) -> None:
+        """Set the C0 seed identity before collecting local Apex experience.
+
+        Direct library callers remain explicitly ``unknown``. Coordinators must
+        provide requested/effective uint64 values and the derived namespace.
+        """
+        required = {"requested_seed", "effective_seed", "namespace"}
+        if set(seed_context) < required:
+            raise ValueError("Apex seed_context requires requested_seed, effective_seed, and namespace")
+        for key in ("effective_seed",):
+            value = seed_context[key]
+            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 2**64:
+                raise ValueError(f"Apex seed_context {key} must be an unsigned 64-bit integer")
+        requested = seed_context["requested_seed"]
+        if requested is not None and (
+            isinstance(requested, bool) or not isinstance(requested, int) or not 0 <= requested < 2**64
+        ):
+            raise ValueError("Apex seed_context requested_seed must be an unsigned 64-bit integer or None")
+        if not isinstance(seed_context["namespace"], str) or not seed_context["namespace"]:
+            raise ValueError("Apex seed_context namespace must be a non-empty string")
+        self._seed_identity = dict(seed_context)
 
     def _assert_pristine_weights_only_receiver(self) -> None:
         """Prevent a weights-only load from silently mixing two local runs."""

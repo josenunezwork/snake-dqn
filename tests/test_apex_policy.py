@@ -428,13 +428,13 @@ def test_local_multistep_sample_preserves_mask_modes_into_resolved_targets():
         policy = ApexPolicy(input_size=58, hidden_size=64, output_size=6, n_step=1)
         policy.dqn = FixedQ([0.0, 3.0, 0.0, 0.0, 100.0, 0.0])
         policy.target_dqn = FixedQ([0.0, 5.0, 0.0, 0.0, 50.0, 0.0])
-        resolved_empty = torch.zeros(6, dtype=torch.bool)
+        resolved_safe = torch.tensor([False, True, False, False, False, False])
 
         def sampled_td_error(mode: int, done: bool = False) -> float:
             policy.memory.clear()
             policy.memory.add(
                 torch.zeros(58), 0, 1.25 if done else 0.0, _full_state_batch().squeeze(0), done,
-                next_action_mask=resolved_empty, next_action_mask_mode=mode,
+                next_action_mask=resolved_safe, next_action_mask_mode=mode,
             )
             batch, _, weights = policy.memory.sample(1, torch.device("cpu"))
             assert batch["next_action_mask_modes"].tolist() == [mode]
@@ -446,7 +446,7 @@ def test_local_multistep_sample_preserves_mask_modes_into_resolved_targets():
             )
             return float(errors[0])
 
-        assert sampled_td_error(MASK_MODE_RASTER_RESOLVED_V3) == pytest.approx(0.0)
+        assert sampled_td_error(MASK_MODE_RASTER_RESOLVED_V3) == pytest.approx(2.5)
         assert sampled_td_error(MASK_MODE_LEGACY_ADVISORY) == pytest.approx(2.5)
         assert sampled_td_error(MASK_MODE_TERMINAL_NO_SUCCESSOR, done=True) == pytest.approx(1.25)
     finally:
@@ -510,8 +510,9 @@ def test_local_train_step_records_target_action_quality_metrics():
             reward=0.5,
             next_state=torch.ones(58),
             done=False,
-            snake_id=0,
-            next_action_mask=exact_mask,
+                snake_id=0,
+                next_action_mask=exact_mask,
+                next_action_mask_mode=1,
         )
 
         assert loss is not None
@@ -990,6 +991,19 @@ def test_weights_only_loads_online_then_freshly_syncs_target_and_runtime():
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()
+
+
+def test_inference_policy_state_export_remains_recipe_free() -> None:
+    """Forward-only evaluation policies retain the legacy serialization surface."""
+    DeviceManager.override_device(torch.device("cpu"))
+    try:
+        policy = ApexPolicy(input_size=4, hidden_size=64, output_size=3, training=False)
+        state = policy.get_state_dict()
+        assert "dqn_state_dict" in state
+        assert "apex_recipe" not in state
+        assert "optimizer_state_dict" not in state
+    finally:
+        DeviceManager.reset_for_testing()
 
 
 def test_load_state_dict_rejects_inconsistent_checkpoint_contract_before_replay_mutation():
