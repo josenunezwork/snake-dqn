@@ -58,6 +58,8 @@ from src.training.apex_runtime import (  # noqa: E402
     ApexRunBudgets,  # noqa: E402
     ApexRuntimeSnapshot,
     ApexRuntimeSupervisor,
+    SharedActorProgress,
+    SharedEnvironmentFrameBudget,
     stop_processes,
 )
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
@@ -166,26 +168,47 @@ def build_apex_runtime_snapshot(
     buffer_replay_health: dict,
     elapsed_seconds: float,
     actor_heartbeat_ages: dict[int, float | None],
-    environment_transition_reservation: int = 0,
+    shared_actor_progress: Sequence[SharedActorProgress] = (),
+    environment_frame_budget: Optional[SharedEnvironmentFrameBudget] = None,
 ) -> ApexRuntimeSnapshot:
     """Build one reconciled runtime receipt from coordinator-owned counters."""
+    shared_snapshots = [progress.snapshot() for progress in shared_actor_progress]
     return ApexRuntimeSnapshot(
         learner_updates=int(learner_updates),
-        environment_transitions=sum(
-            int(stats.get("environment_transitions", stats.get("total_steps", 0)))
-            for stats in actor_stats
+        # This legacy-named field is explicitly world-frame count, not the
+        # number of individual snake action transitions below.
+        environment_transitions=(
+            sum(int(snapshot["environment_frames"]) for snapshot in shared_snapshots)
+            if shared_snapshots
+            else sum(
+                int(stats.get("environment_transitions", stats.get("total_steps", 0)))
+                for stats in actor_stats
+            )
         ),
-        replay_rows_emitted=sum(
-            int(stats.get("replay_rows_emitted", stats.get("sent_experience_count", 0)))
-            for stats in actor_stats
+        agent_transitions=(
+            sum(int(snapshot["agent_transitions"]) for snapshot in shared_snapshots)
+            if shared_snapshots
+            else sum(int(stats.get("agent_transitions", 0)) for stats in actor_stats)
+        ),
+        replay_rows_emitted=(
+            sum(int(snapshot["replay_rows_emitted"]) for snapshot in shared_snapshots)
+            if shared_snapshots
+            else sum(
+                int(stats.get("replay_rows_emitted", stats.get("sent_experience_count", 0)))
+                for stats in actor_stats
+            )
         ),
         learner_samples=int(buffer_replay_health.get("total_sampled", 0)),
-        policy_version=max(
-            (int(stats.get("policy_version", 0)) for stats in actor_stats), default=0
+        policy_version=(
+            max((int(snapshot["policy_version"]) for snapshot in shared_snapshots), default=0)
+            if shared_snapshots
+            else max((int(stats.get("policy_version", 0)) for stats in actor_stats), default=0)
         ),
         elapsed_seconds=float(elapsed_seconds),
         actor_heartbeat_ages=dict(actor_heartbeat_ages),
-        environment_transition_reservation=int(environment_transition_reservation),
+        reserved_environment_frames=(
+            0 if environment_frame_budget is None else environment_frame_budget.reserved_frames()
+        ),
     )
 
 
@@ -195,11 +218,14 @@ def attach_runtime_metadata(state: dict, snapshot: ApexRuntimeSnapshot, exit_cau
         "exit_cause": exit_cause,
         "learner_updates": snapshot.learner_updates,
         "environment_transitions": snapshot.environment_transitions,
+        "environment_frames": snapshot.environment_transitions,
+        "agent_transitions": snapshot.agent_transitions,
         "replay_rows_emitted": snapshot.replay_rows_emitted,
         "learner_samples": snapshot.learner_samples,
         "policy_version": snapshot.policy_version,
         "elapsed_seconds": snapshot.elapsed_seconds,
         "actor_heartbeat_ages": dict(snapshot.actor_heartbeat_ages),
+        "reserved_environment_frames": snapshot.reserved_environment_frames,
     }
     return state
 
@@ -1463,6 +1489,14 @@ def train_apex(
 
     # ── Spawn actors ──────────────────────────────────────────────────
     print(f"\nSpawning {num_actors} actors...")
+    shared_actor_progress = [SharedActorProgress(mp) for _ in range(num_actors)]
+    # The unbounded default must retain the original actor hot path: only a
+    # declared frame ceiling installs the cross-process reservation lock.
+    environment_frame_budget = (
+        None
+        if budgets.max_environment_transitions is None
+        else SharedEnvironmentFrameBudget(mp, budgets.max_environment_transitions)
+    )
     actors = spawn_actors(
         num_actors=num_actors,
         shared_network=shared_network,
@@ -1470,6 +1504,8 @@ def train_apex(
         weight_queues=weight_queues,
         stats_queue=stats_queue,
         stop_event=stop_event,
+        shared_progress=shared_actor_progress,
+        environment_frame_budget=environment_frame_budget,
         gamma=gamma,
         n_step=n_step,
         alpha=GameConfig.APEX_PRIORITY_ALPHA,
@@ -1503,9 +1539,47 @@ def train_apex(
 
     # ── Start actors with staggered delay ─────────────────────────────
     print("Starting BufferProcess and actors...")
+    start_time = time.time()
+    runtime_supervisor = ApexRuntimeSupervisor(
+        actors=[],
+        buffer_process=buffer_process,
+        budgets=budgets,
+        heartbeat_timeout_seconds=heartbeat_timeout_seconds,
+    )
+
+    def shared_health() -> dict[int, dict]:
+        return {index: progress.snapshot() for index, progress in enumerate(shared_actor_progress)}
+
+    def current_runtime_cause() -> str | None:
+        reserved_frames = (
+            0 if environment_frame_budget is None else environment_frame_budget.reserved_frames()
+        )
+        return runtime_supervisor.current_budget_cause(
+            learner_updates=learner.step_count,
+            reserved_environment_frames=reserved_frames,
+        )
+
+    def supervise_started_actor(actor) -> None:
+        runtime_supervisor.register_actor(actor)
+        cause = current_runtime_cause()
+        runtime_supervisor.check_children(shared_health(), expected_stop_cause=cause)
+        if cause:
+            raise RuntimeError(f"controlled startup stop: {cause}")
+
     buffer_process.start()
     try:
-        start_actors(actors, stagger_delay=stagger_delay)
+        initial_cause = current_runtime_cause()
+        runtime_supervisor.check_children(shared_health(), expected_stop_cause=initial_cause)
+        if initial_cause:
+            raise RuntimeError(f"controlled startup stop: {initial_cause}")
+        start_actors(
+            actors,
+            stagger_delay=stagger_delay,
+            on_started=supervise_started_actor,
+            on_wait=lambda: runtime_supervisor.check_children(
+                shared_health(), expected_stop_cause=current_runtime_cause()
+            ),
+        )
     except BaseException:
         stop_event.set()
         stop_processes(actors, timeout_seconds=5.0)
@@ -1516,18 +1590,9 @@ def train_apex(
         learner.cleanup()
         raise
     print(f"  All {num_actors} actors started.\n")
-    environment_transition_reservation = num_actors * actors[0].progress_report_interval_frames
-    runtime_supervisor = ApexRuntimeSupervisor(
-        actors=actors,
-        buffer_process=buffer_process,
-        budgets=budgets,
-        heartbeat_timeout_seconds=heartbeat_timeout_seconds,
-        environment_transition_reservation=environment_transition_reservation,
-    )
 
     # ── Main training loop ────────────────────────────────────────────
     print("Waiting for buffer to fill...")
-    start_time = time.time()
     episode_rewards: deque = deque(maxlen=100)
     actor_stats_by_id = {}
     last_log_step = start_step
@@ -1540,6 +1605,25 @@ def train_apex(
     run_failure: BaseException | None = None
     latest_snapshot: ApexRuntimeSnapshot | None = None
 
+    def stop_buffer_and_learner() -> list[BaseException]:
+        """Always release the remaining child and learner, preserving all failures."""
+        cleanup_errors: list[BaseException] = []
+        try:
+            buffer_process.shutdown(timeout=5.0)
+        except BaseException as error:
+            cleanup_errors.append(error)
+        try:
+            buffer_child = getattr(buffer_process, "_process", None)
+            if buffer_child is not None:
+                stop_processes([buffer_child], timeout_seconds=5.0)
+        except BaseException as error:
+            cleanup_errors.append(error)
+        try:
+            learner.cleanup()
+        except BaseException as error:
+            cleanup_errors.append(error)
+        return cleanup_errors
+
     try:
         while not shutdown_requested[0]:
             update_latest_actor_stats(
@@ -1548,7 +1632,10 @@ def train_apex(
                 episode_rewards=episode_rewards,
             )
             actor_stats = list(actor_stats_by_id.values())
-            heartbeat_ages = runtime_supervisor.check_children(actor_stats_by_id)
+            precheck_cause = current_runtime_cause()
+            heartbeat_ages = runtime_supervisor.check_children(
+                shared_health(), expected_stop_cause=precheck_cause
+            )
             buffer_replay_health = collect_buffer_replay_health(learner.buffer_client)
             latest_snapshot = build_apex_runtime_snapshot(
                 learner_updates=learner.step_count,
@@ -1556,9 +1643,10 @@ def train_apex(
                 buffer_replay_health=buffer_replay_health,
                 elapsed_seconds=time.time() - start_time,
                 actor_heartbeat_ages=heartbeat_ages,
-                environment_transition_reservation=environment_transition_reservation,
+                shared_actor_progress=shared_actor_progress,
+                environment_frame_budget=environment_frame_budget,
             )
-            exit_cause = runtime_supervisor.stop_cause(latest_snapshot) or ""
+            exit_cause = precheck_cause or runtime_supervisor.stop_cause(latest_snapshot) or ""
             if exit_cause:
                 break
 
@@ -1623,16 +1711,20 @@ def train_apex(
                 collect_actor_stats(stats_queue),
                 episode_rewards=episode_rewards,
             )
-            heartbeat_ages = runtime_supervisor.check_children(actor_stats_by_id)
+            precheck_cause = current_runtime_cause()
+            heartbeat_ages = runtime_supervisor.check_children(
+                shared_health(), expected_stop_cause=precheck_cause
+            )
             latest_snapshot = build_apex_runtime_snapshot(
                 learner_updates=learner.step_count,
                 actor_stats=list(actor_stats_by_id.values()),
                 buffer_replay_health=collect_buffer_replay_health(learner.buffer_client),
                 elapsed_seconds=time.time() - start_time,
                 actor_heartbeat_ages=heartbeat_ages,
-                environment_transition_reservation=environment_transition_reservation,
+                shared_actor_progress=shared_actor_progress,
+                environment_frame_budget=environment_frame_budget,
             )
-            exit_cause = runtime_supervisor.stop_cause(latest_snapshot) or ""
+            exit_cause = precheck_cause or runtime_supervisor.stop_cause(latest_snapshot) or ""
             if exit_cause:
                 break
 
@@ -1720,20 +1812,44 @@ def train_apex(
         # ── Cleanup ───────────────────────────────────────────────────
         print("\n[Coordinator] Shutting down...")
 
+        if (
+            not exit_cause
+            and environment_frame_budget is not None
+            and environment_frame_budget.reserved_frames() >= budgets.max_environment_transitions
+        ):
+            exit_cause = "environment_transition_budget"
+
         # Signal actors to stop
         stop_event.set()
-        stop_processes(actors, timeout_seconds=5.0)
+        cleanup_errors: list[BaseException] = []
+
+        def fail_finalization(error: BaseException) -> BaseException:
+            """Release remaining runtime owners before propagating capture failure."""
+            cleanup_errors.append(error)
+            cleanup_errors.extend(stop_buffer_and_learner())
+            return cleanup_errors[0]
+
+        try:
+            stop_processes(actors, timeout_seconds=5.0)
+        except BaseException as error:
+            cleanup_errors.append(error)
         print("  Actors stopped.")
-        update_latest_actor_stats(
-            actor_stats_by_id,
-            collect_actor_stats(stats_queue),
-            episode_rewards=episode_rewards,
-        )
-        final_actor_replay = summarize_actor_replay_coverage(list(actor_stats_by_id.values()))
+        try:
+            update_latest_actor_stats(
+                actor_stats_by_id,
+                collect_actor_stats(stats_queue),
+                episode_rewards=episode_rewards,
+            )
+            final_actor_replay = summarize_actor_replay_coverage(list(actor_stats_by_id.values()))
+        except BaseException as error:
+            raise fail_finalization(error)
 
         # A failure or signal may retain a diagnostic recovery checkpoint, but
         # must never publish a success-named final artifact.
         completed = run_failure is None and not shutdown_requested[0] and bool(exit_cause)
+        if cleanup_errors:
+            completed = False
+            exit_cause = "failed_cleanup"
         if completed:
             try:
                 validate_actor_replay_quality_gates(
@@ -1750,7 +1866,10 @@ def train_apex(
             else f"apex_{exit_cause or 'interrupted'}_{learner.step_count}.pth"
         )
         final_path = os.path.join(checkpoint_dir, final_name)
-        final_state = learner.get_state_dict()
+        try:
+            final_state = learner.get_state_dict()
+        except BaseException as error:
+            raise fail_finalization(error)
         final_state["apex_config"] = dict(apex_checkpoint_config)
         final_state["avg_reward"] = _mean_or_zero(episode_rewards)
         final_buffer_replay_health = collect_buffer_replay_health(learner.buffer_client)
@@ -1761,28 +1880,39 @@ def train_apex(
             buffer_replay_health=final_buffer_replay_health,
             actor_replay_gates=actor_replay_gates,
         )
-        final_heartbeat_ages = runtime_supervisor.heartbeat_ages(actor_stats_by_id)
-        final_snapshot = build_apex_runtime_snapshot(
-            learner_updates=learner.step_count,
-            actor_stats=list(actor_stats_by_id.values()),
-            buffer_replay_health=final_buffer_replay_health,
-            elapsed_seconds=time.time() - start_time,
-            actor_heartbeat_ages=final_heartbeat_ages,
-            environment_transition_reservation=environment_transition_reservation,
-        )
+        try:
+            final_heartbeat_ages = runtime_supervisor.heartbeat_ages(shared_health())
+            final_snapshot = build_apex_runtime_snapshot(
+                learner_updates=learner.step_count,
+                actor_stats=list(actor_stats_by_id.values()),
+                buffer_replay_health=final_buffer_replay_health,
+                elapsed_seconds=time.time() - start_time,
+                actor_heartbeat_ages=final_heartbeat_ages,
+                shared_actor_progress=shared_actor_progress,
+                environment_frame_budget=environment_frame_budget,
+            )
+        except BaseException as error:
+            raise fail_finalization(error)
         attach_runtime_metadata(final_state, final_snapshot, exit_cause or "interrupted")
-        torch.save(final_state, final_path)
+        # The learner state is now captured. Release the buffer and learner
+        # before publishing any terminal checkpoint; a cleanup failure cannot
+        # create a success-named artifact.
+        cleanup_errors.extend(stop_buffer_and_learner())
+        if cleanup_errors:
+            completed = False
+            exit_cause = "failed_cleanup"
+            final_path = os.path.join(checkpoint_dir, f"apex_{exit_cause}_{learner.step_count}.pth")
+        try:
+            torch.save(final_state, final_path)
+        except BaseException as error:
+            cleanup_errors.append(error)
+            cleanup_errors.extend(stop_buffer_and_learner())
+            if run_failure is None:
+                run_failure = cleanup_errors[0]
+            raise run_failure
         print(f"  {'Final' if completed else 'Recovery'} checkpoint: {final_path}")
 
-        # Shutdown buffer process
-        buffer_process.shutdown(timeout=5.0)
-        buffer_child = getattr(buffer_process, "_process", None)
-        if buffer_child is not None:
-            stop_processes([buffer_child], timeout_seconds=5.0)
         print("  BufferProcess stopped.")
-
-        # Cleanup learner
-        learner.cleanup()
 
         # ── Training summary ──────────────────────────────────────────
         elapsed = time.time() - start_time
@@ -1803,6 +1933,8 @@ def train_apex(
                     print(warning)
         print(f"  {'Final' if completed else 'Recovery'} Checkpoint: {final_path}")
         print("=" * 70)
+        if cleanup_errors and run_failure is None:
+            run_failure = cleanup_errors[0]
         if run_failure is not None:
             raise run_failure
         if shutdown_requested[0]:

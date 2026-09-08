@@ -16,9 +16,11 @@ from src.training.apex_actor import (
     Experience,
     compute_actor_epsilon,
     spawn_actors,
+    start_actors,
     stop_actors,
 )
 from src.training.apex_buffer import ActorBufferClient, BufferProcess
+from src.training.apex_runtime import SharedActorProgress
 
 
 class FixedQ(torch.nn.Module):
@@ -151,6 +153,24 @@ class TestApexActorConstruction:
         actor = self._make_actor()
 
         assert actor.danger_exploration_rate == pytest.approx(0.0)
+
+    def test_shared_progress_survives_a_saturated_detail_stats_queue(self):
+        """Correctness telemetry must not depend on the lossy diagnostic queue."""
+        shared_progress = SharedActorProgress(mp)
+        actor = self._make_actor(shared_progress=shared_progress)
+        actor.stats_queue = queue.Queue(maxsize=1)
+        actor.stats_queue.put({"already": "full"})
+        actor.sent_experience_count = 9
+        actor.agent_transition_count = 12
+        actor.policy_version = 4
+
+        actor._send_stats(episode=2, avg_reward=1.0, total_steps=7)
+
+        assert actor.stats_queue.qsize() == 1
+        assert shared_progress.snapshot()["environment_frames"] == 7
+        assert shared_progress.snapshot()["agent_transitions"] == 12
+        assert shared_progress.snapshot()["replay_rows_emitted"] == 9
+        assert shared_progress.snapshot()["policy_version"] == 4
 
     def test_actor_defaults_to_configured_env_snake_count(self):
         actor = self._make_actor()
@@ -1308,6 +1328,32 @@ class TestSpawnActors:
         assert actors[0].env_food_multiplier == pytest.approx(0.7)
         assert actors[0].boost_exploration_rate == pytest.approx(0.31)
         assert actors[0].danger_exploration_rate == pytest.approx(0.09)
+
+
+class TestStartActors:
+    """Tests for stagger supervision callbacks."""
+
+    class FakeActor:
+        def __init__(self) -> None:
+            self.started = False
+
+        def start(self) -> None:
+            self.started = True
+
+    def test_stagger_checks_after_each_started_actor_and_while_waiting(self):
+        actors = [self.FakeActor(), self.FakeActor()]
+        started = []
+        waits = []
+
+        start_actors(
+            actors,
+            stagger_delay=0.02,
+            on_started=started.append,
+            on_wait=lambda: waits.append(True),
+        )
+
+        assert started == actors
+        assert waits
 
 
 class TestStopActors:

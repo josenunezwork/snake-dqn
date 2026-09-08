@@ -26,7 +26,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
@@ -39,6 +39,7 @@ from src.model.apex_network import ApexNetwork
 from src.model.inference_agent import InferenceAgent
 from src.training.action_mask import has_valid_actions, mask_invalid_q_values
 from src.training.apex_buffer import ActorBufferClient, BufferProcess
+from src.training.apex_runtime import SharedActorProgress, SharedEnvironmentFrameBudget
 from src.training.base_buffer import compute_priority
 from src.utils.tensor_utils import ensure_tensor_on_device, tensor_to_numpy
 
@@ -317,6 +318,8 @@ class ApexActor(mp.Process):
         pool_latest_fraction: Optional[float] = None,
         config_path: Optional[str] = None,
         progress_report_interval_frames: int = 8,
+        shared_progress: Optional[SharedActorProgress] = None,
+        environment_frame_budget: Optional[SharedEnvironmentFrameBudget] = None,
     ):
         """
         Initialize Ape-X Actor.
@@ -364,6 +367,8 @@ class ApexActor(mp.Process):
                 (default 0.8). The hero slot always runs the latest policy.
             progress_report_interval_frames: Maximum actor frames between
                 heartbeat/counter reports, which bounds frame-budget in-flight work.
+            shared_progress: Lossless latest actor telemetry used by the coordinator.
+            environment_frame_budget: Shared pre-step reservation budget.
         """
         super(ApexActor, self).__init__()
 
@@ -450,6 +455,9 @@ class ApexActor(mp.Process):
         self._last_heartbeat_monotonic = 0.0
         self.heartbeat_interval_seconds = 1.0
         self.progress_report_interval_frames = max(1, int(progress_report_interval_frames))
+        self.shared_progress = shared_progress
+        self.environment_frame_budget = environment_frame_budget
+        self.agent_transition_count = 0
 
         # Compute actor-specific epsilon using Ape-X formula
         self.epsilon = compute_actor_epsilon(actor_id, num_actors, base_epsilon, epsilon_alpha)
@@ -833,6 +841,12 @@ class ApexActor(mp.Process):
             # Let the game loop handle everything: action selection, movement,
             # food, collision detection, and reward. The snake's internal policy
             # uses our overridden epsilon for exploration.
+            if (
+                self.environment_frame_budget is not None
+                and not self.environment_frame_budget.reserve_one()
+            ):
+                self.stop_event.set()
+                break
             self.env.update(train_mode=True, learn=False)
 
             frame = getattr(self.env, "frame", None)
@@ -847,6 +861,8 @@ class ApexActor(mp.Process):
                 # avoids duplicate terminal replay rows.
                 if getattr(snake, "last_transition_frame", None) != frame:
                     continue
+
+                self.agent_transition_count += 1
 
                 pre_state = getattr(snake, "last_state", None)
                 action = getattr(snake, "last_action", None)
@@ -1235,6 +1251,7 @@ class ApexActor(mp.Process):
             "replay_rows_emitted": self.sent_experience_count,
             "policy_version": self.policy_version,
             "heartbeat_monotonic": heartbeat_monotonic,
+            "agent_transitions": self.agent_transition_count,
             "epsilon": self.epsilon,
             "sent_experience_count": self.sent_experience_count,
             "sent_action_counts": list(self.sent_action_counts),
@@ -1282,6 +1299,14 @@ class ApexActor(mp.Process):
             ),
             "pool_exposure_mix": pool_exposure_mix,
         }
+        if self.shared_progress is not None:
+            self.shared_progress.report(
+                environment_frames=total_steps,
+                agent_transitions=self.agent_transition_count,
+                replay_rows_emitted=self.sent_experience_count,
+                policy_version=self.policy_version,
+                heartbeat_monotonic=heartbeat_monotonic,
+            )
         put_nowait = getattr(self.stats_queue, "put_nowait", None)
         put = getattr(self.stats_queue, "put", None)
         try:
@@ -1316,6 +1341,8 @@ def spawn_actors(
     weight_queues: List[Queue],
     stats_queue: Queue,
     stop_event: mp.Event,
+    shared_progress: Optional[List[SharedActorProgress]] = None,
+    environment_frame_budget: Optional[SharedEnvironmentFrameBudget] = None,
     **kwargs,
 ) -> List[ApexActor]:
     """
@@ -1344,6 +1371,8 @@ def spawn_actors(
             weight_queue=weight_queues[i],
             stats_queue=stats_queue,
             stop_event=stop_event,
+            shared_progress=None if shared_progress is None else shared_progress[i],
+            environment_frame_budget=environment_frame_budget,
             **kwargs,
         )
         actors.append(actor)
@@ -1351,18 +1380,34 @@ def spawn_actors(
     return actors
 
 
-def start_actors(actors: List[ApexActor], stagger_delay: float = 0.5) -> None:
+def start_actors(
+    actors: List[ApexActor],
+    stagger_delay: float = 0.5,
+    on_started: Optional[Callable[[ApexActor], None]] = None,
+    on_wait: Optional[Callable[[], None]] = None,
+) -> None:
     """
     Start all actor processes with optional staggered startup.
 
     Args:
         actors: List of ApexActor processes
         stagger_delay: Delay between starting each actor (seconds)
+        on_started: Called after every actor starts, before the next stagger.
+        on_wait: Called during stagger waits so the coordinator can fail closed.
     """
     for actor in actors:
         actor.start()
+        if on_started is not None:
+            on_started(actor)
         if stagger_delay > 0:
-            time.sleep(stagger_delay)
+            deadline = time.monotonic() + stagger_delay
+            while True:
+                if on_wait is not None:
+                    on_wait()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(0.1, remaining))
 
 
 def stop_actors(actors: List[ApexActor], timeout: float = 5.0) -> None:

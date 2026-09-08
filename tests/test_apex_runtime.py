@@ -8,12 +8,15 @@ from select import select
 from pathlib import Path
 
 import pytest
+import torch.multiprocessing as mp
 
 from src.training.apex_runtime import (
     ApexRunBudgets,
     ApexRuntimeFailure,
     ApexRuntimeSnapshot,
     ApexRuntimeSupervisor,
+    SharedActorProgress,
+    SharedEnvironmentFrameBudget,
     stop_processes,
 )
 
@@ -98,10 +101,22 @@ def test_supervisor_rejects_stale_heartbeat_from_live_actor():
 def test_supervisor_rejects_actor_that_never_reports_initial_heartbeat():
     """Startup gets the same bounded liveness deadline as steady-state work."""
     supervisor = make_supervisor(clock=lambda: 106.0)
-    supervisor.started_at = 100.0
+    supervisor.actor_started_at[0] = 100.0
 
     with pytest.raises(ApexRuntimeFailure, match="actor 0 heartbeat stale"):
         supervisor.check_children({})
+
+
+@pytest.mark.parametrize("timeout", [float("nan"), float("inf"), 0.0])
+def test_supervisor_rejects_nonfinite_or_nonpositive_heartbeat_timeout(timeout):
+    """Invalid heartbeat deadlines cannot turn a failed child into indefinite warmup."""
+    with pytest.raises(ValueError, match="heartbeat_timeout_seconds"):
+        ApexRuntimeSupervisor(
+            actors=[],
+            buffer_process=FakeChild(),
+            budgets=ApexRunBudgets(max_learner_updates=1),
+            heartbeat_timeout_seconds=timeout,
+        )
 
 
 def test_budget_precedence_and_snapshot_fields_are_explicit():
@@ -110,6 +125,7 @@ def test_budget_precedence_and_snapshot_fields_are_explicit():
     snapshot = ApexRuntimeSnapshot(
         learner_updates=4,
         environment_transitions=10,
+        agent_transitions=10,
         replay_rows_emitted=9,
         learner_samples=8,
         policy_version=3,
@@ -118,6 +134,41 @@ def test_budget_precedence_and_snapshot_fields_are_explicit():
     )
 
     assert supervisor.stop_cause(snapshot) == "learner_update_budget"
+
+
+def test_shared_frame_reservation_never_overshoots_under_many_attempts():
+    """The correctness counter remains exact even when a stats queue is unavailable."""
+    budget = SharedEnvironmentFrameBudget(mp, maximum=3)
+
+    assert [budget.reserve_one() for _ in range(5)] == [True, True, True, False, False]
+    assert budget.reserved_frames() == 3
+
+
+def test_shared_actor_progress_is_latest_state_not_fifo_telemetry():
+    """Repeated reports overwrite a locked latest slot instead of accumulating queue backlog."""
+    progress = SharedActorProgress(mp)
+    progress.report(
+        environment_frames=8,
+        agent_transitions=20,
+        replay_rows_emitted=12,
+        policy_version=2,
+        heartbeat_monotonic=10.0,
+    )
+    progress.report(
+        environment_frames=16,
+        agent_transitions=40,
+        replay_rows_emitted=24,
+        policy_version=3,
+        heartbeat_monotonic=11.0,
+    )
+
+    assert progress.snapshot() == {
+        "environment_frames": 16,
+        "agent_transitions": 40,
+        "replay_rows_emitted": 24,
+        "policy_version": 3,
+        "heartbeat_monotonic": 11.0,
+    }
 
 
 def test_failure_fixture_exits_before_hard_subprocess_deadline():

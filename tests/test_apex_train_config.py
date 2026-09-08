@@ -1,6 +1,7 @@
 """Tests for Ape-X training coordinator configuration behavior."""
 
 import queue
+from types import SimpleNamespace
 
 import pytest
 
@@ -59,10 +60,135 @@ def test_explicit_apex_work_budgets_are_recorded_separately():
     assert budgets.max_wall_time_seconds == pytest.approx(3.5)
 
 
+@pytest.mark.parametrize("wall_time", [float("nan"), float("inf"), -1.0, 0.0])
+def test_nonfinite_or_nonpositive_wall_budget_fails_before_runtime_setup(wall_time):
+    """A NaN timeout must never silently disable the run ceiling."""
+    with pytest.raises(ValueError, match="max_wall_time_seconds"):
+        resolve_apex_run_budgets(total_steps=12, max_wall_time_seconds=wall_time)
+
+
 def test_conflicting_learner_budget_aliases_fail_before_runtime_setup():
     """Two different update ceilings would make a completed run ambiguous."""
     with pytest.raises(ValueError, match="must match"):
         resolve_apex_run_budgets(total_steps=12, max_learner_updates=13)
+
+
+def test_coordinator_save_failure_still_stops_buffer_actor_and_learner(monkeypatch, tmp_path):
+    """The actual coordinator finalization route releases every runtime owner on disk failure."""
+    import src.core.device_manager as device_manager
+    import src.model.apex_network as apex_network
+    import src.scripts.apex_train as apex_train_module
+    import src.training.apex_actor as apex_actor_module
+    import src.training.apex_buffer as apex_buffer_module
+    import src.training.apex_learner as apex_learner_module
+    import torch
+
+    class FakeBuffer:
+        def __init__(self, **_kwargs):
+            self._process = SimpleNamespace(is_alive=lambda: False)
+            self.started = False
+            self.shutdown_called = False
+
+        @property
+        def is_alive(self):
+            return self.started
+
+        def start(self):
+            self.started = True
+
+        def shutdown(self, timeout):
+            self.shutdown_called = True
+            self.started = False
+
+        def get_learner_client(self):
+            return SimpleNamespace(get_stats=lambda **_kwargs: {})
+
+        def get_actor_client(self, actor_id):
+            return SimpleNamespace()
+
+    class FakeNetwork:
+        def __init__(self, *_args):
+            pass
+
+        def eval(self):
+            return self
+
+        def share_memory(self):
+            return self
+
+        def load_state_dict(self, _state):
+            return self
+
+        def state_dict(self):
+            return {}
+
+    class FakeActor:
+        progress_report_interval_frames = 1
+
+        def __init__(self):
+            self.alive = False
+            self.exitcode = None
+
+        def start(self):
+            self.alive = True
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout):
+            self.alive = False
+
+        def terminate(self):
+            self.alive = False
+
+        def kill(self):
+            self.alive = False
+
+    class FakeLearner:
+        def __init__(self):
+            self.dqn = FakeNetwork()
+            self.buffer_client = SimpleNamespace(get_stats=lambda **_kwargs: {})
+            self.step_count = 0
+            self.cleaned = False
+
+        def train_step(self):
+            return {"status": "waiting"}
+
+        def cleanup(self):
+            self.cleaned = True
+
+        def get_state_dict(self):
+            return {"state": "would-save"}
+
+    fake_buffer = FakeBuffer()
+    fake_learner = FakeLearner()
+    fake_actor = FakeActor()
+    monkeypatch.setattr(apex_buffer_module, "BufferProcess", lambda **_kwargs: fake_buffer)
+    monkeypatch.setattr(apex_network, "ApexNetwork", FakeNetwork)
+    monkeypatch.setattr(apex_learner_module, "create_apex_learner", lambda **_kwargs: fake_learner)
+    monkeypatch.setattr(apex_actor_module, "spawn_actors", lambda **_kwargs: [fake_actor])
+    monkeypatch.setattr(
+        device_manager.DeviceManager, "get_device", staticmethod(lambda: torch.device("cpu"))
+    )
+    monkeypatch.setattr(
+        torch, "save", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full"))
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        apex_train_module.train_apex(
+            num_actors=1,
+            total_steps=1,
+            batch_size=2,
+            buffer_capacity=4,
+            checkpoint_dir=str(tmp_path),
+            log_dir=str(tmp_path / "logs"),
+            stagger_delay=0.0,
+            max_wall_time_seconds=0.01,
+        )
+
+    assert fake_buffer.shutdown_called
+    assert fake_learner.cleaned
+    assert not fake_actor.is_alive()
 
 
 def test_runtime_snapshot_reconciles_latest_actor_counters():
