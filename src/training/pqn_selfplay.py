@@ -21,18 +21,204 @@ frozen opponent.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+import hashlib
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional, Protocol, Tuple
 
 import numpy as np
 import torch
 
 from src.model.raster_network import RasterDuelingNetwork
 
-__all__ = ["OpponentPool", "assign_policy_ids", "batched_act", "HERO_POLICY_ID"]
+__all__ = [
+    "HERO_POLICY_ID",
+    "OpponentLease",
+    "OpponentPool",
+    "PinnedOpponentPool",
+    "SnapshotPool",
+    "assign_policy_ids",
+    "batched_act",
+]
 
 # Reserved policy id for the (trainable) hero. Frozen pool members use ids 0..K-1
 # as returned by :meth:`OpponentPool.policy_ids`.
 HERO_POLICY_ID = -1
+
+
+class PolicyGetter(Protocol):
+    """Minimal frozen-policy lookup surface used by :func:`batched_act`."""
+
+    def get(self, policy_id: int) -> RasterDuelingNetwork:
+        """Return the immutable network named by ``policy_id``."""
+
+
+@dataclass
+class _PinnedSnapshot:
+    """One detached immutable network and its residency bookkeeping."""
+
+    policy_id: int
+    content_hash: str
+    network: RasterDuelingNetwork
+    pins: int = 0
+
+
+class OpponentLease:
+    """Pins snapshot identities until an episode assignment is released.
+
+    Leases intentionally retain every supplied identity until :meth:`close`.
+    The v3 trainer may conservatively release all batch assignments together at
+    its batch-reset boundary. Calling ``close`` more than once is harmless.
+    """
+
+    def __init__(self, pool: "PinnedOpponentPool", policy_ids: Iterable[int]) -> None:
+        self._pool = pool
+        flat_ids = np.asarray(list(policy_ids), dtype=np.int64).reshape(-1)
+        self.policy_ids = tuple(
+            dict.fromkeys(int(pid) for pid in flat_ids if int(pid) != HERO_POLICY_ID)
+        )
+        self._closed = False
+        self._pool._pin(self.policy_ids)
+
+    @property
+    def closed(self) -> bool:
+        """Whether this lease has released its snapshot pins."""
+        return self._closed
+
+    @property
+    def hashes(self) -> Dict[int, str]:
+        """Content hashes keyed by the stable assigned policy id."""
+        return {pid: self._pool.snapshot_hash(pid) for pid in self.policy_ids}
+
+    @property
+    def identities(self) -> Dict[int, str]:
+        """Stable, hash-bound identity descriptors for telemetry/checkpoints."""
+        return {pid: f"snapshot:{pid}:{digest}" for pid, digest in self.hashes.items()}
+
+    def get(self, policy_id: int) -> RasterDuelingNetwork:
+        """Return a pinned immutable network by policy id."""
+        if self._closed:
+            raise RuntimeError("opponent lease is closed")
+        if policy_id not in self.policy_ids:
+            raise KeyError(f"policy id {policy_id} is not leased")
+        return self._pool.get(policy_id)
+
+    def close(self) -> None:
+        """Release pins once; repeated calls are deliberately idempotent."""
+        if not self._closed:
+            self._pool._unpin(self.policy_ids)
+            self._closed = True
+
+    def __enter__(self) -> "OpponentLease":
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.close()
+
+
+class PinnedOpponentPool:
+    """Capacity-bounded immutable v3 snapshots with episode-lifetime pins.
+
+    Unlike :class:`OpponentPool`, ids are allocation identities, never ring
+    positions: an evicted id is never reused. Admission first finds an unpinned
+    victim, so a full pinned pool returns ``None`` *before* cloning ``hero``.
+    This avoids allocating a network that cannot become resident.
+    """
+
+    def __init__(self, capacity: int = 10, device: Optional[torch.device] = None) -> None:
+        if capacity < 0:
+            raise ValueError("capacity must be >= 0")
+        self.capacity = capacity
+        self.device = device or torch.device("cpu")
+        self._snapshots: Dict[int, _PinnedSnapshot] = {}
+        self._order: List[int] = []
+        self._next_policy_id = 0
+
+    def __len__(self) -> int:
+        return len(self._snapshots)
+
+    def policy_ids(self) -> List[int]:
+        """Resident policy ids in oldest-to-newest admission order."""
+        return list(self._order)
+
+    def add_snapshot(self, hero: RasterDuelingNetwork) -> Optional[int]:
+        """Admit an immutable hero snapshot or defer if all residents are pinned.
+
+        Returns the new stable policy id, or ``None`` if capacity is zero or a
+        full pool has no unpinned eviction candidate.
+        """
+        if self.capacity == 0:
+            return None
+        victim: Optional[int] = None
+        if len(self._snapshots) >= self.capacity:
+            victim = next((pid for pid in self._order if self._snapshots[pid].pins == 0), None)
+            if victim is None:
+                return None
+
+        # Admission is now guaranteed, so clone only after the pin-pressure
+        # check. Hash the exact detached CPU bytes that become the snapshot.
+        state = {
+            name: tensor.detach().cpu().contiguous().clone()
+            for name, tensor in hero.state_dict().items()
+        }
+        digest = _state_dict_hash(state)
+        snap = RasterDuelingNetwork(output_size=hero.output_size)
+        snap.load_state_dict(state)
+        snap.to(self.device).eval()
+        for parameter in snap.parameters():
+            parameter.requires_grad_(False)
+
+        if victim is not None:
+            del self._snapshots[victim]
+            self._order.remove(victim)
+        policy_id = self._next_policy_id
+        self._next_policy_id += 1
+        self._snapshots[policy_id] = _PinnedSnapshot(policy_id, digest, snap)
+        self._order.append(policy_id)
+        return policy_id
+
+    def get(self, policy_id: int) -> RasterDuelingNetwork:
+        """Return the immutable resident network for a stable id."""
+        return self._snapshots[policy_id].network
+
+    def snapshot_hash(self, policy_id: int) -> str:
+        """Return the immutable content hash for a resident snapshot."""
+        return self._snapshots[policy_id].content_hash
+
+    def acquire(self, policy_ids: Iterable[int]) -> OpponentLease:
+        """Pin existing snapshot ids and return a lease for one episode."""
+        return OpponentLease(self, policy_ids)
+
+    def _pin(self, policy_ids: Iterable[int]) -> None:
+        for policy_id in policy_ids:
+            self._snapshots[policy_id].pins += 1
+
+    def _unpin(self, policy_ids: Iterable[int]) -> None:
+        for policy_id in policy_ids:
+            snapshot = self._snapshots.get(policy_id)
+            if snapshot is None:
+                raise RuntimeError(f"leased policy id {policy_id} was evicted while pinned")
+            if snapshot.pins <= 0:
+                raise RuntimeError(f"policy id {policy_id} pin underflow")
+            snapshot.pins -= 1
+
+
+# Friendly explicit name for callers that describe this as a versioned pool.
+SnapshotPool = PinnedOpponentPool
+
+
+def _state_dict_hash(state: Dict[str, torch.Tensor]) -> str:
+    """Hash ordered tensor names, dtypes, shapes, and detached CPU bytes."""
+    digest = hashlib.sha256()
+    for name, tensor in state.items():
+        value = tensor.detach().cpu().contiguous()
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(value.dtype).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(repr(tuple(value.shape)).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(value.numpy().tobytes())
+    return digest.hexdigest()
 
 
 class OpponentPool:
@@ -161,7 +347,7 @@ def _greedy_masked_actions(q_values: torch.Tensor, mask: torch.Tensor) -> torch.
 
 def batched_act(
     hero: RasterDuelingNetwork,
-    pool: OpponentPool,
+    pool: PolicyGetter,
     policy_ids: np.ndarray,
     obs: Dict[str, torch.Tensor],
     mask: torch.Tensor,

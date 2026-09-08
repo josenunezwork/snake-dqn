@@ -21,6 +21,7 @@ import yaml
 from src.core.config_loader import load_config
 from src.core.game_config import GameConfig
 from src.model.apex_network import ApexNetwork
+from src.model.raster_network import RasterDuelingNetwork
 from src.training.apex_actor import (
     ApexActor,
     FrozenOpponentPolicy,
@@ -28,6 +29,7 @@ from src.training.apex_actor import (
     _resolve_pool_latest_fraction,
 )
 from src.training.apex_buffer import ActorBufferClient
+from src.training.pqn_selfplay import HERO_POLICY_ID, PinnedOpponentPool, batched_act
 
 
 def _make_actor(**kwargs) -> ApexActor:
@@ -74,6 +76,87 @@ def _fake_frozen_policy(checkpoint_path: str) -> SimpleNamespace:
         training=False,
         memory=None,
     )
+
+
+def _action_biased_network(action: int) -> RasterDuelingNetwork:
+    """Create a deterministic network whose masked-greedy action is ``action``."""
+    net = RasterDuelingNetwork().eval()
+    with torch.no_grad():
+        net.advantage_stream[-1].bias.zero_()
+        net.advantage_stream[-1].bias[action] = 100.0
+        net.value_stream[-1].bias.zero_()
+    return net
+
+
+class TestPinnedOpponentPool:
+    """v3 immutable snapshot residency and episode pinning."""
+
+    def test_hash_identity_and_actions_are_detached_from_mutable_hero(self):
+        hero = _action_biased_network(1)
+        pool = PinnedOpponentPool(capacity=2)
+        first = pool.add_snapshot(hero)
+        assert first == 0
+        with torch.no_grad():
+            hero.advantage_stream[-1].bias.zero_()
+            hero.advantage_stream[-1].bias[4] = 100.0
+        second = pool.add_snapshot(hero)
+        assert second == 1
+        assert pool.snapshot_hash(first) != pool.snapshot_hash(second)
+        assert pool.get(first) is not hero
+        assert pool.get(first).advantage_stream[-1].bias.argmax().item() == 1
+        assert pool.get(second).advantage_stream[-1].bias.argmax().item() == 4
+        assert all(not p.requires_grad for p in pool.get(first).parameters())
+
+    def test_pins_defer_admission_then_release_allows_oldest_unpinned_eviction(self):
+        hero = _action_biased_network(0)
+        pool = PinnedOpponentPool(capacity=2)
+        first, second = pool.add_snapshot(hero), pool.add_snapshot(hero)
+        lease = pool.acquire(np.array([[HERO_POLICY_ID, first, second, first]]))
+        assert lease.policy_ids == (first, second)
+        assert pool.add_snapshot(hero) is None
+        assert pool.policy_ids() == [first, second]
+        lease.close()
+        third = pool.add_snapshot(hero)
+        assert third == 2  # never reuse evicted allocation identities
+        assert pool.policy_ids() == [second, third]
+        with pytest.raises(KeyError):
+            pool.get(first)
+
+    def test_duplicate_ids_and_close_are_idempotent(self):
+        hero = _action_biased_network(2)
+        pool = PinnedOpponentPool(capacity=1)
+        policy_id = pool.add_snapshot(hero)
+        lease = pool.acquire([policy_id, policy_id, HERO_POLICY_ID])
+        assert lease.policy_ids == (policy_id,)
+        assert lease.hashes[policy_id] == pool.snapshot_hash(policy_id)
+        assert lease.identities[policy_id].endswith(pool.snapshot_hash(policy_id))
+        lease.close()
+        lease.close()
+        assert lease.closed
+        with pytest.raises(RuntimeError, match="closed"):
+            lease.get(policy_id)
+
+    def test_batched_act_accepts_episode_lease_as_pool_getter(self):
+        hero = _action_biased_network(5)
+        pool = PinnedOpponentPool(capacity=1)
+        frozen_id = pool.add_snapshot(_action_biased_network(2))
+        lease = pool.acquire([frozen_id])
+        obs = {
+            "tactical": torch.zeros((1, 2, 9, 31, 31)),
+            "strategic": torch.zeros((1, 2, 3, 25, 25)),
+            "scalars": torch.zeros((1, 2, 26)),
+        }
+        actions, _ = batched_act(
+            hero,
+            lease,
+            np.array([[HERO_POLICY_ID, frozen_id]]),
+            obs,
+            torch.ones((1, 2, 6), dtype=torch.bool),
+            epsilon=0.0,
+            rng=np.random.default_rng(0),
+            device=torch.device("cpu"),
+        )
+        assert actions.tolist() == [[5, 2]]
 
 
 # ============================================================================
