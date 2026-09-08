@@ -638,6 +638,8 @@ class GameSession:
 
     def set_hero(self, snake_id: int) -> None:
         with self._lock:
+            if self.obs_spec == RASTER31V3 and int(snake_id) != self.hero_id:
+                raise ValueError("promotion-v2-watch-rect hero is pinned to the deployment profile")
             ids = [s.id for s in self.game.snakes]
             if int(snake_id) in ids:
                 self.hero_id = int(snake_id)

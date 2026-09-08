@@ -139,8 +139,19 @@ def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
     assert session.game.food_manager.max_food == 300
     with pytest.raises(ValueError, match="Play roster"):
         session.set_play_opponents(2)
+    profile_manifest = session.serving_contract["deployment_target_manifest"]
+    profile_hero = session.hero_id
+    with pytest.raises(ValueError, match="hero is pinned"):
+        session.set_hero(session.game.snakes[1].id)
+    assert session.hero_id == profile_hero
+    assert not session.game.snakes[0].auto_respawn
+    assert session.serving_contract["deployment_target_manifest"] == profile_manifest
     session.set_mode("play")
     assert len(session.game.snakes) == 6
+    with pytest.raises(ValueError, match="hero is pinned"):
+        session.set_hero(session.game.snakes[1].id)
+    assert session.hero_id == session.human_id
+    assert not session.game.snakes[0].auto_respawn
     assert (
         session.serving_contract["deployment_target_manifest"]["deployed_runtime"]["mode"] == "play"
     )
