@@ -108,3 +108,16 @@ def test_legacy_profiles_are_explicitly_nonpromotion_identities() -> None:
     assert legacy.evaluator_version == LEGACY_DIAGNOSTIC_EVALUATOR
     assert legacy.legacy_diagnostic is True
     assert legacy.descriptor()["name"] == "legacy-v1-custom"
+
+
+def test_unknown_nonlegacy_profiles_fail_before_runtime_execution() -> None:
+    profile = promotion_v2_watch_rect(_world())
+    with pytest.raises(ValueError, match="unknown non-legacy"):
+        profile.__class__(
+            **{**profile.__dict__, "name": "unregistered-profile", "legacy_diagnostic": False}
+        )
+
+    descriptor = profile.descriptor()
+    descriptor["name"] = "unregistered-profile"
+    with pytest.raises(ValueError, match="unknown non-legacy"):
+        profile.from_descriptor(descriptor)

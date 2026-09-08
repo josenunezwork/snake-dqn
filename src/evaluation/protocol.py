@@ -122,6 +122,8 @@ class EvaluationProfile:
                 raise ValueError(
                     "promotion v2 requires complete positive integer observation normalization"
                 )
+        else:
+            raise ValueError(f"unknown non-legacy evaluation profile {self.name!r}")
 
     def descriptor(self) -> dict[str, Any]:
         """Return canonical, JSON-ready identity data for results and manifests."""
