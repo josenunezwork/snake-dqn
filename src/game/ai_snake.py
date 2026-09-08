@@ -9,14 +9,15 @@ from inspect import signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
+import numpy as np
 import torch
 
 from src.core.game_config import GameConfig
+from src.core.runtime_contract import ActionMaskSet
 from src.game.game_logic import GameLogic
 from src.game.snake import Snake
 from src.model.checkpoint_manager import CheckpointManager
-from src.training.action_mask import (INVALID_Q_VALUE,
-                                      action_mask_from_safe_actions)
+from src.training.action_mask import INVALID_Q_VALUE, action_mask_from_safe_actions
 
 if TYPE_CHECKING:
     from src.training.apex_policy import ApexPolicy
@@ -187,6 +188,10 @@ class AISnake(Snake):
         self.last_next_state = None
         self.last_next_action_mask = None
         self.last_next_action_mask_semantics = None
+        self.current_action_mask = None
+        self.current_action_mask_semantics = None
+        self.current_legal_action_mask = None
+        self.current_advisory_action_mask = None
         self.last_done = False
         self.last_transition_frame = None
         self._total_reward = 0
@@ -402,7 +407,9 @@ class AISnake(Snake):
         # Get Q-values from policy network (6 outputs: 3 dirs × 2 speed modes)
         q_values = None
         raster_context = None
-        should_compute_q = not (explore and not record_q_values)
+        should_compute_q = getattr(self.policy, "obs_spec", None) == "raster31v3" or not (
+            explore and not record_q_values
+        )
         if should_compute_q:
             with torch.no_grad():
                 action_context_for = getattr(self.policy, "action_context_for", None)
@@ -418,7 +425,7 @@ class AISnake(Snake):
                         action for action, enabled in enumerate(raster_context.resolved) if enabled
                     ]
                     self.current_action_mask = raster_context.resolved.copy()
-                    self.current_action_mask_semantics = "v3_resolved_legal_advisory"
+                    self.current_action_mask_semantics = "raster_resolved_v3"
                     self.current_legal_action_mask = raster_context.legal.copy()
                     self.current_advisory_action_mask = raster_context.advisory.copy()
                     if record_q_values:
@@ -540,6 +547,7 @@ class AISnake(Snake):
         self.next_action_mask_semantics = "legacy_advisory"
         if collided:
             next_state = None
+            self.next_action_mask_semantics = "terminal_no_successor"
         else:
             # Single per-frame state/mask build: this next_state is also carried
             # forward as the action-selection state at frame t+1 (see update()).
@@ -562,10 +570,19 @@ class AISnake(Snake):
                 device=self.device,
             )
             if getattr(self.policy, "obs_spec", None) == "raster31v3":
-                # Serving is forward-only, so this tag is provenance for the
-                # later A2 collector rather than a claim that the legacy
-                # carry-forward vector mask has v3 semantics.
-                self.next_action_mask_semantics = "legacy_advisory_pending_v3_context"
+                # This is the successor state after every snake has moved.
+                # The serving action cache still describes the pre-move state,
+                # so resolve the freshly computed advice against current domain
+                # legality instead of reusing that cache's mask.
+                legal = np.zeros(6, dtype=bool)
+                legal[:3] = True
+                legal[3:] = self.length >= GameConfig.MIN_BOOST_LENGTH
+                resolved = ActionMaskSet(
+                    legal=legal,
+                    advisory=next_action_mask.detach().cpu().numpy().astype(bool),
+                ).resolved()
+                next_action_mask = torch.as_tensor(resolved, device=self.device)
+                self.next_action_mask_semantics = "raster_resolved_v3"
             if self.carry_forward_selection:
                 self._carried_selection = {
                     "frame": self._get_frame() + 1,
@@ -718,6 +735,10 @@ class AISnake(Snake):
         self.last_next_state = None
         self.last_next_action_mask = None
         self.last_next_action_mask_semantics = None
+        self.current_action_mask = None
+        self.current_action_mask_semantics = None
+        self.current_legal_action_mask = None
+        self.current_advisory_action_mask = None
         self.last_done = False
         self.last_transition_frame = None
         self._carried_selection = None
@@ -757,6 +778,10 @@ class AISnake(Snake):
         self.last_next_state = None
         self.last_next_action_mask = None
         self.last_next_action_mask_semantics = None
+        self.current_action_mask = None
+        self.current_action_mask_semantics = None
+        self.current_legal_action_mask = None
+        self.current_advisory_action_mask = None
         self.last_done = False
         self.last_transition_frame = None
         self._carried_selection = None
@@ -852,8 +877,7 @@ class AISnake(Snake):
             if "memories" in checkpoint and checkpoint["memories"]:
                 if hasattr(self.policy, "memory") and hasattr(self.policy.memory, "add"):
                     try:
-                        from src.training.replay_buffer import \
-                            restore_replay_memories
+                        from src.training.replay_buffer import restore_replay_memories
 
                         restore_replay_memories(
                             self.policy.memory,

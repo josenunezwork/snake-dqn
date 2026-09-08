@@ -10,7 +10,7 @@ import math
 import os
 import threading
 import time
-from dataclasses import fields, replace
+from dataclasses import asdict, fields, replace
 from hashlib import sha256
 from io import BytesIO
 from typing import Dict, Optional
@@ -19,13 +19,17 @@ import torch
 
 from src.core.config_loader import load_config
 from src.core.game_config import GameConfig, get_config, initialize_config
-from src.core.runtime_contract import (EffectiveWorldConfig, RunProvenance,
-                                       RuntimeModeContract, canonical_digest,
-                                       validate_model_head_contract)
+from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH
+from src.core.runtime_contract import (
+    EffectiveWorldConfig,
+    RunProvenance,
+    RuntimeModeContract,
+    canonical_digest,
+    validate_model_head_contract,
+)
 from src.data.score_store import compute_score
 from src.game.game_state import GameState
-from src.model.obs_spec import (DEFAULT_OBS_SPEC, RASTER31V2, RASTER31V3,
-                                VECTOR61)
+from src.model.obs_spec import DEFAULT_OBS_SPEC, RASTER31V2, RASTER31V3, VECTOR61
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
 
@@ -70,8 +74,7 @@ def _validate_v3_serving_checkpoint(
     blob: dict, checkpoint_sha256: str, checkpoint_path: str
 ) -> dict:
     """Fail closed on a v3 checkpoint before a session replaces live state."""
-    from src.training.checkpoint_contract import \
-        validate_observation_checkpoint_metadata
+    from src.training.checkpoint_contract import validate_observation_checkpoint_metadata
 
     validate_observation_checkpoint_metadata(
         blob, RASTER31V3, checkpoint_path, error_type=ValueError
@@ -90,8 +93,8 @@ def _validate_v3_serving_checkpoint(
     if effective_world.arena_type != "rectangular":
         raise ValueError("raster31v3 serving supports rectangular arenas only")
     if not (
-        math.isclose(effective_world.kill_scale, 0.3)
-        and math.isclose(effective_world.death_value, -3.0)
+        effective_world.kill_scale == KILL_REWARD_PER_VICTIM_LENGTH
+        and effective_world.death_value == DEATH_REWARD
     ):
         raise ValueError("promotion-v2-watch-rect requires canonical kill_scale=0.3/death_value=-3")
     normalization_args = _v3_normalization_args(effective_world)
@@ -142,6 +145,7 @@ def _validate_v3_serving_checkpoint(
     if not isinstance(provenance.source_revision, str) or provenance.source_revision in {
         "",
         "unknown",
+        "unavailable",
     }:
         raise ValueError("raster31v3 serving requires a concrete source_revision")
 
@@ -262,7 +266,8 @@ def _v3_serving_config(world: EffectiveWorldConfig):
 
     The deployment profile is intentionally an adapter, not a generic YAML
     selection.  It copies every dynamics and normalization input from the
-    validated training world, with frame rate the sole declared runtime change.
+    validated training world, with lifecycle and storage changes
+    recorded in the detached deployment receipt.
     """
     if world.arena_type != "rectangular" or world.mechanics_version != 2:
         raise ValueError("promotion-v2-watch-rect requires rectangular mechanics-v2 world")
@@ -292,33 +297,61 @@ def _v3_serving_config(world: EffectiveWorldConfig):
 
 
 def _deployment_target_manifest(
-    world: EffectiveWorldConfig, checkpoint_sha256: str, mode: str
+    world: EffectiveWorldConfig,
+    source_runtime: RuntimeModeContract,
+    checkpoint_sha256: str,
+    mode: str,
 ) -> dict:
-    """Describe the sole supported watch deployment derived from source world."""
+    """Bind immutable checkpoint bytes to the actual manually reset live runtime."""
     source = {field.name: getattr(world, field.name) for field in fields(world)}
     source["normalization"] = dict(world.normalization)
-    deployed_descriptor = dict(source)
-    deployed_descriptor.update(
-        {"schema": "live_game_world_v1", "engine": "live", "frame_rate": 1, "max_capacity": None}
+    deployed = dict(source)
+    deployed.pop("max_frames")
+    deployed.update(
+        schema="live_game_world_v1",
+        engine="live",
+        frame_rate=1,
+        max_capacity=None,
+        observation_progress_normalizer_frames=world.normalization["max_frames"],
+        episode_horizon_frames=None,
     )
+    original_runtime = asdict(source_runtime)
+    live_runtime = asdict(
+        RuntimeModeContract(
+            mode=mode,
+            training=False,
+            respawn=True,
+            hero_terminal=True,
+            population_floor=False,
+            reset_strategy="manual",
+        )
+    )
+    normalization = dict(world.normalization)
     return {
         "checkpoint_sha256": checkpoint_sha256,
         "deployment_profile": V3_DEPLOYMENT_PROFILE,
         "source_world": source,
         "source_world_digest": world.digest,
-        "deployed_world": deployed_descriptor,
-        "deployed_world_digest": canonical_digest(deployed_descriptor),
-        "source_normalization": dict(world.normalization),
-        "deployed_normalization": dict(world.normalization),
-        "deployed_runtime": {
-            "mode": mode,
-            "training": False,
-            "respawn": True,
-            "hero_terminal": True,
-            "population_floor": False,
-            "reset_strategy": "episode",
-        },
+        "deployed_world": deployed,
+        "deployed_world_digest": canonical_digest(deployed),
+        "source_normalization": normalization,
+        "source_normalization_digest": canonical_digest(normalization),
+        "deployed_normalization": dict(normalization),
+        "deployed_normalization_digest": canonical_digest(normalization),
+        "source_runtime": original_runtime,
+        "source_runtime_digest": source_runtime.digest,
+        "deployed_runtime": live_runtime,
+        "deployed_runtime_digest": canonical_digest(live_runtime),
+        "episode_horizon_frames": None,
+        "evaluation_horizon_frames": 5000,
+        "evaluation_horizon_owner": "external_evaluator",
+        "serving_enforced": False,
         "distribution_differences": {
+            "runtime": {
+                key: {"source": value, "deployed": live_runtime[key]}
+                for key, value in original_runtime.items()
+                if value != live_runtime[key]
+            },
             "frame_rate": {"source": world.frame_rate, "deployed": 1},
             "storage_adapter": {
                 "source_max_capacity": world.max_capacity,
@@ -543,6 +576,7 @@ class GameSession:
         if self.serving_contract is not None:
             target_manifest = _deployment_target_manifest(
                 EffectiveWorldConfig(**v3_metadata["effective_world"]),
+                RuntimeModeContract(**v3_metadata["runtime_contract"]),
                 v3_metadata["_checkpoint_sha256"],
                 mode,
             )

@@ -10,8 +10,7 @@ pytest.importorskip("fastapi")
 from src.core.runtime_contract import EffectiveWorldConfig  # noqa: E402
 from src.core.runtime_contract import ModelHeadContract  # noqa: E402
 from src.core.runtime_contract import RunProvenance  # noqa: E402
-from src.core.runtime_contract import (RuntimeModeContract,  # noqa: E402
-                                       canonical_digest)
+from src.core.runtime_contract import RuntimeModeContract, canonical_digest  # noqa: E402
 from src.model.inference_agent import InferenceAgent  # noqa: E402
 from src.model.obs_spec import RASTER31V3  # noqa: E402
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3_CONTRACT  # noqa: E402
@@ -19,8 +18,7 @@ from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
 from src.simd_env.featurizer import build_observations  # noqa: E402
 from src.simd_env.live_adapter import game_state_to_obs_inputs  # noqa: E402
 from web.backend.raster_policy import RasterServingPolicy  # noqa: E402
-from web.backend.session import (V3_ACTION_MASK_CONTRACT,  # noqa: E402
-                                 GameSession)
+from web.backend.session import V3_ACTION_MASK_CONTRACT, GameSession  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -301,3 +299,117 @@ def test_v3_live_adapter_uses_checkpoint_normalization_bytes(tmp_path):
     )
     assert actual is not None
     assert actual["scalars"].tobytes() == expected["scalars"][0, 0].tobytes()
+
+
+def test_v3_manifest_binds_actual_manual_runtime_and_external_horizon(v3_checkpoint):
+    session = GameSession(checkpoint=v3_checkpoint)
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    for mode in ("watch", "play"):
+        session.set_mode(mode)
+        manifest = session.serving_contract["deployment_target_manifest"]
+        assert manifest["source_runtime"] == blob["runtime_contract"]
+        assert manifest["source_runtime_digest"] == blob["runtime_contract_digest"]
+        deployed = manifest["deployed_runtime"]
+        assert deployed == dict(
+            mode=mode,
+            training=False,
+            respawn=True,
+            hero_terminal=True,
+            population_floor=False,
+            reset_strategy="manual",
+        )
+        assert manifest["deployed_runtime_digest"] == canonical_digest(deployed)
+        assert manifest["deployed_world_digest"] == canonical_digest(manifest["deployed_world"])
+        assert manifest["source_world"]["max_frames"] == 5000
+        assert "max_frames" not in manifest["deployed_world"]
+        assert manifest["deployed_world"]["observation_progress_normalizer_frames"] == 5000
+        assert manifest["episode_horizon_frames"] is None
+        assert manifest["deployed_world"]["episode_horizon_frames"] is None
+        assert manifest["evaluation_horizon_frames"] == 5000
+        assert manifest["evaluation_horizon_owner"] == "external_evaluator"
+        assert manifest["serving_enforced"] is False
+        assert manifest["distribution_differences"]["runtime"] == {
+            key: {"source": value, "deployed": deployed[key]}
+            for key, value in blob["runtime_contract"].items()
+            if deployed[key] != value
+        }
+        for prefix in ("source", "deployed"):
+            assert manifest[f"{prefix}_normalization_digest"] == canonical_digest(
+                manifest[f"{prefix}_normalization"]
+            )
+        # Reach the advertised evaluation horizon and prove live serving does
+        # not implement that external cutoff or reset its world implicitly.
+        game = session.game
+        game.frame = 5000
+        session.set_playing(True)
+        session.run_started = True
+        session.step()
+        assert session.game is game
+        assert game.frame == 5001
+
+
+@pytest.mark.parametrize(
+    "field,value", [("kill_scale", 0.3000000001), ("death_value", -3.000000001)]
+)
+def test_digest_valid_noncanonical_reward_rejects_before_mutation(
+    v3_checkpoint, tmp_path, field, value
+):
+    from src.core.game_config import get_config
+
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game, before_config = session.game, get_config()
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["effective_world"][field] = value
+    world = EffectiveWorldConfig(**blob["effective_world"])
+    blob["effective_world_digest"] = world.digest
+    provenance = RunProvenance.from_metadata(blob)
+    blob["run_provenance"] = {**provenance.__dict__, "world_digest": world.digest}
+    blob["run_provenance_digest"] = canonical_digest(blob["run_provenance"])
+    path = tmp_path / "close-but-unequal.pth"
+    torch.save(blob, path)
+    with pytest.raises(ValueError, match="canonical kill_scale"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game
+    assert get_config() is before_config
+
+
+@pytest.mark.parametrize(
+    "safe,length,expected",
+    [
+        ([], 4, [True] * 3 + [False] * 3),
+        ([], 6, [True] * 6),
+        ([2, 4], 4, [False, False, True, False, False, False]),
+        ([2, 4], 6, [False, False, True, False, True, False]),
+    ],
+)
+def test_v3_collected_successor_mask_matches_fresh_inspection(
+    v3_checkpoint, safe, length, expected, monkeypatch
+):
+    session = GameSession(checkpoint=v3_checkpoint)
+    snake = session.game.snakes[0]
+    snake.length = length
+    snake._get_safe_actions = lambda *_args, **_kwargs: [1]
+    # Prime an action-time cache, then collect a distinct successor mask. A2
+    # consumes this persisted tag alongside the mask; serving itself is forward-only.
+    old = session.policy.action_context_for(snake.id)
+    snake._get_safe_actions = lambda *_args, **_kwargs: safe
+    assert old.resolved.tolist() != expected
+    snake._pre_collision_state = snake.get_state(session.game.snakes, session.game.food)
+    snake._pre_collision_action = 1
+    monkeypatch.setattr(snake, "calculate_reward", lambda *_a, **_kw: 0.0)
+    snake.compute_reward_and_train(session.game.snakes, session.game.food)
+    assert snake.last_next_action_mask.tolist() == expected
+    assert snake.last_next_action_mask_semantics == "raster_resolved_v3"
+    session.policy._invalidate_cache()
+    fresh = session.policy.action_context_for(snake.id)
+    assert fresh.resolved.tolist() == expected
+    assert session.policy.hero_observation(snake.id)["resolved_mask"].tolist() == expected
+    assert old is not fresh
+    snake._pre_collision_state = snake.last_next_state
+    snake._pre_collision_action = 1
+    snake.compute_reward_and_train(session.game.snakes, session.game.food, collided=True)
+    assert snake.last_next_action_mask is None
+    assert snake.last_next_action_mask_semantics == "terminal_no_successor"
+    snake.soft_reset((200, 200))
+    assert snake.last_next_action_mask is None
+    assert snake.last_next_action_mask_semantics is None
