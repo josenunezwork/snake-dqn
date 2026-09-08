@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from web.backend.session import GameSession
+# Direct script execution sets sys.path to src/scripts, while the web package
+# lives at the repository root. Keep the documented entrypoint usable without
+# asking callers to export PYTHONPATH.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from web.backend.session import GameSession  # noqa: E402
 
 
 def main() -> int:

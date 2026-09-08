@@ -189,7 +189,7 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
     others = [s for s in game.snakes if s is not hero]
 
     obs_spec = str(getattr(session, "obs_spec", "vector61"))
-    if obs_spec == "raster31v2":
+    if obs_spec in {"raster31v2", "raster31v3"}:
         bundle = _raster_activations(session, hero)
     else:
         bundle = _vector_activations(session, hero, others, game.food)
