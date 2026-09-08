@@ -8,6 +8,7 @@ stand-ins for hero/baseline/opponents, so no checkpoint is needed.
 import argparse
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -23,6 +24,12 @@ from src.scripts.tournament_eval import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _temporary_default_snapshot_root(monkeypatch, tmp_path):
+    """Keep CLI-default evaluation artifacts out of the repository during tests."""
+    monkeypatch.setenv("SNAKE_DQN_EVAL_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
+
+
 class TestBackwardCompat:
     def test_ci95_alias_survives_for_ensemble_eval(self):
         # ensemble_eval.py imports ci95 from tournament_eval; keep it exported.
@@ -30,6 +37,171 @@ class TestBackwardCompat:
         from src.scripts.tournament_eval import ci95
 
         assert ci95 is ci95_halfwidth
+
+
+def test_main_uses_snapshots_for_every_checkpoint_agent(setup_config, tmp_path, monkeypatch):
+    """A later replacement of a source path cannot affect a seeded eval row."""
+    import torch
+
+    from src.scripts import tournament_eval as module
+
+    candidate = tmp_path / "candidate.pth"
+    baseline = tmp_path / "baseline.pth"
+    opponent = tmp_path / "opponent.pth"
+    config = tmp_path / "tiny_eval.yaml"
+    original_config = "game:\n  width: 400\n  height: 300\n  num_snakes: 3\n"
+    config.write_text(original_config)
+    torch.save({"dqn_state_dict": {}}, candidate)
+    baseline.write_bytes(candidate.read_bytes())
+    opponent.write_bytes(candidate.read_bytes())
+    source_paths = {str(candidate.resolve()), str(baseline.resolve()), str(opponent.resolve())}
+    observed_specs = []
+
+    def fake_run_mix(hero_spec, mix_specs, frames, seeds, engine):
+        observed_specs.append((hero_spec, list(mix_specs)))
+        candidate.write_bytes(b"replaced after inputs were frozen")
+        return [
+            {
+                "seed": seed,
+                "mass_integral": 1.0,
+                "max_mass": 1.0,
+                "kills": 0.0,
+                "deaths": 0.0,
+                "survival_fraction": 1.0,
+                "probes": {
+                    "death_cause": None,
+                    "boost_frame_fraction": 0.0,
+                    "food_eaten": 0,
+                    "kill_opportunity_count": 0,
+                    "entrapment_event": False,
+                    "peak_length": 1,
+                },
+            }
+            for seed in seeds
+        ]
+
+    monkeypatch.setattr(module, "run_mix", fake_run_mix)
+    original_load_config = module.load_and_initialize_config
+
+    def load_then_replace(path):
+        loaded = original_load_config(path)
+        config.write_text("game:\n  width: 300\n  height: 300\n  num_snakes: 2\n")
+        return loaded
+
+    monkeypatch.setattr(module, "load_and_initialize_config", load_then_replace)
+    output = tmp_path / "result.json"
+    snapshots = tmp_path / "snapshots"
+    assert (
+        main(
+            [
+                str(candidate),
+                "--baseline",
+                str(baseline),
+                "--opponents",
+                str(opponent),
+                "--mixes",
+                "frozen,scripted",
+                "--frames",
+                "1",
+                "--seeds",
+                "0",
+                "--config",
+                str(config),
+                "--json-output",
+                str(output),
+                "--snapshot-dir",
+                str(snapshots),
+            ]
+        )
+        == 0
+    )
+
+    data = json.loads(output.read_text())
+    receipt = json.loads(Path(data["evaluation_inputs"]["receipt"]).read_text())
+    frozen_paths = {
+        reference
+        for hero_spec, mix_specs in observed_specs
+        for kind, reference in [hero_spec, *mix_specs]
+        if kind == "checkpoint"
+    }
+    assert not frozen_paths & source_paths
+    assert len({entry["sha256"] for entry in receipt["checkpoint_snapshots"]}) == 1
+    assert all(
+        Path(path).read_bytes() != b"replaced after inputs were frozen" for path in frozen_paths
+    )
+    assert (
+        receipt["config"]["sha256"]
+        == __import__("hashlib").sha256(original_config.encode()).hexdigest()
+    )
+    assert data["baseline"] == str(baseline)
+    assert data["opponent_pool"] == [str(opponent)]
+
+
+def test_snapshot_mutation_during_eval_fails_before_writing_a_verdict(
+    setup_config, tmp_path, monkeypatch
+):
+    """A rewritten frozen input invalidates the entire evaluation, not one row."""
+    import torch
+
+    from src.scripts import tournament_eval as module
+
+    candidate = tmp_path / "candidate.pth"
+    config = tmp_path / "tiny_eval.yaml"
+    config.write_text("game:\n  width: 400\n  height: 300\n  num_snakes: 3\n")
+    torch.save({"dqn_state_dict": {}}, candidate)
+
+    def corrupting_run_mix(hero_spec, mix_specs, frames, seeds, engine):
+        if hero_spec[0] == "checkpoint":
+            frozen = Path(hero_spec[1])
+            frozen.chmod(0o644)
+            frozen.write_bytes(b"corrupted after rollout started")
+        return [
+            {
+                "seed": seed,
+                "mass_integral": 1.0,
+                "max_mass": 1.0,
+                "kills": 0.0,
+                "deaths": 0.0,
+                "survival_fraction": 1.0,
+                "probes": {
+                    "death_cause": None,
+                    "boost_frame_fraction": 0.0,
+                    "food_eaten": 0,
+                    "kill_opportunity_count": 0,
+                    "entrapment_event": False,
+                    "peak_length": 1,
+                },
+            }
+            for seed in seeds
+        ]
+
+    monkeypatch.setattr(module, "run_mix", corrupting_run_mix)
+    output = tmp_path / "result.json"
+    assert (
+        main(
+            [
+                str(candidate),
+                "--baseline",
+                "scripted:greedy_food",
+                "--opponents",
+                "scripted:random_safe",
+                "--mixes",
+                "scripted,mixed",
+                "--frames",
+                "1",
+                "--seeds",
+                "0",
+                "--config",
+                str(config),
+                "--json-output",
+                str(output),
+                "--snapshot-dir",
+                str(tmp_path / "snapshots"),
+            ]
+        )
+        == 2
+    )
+    assert not output.exists()
 
 
 class TestParseAgentSpec:
@@ -217,6 +389,8 @@ class TestEndToEndMiniature:
                 str(tiny_config),
                 "--json-output",
                 str(out),
+                "--snapshot-dir",
+                str(tmp_path / "snapshots"),
             ]
         )
         assert rc == 0  # without --gate the exit code is 0 regardless of verdict
@@ -244,7 +418,7 @@ class TestEndToEndMiniature:
         assert combined["n"] == 2
         assert "promote" in candidate["decision"]
 
-    def test_gate_exit_code_reflects_decision(self, setup_config, tiny_config):
+    def test_gate_exit_code_reflects_decision(self, setup_config, tiny_config, tmp_path):
         # random_safe vs itself as baseline: deltas ~0, never significant on
         # 2 seeds -> the gate must REJECT (exit 1).
         rc = main(
@@ -263,6 +437,8 @@ class TestEndToEndMiniature:
                 "--config",
                 str(tiny_config),
                 "--gate",
+                "--snapshot-dir",
+                str(tmp_path / "snapshots"),
             ]
         )
         assert rc == 1
@@ -286,6 +462,8 @@ class TestEndToEndMiniature:
                 str(tiny_config),
                 "--json-output",
                 str(out),
+                "--snapshot-dir",
+                str(tmp_path / "snapshots"),
             ]
         )
         assert rc == 0
@@ -593,11 +771,7 @@ class TestSimdEvalEngine:
         from src.core.game_config import initialize_config
         from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2
         from src.model.raster_network import RasterDuelingNetwork
-        from src.simd_env.eval_engine import (
-            NetworkSimdPolicy,
-            build_simd_policy,
-            run_simd_eval,
-        )
+        from src.simd_env.eval_engine import NetworkSimdPolicy, build_simd_policy, run_simd_eval
 
         cfg = load_config(str(tiny_v2_config))
         initialize_config(cfg)
@@ -657,11 +831,7 @@ class TestSimdEvalEngine:
         from src.core.config_loader import apply_config_to_game_config, load_config
         from src.core.game_config import initialize_config
         from src.simd_env import eval_engine
-        from src.simd_env.eval_engine import (
-            GreedyFoodSimdPolicy,
-            SimdPolicy,
-            run_simd_eval,
-        )
+        from src.simd_env.eval_engine import GreedyFoodSimdPolicy, SimdPolicy, run_simd_eval
 
         cfg = load_config(str(tiny_v2_config))
         initialize_config(cfg)

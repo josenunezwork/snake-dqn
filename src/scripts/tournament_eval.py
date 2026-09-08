@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
@@ -56,6 +57,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.core.config_loader import load_and_initialize_config  # noqa: E402
 from src.core.game_config import GameConfig  # noqa: E402
+from src.evaluation.artifacts import EvaluationArtifacts, SnapshotError  # noqa: E402
 from src.game.game_state_factory import (  # noqa: E402
     configure_eval_game_state,
     create_training_game_state,
@@ -63,8 +65,8 @@ from src.game.game_state_factory import (  # noqa: E402
 from src.game.scripted_snake import SCRIPTED_KINDS  # noqa: E402
 from src.game.snake_factory import SnakeFactory  # noqa: E402
 from src.scripts.eval_cli import parse_seed_list, set_seed  # noqa: E402
-from src.scripts.eval_stats import (  # noqa: E402
-    ci95_halfwidth,
+from src.scripts.eval_stats import (
+    ci95_halfwidth,  # noqa: E402
     mass_integral,
     mean,
     paired_stats,
@@ -671,6 +673,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     p.add_argument("--json-output", default=None)
     p.add_argument(
+        "--snapshot-dir",
+        default=None,
+        help=(
+            "Directory for immutable content-addressed checkpoint inputs and their receipt "
+            "(default: runs/evaluation_artifacts)"
+        ),
+    )
+    p.add_argument(
         "--gate",
         action="store_true",
         help="Exit 0 iff the (single) candidate passes the §5.2 promotion rule",
@@ -710,6 +720,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     except argparse.ArgumentTypeError as exc:
         p.error(str(exc))
 
+    requested_baseline_spec = baseline_spec
+    requested_opponent_pool = list(opponent_pool)
+    # Capture every trusted checkpoint before inspecting its header or creating
+    # an arena. All later policy loads use these immutable paths, so a rolling
+    # "latest" file cannot yield mixed candidate/baseline bytes across seeds.
+    # Scripted references retain their compact, public names.
+    source_specs = [requested_baseline_spec, *requested_opponent_pool, *candidate_specs]
+    snapshot_root = args.snapshot_dir or os.environ.get(
+        "SNAKE_DQN_EVAL_SNAPSHOT_DIR", "runs/evaluation_artifacts"
+    )
+    artifacts = EvaluationArtifacts(snapshot_root)
+    try:
+        config_snapshot = artifacts.snapshot_config(args.config)
+        effective_config = load_and_initialize_config(config_snapshot.snapshot_path)
+        baseline_spec = artifacts.snapshot_agent_specs([baseline_spec])[0]
+        opponent_pool = artifacts.snapshot_agent_specs(opponent_pool)
+        candidate_specs = artifacts.snapshot_agent_specs(candidate_specs)
+        receipt_path = artifacts.write_receipt(
+            config_snapshot=config_snapshot,
+            effective_config=effective_config,
+            evaluator_path=__file__,
+            source_specs=source_specs,
+        )
+    except SnapshotError as exc:
+        p.error(str(exc))
+
     # Fail fast: --engine simd can evaluate raster ('raster31v2') checkpoints
     # (the batch sim featurizes them) but NOT 61-D 'vector61' champions. Catch a
     # vector61 baseline or opponent up front (a vector61 CANDIDATE is instead
@@ -731,12 +767,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"raster/scripted opponents). Offending baseline/opponents: {offenders}"
             )
 
-    load_and_initialize_config(args.config)
-
     num_opponents = int(GameConfig.NUM_SNAKES) - 1
     if num_opponents < 1:
         p.error(f"config num_snakes={GameConfig.NUM_SNAKES}; need >= 2 for opponents")
 
+    requested_mix_specs = {
+        mix: build_mix_specs(mix, num_opponents, requested_opponent_pool) for mix in args.mixes
+    }
     mix_specs = {mix: build_mix_specs(mix, num_opponents, opponent_pool) for mix in args.mixes}
 
     # RasterServingPolicy chooses a Q row from the full pre-move roster by
@@ -773,9 +810,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(
         f"Arena: {args.config} | engine={args.engine} | frames={args.frames} | seeds={args.seeds}"
     )
-    print(f"Baseline: {agent_label(baseline_spec)}")
+    print(f"Evaluation inputs: {receipt_path}")
+    print(f"Baseline: {agent_label(requested_baseline_spec)}")
     for mix in args.mixes:
-        print(f"Mix {mix:9s}: {[agent_label(s) for s in mix_specs[mix]]}")
+        print(f"Mix {mix:9s}: {[agent_label(s) for s in requested_mix_specs[mix]]}")
     print()
 
     if args.pilot:
@@ -788,6 +826,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.mde_fraction,
             args.engine,
         )
+        try:
+            artifacts.verify_integrity()
+        except SnapshotError as exc:
+            print(f"evaluation input integrity failure: {exc}", file=sys.stderr)
+            return 2
         if args.json_output:
             out = Path(args.json_output)
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -799,9 +842,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "engine": args.engine,
                         "frames": args.frames,
                         "seeds": args.seeds,
-                        "baseline": agent_label(baseline_spec),
+                        "baseline": agent_label(requested_baseline_spec),
                         "mixes": args.mixes,
                         "pilot": pilot,
+                        "evaluation_inputs": {
+                            "receipt": str(receipt_path),
+                            "checkpoints": artifacts.checkpoint_receipts(),
+                        },
                     },
                     indent=2,
                 )
@@ -866,7 +913,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             )
 
-    print_markdown_report(agent_label(baseline_spec), args.mixes, candidate_results)
+    try:
+        artifacts.verify_integrity()
+    except SnapshotError as exc:
+        print(f"evaluation input integrity failure: {exc}", file=sys.stderr)
+        return 2
+
+    print_markdown_report(agent_label(requested_baseline_spec), args.mixes, candidate_results)
 
     if args.json_output:
         out = Path(args.json_output)
@@ -879,12 +932,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "engine": args.engine,
                     "frames": args.frames,
                     "seeds": args.seeds,
-                    "baseline": agent_label(baseline_spec),
+                    "baseline": agent_label(requested_baseline_spec),
                     "mixes": args.mixes,
-                    "opponent_pool": [agent_label(s) for s in opponent_pool],
+                    "opponent_pool": [agent_label(s) for s in requested_opponent_pool],
                     "baseline_summaries": baseline_summaries,
                     "baseline_runs": baseline_runs,
                     "candidates": candidate_results,
+                    "evaluation_inputs": {
+                        "receipt": str(receipt_path),
+                        "checkpoints": artifacts.checkpoint_receipts(),
+                    },
                 },
                 indent=2,
             )
