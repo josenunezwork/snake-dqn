@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.core.config_loader import load_config
 from src.evaluation.artifacts import EvaluationArtifacts, SnapshotError
 
 
@@ -102,6 +103,30 @@ def test_receipt_records_hashes_effective_config_and_source_agents(tmp_path):
     assert receipt["source_agents"][-1] == {"kind": "scripted", "reference": "greedy_food"}
     assert len(receipt["config"]["sha256"]) == 64
     assert len(receipt["evaluator"]["sha256"]) == 64
+
+
+def test_receipt_preserves_supplied_yaml_fields_from_loaded_appconfig(tmp_path):
+    config_path = tmp_path / "eval.yaml"
+    config_path.write_text("pqn:\n  recipe: corrected-v3\n  lr: 0.0002\n")
+    artifacts = EvaluationArtifacts(tmp_path / "artifacts")
+    snapshot = artifacts.snapshot_config(config_path)
+    config = load_config(snapshot.snapshot_path)
+    evaluator = tmp_path / "evaluator.py"
+    evaluator.write_text("# fixture\n")
+
+    receipt_path = artifacts.write_receipt(
+        config_snapshot=snapshot,
+        effective_config=config,
+        evaluator_path=evaluator,
+        source_specs=[],
+    )
+
+    effective = json.loads(receipt_path.read_text())["config"]["effective"]
+    assert effective["provided_fields"] == ["pqn.lr", "pqn.recipe"]
+    assert effective["pqn"]["recipe"] == "corrected-v3"
+    assert effective["pqn"]["lr"] == 0.0002
+    assert effective["pqn"]["gamma"] is None
+    assert config.provided_fields == frozenset({"pqn.lr", "pqn.recipe"})
 
 
 def test_evaluator_source_manifest_changes_when_a_dependency_changes(tmp_path):

@@ -206,6 +206,10 @@ class EvaluationArtifacts:
         evaluator = Path(evaluator_path).expanduser().resolve(strict=True)
         if hasattr(effective_config, "__dataclass_fields__"):
             effective = asdict(effective_config)
+            # AppConfig retains supplied YAML paths as a frozen set. Keep that
+            # provenance in the receipt using a deterministic JSON sequence.
+            if "provided_fields" in effective:
+                effective["provided_fields"] = sorted(effective["provided_fields"])
         else:
             effective = effective_config
         payload = {
