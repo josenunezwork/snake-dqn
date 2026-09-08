@@ -66,6 +66,7 @@ from src.training.apex_runtime import (  # noqa: E402
     stop_processes,
 )
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
+from src.training.resume_lineage import load_checkpoint_snapshot  # noqa: E402
 
 if TYPE_CHECKING:
     import torch
@@ -493,7 +494,7 @@ def load_validated_apex_resume_checkpoint(
         raise FileNotFoundError(f"Resume checkpoint not found: {resume_checkpoint}")
 
     try:
-        checkpoint = torch.load(checkpoint_path, map_location=map_location, weights_only=False)
+        checkpoint, parent = load_checkpoint_snapshot(checkpoint_path, map_location=map_location)
         if not isinstance(checkpoint, dict):
             raise ValueError(f"checkpoint payload must be a dict, got {type(checkpoint).__name__}")
         if resume_mode not in {"weights-only", "continuation"}:
@@ -516,6 +517,7 @@ def load_validated_apex_resume_checkpoint(
     except (OSError, RuntimeError, EOFError, KeyError, ValueError) as e:
         raise RuntimeError(f"Failed to load resume checkpoint {checkpoint_path}: {e}") from e
 
+    checkpoint["_loaded_resume_parent"] = {**parent, "resume_mode": resume_mode}
     return checkpoint
 
 
@@ -1484,19 +1486,7 @@ def train_apex(
     )
     resume_parent = None
     if resume_checkpoint_state is not None:
-        import hashlib
-
-        source_path = Path(resume_checkpoint).expanduser()
-        resume_parent = {
-            "source_content_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
-            "source_run_seed_manifest": resume_checkpoint_state.get("run_seed_manifest"),
-            "source_recipe_runtime_seed_identity": (
-                resume_checkpoint_state.get("apex_recipe_runtime", {}).get("seed_identity")
-                if isinstance(resume_checkpoint_state.get("apex_recipe_runtime"), dict)
-                else None
-            ),
-            "rng_state_restored": False,
-        }
+        resume_parent = resume_checkpoint_state.get("_loaded_resume_parent")
 
     # Resumed learner step, used both to start the training loop and to seed the
     # buffer's beta-annealing clock below. The BufferProcess is created fresh each

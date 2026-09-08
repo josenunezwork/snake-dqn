@@ -6,9 +6,9 @@ import os
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 import argparse
+import inspect
 import pickle
 import random
-import hashlib
 import shutil
 import sys
 import tempfile
@@ -62,7 +62,7 @@ from src.game.game_state_factory import (  # noqa: E402
     create_training_game_state,
 )
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
-from src.training.replay_buffer import restore_replay_memories  # noqa: E402
+from src.training.resume_lineage import load_checkpoint_snapshot  # noqa: E402
 from src.training.tensorboard_logger import TensorBoardLogger  # noqa: E402
 
 
@@ -260,12 +260,6 @@ def save_training_checkpoint(
         key=lambda snake: float(getattr(snake, "total_reward", 0.0)),
     )
     current_best.save_state(str(checkpoint_path))
-    policy = getattr(current_best, "policy", None)
-    resume_parent = getattr(policy, "_resume_parent", None)
-    if resume_parent is not None:
-        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        checkpoint["resume_parent"] = dict(resume_parent)
-        torch.save(checkpoint, checkpoint_path)
 
     if curriculum is not None and env_id is not None:
         curriculum_path = get_env_curriculum_checkpoint_path(env_id)
@@ -346,8 +340,8 @@ def load_checkpoint_into_game_state(
 
     device = getattr(policy, "device", torch.device("cpu"))
     try:
-        checkpoint = torch.load(resolved_path, map_location=device, weights_only=False)
-        if strict_training_contract:
+        checkpoint, parent = load_checkpoint_snapshot(resolved_path, map_location=device)
+        if strict_training_contract and resume_mode == "continuation":
             validate_headless_checkpoint_contract(
                 checkpoint,
                 policy,
@@ -365,17 +359,7 @@ def load_checkpoint_into_game_state(
         print(f"Could not load checkpoint {resolved_path}: {e}")
         return False
 
-    memories = checkpoint.get("memories", [])
-    memory = getattr(policy, "memory", None)
-    if memories:
-        if memory is None:
-            print(f"Checkpoint replay cannot be restored without a replay buffer: {resolved_path}")
-            return False
-        try:
-            restore_replay_memories(memory, memories, device, clear=True)
-        except (ValueError, RuntimeError) as e:
-            print(f"Could not restore checkpoint replay from {resolved_path}: {e}")
-            return False
+    policy._resume_parent = {**parent, "resume_mode": resume_mode}
 
     for snake in game_state.snakes:
         if isinstance(snake, AISnake):
@@ -495,6 +479,7 @@ def load_replay_db_into_game_state(
         states=states,
         next_states=next_states,
         snake_ids=snake_ids,
+        next_action_mask_modes=next_action_mask_modes,
     )
     print("\nReplay prefill quality:")
     for line in format_replay_quality_stats(replay_quality):
@@ -602,30 +587,18 @@ def load_replay_db_into_game_state(
 
 def load_prefill_replay_rows(db_handler, limit: int, replay_order: str = "id_uniform"):
     """Load generated replay rows for headless prefill in a representative order."""
-    try:
-        return db_handler.load_memories_for_policy(
-            policy_type="apex",
-            limit=limit,
-            order_by=replay_order,
-            include_action_masks=True,
-            include_action_mask_modes=True,
-            include_snake_ids=True,
-        )
-    except TypeError:
-        try:
-            return db_handler.load_memories_for_policy(
-                policy_type="apex",
-                limit=limit,
-                order_by=replay_order,
-                include_action_masks=True,
-                include_snake_ids=True,
-            )
-        except TypeError:
-            return db_handler.load_memories_for_policy(
-                policy_type="apex",
-                limit=limit,
-                order_by=replay_order,
-            )
+    loader = db_handler.load_memories_for_policy
+    parameters = inspect.signature(loader).parameters
+    accepts_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+    options = {
+        "include_action_masks": True,
+        "include_action_mask_modes": True,
+        "include_snake_ids": True,
+    }
+    supported = {
+        name: value for name, value in options.items() if name in parameters or accepts_kwargs
+    }
+    return loader(policy_type="apex", limit=limit, order_by=replay_order, **supported)
 
 
 def get_policy_stats(game_state: GameState) -> Dict[str, Any]:
@@ -754,6 +727,7 @@ def run_learning_health_smoke(
     game_state_factory=None,
     checkpoint_loader=None,
     replay_loader=None,
+    seed_identity: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Run a bounded in-process training smoke and return learning-health metrics."""
     if max_frames <= 0:
@@ -776,6 +750,9 @@ def run_learning_health_smoke(
     start_time = time.time()
     try:
         game_state = factory()
+        smoke_policy = get_shared_apex_policy(game_state)
+        if seed_identity is not None and smoke_policy is not None:
+            smoke_policy.set_seed_identity(seed_identity)
         checkpoint_loaded = False
         if checkpoint_path:
             if checkpoint_loader is None:
@@ -1054,12 +1031,6 @@ def train_environment(
                 raise RuntimeError(
                     f"Could not load headless training checkpoint: {checkpoint_path}"
                 )
-            source_path = resolve_checkpoint_path(checkpoint_path)
-            if policy is not None and source_path is not None:
-                policy._resume_parent = {
-                    "source_content_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
-                    "rng_state_restored": False,
-                }
             if eval_mode:
                 configure_eval_game_state(game_state)
         if replay_db_path:
@@ -1824,6 +1795,12 @@ The interactive UI (watch / train / human play) is the web app:
             replay_quality_gates=replay_quality_gates,
             eval_mode=args.eval,
             resume_mode=args.resume_mode,
+            seed_identity={
+                "requested_seed": seed_context.requested_seed,
+                "effective_seed": seed_context.effective_seed,
+                "namespace": "global",
+                "stream_seed": seed_context.stream_seed("global"),
+            },
         )
         print(format_learning_health_smoke_report(stats))
         if not args.eval:

@@ -754,7 +754,12 @@ class TestHeadlessCheckpointLoad:
         torch.save(checkpoint, checkpoint_path)
         game_state = self.GameStateStub()
 
-        assert load_checkpoint_into_game_state(game_state, str(checkpoint_path)) is False
+        assert (
+            load_checkpoint_into_game_state(
+                game_state, str(checkpoint_path), resume_mode="continuation"
+            )
+            is False
+        )
         assert game_state._shared_policy.loaded_checkpoint is None
 
     def test_inference_checkpoint_load_allows_td_contract_mismatch(self, tmp_path):
@@ -806,7 +811,12 @@ class TestHeadlessCheckpointLoad:
         torch.save(checkpoint, checkpoint_path)
         game_state = self.GameStateStub()
 
-        assert load_checkpoint_into_game_state(game_state, str(checkpoint_path)) is False
+        assert (
+            load_checkpoint_into_game_state(
+                game_state, str(checkpoint_path), resume_mode="continuation"
+            )
+            is False
+        )
         assert game_state._shared_policy.loaded_checkpoint is None
 
     def test_checkpoint_load_rejects_reward_mismatch_before_policy_mutation(self, tmp_path):
@@ -828,7 +838,12 @@ class TestHeadlessCheckpointLoad:
         torch.save(checkpoint, checkpoint_path)
         game_state = self.GameStateStub()
 
-        assert load_checkpoint_into_game_state(game_state, str(checkpoint_path)) is False
+        assert (
+            load_checkpoint_into_game_state(
+                game_state, str(checkpoint_path), resume_mode="continuation"
+            )
+            is False
+        )
         assert game_state._shared_policy.loaded_checkpoint is None
 
     def test_checkpoint_load_rejects_full_reward_mismatch_before_policy_mutation(self, tmp_path):
@@ -852,10 +867,15 @@ class TestHeadlessCheckpointLoad:
         torch.save(checkpoint, checkpoint_path)
         game_state = self.GameStateStub()
 
-        assert load_checkpoint_into_game_state(game_state, str(checkpoint_path)) is False
+        assert (
+            load_checkpoint_into_game_state(
+                game_state, str(checkpoint_path), resume_mode="continuation"
+            )
+            is False
+        )
         assert game_state._shared_policy.loaded_checkpoint is None
 
-    def test_checkpoint_load_rejects_malformed_replay_restore(self, tmp_path):
+    def test_weights_only_ignores_embedded_replay(self, tmp_path):
         import torch
 
         checkpoint = {
@@ -876,7 +896,7 @@ class TestHeadlessCheckpointLoad:
         game_state = self.GameStateStub()
         game_state._shared_policy.memory = self.MemoryStub()
 
-        assert load_checkpoint_into_game_state(game_state, str(checkpoint_path)) is False
+        assert load_checkpoint_into_game_state(game_state, str(checkpoint_path)) is True
         assert game_state._shared_policy.loaded_checkpoint is not None
         assert game_state._shared_policy.memory.cleared is False
 
@@ -1176,7 +1196,7 @@ class TestReplayPrefill:
 
         output = capsys.readouterr().out
         assert "Replay prefill quality:" in output
-        assert "Nonterminal exact masks: 3/3" in output
+        assert "Nonterminal masks present: 3/3" in output
         assert "Rows per snake_id min/avg/max: 1/1.50/2" in output
 
     def test_replay_db_prefill_empty_apex_rows_raise_before_memory_mutation(self, tmp_path):

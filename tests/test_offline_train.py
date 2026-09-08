@@ -514,7 +514,7 @@ class TestCheckpointReplayProvenance:
         policy = PolicyStub()
 
         with pytest.raises(RuntimeError, match="gamma"):
-            load_checkpoint(policy, str(checkpoint_path))
+            load_checkpoint(policy, str(checkpoint_path), resume_mode="continuation")
 
         assert policy.loaded_checkpoint is None
 
@@ -1775,11 +1775,11 @@ class TestLoadReplayDatabase:
 
         assert loaded == 2
         assert "Rows: 2" in output
-        assert "Nonterminal exact masks: 2/2 (100.0%)" in output
+        assert "Nonterminal masks present: 2/2 (100.0%)" in output
         assert "Actions: 0:1, 1:1, 2:0" in output
         assert "Reward signs neg/zero/pos: 0/1/1" in output
         assert "Boost available states: 1 (50.0%)" in output
-        assert "Exact masks allowing boost: 0 (0.0%)" in output
+        assert "Resolved exact masks allowing boost: 0 (0.0%)" in output
         assert "Rows per snake_id min/avg/max: 2/2.00/2" in output
         assert "Replay quality warnings:" in output
         assert "normal action(s) 2" in output
@@ -1809,6 +1809,7 @@ class TestLoadReplayDatabase:
                         "reward": -1.0 if idx == 5 else float(idx + 1),
                         "next_state": [float(idx + 1)] * GameConfig.INPUT_SIZE,
                         "done": idx == 5,
+                        "next_action_mask_mode": 1 if idx < 5 else 2,
                         "priority": 1.0 + idx,
                         "bootstrap_steps": 2 if idx < 3 else 1,
                         "next_action_mask": (

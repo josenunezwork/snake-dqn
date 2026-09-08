@@ -37,6 +37,7 @@ from src.data.memory_db_handler import (  # noqa: E402
     validate_replay_quality_gates,
 )
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
+from src.training.resume_lineage import load_checkpoint_snapshot  # noqa: E402
 
 TARGET_ACTION_METRIC_KEYS = (
     "valid_next_action_fraction",
@@ -595,18 +596,18 @@ def load_checkpoint(
     if resolved_path is None:
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    checkpoint = torch.load(resolved_path, map_location=policy.device, weights_only=False)
-    validate_offline_resume_checkpoint_config(
-        checkpoint,
-        policy,
-        checkpoint_path=str(resolved_path),
-    )
+    checkpoint, parent = load_checkpoint_snapshot(resolved_path, map_location=policy.device)
+    if resume_mode == "continuation":
+        validate_offline_resume_checkpoint_config(
+            checkpoint, policy, checkpoint_path=str(resolved_path)
+        )
     try:
         policy.load_state_dict(checkpoint, resume_mode=resume_mode)
     except TypeError as error:
         if resume_mode != "weights-only" or "resume_mode" not in str(error):
             raise
         policy.load_state_dict(checkpoint)
+    policy._resume_parent = {**parent, "resume_mode": resume_mode}
     print(f"Loaded checkpoint: {resolved_path}")
     if resume_mode == "weights-only":
         print(
@@ -817,6 +818,7 @@ def load_replay_database(
         states=states,
         next_states=next_states,
         snake_ids=snake_ids,
+        next_action_mask_modes=next_action_mask_modes,
     )
 
     validate_loaded_replay_rows(

@@ -858,8 +858,8 @@ class AISnake(Snake):
             manager = CheckpointManager(str(path.parent), verbose=self.checkpoint_manager.verbose)
         manager.save_checkpoint_dict(metadata, filename)
 
-    def load_state(self, filepath: str) -> bool:
-        """Load snake state using CheckpointManager."""
+    def load_state(self, filepath: str, resume_mode: str = "weights-only") -> bool:
+        """Load policy weights or verified optimizer continuation into a fresh world."""
         path = Path(filepath)
         filename = path.name
         manager = self.checkpoint_manager
@@ -867,7 +867,11 @@ class AISnake(Snake):
             manager = CheckpointManager(str(path.parent), verbose=self.checkpoint_manager.verbose)
 
         try:
-            checkpoint = manager.load_checkpoint(self.device, filename, strict=False)
+            from src.training.resume_lineage import load_checkpoint_snapshot
+
+            checkpoint, parent = load_checkpoint_snapshot(
+                manager.checkpoint_dir / filename, map_location=self.device
+            )
 
             if not checkpoint:
                 return False
@@ -881,29 +885,13 @@ class AISnake(Snake):
                 )
                 return False
 
-            # Load policy state
-            self.policy.load_state_dict(checkpoint)
-            self._total_reward = checkpoint.get("total_reward", 0)
-
-            # Load memories if present
-            if "memories" in checkpoint and checkpoint["memories"]:
-                if hasattr(self.policy, "memory") and hasattr(self.policy.memory, "add"):
-                    try:
-                        from src.training.replay_buffer import restore_replay_memories
-
-                        restore_replay_memories(
-                            self.policy.memory,
-                            checkpoint["memories"],
-                            self.device,
-                            clear=True,
-                        )
-                    except (ValueError, RuntimeError) as e:
-                        if self.checkpoint_manager.verbose:
-                            print(f"Could not restore memories: {e}")
-
-            # Restore frame using callback
-            if "frame" in checkpoint:
-                self._set_frame(checkpoint["frame"])
+            self.policy.load_state_dict(checkpoint, resume_mode=resume_mode)
+            self.policy._resume_parent = {**parent, "resume_mode": resume_mode}
+            self._total_reward = (
+                checkpoint.get("total_reward", 0) if resume_mode == "continuation" else 0
+            )
+            # Both modes start fresh episodes/replay; source memories and frame
+            # are archival data, never an implicit training-data import.
 
             return True
 

@@ -11,8 +11,8 @@ and does not use distributional RL (C51) for simplicity.
 """
 
 import copy
-import os
 import math
+import os
 from collections import deque
 from typing import Dict, List, Optional, Tuple
 
@@ -46,7 +46,12 @@ from .checkpoint_contract import (
     checkpoint_contract_values,
     validate_checkpoint_contract,
 )
-from .td_targets import MASK_MODE_LEGACY_ADVISORY, double_dqn_next_q, n_step_td_target, validate_mask_mode
+from .td_targets import (
+    MASK_MODE_LEGACY_ADVISORY,
+    double_dqn_next_q,
+    n_step_td_target,
+    validate_mask_mode,
+)
 
 
 class ApexPolicy(BaseDQNPolicy):
@@ -125,7 +130,8 @@ class ApexPolicy(BaseDQNPolicy):
         self.override_reward_contract = bool(override_reward_contract)
         self.init_type = init_type
         self._seed_identity: Dict[str, object] = {
-            "status": "unknown", "source": "direct-library-caller"
+            "status": "unknown",
+            "source": "direct-library-caller",
         }
         if seed_context is not None:
             self.set_seed_identity(seed_context)
@@ -691,16 +697,22 @@ class ApexPolicy(BaseDQNPolicy):
         """
         required = {"requested_seed", "effective_seed", "namespace"}
         if not required.issubset(seed_context):
-            raise ValueError("Apex seed_context requires requested_seed, effective_seed, and namespace")
+            raise ValueError(
+                "Apex seed_context requires requested_seed, effective_seed, and namespace"
+            )
         for key in ("effective_seed",):
             value = seed_context[key]
             if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 2**64:
                 raise ValueError(f"Apex seed_context {key} must be an unsigned 64-bit integer")
         requested = seed_context["requested_seed"]
         if requested is not None and (
-            isinstance(requested, bool) or not isinstance(requested, int) or not 0 <= requested < 2**64
+            isinstance(requested, bool)
+            or not isinstance(requested, int)
+            or not 0 <= requested < 2**64
         ):
-            raise ValueError("Apex seed_context requested_seed must be an unsigned 64-bit integer or None")
+            raise ValueError(
+                "Apex seed_context requested_seed must be an unsigned 64-bit integer or None"
+            )
         if not isinstance(seed_context["namespace"], str) or not seed_context["namespace"]:
             raise ValueError("Apex seed_context namespace must be a non-empty string")
         self._seed_identity = dict(seed_context)
@@ -739,7 +751,11 @@ class ApexPolicy(BaseDQNPolicy):
         update_counter = state_dict.get("update_counter", 0)
         total_reward = state_dict.get("total_reward", 0.0)
         epsilon = state_dict.get("epsilon", 1.0)
-        if isinstance(update_counter, bool) or not isinstance(update_counter, int) or update_counter < 0:
+        if (
+            isinstance(update_counter, bool)
+            or not isinstance(update_counter, int)
+            or update_counter < 0
+        ):
             raise ValueError("continuation checkpoint has invalid update_counter")
         if (
             isinstance(total_reward, bool)
@@ -747,10 +763,16 @@ class ApexPolicy(BaseDQNPolicy):
             or not math.isfinite(total_reward)
         ):
             raise ValueError("continuation checkpoint has invalid total_reward")
-        if isinstance(epsilon, bool) or not isinstance(epsilon, (int, float)) or not 0.0 <= epsilon <= 1.0:
+        if (
+            isinstance(epsilon, bool)
+            or not isinstance(epsilon, (int, float))
+            or not 0.0 <= epsilon <= 1.0
+        ):
             raise ValueError("continuation checkpoint has invalid epsilon")
 
-    def _resolve_checkpoint_contract(self, state_dict: dict, *, validate_target_contract: bool = True) -> dict:
+    def _resolve_checkpoint_contract(
+        self, state_dict: dict, *, validate_target_contract: bool = True
+    ) -> dict:
         """Resolve and validate the training contract declared by a checkpoint."""
 
         def first_contract_value(key: str, default, caster):
@@ -857,7 +879,9 @@ class ApexPolicy(BaseDQNPolicy):
             target_weights = (
                 dqn_weights
                 if resume_mode == "weights-only"
-                else state_dict.get("target_dqn_state_dict", state_dict.get("target_state_dict", dqn_weights))
+                else state_dict.get(
+                    "target_dqn_state_dict", state_dict.get("target_state_dict", dqn_weights)
+                )
             )
             remapped_target = {
                 k: (v.to(self.device) if isinstance(v, torch.Tensor) else v)
