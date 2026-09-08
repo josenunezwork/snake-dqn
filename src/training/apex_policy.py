@@ -645,18 +645,33 @@ class ApexPolicy(BaseDQNPolicy):
 
     def _recipe(self) -> ApexRecipe:
         """Describe the actual local optimizer and replay target semantics."""
-        return ApexRecipe(
-            "local",
-            "AdamW",
-            50.0,
-            "successful_local_sample",
-            self.gamma,
-            self.n_step,
-            GameConfig.APEX_PRIORITY_ALPHA,
-            GameConfig.APEX_PRIORITY_EPSILON,
+        if self.optimizer is None:
+            raise RuntimeError("inference-only Apex policies have no continuation recipe")
+        return ApexRecipe.local(
+            optimizer=self.optimizer,
+            input_size=self.input_size,
+            output_size=self.output_size,
+            gamma=self.gamma,
+            n_step=self.n_step,
+            target_clip=50.0,
         )
 
-    def _resolve_checkpoint_contract(self, state_dict: dict) -> dict:
+    def _assert_pristine_weights_only_receiver(self) -> None:
+        """Prevent a weights-only load from silently mixing two local runs."""
+        if not self.training:
+            return
+        if (
+            self.update_counter
+            or self.total_reward
+            or self._local_buffer
+            or len(self.memory)
+            or getattr(self.memory, "n_step_buffer", ())
+        ):
+            raise ValueError("weights-only load requires a fresh local Apex policy receiver")
+        if self.optimizer is not None and self.optimizer.state:
+            raise ValueError("weights-only load requires a fresh local Apex optimizer")
+
+    def _resolve_checkpoint_contract(self, state_dict: dict, *, validate_target_contract: bool = True) -> dict:
         """Resolve and validate the training contract declared by a checkpoint."""
 
         def first_contract_value(key: str, default, caster):
@@ -680,7 +695,7 @@ class ApexPolicy(BaseDQNPolicy):
         # (training=False: eval, GUI --load, tournament), skip it so checkpoints
         # from a different reward contract (e.g. pre-boost-fix models) still load.
         # Shape compatibility (input/output) is still enforced below.
-        if self.training:
+        if self.training and validate_target_contract:
             validate_checkpoint_contract(
                 state_dict,
                 contract,
@@ -699,8 +714,14 @@ class ApexPolicy(BaseDQNPolicy):
             raise ValueError(f"Unsupported Apex resume mode {resume_mode!r}")
         self._verify_checkpoint_type(state_dict, self._policy_name)
         if self.training and resume_mode == "continuation":
-            validate_recipe_continuation(state_dict, self._recipe(), weights_only=False)
-        checkpoint_contract = self._resolve_checkpoint_contract(state_dict)
+            validate_recipe_continuation(
+                state_dict, self._recipe(), weights_only=False, optimizer=self.optimizer
+            )
+        if self.training and resume_mode == "weights-only":
+            self._assert_pristine_weights_only_receiver()
+        checkpoint_contract = self._resolve_checkpoint_contract(
+            state_dict, validate_target_contract=resume_mode != "weights-only"
+        )
 
         # Validate input/output dimensions match current config
         ckpt_input = checkpoint_contract["input_size"]
@@ -745,8 +766,10 @@ class ApexPolicy(BaseDQNPolicy):
 
         # Load target network weights (fall back to online weights if missing)
         if self.target_dqn is not None:
-            target_weights = state_dict.get(
-                "target_dqn_state_dict", state_dict.get("target_state_dict", dqn_weights)
+            target_weights = (
+                dqn_weights
+                if resume_mode == "weights-only"
+                else state_dict.get("target_dqn_state_dict", state_dict.get("target_state_dict", dqn_weights))
             )
             remapped_target = {
                 k: (v.to(self.device) if isinstance(v, torch.Tensor) else v)
@@ -763,13 +786,13 @@ class ApexPolicy(BaseDQNPolicy):
             self.optimizer.load_state_dict(state_dict["optimizer_state_dict"])
 
         # Load optional distributed parameters
-        self.n_step = int(checkpoint_contract["n_step"])
-        self.gamma = float(checkpoint_contract["gamma"])
-        self._sync_replay_hyperparameters()
-        self.distributed = state_dict.get("distributed", False)
-        self.actor_id = state_dict.get("actor_id", None)
-
-        self._load_base_state(state_dict)
+        if resume_mode != "weights-only":
+            self.n_step = int(checkpoint_contract["n_step"])
+            self.gamma = float(checkpoint_contract["gamma"])
+            self._sync_replay_hyperparameters()
+            self.distributed = state_dict.get("distributed", False)
+            self.actor_id = state_dict.get("actor_id", None)
+            self._load_base_state(state_dict)
 
     def get_all_memories(self) -> list:
         """Get all stored memories."""

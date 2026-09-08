@@ -841,8 +841,8 @@ def test_policy_default_n_step_uses_apex_config():
         initialize_config()
 
 
-def test_load_state_dict_syncs_feedforward_replay_hyperparameters():
-    """Checkpoint n-step/gamma metadata should update the live local replay wrapper."""
+def test_weights_only_rejects_nonfresh_local_receiver_before_mutation():
+    """Weights-only cannot silently mix a checkpoint with local replay state."""
     DeviceManager.override_device(torch.device("cpu"))
     initialize_config(
         AppConfig(
@@ -865,22 +865,18 @@ def test_load_state_dict_syncs_feedforward_replay_hyperparameters():
         state_dict["apex_config"]["n_step"] = 4
         state_dict["apex_config"]["gamma"] = 0.5
 
-        policy.load_state_dict(state_dict)
-
-        assert policy.n_step == 4
-        assert policy.gamma == pytest.approx(0.5)
-        assert policy.memory.n_step == 4
-        assert policy.memory.gamma == pytest.approx(0.5)
-        assert policy.memory.n_step_buffer.maxlen == 4
-        assert len(policy.memory.n_step_buffer) == 0
-        assert policy._local_buffer.maxlen == 4
+        with pytest.raises(ValueError, match="fresh local Apex policy receiver"):
+            policy.load_state_dict(state_dict)
+        assert policy.n_step == 1
+        assert policy.gamma == pytest.approx(0.9)
+        assert len(policy.memory.n_step_buffer) == 1
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()
 
 
-def test_load_state_dict_uses_nested_apex_contract_when_top_level_metadata_missing():
-    """Distributed-style checkpoints should still restore target semantics into local replay."""
+def test_weights_only_retains_requested_local_target_semantics():
+    """Weights-only is a fresh run and never adopts checkpoint gamma or n-step."""
     DeviceManager.override_device(torch.device("cpu"))
     initialize_config(
         AppConfig(
@@ -900,12 +896,11 @@ def test_load_state_dict_uses_nested_apex_contract_when_top_level_metadata_missi
 
         policy.load_state_dict(state_dict)
 
-        assert policy.n_step == 4
-        assert policy.gamma == pytest.approx(0.5)
-        assert policy.memory.n_step == 4
-        assert policy.memory.gamma == pytest.approx(0.5)
-        assert policy.memory.n_step_buffer.maxlen == 4
-        assert policy._local_buffer.maxlen == 4
+        assert policy.n_step == 1
+        assert policy.gamma == pytest.approx(0.9)
+        assert policy.memory.n_step == 1
+        assert policy.memory.gamma == pytest.approx(0.9)
+        assert policy._local_buffer.maxlen == 1
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()
@@ -929,7 +924,7 @@ def test_load_state_dict_rejects_inconsistent_checkpoint_contract_before_replay_
         state_dict["n_step"] = 4
         state_dict["gamma"] = 0.5
 
-        with pytest.raises(ValueError, match="n_step=1.*n_step=4"):
+        with pytest.raises(ValueError, match="fresh local Apex policy receiver"):
             policy.load_state_dict(state_dict)
 
         assert policy.n_step == 1
@@ -963,7 +958,7 @@ def test_load_state_dict_rejects_reward_contract_mismatch_before_replay_mutation
         stale_contract["survival"] = float(stale_contract["survival"]) + 1.0
         state_dict["apex_config"]["reward_contract"] = stale_contract
 
-        with pytest.raises(ValueError, match="reward_contract.survival"):
+        with pytest.raises(ValueError, match="fresh local Apex policy receiver"):
             policy.load_state_dict(state_dict)
 
         assert policy.n_step == 1
@@ -999,18 +994,18 @@ def test_load_checkpoint_uses_nested_apex_contract_when_top_level_metadata_missi
         reader = ApexPolicy(input_size=4, hidden_size=64, output_size=3, n_step=1)
 
         assert reader.load_checkpoint(str(checkpoint_path)) is True
-        assert reader.n_step == 4
-        assert reader.gamma == pytest.approx(0.5)
-        assert reader.memory.n_step == 4
-        assert reader.memory.gamma == pytest.approx(0.5)
-        assert reader._local_buffer.maxlen == 4
+        assert reader.n_step == 1
+        assert reader.gamma == pytest.approx(0.9)
+        assert reader.memory.n_step == 1
+        assert reader.memory.gamma == pytest.approx(0.9)
+        assert reader._local_buffer.maxlen == 1
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()
 
 
-def test_load_checkpoint_rejects_inconsistent_contract_before_replay_mutation(tmp_path):
-    """File-based policy loading should not bypass checkpoint contract validation."""
+def test_load_checkpoint_rejects_nonfresh_weights_only_receiver(tmp_path):
+    """File loading keeps the same fresh-receiver boundary as direct loading."""
     DeviceManager.override_device(torch.device("cpu"))
     initialize_config(
         AppConfig(
@@ -1078,8 +1073,8 @@ def test_load_checkpoint_without_epsilon_preserves_inference_epsilon(tmp_path):
         initialize_config()
 
 
-def test_constructor_checkpoint_path_raises_when_load_fails(tmp_path):
-    """Explicit checkpoint paths should not leave a random policy behind after load failure."""
+def test_constructor_checkpoint_path_loads_weights_as_a_fresh_run(tmp_path):
+    """Constructor checkpoint loads retain the requested fresh-run semantics."""
     DeviceManager.override_device(torch.device("cpu"))
     initialize_config(
         AppConfig(
@@ -1097,14 +1092,11 @@ def test_constructor_checkpoint_path_raises_when_load_fails(tmp_path):
         checkpoint_path = tmp_path / "bad_checkpoint.pth"
         torch.save(checkpoint, checkpoint_path)
 
-        with pytest.raises(RuntimeError, match="Failed to load checkpoint"):
-            ApexPolicy(
-                input_size=4,
-                hidden_size=64,
-                output_size=3,
-                n_step=1,
-                checkpoint_path=str(checkpoint_path),
-            )
+        reader = ApexPolicy(
+            input_size=4, hidden_size=64, output_size=3, n_step=1, checkpoint_path=str(checkpoint_path)
+        )
+        assert reader.n_step == 1
+        assert reader.gamma == pytest.approx(0.9)
     finally:
         DeviceManager.reset_for_testing()
         initialize_config()
