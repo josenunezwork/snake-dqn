@@ -167,6 +167,17 @@ class RasterServingPolicy:
         agent = InferenceAgent.from_checkpoint(checkpoint_path, device=device)
         return cls(agent)
 
+    @classmethod
+    def from_checkpoint_blob(
+        cls, blob: dict, *, checkpoint_path: str, device: Optional[torch.device] = None
+    ) -> "RasterServingPolicy":
+        """Build from checkpoint content already preflighted by the session."""
+        return cls(
+            InferenceAgent.from_checkpoint_blob(
+                blob, checkpoint_path=checkpoint_path, device=device
+            )
+        )
+
     def attach_game(self, game) -> None:
         """Attach the live game whose snakes this policy serves.
 

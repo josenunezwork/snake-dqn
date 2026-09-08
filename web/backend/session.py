@@ -10,22 +10,22 @@ import math
 import os
 import threading
 import time
+from dataclasses import fields, replace
+from hashlib import sha256
+from io import BytesIO
 from typing import Dict, Optional
 
 import torch
 
 from src.core.config_loader import load_config
-from src.core.game_config import GameConfig, initialize_config
-from src.core.runtime_contract import (
-    EffectiveWorldConfig,
-    RunProvenance,
-    RuntimeModeContract,
-    canonical_digest,
-    validate_model_head_contract,
-)
+from src.core.game_config import GameConfig, get_config, initialize_config
+from src.core.runtime_contract import (EffectiveWorldConfig, RunProvenance,
+                                       RuntimeModeContract, canonical_digest,
+                                       validate_model_head_contract)
 from src.data.score_store import compute_score
 from src.game.game_state import GameState
-from src.model.obs_spec import DEFAULT_OBS_SPEC, RASTER31V2, RASTER31V3, VECTOR61
+from src.model.obs_spec import (DEFAULT_OBS_SPEC, RASTER31V2, RASTER31V3,
+                                VECTOR61)
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
 
@@ -54,14 +54,25 @@ V3_ACTION_MASK_CONTRACT = {
     "dead_rows": "all_false",
 }
 
+V3_DEPLOYMENT_PROFILE = "promotion-v2-watch-rect"
 
-def _validate_v3_serving_checkpoint(checkpoint_path: str) -> dict:
-    """Fail closed on a v3 checkpoint before a session replaces live state."""
-    from src.training.checkpoint_contract import validate_observation_checkpoint_metadata
 
-    blob = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+def _load_checkpoint_once(checkpoint_path: str) -> tuple[bytes, dict, str]:
+    """Read, hash, and deserialize a checkpoint exactly once for serving."""
+    payload = open(checkpoint_path, "rb").read()
+    blob = torch.load(BytesIO(payload), map_location="cpu", weights_only=False)
     if not isinstance(blob, dict):
-        raise ValueError("raster31v3 checkpoint must be a metadata mapping")
+        raise ValueError("checkpoint must be a metadata mapping")
+    return payload, blob, sha256(payload).hexdigest()
+
+
+def _validate_v3_serving_checkpoint(
+    blob: dict, checkpoint_sha256: str, checkpoint_path: str
+) -> dict:
+    """Fail closed on a v3 checkpoint before a session replaces live state."""
+    from src.training.checkpoint_contract import \
+        validate_observation_checkpoint_metadata
+
     validate_observation_checkpoint_metadata(
         blob, RASTER31V3, checkpoint_path, error_type=ValueError
     )
@@ -83,7 +94,29 @@ def _validate_v3_serving_checkpoint(checkpoint_path: str) -> dict:
     runtime_digest = blob.get("runtime_contract_digest")
     if not isinstance(runtime, dict) or canonical_digest(runtime) != runtime_digest:
         raise ValueError("raster31v3 checkpoint has an invalid runtime_contract digest")
-    RuntimeModeContract(**runtime)
+    runtime_contract = RuntimeModeContract(**runtime)
+    if (
+        runtime_contract.mode not in {"watch", "train", "play", "pqn_train"}
+        or runtime_contract.reset_strategy
+        not in {
+            "episode",
+            "batch_episode",
+        }
+        or any(
+            not isinstance(runtime.get(name), bool)
+            for name in ("training", "respawn", "hero_terminal", "population_floor")
+        )
+    ):
+        raise ValueError("raster31v3 runtime_contract has invalid typed lifecycle flags")
+    from src.model.inference_agent import InferenceAgent
+
+    output_weight = InferenceAgent._extract_state_dict(blob).get("advantage_stream.2.weight")
+    if (
+        not isinstance(output_weight, torch.Tensor)
+        or output_weight.ndim != 2
+        or output_weight.shape[0] != 6
+    ):
+        raise ValueError("raster31v3 serving requires actual six-action output weights")
 
     action_mask = blob.get("action_mask_contract")
     action_mask_digest = blob.get("action_mask_contract_digest")
@@ -92,8 +125,24 @@ def _validate_v3_serving_checkpoint(checkpoint_path: str) -> dict:
         or canonical_digest(action_mask) != action_mask_digest
     ):
         raise ValueError("raster31v3 checkpoint has an unsupported action-mask contract")
-    RunProvenance.from_metadata(blob)
-    return blob
+    provenance = RunProvenance.from_metadata(blob)
+    if (
+        provenance.observation_digest != blob.get("obs_contract_digest")
+        or provenance.world_digest != world_digest
+        or provenance.runtime_digest != runtime_digest
+        or provenance.model_head_digest != blob.get("model_head_digest")
+    ):
+        raise ValueError("raster31v3 provenance does not match top-level contracts")
+    if not isinstance(provenance.source_revision, str) or provenance.source_revision in {
+        "",
+        "unknown",
+    }:
+        raise ValueError("raster31v3 serving requires a concrete source_revision")
+
+    # The deployment target is detached from checkpoint metadata: only a
+    # receipt written after reading immutable bytes can truthfully bind the
+    # full checkpoint SHA-256.  `_deployment_target_manifest` constructs it.
+    return {**blob, "_checkpoint_sha256": checkpoint_sha256}
 
 
 def _read_input_size(checkpoint_path: str) -> int:
@@ -109,6 +158,15 @@ def _read_input_size(checkpoint_path: str) -> int:
     except Exception:
         pass
     return 61
+
+
+def _input_size_from_blob(blob: dict) -> int:
+    """Infer vector width from the same checkpoint object used for loading."""
+    from src.model.inference_agent import InferenceAgent
+
+    state = InferenceAgent._extract_state_dict(blob)
+    input_size, _, _ = InferenceAgent._infer_dims(blob, state)
+    return input_size
 
 
 def _reward_contract_mismatch(checkpoint_path: str) -> bool:
@@ -189,6 +247,72 @@ def _config_for(input_size: int) -> str:
     return CONFIG_58
 
 
+def _v3_serving_config(world: EffectiveWorldConfig):
+    """Materialize the named v3 watch profile from checkpoint world values.
+
+    The deployment profile is intentionally an adapter, not a generic YAML
+    selection.  It copies every dynamics and normalization input from the
+    validated training world, with frame rate the sole declared runtime change.
+    """
+    if world.arena_type != "rectangular" or world.mechanics_version != 2:
+        raise ValueError("promotion-v2-watch-rect requires rectangular mechanics-v2 world")
+    base = load_config(CONFIG_MECHANICS_V2)
+    game = replace(
+        base.game,
+        width=world.width,
+        height=world.height,
+        segment_size=world.segment_size,
+        wall_thickness=world.wall_thickness,
+        arena_type=world.arena_type,
+        mechanics_version=world.mechanics_version,
+        num_snakes=world.num_snakes,
+        max_frames=world.max_frames,
+        initial_food=world.initial_food,
+        max_food=world.max_food,
+        min_boost_length=world.min_boost_length,
+        boost_length_cost_frames=world.boost_length_cost_frames,
+        frame_rate=1,
+        max_length=world.max_length,
+        arena_radius=world.arena_radius,
+        arena_center_x=world.arena_center_x,
+        arena_center_y=world.arena_center_y,
+    )
+    rewards = replace(base.rewards, starvation_max_frames=world.starvation_max_frames)
+    return replace(base, game=game, rewards=rewards)
+
+
+def _deployment_target_manifest(world: EffectiveWorldConfig, checkpoint_sha256: str) -> dict:
+    """Describe the sole supported watch deployment derived from source world."""
+    source = {field.name: getattr(world, field.name) for field in fields(world)}
+    source["normalization"] = dict(world.normalization)
+    deployed = dict(source)
+    deployed["frame_rate"] = 1
+    deployed_world = EffectiveWorldConfig(**deployed)
+    deployed_descriptor = {
+        field.name: getattr(deployed_world, field.name) for field in fields(deployed_world)
+    }
+    deployed_descriptor["normalization"] = dict(deployed_world.normalization)
+    return {
+        "checkpoint_sha256": checkpoint_sha256,
+        "deployment_profile": V3_DEPLOYMENT_PROFILE,
+        "source_world": source,
+        "source_world_digest": world.digest,
+        "deployed_world": deployed_descriptor,
+        "deployed_world_digest": deployed_world.digest,
+        "source_normalization": dict(world.normalization),
+        "deployed_normalization": dict(deployed_world.normalization),
+        "deployed_runtime": {
+            "mode": "watch",
+            "training": False,
+            "respawn": True,
+            "hero_terminal": True,
+            "population_floor": False,
+            "reset_strategy": "episode",
+        },
+        "distribution_differences": {"frame_rate": {"source": world.frame_rate, "deployed": 1}},
+    }
+
+
 class GameSession:
     """A single running game the whole server shares (one game, many viewers)."""
 
@@ -248,14 +372,35 @@ class GameSession:
     def _build(
         self, checkpoint: Optional[str], mode: str, override_reward_contract: bool = False
     ) -> None:
-        obs_spec = _read_obs_spec(checkpoint) if checkpoint else VECTOR61
+        """Build transactionally, including restoration of process-global config."""
+        previous_config = get_config()
+        try:
+            self._build_impl(checkpoint, mode, override_reward_contract)
+        except Exception:
+            initialize_config(previous_config)
+            raise
+
+    def _build_impl(
+        self, checkpoint: Optional[str], mode: str, override_reward_contract: bool = False
+    ) -> None:
+        checkpoint_blob = None
+        checkpoint_hash = None
+        if checkpoint:
+            _, checkpoint_blob, checkpoint_hash = _load_checkpoint_once(checkpoint)
+            from src.model.inference_agent import InferenceAgent
+
+            obs_spec = InferenceAgent._detect_obs_spec(checkpoint_blob)
+        else:
+            obs_spec = VECTOR61
         # Validate every v3 semantic identity before changing the session's
         # policy/game fields or initializing a replacement world.
         v3_metadata = None
         if obs_spec == RASTER31V3:
             if not checkpoint:
                 raise RuntimeError("raster31v3 serving requires a checkpoint.")
-            v3_metadata = _validate_v3_serving_checkpoint(checkpoint)
+            v3_metadata = _validate_v3_serving_checkpoint(
+                checkpoint_blob, checkpoint_hash, checkpoint
+            )
         # Raster checkpoints are served forward-only (no online training path
         # through AISnake's vector replay). A train request on a raster champion
         # falls back to watch so the build still succeeds — but say so, instead
@@ -266,16 +411,23 @@ class GameSession:
             self.last_error = "Raster checkpoints are served forward-only; dropped to watch mode."
         training = mode == MODE_TRAIN
         human = mode == MODE_PLAY
-        input_size = _read_input_size(checkpoint) if checkpoint else 61
+        input_size = _input_size_from_blob(checkpoint_blob) if checkpoint_blob else 61
         config_path = _config_for(input_size)
-        initialize_config(load_config(config_path))
+        if v3_metadata is not None:
+            world = EffectiveWorldConfig(**v3_metadata["effective_world"])
+            initialize_config(_v3_serving_config(world))
+            config_path = V3_DEPLOYMENT_PROFILE
+        else:
+            initialize_config(load_config(config_path))
 
         if obs_spec in (RASTER31V2, RASTER31V3):
             from web.backend.raster_policy import RasterServingPolicy
 
             if not checkpoint:
                 raise RuntimeError("raster31v2 serving requires a checkpoint.")
-            policy = RasterServingPolicy.from_checkpoint(checkpoint)
+            policy = RasterServingPolicy.from_checkpoint_blob(
+                checkpoint_blob, checkpoint_path=checkpoint
+            )
         else:
             policy = ApexPolicy(
                 input_size=GameConfig.INPUT_SIZE,
@@ -285,8 +437,7 @@ class GameSession:
                 override_reward_contract=training and override_reward_contract,
             )
             if checkpoint:
-                if not policy.load_checkpoint(checkpoint):
-                    raise RuntimeError(f"Failed to load checkpoint: {checkpoint}")
+                policy.load_state_dict(checkpoint_blob)
         policy.epsilon = 0.1 if training else 0.0
         # Record whether this build actually leaned on the reward escape hatch,
         # so the UI can label the run "fine-tune under current rewards", and
@@ -337,6 +488,19 @@ class GameSession:
             if v3_metadata is not None
             else None
         )
+        if self.serving_contract is not None:
+            target_manifest = _deployment_target_manifest(
+                EffectiveWorldConfig(**v3_metadata["effective_world"]),
+                v3_metadata["_checkpoint_sha256"],
+            )
+            self.serving_contract.update(
+                {
+                    "deployment_profile": V3_DEPLOYMENT_PROFILE,
+                    "deployment_target_manifest": target_manifest,
+                    "deployment_target_manifest_digest": canonical_digest(target_manifest),
+                    "checkpoint_sha256": v3_metadata["_checkpoint_sha256"],
+                }
+            )
 
         if human:
             human_snake = self._find_human()

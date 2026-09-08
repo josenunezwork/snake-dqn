@@ -41,6 +41,25 @@ def main() -> int:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(receipt, sort_keys=True) + "\n", encoding="utf-8")
+    contract = receipt["serving_contract"]
+    required_digests = {
+        "obs_contract_digest",
+        "model_head_digest",
+        "effective_world_digest",
+        "runtime_contract_digest",
+        "action_mask_contract_digest",
+        "run_provenance_digest",
+    }
+    if (
+        receipt["error"]
+        or receipt["obs_spec"] != "raster31v3"
+        or not isinstance(contract, dict)
+        or not required_digests.issubset(contract)
+        or contract.get("deployment_profile") != "promotion-v2-watch-rect"
+        or not isinstance(contract.get("deployment_target_manifest_digest"), str)
+        or not isinstance(contract.get("checkpoint_sha256"), str)
+    ):
+        return 1
     return 0
 
 

@@ -8,13 +8,17 @@ import torch
 pytest.importorskip("fastapi")
 
 from src.core.runtime_contract import EffectiveWorldConfig  # noqa: E402
+from src.core.runtime_contract import ModelHeadContract  # noqa: E402
 from src.core.runtime_contract import (  # noqa: E402
-    ModelHeadContract,
     RunProvenance,
     RuntimeModeContract,
     canonical_digest,
-)
-from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3, RASTER31V3_CONTRACT  # noqa: E402
+)  # noqa: E402
+from src.model.obs_spec import (  # noqa: E402
+    OBS_SPEC_KEY,
+    RASTER31V3,  # noqa: E402
+    RASTER31V3_CONTRACT,
+)  # noqa: E402
 from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
 from web.backend.session import V3_ACTION_MASK_CONTRACT, GameSession  # noqa: E402
 
@@ -61,7 +65,7 @@ def _v3_metadata() -> dict:
         model_head_digest=head.digest,
         source_revision="test",
     )
-    return {
+    metadata = {
         OBS_SPEC_KEY: RASTER31V3,
         **RASTER31V3_CONTRACT.to_metadata(),
         **head.to_metadata(),
@@ -103,6 +107,7 @@ def _v3_metadata() -> dict:
         "action_mask_contract_digest": canonical_digest(V3_ACTION_MASK_CONTRACT),
         **provenance.to_metadata(),
     }
+    return metadata
 
 
 @pytest.fixture()
@@ -116,7 +121,7 @@ def v3_checkpoint(tmp_path):
 def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
     session = GameSession(checkpoint=v3_checkpoint)
     assert session.obs_spec == RASTER31V3
-    assert session.config_path.endswith("mechanics_v2.yaml")
+    assert session.config_path == "promotion-v2-watch-rect"
     assert session.serving_contract["obs_contract_digest"] == RASTER31V3_CONTRACT.digest
 
 
@@ -133,6 +138,31 @@ def test_bad_v3_descriptor_rejects_without_replacing_existing_session(v3_checkpo
         session._build(str(bad), mode="watch")
     assert session.game is before_game
     assert session.checkpoint_path == before_path
+
+
+def test_corrupt_v3_weights_restore_global_config_and_existing_session(v3_checkpoint, tmp_path):
+    """A failure after profile initialization is fully transactional."""
+    from src.core.game_config import get_config
+
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game = session.game
+    before_config = get_config()
+    corrupt = tmp_path / "corrupt.pth"
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["dqn_state_dict"].pop("tactical_conv.0.weight")
+    torch.save(blob, corrupt)
+
+    with pytest.raises(RuntimeError):
+        session._build(str(corrupt), mode="watch")
+    assert get_config() is before_config
+    assert session.game is before_game
+
+
+def test_unknown_explicit_obs_spec_is_not_silently_treated_as_vector(tmp_path):
+    path = tmp_path / "unknown.pth"
+    torch.save({OBS_SPEC_KEY: "future-raster", "dqn_state_dict": {}}, path)
+    with pytest.raises(ValueError, match="unknown obs_spec"):
+        GameSession(checkpoint=str(path))
 
 
 def test_v3_advisory_empty_uses_legal_boost_and_id_keyed_row(v3_checkpoint):

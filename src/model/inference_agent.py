@@ -25,15 +25,9 @@ import torch
 
 from src.core.device_manager import DeviceManager
 from src.model.apex_network import ApexNetwork
-from src.model.obs_spec import (
-    DEFAULT_OBS_SPEC,
-    KNOWN_OBS_SPECS,
-    OBS_SPEC_KEY,
-    RASTER31V2,
-    RASTER31V3,
-    VECTOR61,
-    RasterObsShapes,
-)
+from src.model.obs_spec import (DEFAULT_OBS_SPEC, KNOWN_OBS_SPECS,
+                                OBS_SPEC_KEY, RASTER31V2, RASTER31V3, VECTOR61,
+                                RasterObsShapes)
 
 __all__ = ["InferenceAgent"]
 
@@ -113,16 +107,33 @@ class InferenceAgent:
         """
         device = device or DeviceManager.get_device()
         blob = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        return cls.from_checkpoint_blob(blob, checkpoint_path=checkpoint_path, device=device)
+
+    @classmethod
+    def from_checkpoint_blob(
+        cls,
+        blob: dict,
+        *,
+        checkpoint_path: str = "<in-memory checkpoint>",
+        device: Optional[torch.device] = None,
+    ) -> "InferenceAgent":
+        """Build from one already-deserialized checkpoint mapping.
+
+        Serving uses this path after hashing immutable checkpoint bytes, so the
+        preflighted metadata and loaded tensors cannot come from different file
+        revisions when a checkpoint is replaced concurrently.
+        """
+        device = device or DeviceManager.get_device()
 
         state_dict = cls._extract_state_dict(blob)
         obs_spec = cls._detect_obs_spec(blob)
 
         if obs_spec in (RASTER31V2, RASTER31V3):
             if obs_spec == RASTER31V3:
-                from src.core.runtime_contract import validate_model_head_contract
-                from src.training.checkpoint_contract import (
-                    validate_observation_checkpoint_metadata,
-                )
+                from src.core.runtime_contract import \
+                    validate_model_head_contract
+                from src.training.checkpoint_contract import \
+                    validate_observation_checkpoint_metadata
 
                 validate_observation_checkpoint_metadata(
                     blob, RASTER31V3, checkpoint_path, error_type=ValueError
