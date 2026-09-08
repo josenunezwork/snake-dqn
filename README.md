@@ -104,9 +104,9 @@ pilot; three predeclared mixes; Holm-corrected superiority on at least two
 mixes; and a scripted-mix one-sided noninferiority bound against a predeclared
 absolute margin. The final receipt also rechecks readiness and provenance.
 
-Only the execution protocol creates the six inputs below. They must describe
-the same frozen candidate and deployment profile; do not substitute artifacts
-from a diagnostic run.
+The execution protocol supplies the five evidence inputs below and selects a
+new final-receipt path. The inputs must describe the same frozen candidate and
+deployment profile; diagnostic artifacts are not interchangeable with them.
 
 ```bash
 ./venv/bin/python src/scripts/tournament_eval.py \

@@ -158,12 +158,13 @@ three-mix Holm correction, separate scripted noninferiority test, and conservati
 pilot sizing were independently reviewed against the frozen numerical oracles.
 Pilot power is a marginal approximation, not a claim of joint power across mixes.
 
-Strict evaluation authority remains pending. Review rejected the first contract
-prototype because it could accept claimed statistics without reading the actual
-world and readiness evidence. A data engineer now owns the artifact boundary in
-`src/evaluation/strict_promotion.py`; a later sole runtime owner will connect it
-to tournament and diagnostic consumers. Final decisions must be recomputed from
-the frozen request and the actual hashed evidence files.
+E2 is accepted at source `abb77d3`, integrated as `94304cd`. Review rejected the
+first prototype because it could accept claimed statistics without opening world
+and readiness evidence. The accepted artifact boundary now recomputes decisions
+from frozen requests and actual hashed files, and the tournament runtime consumes
+that API. The integrated artifact, serving, runtime and H0 union passed
+**198 tests, 1 conditional checkpoint skip in 18.31s**. Legacy gate and sweep
+results explicitly remain diagnostic; they cannot authorize release.
 
 H0 is accepted at source `4eb8f21`, integrated as `b673c46`. Its first runner was
 rejected for manifest reuse, stale-heartbeat supervision and time-projection gaps.
@@ -176,16 +177,21 @@ there are no automatic retries. A real 100,000-step MPS shakedown must supply th
 hashed timing receipt before the five-arm screen can start. Those actual CPU/MPS
 qualification runs remain pending.
 
-E2's remaining serving evidence seam now has a separate producer package. The
-previous validator could accept handwritten success records without showing that
-50 seeded sessions had actually executed. The producer will observe the real S1
-Watch/Play path, actual AI identity dispatch and human updates. The frozen later
+The serving evidence producer is accepted at source `ff63255`, integrated as
+`95d376d`. Its combined serving union passed **79 tests in 8.96s**. The previous
+validator could accept handwritten success records without showing that 50 seeded
+sessions had executed. The producer observes real S1 Watch/Play execution, seed
+application, AI identity dispatch and human updates. An actual terminal Play
+receipt now passes through the strict consumer, including its checkpoint source
+runtime and deployment manifest. The frozen later
 readiness schedule contains one Watch session at the external 5,000-frame horizon
 and 49 Play sessions ending at actual human death or that horizon. These mode
 counts carry no statistical-power claim. Checkpoint source-runtime contracts and
 actual deployment differences remain intact. Implementation uses bounded serving
 oracles; the later 50-session readiness run is not part of the development screen.
-G0 waits for the final combined artifact, runtime and producer checks.
+G0 now proceeds on the frozen combined source. Required full regression, slow
+parity, actual CPU/MPS execution and external 5,000-frame Watch checks remain
+pending. The five-seed X0 screen is conditional on that qualification.
 
 A preliminary full non-slow regression on `c633135` completed in 85.32s with
 **2 failures, 2,411 passes, 6 conditional skips and 3 slow cases deselected**.
