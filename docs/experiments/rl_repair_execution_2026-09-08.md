@@ -35,6 +35,20 @@ An initial integration run caught the new `provided_fields` frozen set failing
 JSON receipt serialization; `572f089` fixes the explicit receipt projection
 and adds a regression. Failed and passing logs remain under `integration/`.
 
-A1 remains isolated for process-budget/finalization review fixes. ENV, OBS and
-OFF may proceed because their C0 dependency is accepted. The campaign ledger
-records exact package/integration/test SHAs and durable evidence manifests.
+A1 and ENV are also accepted on integrated source `8b11f924`:
+
+- The Apex union passed **323 tests in 12.12s**, covering the new coordinator
+  lifecycle paths together with replay generation/epoch safety and the learner.
+  The finalizer captures state while its owners are usable, attempts every
+  cleanup step independently, and publishes the terminal checkpoint afterward.
+  Wall-time enforcement is explicitly cooperative; resolved budgets and observed
+  overshoot are recorded. It does not promise to preempt a hung learner step.
+- The simulator union passed **52 tests in 143.92s**, including all three slow
+  parity batteries (20 seeds × 10,000 frames each), repeated live resets, and
+  inactive-world semantics. The exclusive run used about one CPU core; observed
+  RSS was 345,440 KiB. This is a sampled resource observation, not peak memory.
+
+OBS and OFF remain in independent review. Their acceptance must precede their
+dependent training and serving packages. The campaign ledger records exact
+package/integration/test SHAs and durable evidence manifests. No repaired-model
+training or model-quality qualification has run yet in this execution campaign.
