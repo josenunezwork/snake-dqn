@@ -1286,30 +1286,6 @@ class PQNTrainer:
         observation_digest = (
             RASTER31V3_CONTRACT.digest if self.cfg.obs_spec == RASTER31V3 else RASTER31V2
         )
-        provenance = RunProvenance(
-            effective_seed=self.cfg.seed,
-            observation_digest=observation_digest,
-            world_digest=world.digest,
-            runtime_digest=runtime.digest,
-            reward_digest=canonical_digest(
-                {
-                    "version": self.cfg.reward_version,
-                    "kill_scale": self.cfg.kill_scale,
-                    "death_value": self.cfg.death_value,
-                }
-            ),
-            target_digest=canonical_digest({"gamma": self.cfg.gamma, "lambda": self.cfg.lambda_}),
-            sampler_digest=canonical_digest(
-                {
-                    "sgd_epochs": self.cfg.sgd_epochs,
-                    "pad_sgd_batches": self.cfg.pad_sgd_batches,
-                    "sgd_seed": self.cfg.sgd_seed,
-                }
-            ),
-            optimizer_digest=canonical_digest({"lr": self.cfg.lr, "adam_eps": self.cfg.adam_eps}),
-            model_head_digest=ModelHeadContract("pqn", "dueling_q", 6).digest,
-            source_revision=self.cfg.source_revision,
-        )
         effective_world = {
             "width": world.width,
             "height": world.height,
@@ -1348,9 +1324,16 @@ class PQNTrainer:
                 ]
             },
             "target_contract": {
+                "version": "pqn-qlambda-v1",
+                "gamma": self.cfg.gamma,
+                "lambda": self.cfg.lambda_,
                 "death_value": self.cfg.death_value,
+                "death_reward": self.cfg.death_value,
                 "trapped_bootstrap": self.cfg.death_value,
+                "trapped_version": "death-value-v1",
                 "truncation_bootstrap": "masked_max_q",
+                "lambda_boundary": "bootstrap_final_masked_max",
+                "population_floor": True,
                 "transition_validity": "env_transition_valid",
                 "action_mask": mask_contract,
             },
@@ -1359,9 +1342,13 @@ class PQNTrainer:
                 "minibatches": self.cfg.minibatches,
                 "minibatch_size": self.cfg.minibatch_size,
                 "sgd_epochs": self.cfg.sgd_epochs,
+                "pad_sgd_batches": self.cfg.pad_sgd_batches,
+                "sgd_seed": self.cfg.sgd_seed,
                 "flip_augment": self.cfg.flip_augment,
                 "hero_frac": self.cfg.hero_frac,
                 "pool_capacity": self.cfg.pool_capacity,
+                "pool_add_interval": self.cfg.pool_add_interval,
+                "policy_assignment": "hero_slot0",
             },
             OBS_SPEC_KEY: self.cfg.obs_spec,
             "output_size": self.network.output_size,
@@ -1408,6 +1395,24 @@ class PQNTrainer:
         state["target_contract_digest"] = canonical_digest(state["target_contract"])
         state["sampler_contract_digest"] = canonical_digest(state["sampler_contract"])
         state["optimizer_contract_digest"] = canonical_digest(state["optimizer_contract"])
+        provenance = RunProvenance(
+            effective_seed=self.cfg.seed,
+            observation_digest=observation_digest,
+            world_digest=world.digest,
+            runtime_digest=runtime.digest,
+            reward_digest=canonical_digest(
+                {
+                    "version": self.cfg.reward_version,
+                    "kill_scale": self.cfg.kill_scale,
+                    "death_value": self.cfg.death_value,
+                }
+            ),
+            target_digest=state["target_contract_digest"],
+            sampler_digest=state["sampler_contract_digest"],
+            optimizer_digest=state["optimizer_contract_digest"],
+            model_head_digest=ModelHeadContract("pqn", "dueling_q", 6).digest,
+            source_revision=self.cfg.source_revision,
+        )
         state.update(provenance.to_metadata())
         if self.cfg.obs_spec == RASTER31V3:
             state.update(RASTER31V3_CONTRACT.to_metadata())

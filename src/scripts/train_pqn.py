@@ -343,16 +343,34 @@ def validate_pqn_resume_checkpoint_config(
         raw = checkpoint.get(name)
         if not isinstance(raw, dict) or checkpoint.get(f"{name}_digest") != canonical_digest(raw):
             raise ValueError(f"invalid {name} metadata")
-    if checkpoint["target_contract"].get("death_value") != config.death_value:
-        raise ValueError("continuation target_contract conflicts with requested death_value")
+    expected_target_contract = {
+        "version": "pqn-qlambda-v1",
+        "gamma": config.gamma,
+        "lambda": config.lambda_,
+        "death_value": config.death_value,
+        "death_reward": config.death_value,
+        "trapped_bootstrap": config.death_value,
+        "trapped_version": "death-value-v1",
+        "truncation_bootstrap": "masked_max_q",
+        "lambda_boundary": "bootstrap_final_masked_max",
+        "population_floor": True,
+        "transition_validity": "env_transition_valid",
+        "action_mask": expected_mask,
+    }
+    if checkpoint["target_contract"] != expected_target_contract:
+        raise ValueError("continuation target_contract conflicts with requested target semantics")
     expected_sampler_contract = {
         "mode": "exact_coverage" if config.sgd_epochs else "minibatch",
         "minibatches": config.minibatches,
         "minibatch_size": config.minibatch_size,
         "sgd_epochs": config.sgd_epochs,
+        "pad_sgd_batches": config.pad_sgd_batches,
+        "sgd_seed": config.sgd_seed,
         "flip_augment": config.flip_augment,
         "hero_frac": config.hero_frac,
         "pool_capacity": config.pool_capacity,
+        "pool_add_interval": config.pool_add_interval,
+        "policy_assignment": "hero_slot0",
     }
     if checkpoint["sampler_contract"] != expected_sampler_contract:
         differing = sorted(
@@ -374,6 +392,9 @@ def validate_pqn_resume_checkpoint_config(
         or provenance.world_digest != recorded_world.digest
         or provenance.runtime_digest != recorded_runtime.digest
         or provenance.model_head_digest != model_head.digest
+        or provenance.target_digest != checkpoint["target_contract_digest"]
+        or provenance.sampler_digest != checkpoint["sampler_contract_digest"]
+        or provenance.optimizer_digest != checkpoint["optimizer_contract_digest"]
     ):
         raise ValueError("run_provenance does not agree with top-level descriptors")
     for key in (
@@ -556,6 +577,11 @@ def apply_resume_checkpoint(
     trainer.network.load_state_dict(checkpoint["dqn_state_dict"])
     if mode == "weights-only":
         trainer.refresh_numeric_recovery_state()
+        trainer.update_idx = 0
+        trainer.agent_steps = 0
+        trainer._action_collapse_streak = 0
+        trainer._action_collapse_evidence_samples = 0
+        trainer._action_collapse_raw_action_mode = None
         trainer._resume_mode = "weights-only"
         trainer._resume_state = {
             "environment": "fresh",
@@ -1019,7 +1045,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # CLI > explicitly-set environment > validated YAML hardware > auto.
     yaml_device = config.requested_device if config.requested_device != "auto" else None
     requested_device = args.device or os.environ.get("SNAKE_DQN_DEVICE") or yaml_device or "auto"
-    device = _resolve_device(args.device or yaml_device)
+    # Use the same selected winner for construction and metadata. Passing the
+    # YAML choice here after an environment choice would otherwise train on MPS
+    # while claiming CPU in the artifact.
+    device = _resolve_device(None if requested_device == "auto" else requested_device)
     config.requested_device = requested_device
     config.effective_device = str(device)
     out_dir = Path(args.out_dir)
