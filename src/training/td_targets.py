@@ -7,6 +7,7 @@ computation lives in one place; pinned bit-for-bit by tests/test_td_target_helpe
 
 from typing import Optional
 
+import numpy as np
 import torch
 
 from .action_mask import has_valid_actions, mask_invalid_q_values
@@ -41,6 +42,25 @@ def domain_legal_action_mask(next_states: torch.Tensor) -> torch.Tensor:
         boost_available = torch.isfinite(next_states[..., 57]) & (next_states[..., 57] >= 0.5)
         legal[..., 3:] = boost_available.unsqueeze(-1)
     return legal
+
+
+def validate_replay_mask_row(next_state, done: bool, mask, mode: int) -> int:
+    """Validate mode/done/mask coherence for every replay ingress path."""
+    mode = validate_mask_mode(mode)
+    if mode == MASK_MODE_TERMINAL_NO_SUCCESSOR and not done:
+        raise ValueError("terminal_no_successor mode requires done=True")
+    if done and mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1}:
+        raise ValueError("explicit nonterminal mask mode requires done=False")
+    if mode in {MASK_MODE_RASTER_RESOLVED_V3, MASK_MODE_DATASET_VECTOR_ADVISORY_V1} and mask is None:
+        raise ValueError("explicit mask mode requires a six-action mask")
+    if mode == MASK_MODE_RASTER_RESOLVED_V3 and mask is not None:
+        values = np.asarray(mask, dtype=np.bool_)
+        legal = domain_legal_action_mask(torch.as_tensor(next_state, dtype=torch.float32).reshape(1, -1))[0].cpu().numpy()
+        if not bool(values.any()):
+            raise ValueError("nonterminal resolved next_action_mask cannot be all false")
+        if bool((values & ~legal).any()):
+            raise ValueError("resolved next_action_mask includes domain-illegal action")
+    return mode
 
 
 def resolve_bootstrap_action_masks(

@@ -166,9 +166,16 @@ def summarize_next_action_quality(
 
         valid_fraction = valid_next_actions.float().mean().item()
         if next_action_mask_present is None:
+            mask_present_fraction = 0.0
+        else:
+            present = next_action_mask_present.to(device=next_states.device)
+            if sample_mask is not None:
+                present = present[metric_mask]
+            mask_present_fraction = present.float().view(-1).mean().item()
+        if next_action_mask_modes is None:
             exact_mask_fraction = 0.0
         else:
-            exact_mask_present = next_action_mask_present.to(device=next_states.device)
+            exact_mask_present = next_action_mask_modes.to(device=next_states.device) == 1
             if sample_mask is not None:
                 exact_mask_present = exact_mask_present[metric_mask]
             exact_mask_fraction = exact_mask_present.float().view(-1).mean().item()
@@ -177,6 +184,7 @@ def summarize_next_action_quality(
         "valid_next_action_fraction": float(valid_fraction),
         "trapped_next_state_fraction": float(1.0 - valid_fraction),
         "exact_next_action_mask_fraction": float(exact_mask_fraction),
+        "next_action_mask_present_fraction": float(mask_present_fraction),
     }
 
 

@@ -463,6 +463,7 @@ class ApexActor(mp.Process):
         self.sent_experience_count = 0
         self.sent_terminal_count = 0
         self.sent_exact_mask_count = 0
+        self.sent_mask_present_count = 0
         self.sent_boost_action_count = 0
         self.sent_positive_reward_count = 0
         self.sent_zero_reward_count = 0
@@ -1206,7 +1207,9 @@ class ApexActor(mp.Process):
             else:
                 self.sent_nonterminal_count += 1
             if experience.next_action_mask is not None:
-                self.sent_exact_mask_count += 1
+                self.sent_mask_present_count += 1
+                if experience.next_action_mask_mode == MASK_MODE_RASTER_RESOLVED_V3:
+                    self.sent_exact_mask_count += 1
                 if not experience.done:
                     self.sent_nonterminal_exact_mask_count += 1
                     if not bool(np.asarray(experience.next_action_mask, dtype=np.bool_).any()):
@@ -1309,6 +1312,7 @@ class ApexActor(mp.Process):
             "sent_active_action_count": active_action_count,
             "sent_boost_action_fraction": self.sent_boost_action_count / sent_count,
             "sent_exact_mask_fraction": self.sent_exact_mask_count / sent_count,
+            "sent_mask_present_fraction": self.sent_mask_present_count / sent_count,
             "sent_terminal_count": self.sent_terminal_count,
             "sent_terminal_fraction": self.sent_terminal_count / sent_count,
             "sent_nonterminal_count": self.sent_nonterminal_count,
