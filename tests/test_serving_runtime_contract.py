@@ -309,6 +309,11 @@ def test_v3_manifest_binds_actual_manual_runtime_and_external_horizon(v3_checkpo
         manifest = session.serving_contract["deployment_target_manifest"]
         assert manifest["source_runtime"] == blob["runtime_contract"]
         assert manifest["source_runtime_digest"] == blob["runtime_contract_digest"]
+        assert (
+            manifest["source_runtime_digest"] == session.serving_contract["runtime_contract_digest"]
+        )
+        assert manifest["source_runtime_digest"] == canonical_digest(manifest["source_runtime"])
+        assert "frame_rate" not in manifest["distribution_differences"]
         deployed = manifest["deployed_runtime"]
         assert deployed == dict(
             mode=mode,
@@ -413,3 +418,29 @@ def test_v3_collected_successor_mask_matches_fresh_inspection(
     snake.soft_reset((200, 200))
     assert snake.last_next_action_mask is None
     assert snake.last_next_action_mask_semantics is None
+
+
+@pytest.mark.parametrize(
+    "missing",
+    ["mode", "training", "respawn", "hero_terminal", "population_floor", "reset_strategy"],
+)
+def test_incomplete_resigned_runtime_rejects_before_session_mutation(
+    v3_checkpoint, tmp_path, missing
+):
+    from src.core.game_config import get_config
+
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game, before_config = session.game, get_config()
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["runtime_contract"].pop(missing)
+    runtime_digest = canonical_digest(blob["runtime_contract"])
+    blob["runtime_contract_digest"] = runtime_digest
+    provenance = RunProvenance.from_metadata(blob)
+    blob["run_provenance"] = {**provenance.__dict__, "runtime_digest": runtime_digest}
+    blob["run_provenance_digest"] = canonical_digest(blob["run_provenance"])
+    path = tmp_path / "incomplete-runtime.pth"
+    torch.save(blob, path)
+    with pytest.raises(ValueError, match="runtime_contract"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game
+    assert get_config() is before_config

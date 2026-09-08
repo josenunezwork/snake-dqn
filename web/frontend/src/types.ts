@@ -108,6 +108,19 @@ export interface NetvizDTO {
   summary: NetvizSummary;
 }
 
+export interface ServingContract {
+  obs_contract_digest?: string;
+  model_head_digest?: string;
+  effective_world_digest?: string;
+  runtime_contract_digest?: string;
+  action_mask_contract_digest?: string;
+  run_provenance_digest?: string;
+  deployment_profile?: string;
+  checkpoint_sha256?: string;
+  deployment_target_manifest_digest?: string;
+  deployment_target_manifest?: Record<string, unknown>;
+}
+
 export interface SessionState {
   playing: boolean;
   speed: number;
@@ -130,7 +143,7 @@ export interface SessionState {
   reward_override_active?: boolean;
   // Observation contract of the served policy ("vector61" | "raster31v2" | "raster31v3").
   obs_spec?: string;
-  serving_contract?: Record<string, string> | null;
+  serving_contract?: ServingContract | null;
 }
 
 export interface PendingRun {
@@ -170,17 +183,17 @@ export interface Frame {
   // Honest architecture label derived from the served policy's obs spec, e.g.
   // "Apex DQN (vector61)" or "Raster Dueling (raster31v2)".
   architecture?: string;
-  serving_contract?: Record<string, string> | null;
+  serving_contract?: ServingContract | null;
   // Basename of the loaded checkpoint (stable key for trace resets).
   checkpoint_name?: string;
   // True on the single post-pause frame and the ~1 Hz heartbeats that follow;
   // clients must not append telemetry/trace history for these frames.
   paused?: boolean;
   // Observation contract of the served policy: "vector61" (hand-crafted 61-D
-  // champions) or "raster31v2" (ego-raster stack). Drives the raster viewer.
+  // champions) or "raster31v2" / "raster31v3" (ego-raster stack). Drives the raster viewer.
   obs_spec?: string;
   mechanics_version?: number;
-  // Present only on the raster31v2 serving path (else null / absent).
+  // Present only on a raster serving path (else null / absent).
   hero_raster?: HeroRasterDTO | null;
   arena: Arena;
   snakes: SnakeDTO[];

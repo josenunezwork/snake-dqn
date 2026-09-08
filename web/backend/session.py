@@ -101,9 +101,15 @@ def _validate_v3_serving_checkpoint(
 
     runtime = blob.get("runtime_contract")
     runtime_digest = blob.get("runtime_contract_digest")
-    if not isinstance(runtime, dict) or canonical_digest(runtime) != runtime_digest:
+    if (
+        not isinstance(runtime, dict)
+        or set(runtime) != {field.name for field in fields(RuntimeModeContract)}
+        or canonical_digest(runtime) != runtime_digest
+    ):
         raise ValueError("raster31v3 checkpoint has an invalid runtime_contract digest")
     runtime_contract = RuntimeModeContract(**runtime)
+    if runtime_contract.digest != runtime_digest:
+        raise ValueError("raster31v3 runtime_contract digest changes after normalization")
     if (
         runtime_contract.mode not in {"watch", "train", "play", "pqn_train"}
         or runtime_contract.reset_strategy
@@ -352,7 +358,11 @@ def _deployment_target_manifest(
                 for key, value in original_runtime.items()
                 if value != live_runtime[key]
             },
-            "frame_rate": {"source": world.frame_rate, "deployed": 1},
+            **(
+                {"frame_rate": {"source": world.frame_rate, "deployed": 1}}
+                if world.frame_rate != 1
+                else {}
+            ),
             "storage_adapter": {
                 "source_max_capacity": world.max_capacity,
                 "deployed_max_capacity": None,
