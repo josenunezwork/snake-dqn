@@ -491,14 +491,44 @@ def unverified_legacy_metadata(
     asserted_facts: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build permanent legacy lineage without promoting assertions to verification."""
-    missing = missing_legacy_fields(metadata)
-    facts = {} if asserted_facts is None else dict(asserted_facts)
+    missing = set(missing_legacy_fields(metadata))
+    prior_verification = metadata.get(REPLAY_VERIFICATION_KEY)
+    if prior_verification is not None:
+        if not isinstance(prior_verification, Mapping):
+            raise ValueError("Existing replay.verification must be an object")
+        prior_missing = prior_verification.get("missing_fields")
+        prior_fallback = prior_verification.get("fallback_mask_count")
+        if (
+            prior_verification.get("schema_version") != REPLAY_SCHEMA_VERSION
+            or prior_verification.get("status") != "unverified_legacy"
+            or prior_verification.get("contract_digest") is not None
+            or not isinstance(prior_missing, Sequence)
+            or isinstance(prior_missing, (str, bytes, bytearray))
+            or any(not isinstance(path, str) or not path for path in prior_missing)
+            or not isinstance(prior_fallback, int)
+            or isinstance(prior_fallback, bool)
+            or prior_fallback < 0
+        ):
+            raise ValueError("Existing unverified replay.verification is invalid")
+        missing.update(prior_missing)
+        fallback_mask_count = max(fallback_mask_count, prior_fallback)
+
+    prior_facts = metadata.get("replay.legacy_asserted_facts", {})
+    if not isinstance(prior_facts, Mapping):
+        raise ValueError("Existing replay.legacy_asserted_facts must be an object")
+    prior_facts = dict(prior_facts)
+    recorded_facts_digest = metadata.get("replay.legacy_asserted_facts_digest")
+    if recorded_facts_digest is not None and recorded_facts_digest != canonical_digest(prior_facts):
+        raise ValueError("Existing legacy asserted-facts digest does not match its facts")
+    facts = dict(prior_facts)
+    if asserted_facts is not None:
+        facts.update(asserted_facts)
     canonical_digest(facts)
     return {
         REPLAY_VERIFICATION_KEY: ReplayValidation(
             status="unverified_legacy",
             contract_digest=None,
-            missing_fields=missing,
+            missing_fields=tuple(sorted(missing)),
             fallback_mask_count=fallback_mask_count,
         ).to_metadata(),
         "replay.legacy_asserted_facts": facts,

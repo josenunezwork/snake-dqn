@@ -299,6 +299,46 @@ def test_asserted_facts_remain_unverified(tmp_path: Path) -> None:
         writer.close()
 
 
+def test_repeated_migration_preserves_prior_unknowns_and_fallback_count(tmp_path: Path) -> None:
+    source = tmp_path / "legacy.db"
+    first_copy = tmp_path / "first-copy.db"
+    second_copy = tmp_path / "second-copy.db"
+    writer = sqlite3.connect(source)
+    writer.execute(
+        "CREATE TABLE memories_standard (id INTEGER PRIMARY KEY, done INTEGER, "
+        "next_action_mask INTEGER)"
+    )
+    writer.execute("INSERT INTO memories_standard VALUES (1, 0, NULL)")
+    writer.commit()
+    writer.close()
+
+    first_result = migrate_replay_metadata(
+        source,
+        first_copy,
+        asserted_facts={"operator.note": "first migration"},
+    )
+    assert first_result["fallback_mask_count"] == 1
+    first_metadata = _metadata(first_copy)
+    assert "target.gamma" in first_metadata["replay.verification"]["missing_fields"]
+
+    writer = sqlite3.connect(first_copy)
+    writer.execute(
+        "INSERT OR REPLACE INTO replay_metadata VALUES (?, ?)",
+        ("generation.gamma", json.dumps(0.99)),
+    )
+    writer.execute("UPDATE memories_standard SET next_action_mask = 63")
+    writer.commit()
+    writer.close()
+
+    second_result = migrate_replay_metadata(first_copy, second_copy)
+    second_metadata = _metadata(second_copy)
+
+    assert second_result["fallback_mask_count"] == 1
+    assert second_metadata["replay.verification"]["fallback_mask_count"] == 1
+    assert "target.gamma" in second_metadata["replay.verification"]["missing_fields"]
+    assert second_metadata["replay.legacy_asserted_facts"] == {"operator.note": "first migration"}
+
+
 def test_refuses_in_place_or_implicit_destination_overwrite(tmp_path: Path) -> None:
     source = tmp_path / "source.db"
     sqlite3.connect(source).close()

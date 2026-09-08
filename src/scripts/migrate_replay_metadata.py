@@ -193,7 +193,7 @@ def migrate_replay_metadata(
             "destination": str(destination_path),
             "source_file_hashes": source_hashes_before,
             "experience_counts": source_counts,
-            "fallback_mask_count": fallback_count,
+            "fallback_mask_count": legacy_metadata["replay.verification"]["fallback_mask_count"],
             "verification": legacy_metadata["replay.verification"],
             "asserted_facts_digest": legacy_metadata["replay.legacy_asserted_facts_digest"],
         }
