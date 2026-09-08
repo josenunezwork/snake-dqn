@@ -194,8 +194,22 @@ class RasterServingPolicy:
         self._cache_obs = obs
         self._cache_q = q
         self._cache_id_to_row = {int(s.id): row for row, s in enumerate(snakes)}
-        # Dispatch queue: alive snakes, in the exact order game.update iterates.
-        self._dispatch_queue = [int(s.id) for s in snakes if bool(getattr(s, "is_alive", False))]
+        # Dispatch only the alive AI snakes that actually call this exact policy.
+        # A Play-mode roster begins with a HumanSnake, which moves during the
+        # same GameState.update loop but never calls ``policy.dqn``. Including
+        # it here consumes the first raster Q row on behalf of the human and
+        # shifts every AI opponent by one. Keep the observations for the full
+        # roster above (their row indices are still the featurizer's indices),
+        # while the dispatch queue mirrors only the callers of this shim.
+        from src.game.ai_snake import AISnake
+
+        self._dispatch_queue = [
+            int(snake.id)
+            for snake in snakes
+            if isinstance(snake, AISnake)
+            and bool(getattr(snake, "is_alive", False))
+            and getattr(snake, "policy", None) is self
+        ]
 
     def _row_for_snake_id(self, snake_id: int) -> int:
         """Return the observation row index for a snake id (0 if unknown)."""
