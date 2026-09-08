@@ -33,7 +33,7 @@ action-collapse) are emitted per update so an outer loop can halt-and-flag.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from numbers import Complex, Real
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1428,27 +1428,8 @@ class PQNTrainer:
         observation_digest = (
             RASTER31V3_CONTRACT.digest if self.cfg.obs_spec == RASTER31V3 else RASTER31V2
         )
-        effective_world = {
-            "width": world.width,
-            "height": world.height,
-            "segment_size": world.segment_size,
-            "wall_thickness": world.wall_thickness,
-            "arena_type": world.arena_type,
-            "mechanics_version": world.mechanics_version,
-            "num_snakes": world.num_snakes,
-            "max_frames": world.max_frames,
-            "initial_food": world.initial_food,
-            "max_food": world.max_food,
-            "min_boost_length": world.min_boost_length,
-            "boost_length_cost_frames": world.boost_length_cost_frames,
-            "frame_rate": world.frame_rate,
-            "max_length": world.max_length,
-            "starvation_max_frames": world.starvation_max_frames,
-            "max_capacity": world.max_capacity,
-            "kill_scale": world.kill_scale,
-            "death_value": world.death_value,
-            "normalization": dict(world.normalization),
-        }
+        effective_world = {field.name: getattr(world, field.name) for field in fields(world)}
+        effective_world["normalization"] = dict(world.normalization)
         state: Dict[str, object] = {
             "dqn_state_dict": self.network.state_dict(),
             "optimizer_state_dict": optimizer_state,

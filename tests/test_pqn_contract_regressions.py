@@ -291,3 +291,20 @@ def test_direct_corrected_config_cannot_mislabel_conflicting_recipe(kwargs):
     values.update(kwargs)
     with pytest.raises(ValueError, match="corrected-v3"):
         _config(**values)
+
+
+def test_checkpoint_serializes_every_effective_world_field():
+    """Strict downstream loaders must never synthesize even inactive defaults."""
+    from dataclasses import fields
+
+    from src.core.runtime_contract import EffectiveWorldConfig
+
+    config = PQNConfig(
+        num_envs=1, num_snakes=2, obs_spec="raster31v3", recipe="corrected-v3", flip_augment=False
+    )
+    trainer = PQNTrainer(config, device=torch.device("cpu"))
+    state = trainer.checkpoint_state()
+    raw = state["effective_world"]
+    assert set(raw) == {field.name for field in fields(EffectiveWorldConfig)}
+    assert (raw["arena_radius"], raw["arena_center_x"], raw["arena_center_y"]) == (400, 0, 0)
+    assert EffectiveWorldConfig(**raw).digest == state["effective_world_digest"]
