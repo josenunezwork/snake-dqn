@@ -1482,6 +1482,21 @@ def train_apex(
         override_reward_contract=override_reward_contract,
         resume_mode=resume_mode,
     )
+    resume_parent = None
+    if resume_checkpoint_state is not None:
+        import hashlib
+
+        source_path = Path(resume_checkpoint).expanduser()
+        resume_parent = {
+            "source_content_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+            "source_run_seed_manifest": resume_checkpoint_state.get("run_seed_manifest"),
+            "source_recipe_runtime_seed_identity": (
+                resume_checkpoint_state.get("apex_recipe_runtime", {}).get("seed_identity")
+                if isinstance(resume_checkpoint_state.get("apex_recipe_runtime"), dict)
+                else None
+            ),
+            "rng_state_restored": False,
+        }
 
     # Resumed learner step, used both to start the training loop and to seed the
     # buffer's beta-annealing clock below. The BufferProcess is created fresh each
@@ -1948,6 +1963,7 @@ def train_apex(
                 state["resume_mode"] = (
                     resume_mode if resume_checkpoint_state is not None else "fresh"
                 )
+                state["resume_parent"] = resume_parent
                 state["avg_reward"] = _mean_or_zero(episode_rewards)
                 attach_runtime_metadata(
                     state,
@@ -2031,6 +2047,7 @@ def train_apex(
             captured_state["resume_mode"] = (
                 resume_mode if resume_checkpoint_state is not None else "fresh"
             )
+            captured_state["resume_parent"] = resume_parent
             captured_state["avg_reward"] = _mean_or_zero(episode_rewards)
             final_buffer_replay_health = collect_buffer_replay_health(learner.buffer_client)
             attach_replay_health_metadata(
