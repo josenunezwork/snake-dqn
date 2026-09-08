@@ -612,8 +612,6 @@ def load_checkpoint(
         print(
             "Resume mode: weights-only (fresh optimizer and odometer; offline dataset validation retained)"
         )
-    elif resume_mode == "legacy-unverified":
-        print("Resume mode: legacy-unverified (optimizer continuation is noncomparable)")
     for line in format_checkpoint_replay_provenance(checkpoint):
         print(line)
     return True
@@ -1070,7 +1068,7 @@ Examples:
     )
     parser.add_argument(
         "--resume-mode",
-        choices=("weights-only", "continuation", "legacy-unverified"),
+        choices=("weights-only", "continuation"),
         default="weights-only",
         help="Checkpoint restore policy; defaults to safe weights-only warm start.",
     )

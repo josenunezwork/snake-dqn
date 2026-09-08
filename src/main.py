@@ -7,6 +7,7 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 import argparse
 import pickle
+import random
 import shutil
 import sys
 import tempfile
@@ -937,6 +938,7 @@ def train_environment(
             initialize_run_seed().effective_seed if base_seed is None else int(base_seed)
         )
         worker_seed = derive_seed(resolved_base_seed, f"apex/local-worker/{env_id}")
+        random.seed(worker_seed)
         torch.manual_seed(worker_seed)
         np.random.seed(worker_seed % 2**32)
 
@@ -1475,11 +1477,11 @@ The interactive UI (watch / train / human play) is the web app:
     )
     parser.add_argument(
         "--resume-mode",
-        choices=("weights-only", "continuation", "legacy-unverified"),
+        choices=("weights-only", "continuation"),
         default="weights-only",
         help=(
             "Checkpoint restore policy. weights-only starts fresh optimizer/odometer/runtime; "
-            "continuation requires a verified matching recipe; legacy-unverified is noncomparable."
+            "continuation requires a verified matching recipe; legacy checkpoints are weights-only."
         ),
     )
     parser.add_argument(

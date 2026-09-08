@@ -220,8 +220,15 @@ def attach_runtime_metadata(
     snapshot: ApexRuntimeSnapshot,
     exit_cause: str,
     budgets: ApexRunBudgets | None = None,
+    actor_policy_versions: Optional[dict[int, int]] = None,
 ) -> dict:
     """Attach bounded-work telemetry with an explicit terminal cause."""
+    versions = actor_policy_versions or {}
+    ages = {
+        str(actor_id): max(0, snapshot.learner_updates - int(version))
+        for actor_id, version in versions.items()
+    }
+    sorted_ages = sorted(ages.values())
     state["apex_runtime"] = {
         "exit_cause": exit_cause,
         "learner_updates": snapshot.learner_updates,
@@ -231,6 +238,11 @@ def attach_runtime_metadata(
         "replay_rows_emitted": snapshot.replay_rows_emitted,
         "learner_samples": snapshot.learner_samples,
         "policy_version": snapshot.policy_version,
+        "actor_policy_version_age": ages,
+        "actor_policy_version_age_max": max(sorted_ages, default=0),
+        "actor_policy_version_age_p95": (
+            sorted_ages[math.ceil(0.95 * len(sorted_ages)) - 1] if sorted_ages else 0
+        ),
         "elapsed_seconds": snapshot.elapsed_seconds,
         "actor_heartbeat_ages": dict(snapshot.actor_heartbeat_ages),
         "reserved_environment_frames": snapshot.reserved_environment_frames,
@@ -468,6 +480,7 @@ def load_validated_apex_resume_checkpoint(
     map_location: Any = None,
     *,
     override_reward_contract: bool = False,
+    resume_mode: str = "weights-only",
 ) -> Optional[dict]:
     """Load a requested resume checkpoint or fail before runtime processes start."""
     if not resume_checkpoint:
@@ -483,13 +496,21 @@ def load_validated_apex_resume_checkpoint(
         checkpoint = torch.load(checkpoint_path, map_location=map_location, weights_only=False)
         if not isinstance(checkpoint, dict):
             raise ValueError(f"checkpoint payload must be a dict, got {type(checkpoint).__name__}")
-        validate_apex_resume_checkpoint_config(
-            checkpoint,
-            expected_config,
-            checkpoint_path=str(checkpoint_path),
-            override_reward_contract=override_reward_contract,
+        if resume_mode not in {"weights-only", "continuation"}:
+            raise ValueError(f"Unsupported Apex resume mode {resume_mode!r}")
+        if resume_mode == "continuation":
+            validate_apex_resume_checkpoint_config(
+                checkpoint,
+                expected_config,
+                checkpoint_path=str(checkpoint_path),
+                override_reward_contract=override_reward_contract,
+            )
+        required = (
+            ("dqn_state_dict",)
+            if resume_mode == "weights-only"
+            else ("dqn_state_dict", "target_dqn_state_dict", "optimizer_state_dict")
         )
-        for key in ("dqn_state_dict", "target_dqn_state_dict", "optimizer_state_dict"):
+        for key in required:
             if key not in checkpoint:
                 raise KeyError(key)
     except (OSError, RuntimeError, EOFError, KeyError, ValueError) as e:
@@ -1188,7 +1209,7 @@ def train_apex(
         max_wall_time_seconds: Optional coordinator wall-clock budget.
         heartbeat_timeout_seconds: Maximum age of a reported actor heartbeat.
     """
-    if resume_mode not in {"weights-only", "continuation", "legacy-unverified"}:
+    if resume_mode not in {"weights-only", "continuation"}:
         raise ValueError(f"Unsupported Apex resume mode {resume_mode!r}")
     # This is deliberately the first stochastic operation in the coordinator.
     # Child actors receive named streams from this one resolved identity.
@@ -1199,6 +1220,8 @@ def train_apex(
         "requested_seed": seed_context.requested_seed,
         "effective_seed": seed_context.effective_seed,
         "namespace": "apex/distributed",
+        "actor_namespace": "apex/actor/{actor_id}",
+        "buffer_namespace": "apex/buffer",
     }
     print(
         f"Run seed: requested={seed_manifest['requested_seed']}, effective={seed_context.effective_seed}"
@@ -1457,6 +1480,7 @@ def train_apex(
         apex_checkpoint_config,
         map_location=device,
         override_reward_contract=override_reward_contract,
+        resume_mode=resume_mode,
     )
 
     # Resumed learner step, used both to start the training loop and to seed the
@@ -1491,6 +1515,7 @@ def train_apex(
         # stays absolute (total_steps); do not also subtract start_step or the
         # offset would be double-counted.
         initial_frame_count=resume_start_step,
+        base_seed=seed_context.stream_seed("apex/buffer"),
     )
     # ── Create shared network (CPU) for initial actor weight sync ─────
     shared_network = ApexNetwork(input_size, hidden_size, output_size)
@@ -1555,6 +1580,7 @@ def train_apex(
             },
             seed_identity={**seed_manifest, "actor_namespace": "apex/actor/{actor_id}"},
             target_clip=100.0,
+            grad_clip_norm=learner.config.grad_clip_norm,
         )
         if learner_optimizer is not None
         else None
@@ -1914,9 +1940,20 @@ def train_apex(
                 state = learner.get_state_dict()
                 state["apex_config"] = dict(apex_checkpoint_config)
                 state["run_seed_manifest"] = dict(seed_manifest)
-                state["resume_mode"] = resume_mode
+                state["resume_mode"] = (
+                    resume_mode if resume_checkpoint_state is not None else "fresh"
+                )
                 state["avg_reward"] = _mean_or_zero(episode_rewards)
-                attach_runtime_metadata(state, latest_snapshot, "periodic_checkpoint", budgets)
+                attach_runtime_metadata(
+                    state,
+                    latest_snapshot,
+                    "periodic_checkpoint",
+                    budgets,
+                    {
+                        index: progress.snapshot()["policy_version"]
+                        for index, progress in enumerate(shared_actor_progress)
+                    },
+                )
                 attach_replay_health_metadata(
                     state,
                     actor_replay=summarize_actor_replay_coverage(list(actor_stats_by_id.values())),
@@ -1986,7 +2023,9 @@ def train_apex(
             captured_state = learner.get_state_dict()
             captured_state["apex_config"] = dict(apex_checkpoint_config)
             captured_state["run_seed_manifest"] = dict(seed_manifest)
-            captured_state["resume_mode"] = resume_mode
+            captured_state["resume_mode"] = (
+                resume_mode if resume_checkpoint_state is not None else "fresh"
+            )
             captured_state["avg_reward"] = _mean_or_zero(episode_rewards)
             final_buffer_replay_health = collect_buffer_replay_health(learner.buffer_client)
             attach_replay_health_metadata(
@@ -2029,7 +2068,14 @@ def train_apex(
                 final_snapshot, elapsed_seconds=runtime_supervisor.elapsed_seconds()
             )
             attach_runtime_metadata(
-                final_state, final_snapshot, exit_cause or "interrupted", budgets
+                final_state,
+                final_snapshot,
+                exit_cause or "interrupted",
+                budgets,
+                {
+                    index: progress.snapshot()["policy_version"]
+                    for index, progress in enumerate(shared_actor_progress)
+                },
             )
             final_name = (
                 "apex_final.pth"
@@ -2168,12 +2214,12 @@ Examples:
     )
     parser.add_argument(
         "--resume-mode",
-        choices=("weights-only", "continuation", "legacy-unverified"),
+        choices=("weights-only", "continuation"),
         default="weights-only",
         help=(
             "Checkpoint restore policy. weights-only creates fresh optimizer, odometer, "
             "replay, actor and RNG runtime; continuation requires a verified matching "
-            "recipe; legacy-unverified is explicitly noncomparable."
+            "recipe. Legacy checkpoints can be loaded only as weights-only."
         ),
     )
     parser.add_argument(

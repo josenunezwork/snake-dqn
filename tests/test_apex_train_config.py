@@ -1544,6 +1544,7 @@ def test_train_apex_incompatible_resume_checkpoint_fails_before_runtime_setup(tm
             n_step=3,
             checkpoint_dir=str(tmp_path / "checkpoints"),
             resume_checkpoint=str(checkpoint_path),
+            resume_mode="continuation",
             log_dir=str(tmp_path / "logs"),
             checkpoint_interval=10,
             log_interval=1,
