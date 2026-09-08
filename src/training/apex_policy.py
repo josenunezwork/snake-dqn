@@ -37,6 +37,7 @@ from .action_mask import (
     resolve_action_mask,
     summarize_next_action_quality,
 )
+from .apex_recipe import ApexRecipe, validate_recipe_continuation
 from .base_buffer import compute_priority
 from .base_dqn_policy import BaseDQNPolicy
 from .checkpoint_contract import (
@@ -621,6 +622,7 @@ class ApexPolicy(BaseDQNPolicy):
         reward_contract = current_reward_contract()
         state_dict.update(
             {
+                **self._recipe().to_metadata(),
                 "apex_config": self._apex_config_snapshot(),
                 "dqn_state_dict": self.dqn.state_dict(),
                 "n_step": self.n_step,
@@ -640,6 +642,19 @@ class ApexPolicy(BaseDQNPolicy):
         if self.optimizer is not None:
             state_dict["optimizer_state_dict"] = self.optimizer.state_dict()
         return state_dict
+
+    def _recipe(self) -> ApexRecipe:
+        """Describe the actual local optimizer and replay target semantics."""
+        return ApexRecipe(
+            "local",
+            "AdamW",
+            50.0,
+            "successful_local_sample",
+            self.gamma,
+            self.n_step,
+            GameConfig.APEX_PRIORITY_ALPHA,
+            GameConfig.APEX_PRIORITY_EPSILON,
+        )
 
     def _resolve_checkpoint_contract(self, state_dict: dict) -> dict:
         """Resolve and validate the training contract declared by a checkpoint."""
@@ -678,9 +693,13 @@ class ApexPolicy(BaseDQNPolicy):
             )
         return contract
 
-    def load_state_dict(self, state_dict: dict) -> None:
-        """Load from checkpoint."""
+    def load_state_dict(self, state_dict: dict, resume_mode: str = "weights-only") -> None:
+        """Load checkpoint weights, with explicit optimizer continuation policy."""
+        if resume_mode not in {"weights-only", "continuation", "legacy-unverified"}:
+            raise ValueError(f"Unsupported Apex resume mode {resume_mode!r}")
         self._verify_checkpoint_type(state_dict, self._policy_name)
+        if self.training and resume_mode == "continuation":
+            validate_recipe_continuation(state_dict, self._recipe(), weights_only=False)
         checkpoint_contract = self._resolve_checkpoint_contract(state_dict)
 
         # Validate input/output dimensions match current config
@@ -736,7 +755,11 @@ class ApexPolicy(BaseDQNPolicy):
             self.target_dqn.load_state_dict(remapped_target)
 
         # Load optimizer state if available (not present in sim exports / inference)
-        if self.optimizer is not None and "optimizer_state_dict" in state_dict:
+        if (
+            self.optimizer is not None
+            and resume_mode in {"continuation", "legacy-unverified"}
+            and "optimizer_state_dict" in state_dict
+        ):
             self.optimizer.load_state_dict(state_dict["optimizer_state_dict"])
 
         # Load optional distributed parameters

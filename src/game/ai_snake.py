@@ -18,6 +18,11 @@ from src.game.game_logic import GameLogic
 from src.game.snake import Snake
 from src.model.checkpoint_manager import CheckpointManager
 from src.training.action_mask import INVALID_Q_VALUE, action_mask_from_safe_actions
+from src.training.td_targets import (
+    MASK_MODE_LEGACY_ADVISORY,
+    MASK_MODE_RASTER_RESOLVED_V3,
+    MASK_MODE_TERMINAL_NO_SUCCESSOR,
+)
 
 if TYPE_CHECKING:
     from src.training.apex_policy import ApexPolicy
@@ -609,6 +614,11 @@ class AISnake(Snake):
             next_state,
             collided,
             next_action_mask=next_action_mask,
+            next_action_mask_mode={
+                "legacy_advisory": MASK_MODE_LEGACY_ADVISORY,
+                "raster_resolved_v3": MASK_MODE_RASTER_RESOLVED_V3,
+                "terminal_no_successor": MASK_MODE_TERMINAL_NO_SUCCESSOR,
+            }[self.next_action_mask_semantics],
         )
 
         # Update tracking state
@@ -641,6 +651,7 @@ class AISnake(Snake):
         next_state: Optional[torch.Tensor],
         done: bool,
         next_action_mask: Optional[torch.Tensor] = None,
+        next_action_mask_mode: int = MASK_MODE_LEGACY_ADVISORY,
     ):
         """Add experience to the shared replay buffer without training.
 
@@ -679,6 +690,7 @@ class AISnake(Snake):
             priority=None,
             stream_id=self.id,
             next_action_mask=next_action_mask,
+            next_action_mask_mode=next_action_mask_mode,
         )
         self.policy.total_reward += reward
 
