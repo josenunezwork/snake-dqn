@@ -1336,7 +1336,14 @@ class PQNTrainer:
             "optimizer_state_dict": self.optimizer.state_dict(),
             "optimizer_contract": {
                 "param_groups": [
-                    {"lr": group["lr"], "eps": group["eps"]}
+                    {
+                        "algorithm": "Adam",
+                        "lr": group["lr"],
+                        "eps": group["eps"],
+                        "betas": list(group["betas"]),
+                        "weight_decay": group["weight_decay"],
+                        "amsgrad": group["amsgrad"],
+                    }
                     for group in self.optimizer.param_groups
                 ]
             },

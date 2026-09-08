@@ -431,13 +431,32 @@ def validate_pqn_resume_checkpoint_config(
     groups = optimizer_state["param_groups"]
     if not groups:
         raise ValueError("continuation requires at least one optimizer param_group")
+    contract_groups = checkpoint["optimizer_contract"].get("param_groups")
+    if not isinstance(contract_groups, list) or len(contract_groups) != len(groups):
+        raise ValueError("optimizer_contract param_groups do not match optimizer state")
     for index, group in enumerate(groups):
-        if (
-            not isinstance(group, dict)
-            or group.get("lr") != config.lr
-            or group.get("eps") != config.adam_eps
-        ):
-            raise ValueError(f"optimizer param_group {index} conflicts with requested lr/adam_eps")
+        expected_group = {
+            "algorithm": "Adam",
+            "lr": config.lr,
+            "eps": config.adam_eps,
+            "betas": [0.9, 0.999],
+            "weight_decay": 0,
+            "amsgrad": False,
+        }
+        actual_group = {
+            "algorithm": "Adam",
+            "lr": group.get("lr") if isinstance(group, dict) else None,
+            "eps": group.get("eps") if isinstance(group, dict) else None,
+            "betas": list(group.get("betas", ())) if isinstance(group, dict) else None,
+            "weight_decay": group.get("weight_decay") if isinstance(group, dict) else None,
+            "amsgrad": group.get("amsgrad") if isinstance(group, dict) else None,
+        }
+        if actual_group != expected_group:
+            raise ValueError(
+                f"optimizer param_group {index} conflicts with requested Adam semantics"
+            )
+        if contract_groups[index] != actual_group:
+            raise ValueError(f"optimizer_contract disagrees with param_group {index}")
 
 
 def load_pqn_resume_checkpoint(
