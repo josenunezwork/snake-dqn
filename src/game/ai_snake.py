@@ -405,7 +405,9 @@ class AISnake(Snake):
         effective_epsilon = self._get_effective_epsilon()
         num_actions = GameConfig.OUTPUT_SIZE  # 6
         record_q_values = kwargs.get("record_q_values", self.record_q_values)
-        explore = random.random() < effective_epsilon
+        # Deterministic inference must not advance the Python RNG shared with
+        # live food spawning. Positive-epsilon exploration keeps its draw order.
+        explore = effective_epsilon > 0.0 and random.random() < effective_epsilon
         if not record_q_values:
             self.last_q_values = None
 
