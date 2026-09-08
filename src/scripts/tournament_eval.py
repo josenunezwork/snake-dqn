@@ -65,8 +65,8 @@ from src.game.game_state_factory import (  # noqa: E402
 from src.game.scripted_snake import SCRIPTED_KINDS  # noqa: E402
 from src.game.snake_factory import SnakeFactory  # noqa: E402
 from src.scripts.eval_cli import parse_seed_list, set_seed  # noqa: E402
-from src.scripts.eval_stats import (
-    ci95_halfwidth,  # noqa: E402
+from src.scripts.eval_stats import (  # noqa: E402
+    ci95_halfwidth,
     mass_integral,
     mean,
     paired_stats,
