@@ -125,11 +125,12 @@ def _pre_lifecycle_metadata() -> dict[str, Any]:
     sampler = {
         "version": "pqn-sampler-corrected-v3",
         "mode": "minibatch",
-        "minibatches": 1,
-        "minibatch_size": 1,
         "sgd_epochs": None,
         "pad_sgd_batches": False,
         "sgd_seed": None,
+        "eps_start": 1.0,
+        "eps_end": 0.1,
+        "eps_decay_steps": 10,
         "sampling": "independent_permutation_prefix_per_batch",
         "eligible": "valid_transitions_of_rollout_assigned_hero_slots",
         "flip_augment": False,
@@ -232,6 +233,28 @@ def test_complete_corrected_v3_pre_lifecycle_metadata_adapts_without_rewriting_s
     metadata["target_contract_digest"] = canonical_digest(metadata["target_contract"])
     _provenance(metadata)
     with pytest.raises(ValueError, match="known corrected-v3"):
+        validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=True)
+
+
+def test_pre_lifecycle_hero_only_pool_can_have_zero_snapshot_capacity() -> None:
+    metadata = _pre_lifecycle_metadata()
+    metadata["sampler_contract"]["pool_capacity"] = 0
+    metadata["sampler_contract_digest"] = canonical_digest(metadata["sampler_contract"])
+    _provenance(metadata)
+
+    result = validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=True)
+
+    assert result.compatibility is not None
+
+
+def test_pre_lifecycle_adapter_rejects_resigned_snapshot_identity() -> None:
+    metadata = _pre_lifecycle_metadata()
+    metadata["rollout_policy_source"]["identity"] = "forged"
+    metadata["sampler_contract"]["rollout_policy_source"] = metadata["rollout_policy_source"]
+    metadata["sampler_contract_digest"] = canonical_digest(metadata["sampler_contract"])
+    _provenance(metadata)
+
+    with pytest.raises(ValueError, match="snapshot-pool identity"):
         validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=True)
 
 

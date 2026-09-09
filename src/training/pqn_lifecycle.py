@@ -166,7 +166,7 @@ def _exact_mapping(value: object, keys: frozenset[str], name: str) -> dict[str, 
         if missing:
             details.append(f"missing {', '.join(missing)}")
         if extra:
-            details.append(f"unexpected {', '.join(extra)}")
+            details.append(f"unexpected {', '.join(sorted(map(repr, extra)))}")
         raise ValueError(f"{name} has an invalid key set ({'; '.join(details)})")
     return dict(value)
 
@@ -446,6 +446,8 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
         raise ValueError("pre-lifecycle rollout_policy_source is invalid")
     if not isinstance(source.get("identity"), str) or not source["identity"]:
         raise ValueError("pre-lifecycle rollout_policy_source identity is invalid")
+    if source["mode"] == "snapshot_pool" and source["identity"] != "episode-assigned":
+        raise ValueError("pre-lifecycle snapshot-pool identity is invalid")
     expected_target_values = {
         "death": "actual_done_reward_only",
         "trapped": "unsupported_alive_empty_resolved_mask_fails",
@@ -484,6 +486,8 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
         raise ValueError("pre-lifecycle target_contract is incomplete")
     if sampler["assignment_lifetime"] != "batch_episode":
         raise ValueError("pre-lifecycle sampler assignment lifetime is invalid")
+    if sampler["flip_augment"] is not False or sampler["augmentation"] != "disabled":
+        raise ValueError("pre-lifecycle corrected-v3 sampler must disable flip augmentation")
     if sampler["rollout_policy_source"] != dict(source):
         raise ValueError("pre-lifecycle sampler policy source does not match realized source")
     if source["mode"] == "fixed":
@@ -496,8 +500,6 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
             "pool_mutation": "not_applicable_fixed_source",
             "snapshot_admission": "disabled_fixed_source",
             "policy_assignment": "common_fixed_policy_for_nonhero_slots",
-            "requested_pool_capacity": sampler["requested_pool_capacity"],
-            "requested_pool_add_interval": sampler["requested_pool_add_interval"],
         }
     else:
         expected_sampler = {
@@ -512,6 +514,15 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
         }
     if any(sampler[name] != value for name, value in expected_sampler.items()):
         raise ValueError("pre-lifecycle sampler_contract is not the known corrected-v3 contract")
+    if source["mode"] == "fixed" and (
+        isinstance(sampler["requested_pool_capacity"], bool)
+        or not isinstance(sampler["requested_pool_capacity"], int)
+        or sampler["requested_pool_capacity"] < 0
+        or isinstance(sampler["requested_pool_add_interval"], bool)
+        or not isinstance(sampler["requested_pool_add_interval"], int)
+        or sampler["requested_pool_add_interval"] <= 0
+    ):
+        raise ValueError("pre-lifecycle fixed policy requested pool parameters are invalid")
     if (
         sampler["mode"]
         != ("minibatch" if sampler["sgd_epochs"] is None else "exact_coverage")
@@ -542,12 +553,16 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
     ):
         raise ValueError("pre-lifecycle sampler_contract has invalid known semantics")
     _finite_probability(sampler["hero_frac"], "pre-lifecycle sampler hero_frac")
-    if sampler["forced_hero_slot"] != 0:
+    if (
+        isinstance(sampler["forced_hero_slot"], bool)
+        or not isinstance(sampler["forced_hero_slot"], int)
+        or sampler["forced_hero_slot"] != 0
+    ):
         raise ValueError("pre-lifecycle sampler forced hero slot is invalid")
     if source["mode"] == "snapshot_pool" and (
         isinstance(sampler["pool_capacity"], bool)
         or not isinstance(sampler["pool_capacity"], int)
-        or sampler["pool_capacity"] < 1
+        or sampler["pool_capacity"] < 0
         or isinstance(sampler["pool_add_interval"], bool)
         or not isinstance(sampler["pool_add_interval"], int)
         or sampler["pool_add_interval"] < 1
@@ -571,13 +586,23 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
         raise ValueError("pre-lifecycle exploration descriptor is invalid")
     for name in ("sgd_epochs", "sgd_seed"):
         value = sampler[name]
-        if value is not None and (
-            isinstance(value, bool) or not isinstance(value, int) or value < 0
-        ):
-            raise ValueError(f"pre-lifecycle sampler {name} is invalid")
-    for name in ("minibatches", "minibatch_size", "sgd_epochs", "pad_sgd_batches", "sgd_seed"):
+        if value is not None:
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"pre-lifecycle sampler {name} is invalid")
+            if (name == "sgd_epochs" and value <= 0) or (name == "sgd_seed" and value < 0):
+                raise ValueError(f"pre-lifecycle sampler {name} is invalid")
+    for name in ("sgd_epochs", "pad_sgd_batches", "sgd_seed"):
         if metadata.get(name) != sampler[name]:
             raise ValueError(f"pre-lifecycle sampler {name} conflicts with top-level metadata")
+    for sampler_name, top_level_name in (
+        ("start", "eps_start"),
+        ("end", "eps_end"),
+        ("decay_steps", "eps_decay_steps"),
+    ):
+        if metadata.get(top_level_name) != sampler["exploration"][sampler_name]:
+            raise ValueError(
+                f"pre-lifecycle exploration {sampler_name} conflicts with top-level metadata"
+            )
     source_digest = canonical_digest(source)
     try:
         provenance = RunProvenance.from_metadata(metadata)
