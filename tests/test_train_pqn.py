@@ -103,6 +103,8 @@ class FakeTrainer:
         self._episode_finished_env = np.zeros(config.num_envs, dtype=bool)
         self._episode_ids = np.zeros(config.num_envs, dtype=np.int64)
         self._episode_reset_count = 0
+        self._action_rngs = None
+        self._initial_action_rng_identities = None
         self.network = _FakeNetwork()
         self.optimizer = _FakeOptimizer()
         self.sim = SimpleNamespace(frame=np.zeros(1, dtype=np.int64))

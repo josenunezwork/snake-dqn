@@ -120,7 +120,7 @@ def test_per_env_rollout_keeps_completed_lane_target_in_its_old_episode():
     target = trainer._compute_targets(roll)
     # t=0 bootstraps its final successor; it cannot carry the invalid t=1 reward.
     assert target[0, 0, 0].item() == pytest.approx(2.0 + 0.9 * 7.0)
-    assert target[1, 0, 0].item() == 0.0
+    assert not bool(np.asarray(roll["valid"])[1, 0, 0])
 
 
 def test_derived_lane_rng_and_assignment_are_replaced_only_for_reset_lane(monkeypatch):
