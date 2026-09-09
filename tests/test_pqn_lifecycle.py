@@ -74,11 +74,13 @@ def _native_metadata() -> dict[str, Any]:
         "target_contract": {
             "version": "pqn-qlambda-corrected-v3-lifecycle-v1",
             "episode_lifecycle_contract_digest": lifecycle_digest,
+            "population_floor": True,
         },
         "sampler_contract": {
             "version": "pqn-sampler-corrected-v3-lifecycle-v1",
             "episode_lifecycle_contract_digest": lifecycle_digest,
             "policy_source_contract_digest": policy_digest,
+            "assignment_lifetime": "environment_episode",
         },
         "rollout_policy_source": {
             "mode": "snapshot_pool",
