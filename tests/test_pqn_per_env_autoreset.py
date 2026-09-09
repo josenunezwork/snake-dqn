@@ -235,3 +235,27 @@ def test_precomputed_derived_actions_only_eligible_original_hero_slots(monkeypat
     trainer._rollout()
     assert trainer._episode_policy_ids is not None
     assert np.all(trainer._episode_policy_ids == HERO_POLICY_ID)
+
+
+def test_derived_fixed_policy_source_uses_its_declared_identity_without_a_lane_lease():
+    """Fixed sources deliberately have no pool lease, including in derived mode."""
+    class FixedPolicy:
+        identity = "fixed:derived:test"
+
+        def actions(self, masks, sim, slots):
+            return np.zeros(len(slots), dtype=np.int64)
+
+    from src.training.rollout_policies import FixedPolicySource
+
+    policy = FixedPolicy()
+    trainer = PQNTrainer(
+        _config(
+            rollout_policy_mode="fixed",
+            fixed_policy_identity=policy.identity,
+            hero_frac=0.0,
+        ),
+        fixed_policy=FixedPolicySource(policy, policy.identity),
+    )
+    roll = trainer._rollout()
+    assert roll["policy_identities"] == {"0": policy.identity}
+    assert all(lease is None for lease in trainer._episode_leases)

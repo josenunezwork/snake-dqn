@@ -244,6 +244,10 @@ class TestTripwireExitCode:
         )
         assert rc == 2
         assert made[0].updates == 0
+        cleanup = json.loads((tmp_path / "incidents" / "cleanup_after_tripwire.json").read_text())
+        assert cleanup["class"] == "tripwire_cleanup_failure"
+        assert cleanup["tripwire_message"]
+        assert cleanup["cleanup_error"] == "lease cleanup failed"
 
 
 class TestArtifactsOnHalt:

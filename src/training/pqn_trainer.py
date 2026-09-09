@@ -627,6 +627,8 @@ class PQNPerEnvTelemetry(PQNTelemetry):
     episode_reset_counts: Optional[List[int]] = None
     reset_env_indices: Optional[List[int]] = None
     episode_world_seeds: Optional[List[int]] = None
+    episode_policy_ids: Optional[List[List[int]]] = None
+    episode_policy_identities: Optional[Dict[str, str]] = None
 
 
 class TripwireError(RuntimeError):
@@ -845,6 +847,8 @@ class PQNTrainer:
 
     def _derived_policy_identities(self, policy_ids: np.ndarray) -> Dict[str, str]:
         """Return exact pinned identities for the active derived assignment grid."""
+        if self.fixed_policy is not None:
+            return {"0": self.fixed_policy.identity}
         if not isinstance(self.pool, PinnedOpponentPool):
             raise RuntimeError("derived corrected-v3 rollout requires PinnedOpponentPool")
         identities: Dict[str, str] = {}
@@ -862,6 +866,21 @@ class PQNTrainer:
                 if previous != identity:
                     raise RuntimeError("derived policy identity disagrees across active lane leases")
         return identities
+
+    def _episode_policy_identities(self) -> Dict[str, str]:
+        """Return active assignment identities without fabricating legacy labels."""
+        if self._episode_policy_ids is None:
+            return {}
+        if self._uses_derived_episode_rng:
+            return self._derived_policy_identities(self._episode_policy_ids)
+        if self._episode_lease is not None:
+            return {
+                str(policy_id): identity
+                for policy_id, identity in self._episode_lease.identities.items()
+            }
+        if self.fixed_policy is not None:
+            return {"0": self.fixed_policy.identity}
+        return {}
 
     @property
     def _uses_derived_episode_rng(self) -> bool:
@@ -1954,6 +1973,8 @@ class PQNTrainer:
                 episode_reset_counts=[int(value) for value in np.asarray(roll["episode_reset_counts"])],
                 reset_env_indices=[int(value) for value in np.asarray(roll["reset_env_indices"])],
                 episode_world_seeds=[int(value) for value in np.asarray(roll["episode_world_seeds"])],
+                episode_policy_ids=np.asarray(roll["policy_ids"], dtype=np.int64).tolist(),
+                episode_policy_identities=dict(roll["policy_identities"]),
             )
         self.last_telemetry = tel
         self._last_policy_source = dict(roll["rollout_policy_source"])
@@ -2137,11 +2158,7 @@ class PQNTrainer:
                         if self._episode_policy_ids is None
                         else self._episode_policy_ids.copy()
                     ),
-                    "episode_policy_identities": (
-                        self._derived_policy_identities(self._episode_policy_ids)
-                        if self._uses_derived_episode_rng and self._episode_policy_ids is not None
-                        else {}
-                    ),
+                    "episode_policy_identities": self._episode_policy_identities(),
                     "restorable_environment_state": False,
                 }
             )

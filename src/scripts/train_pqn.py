@@ -810,6 +810,8 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
                 "episode_reset_counts": tel.episode_reset_counts or [],
                 "reset_env_indices": tel.reset_env_indices or [],
                 "episode_world_seeds": tel.episode_world_seeds or [],
+                "episode_policy_ids": tel.episode_policy_ids or [],
+                "episode_policy_identities": tel.episode_policy_identities or {},
             }
         )
     return record
@@ -1184,6 +1186,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise primary_error from cleanup_error
             if "tripped" in locals() and tripped:
                 print(f"[train_pqn] cleanup failed after tripwire: {cleanup_error}", file=sys.stderr)
+                incidents_dir = out_dir / "incidents"
+                incidents_dir.mkdir(parents=True, exist_ok=True)
+                with (incidents_dir / "cleanup_after_tripwire.json").open("w", encoding="utf-8") as fh:
+                    json.dump(
+                        {
+                            "class": "tripwire_cleanup_failure",
+                            "tripwire_message": tripped,
+                            "cleanup_error_type": type(cleanup_error).__name__,
+                            "cleanup_error": str(cleanup_error),
+                        },
+                        fh,
+                        sort_keys=True,
+                    )
+                    fh.write("\n")
             else:
                 raise
 
