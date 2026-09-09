@@ -312,6 +312,7 @@ def validate_pqn_resume_checkpoint_config(
         if lifecycle.compatibility is not None and (
             config.episode_reset_mode != "batch_barrier_v1"
             or config.episode_seed_mode != "continuous_env_rng_v1"
+            or config.pool_admission_mode != "scheduled_v1"
         ):
             raise ValueError("adapted corrected-v3 checkpoint requires default lifecycle modes")
     validate_checkpoint_contract(
@@ -384,6 +385,17 @@ def validate_pqn_resume_checkpoint_config(
                 ("target_contract", pqn_target_contract(config)),
                 ("sampler_contract", pqn_sampler_contract(config)),
             ]
+        )
+    elif config.recipe == "corrected-v3":
+        old_target = pqn_target_contract(config).copy()
+        old_target["version"] = "pqn-qlambda-corrected-v3"
+        old_target.pop("episode_lifecycle_contract_digest", None)
+        old_sampler = pqn_sampler_contract(config).copy()
+        old_sampler["version"] = "pqn-sampler-corrected-v3"
+        old_sampler.pop("episode_lifecycle_contract_digest", None)
+        old_sampler.pop("policy_source_contract_digest", None)
+        contract_pairs.extend(
+            [("target_contract", old_target), ("sampler_contract", old_sampler)]
         )
     for name, expected in contract_pairs:
         raw = checkpoint.get(name)
@@ -589,6 +601,17 @@ def apply_resume_checkpoint(
         != (
             canonical_digest(trainer.rng.bit_generator.state),
             canonical_digest(trainer.sgd_rng.bit_generator.state),
+        )
+        or (
+            trainer._initial_action_rng_identities is not None
+            and (
+                trainer._action_rngs is None
+                or {
+                    env: canonical_digest(generator.bit_generator.state)
+                    for env, generator in trainer._action_rngs.items()
+                }
+                != trainer._initial_action_rng_identities
+            )
         )
     ):
         raise ValueError("resume requires a fresh trainer with pristine runtime state")

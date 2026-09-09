@@ -806,6 +806,14 @@ class PQNTrainer:
             if derived_episode_rng
             else None
         )
+        self._initial_action_rng_identities: Optional[Dict[int, str]] = (
+            {
+                env: canonical_digest(generator.bit_generator.state)
+                for env, generator in self._action_rngs.items()
+            }
+            if self._action_rngs is not None
+            else None
+        )
         self._initial_assignment_complete = False
         self._initial_snapshot_preloaded = False
         self._last_reset_env_indices = np.empty(0, dtype=np.int64)

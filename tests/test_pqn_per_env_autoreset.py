@@ -59,6 +59,7 @@ def test_per_env_mode_uses_fixed_rollout_length_and_delays_reset_to_next_rollout
 
     # The reset belongs at next rollout entry, after the preceding target work.
     monkeypatch.setattr(trainer.sim, "population_floor_reached", original_floor)
+    trainer.sim.frame[0] = trainer.cfg.max_frames
     second = trainer._rollout()
     assert second["reset_env_indices"].tolist() == [0]
     assert trainer._episode_ids.tolist() == [1, 0]
@@ -130,6 +131,7 @@ def test_derived_lane_rng_and_assignment_are_replaced_only_for_reset_lane(monkey
     lane1_rng_before = copy.deepcopy(trainer._action_rngs[1].bit_generator.state)
     lane1_policy_before = trainer._episode_policy_ids[1].copy()
     trainer._episode_finished_env[:] = [True, False]
+    trainer.sim.frame[0] = trainer.cfg.max_frames
     trainer._prepare_derived_rollout()
     assert trainer._action_rngs[1].bit_generator.state == lane1_rng_before
     assert np.array_equal(trainer._episode_policy_ids[1], lane1_policy_before)
@@ -175,6 +177,7 @@ def test_lane_leases_remain_pinned_until_reset_and_close_is_idempotent():
     assert all(lease is not None for lease in trainer._episode_leases)
     assert trainer.pool.active_pin_count > 0
     trainer._episode_finished_env[:] = [True, False]
+    trainer.sim.frame[0] = trainer.cfg.max_frames
     trainer._prepare_derived_rollout()
     assert trainer._episode_leases[0] is not None and trainer._episode_leases[1] is not None
     trainer.close()

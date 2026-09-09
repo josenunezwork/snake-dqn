@@ -101,6 +101,29 @@ def test_derived_or_per_environment_mode_rejects_optimizer_continuation_before_l
     assert train_pqn.load_pqn_resume_checkpoint(str(path), config, mode="weights-only")
 
 
+def test_weights_only_rejects_a_derived_trainer_with_advanced_lane_action_rng(tmp_path):
+    """Fresh weights cannot be installed onto an environment whose lane stream advanced."""
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=2,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        episode_reset_mode="per_env_autoreset_v1",
+        episode_seed_mode="derived_env_episode_v1",
+    )
+    source = PQNTrainer(config)
+    path = tmp_path / "source.pth"
+    source.save_checkpoint(str(path))
+    target = PQNTrainer(config)
+    assert target._action_rngs is not None
+    target._action_rngs[0].random()
+    blob = train_pqn.load_pqn_resume_checkpoint(str(path), config, mode="weights-only")
+    with pytest.raises(ValueError, match="fresh trainer with pristine runtime"):
+        train_pqn.apply_resume_checkpoint(target, blob, mode="weights-only")
+
+
 def test_resume_requires_real_counters_and_optimizer_group_settings(tmp_path):
     config = _config()
     state = PQNTrainer(config).checkpoint_state()
