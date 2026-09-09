@@ -182,6 +182,33 @@ def test_lane_leases_remain_pinned_until_reset_and_close_is_idempotent():
     assert trainer.pool.active_pin_count == 0
 
 
+def test_stale_pending_lane_fails_before_any_lease_rng_or_episode_mutation():
+    """A forged pending bit cannot release a live assignment or start a new world."""
+    trainer = PQNTrainer(_config(pool_capacity=1, hero_frac=0.0))
+    trainer.pool.add_snapshot(trainer.network)
+    trainer._rollout()
+    assert trainer._action_rngs is not None and trainer._episode_policy_ids is not None
+    trainer._episode_finished_env[:] = [True, False]
+    before = {
+        "ids": trainer._episode_ids.copy(),
+        "counts": trainer._episode_reset_counts.copy(),
+        "policy": trainer._episode_policy_ids.copy(),
+        "frames": trainer.sim.frame.copy(),
+        "pins": trainer.pool.active_pin_count,
+        "rng": copy.deepcopy(trainer._action_rngs[0].bit_generator.state),
+        "lease": trainer._episode_leases[0],
+    }
+    with pytest.raises(RuntimeError, match="not at a completed final state"):
+        trainer._prepare_derived_rollout()
+    assert np.array_equal(trainer._episode_ids, before["ids"])
+    assert np.array_equal(trainer._episode_reset_counts, before["counts"])
+    assert np.array_equal(trainer._episode_policy_ids, before["policy"])
+    assert np.array_equal(trainer.sim.frame, before["frames"])
+    assert trainer.pool.active_pin_count == before["pins"]
+    assert trainer._action_rngs[0].bit_generator.state == before["rng"]
+    assert trainer._episode_leases[0] is before["lease"] and not before["lease"].closed
+
+
 def test_close_attempts_later_leases_after_an_earlier_cleanup_failure():
     """A release fault cannot strand another lane's pin."""
     trainer = PQNTrainer(_config(pool_capacity=1, hero_frac=0.0))

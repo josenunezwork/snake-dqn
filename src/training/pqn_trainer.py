@@ -912,6 +912,9 @@ class PQNTrainer:
             self._last_reset_env_indices = np.empty(0, dtype=np.int64)
             return 0
         selected_indices = [int(value) for value in selected]
+        completed_now = self.sim.population_floor_reached() | (self.sim.frame >= self.cfg.max_frames)
+        if not bool(completed_now[selected].all()):
+            raise RuntimeError("pending per-environment reset lane is not at a completed final state")
         for env in selected_indices:
             lease = self._episode_leases[env]
             if lease is not None:
