@@ -93,6 +93,7 @@ __all__ = [
     "PQNConfig",
     "PQNTrainer",
     "PQNTelemetry",
+    "PQNPerEnvTelemetry",
     "TripwireError",
     "flip_augment",
     "validate_checkpoint_numeric_state",
@@ -487,7 +488,13 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
     return contract
 
 
-def _policy_source_contract(config: PQNConfig, lifecycle: Mapping[str, object]) -> Dict[str, object]:
+def _policy_source_contract(
+    config: PQNConfig,
+    lifecycle: Mapping[str, object],
+    *,
+    initial_model_head_digest: Optional[str] = None,
+    initial_snapshot_state_sha256: Optional[str] = None,
+) -> Dict[str, object]:
     """Static source identity for new corrected-v3 lifecycle checkpoints."""
     environment_episode = config.episode_reset_mode == "per_env_autoreset_v1"
     return {
@@ -498,8 +505,8 @@ def _policy_source_contract(config: PQNConfig, lifecycle: Mapping[str, object]) 
         "lease_lifetime": "environment_episode" if environment_episode else "batch_episode",
         "pool_admission_mode": config.pool_admission_mode,
         "initial_opponent_checkpoint_sha256": config.initial_opponent_checkpoint_sha256,
-        "initial_opponent_model_head_digest": None,
-        "initial_opponent_snapshot_state_sha256": None,
+        "initial_opponent_model_head_digest": initial_model_head_digest,
+        "initial_opponent_snapshot_state_sha256": initial_snapshot_state_sha256,
         "episode_lifecycle_contract_digest": canonical_digest(lifecycle),
     }
 
@@ -608,8 +615,14 @@ class PQNTelemetry:
     policy_exposure: Optional[Dict[str, int]] = None
     raw_action_counts: Optional[List[int]] = None
     episode_reset_count: int = 0
-    episode_reset_mode: Optional[str] = None
-    episode_seed_mode: Optional[str] = None
+
+
+@dataclass
+class PQNPerEnvTelemetry(PQNTelemetry):
+    """Corrected-v3 lifecycle telemetry, separate from the legacy row schema."""
+
+    episode_reset_mode: str = "batch_barrier_v1"
+    episode_seed_mode: str = "continuous_env_rng_v1"
     episode_ids: Optional[List[int]] = None
     episode_reset_counts: Optional[List[int]] = None
     reset_env_indices: Optional[List[int]] = None
@@ -817,6 +830,38 @@ class PQNTrainer:
         if self.fixed_policy is not None:
             return {"mode": "fixed", "identity": self.fixed_policy.identity}
         return {"mode": "snapshot_pool", "identity": "episode-assigned"}
+
+    def _static_policy_source_contract(self) -> Dict[str, object]:
+        """Build the checkpoint/telemetry source contract from realized trainer state."""
+        lifecycle = build_pqn_episode_lifecycle_contract(
+            self.cfg.episode_reset_mode, self.cfg.episode_seed_mode
+        )
+        return _policy_source_contract(
+            self.cfg,
+            lifecycle,
+            initial_model_head_digest=self._initial_opponent_model_head_digest,
+            initial_snapshot_state_sha256=self._initial_opponent_snapshot_state_sha256,
+        )
+
+    def _derived_policy_identities(self, policy_ids: np.ndarray) -> Dict[str, str]:
+        """Return exact pinned identities for the active derived assignment grid."""
+        if not isinstance(self.pool, PinnedOpponentPool):
+            raise RuntimeError("derived corrected-v3 rollout requires PinnedOpponentPool")
+        identities: Dict[str, str] = {}
+        for env, policy_row in enumerate(policy_ids):
+            lease = self._episode_leases[env]
+            frozen = {int(value) for value in policy_row if int(value) != HERO_POLICY_ID}
+            if frozen and lease is None:
+                raise RuntimeError("derived frozen policy row has no active opponent lease")
+            for policy_id in frozen:
+                assert lease is not None
+                identity = lease.identities.get(policy_id)
+                if identity is None:
+                    raise RuntimeError("derived policy row names an identity outside its lease")
+                previous = identities.setdefault(str(policy_id), identity)
+                if previous != identity:
+                    raise RuntimeError("derived policy identity disagrees across active lane leases")
+        return identities
 
     @property
     def _uses_derived_episode_rng(self) -> bool:
@@ -1180,8 +1225,13 @@ class PQNTrainer:
             self._episode_policy_ids = None
             self._episode_reset_count += 1
             self._episode_ids += 1
+            if self.cfg.recipe == "corrected-v3":
+                self._episode_reset_counts += np.uint64(1)
+                self._last_reset_env_indices = np.arange(E, dtype=np.int64)
             self._episode_finished_env[:] = False
             completed_episodes = E
+        elif not self._uses_derived_episode_rng:
+            self._last_reset_env_indices = np.empty(0, dtype=np.int64)
 
         # A rollout may not cross the frame-cap episode boundary.  In
         # particular, when ``max_frames`` is not divisible by ``rollout_len``,
@@ -1372,7 +1422,7 @@ class PQNTrainer:
             )
             if (
                 self.cfg.obs_spec == RASTER31V3
-                and not self._uses_derived_episode_rng
+                and not self._uses_per_env_autoreset
                 and bool(self._episode_finished_env.all())
             ):
                 T = t + 1
@@ -1400,21 +1450,34 @@ class PQNTrainer:
             "deaths": death_buf[:T],
             "policy_ids": policy_ids,
             "policy_identities": (
-                {
-                    str(policy_id): identity
-                    for policy_id, identity in self._episode_lease.identities.items()
-                }
-                if self._episode_lease is not None
+                self._derived_policy_identities(policy_ids)
+                if self._uses_derived_episode_rng
                 else (
-                    {"0": self.fixed_policy.identity}
-                    if self.fixed_policy is not None
-                    else {
-                        str(policy_id): f"legacy:{policy_id}"
-                        for policy_id in self.pool.policy_ids()
+                    {
+                        str(policy_id): identity
+                        for policy_id, identity in self._episode_lease.identities.items()
                     }
+                    if self._episode_lease is not None
+                    else (
+                        {"0": self.fixed_policy.identity}
+                        if self.fixed_policy is not None
+                        else {
+                            str(policy_id): f"legacy:{policy_id}"
+                            for policy_id in self.pool.policy_ids()
+                        }
+                    )
                 )
             ),
-            "rollout_policy_source": self._policy_source_descriptor(),
+            "rollout_policy_source": (
+                {
+                    **self._policy_source_descriptor(),
+                    "policy_source_contract_digest": canonical_digest(
+                        self._static_policy_source_contract()
+                    ),
+                }
+                if self.cfg.recipe == "corrected-v3"
+                else self._policy_source_descriptor()
+            ),
             "episode_reset_count": self._episode_reset_count,
             "episode_ids": self._episode_ids.copy(),
             "episode_reset_counts": self._episode_reset_counts.copy(),
@@ -1878,13 +1941,17 @@ class PQNTrainer:
             policy_exposure=policy_exposure,
             raw_action_counts=[int(value) for value in raw_hist],
             episode_reset_count=int(roll["episode_reset_count"]),
-            episode_reset_mode=(cfg.episode_reset_mode if cfg.recipe == "corrected-v3" else None),
-            episode_seed_mode=(cfg.episode_seed_mode if cfg.recipe == "corrected-v3" else None),
-            episode_ids=[int(value) for value in np.asarray(roll["episode_ids"])],
-            episode_reset_counts=[int(value) for value in np.asarray(roll["episode_reset_counts"])],
-            reset_env_indices=[int(value) for value in np.asarray(roll["reset_env_indices"])],
-            episode_world_seeds=[int(value) for value in np.asarray(roll["episode_world_seeds"])],
         )
+        if cfg.recipe == "corrected-v3":
+            tel = PQNPerEnvTelemetry(
+                **tel.__dict__,
+                episode_reset_mode=cfg.episode_reset_mode,
+                episode_seed_mode=cfg.episode_seed_mode,
+                episode_ids=[int(value) for value in np.asarray(roll["episode_ids"])],
+                episode_reset_counts=[int(value) for value in np.asarray(roll["episode_reset_counts"])],
+                reset_env_indices=[int(value) for value in np.asarray(roll["reset_env_indices"])],
+                episode_world_seeds=[int(value) for value in np.asarray(roll["episode_world_seeds"])],
+            )
         self.last_telemetry = tel
         self._last_policy_source = dict(roll["rollout_policy_source"])
         self._check_tripwires(tel)
@@ -2046,13 +2113,7 @@ class PQNTrainer:
             lifecycle = build_pqn_episode_lifecycle_contract(
                 self.cfg.episode_reset_mode, self.cfg.episode_seed_mode
             )
-            policy_source = _policy_source_contract(self.cfg, lifecycle)
-            policy_source["initial_opponent_model_head_digest"] = (
-                self._initial_opponent_model_head_digest
-            )
-            policy_source["initial_opponent_snapshot_state_sha256"] = (
-                self._initial_opponent_snapshot_state_sha256
-            )
+            policy_source = self._static_policy_source_contract()
             lifecycle_digest = canonical_digest(lifecycle)
             policy_source_digest = canonical_digest(policy_source)
             state.update(
@@ -2065,9 +2126,19 @@ class PQNTrainer:
                     "episode_seed_mode": self.cfg.episode_seed_mode,
                     "pool_admission_mode": self.cfg.pool_admission_mode,
                     "initial_opponent_checkpoint_sha256": self.cfg.initial_opponent_checkpoint_sha256,
-                    "episode_ids": self._episode_ids.copy(),
+                    "episode_ids": np.asarray(self._episode_ids, dtype=np.uint64).copy(),
                     "episode_reset_counts": self._episode_reset_counts.copy(),
                     "episode_world_seeds": self._episode_world_seeds.copy(),
+                    "episode_policy_ids": (
+                        None
+                        if self._episode_policy_ids is None
+                        else self._episode_policy_ids.copy()
+                    ),
+                    "episode_policy_identities": (
+                        self._derived_policy_identities(self._episode_policy_ids)
+                        if self._uses_derived_episode_rng and self._episode_policy_ids is not None
+                        else {}
+                    ),
                     "restorable_environment_state": False,
                 }
             )

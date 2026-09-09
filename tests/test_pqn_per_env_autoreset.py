@@ -74,6 +74,36 @@ def test_barrier_derived_control_preserves_short_tail_behavior():
     assert roll["actions"].shape[0] == 1
 
 
+def test_barrier_derived_control_still_slices_when_every_lane_floors_early(monkeypatch):
+    """Derived seeding changes worlds, not the batch-barrier completion rule."""
+    trainer = PQNTrainer(
+        _config(episode_reset_mode="batch_barrier_v1", max_frames=20, rollout_len=3)
+    )
+    monkeypatch.setattr(
+        trainer.sim,
+        "population_floor_reached",
+        lambda: trainer.sim.frame >= 1,
+    )
+    roll = trainer._rollout()
+    assert roll["actions"].shape[0] == 1
+
+
+def test_corrected_continuous_barrier_records_actual_batch_reset_lanes() -> None:
+    """The new corrected telemetry cannot leave reset arrays at their construction defaults."""
+    trainer = PQNTrainer(
+        _config(
+            episode_reset_mode="batch_barrier_v1",
+            episode_seed_mode="continuous_env_rng_v1",
+            max_frames=1,
+            rollout_len=1,
+        )
+    )
+    trainer._rollout()
+    second = trainer._rollout()
+    assert second["reset_env_indices"].tolist() == [0, 1]
+    assert trainer._episode_reset_counts.tolist() == [1, 1]
+
+
 def test_per_env_rollout_keeps_completed_lane_target_in_its_old_episode():
     """Invalid post-completion rows cannot make Q(lambda) cross the reset boundary."""
     trainer = PQNTrainer(_config(num_envs=1, num_snakes=1, rollout_len=2, gamma=0.9, lambda_=1.0))
@@ -109,7 +139,12 @@ def test_preload_requires_pre_episode_identity_and_records_realized_snapshot_has
     """B5's fixed source enters the ordinary pinned pool before episode zero."""
     source_hash = "a" * 64
     trainer = PQNTrainer(
-        _config(pool_capacity=1, pool_admission_mode="disabled_v1", initial_opponent_checkpoint_sha256=source_hash)
+        _config(
+            pool_capacity=1,
+            hero_frac=0.0,
+            pool_admission_mode="disabled_v1",
+            initial_opponent_checkpoint_sha256=source_hash,
+        )
     )
     policy_id = trainer.preload_opponent_snapshot(
         trainer.network,
@@ -118,12 +153,18 @@ def test_preload_requires_pre_episode_identity_and_records_realized_snapshot_has
     )
     assert policy_id == 0
     assert trainer.pool.snapshot_hash(policy_id) == trainer._initial_opponent_snapshot_state_sha256
-    trainer._rollout()
+    rollout = trainer._rollout()
     checkpoint = trainer.checkpoint_state()
     source = checkpoint["policy_source_contract"]
     assert source["initial_opponent_checkpoint_sha256"] == source_hash
     assert source["initial_opponent_snapshot_state_sha256"] == trainer.pool.snapshot_hash(policy_id)
     assert checkpoint["sampler_contract"]["policy_source_contract_digest"] == canonical_digest(source)
+    assert rollout["policy_identities"][str(policy_id)] == (
+        f"snapshot:{policy_id}:{trainer.pool.snapshot_hash(policy_id)}"
+    )
+    assert rollout["rollout_policy_source"]["policy_source_contract_digest"] == canonical_digest(
+        source
+    )
 
 
 def test_lane_leases_remain_pinned_until_reset_and_close_is_idempotent():

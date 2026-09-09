@@ -146,6 +146,13 @@ class FakeTrainer:
         """Match the real trainer's CLI cleanup surface."""
 
 
+class CleanupFaultTrainer(FakeTrainer):
+    """A tripwire plus cleanup fault must retain the tripwire exit classification."""
+
+    def close(self) -> None:
+        raise RuntimeError("lease cleanup failed")
+
+
 def _install_trainer(monkeypatch, trip_after=None):
     """Swap the module-global PQNTrainer that ``main`` resolves at call time."""
     made = []
@@ -214,6 +221,29 @@ class TestTripwireExitCode:
         assert rc == 2
         assert trainer.updates == 0
         assert (tmp_path / "history.jsonl").read_text() == ""
+
+    def test_tripwire_retains_rc_2_when_cleanup_also_fails(self, tmp_path, monkeypatch):
+        """A lease-close failure is reported but cannot erase the halt-and-flag result."""
+        made = []
+
+        def factory(config, device=None):
+            trainer = CleanupFaultTrainer(config, device=device, trip_after=0)
+            made.append(trainer)
+            return trainer
+
+        monkeypatch.setattr(train_pqn, "PQNTrainer", factory)
+        rc = train_pqn.main(
+            [
+                "--device",
+                "cpu",
+                "--out-dir",
+                str(tmp_path),
+                "--total-steps",
+                "1",
+            ]
+        )
+        assert rc == 2
+        assert made[0].updates == 0
 
 
 class TestArtifactsOnHalt:

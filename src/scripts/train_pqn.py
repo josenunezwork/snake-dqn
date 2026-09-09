@@ -74,6 +74,7 @@ from src.model.obs_spec import (  # noqa: E402
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
 from src.training.pqn_trainer import (  # noqa: E402
     PQNConfig,
+    PQNPerEnvTelemetry,
     PQNTelemetry,
     PQNTrainer,
     TripwireError,
@@ -768,7 +769,7 @@ def _format_row(tel: PQNTelemetry) -> str:
 
 def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
     """A JSON-serializable dict of a telemetry snapshot (for the history file)."""
-    return {
+    record = {
         "update": tel.update,
         "agent_steps": tel.agent_steps,
         "epsilon": tel.epsilon,
@@ -800,6 +801,18 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
         "raw_action_counts": tel.raw_action_counts or [0, 0, 0, 0, 0, 0],
         "episode_reset_count": tel.episode_reset_count,
     }
+    if isinstance(tel, PQNPerEnvTelemetry):
+        record.update(
+            {
+                "episode_reset_mode": tel.episode_reset_mode,
+                "episode_seed_mode": tel.episode_seed_mode,
+                "episode_ids": tel.episode_ids or [],
+                "episode_reset_counts": tel.episode_reset_counts or [],
+                "reset_env_indices": tel.reset_env_indices or [],
+                "episode_world_seeds": tel.episode_world_seeds or [],
+            }
+        )
+    return record
 
 
 def train_loop(
@@ -1154,7 +1167,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             append_history=resume_blob is not None,
         )
         _print_curve_summary(history)
-        return 2 if tripped else 0
+        if tripped:
+            # A tripwire is the authoritative run classification.  Cleanup is
+            # still attempted in ``finally``; a cleanup failure must not turn a
+            # flagged numerical run into a successful or differently-classed one.
+            return 2
+        return 0
     except BaseException as exc:
         primary_error = exc
         raise
@@ -1164,7 +1182,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         except BaseException as cleanup_error:
             if primary_error is not None:
                 raise primary_error from cleanup_error
-            raise
+            if "tripped" in locals() and tripped:
+                print(f"[train_pqn] cleanup failed after tripwire: {cleanup_error}", file=sys.stderr)
+            else:
+                raise
 
 
 if __name__ == "__main__":
