@@ -320,7 +320,10 @@ def _validate_common_crosslinks(
         raise ValueError("unsupported lifecycle target contract version")
     if sampler.get("version") != "pqn-sampler-corrected-v3-lifecycle-v1":
         raise ValueError("unsupported lifecycle sampler contract version")
-    for name in _TOP_LEVEL_POLICY_FACTS:
+    for name in ("episode_reset_mode", "episode_seed_mode"):
+        if metadata.get(name) != lifecycle[name]:
+            raise ValueError(f"top-level {name} does not match episode_lifecycle_contract")
+    for name in ("pool_admission_mode", "initial_opponent_checkpoint_sha256"):
         if metadata.get(name) != policy_source[name]:
             raise ValueError(f"top-level {name} does not match policy_source_contract")
     realized = metadata.get("rollout_policy_source")
@@ -384,6 +387,52 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
         raise ValueError("lifecycle adapter is only valid for corrected-v3 checkpoints")
     if set(source) != {"mode", "identity"} or source.get("mode") not in {"snapshot_pool", "fixed"}:
         raise ValueError("pre-lifecycle rollout_policy_source is invalid")
+    if not isinstance(source.get("identity"), str) or not source["identity"]:
+        raise ValueError("pre-lifecycle rollout_policy_source identity is invalid")
+    expected_target_values = {
+        "death": "actual_done_reward_only",
+        "trapped": "unsupported_alive_empty_resolved_mask_fails",
+        "empty_successor_bootstrap": "error_for_valid_alive_row",
+        "truncation": "masked_max_q_of_successor",
+        "lambda_carry": "next_in_rollout_valid_transition_including_death",
+        "validity": "env_transition_valid_and_active_episode_env",
+        "inactive_worlds": "active_env_mask_freezes_world_rng_and_events",
+        "reset": "whole_batch_at_rollout_boundary_after_all_floor_or_frame_cap",
+        "bootstrap_network": "rollout_frozen_online_network",
+        "loss_eligibility": "valid_and_episode_assigned_hero",
+    }
+    if any(target[name] != value for name, value in expected_target_values.items()):
+        raise ValueError("pre-lifecycle target_contract is not the known corrected-v3 contract")
+    if not isinstance(target["population_floor"], bool):
+        raise ValueError("pre-lifecycle target_contract population_floor is invalid")
+    if not isinstance(target["action_mask"], Mapping) or not _is_sha256(target["reward_digest"]):
+        raise ValueError("pre-lifecycle target_contract is incomplete")
+    if sampler["assignment_lifetime"] != "batch_episode":
+        raise ValueError("pre-lifecycle sampler assignment lifetime is invalid")
+    if sampler["rollout_policy_source"] != dict(source):
+        raise ValueError("pre-lifecycle sampler policy source does not match realized source")
+    if source["mode"] == "fixed":
+        expected_sampler = {
+            "pool_capacity": 0,
+            "pool_add_interval": None,
+            "empty_pool": "not_applicable_fixed_source",
+            "snapshot_identity": "not_applicable_fixed_source",
+            "episode_pinning": False,
+            "pool_mutation": "not_applicable_fixed_source",
+            "snapshot_admission": "disabled_fixed_source",
+            "policy_assignment": "common_fixed_policy_for_nonhero_slots",
+        }
+    else:
+        expected_sampler = {
+            "empty_pool": "all_heroes",
+            "snapshot_identity": "immutable_content_hash_stable_id",
+            "episode_pinning": True,
+            "pool_mutation": "admission_deferred_when_all_snapshots_pinned",
+            "snapshot_admission": "after_sgd_positive_update_index_divisible_by_interval",
+            "policy_assignment": "episode_pinned_bernoulli_hero_else_immutable_snapshot_pool",
+        }
+    if any(sampler[name] != value for name, value in expected_sampler.items()):
+        raise ValueError("pre-lifecycle sampler_contract is not the known corrected-v3 contract")
     source_digest = canonical_digest(source)
     try:
         provenance = RunProvenance.from_metadata(metadata)
