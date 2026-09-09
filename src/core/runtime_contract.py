@@ -18,6 +18,16 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 
+# These are deliberately closed source-runtime values.  Training lifecycle
+# descriptors map their reset implementation onto this existing six-field
+# runtime contract; adding a field here would change historic digests.
+RESET_STRATEGY_BATCH_EPISODE = "batch_episode"
+RESET_STRATEGY_PER_ENV_ROLLOUT_BOUNDARY = "per_env_rollout_boundary"
+PQN_TRAIN_RESET_STRATEGIES = frozenset(
+    {RESET_STRATEGY_BATCH_EPISODE, RESET_STRATEGY_PER_ENV_ROLLOUT_BOUNDARY}
+)
+
+
 def _canonical_value(value: Any) -> Any:
     """Validate values accepted in a semantic digest and normalize mappings."""
     if value is None or isinstance(value, (bool, str, int)):
