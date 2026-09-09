@@ -49,6 +49,41 @@ def _batch_snapshot(sim: BatchSim, env: int) -> tuple:
     )
 
 
+def _env_reset_snapshot(sim: BatchSim, env: int) -> tuple:
+    """Capture every env-scoped field reset_envs must leave untouched elsewhere."""
+    return (
+        sim.bodies[env].tobytes(),
+        sim.head_ptr[env].tobytes(),
+        sim.seg_count[env].tobytes(),
+        sim.length[env].tobytes(),
+        sim.alive[env].tobytes(),
+        sim.direction[env].tobytes(),
+        sim.boost_frames[env].tobytes(),
+        sim.frames_since_food[env].tobytes(),
+        sim.respawn_timer[env].tobytes(),
+        sim._reward_prev_length[env].tobytes(),
+        sim._boosted_this_step[env].tobytes(),
+        sim._trav[env].tobytes(),
+        sim._trav_valid[env].tobytes(),
+        tuple(sim.food_cells[env]),
+        frozenset(sim.corpse_cells[env]),
+        frozenset(sim.food_set[env]),
+        int(sim.frame[env]),
+        sim._last_reward[env].tobytes(),
+        sim._last_mask[env].tobytes(),
+        sim._last_legal_mask[env].tobytes(),
+        sim._last_resolved_mask[env].tobytes(),
+        sim._last_done[env].tobytes(),
+        sim._last_transition_valid[env].tobytes(),
+        sim._last_food_ate[env].tobytes(),
+        sim._last_death_cause[env].tobytes(),
+        sim._last_kills[env].tobytes(),
+        copy.deepcopy(sim._last_kill_victim_len[env].tolist()),
+        sim._rngs[env]._rng.getstate(),
+        sim._seeds[env],
+    )
+
+
 @pytest.mark.parametrize("seed", [41, 314159])
 def test_repeated_resets_match_actual_game_state_rng_order(seed: int) -> None:
     """Actual GameState remains aligned through actions and later soft resets."""
@@ -239,3 +274,102 @@ def test_inactive_world_preserves_food_timers_masks_and_population_floor() -> No
     assert np.array_equal(sim.get_advisory_action_mask()[1], frozen[6])
     assert np.array_equal(sim.get_resolved_action_mask()[1], frozen[7])
     assert bool(sim.population_floor_reached()[1]) == frozen[8]
+
+
+def test_reset_envs_resets_only_selected_lanes_and_preserves_continuing_bytes() -> None:
+    """A masked reset cannot mutate another lane's world, outputs, or RNG stream."""
+    sim = BatchSim(_cfg(num_envs=3, num_snakes=3), seeds=[4, 5, 6], train_mode=True)
+    sim.alive[0, 2] = False
+    sim.alive[0, 1] = False  # population floor reached in the selected lane
+    sim.frame[0] = 5000  # simultaneous configured frame-cap witness
+    sim._last_reward[0] = 7.0
+    sim._last_done[0] = True
+    sim._last_transition_valid[0] = True
+    sim._last_kill_victim_len[0, 0] = [3]
+    sim._refresh_action_masks()
+    before_one = _env_reset_snapshot(sim, 1)
+    before_two = _env_reset_snapshot(sim, 2)
+
+    sim.reset_envs(np.array([True, False, False], dtype=bool))
+
+    assert _env_reset_snapshot(sim, 1) == before_one
+    assert _env_reset_snapshot(sim, 2) == before_two
+    assert sim.frame[0] == 0
+    assert sim.alive[0].all()
+    assert not sim._last_done[0].any()
+    assert not sim._last_transition_valid[0].any()
+    assert sim._last_kill_victim_len[0, 0] == []
+    assert all(
+        sim._last_kill_victim_len[0, s] is not sim._last_kill_victim_len[0, 0] for s in range(1, 3)
+    )
+    assert not bool(sim.population_floor_reached()[0])
+
+
+def test_reset_envs_noncontiguous_seeded_reset_replays_selected_lanes() -> None:
+    """Selected lanes consume only their supplied new EnvRng streams in mask order."""
+    cfg = _cfg(num_envs=3)
+    left = BatchSim(cfg, seeds=[1, 2, 3], train_mode=True)
+    right = BatchSim(cfg, seeds=[91, 92, 93], train_mode=True)
+    actions = np.ones((3, cfg.num_snakes), dtype=np.int64)
+    left.step(actions)
+    right.step(actions)
+    mask = np.array([True, False, True], dtype=bool)
+    seeds = [np.uint64((1 << 64) - 1), 17]
+
+    left.reset_envs(mask, seeds=seeds)
+    right.reset_envs(mask, seeds=seeds)
+
+    for env in (0, 2):
+        assert _env_reset_snapshot(left, env) == _env_reset_snapshot(right, env)
+    assert left._seeds == [int(seeds[0]), 2, int(seeds[1])]
+    assert right._seeds == [int(seeds[0]), 92, int(seeds[1])]
+
+
+def test_reset_envs_all_lanes_matches_legacy_soft_reset() -> None:
+    """All-lane masked reset keeps the established no-argument soft-reset trace."""
+    cfg = _cfg(num_envs=3)
+    legacy = BatchSim(cfg, seeds=[7, 8, 9], train_mode=True)
+    masked = BatchSim(cfg, seeds=[7, 8, 9], train_mode=True)
+    actions = np.ones((3, cfg.num_snakes), dtype=np.int64)
+    legacy.step(actions)
+    masked.step(actions)
+
+    legacy.reset()
+    masked.reset_envs(np.ones(3, dtype=bool))
+
+    assert tuple(_env_reset_snapshot(legacy, env) for env in range(3)) == tuple(
+        _env_reset_snapshot(masked, env) for env in range(3)
+    )
+
+
+@pytest.mark.parametrize(
+    "mask,seeds",
+    [
+        ([True, False], None),
+        (np.array([[True, False]], dtype=bool), None),
+        (np.array([1, 0], dtype=np.int64), None),
+        (np.array([True, False], dtype=bool), [1, 2]),
+        (np.array([True, False], dtype=bool), [-1]),
+        (np.array([True, False], dtype=bool), [1 << 64]),
+        (np.array([True, False], dtype=bool), [True]),
+        (np.array([True, False], dtype=bool), [1.0]),
+        (np.array([False, False], dtype=bool), [1]),
+    ],
+)
+def test_reset_envs_rejects_invalid_inputs_before_mutating(mask: object, seeds: object) -> None:
+    sim = BatchSim(_cfg(), seeds=[11, 12], train_mode=True)
+    before = tuple(_env_reset_snapshot(sim, env) for env in range(sim.E))
+
+    with pytest.raises(ValueError):
+        sim.reset_envs(mask, seeds=seeds)  # type: ignore[arg-type]
+
+    assert tuple(_env_reset_snapshot(sim, env) for env in range(sim.E)) == before
+
+
+def test_reset_envs_all_false_empty_seed_sequence_is_a_noop() -> None:
+    sim = BatchSim(_cfg(), seeds=[11, 12], train_mode=True)
+    before = tuple(_env_reset_snapshot(sim, env) for env in range(sim.E))
+
+    sim.reset_envs(np.array([False, False], dtype=bool), seeds=[])
+
+    assert tuple(_env_reset_snapshot(sim, env) for env in range(sim.E)) == before

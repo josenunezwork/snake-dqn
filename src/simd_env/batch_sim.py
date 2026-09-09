@@ -265,82 +265,154 @@ class BatchSim:
         from its own RNG in the documented order so positions match the live
         game's ``reset()`` when seeded identically.
         """
-        E, S = self.E, self.S
-        self.bodies[:] = 0
-        self.head_ptr[:] = 0
-        self.seg_count[:] = 0
-        self.length[:] = 1
-        self.alive[:] = True
-        self.direction[:] = 1  # right
-        self.boost_frames[:] = 0
-        self.frames_since_food[:] = 0
-        self.respawn_timer[:] = 0
-        self._reward_prev_length[:] = 1
-        self._boosted_this_step[:] = False
-        self.frame[:] = 0
+        all_envs = np.ones(self.E, dtype=bool)
+        for e in range(self.E):
+            self._reset_env(e, constructor_food_draws=self._constructor_food_draws_pending)
+        self._rebuild_traversed_from_heads(all_envs)
+        self._refresh_action_masks(all_envs)
+        self._constructor_food_draws_pending = False
 
-        for e in range(E):
-            rng = self._rngs[e]
+    def reset_envs(self, env_mask: np.ndarray, *, seeds: Optional[Sequence[int]] = None) -> None:
+        """Soft-reset selected environments without touching continuing lanes.
 
-            if self._constructor_food_draws_pending:
-                # FoodManager.__init__ calls _spawn_initial(initial_food) with
-                # snakes=None before GameState's first reset.  The food itself
-                # is discarded, but its RNG draws are not.  This happens once
-                # per live GameState lifetime, never on a later soft reset.
-                ctor_fset: set = set()
-                for _ in range(self.cfg.initial_food):
-                    pos = rng.find_spawn_position_no_snakes(ctor_fset)
-                    if pos is None:
-                        continue
-                    cell = cell_index(pos, self.s)
-                    if cell in ctor_fset:
-                        continue
-                    ctor_fset.add(cell)
+        A supplied seed replaces the selected lane's :class:`EnvRng` before its
+        soft reset.  Unlike the constructor's initial reset, this method never
+        replays FoodManager's constructor-only discarded food draws.
 
-            placed_cells: List[Tuple[int, int]] = []
-            for sidx in range(S):
-                occ = np.array(placed_cells, dtype=np.int64).reshape(-1, 2)
-                # Snake placement mirrors GameState._get_non_overlapping_snake_position
-                # (spec §5.4): draw get_random_position FIRST (2 randint with the
-                # -segment_size upper bound), then fall back to find_empty_position
-                # only on overlap. This is NOT find_empty_position directly.
-                pos = rng.place_snake(occ)
-                cell = cell_index(pos, self.s)
-                self.bodies[e, sidx, 0] = cell
-                self.head_ptr[e, sidx] = 0
-                self.seg_count[e, sidx] = 1
-                placed_cells.append(cell)
+        Args:
+            env_mask: Boolean ``np.ndarray`` with exact shape ``(num_envs,)``.
+            seeds: Optional unsigned-64-bit seed sequence for selected lanes,
+                ordered by ascending selected environment index.
 
-            # Initial food (with snakes) via nested rejection.
-            self.food_cells[e] = []
-            self.corpse_cells[e] = set()
-            snake_cells = self._all_snake_cells(e)
-            # Build directly into the maintained membership set (fset IS food_set).
-            self.food_set[e] = set()
-            fset = self.food_set[e]
+        Raises:
+            ValueError: If the mask or seed sequence violates the reset contract.
+        """
+        mask = self._normalize_reset_env_mask(env_mask)
+        selected = np.flatnonzero(mask)
+        replacement_rngs = self._validated_reset_rngs(selected, seeds)
+        if not len(selected):
+            return
+
+        if replacement_rngs is not None:
+            for e, (seed, rng) in zip(selected, replacement_rngs):
+                self._seeds[int(e)] = seed
+                self._rngs[int(e)] = rng
+
+        for e in selected:
+            self._reset_env(int(e), constructor_food_draws=False)
+        self._rebuild_traversed_from_heads(mask)
+        self._refresh_action_masks(mask)
+
+    def _normalize_reset_env_mask(self, env_mask: np.ndarray) -> np.ndarray:
+        """Validate the strict public mask accepted by :meth:`reset_envs`."""
+        if not isinstance(env_mask, np.ndarray):
+            raise ValueError("env_mask must be a numpy boolean array")
+        if env_mask.shape != (self.E,):
+            raise ValueError(f"env_mask must have shape {(self.E,)}, got {env_mask.shape}")
+        if env_mask.dtype != np.bool_:
+            raise ValueError("env_mask must have boolean dtype")
+        return env_mask.copy()
+
+    def _validated_reset_rngs(
+        self, selected: np.ndarray, seeds: Optional[Sequence[int]]
+    ) -> Optional[List[Tuple[int, EnvRng]]]:
+        """Prevalidate replacement RNGs before a masked reset can mutate state."""
+        if seeds is None:
+            return None
+        try:
+            values = list(seeds)
+        except TypeError as error:
+            raise ValueError("seeds must be a sequence of unsigned 64-bit integers") from error
+        if len(values) != len(selected):
+            raise ValueError(f"seeds must have length {len(selected)}, got {len(values)}")
+
+        max_seed = (1 << 64) - 1
+        normalized: List[int] = []
+        for seed in values:
+            if isinstance(seed, (bool, np.bool_)) or not isinstance(seed, (int, np.integer)):
+                raise ValueError("seeds must contain unsigned 64-bit integers")
+            value = int(seed)
+            if not 0 <= value <= max_seed:
+                raise ValueError("seeds must contain unsigned 64-bit integers")
+            normalized.append(value)
+
+        # Construction is part of validation: a future EnvRng failure cannot
+        # leave an earlier selected lane reset while a later seed is rejected.
+        return [
+            (
+                seed,
+                EnvRng(
+                    seed,
+                    self.cfg.game_width,
+                    self.cfg.game_height,
+                    self.s,
+                    self.cfg.wall_thickness,
+                ),
+            )
+            for seed in normalized
+        ]
+
+    def _reset_env(self, e: int, *, constructor_food_draws: bool) -> None:
+        """Reset one environment using its current RNG and existing soft-reset order."""
+        self.bodies[e] = 0
+        self.head_ptr[e] = 0
+        self.seg_count[e] = 0
+        self.length[e] = 1
+        self.alive[e] = True
+        self.direction[e] = 1  # right
+        self.boost_frames[e] = 0
+        self.frames_since_food[e] = 0
+        self.respawn_timer[e] = 0
+        self._reward_prev_length[e] = 1
+        self._boosted_this_step[e] = False
+        self.frame[e] = 0
+        self._last_reward[e] = 0.0
+        self._last_done[e] = False
+        self._last_transition_valid[e] = False
+        self._last_food_ate[e] = False
+        self._last_death_cause[e] = DEATH_NONE
+        self._last_kills[e] = 0
+        for sidx in range(self.S):
+            self._last_kill_victim_len[e, sidx] = []
+
+        rng = self._rngs[e]
+        if constructor_food_draws:
+            # FoodManager.__init__ calls _spawn_initial(initial_food) with
+            # snakes=None before GameState's first reset. The food itself is
+            # discarded, but its RNG draws are not. This happens once per live
+            # GameState lifetime and never on a later soft reset.
+            ctor_fset: set = set()
             for _ in range(self.cfg.initial_food):
-                pos = rng.find_spawn_position(snake_cells, fset)
+                pos = rng.find_spawn_position_no_snakes(ctor_fset)
                 if pos is None:
                     continue
                 cell = cell_index(pos, self.s)
-                if cell in fset:
-                    continue
+                if cell not in ctor_fset:
+                    ctor_fset.add(cell)
+
+        placed_cells: List[Tuple[int, int]] = []
+        for sidx in range(self.S):
+            occ = np.array(placed_cells, dtype=np.int64).reshape(-1, 2)
+            pos = rng.place_snake(occ)
+            cell = cell_index(pos, self.s)
+            self.bodies[e, sidx, 0] = cell
+            self.head_ptr[e, sidx] = 0
+            self.seg_count[e, sidx] = 1
+            placed_cells.append(cell)
+
+        self.food_cells[e] = []
+        self.corpse_cells[e] = set()
+        snake_cells = self._all_snake_cells(e)
+        self.food_set[e] = set()
+        fset = self.food_set[e]
+        for _ in range(self.cfg.initial_food):
+            pos = rng.find_spawn_position(snake_cells, fset)
+            if pos is None:
+                continue
+            cell = cell_index(pos, self.s)
+            if cell not in fset:
                 self.food_cells[e].append(cell)
                 fset.add(cell)
-
-        # Prime per-step outputs and initial masks against the fresh world.
-        self._last_reward[:] = 0.0
-        self._last_done[:] = False
-        self._last_transition_valid[:] = False
-        self._last_food_ate[:] = False
-        self._last_death_cause[:] = DEATH_NONE
-        self._last_kills[:] = 0
-        for e in range(E):
-            for sidx in range(S):
-                self._last_kill_victim_len[e, sidx] = []
-        self._rebuild_traversed_from_heads()
-        self._refresh_action_masks()
-        self._constructor_food_draws_pending = False
 
     def _all_snake_cells(self, e: int) -> np.ndarray:
         """All living snake segment cells in env ``e`` as an (N, 2) int array."""
