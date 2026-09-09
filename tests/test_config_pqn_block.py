@@ -55,6 +55,9 @@ def test_pqn_schema_field_parity_with_pqn_config_and_recipe_selector():
         # its identity is runtime provenance, not an executable YAML setting.
         "rollout_policy_mode",
         "fixed_policy_identity",
+        # B5 injects this only after checkpoint-byte preflight; accepting it
+        # from generic YAML would not establish the claimed source identity.
+        "initial_opponent_checkpoint_sha256",
     }
     config_fields = {f.name for f in dc.fields(PQNConfig)} - runtime_or_shared
     schema_fields = set(PQNSettingsSchema.model_fields.keys())
@@ -63,6 +66,20 @@ def test_pqn_schema_field_parity_with_pqn_config_and_recipe_selector():
         f"only in PQNConfig: {sorted(config_fields - schema_fields)}, "
         f"only in schema: {sorted(schema_fields - config_fields)}"
     )
+
+
+def test_pqn_schema_accepts_the_two_explicit_lifecycle_knobs() -> None:
+    """Lifecycle choices are YAML-visible while checkpoint identity remains runtime-only."""
+    parsed = ConfigSchema(
+        pqn={
+            "episode_reset_mode": "per_env_autoreset_v1",
+            "episode_seed_mode": "derived_env_episode_v1",
+            "pool_admission_mode": "disabled_v1",
+        }
+    )
+    assert parsed.pqn.episode_reset_mode == "per_env_autoreset_v1"
+    assert parsed.pqn.episode_seed_mode == "derived_env_episode_v1"
+    assert parsed.pqn.pool_admission_mode == "disabled_v1"
 
 
 def test_config_schema_accepts_pqn_block():

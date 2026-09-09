@@ -84,6 +84,10 @@ from src.training.pqn_trainer import (  # noqa: E402
     pqn_target_contract,
     validate_checkpoint_numeric_state,
 )
+from src.training.pqn_lifecycle import (  # noqa: E402
+    build_pqn_episode_lifecycle_contract,
+    validate_pqn_episode_lifecycle_metadata,
+)
 
 # A --config file carries a flat ``pqn:`` block plus a few shared ``game:``/
 # ``rewards:`` switches, so the same mechanics-v2 config the vector pipeline uses
@@ -288,6 +292,27 @@ def validate_pqn_resume_checkpoint_config(
     Raises:
         ValueError: On any contract disagreement or missing contract metadata.
     """
+    if config.recipe == "corrected-v3" and (
+        config.episode_reset_mode != "batch_barrier_v1"
+        or config.episode_seed_mode != "continuous_env_rng_v1"
+    ):
+        raise ValueError("optimizer continuation is unsupported for derived or per-environment PQN")
+    lifecycle_compatibility = None
+    if config.recipe == "corrected-v3":
+        lifecycle = validate_pqn_episode_lifecycle_metadata(
+            checkpoint, allow_corrected_v3_adapter=True
+        )
+        lifecycle_compatibility = lifecycle.compatibility
+        expected_lifecycle = build_pqn_episode_lifecycle_contract(
+            config.episode_reset_mode, config.episode_seed_mode
+        )
+        if lifecycle.compatibility is None and lifecycle.digest != canonical_digest(expected_lifecycle):
+            raise ValueError("continuation episode lifecycle conflicts with requested PQN mode")
+        if lifecycle.compatibility is not None and (
+            config.episode_reset_mode != "batch_barrier_v1"
+            or config.episode_seed_mode != "continuous_env_rng_v1"
+        ):
+            raise ValueError("adapted corrected-v3 checkpoint requires default lifecycle modes")
     validate_checkpoint_contract(
         checkpoint,
         resume_contract(config),
@@ -348,12 +373,18 @@ def validate_pqn_resume_checkpoint_config(
     expected_mask = pqn_action_mask_contract(config)
     if mask != expected_mask:
         raise ValueError("continuation action_mask_contract conflicts with requested recipe")
-    for name, expected in (
+    contract_pairs = [
         ("reward_contract", pqn_reward_contract(config)),
-        ("target_contract", pqn_target_contract(config)),
-        ("sampler_contract", pqn_sampler_contract(config)),
         ("optimizer_contract", pqn_optimizer_contract(config)),
-    ):
+    ]
+    if lifecycle_compatibility is None:
+        contract_pairs.extend(
+            [
+                ("target_contract", pqn_target_contract(config)),
+                ("sampler_contract", pqn_sampler_contract(config)),
+            ]
+        )
+    for name, expected in contract_pairs:
         raw = checkpoint.get(name)
         if not isinstance(raw, dict) or checkpoint.get(f"{name}_digest") != canonical_digest(raw):
             raise ValueError(f"invalid {name} metadata")
@@ -662,6 +693,9 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         "profile": args.profile or None,
         "kill_scale": args.kill_scale,
         "death_value": args.death_value,
+        "episode_reset_mode": args.episode_reset_mode,
+        "episode_seed_mode": args.episode_seed_mode,
+        "pool_admission_mode": args.pool_admission_mode,
     }
     for key, value in cli_map.items():
         if value is not None:
@@ -1031,6 +1065,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--mechanics-version", type=int, default=None, help="Sim mechanics (blueprint 2)."
     )
     p.add_argument("--seed", type=int, default=None)
+    p.add_argument(
+        "--episode-reset-mode",
+        choices=("batch_barrier_v1", "per_env_autoreset_v1"),
+        default=None,
+        help="Episode reset timing (corrected-v3 experimental modes only).",
+    )
+    p.add_argument(
+        "--episode-seed-mode",
+        choices=("continuous_env_rng_v1", "derived_env_episode_v1"),
+        default=None,
+        help="Environment RNG lifecycle mode (corrected-v3 experimental modes only).",
+    )
+    p.add_argument(
+        "--pool-admission-mode",
+        choices=("scheduled_v1", "disabled_v1"),
+        default=None,
+        help="Frozen-opponent snapshot admission mode.",
+    )
 
     # Logging cadence.
     p.add_argument("--log-every", type=int, default=10, help="Print a row every N updates.")
@@ -1091,18 +1143,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 file=sys.stderr,
             )
 
-    history, tripped = train_loop(
-        trainer,
-        total_steps=args.total_steps,
-        log_every=args.log_every,
-        ckpt_every=args.ckpt_every,
-        out_dir=out_dir,
-        append_history=resume_blob is not None,
-    )
-    _print_curve_summary(history)
-
-    # Exit 2 if a tripwire halted the run (halt-and-flag contract).
-    return 2 if tripped else 0
+    primary_error: Optional[BaseException] = None
+    try:
+        history, tripped = train_loop(
+            trainer,
+            total_steps=args.total_steps,
+            log_every=args.log_every,
+            ckpt_every=args.ckpt_every,
+            out_dir=out_dir,
+            append_history=resume_blob is not None,
+        )
+        _print_curve_summary(history)
+        return 2 if tripped else 0
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        try:
+            trainer.close()
+        except BaseException as cleanup_error:
+            if primary_error is not None:
+                raise primary_error from cleanup_error
+            raise
 
 
 if __name__ == "__main__":

@@ -287,6 +287,9 @@ class PQNOverrides:
     # Selects observation/target semantics, distinct from the timing profiler.
     # None preserves legacy recipe resolution until P1 explicitly selects one.
     recipe: Optional[str] = None
+    episode_reset_mode: Optional[str] = None
+    episode_seed_mode: Optional[str] = None
+    pool_admission_mode: Optional[str] = None
 
 
 @dataclass(frozen=True)

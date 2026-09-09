@@ -82,6 +82,25 @@ def test_v3_checkpoint_continues_only_with_identical_world_and_optimizer(tmp_pat
         train_pqn.load_pqn_resume_checkpoint(str(path), conflicting, mode="continuation")
 
 
+def test_derived_or_per_environment_mode_rejects_optimizer_continuation_before_loading(tmp_path):
+    """Fresh worlds/episodes are intentional: only weights-only may cross this boundary."""
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=2,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        episode_reset_mode="per_env_autoreset_v1",
+        episode_seed_mode="derived_env_episode_v1",
+    )
+    path = tmp_path / "derived.pth"
+    PQNTrainer(config).save_checkpoint(str(path))
+    with pytest.raises(RuntimeError, match="optimizer continuation is unsupported"):
+        train_pqn.load_pqn_resume_checkpoint(str(path), config, mode="continuation")
+    assert train_pqn.load_pqn_resume_checkpoint(str(path), config, mode="weights-only")
+
+
 def test_resume_requires_real_counters_and_optimizer_group_settings(tmp_path):
     config = _config()
     state = PQNTrainer(config).checkpoint_state()

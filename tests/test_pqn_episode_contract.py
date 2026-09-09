@@ -72,7 +72,8 @@ def test_corrected_v3_rejects_alive_empty_successor_mask() -> None:
 def test_corrected_contract_declares_pinned_episode_and_real_death_semantics() -> None:
     """Checkpoint provenance must name the repaired target boundary."""
     contract = pqn_target_contract(_corrected_trainer().cfg)
-    assert contract["version"] == "pqn-qlambda-corrected-v3"
+    assert contract["version"] == "pqn-qlambda-corrected-v3-lifecycle-v1"
+    assert contract["episode_lifecycle_contract_digest"]
     assert contract["death"] == "actual_done_reward_only"
     assert contract["lambda_carry"] == "next_in_rollout_valid_transition_including_death"
     assert contract["inactive_worlds"] == "active_env_mask_freezes_world_rng_and_events"
@@ -162,7 +163,11 @@ def test_fixed_source_actions_and_identity_are_real_rollout_contract_inputs() ->
     assert sampler["episode_pinning"] is False
     assert sampler["pool_mutation"] == "not_applicable_fixed_source"
     assert sampler["snapshot_admission"] == "disabled_fixed_source"
-    assert checkpoint["rollout_policy_source"] == {"mode": "fixed", "identity": policy.identity}
+    assert checkpoint["rollout_policy_source"]["mode"] == "fixed"
+    assert checkpoint["rollout_policy_source"]["identity"] == policy.identity
+    assert checkpoint["rollout_policy_source"]["policy_source_contract_digest"] == checkpoint[
+        "policy_source_contract_digest"
+    ]
 
 
 def test_fixed_source_only_draws_exploration_for_actual_hero_slots() -> None:

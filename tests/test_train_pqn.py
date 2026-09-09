@@ -142,6 +142,9 @@ class FakeTrainer:
     def refresh_numeric_recovery_state(self) -> None:
         self.recovery_refreshes += 1
 
+    def close(self) -> None:
+        """Match the real trainer's CLI cleanup surface."""
+
 
 def _install_trainer(monkeypatch, trip_after=None):
     """Swap the module-global PQNTrainer that ``main`` resolves at call time."""
@@ -317,6 +320,42 @@ class TestBuildConfigPrecedence:
         )
 
         assert made[0].config.flip_augment is False
+
+    def test_lifecycle_cli_modes_override_the_corrected_yaml_control(self, tmp_path, monkeypatch):
+        """The matched control can be selected in YAML and upgraded at the CLI edge."""
+        path = tmp_path / "corrected.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "pqn": {
+                        "recipe": "corrected-v3",
+                        "episode_reset_mode": "batch_barrier_v1",
+                        "episode_seed_mode": "derived_env_episode_v1",
+                    }
+                }
+            )
+        )
+        made = _install_trainer(monkeypatch)
+        train_pqn.main(
+            [
+                "--device",
+                "cpu",
+                "--out-dir",
+                str(tmp_path),
+                "--total-steps",
+                "1",
+                "--config",
+                str(path),
+                "--episode-reset-mode",
+                "per_env_autoreset_v1",
+                "--pool-admission-mode",
+                "disabled_v1",
+            ]
+        )
+        config = made[0].config
+        assert config.episode_reset_mode == "per_env_autoreset_v1"
+        assert config.episode_seed_mode == "derived_env_episode_v1"
+        assert config.pool_admission_mode == "disabled_v1"
 
     def test_sgd_epochs_cli_flag_beats_config_file(self, tmp_path, monkeypatch):
         path = tmp_path / "c.yaml"
