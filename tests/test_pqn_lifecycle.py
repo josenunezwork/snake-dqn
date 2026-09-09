@@ -125,12 +125,11 @@ def _pre_lifecycle_metadata() -> dict[str, Any]:
     sampler = {
         "version": "pqn-sampler-corrected-v3",
         "mode": "minibatch",
+        "minibatches": 1,
+        "minibatch_size": 1,
         "sgd_epochs": None,
         "pad_sgd_batches": False,
         "sgd_seed": None,
-        "eps_start": 1.0,
-        "eps_end": 0.1,
-        "eps_decay_steps": 10,
         "sampling": "independent_permutation_prefix_per_batch",
         "eligible": "valid_transitions_of_rollout_assigned_hero_slots",
         "flip_augment": False,
@@ -174,11 +173,12 @@ def _pre_lifecycle_metadata() -> dict[str, Any]:
         "sampler_contract": sampler,
         "sampler_contract_digest": canonical_digest(sampler),
         "rollout_policy_source": source,
-        "minibatches": 1,
-        "minibatch_size": 1,
         "sgd_epochs": None,
         "pad_sgd_batches": False,
         "sgd_seed": None,
+        "eps_start": 1.0,
+        "eps_end": 0.1,
+        "eps_decay_steps": 10,
     }
     target["reward_digest"] = canonical_digest(metadata["reward_contract"])
     target["action_mask"] = dict(metadata["action_mask_contract"])
