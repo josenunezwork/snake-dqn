@@ -388,7 +388,7 @@ def assign_policy_ids_per_env(
     E, S = policy_ids.shape
     selected = _validate_env_indices(env_indices, E)
     _validate_episode_ids(episode_ids, E)
-    normalized_pool_ids = _validate_pool_ids(pool_ids)
+    normalized_pool_ids = _validate_pool_ids(pool_ids, policy_ids.dtype)
     _validate_probability(hero_frac, "hero_frac")
     normalized_seed = _validate_run_seed(run_seed)
 
@@ -425,9 +425,10 @@ def sample_per_env_exploration(
 
     ``action_rngs[e]`` belongs to the active ``(environment=e, episode)``
     tuple and is owned by the trainer.  This helper never seeds or replaces a
-    generator.  It advances only selected, eligible hero slots, in ascending
-    environment then slot order.  Thus an inactive or reset lane cannot alter
-    a continuing lane's action stream.
+    generator.  Its returned ``eligible`` mask is the effective selected,
+    input-eligible hero subset.  It advances only those slots, in ascending
+    environment then slot order.  Thus an inactive, frozen, or reset lane
+    cannot alter a continuing lane's action stream.
 
     A successful epsilon draw samples a legal action.  Rows with no legal
     action use the existing uniform-all-six fallback.  At ``epsilon == 0`` no
@@ -441,17 +442,18 @@ def sample_per_env_exploration(
     selected = _validate_env_indices(range(E) if env_indices is None else env_indices, E)
     _validate_action_rngs(action_rngs, E)
 
+    selected_mask = np.zeros(E, dtype=bool)
+    selected_mask[list(selected)] = True
+    effective_eligible = eligible & selected_mask[:, None] & (policy_ids == HERO_POLICY_ID)
     explore = np.zeros((E, S), dtype=bool)
     random_actions = np.full((E, S), -1, dtype=np.int64)
     if epsilon == 0.0:
-        return PerEnvExplorationDecisions(epsilon, eligible.copy(), explore, random_actions)
+        return PerEnvExplorationDecisions(epsilon, effective_eligible, explore, random_actions)
 
     for env_index in selected:
         rng = action_rngs[env_index]
         for slot_index in range(S):
-            if not eligible[env_index, slot_index]:
-                continue
-            if policy_ids[env_index, slot_index] != HERO_POLICY_ID:
+            if not effective_eligible[env_index, slot_index]:
                 continue
             if rng.random() >= epsilon:
                 continue
@@ -461,7 +463,7 @@ def sample_per_env_exploration(
                 random_actions[env_index, slot_index] = int(options[rng.integers(options.size)])
             else:
                 random_actions[env_index, slot_index] = int(rng.integers(6))
-    return PerEnvExplorationDecisions(epsilon, eligible.copy(), explore, random_actions)
+    return PerEnvExplorationDecisions(epsilon, effective_eligible, explore, random_actions)
 
 
 def _validate_policy_id_grid(policy_ids: np.ndarray) -> None:
@@ -471,6 +473,8 @@ def _validate_policy_id_grid(policy_ids: np.ndarray) -> None:
         raise ValueError("policy_ids must use a signed integer dtype")
     if policy_ids.shape[0] <= 0 or policy_ids.shape[1] <= 0:
         raise ValueError("policy_ids must have positive environment and slot dimensions")
+    if np.any(policy_ids < HERO_POLICY_ID):
+        raise ValueError("policy_ids must use HERO_POLICY_ID or non-negative frozen policy ids")
 
 
 def _validate_env_indices(env_indices: Sequence[int], num_envs: int) -> Tuple[int, ...]:
@@ -496,14 +500,15 @@ def _validate_episode_ids(episode_ids: np.ndarray, num_envs: int) -> None:
         raise ValueError("episode_ids must be a uint64 NumPy array with one id per environment")
 
 
-def _validate_pool_ids(pool_ids: Sequence[int]) -> List[int]:
+def _validate_pool_ids(pool_ids: Sequence[int], policy_dtype: np.dtype) -> List[int]:
     normalized: List[int] = []
+    max_policy_id = np.iinfo(policy_dtype).max
     for value in pool_ids:
         if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
             raise ValueError("pool_ids must contain signed integer policy ids")
         policy_id = int(value)
-        if policy_id == HERO_POLICY_ID:
-            raise ValueError("pool_ids must not contain HERO_POLICY_ID")
+        if policy_id < 0 or policy_id > max_policy_id:
+            raise ValueError("pool_ids must fit the policy_ids signed integer dtype")
         normalized.append(policy_id)
     if len(set(normalized)) != len(normalized):
         raise ValueError("pool_ids must be unique")
@@ -533,10 +538,26 @@ def _validate_bool_array(value: np.ndarray, shape: Tuple[int, ...], name: str) -
 
 
 def _validate_action_rngs(action_rngs: Mapping[int, np.random.Generator], num_envs: int) -> None:
-    if set(action_rngs) != set(range(num_envs)):
+    normalized_keys: List[int] = []
+    for key in action_rngs:
+        if isinstance(key, (bool, np.bool_)) or not isinstance(key, (int, np.integer)):
+            raise ValueError("action_rngs keys must be integer environment indices")
+        index = int(key)
+        if index < 0 or index >= num_envs:
+            raise ValueError("action_rngs keys must be in the environment index range")
+        normalized_keys.append(index)
+    if len(set(normalized_keys)) != len(normalized_keys) or set(normalized_keys) != set(
+        range(num_envs)
+    ):
         raise ValueError("action_rngs must map every environment index exactly once")
     if not all(isinstance(action_rngs[index], np.random.Generator) for index in range(num_envs)):
         raise ValueError("action_rngs values must be NumPy Generator instances")
+    generators = [action_rngs[index] for index in range(num_envs)]
+    if (
+        len({id(generator) for generator in generators}) != num_envs
+        or len({id(generator.bit_generator) for generator in generators}) != num_envs
+    ):
+        raise ValueError("action_rngs must not share Generator or bit-generator instances")
 
 
 def _validate_exploration_decisions(
@@ -563,6 +584,12 @@ def _validate_exploration_decisions(
         raise ValueError("exploration.random_actions must be a signed integer (E, S) array")
     if np.any(decisions.explore & ~decisions.eligible):
         raise ValueError("exploration may only apply to eligible slots")
+    if np.any(decisions.eligible & (policy_ids != HERO_POLICY_ID)):
+        raise ValueError("exploration eligibility may only name hero slots")
+    if epsilon == 0.0 and np.any(decisions.explore):
+        raise ValueError("exploration cannot contain draws when epsilon is zero")
+    if epsilon == 1.0 and not np.array_equal(decisions.explore, decisions.eligible):
+        raise ValueError("epsilon-one exploration must cover every eligible slot")
     if np.any(decisions.explore & (policy_ids != HERO_POLICY_ID)):
         raise ValueError("exploration may only apply to hero slots")
     if np.any((~decisions.explore) & (decisions.random_actions != -1)):
