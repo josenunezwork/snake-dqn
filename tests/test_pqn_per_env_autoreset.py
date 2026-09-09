@@ -160,7 +160,9 @@ def test_preload_requires_pre_episode_identity_and_records_realized_snapshot_has
     source = checkpoint["policy_source_contract"]
     assert source["initial_opponent_checkpoint_sha256"] == source_hash
     assert source["initial_opponent_snapshot_state_sha256"] == trainer.pool.snapshot_hash(policy_id)
-    assert checkpoint["sampler_contract"]["policy_source_contract_digest"] == canonical_digest(source)
+    assert checkpoint["sampler_contract"]["policy_source_contract_digest"] == canonical_digest(
+        source
+    )
     assert rollout["policy_identities"][str(policy_id)] == (
         f"snapshot:{policy_id}:{trainer.pool.snapshot_hash(policy_id)}"
     )
@@ -242,6 +244,7 @@ def test_precomputed_derived_actions_only_eligible_original_hero_slots(monkeypat
 
 def test_derived_fixed_policy_source_uses_its_declared_identity_without_a_lane_lease():
     """Fixed sources deliberately have no pool lease, including in derived mode."""
+
     class FixedPolicy:
         identity = "fixed:derived:test"
 

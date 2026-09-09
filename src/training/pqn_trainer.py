@@ -70,22 +70,22 @@ from src.model.raster_network import (
 from src.simd_env.batch_sim import BatchSim, BatchSimConfig
 from src.simd_env.featurizer import build_observations, obs_inputs_from_batch_sim
 from src.simd_env.gpu_featurizer import build_observations_gpu, obs_inputs_to_torch
-from src.training.pqn_selfplay import (
-    HERO_POLICY_ID,
-    OpponentLease,
-    OpponentPool,
-    PinnedOpponentPool,
-    PerEnvExplorationDecisions,
-    assign_policy_ids,
-    assign_policy_ids_per_env,
-    batched_act,
-    sample_per_env_exploration,
-)
 from src.training.pqn_lifecycle import (
     EPISODE_RESET_PER_ENV_AUTORESET,
     EPISODE_SEED_DERIVED,
     POOL_ADMISSION_DISABLED,
     build_pqn_episode_lifecycle_contract,
+)
+from src.training.pqn_selfplay import (
+    HERO_POLICY_ID,
+    OpponentLease,
+    OpponentPool,
+    PerEnvExplorationDecisions,
+    PinnedOpponentPool,
+    assign_policy_ids,
+    assign_policy_ids_per_env,
+    batched_act,
+    sample_per_env_exploration,
 )
 from src.training.rollout_policies import FixedPolicySource
 
@@ -280,17 +280,23 @@ class PQNConfig:
         if self.episode_reset_mode == "per_env_autoreset_v1" and (
             self.recipe != "corrected-v3" or self.episode_seed_mode != "derived_env_episode_v1"
         ):
-            raise ValueError("per_env_autoreset_v1 requires corrected-v3 and derived_env_episode_v1")
+            raise ValueError(
+                "per_env_autoreset_v1 requires corrected-v3 and derived_env_episode_v1"
+            )
         if self.initial_opponent_checkpoint_sha256 is not None:
             value = self.initial_opponent_checkpoint_sha256
             if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
-                raise ValueError("initial_opponent_checkpoint_sha256 must be 64 lowercase hex characters")
+                raise ValueError(
+                    "initial_opponent_checkpoint_sha256 must be 64 lowercase hex characters"
+                )
             if (
                 self.recipe != "corrected-v3"
                 or self.rollout_policy_mode != "snapshot_pool"
                 or self.pool_capacity < 1
             ):
-                raise ValueError("initial opponent checkpoint requires corrected-v3 snapshot pool capacity >= 1")
+                raise ValueError(
+                    "initial opponent checkpoint requires corrected-v3 snapshot pool capacity >= 1"
+                )
         if self.rollout_policy_mode not in {"snapshot_pool", "fixed"}:
             raise ValueError("rollout_policy_mode must be 'snapshot_pool' or 'fixed'")
         if self.rollout_policy_mode == "fixed" and self.recipe != "corrected-v3":
@@ -766,7 +772,10 @@ class PQNTrainer:
         )
         derived_episode_rng = config.episode_seed_mode == EPISODE_SEED_DERIVED
         initial_world_seeds = (
-            [derive_seed(config.seed, f"pqn/world/env/{env}/episode/0") for env in range(config.num_envs)]
+            [
+                derive_seed(config.seed, f"pqn/world/env/{env}/episode/0")
+                for env in range(config.num_envs)
+            ]
             if derived_episode_rng
             else [config.seed + env for env in range(config.num_envs)]
         )
@@ -872,7 +881,9 @@ class PQNTrainer:
                     raise RuntimeError("derived policy row names an identity outside its lease")
                 previous = identities.setdefault(str(policy_id), identity)
                 if previous != identity:
-                    raise RuntimeError("derived policy identity disagrees across active lane leases")
+                    raise RuntimeError(
+                        "derived policy identity disagrees across active lane leases"
+                    )
         return identities
 
     def _episode_policy_identities(self) -> Dict[str, str]:
@@ -939,9 +950,13 @@ class PQNTrainer:
             self._last_reset_env_indices = np.empty(0, dtype=np.int64)
             return 0
         selected_indices = [int(value) for value in selected]
-        completed_now = self.sim.population_floor_reached() | (self.sim.frame >= self.cfg.max_frames)
+        completed_now = self.sim.population_floor_reached() | (
+            self.sim.frame >= self.cfg.max_frames
+        )
         if not bool(completed_now[selected].all()):
-            raise RuntimeError("pending per-environment reset lane is not at a completed final state")
+            raise RuntimeError(
+                "pending per-environment reset lane is not at a completed final state"
+            )
         for env in selected_indices:
             lease = self._episode_leases[env]
             if lease is not None:
@@ -958,7 +973,9 @@ class PQNTrainer:
             self._episode_world_seeds[env] = np.uint64(seed)
             assert self._action_rngs is not None
             self._action_rngs[env] = np.random.default_rng(
-                derive_seed(self.cfg.seed, f"pqn/action/env/{env}/episode/{int(self._episode_ids[env])}")
+                derive_seed(
+                    self.cfg.seed, f"pqn/action/env/{env}/episode/{int(self._episode_ids[env])}"
+                )
             )
         self._assign_episode_rows(selected_indices)
         self._episode_finished_env[selected] = False
@@ -997,7 +1014,9 @@ class PQNTrainer:
             or bool(self.sim.frame.any())
             or any(lease is not None for lease in self._episode_leases)
         ):
-            raise RuntimeError("initial opponent preload is only valid before episode-zero assignment")
+            raise RuntimeError(
+                "initial opponent preload is only valid before episode-zero assignment"
+            )
         policy_id = self.pool.add_snapshot(source_network)
         if policy_id is None:
             raise RuntimeError("initial opponent snapshot could not be admitted")
@@ -1978,9 +1997,13 @@ class PQNTrainer:
                 episode_reset_mode=cfg.episode_reset_mode,
                 episode_seed_mode=cfg.episode_seed_mode,
                 episode_ids=[int(value) for value in np.asarray(roll["episode_ids"])],
-                episode_reset_counts=[int(value) for value in np.asarray(roll["episode_reset_counts"])],
+                episode_reset_counts=[
+                    int(value) for value in np.asarray(roll["episode_reset_counts"])
+                ],
                 reset_env_indices=[int(value) for value in np.asarray(roll["reset_env_indices"])],
-                episode_world_seeds=[int(value) for value in np.asarray(roll["episode_world_seeds"])],
+                episode_world_seeds=[
+                    int(value) for value in np.asarray(roll["episode_world_seeds"])
+                ],
                 episode_policy_ids=np.asarray(roll["policy_ids"], dtype=np.int64).tolist(),
                 episode_policy_identities=dict(roll["policy_identities"]),
             )
@@ -2075,9 +2098,7 @@ class PQNTrainer:
             hero_terminal=True,
             population_floor=self.cfg.mechanics_version == 2 and self.cfg.num_snakes >= 3,
             reset_strategy=(
-                "per_env_rollout_boundary"
-                if self._uses_per_env_autoreset
-                else "batch_episode"
+                "per_env_rollout_boundary" if self._uses_per_env_autoreset else "batch_episode"
             ),
         )
         mask_contract = pqn_action_mask_contract(self.cfg)
@@ -2157,7 +2178,9 @@ class PQNTrainer:
                     "episode_reset_mode": self.cfg.episode_reset_mode,
                     "episode_seed_mode": self.cfg.episode_seed_mode,
                     "pool_admission_mode": self.cfg.pool_admission_mode,
-                    "initial_opponent_checkpoint_sha256": self.cfg.initial_opponent_checkpoint_sha256,
+                    "initial_opponent_checkpoint_sha256": (
+                        self.cfg.initial_opponent_checkpoint_sha256
+                    ),
                     "episode_ids": np.asarray(self._episode_ids, dtype=np.uint64).copy(),
                     "episode_reset_counts": self._episode_reset_counts.copy(),
                     "episode_world_seeds": self._episode_world_seeds.copy(),

@@ -72,6 +72,10 @@ from src.model.obs_spec import (  # noqa: E402
     RASTER31V3_CONTRACT,
 )
 from src.training.checkpoint_contract import validate_checkpoint_contract  # noqa: E402
+from src.training.pqn_lifecycle import (  # noqa: E402
+    build_pqn_episode_lifecycle_contract,
+    validate_pqn_episode_lifecycle_metadata,
+)
 from src.training.pqn_trainer import (  # noqa: E402
     PQNConfig,
     PQNPerEnvTelemetry,
@@ -84,10 +88,6 @@ from src.training.pqn_trainer import (  # noqa: E402
     pqn_sampler_contract,
     pqn_target_contract,
     validate_checkpoint_numeric_state,
-)
-from src.training.pqn_lifecycle import (  # noqa: E402
-    build_pqn_episode_lifecycle_contract,
-    validate_pqn_episode_lifecycle_metadata,
 )
 
 # A --config file carries a flat ``pqn:`` block plus a few shared ``game:``/
@@ -307,7 +307,9 @@ def validate_pqn_resume_checkpoint_config(
         expected_lifecycle = build_pqn_episode_lifecycle_contract(
             config.episode_reset_mode, config.episode_seed_mode
         )
-        if lifecycle.compatibility is None and lifecycle.digest != canonical_digest(expected_lifecycle):
+        if lifecycle.compatibility is None and lifecycle.digest != canonical_digest(
+            expected_lifecycle
+        ):
             raise ValueError("continuation episode lifecycle conflicts with requested PQN mode")
         if lifecycle.compatibility is not None and (
             config.episode_reset_mode != "batch_barrier_v1"
@@ -394,9 +396,7 @@ def validate_pqn_resume_checkpoint_config(
         old_sampler["version"] = "pqn-sampler-corrected-v3"
         old_sampler.pop("episode_lifecycle_contract_digest", None)
         old_sampler.pop("policy_source_contract_digest", None)
-        contract_pairs.extend(
-            [("target_contract", old_target), ("sampler_contract", old_sampler)]
-        )
+        contract_pairs.extend([("target_contract", old_target), ("sampler_contract", old_sampler)])
     for name, expected in contract_pairs:
         raw = checkpoint.get(name)
         if not isinstance(raw, dict) or checkpoint.get(f"{name}_digest") != canonical_digest(raw):
@@ -1208,10 +1208,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if primary_error is not None:
                 raise primary_error from cleanup_error
             if "tripped" in locals() and tripped:
-                print(f"[train_pqn] cleanup failed after tripwire: {cleanup_error}", file=sys.stderr)
+                print(
+                    f"[train_pqn] cleanup failed after tripwire: {cleanup_error}", file=sys.stderr
+                )
                 incidents_dir = out_dir / "incidents"
                 incidents_dir.mkdir(parents=True, exist_ok=True)
-                with (incidents_dir / "cleanup_after_tripwire.json").open("w", encoding="utf-8") as fh:
+                with (incidents_dir / "cleanup_after_tripwire.json").open(
+                    "w", encoding="utf-8"
+                ) as fh:
                     json.dump(
                         {
                             "class": "tripwire_cleanup_failure",
