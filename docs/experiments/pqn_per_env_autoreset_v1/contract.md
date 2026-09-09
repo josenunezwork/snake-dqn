@@ -488,18 +488,24 @@ canonical digests, and supported versions. It then enforces all of these crossli
 returning:
 
 - runtime reset strategy equals the lifecycle reset mode's closed mapping;
+- top-level `episode_reset_mode` and `episode_seed_mode` equal the lifecycle values;
 - target and sampler carry the lifecycle digest, and sampler carries the policy-source
   digest;
 - policy source carries the lifecycle digest and its reset-dependent assignment/lease
   lifetimes agree with the lifecycle descriptor;
+- top-level `pool_admission_mode` and `initial_opponent_checkpoint_sha256` equal the
+  policy-source values, and B3T continuation additionally requires all four values to equal
+  the resolved requested configuration;
 - each realized rollout-policy-source record carries the same policy-source digest;
 - `RunProvenance.from_metadata()` succeeds and its runtime, target, and sampler digests
   equal the corresponding verified top-level digests.
 
-Validation is read-only and completes before trainer continuation, inference loading, or
-serving world construction. B3T calls it for new and pre-lifecycle corrected-v3
-continuation. B3S calls the same helper when opening candidate checkpoint bytes; neither
-consumer reimplements or partially applies these formulas.
+Validation is read-only and completes before trainer continuation and before GameSession or
+strict-consumer policy/world construction. B3T calls it for new and pre-lifecycle
+corrected-v3 continuation. B3S calls the same helper when opening candidate checkpoint
+bytes; neither consumer reimplements or partially applies these formulas. Standalone
+`InferenceAgent` remains lifecycle-independent and continues to validate only observation
+and model-head identity.
 
 Implement an explicit adapter for a corrected-v3 checkpoint that has no lifecycle descriptor only
 when all of these raw facts match the known corrected-v3 legacy schema: verified original
@@ -630,10 +636,11 @@ unchanged in the default mode. Existing scalar `episode_reset_count` remains the
 rollout boundaries at which a reset occurred; the new array is authoritative for per-lane
 counts. Document `completed_episodes` as newly completed environments, matching source.
 
-Checkpoint metadata includes the lifecycle descriptor/digest, modes, observed episode IDs
-and reset counts, current seed identities, assignment identities, policy-source identity,
-and `restorable_environment_state=false`. These observed fields establish lineage and are
-not consumed as exact resume state.
+Checkpoint metadata includes the lifecycle descriptor/digest, top-level reset/seed/pool
+admission modes, top-level initial checkpoint identity, observed episode IDs and reset
+counts, current seed identities, assignment identities, policy-source identity, and
+`restorable_environment_state=false`. These observed fields establish lineage and are not
+consumed as exact resume state.
 
 ### Serving and strict-consumer acceptance
 
