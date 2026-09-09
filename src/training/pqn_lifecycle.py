@@ -8,6 +8,7 @@ load weights, select a device, or mutate the checkpoint mapping.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
@@ -64,6 +65,18 @@ _POLICY_SOURCE_KEYS = frozenset(
         "initial_opponent_model_head_digest",
         "initial_opponent_snapshot_state_sha256",
         "episode_lifecycle_contract_digest",
+    }
+)
+_NATIVE_MARKERS = frozenset(
+    {
+        "episode_lifecycle_contract",
+        "episode_lifecycle_contract_digest",
+        "policy_source_contract",
+        "policy_source_contract_digest",
+        "episode_reset_mode",
+        "episode_seed_mode",
+        "pool_admission_mode",
+        "initial_opponent_checkpoint_sha256",
     }
 )
 _OLD_TARGET_KEYS = frozenset(
@@ -133,9 +146,13 @@ class ValidatedPQNLifecycle:
     compatibility: Optional[Mapping[str, Any]]
 
 
-def _immutable(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
+def _immutable(value: Any) -> Any:
     """Copy a descriptor into a read-only mapping for read-only validation."""
-    return MappingProxyType(dict(mapping))
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _immutable(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_immutable(item) for item in value)
+    return value
 
 
 def _exact_mapping(value: object, keys: frozenset[str], name: str) -> dict[str, Any]:
@@ -171,6 +188,15 @@ def _required_digest(metadata: Mapping[str, Any], name: str, descriptor: Mapping
     if not _is_sha256(value) or value != expected:
         raise ValueError(f"{name} does not match its descriptor")
     return value
+
+
+def _finite_probability(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{name} must be a finite probability")
+    numeric = float(value)
+    if not 0.0 <= numeric <= 1.0:
+        raise ValueError(f"{name} must be in [0, 1]")
+    return numeric
 
 
 def build_pqn_episode_lifecycle_contract(
@@ -332,7 +358,22 @@ def _validate_common_crosslinks(
         if metadata.get(name) != policy_source[name]:
             raise ValueError(f"top-level {name} does not match policy_source_contract")
     realized = metadata.get("rollout_policy_source")
-    if not isinstance(realized, Mapping) or realized.get("policy_source_contract_digest") != policy_source_digest:
+    if not isinstance(realized, Mapping) or set(realized) != {
+        "mode",
+        "identity",
+        "policy_source_contract_digest",
+    }:
+        raise ValueError("rollout_policy_source has an invalid key set")
+    expected_identity = (
+        policy_source["fixed_policy_identity"]
+        if policy_source["rollout_policy_mode"] == "fixed"
+        else "episode-assigned"
+    )
+    if (
+        realized.get("mode") != policy_source["rollout_policy_mode"]
+        or realized.get("identity") != expected_identity
+        or realized.get("policy_source_contract_digest") != policy_source_digest
+    ):
         raise ValueError("rollout_policy_source does not bind policy_source_contract")
     try:
         provenance = RunProvenance.from_metadata(metadata)
@@ -349,7 +390,9 @@ def _validate_common_crosslinks(
 def _validate_native(metadata: Mapping[str, Any]) -> ValidatedPQNLifecycle:
     if metadata.get("recipe") != "corrected-v3":
         raise ValueError("native PQN lifecycle metadata requires recipe='corrected-v3'")
-    lifecycle, expected_digest = _validate_lifecycle_descriptor(metadata.get("episode_lifecycle_contract"))
+    lifecycle, expected_digest = _validate_lifecycle_descriptor(
+        metadata.get("episode_lifecycle_contract")
+    )
     digest = _required_digest(metadata, "episode_lifecycle_contract_digest", lifecycle)
     if digest != expected_digest:
         raise ValueError("episode_lifecycle_contract_digest does not match lifecycle contract")
@@ -380,8 +423,17 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
     runtime_digest = _required_digest(metadata, "runtime_contract_digest", runtime)
     target_digest = _required_digest(metadata, "target_contract_digest", target)
     sampler_digest = _required_digest(metadata, "sampler_contract_digest", sampler)
+    if set(runtime) != {
+        "mode", "training", "respawn", "hero_terminal", "population_floor", "reset_strategy"
+    }:
+        raise ValueError("pre-lifecycle runtime_contract has an invalid key set")
     if (
-        runtime.get("reset_strategy") != RESET_STRATEGY_BATCH_EPISODE
+        runtime.get("mode") != "pqn_train"
+        or runtime.get("training") is not True
+        or runtime.get("respawn") is not False
+        or runtime.get("hero_terminal") is not True
+        or not isinstance(runtime.get("population_floor"), bool)
+        or runtime.get("reset_strategy") != RESET_STRATEGY_BATCH_EPISODE
         or target.get("version") != "pqn-qlambda-corrected-v3"
         or sampler.get("version") != "pqn-sampler-corrected-v3"
     ):
@@ -410,7 +462,23 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
         raise ValueError("pre-lifecycle target_contract is not the known corrected-v3 contract")
     if not isinstance(target["population_floor"], bool):
         raise ValueError("pre-lifecycle target_contract population_floor is invalid")
-    if not isinstance(target["action_mask"], Mapping) or not _is_sha256(target["reward_digest"]):
+    if target["population_floor"] is not runtime["population_floor"]:
+        raise ValueError("pre-lifecycle target_contract population floor conflicts with runtime")
+    gamma = _finite_probability(target["gamma"], "pre-lifecycle target gamma")
+    lambda_ = _finite_probability(target["lambda"], "pre-lifecycle target lambda")
+    if metadata.get("gamma") != gamma or metadata.get("lambda") != lambda_:
+        raise ValueError("pre-lifecycle target gamma/lambda conflict with top-level metadata")
+    reward = metadata.get("reward_contract")
+    mask = metadata.get("action_mask_contract")
+    if (
+        not isinstance(reward, Mapping)
+        or not isinstance(mask, Mapping)
+        or not _is_sha256(target["reward_digest"])
+        or target["reward_digest"] != canonical_digest(reward)
+        or target["action_mask"] != dict(mask)
+        or metadata.get("reward_contract_digest") != canonical_digest(reward)
+        or metadata.get("action_mask_contract_digest") != canonical_digest(mask)
+    ):
         raise ValueError("pre-lifecycle target_contract is incomplete")
     if sampler["assignment_lifetime"] != "batch_episode":
         raise ValueError("pre-lifecycle sampler assignment lifetime is invalid")
@@ -426,6 +494,8 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
             "pool_mutation": "not_applicable_fixed_source",
             "snapshot_admission": "disabled_fixed_source",
             "policy_assignment": "common_fixed_policy_for_nonhero_slots",
+            "requested_pool_capacity": sampler["requested_pool_capacity"],
+            "requested_pool_add_interval": sampler["requested_pool_add_interval"],
         }
     else:
         expected_sampler = {
@@ -435,9 +505,77 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
             "pool_mutation": "admission_deferred_when_all_snapshots_pinned",
             "snapshot_admission": "after_sgd_positive_update_index_divisible_by_interval",
             "policy_assignment": "episode_pinned_bernoulli_hero_else_immutable_snapshot_pool",
+            "requested_pool_capacity": None,
+            "requested_pool_add_interval": None,
         }
     if any(sampler[name] != value for name, value in expected_sampler.items()):
         raise ValueError("pre-lifecycle sampler_contract is not the known corrected-v3 contract")
+    if (
+        sampler["mode"]
+        != ("minibatch" if sampler["sgd_epochs"] is None else "exact_coverage")
+        or sampler["sampling"]
+        != (
+            "independent_permutation_prefix_per_batch"
+            if sampler["sgd_epochs"] is None
+            else "per_epoch_permutation_balanced_array_split"
+        )
+        or sampler["eligible"] != "valid_transitions_of_rollout_assigned_hero_slots"
+        or sampler["augmentation"]
+        != (
+            "disabled"
+            if sampler["flip_augment"] is False
+            else "legacy_horizontal_flip_per_minibatch_probability_0.5"
+        )
+        or sampler["sgd_rng"]
+        != ("shared_with_rollout" if sampler["sgd_seed"] is None else "independent_seed")
+        or not isinstance(sampler["flip_augment"], bool)
+        or not isinstance(sampler["pad_sgd_batches"], bool)
+        or any(
+            isinstance(sampler[name], bool)
+            or not isinstance(sampler[name], int)
+            or sampler[name] <= 0
+            for name in ("minibatches", "minibatch_size", "num_envs", "num_snakes", "rollout_len")
+        )
+        or not isinstance(sampler["exploration"], Mapping)
+    ):
+        raise ValueError("pre-lifecycle sampler_contract has invalid known semantics")
+    _finite_probability(sampler["hero_frac"], "pre-lifecycle sampler hero_frac")
+    if sampler["forced_hero_slot"] != 0:
+        raise ValueError("pre-lifecycle sampler forced hero slot is invalid")
+    if source["mode"] == "snapshot_pool" and (
+        isinstance(sampler["pool_capacity"], bool)
+        or not isinstance(sampler["pool_capacity"], int)
+        or sampler["pool_capacity"] < 1
+        or isinstance(sampler["pool_add_interval"], bool)
+        or not isinstance(sampler["pool_add_interval"], int)
+        or sampler["pool_add_interval"] < 1
+    ):
+        raise ValueError("pre-lifecycle snapshot pool parameters are invalid")
+    expected_exploration_keys = {"policy", "clock", "start", "end", "decay_steps"}
+    if set(sampler["exploration"]) != expected_exploration_keys:
+        raise ValueError("pre-lifecycle exploration descriptor has an invalid key set")
+    if (
+        sampler["exploration"]["policy"]
+        != "hero_only_epsilon_greedy_constant_within_rollout"
+        or sampler["exploration"]["clock"] != "valid_hero_agent_steps"
+        or _finite_probability(sampler["exploration"]["start"], "pre-lifecycle epsilon start")
+        != sampler["exploration"]["start"]
+        or _finite_probability(sampler["exploration"]["end"], "pre-lifecycle epsilon end")
+        != sampler["exploration"]["end"]
+        or isinstance(sampler["exploration"]["decay_steps"], bool)
+        or not isinstance(sampler["exploration"]["decay_steps"], int)
+        or sampler["exploration"]["decay_steps"] <= 0
+    ):
+        raise ValueError("pre-lifecycle exploration descriptor is invalid")
+    for name in ("sgd_epochs", "sgd_seed"):
+        value = sampler[name]
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+        ):
+            raise ValueError(f"pre-lifecycle sampler {name} is invalid")
+    for name in ("minibatches", "minibatch_size", "sgd_epochs", "pad_sgd_batches", "sgd_seed"):
+        if metadata.get(name) != sampler[name]:
+            raise ValueError(f"pre-lifecycle sampler {name} conflicts with top-level metadata")
     source_digest = canonical_digest(source)
     try:
         provenance = RunProvenance.from_metadata(metadata)
@@ -490,6 +628,8 @@ def validate_pqn_episode_lifecycle_metadata(
     has_lifecycle = "episode_lifecycle_contract" in metadata
     if has_lifecycle:
         return _validate_native(metadata)
+    if _NATIVE_MARKERS & set(metadata):
+        raise ValueError("partial native PQN lifecycle metadata cannot use the legacy adapter")
     if not allow_corrected_v3_adapter:
         raise ValueError("PQN checkpoint lacks native episode lifecycle metadata")
     return _validate_legacy_adapter(metadata)

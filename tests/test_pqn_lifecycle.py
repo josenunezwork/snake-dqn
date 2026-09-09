@@ -152,10 +152,20 @@ def _pre_lifecycle_metadata() -> dict[str, Any]:
         "pool_mutation": "admission_deferred_when_all_snapshots_pinned",
         "rollout_policy_source": source,
         "snapshot_admission": "after_sgd_positive_update_index_divisible_by_interval",
-        "exploration": {"policy": "fixture"},
+        "exploration": {
+            "policy": "hero_only_epsilon_greedy_constant_within_rollout",
+            "clock": "valid_hero_agent_steps",
+            "start": 1.0,
+            "end": 0.1,
+            "decay_steps": 10,
+        },
     }
     metadata: dict[str, Any] = {
         "recipe": "corrected-v3",
+        "gamma": 0.99,
+        "lambda": 0.95,
+        "reward_contract": {"version": "fixture-reward"},
+        "action_mask_contract": {"version": "fixture"},
         "runtime_contract": runtime.__dict__,
         "runtime_contract_digest": runtime.digest,
         "target_contract": target,
@@ -163,7 +173,17 @@ def _pre_lifecycle_metadata() -> dict[str, Any]:
         "sampler_contract": sampler,
         "sampler_contract_digest": canonical_digest(sampler),
         "rollout_policy_source": source,
+        "minibatches": 1,
+        "minibatch_size": 1,
+        "sgd_epochs": None,
+        "pad_sgd_batches": False,
+        "sgd_seed": None,
     }
+    target["reward_digest"] = canonical_digest(metadata["reward_contract"])
+    target["action_mask"] = dict(metadata["action_mask_contract"])
+    metadata["target_contract_digest"] = canonical_digest(target)
+    metadata["reward_contract_digest"] = canonical_digest(metadata["reward_contract"])
+    metadata["action_mask_contract_digest"] = canonical_digest(metadata["action_mask_contract"])
     _provenance(metadata)
     return metadata
 
@@ -213,3 +233,23 @@ def test_complete_corrected_v3_pre_lifecycle_metadata_adapts_without_rewriting_s
     _provenance(metadata)
     with pytest.raises(ValueError, match="known corrected-v3"):
         validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=True)
+
+
+def test_partial_native_metadata_cannot_downgrade_to_the_legacy_adapter() -> None:
+    metadata = _pre_lifecycle_metadata()
+    metadata["episode_seed_mode"] = "continuous_env_rng_v1"
+
+    with pytest.raises(ValueError, match="partial native"):
+        validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=True)
+
+
+def test_native_returned_descriptor_does_not_share_nested_mutable_state() -> None:
+    metadata = _native_metadata()
+    result = validate_pqn_episode_lifecycle_metadata(
+        metadata, allow_corrected_v3_adapter=False
+    )
+    metadata["episode_lifecycle_contract"]["completion"]["frame_cap"] = "forged"
+
+    assert result.descriptor["completion"]["frame_cap"] == "done_false_final_successor_bootstrap"
+    with pytest.raises(TypeError):
+        result.descriptor["completion"]["frame_cap"] = "forged"
