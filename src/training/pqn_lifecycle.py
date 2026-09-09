@@ -466,7 +466,9 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
         raise ValueError("pre-lifecycle target_contract population floor conflicts with runtime")
     gamma = _finite_probability(target["gamma"], "pre-lifecycle target gamma")
     lambda_ = _finite_probability(target["lambda"], "pre-lifecycle target lambda")
-    if metadata.get("gamma") != gamma or metadata.get("lambda") != lambda_:
+    top_gamma = _finite_probability(metadata.get("gamma"), "pre-lifecycle top-level gamma")
+    top_lambda = _finite_probability(metadata.get("lambda"), "pre-lifecycle top-level lambda")
+    if top_gamma != gamma or top_lambda != lambda_:
         raise ValueError("pre-lifecycle target gamma/lambda conflict with top-level metadata")
     reward = metadata.get("reward_contract")
     mask = metadata.get("action_mask_contract")
