@@ -5,6 +5,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from collections.abc import Mapping
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
@@ -14,7 +16,6 @@ import torch
 from src.core.runtime_contract import (
     EffectiveWorldConfig,
     ModelHeadContract,
-    RunProvenance,
     RuntimeModeContract,
     canonical_digest,
 )
@@ -42,6 +43,7 @@ from src.evaluation.strict_promotion import (
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3, RASTER31V3_CONTRACT
 from src.model.raster_network import RasterDuelingNetwork
 from src.scripts.eval_stats import PAIRED_DELTA_PILOT_METHOD
+from tests.pqn_lifecycle_fixtures import corrected_v3_pre_lifecycle_metadata
 from web.backend.session import V3_ACTION_MASK_CONTRACT, _deployment_target_manifest
 
 
@@ -83,6 +85,14 @@ def _world_identity(row: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _plain_contract_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _plain_contract_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_contract_value(item) for item in value]
+    return value
+
+
 def _promotion_world() -> EffectiveWorldConfig:
     return EffectiveWorldConfig(
         width=400,
@@ -103,10 +113,42 @@ def _promotion_world() -> EffectiveWorldConfig:
         max_capacity=400,
         kill_scale=0.3,
         death_value=-3.0,
-        normalization={"max_frames": 5000, "starvation_max": 500, "max_length": 100},
+        normalization={"max_frames": 5000.0, "starvation_max": 500.0, "max_length": 100.0},
     )
 
 
+def _candidate_contracts_from_metadata(checkpoint: dict[str, object]) -> dict[str, object]:
+    from src.training.pqn_lifecycle import validate_pqn_episode_lifecycle_metadata
+
+    lifecycle = validate_pqn_episode_lifecycle_metadata(
+        checkpoint,
+        allow_corrected_v3_adapter=True,
+    )
+    return {
+        "model_head_digest": checkpoint["model_head_digest"],
+        "run_provenance_digest": checkpoint["run_provenance_digest"],
+        "effective_world_digest": checkpoint["effective_world_digest"],
+        "source_runtime": {
+            "descriptor": copy.deepcopy(checkpoint["runtime_contract"]),
+            "digest": checkpoint["runtime_contract_digest"],
+        },
+        "episode_lifecycle": {
+            "descriptor": _plain_contract_value(lifecycle.descriptor),
+            "digest": lifecycle.digest,
+            "compatibility": (
+                None
+                if lifecycle.compatibility is None
+                else _plain_contract_value(lifecycle.compatibility)
+            ),
+        },
+        "policy_source": {
+            "descriptor": _plain_contract_value(lifecycle.policy_source_descriptor),
+            "digest": lifecycle.policy_source_digest,
+        },
+    }
+
+
+@lru_cache(maxsize=1)
 def _actual_candidate_payload() -> tuple[bytes, dict[str, object]]:
     """Create a real raster31v3 checkpoint and its frozen serving identities."""
     world = _promotion_world()
@@ -119,18 +161,6 @@ def _actual_candidate_payload() -> tuple[bytes, dict[str, object]]:
         reset_strategy="batch_episode",
     )
     head = ModelHeadContract("pqn", "dueling_q", 6)
-    provenance = RunProvenance(
-        effective_seed=7,
-        observation_digest=RASTER31V3_CONTRACT.digest,
-        world_digest=world.digest,
-        runtime_digest=runtime.digest,
-        reward_digest="reward",
-        target_digest="target",
-        sampler_digest="sampler",
-        optimizer_digest="optimizer",
-        model_head_digest=head.digest,
-        source_revision="strict-artifact-test",
-    )
     world_descriptor = {
         "width": world.width,
         "height": world.height,
@@ -175,16 +205,64 @@ def _actual_candidate_payload() -> tuple[bytes, dict[str, object]]:
         "runtime_contract_digest": runtime.digest,
         "action_mask_contract": copy.deepcopy(V3_ACTION_MASK_CONTRACT),
         "action_mask_contract_digest": canonical_digest(V3_ACTION_MASK_CONTRACT),
-        **provenance.to_metadata(),
+        **corrected_v3_pre_lifecycle_metadata(
+            runtime=runtime,
+            observation_digest=RASTER31V3_CONTRACT.digest,
+            world_digest=world.digest,
+            model_head_digest=head.digest,
+            action_mask_contract=V3_ACTION_MASK_CONTRACT,
+            source_revision="strict-artifact-test",
+        ),
     }
     payload = BytesIO()
     torch.save(checkpoint, payload)
-    return payload.getvalue(), {
-        "model_head_digest": head.digest,
-        "run_provenance_digest": provenance.digest,
-        "effective_world_digest": world.digest,
-        "source_runtime": {"descriptor": runtime_descriptor, "digest": runtime.digest},
-    }
+    return payload.getvalue(), _candidate_contracts_from_metadata(checkpoint)
+
+
+@lru_cache(maxsize=1)
+def _native_per_env_candidate_payload() -> tuple[bytes, dict[str, object]]:
+    """Build bytes from the actual B3T native per-environment checkpoint writer."""
+    from src.training.pqn_trainer import PQNConfig, PQNTrainer
+
+    world = _promotion_world()
+    trainer = PQNTrainer(
+        PQNConfig(
+            num_envs=1,
+            num_snakes=world.num_snakes,
+            rollout_len=2,
+            max_frames=world.max_frames,
+            game_width=world.width,
+            game_height=world.height,
+            segment_size=world.segment_size,
+            wall_thickness=world.wall_thickness,
+            arena_type=world.arena_type,
+            initial_food=world.initial_food,
+            max_food=world.max_food,
+            min_boost_length=world.min_boost_length,
+            boost_length_cost_frames=world.boost_length_cost_frames,
+            frame_rate=world.frame_rate,
+            max_length=world.max_length,
+            starvation_max=world.starvation_max_frames,
+            max_capacity=world.max_capacity,
+            kill_scale=world.kill_scale,
+            death_value=world.death_value,
+            mechanics_version=world.mechanics_version,
+            reward_version=2,
+            recipe="corrected-v3",
+            obs_spec=RASTER31V3,
+            flip_augment=False,
+            episode_reset_mode="per_env_autoreset_v1",
+            episode_seed_mode="derived_env_episode_v1",
+            source_revision="strict-native-per-env-test",
+        )
+    )
+    try:
+        checkpoint = trainer.checkpoint_state()
+    finally:
+        trainer.close()
+    payload = BytesIO()
+    torch.save(checkpoint, payload)
+    return payload.getvalue(), _candidate_contracts_from_metadata(checkpoint)
 
 
 class ArtifactFixture:
@@ -192,10 +270,14 @@ class ArtifactFixture:
         self,
         tmp_path: Path,
         *,
-        candidate_payload: bytes = b"candidate",
+        candidate_payload: bytes | None = None,
         candidate_contracts: dict[str, object] | None = None,
     ) -> None:
         self.root = tmp_path
+        if candidate_payload is None:
+            candidate_payload, actual_contracts = _actual_candidate_payload()
+            if candidate_contracts is None:
+                candidate_contracts = copy.deepcopy(actual_contracts)
         self.repo = tmp_path / "repo"
         required_sources = (
             "src/scripts/tournament_eval.py",
@@ -228,6 +310,7 @@ class ArtifactFixture:
             "src/training/apex_policy.py",
             "src/training/base_dqn_policy.py",
             "src/training/checkpoint_contract.py",
+            "src/training/pqn_lifecycle.py",
             "src/training/td_targets.py",
             "src/model/apex_network.py",
             "src/model/checkpoint_manager.py",
@@ -355,33 +438,9 @@ class ArtifactFixture:
                 for index, seed in enumerate(self.namespaces["serving"])
             ],
         }
-        source_runtime = RuntimeModeContract(
-            mode="pqn_train",
-            training=True,
-            respawn=False,
-            hero_terminal=True,
-            population_floor=True,
-            reset_strategy="batch_episode",
-        )
-        default_candidate_contracts = {
-            "model_head_digest": _sha_bytes(b"model-head"),
-            "run_provenance_digest": _sha_bytes(b"run-provenance"),
-            "effective_world_digest": self.profile["descriptor"]["world_digest"],
-            "source_runtime": {
-                "descriptor": {
-                    "mode": source_runtime.mode,
-                    "training": source_runtime.training,
-                    "respawn": source_runtime.respawn,
-                    "hero_terminal": source_runtime.hero_terminal,
-                    "population_floor": source_runtime.population_floor,
-                    "reset_strategy": source_runtime.reset_strategy,
-                },
-                "digest": source_runtime.digest,
-            },
-        }
-        self.candidate_contracts = copy.deepcopy(
-            candidate_contracts if candidate_contracts is not None else default_candidate_contracts
-        )
+        if candidate_contracts is None:
+            raise AssertionError("candidate lifecycle contracts were not materialized")
+        self.candidate_contracts = copy.deepcopy(candidate_contracts)
         self.serving_path = self._serving()
         self.request = {
             "schema_version": STRICT_REQUEST_VERSION,
@@ -527,6 +586,21 @@ class ArtifactFixture:
         action = self.action_contract["digest"]
         observation = self.observation_contract["digest"]
         descriptor = self.profile["descriptor"]
+        lifecycle_fields = {
+            "episode_lifecycle_contract": self.candidate_contracts["episode_lifecycle"][
+                "descriptor"
+            ],
+            "episode_lifecycle_contract_digest": self.candidate_contracts[
+                "episode_lifecycle"
+            ]["digest"],
+            "episode_lifecycle_compatibility": self.candidate_contracts[
+                "episode_lifecycle"
+            ]["compatibility"],
+            "policy_source_contract": self.candidate_contracts["policy_source"][
+                "descriptor"
+            ],
+            "policy_source_contract_digest": self.candidate_contracts["policy_source"]["digest"],
+        }
         episodes = []
         for index, seed in enumerate(self.namespaces["serving"]):
             episode_id = f"serving-{index:02d}"
@@ -536,6 +610,7 @@ class ArtifactFixture:
                 RuntimeModeContract(**self.candidate_contracts["source_runtime"]["descriptor"]),
                 self.candidate["sha256"],
                 runtime_mode,
+                lifecycle_fields=lifecycle_fields,
             )
             serving_contract = {
                 "obs_contract_digest": observation,
@@ -544,6 +619,7 @@ class ArtifactFixture:
                 "runtime_contract_digest": self.candidate_contracts["source_runtime"]["digest"],
                 "action_mask_contract_digest": action,
                 "run_provenance_digest": self.candidate_contracts["run_provenance_digest"],
+                **lifecycle_fields,
                 "deployment_profile": descriptor["name"],
                 "deployment_target_manifest": target,
                 "deployment_target_manifest_digest": canonical_digest(target),
@@ -1141,6 +1217,48 @@ def test_coherent_preflight_serving_contract_substitution_is_not_accepted(tmp_pa
         fixture.freeze()
 
 
+def test_frozen_lifecycle_claim_must_match_opened_e0_candidate_bytes(tmp_path: Path):
+    fixture = ArtifactFixture(tmp_path)
+    lifecycle = fixture.request["serving_contract"]["candidate_contracts"][
+        "episode_lifecycle"
+    ]
+    lifecycle["descriptor"]["episode_reset_mode"] = "per_env_autoreset_v1"
+    lifecycle["digest"] = canonical_digest(lifecycle["descriptor"])
+    lifecycle["compatibility"] = None
+    policy_source = fixture.request["serving_contract"]["candidate_contracts"][
+        "policy_source"
+    ]
+    policy_source["descriptor"]["effective_episode_lifecycle_contract_digest"] = lifecycle[
+        "digest"
+    ]
+    policy_source["digest"] = canonical_digest(policy_source["descriptor"])
+    _write_json(fixture.request_path, fixture.request)
+
+    with pytest.raises(
+        StrictPromotionArtifactError,
+        match="checkpoint contracts differ",
+    ):
+        fixture.freeze()
+
+
+def test_recognized_reset_strategy_without_matching_checkpoint_lifecycle_fails(
+    tmp_path: Path,
+):
+    fixture = ArtifactFixture(tmp_path)
+    source_runtime = fixture.request["serving_contract"]["candidate_contracts"][
+        "source_runtime"
+    ]
+    source_runtime["descriptor"]["reset_strategy"] = "per_env_rollout_boundary"
+    source_runtime["digest"] = canonical_digest(source_runtime["descriptor"])
+    _write_json(fixture.request_path, fixture.request)
+
+    with pytest.raises(
+        StrictPromotionArtifactError,
+        match="checkpoint contracts differ",
+    ):
+        fixture.freeze()
+
+
 @pytest.mark.parametrize("completed_frames", [1, 100])
 def test_serving_spot_check_or_partial_episode_cannot_claim_readiness(
     tmp_path: Path, completed_frames: int
@@ -1228,6 +1346,28 @@ def test_actual_producer_terminal_play_receipt_is_accepted(tmp_path: Path):
     _write_json(fixture.request_path, fixture.request)
 
     fixture.freeze()
+
+
+def test_native_per_env_candidate_lifecycle_freezes_from_actual_checkpoint_bytes(
+    tmp_path: Path,
+):
+    candidate_payload, candidate_contracts = _native_per_env_candidate_payload()
+    fixture = ArtifactFixture(
+        tmp_path,
+        candidate_payload=candidate_payload,
+        candidate_contracts=candidate_contracts,
+    )
+
+    token = fixture.freeze()
+
+    frozen = token.request["serving_contract"]["candidate_contracts"]
+    assert frozen["source_runtime"]["descriptor"]["reset_strategy"] == (
+        "per_env_rollout_boundary"
+    )
+    assert frozen["episode_lifecycle"]["descriptor"]["episode_reset_mode"] == (
+        "per_env_autoreset_v1"
+    )
+    assert frozen["episode_lifecycle"]["compatibility"] is None
 
 
 @pytest.mark.parametrize(

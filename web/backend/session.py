@@ -13,7 +13,7 @@ import time
 from dataclasses import asdict, fields, replace
 from hashlib import sha256
 from io import BytesIO
-from typing import Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 import torch
 
@@ -23,6 +23,7 @@ from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH
 from src.core.runtime_contract import (
     EffectiveWorldConfig,
     ModelHeadContract,
+    PQN_TRAIN_RESET_STRATEGIES,
     RunProvenance,
     RuntimeModeContract,
     canonical_digest,
@@ -60,6 +61,36 @@ V3_ACTION_MASK_CONTRACT = {
 }
 
 V3_DEPLOYMENT_PROFILE = "promotion-v2-watch-rect"
+
+
+def _plain_contract_value(value: Any) -> Any:
+    """Detach recursively immutable validator output for JSON receipts."""
+    if isinstance(value, Mapping):
+        return {key: _plain_contract_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_contract_value(item) for item in value]
+    return value
+
+
+def _validated_lifecycle_fields(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate and detach the checkpoint's complete PQN training lineage."""
+    from src.training.pqn_lifecycle import validate_pqn_episode_lifecycle_metadata
+
+    validated = validate_pqn_episode_lifecycle_metadata(
+        metadata,
+        allow_corrected_v3_adapter=True,
+    )
+    return {
+        "episode_lifecycle_contract": _plain_contract_value(validated.descriptor),
+        "episode_lifecycle_contract_digest": validated.digest,
+        "episode_lifecycle_compatibility": (
+            None
+            if validated.compatibility is None
+            else _plain_contract_value(validated.compatibility)
+        ),
+        "policy_source_contract": _plain_contract_value(validated.policy_source_descriptor),
+        "policy_source_contract_digest": validated.policy_source_digest,
+    }
 
 
 def _load_checkpoint_once(checkpoint_path: str) -> tuple[bytes, dict, str]:
@@ -121,12 +152,14 @@ def _validate_v3_serving_checkpoint(
     if runtime_contract.digest != runtime_digest:
         raise ValueError("raster31v3 runtime_contract digest changes after normalization")
     if (
-        runtime_contract.mode not in {"watch", "train", "play", "pqn_train"}
+        runtime_contract.mode != "pqn_train"
         or runtime_contract.reset_strategy
-        not in {
-            "episode",
-            "batch_episode",
-        }
+        not in PQN_TRAIN_RESET_STRATEGIES
+        or runtime_contract.training is not True
+        or runtime_contract.respawn is not False
+        or runtime_contract.hero_terminal is not True
+        or runtime_contract.population_floor
+        is not (effective_world.mechanics_version == 2 and effective_world.num_snakes >= 3)
         or any(
             not isinstance(runtime.get(name), bool)
             for name in ("training", "respawn", "hero_terminal", "population_floor")
@@ -164,6 +197,7 @@ def _validate_v3_serving_checkpoint(
         "unavailable",
     }:
         raise ValueError("raster31v3 serving requires a concrete source_revision")
+    lifecycle_fields = _validated_lifecycle_fields(blob)
 
     # The deployment target is detached from checkpoint metadata: only a
     # receipt written after reading immutable bytes can truthfully bind the
@@ -172,6 +206,7 @@ def _validate_v3_serving_checkpoint(
         **blob,
         "_checkpoint_sha256": checkpoint_sha256,
         "_normalization_args": normalization_args,
+        "_validated_lifecycle_fields": lifecycle_fields,
     }
 
 
@@ -317,6 +352,8 @@ def _deployment_target_manifest(
     source_runtime: RuntimeModeContract,
     checkpoint_sha256: str,
     mode: str,
+    *,
+    lifecycle_fields: Optional[Mapping[str, Any]] = None,
 ) -> dict:
     """Bind immutable checkpoint bytes to the actual manually reset live runtime."""
     source = {field.name: getattr(world, field.name) for field in fields(world)}
@@ -343,7 +380,7 @@ def _deployment_target_manifest(
         )
     )
     normalization = dict(world.normalization)
-    return {
+    manifest = {
         "checkpoint_sha256": checkpoint_sha256,
         "deployment_profile": V3_DEPLOYMENT_PROFILE,
         "source_world": source,
@@ -380,6 +417,9 @@ def _deployment_target_manifest(
             },
         },
     }
+    if lifecycle_fields is not None:
+        manifest.update(dict(lifecycle_fields))
+    return manifest
 
 
 def _v3_normalization_args(world: EffectiveWorldConfig) -> dict[str, int]:
@@ -594,14 +634,17 @@ class GameSession:
             else None
         )
         if self.serving_contract is not None:
+            lifecycle_fields = v3_metadata["_validated_lifecycle_fields"]
             target_manifest = _deployment_target_manifest(
                 EffectiveWorldConfig(**v3_metadata["effective_world"]),
                 RuntimeModeContract(**v3_metadata["runtime_contract"]),
                 v3_metadata["_checkpoint_sha256"],
                 mode,
+                lifecycle_fields=lifecycle_fields,
             )
             self.serving_contract.update(
                 {
+                    **lifecycle_fields,
                     "deployment_profile": V3_DEPLOYMENT_PROFILE,
                     "deployment_target_manifest": target_manifest,
                     "deployment_target_manifest_digest": canonical_digest(target_manifest),

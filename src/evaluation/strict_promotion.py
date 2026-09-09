@@ -1,9 +1,11 @@
 """Byte-bound evidence contract for the strict promotion decision.
 
 This module is deliberately an artifact consumer.  It does not execute worlds,
-load policies, or accept caller-computed statistics.  A request is frozen before
-final worlds, a raw artifact is bound after those worlds, and the final receipt
-is derived by reopening every referenced byte and recomputing the decision.
+construct policies, or accept caller-computed statistics.  It opens checkpoint
+metadata only to validate the candidate's serving and training lineage.  A
+request is frozen before final worlds, a raw artifact is bound after those
+worlds, and the final receipt is derived by reopening every referenced byte and
+recomputing the decision.
 """
 
 from __future__ import annotations
@@ -16,12 +18,14 @@ import re
 import stat
 import uuid
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
 from src.core.runtime_contract import (
     EffectiveWorldConfig,
+    PQN_TRAIN_RESET_STRATEGIES,
     RuntimeModeContract,
     canonical_digest,
 )
@@ -41,7 +45,11 @@ from src.scripts.eval_stats import (
     paired_delta_pilot_size,
     strict_promotion_decision,
 )
-from web.backend.session import V3_ACTION_MASK_CONTRACT, _deployment_target_manifest
+from web.backend.session import (
+    V3_ACTION_MASK_CONTRACT,
+    _deployment_target_manifest,
+    _validate_v3_serving_checkpoint,
+)
 
 STRICT_REQUEST_VERSION = "strict-promotion-request/v2"
 STRICT_RAW_WORLD_VERSION = "strict-raw-worlds/v1"
@@ -95,6 +103,7 @@ _REQUIRED_SOURCE_CLOSURE = frozenset(
         "src/training/apex_policy.py",
         "src/training/base_dqn_policy.py",
         "src/training/checkpoint_contract.py",
+        "src/training/pqn_lifecycle.py",
         "src/training/td_targets.py",
         "src/model/apex_network.py",
         "src/model/checkpoint_manager.py",
@@ -242,6 +251,24 @@ def _hash_path(path: str | Path, label: str) -> str:
     if not _same_file(before, after) or not _same_file(after, path_after):
         raise StrictPromotionArtifactError(f"{label} changed while it was opened")
     return digest.hexdigest()
+
+
+def _read_path_bytes(path: str | Path, label: str) -> tuple[bytes, str, str]:
+    """Read one regular file once and retain the bytes used for deserialization."""
+    source = Path(path).expanduser().resolve(strict=True)
+    try:
+        with source.open("rb") as handle:
+            before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise StrictPromotionArtifactError(f"{label} is not a regular file")
+            payload = handle.read()
+            after = os.fstat(handle.fileno())
+        path_after = source.stat()
+    except OSError as exc:
+        raise StrictPromotionArtifactError(f"cannot read {label}: {exc}") from exc
+    if not _same_file(before, after) or not _same_file(after, path_after):
+        raise StrictPromotionArtifactError(f"{label} changed while it was opened")
+    return payload, hashlib.sha256(payload).hexdigest(), str(source)
 
 
 def _exact(value: Any, keys: Iterable[str], label: str) -> Mapping[str, Any]:
@@ -532,6 +559,8 @@ def _serving_contract(value: Any, request: Mapping[str, Any]) -> Mapping[str, An
             "run_provenance_digest",
             "effective_world_digest",
             "source_runtime",
+            "episode_lifecycle",
+            "policy_source",
         },
         "candidate serving contracts",
     )
@@ -542,6 +571,32 @@ def _serving_contract(value: Any, request: Mapping[str, Any]) -> Mapping[str, An
         {"descriptor", "digest"},
         "candidate source runtime",
     )
+    episode_lifecycle = _exact(
+        candidate_contracts["episode_lifecycle"],
+        {"descriptor", "digest", "compatibility"},
+        "candidate episode lifecycle",
+    )
+    policy_source = _exact(
+        candidate_contracts["policy_source"],
+        {"descriptor", "digest"},
+        "candidate policy source",
+    )
+    for identity, label in (
+        (episode_lifecycle, "candidate episode lifecycle"),
+        (policy_source, "candidate policy source"),
+    ):
+        if not isinstance(identity["descriptor"], Mapping) or not identity["descriptor"]:
+            raise StrictPromotionArtifactError(f"{label} descriptor must be non-empty")
+        if canonical_digest(dict(identity["descriptor"])) != _sha(
+            identity["digest"], f"{label} digest"
+        ):
+            raise StrictPromotionArtifactError(f"{label} digest is invalid")
+    if episode_lifecycle["compatibility"] is not None and not isinstance(
+        episode_lifecycle["compatibility"], Mapping
+    ):
+        raise StrictPromotionArtifactError(
+            "candidate episode lifecycle compatibility must be an object or null"
+        )
     descriptor = _exact(
         source_runtime["descriptor"],
         {
@@ -564,7 +619,6 @@ def _serving_contract(value: Any, request: Mapping[str, Any]) -> Mapping[str, An
         "respawn": False,
         "hero_terminal": True,
         "population_floor": expected_population_floor,
-        "reset_strategy": "batch_episode",
     }
     if (
         not isinstance(descriptor["mode"], str)
@@ -579,7 +633,10 @@ def _serving_contract(value: Any, request: Mapping[str, Any]) -> Mapping[str, An
         != _sha(source_runtime["digest"], "candidate source runtime digest")
         or candidate_contracts["effective_world_digest"]
         != request["profile"]["descriptor"]["world_digest"]
-        or descriptor != expected_source_runtime
+        or {name: descriptor[name] for name in expected_source_runtime}
+        != expected_source_runtime
+        or descriptor["reset_strategy"]
+        not in PQN_TRAIN_RESET_STRATEGIES
     ):
         raise StrictPromotionArtifactError("candidate serving metadata is inconsistent")
     return raw
@@ -890,7 +947,7 @@ def _validate_snapshot(snapshot: Mapping[str, Any], label: str, kind: str) -> st
 
 def _validate_e0(
     opened: _OpenedJSON, request: Mapping[str, Any], profile: EvaluationProfile
-) -> None:
+) -> str:
     raw = _exact(
         opened.value,
         {
@@ -990,6 +1047,84 @@ def _validate_e0(
     ]
     if actual_role_order != expected_role_order:
         raise StrictPromotionArtifactError("E0 ordered source roles differ from the strict request")
+    candidate_snapshot = next(
+        snapshot
+        for snapshot in raw["checkpoint_snapshots"]
+        if snapshot["sha256"] == request["candidate"]["sha256"]
+    )
+    return str(candidate_snapshot["snapshot_path"])
+
+
+def _candidate_checkpoint_contracts(
+    candidate_path: str | Path,
+    request: Mapping[str, Any],
+) -> None:
+    """Validate frozen candidate contracts from the actual E0 checkpoint bytes."""
+    payload, digest, stable_path = _read_path_bytes(candidate_path, "E0 candidate checkpoint")
+    if digest != request["candidate"]["sha256"]:
+        raise StrictPromotionArtifactError("E0 candidate checkpoint bytes changed")
+    try:
+        import torch
+
+        metadata = torch.load(BytesIO(payload), map_location="cpu", weights_only=False)
+    except Exception as exc:
+        raise StrictPromotionArtifactError(
+            f"cannot deserialize E0 candidate checkpoint {stable_path}: {exc}"
+        ) from exc
+    if not isinstance(metadata, Mapping):
+        raise StrictPromotionArtifactError("E0 candidate checkpoint metadata must be a mapping")
+    try:
+        validated_metadata = _validate_v3_serving_checkpoint(
+            dict(metadata),
+            digest,
+            stable_path,
+        )
+        runtime_descriptor = validated_metadata["runtime_contract"]
+        world_descriptor = validated_metadata["effective_world"]
+        source_runtime = RuntimeModeContract(**dict(runtime_descriptor))
+        source_world = EffectiveWorldConfig(**dict(world_descriptor))
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        raise StrictPromotionArtifactError(
+            f"E0 candidate lifecycle metadata is invalid: {exc}"
+        ) from exc
+    actual = {
+        "model_head_digest": metadata.get("model_head_digest"),
+        "run_provenance_digest": metadata.get("run_provenance_digest"),
+        "effective_world_digest": metadata.get("effective_world_digest"),
+        "source_runtime": {
+            "descriptor": dict(runtime_descriptor),
+            "digest": metadata.get("runtime_contract_digest"),
+        },
+        "episode_lifecycle": {
+            "descriptor": validated_metadata["_validated_lifecycle_fields"][
+                "episode_lifecycle_contract"
+            ],
+            "digest": validated_metadata["_validated_lifecycle_fields"][
+                "episode_lifecycle_contract_digest"
+            ],
+            "compatibility": validated_metadata["_validated_lifecycle_fields"][
+                "episode_lifecycle_compatibility"
+            ],
+        },
+        "policy_source": {
+            "descriptor": validated_metadata["_validated_lifecycle_fields"][
+                "policy_source_contract"
+            ],
+            "digest": validated_metadata["_validated_lifecycle_fields"][
+                "policy_source_contract_digest"
+            ],
+        },
+    }
+    frozen = request["serving_contract"]["candidate_contracts"]
+    if (
+        actual != frozen
+        or source_runtime.digest != metadata.get("runtime_contract_digest")
+        or source_world.digest != metadata.get("effective_world_digest")
+        or source_world.digest != request["profile"]["descriptor"]["world_digest"]
+    ):
+        raise StrictPromotionArtifactError(
+            "E0 candidate checkpoint contracts differ from the strict request"
+        )
 
 
 def _pilot(opened: _OpenedJSON, request: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -1242,12 +1377,26 @@ def _serving_runtime_contract(
             "deployment_target_manifest",
             "deployment_target_manifest_digest",
             "checkpoint_sha256",
+            "episode_lifecycle_contract",
+            "episode_lifecycle_contract_digest",
+            "episode_lifecycle_compatibility",
+            "policy_source_contract",
+            "policy_source_contract_digest",
         },
         "serving runtime contract",
     )
     profile = request["profile"]["descriptor"]
     frozen = request["serving_contract"]
     candidate_contracts = frozen["candidate_contracts"]
+    lifecycle_fields = {
+        "episode_lifecycle_contract": candidate_contracts["episode_lifecycle"]["descriptor"],
+        "episode_lifecycle_contract_digest": candidate_contracts["episode_lifecycle"]["digest"],
+        "episode_lifecycle_compatibility": candidate_contracts["episode_lifecycle"][
+            "compatibility"
+        ],
+        "policy_source_contract": candidate_contracts["policy_source"]["descriptor"],
+        "policy_source_contract_digest": candidate_contracts["policy_source"]["digest"],
+    }
     for name in (
         "obs_contract_digest",
         "model_head_digest",
@@ -1268,6 +1417,7 @@ def _serving_runtime_contract(
         or contract["runtime_contract_digest"] != candidate_contracts["source_runtime"]["digest"]
         or contract["checkpoint_sha256"] != request["candidate"]["sha256"]
         or contract["deployment_profile"] != profile["name"]
+        or any(contract[name] != expected for name, expected in lifecycle_fields.items())
     ):
         raise StrictPromotionArtifactError(
             "serving runtime contract differs from the frozen candidate/profile"
@@ -1294,6 +1444,11 @@ def _serving_runtime_contract(
             "evaluation_horizon_owner",
             "serving_enforced",
             "distribution_differences",
+            "episode_lifecycle_contract",
+            "episode_lifecycle_contract_digest",
+            "episode_lifecycle_compatibility",
+            "policy_source_contract",
+            "policy_source_contract_digest",
         },
         "serving deployment target manifest",
     )
@@ -1326,6 +1481,7 @@ def _serving_runtime_contract(
             runtime,
             request["candidate"]["sha256"],
             runtime_mode,
+            lifecycle_fields=lifecycle_fields,
         )
     except (TypeError, ValueError) as exc:
         raise StrictPromotionArtifactError(f"serving deployment target is invalid: {exc}") from exc
@@ -1817,7 +1973,8 @@ def _validate_bound_inputs(
     }
     if dict(bindings) != actual:
         raise StrictPromotionArtifactError("pre-world artifact bytes differ from request bindings")
-    _validate_e0(e0_opened, request, profile)
+    candidate_path = _validate_e0(e0_opened, request, profile)
+    _candidate_checkpoint_contracts(candidate_path, request)
     pilot_sizing = _pilot(pilot_opened, request)
     _calibration(calibration_opened, request)
     serving_receipts = _serving(serving_opened, request)

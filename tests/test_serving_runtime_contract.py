@@ -21,6 +21,10 @@ from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3_CONTRACT  # noqa: E402
 from src.model.raster_network import RasterDuelingNetwork  # noqa: E402
 from src.simd_env.featurizer import build_observations  # noqa: E402
 from src.simd_env.live_adapter import game_state_to_obs_inputs  # noqa: E402
+from src.training.pqn_trainer import PQNConfig, PQNTrainer  # noqa: E402
+from tests.pqn_lifecycle_fixtures import (  # noqa: E402
+    corrected_v3_pre_lifecycle_metadata,
+)
 from web.backend.raster_policy import RasterServingPolicy  # noqa: E402
 from web.backend.session import V3_ACTION_MASK_CONTRACT, GameSession  # noqa: E402
 
@@ -59,21 +63,14 @@ def _v3_metadata(normalization=None) -> dict:
         normalization=normalization,
     )
     runtime = RuntimeModeContract(
-        mode="train", training=True, respawn=False, hero_terminal=True, population_floor=True
+        mode="pqn_train",
+        training=True,
+        respawn=False,
+        hero_terminal=True,
+        population_floor=True,
+        reset_strategy="batch_episode",
     )
     head = ModelHeadContract("pqn", "dueling_q", 6)
-    provenance = RunProvenance(
-        effective_seed=7,
-        observation_digest=RASTER31V3_CONTRACT.digest,
-        world_digest=world.digest,
-        runtime_digest=runtime.digest,
-        reward_digest="reward",
-        target_digest="target",
-        sampler_digest="sampler",
-        optimizer_digest="optimizer",
-        model_head_digest=head.digest,
-        source_revision="test",
-    )
     metadata = {
         OBS_SPEC_KEY: RASTER31V3,
         **RASTER31V3_CONTRACT.to_metadata(),
@@ -114,7 +111,13 @@ def _v3_metadata(normalization=None) -> dict:
         "runtime_contract_digest": runtime.digest,
         "action_mask_contract": copy.deepcopy(V3_ACTION_MASK_CONTRACT),
         "action_mask_contract_digest": canonical_digest(V3_ACTION_MASK_CONTRACT),
-        **provenance.to_metadata(),
+        **corrected_v3_pre_lifecycle_metadata(
+            runtime=runtime,
+            observation_digest=RASTER31V3_CONTRACT.digest,
+            world_digest=world.digest,
+            model_head_digest=head.digest,
+            action_mask_contract=V3_ACTION_MASK_CONTRACT,
+        ),
     }
     return metadata
 
@@ -127,6 +130,37 @@ def v3_checkpoint(tmp_path):
     return str(path)
 
 
+@pytest.fixture()
+def per_env_v3_checkpoint(tmp_path):
+    """Persist metadata from the actual native per-environment trainer writer."""
+    trainer = PQNTrainer(
+        PQNConfig(
+            num_envs=1,
+            num_snakes=3,
+            rollout_len=2,
+            max_frames=5000,
+            game_width=400,
+            game_height=300,
+            initial_food=2,
+            max_food=3,
+            recipe="corrected-v3",
+            obs_spec=RASTER31V3,
+            flip_augment=False,
+            mechanics_version=2,
+            reward_version=2,
+            episode_reset_mode="per_env_autoreset_v1",
+            episode_seed_mode="derived_env_episode_v1",
+        )
+    )
+    try:
+        state = trainer.checkpoint_state()
+    finally:
+        trainer.close()
+    path = tmp_path / "per-env-v3.pth"
+    torch.save(state, path)
+    return str(path)
+
+
 def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
     session = GameSession(checkpoint=v3_checkpoint)
     assert session.obs_spec == RASTER31V3
@@ -134,6 +168,22 @@ def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
     assert session.serving_contract["obs_contract_digest"] == RASTER31V3_CONTRACT.digest
     assert len(session.game.snakes) == 6
     manifest = session.serving_contract["deployment_target_manifest"]
+    assert session.serving_contract["episode_lifecycle_compatibility"] is not None
+    assert session.serving_contract["episode_lifecycle_compatibility"]["source_schema"] == (
+        "corrected-v3-pre-lifecycle"
+    )
+    assert (
+        session.serving_contract["episode_lifecycle_compatibility"]
+        == manifest["episode_lifecycle_compatibility"]
+    )
+    assert (
+        session.serving_contract["episode_lifecycle_contract_digest"]
+        == manifest["episode_lifecycle_contract_digest"]
+    )
+    assert (
+        session.serving_contract["policy_source_contract_digest"]
+        == manifest["policy_source_contract_digest"]
+    )
     assert manifest["deployed_world"]["engine"] == "live"
     assert manifest["deployed_world"]["max_capacity"] is None
     with pytest.raises(ValueError, match="food target"):
@@ -157,6 +207,70 @@ def test_v3_loads_the_rectangular_mechanics_v2_serving_profile(v3_checkpoint):
     assert (
         session.serving_contract["deployment_target_manifest"]["deployed_runtime"]["mode"] == "play"
     )
+
+
+def test_native_per_env_checkpoint_preserves_training_lifecycle_into_watch_and_play(
+    per_env_v3_checkpoint,
+):
+    agent = InferenceAgent.from_checkpoint(
+        per_env_v3_checkpoint,
+        device=torch.device("cpu"),
+    )
+    assert agent.obs_spec == RASTER31V3
+    session = GameSession(checkpoint=per_env_v3_checkpoint)
+    for mode in ("watch", "play"):
+        session.set_mode(mode)
+        contract = session.serving_contract
+        manifest = contract["deployment_target_manifest"]
+        assert contract["episode_lifecycle_compatibility"] is None
+        assert contract["episode_lifecycle_contract"]["episode_reset_mode"] == (
+            "per_env_autoreset_v1"
+        )
+        assert manifest["source_runtime"]["reset_strategy"] == (
+            "per_env_rollout_boundary"
+        )
+        assert manifest["deployed_runtime"]["reset_strategy"] == "manual"
+        for name in (
+            "episode_lifecycle_contract",
+            "episode_lifecycle_contract_digest",
+            "episode_lifecycle_compatibility",
+            "policy_source_contract",
+            "policy_source_contract_digest",
+        ):
+            assert manifest[name] == contract[name]
+
+
+def test_native_per_env_resigned_policy_source_forgery_fails_before_world(
+    per_env_v3_checkpoint, tmp_path
+):
+    """Matching digest substitutions cannot contradict the lifecycle descriptor."""
+    from src.core.game_config import get_config
+
+    session = GameSession(checkpoint=per_env_v3_checkpoint)
+    before_game, before_config = session.game, get_config()
+    blob = torch.load(per_env_v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["policy_source_contract"]["assignment_lifetime"] = "batch_episode"
+    blob["policy_source_contract_digest"] = canonical_digest(blob["policy_source_contract"])
+    blob["sampler_contract"]["policy_source_contract_digest"] = blob[
+        "policy_source_contract_digest"
+    ]
+    blob["sampler_contract_digest"] = canonical_digest(blob["sampler_contract"])
+    blob["rollout_policy_source"]["policy_source_contract_digest"] = blob[
+        "policy_source_contract_digest"
+    ]
+    provenance = RunProvenance.from_metadata(blob)
+    blob["run_provenance"] = {
+        **provenance.__dict__,
+        "sampler_digest": blob["sampler_contract_digest"],
+    }
+    blob["run_provenance_digest"] = canonical_digest(blob["run_provenance"])
+    path = tmp_path / "forged-policy-source.pth"
+    torch.save(blob, path)
+
+    with pytest.raises((ValueError, RuntimeError), match="assignment_lifetime|policy_source"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game
+    assert get_config() is before_config
 
 
 def test_v3_watch_hero_is_terminal_while_opponents_respawn(v3_checkpoint):
@@ -445,6 +559,57 @@ def test_incomplete_resigned_runtime_rejects_before_session_mutation(
     path = tmp_path / "incomplete-runtime.pth"
     torch.save(blob, path)
     with pytest.raises(ValueError, match="runtime_contract"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game
+    assert get_config() is before_config
+
+
+def test_partial_lifecycle_metadata_cannot_bypass_known_old_adapter(
+    v3_checkpoint, tmp_path
+):
+    """Any lifecycle claim selects native validation and must be complete."""
+    from src.core.game_config import get_config
+
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game, before_config = session.game, get_config()
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["episode_lifecycle_contract"] = {
+        "schema_version": "pqn-episode-lifecycle/v1",
+        "episode_reset_mode": "batch_barrier_v1",
+    }
+    blob["episode_lifecycle_contract_digest"] = canonical_digest(
+        blob["episode_lifecycle_contract"]
+    )
+    path = tmp_path / "partial-lifecycle.pth"
+    torch.save(blob, path)
+
+    with pytest.raises((ValueError, RuntimeError), match="lifecycle|metadata"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game
+    assert get_config() is before_config
+
+
+def test_resigned_reset_strategy_without_lifecycle_crosslinks_fails_before_world(
+    v3_checkpoint, tmp_path
+):
+    """A recognized reset string alone cannot authorize per-env lineage."""
+    from src.core.game_config import get_config
+
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game, before_config = session.game, get_config()
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["runtime_contract"]["reset_strategy"] = "per_env_rollout_boundary"
+    blob["runtime_contract_digest"] = canonical_digest(blob["runtime_contract"])
+    provenance = RunProvenance.from_metadata(blob)
+    blob["run_provenance"] = {
+        **provenance.__dict__,
+        "runtime_digest": blob["runtime_contract_digest"],
+    }
+    blob["run_provenance_digest"] = canonical_digest(blob["run_provenance"])
+    path = tmp_path / "reset-only.pth"
+    torch.save(blob, path)
+
+    with pytest.raises((ValueError, RuntimeError), match="lifecycle|adapter|runtime"):
         session._build(str(path), mode="watch")
     assert session.game is before_game
     assert get_config() is before_config

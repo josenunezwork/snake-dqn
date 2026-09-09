@@ -15,6 +15,7 @@ from src.core.seeding import derive_seed
 from src.evaluation import serving_episode
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3, RASTER31V3_CONTRACT
 from src.model.raster_network import RasterDuelingNetwork
+from tests.pqn_lifecycle_fixtures import corrected_v3_pre_lifecycle_metadata
 from web.backend.session import V3_ACTION_MASK_CONTRACT
 
 
@@ -55,18 +56,6 @@ def _metadata() -> dict:
         reset_strategy="batch_episode",
     )
     head = runtime_contract.ModelHeadContract("pqn", "dueling_q", 6)
-    provenance = runtime_contract.RunProvenance(
-        effective_seed=7,
-        observation_digest=RASTER31V3_CONTRACT.digest,
-        world_digest=world.digest,
-        runtime_digest=runtime.digest,
-        reward_digest="reward",
-        target_digest="target",
-        sampler_digest="sampler",
-        optimizer_digest="optimizer",
-        model_head_digest=head.digest,
-        source_revision="test",
-    )
     return {
         OBS_SPEC_KEY: RASTER31V3,
         **RASTER31V3_CONTRACT.to_metadata(),
@@ -107,7 +96,13 @@ def _metadata() -> dict:
         "runtime_contract_digest": runtime.digest,
         "action_mask_contract": copy.deepcopy(V3_ACTION_MASK_CONTRACT),
         "action_mask_contract_digest": runtime_contract.canonical_digest(V3_ACTION_MASK_CONTRACT),
-        **provenance.to_metadata(),
+        **corrected_v3_pre_lifecycle_metadata(
+            runtime=runtime,
+            observation_digest=RASTER31V3_CONTRACT.digest,
+            world_digest=world.digest,
+            model_head_digest=head.digest,
+            action_mask_contract=V3_ACTION_MASK_CONTRACT,
+        ),
     }
 
 
