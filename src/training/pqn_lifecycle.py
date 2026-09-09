@@ -66,12 +66,6 @@ _POLICY_SOURCE_KEYS = frozenset(
         "episode_lifecycle_contract_digest",
     }
 )
-_TOP_LEVEL_POLICY_FACTS = (
-    "episode_reset_mode",
-    "episode_seed_mode",
-    "pool_admission_mode",
-    "initial_opponent_checkpoint_sha256",
-)
 _OLD_TARGET_KEYS = frozenset(
     {
         "version",
@@ -297,7 +291,14 @@ def _validate_common_crosslinks(
             "mode", "training", "respawn", "hero_terminal", "population_floor", "reset_strategy"
         }:
             raise ValueError("runtime_contract has an invalid key set")
-        if parsed_runtime["mode"] != "pqn_train" or parsed_runtime["reset_strategy"] not in PQN_TRAIN_RESET_STRATEGIES:
+        if (
+            parsed_runtime["mode"] != "pqn_train"
+            or parsed_runtime["training"] is not True
+            or parsed_runtime["respawn"] is not False
+            or parsed_runtime["hero_terminal"] is not True
+            or not isinstance(parsed_runtime["population_floor"], bool)
+            or parsed_runtime["reset_strategy"] not in PQN_TRAIN_RESET_STRATEGIES
+        ):
             raise ValueError("runtime_contract is not a PQN training runtime")
         if parsed_runtime["reset_strategy"] != _RESET_TO_RUNTIME[lifecycle["episode_reset_mode"]]:
             raise ValueError("runtime reset_strategy does not match lifecycle contract")
@@ -320,6 +321,10 @@ def _validate_common_crosslinks(
         raise ValueError("unsupported lifecycle target contract version")
     if sampler.get("version") != "pqn-sampler-corrected-v3-lifecycle-v1":
         raise ValueError("unsupported lifecycle sampler contract version")
+    if target.get("population_floor") is not parsed_runtime["population_floor"]:
+        raise ValueError("target_contract population_floor does not match runtime contract")
+    if sampler.get("assignment_lifetime") != lifecycle["assignment_lifetime"]:
+        raise ValueError("sampler_contract assignment lifetime does not match lifecycle contract")
     for name in ("episode_reset_mode", "episode_seed_mode"):
         if metadata.get(name) != lifecycle[name]:
             raise ValueError(f"top-level {name} does not match episode_lifecycle_contract")
