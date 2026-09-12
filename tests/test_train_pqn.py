@@ -14,6 +14,7 @@ whether restored weights/optimizer/odometers actually survive the round trip.
 """
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -250,6 +251,32 @@ class TestTripwireExitCode:
         assert cleanup["class"] == "tripwire_cleanup_failure"
         assert cleanup["tripwire_message"]
         assert cleanup["cleanup_error"] == "lease cleanup failed"
+
+    def test_tripwire_retains_rc_2_when_cleanup_incident_receipt_cannot_be_written(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """A secondary receipt I/O fault cannot replace the tripwire classification."""
+        made = []
+
+        def factory(config, device=None):
+            trainer = CleanupFaultTrainer(config, device=device, trip_after=0)
+            made.append(trainer)
+            return trainer
+
+        original_open = Path.open
+
+        def fail_cleanup_receipt(self, *args, **kwargs):
+            if self.name == "cleanup_after_tripwire.json":
+                raise OSError("fixture receipt device is full")
+            return original_open(self, *args, **kwargs)
+
+        monkeypatch.setattr(train_pqn, "PQNTrainer", factory)
+        monkeypatch.setattr(Path, "open", fail_cleanup_receipt)
+        rc = train_pqn.main(["--device", "cpu", "--out-dir", str(tmp_path), "--total-steps", "1"])
+
+        assert rc == 2
+        assert made[0].updates == 0
+        assert "cleanup incident receipt failed after tripwire" in capsys.readouterr().err
 
 
 class TestArtifactsOnHalt:

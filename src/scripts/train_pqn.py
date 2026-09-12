@@ -1218,22 +1218,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(
                     f"[train_pqn] cleanup failed after tripwire: {cleanup_error}", file=sys.stderr
                 )
-                incidents_dir = out_dir / "incidents"
-                incidents_dir.mkdir(parents=True, exist_ok=True)
-                with (incidents_dir / "cleanup_after_tripwire.json").open(
-                    "w", encoding="utf-8"
-                ) as fh:
-                    json.dump(
-                        {
-                            "class": "tripwire_cleanup_failure",
-                            "tripwire_message": tripped,
-                            "cleanup_error_type": type(cleanup_error).__name__,
-                            "cleanup_error": str(cleanup_error),
-                        },
-                        fh,
-                        sort_keys=True,
+                # Receipt persistence is useful secondary evidence, but a
+                # full disk or permission fault here must not replace the
+                # authoritative tripwire exit classification (2).
+                try:
+                    incidents_dir = out_dir / "incidents"
+                    incidents_dir.mkdir(parents=True, exist_ok=True)
+                    with (incidents_dir / "cleanup_after_tripwire.json").open(
+                        "w", encoding="utf-8"
+                    ) as fh:
+                        json.dump(
+                            {
+                                "class": "tripwire_cleanup_failure",
+                                "tripwire_message": tripped,
+                                "cleanup_error_type": type(cleanup_error).__name__,
+                                "cleanup_error": str(cleanup_error),
+                            },
+                            fh,
+                            sort_keys=True,
+                        )
+                        fh.write("\n")
+                except OSError as receipt_error:
+                    print(
+                        "[train_pqn] cleanup incident receipt failed after tripwire: "
+                        f"{receipt_error}",
+                        file=sys.stderr,
                     )
-                    fh.write("\n")
             else:
                 raise
 
