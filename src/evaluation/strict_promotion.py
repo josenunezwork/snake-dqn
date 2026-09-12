@@ -24,8 +24,8 @@ from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
 from src.core.runtime_contract import (
-    EffectiveWorldConfig,
     PQN_TRAIN_RESET_STRATEGIES,
+    EffectiveWorldConfig,
     RuntimeModeContract,
     canonical_digest,
 )
@@ -633,10 +633,8 @@ def _serving_contract(value: Any, request: Mapping[str, Any]) -> Mapping[str, An
         != _sha(source_runtime["digest"], "candidate source runtime digest")
         or candidate_contracts["effective_world_digest"]
         != request["profile"]["descriptor"]["world_digest"]
-        or {name: descriptor[name] for name in expected_source_runtime}
-        != expected_source_runtime
-        or descriptor["reset_strategy"]
-        not in PQN_TRAIN_RESET_STRATEGIES
+        or {name: descriptor[name] for name in expected_source_runtime} != expected_source_runtime
+        or descriptor["reset_strategy"] not in PQN_TRAIN_RESET_STRATEGIES
     ):
         raise StrictPromotionArtifactError("candidate serving metadata is inconsistent")
     return raw

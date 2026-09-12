@@ -150,6 +150,7 @@ def per_env_v3_checkpoint(tmp_path):
             reward_version=2,
             episode_reset_mode="per_env_autoreset_v1",
             episode_seed_mode="derived_env_episode_v1",
+            source_revision="serving-native-per-env-test",
         )
     )
     try:
@@ -226,9 +227,7 @@ def test_native_per_env_checkpoint_preserves_training_lifecycle_into_watch_and_p
         assert contract["episode_lifecycle_contract"]["episode_reset_mode"] == (
             "per_env_autoreset_v1"
         )
-        assert manifest["source_runtime"]["reset_strategy"] == (
-            "per_env_rollout_boundary"
-        )
+        assert manifest["source_runtime"]["reset_strategy"] == ("per_env_rollout_boundary")
         assert manifest["deployed_runtime"]["reset_strategy"] == "manual"
         for name in (
             "episode_lifecycle_contract",
@@ -564,9 +563,7 @@ def test_incomplete_resigned_runtime_rejects_before_session_mutation(
     assert get_config() is before_config
 
 
-def test_partial_lifecycle_metadata_cannot_bypass_known_old_adapter(
-    v3_checkpoint, tmp_path
-):
+def test_partial_lifecycle_metadata_cannot_bypass_known_old_adapter(v3_checkpoint, tmp_path):
     """Any lifecycle claim selects native validation and must be complete."""
     from src.core.game_config import get_config
 
@@ -577,9 +574,7 @@ def test_partial_lifecycle_metadata_cannot_bypass_known_old_adapter(
         "schema_version": "pqn-episode-lifecycle/v1",
         "episode_reset_mode": "batch_barrier_v1",
     }
-    blob["episode_lifecycle_contract_digest"] = canonical_digest(
-        blob["episode_lifecycle_contract"]
-    )
+    blob["episode_lifecycle_contract_digest"] = canonical_digest(blob["episode_lifecycle_contract"])
     path = tmp_path / "partial-lifecycle.pth"
     torch.save(blob, path)
 

@@ -21,9 +21,9 @@ from src.core.config_loader import load_config
 from src.core.game_config import GameConfig, get_config, initialize_config
 from src.core.reward_events import DEATH_REWARD, KILL_REWARD_PER_VICTIM_LENGTH
 from src.core.runtime_contract import (
+    PQN_TRAIN_RESET_STRATEGIES,
     EffectiveWorldConfig,
     ModelHeadContract,
-    PQN_TRAIN_RESET_STRATEGIES,
     RunProvenance,
     RuntimeModeContract,
     canonical_digest,
@@ -153,8 +153,7 @@ def _validate_v3_serving_checkpoint(
         raise ValueError("raster31v3 runtime_contract digest changes after normalization")
     if (
         runtime_contract.mode != "pqn_train"
-        or runtime_contract.reset_strategy
-        not in PQN_TRAIN_RESET_STRATEGIES
+        or runtime_contract.reset_strategy not in PQN_TRAIN_RESET_STRATEGIES
         or runtime_contract.training is not True
         or runtime_contract.respawn is not False
         or runtime_contract.hero_terminal is not True

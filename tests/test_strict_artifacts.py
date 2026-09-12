@@ -590,15 +590,13 @@ class ArtifactFixture:
             "episode_lifecycle_contract": self.candidate_contracts["episode_lifecycle"][
                 "descriptor"
             ],
-            "episode_lifecycle_contract_digest": self.candidate_contracts[
-                "episode_lifecycle"
-            ]["digest"],
-            "episode_lifecycle_compatibility": self.candidate_contracts[
-                "episode_lifecycle"
-            ]["compatibility"],
-            "policy_source_contract": self.candidate_contracts["policy_source"][
-                "descriptor"
+            "episode_lifecycle_contract_digest": self.candidate_contracts["episode_lifecycle"][
+                "digest"
             ],
+            "episode_lifecycle_compatibility": self.candidate_contracts["episode_lifecycle"][
+                "compatibility"
+            ],
+            "policy_source_contract": self.candidate_contracts["policy_source"]["descriptor"],
             "policy_source_contract_digest": self.candidate_contracts["policy_source"]["digest"],
         }
         episodes = []
@@ -1219,18 +1217,12 @@ def test_coherent_preflight_serving_contract_substitution_is_not_accepted(tmp_pa
 
 def test_frozen_lifecycle_claim_must_match_opened_e0_candidate_bytes(tmp_path: Path):
     fixture = ArtifactFixture(tmp_path)
-    lifecycle = fixture.request["serving_contract"]["candidate_contracts"][
-        "episode_lifecycle"
-    ]
+    lifecycle = fixture.request["serving_contract"]["candidate_contracts"]["episode_lifecycle"]
     lifecycle["descriptor"]["episode_reset_mode"] = "per_env_autoreset_v1"
     lifecycle["digest"] = canonical_digest(lifecycle["descriptor"])
     lifecycle["compatibility"] = None
-    policy_source = fixture.request["serving_contract"]["candidate_contracts"][
-        "policy_source"
-    ]
-    policy_source["descriptor"]["effective_episode_lifecycle_contract_digest"] = lifecycle[
-        "digest"
-    ]
+    policy_source = fixture.request["serving_contract"]["candidate_contracts"]["policy_source"]
+    policy_source["descriptor"]["effective_episode_lifecycle_contract_digest"] = lifecycle["digest"]
     policy_source["digest"] = canonical_digest(policy_source["descriptor"])
     _write_json(fixture.request_path, fixture.request)
 
@@ -1245,9 +1237,7 @@ def test_recognized_reset_strategy_without_matching_checkpoint_lifecycle_fails(
     tmp_path: Path,
 ):
     fixture = ArtifactFixture(tmp_path)
-    source_runtime = fixture.request["serving_contract"]["candidate_contracts"][
-        "source_runtime"
-    ]
+    source_runtime = fixture.request["serving_contract"]["candidate_contracts"]["source_runtime"]
     source_runtime["descriptor"]["reset_strategy"] = "per_env_rollout_boundary"
     source_runtime["digest"] = canonical_digest(source_runtime["descriptor"])
     _write_json(fixture.request_path, fixture.request)
@@ -1361,9 +1351,7 @@ def test_native_per_env_candidate_lifecycle_freezes_from_actual_checkpoint_bytes
     token = fixture.freeze()
 
     frozen = token.request["serving_contract"]["candidate_contracts"]
-    assert frozen["source_runtime"]["descriptor"]["reset_strategy"] == (
-        "per_env_rollout_boundary"
-    )
+    assert frozen["source_runtime"]["descriptor"]["reset_strategy"] == ("per_env_rollout_boundary")
     assert frozen["episode_lifecycle"]["descriptor"]["episode_reset_mode"] == (
         "per_env_autoreset_v1"
     )

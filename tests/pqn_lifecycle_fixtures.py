@@ -101,6 +101,12 @@ def corrected_v3_pre_lifecycle_metadata(
         "sgd_epochs": None,
         "pad_sgd_batches": False,
         "sgd_seed": None,
+        # These top-level fields were part of the known corrected-v3 schema.
+        # Keep the fixture representative of a real pre-lifecycle checkpoint so
+        # the adapter verifies, rather than invents, its exploration provenance.
+        "eps_start": 1.0,
+        "eps_end": 0.1,
+        "eps_decay_steps": 10,
     }
     provenance = RunProvenance(
         effective_seed=7,
