@@ -13,8 +13,10 @@ import torch
 from src.core import runtime_contract
 from src.core.seeding import derive_seed
 from src.evaluation import serving_episode
+from src.model.inference_agent import InferenceAgent
 from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V3, RASTER31V3_CONTRACT
 from src.model.raster_network import RasterDuelingNetwork
+from src.training.pqn_trainer import PQNConfig, PQNTrainer
 from tests.pqn_lifecycle_fixtures import corrected_v3_pre_lifecycle_metadata
 from web.backend.session import V3_ACTION_MASK_CONTRACT
 
@@ -131,6 +133,70 @@ def _spec(checkpoint: Path, *, mode: str, seed: int = 31, frames: int = 3):
         source_closure_sha256="b" * 64,
         frame_limit=frames,
     )
+
+
+def _native_checkpoint(tmp_path: Path, reset_mode: str) -> Path:
+    """Save a checkpoint from the current corrected-v3 writer, not hand-built metadata."""
+    trainer = PQNTrainer(
+        PQNConfig(
+            num_envs=1,
+            num_snakes=3,
+            rollout_len=2,
+            max_frames=5000,
+            game_width=400,
+            game_height=300,
+            initial_food=2,
+            max_food=3,
+            recipe="corrected-v3",
+            obs_spec=RASTER31V3,
+            flip_augment=False,
+            mechanics_version=2,
+            reward_version=2,
+            episode_reset_mode=reset_mode,
+            episode_seed_mode="derived_env_episode_v1",
+            source_revision=f"serving-native-{reset_mode}",
+        )
+    )
+    try:
+        state = trainer.checkpoint_state()
+    finally:
+        trainer.close()
+    path = tmp_path / f"{reset_mode}.pth"
+    torch.save(state, path)
+    return path
+
+
+@pytest.mark.parametrize(
+    ("reset_mode", "source_reset"),
+    [
+        ("batch_barrier_v1", "batch_episode"),
+        ("per_env_autoreset_v1", "per_env_rollout_boundary"),
+    ],
+)
+def test_native_writer_checkpoint_reaches_inference_watch_and_play(
+    tmp_path: Path, reset_mode: str, source_reset: str
+):
+    checkpoint = _native_checkpoint(tmp_path, reset_mode)
+    assert (
+        InferenceAgent.from_checkpoint(checkpoint, device=torch.device("cpu")).obs_spec
+        == RASTER31V3
+    )
+
+    for mode in ("watch", "play"):
+        receipt = serving_episode.run_serving_episode(_spec(checkpoint, mode=mode, frames=2))
+        contract = receipt["serving_contract"]
+        manifest = contract["deployment_target_manifest"]
+        assert receipt["candidate_sha256"] == _digest(checkpoint)
+        assert contract["episode_lifecycle_compatibility"] is None
+        assert manifest["source_runtime"]["reset_strategy"] == source_reset
+        assert manifest["deployed_runtime"]["reset_strategy"] == "manual"
+        for name in (
+            "episode_lifecycle_contract",
+            "episode_lifecycle_contract_digest",
+            "policy_source_contract",
+            "policy_source_contract_digest",
+        ):
+            assert contract[name] == manifest[name]
 
 
 def test_actual_watch_and_play_observe_seeded_real_dispatch(checkpoint: Path):

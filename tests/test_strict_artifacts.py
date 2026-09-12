@@ -219,9 +219,9 @@ def _actual_candidate_payload() -> tuple[bytes, dict[str, object]]:
     return payload.getvalue(), _candidate_contracts_from_metadata(checkpoint)
 
 
-@lru_cache(maxsize=1)
-def _native_per_env_candidate_payload() -> tuple[bytes, dict[str, object]]:
-    """Build bytes from the actual B3T native per-environment checkpoint writer."""
+@lru_cache(maxsize=2)
+def _native_candidate_payload(reset_mode: str) -> tuple[bytes, dict[str, object]]:
+    """Build bytes from the actual B3T native checkpoint writer for one lifecycle mode."""
     from src.training.pqn_trainer import PQNConfig, PQNTrainer
 
     world = _promotion_world()
@@ -251,9 +251,9 @@ def _native_per_env_candidate_payload() -> tuple[bytes, dict[str, object]]:
             recipe="corrected-v3",
             obs_spec=RASTER31V3,
             flip_augment=False,
-            episode_reset_mode="per_env_autoreset_v1",
+            episode_reset_mode=reset_mode,
             episode_seed_mode="derived_env_episode_v1",
-            source_revision="strict-native-per-env-test",
+            source_revision=f"strict-native-{reset_mode}-test",
         )
     )
     try:
@@ -1341,7 +1341,7 @@ def test_actual_producer_terminal_play_receipt_is_accepted(tmp_path: Path):
 def test_native_per_env_candidate_lifecycle_freezes_from_actual_checkpoint_bytes(
     tmp_path: Path,
 ):
-    candidate_payload, candidate_contracts = _native_per_env_candidate_payload()
+    candidate_payload, candidate_contracts = _native_candidate_payload("per_env_autoreset_v1")
     fixture = ArtifactFixture(
         tmp_path,
         candidate_payload=candidate_payload,
@@ -1356,6 +1356,68 @@ def test_native_per_env_candidate_lifecycle_freezes_from_actual_checkpoint_bytes
         "per_env_autoreset_v1"
     )
     assert frozen["episode_lifecycle"]["compatibility"] is None
+
+
+@pytest.mark.parametrize(
+    ("reset_mode", "source_reset"),
+    [
+        ("batch_barrier_v1", "batch_episode"),
+        ("per_env_autoreset_v1", "per_env_rollout_boundary"),
+    ],
+)
+def test_native_writer_checkpoint_reaches_real_play_receipt_and_strict_final_consumer(
+    tmp_path: Path, reset_mode: str, source_reset: str
+):
+    """Exercise native writer bytes through the real Play producer and strict reopen path."""
+    candidate_payload, candidate_contracts = _native_candidate_payload(reset_mode)
+    fixture = ArtifactFixture(
+        tmp_path,
+        candidate_payload=candidate_payload,
+        candidate_contracts=candidate_contracts,
+    )
+    serving = json.loads(fixture.serving_path.read_text())
+    episode = serving["episodes"][1]
+    receipt = run_serving_episode(
+        ServingEpisodeSpec(
+            episode_id=episode["episode_id"],
+            mode="play",
+            serving_seed=episode["serving_seed"],
+            checkpoint_path=fixture.candidate_file,
+            expected_candidate_sha256=fixture.candidate["sha256"],
+            profile_digest=fixture.profile["digest"],
+            source_closure_sha256=fixture.source_closure,
+            frame_limit=5000,
+        )
+    )
+    receipt_path = _write_json(Path(episode["receipt_path"]), receipt)
+    episode["receipt_sha256"] = _sha_bytes(receipt_path.read_bytes())
+    _write_json(fixture.serving_path, serving)
+    fixture.request["artifact_bindings"]["serving"] = _sha_bytes(fixture.serving_path.read_bytes())
+    _write_json(fixture.request_path, fixture.request)
+    fixture.raw_path = fixture._raw(candidate_mass=11.0, incumbent_mass=10.0)
+
+    token, raw_token, paths, final = fixture.build()
+    assert final["strict_authority"] is True
+    assert final["readiness"]["artifact_validation"] == "passed"
+    assert (
+        token.request["serving_contract"]["candidate_contracts"]["source_runtime"]["descriptor"][
+            "reset_strategy"
+        ]
+        == source_reset
+    )
+    assert (
+        token.request["serving_contract"]["candidate_contracts"]["episode_lifecycle"][
+            "compatibility"
+        ]
+        is None
+    )
+    assert bind_strict_raw_world_artifact(token, fixture.raw_path) == raw_token
+    assert (
+        validate_strict_final_receipt(
+            _write_json(tmp_path / "final.json", final), token, raw_token, **paths
+        )["strict_authority"]
+        is True
+    )
 
 
 @pytest.mark.parametrize(
