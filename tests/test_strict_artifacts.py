@@ -1377,18 +1377,24 @@ def test_native_writer_checkpoint_reaches_real_play_receipt_and_strict_final_con
     )
     serving = json.loads(fixture.serving_path.read_text())
     episode = serving["episodes"][1]
-    receipt = run_serving_episode(
-        ServingEpisodeSpec(
-            episode_id=episode["episode_id"],
-            mode="play",
-            serving_seed=episode["serving_seed"],
-            checkpoint_path=fixture.candidate_file,
-            expected_candidate_sha256=fixture.candidate["sha256"],
-            profile_digest=fixture.profile["digest"],
-            source_closure_sha256=fixture.source_closure,
-            frame_limit=5000,
+    from src.core import game_config
+
+    previous_config = game_config._current_config
+    try:
+        receipt = run_serving_episode(
+            ServingEpisodeSpec(
+                episode_id=episode["episode_id"],
+                mode="play",
+                serving_seed=episode["serving_seed"],
+                checkpoint_path=fixture.candidate_file,
+                expected_candidate_sha256=fixture.candidate["sha256"],
+                profile_digest=fixture.profile["digest"],
+                source_closure_sha256=fixture.source_closure,
+                frame_limit=5000,
+            )
         )
-    )
+    finally:
+        game_config._current_config = previous_config
     receipt_path = _write_json(Path(episode["receipt_path"]), receipt)
     episode["receipt_sha256"] = _sha_bytes(receipt_path.read_bytes())
     _write_json(fixture.serving_path, serving)
