@@ -854,6 +854,152 @@ def test_term_grace_escalates_to_sigkill_and_confirms_exit(
     assert process.waited
 
 
+def test_psutil_race_reaps_a_cached_exit_before_signalling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cached psutil child may be gone even though the previous poll was live."""
+    process = FakeProcess(returncode=0, alive_polls=99)
+    signals: list[int] = []
+    monkeypatch.setattr(h0.os, "killpg", lambda _pid, sig: signals.append(sig))
+
+    class VanishedChild(FakeChild):
+        def memory_info(self) -> "FakeChild.Memory":
+            raise h0.psutil.NoSuchProcess(pid=process.pid)
+
+    result = h0._monitor_process(
+        process,
+        h0.asdict(plan(tmp_path).limits),
+        wall_seconds=2,
+        heartbeat_path=None,
+        now=itertools.count().__next__,
+        sleep=lambda _: None,
+        process_factory=lambda _: VanishedChild(),
+    )
+
+    assert result["cause"] is None
+    assert result["termination"] == "natural_exit"
+    assert result["confirmed_exit"] is True and result["returncode"] == 0
+    assert result["recovery"]["kind"] == "process_monitor_race"
+    assert result["elapsed_seconds"] >= 0
+    assert process.waited and signals == []
+
+
+def test_bounded_reap_rejects_a_wait_value_without_a_confirmed_process_returncode() -> None:
+    """A nonconforming process wrapper cannot manufacture a natural-exit receipt."""
+
+    class MalformedWaitProcess:
+        returncode = None
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def poll(self) -> None:
+            return None
+
+    assert h0._bounded_reap(MalformedWaitProcess(), 1) == (
+        None,
+        "wait_completed_without_confirmed_returncode",
+    )
+
+
+def test_psutil_race_reap_timeout_escalates_to_term_then_kill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A not-yet-reapable race follows the existing bounded stop escalation."""
+
+    class TimeoutThenKillProcess(FakeProcess):
+        def __init__(self) -> None:
+            super().__init__(alive_polls=99)
+            self.wait_calls = 0
+            self.wait_timeouts: list[float | None] = []
+
+        def wait(self, timeout: float | None = None) -> int:
+            self.wait_calls += 1
+            self.wait_timeouts.append(timeout)
+            if self.wait_calls == 1:
+                raise h0.subprocess.TimeoutExpired("fixture", timeout)
+            return super().wait(timeout)
+
+    process = TimeoutThenKillProcess()
+    signals: list[int] = []
+
+    def killpg(_pid: int, sig: int) -> None:
+        signals.append(sig)
+        if sig == h0.signal.SIGKILL:
+            process.returncode = -sig
+
+    def vanished(_: int) -> Any:
+        raise h0.psutil.NoSuchProcess(pid=process.pid)
+
+    monkeypatch.setattr(h0.os, "killpg", killpg)
+    result = h0._monitor_process(
+        process,
+        h0.asdict(plan(tmp_path).limits),
+        wall_seconds=2,
+        heartbeat_path=None,
+        now=itertools.count().__next__,
+        sleep=lambda _: None,
+        process_factory=vanished,
+    )
+
+    assert result["confirmed_exit"] is True and result["termination"] == "killed"
+    assert signals == [h0.signal.SIGTERM, h0.signal.SIGKILL]
+    assert "initial_reap TimeoutExpired" in result["reap_diagnostics"]
+    assert process.wait_timeouts == [1.0, 1.0]
+
+
+def test_stop_process_reaps_after_signal_oserror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A signal race records its error but still accepts a real waited return code."""
+    process = FakeProcess(returncode=0, alive_polls=99)
+    diagnostics: list[str] = []
+    monkeypatch.setattr(h0.os, "killpg", lambda *_: (_ for _ in ()).throw(OSError("race")))
+
+    assert (
+        h0.stop_process(
+            process,
+            1,
+            now=itertools.count().__next__,
+            sleeper=lambda _: None,
+            diagnostics=diagnostics,
+        )
+        == "already_exited"
+    )
+    assert process.waited
+    assert diagnostics == ["SIGTERM OSError: race", "SIGKILL OSError: race"]
+
+
+def test_unreapable_monitor_race_stays_unconfirmed_and_aborts_remaining_arms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without any Popen return code, the plan must not launch a replacement arm."""
+
+    class UnreapableProcess(FakeProcess):
+        def __init__(self) -> None:
+            super().__init__(alive_polls=99)
+
+        def wait(self, timeout: float | None = None) -> int:
+            raise OSError("fixture reap unavailable")
+
+    candidate = plan(tmp_path, "screen")
+    starts: list[bool] = []
+
+    def vanished(_: int) -> Any:
+        raise h0.psutil.NoSuchProcess(pid=FakeProcess.pid)
+
+    monkeypatch.setattr(h0.os, "killpg", lambda *_: None)
+    results = h0.run_plan(
+        candidate,
+        popen=lambda *args, **kwargs: (starts.append(True) or UnreapableProcess()),
+        process_factory=vanished,
+    )
+
+    assert len(starts) == 1
+    assert results[0]["monitor"]["confirmed_exit"] is False
+    assert [item["outcome"] for item in results] == ["learner_exit_failure"] + ["unrun"] * 4
+
+
 @pytest.mark.parametrize(
     ("incident_class", "checkpoint_expected"),
     [("max_abs_q", True), ("non_finite", False)],

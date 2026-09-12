@@ -1135,13 +1135,43 @@ def checkpoint_lineage(arm_dir: Path, manifest: Mapping[str, Any]) -> tuple[bool
     }
 
 
+def _returncode(value: Any) -> int | None:
+    """Return an actual Popen-style exit code, rejecting sentinel values."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _bounded_reap(process: Any, grace_seconds: float) -> tuple[int | None, str | None]:
+    """Wait once for a child and retain a typed failure instead of guessing exit state."""
+    try:
+        process.wait(timeout=max(1.0, grace_seconds))
+    except subprocess.TimeoutExpired:
+        return None, "TimeoutExpired"
+    except (TypeError, OSError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    try:
+        polled = _returncode(process.poll())
+    except (TypeError, OSError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+    if polled is not None:
+        return polled, None
+    # A real Popen.wait() sets returncode, but require the observable process
+    # state too so a malformed wrapper cannot forge a confirmed natural exit.
+    return None, "wait_completed_without_confirmed_returncode"
+
+
 def stop_process(
     process: Any,
     grace_seconds: float,
     now: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
+    diagnostics: list[str] | None = None,
 ) -> str:
-    """TERM then KILL a process group and distinguish an unconfirmed exit."""
+    """TERM then KILL a process group, then perform one bounded final reap.
+
+    Signal failures are diagnostics rather than exit evidence.  A caller that
+    already attempted a race reap can therefore take at most one initial reap,
+    this grace period, and this final reap before an unconfirmed result.
+    """
     terminated = False
     killed = False
     try:
@@ -1149,8 +1179,9 @@ def stop_process(
         terminated = True
     except ProcessLookupError:
         pass
-    except OSError:
-        return "unconfirmed_exit"
+    except OSError as exc:
+        if diagnostics is not None:
+            diagnostics.append(f"SIGTERM {type(exc).__name__}: {exc}")
     deadline = now() + grace_seconds
     while process.poll() is None and now() < deadline:
         sleeper(min(0.05, max(0.0, deadline - now())))
@@ -1160,13 +1191,13 @@ def stop_process(
             killed = True
         except ProcessLookupError:
             pass
-        except OSError:
-            return "unconfirmed_exit"
-    try:
-        process.wait(timeout=max(1.0, grace_seconds))
-    except (subprocess.TimeoutExpired, TypeError, OSError):
-        return "unconfirmed_exit"
-    if process.poll() is None:
+        except OSError as exc:
+            if diagnostics is not None:
+                diagnostics.append(f"SIGKILL {type(exc).__name__}: {exc}")
+    returncode, reap_error = _bounded_reap(process, grace_seconds)
+    if reap_error is not None and diagnostics is not None:
+        diagnostics.append(f"reap {reap_error}")
+    if returncode is None:
         return "unconfirmed_exit"
     if killed:
         return "killed"
@@ -1207,21 +1238,50 @@ def _monitor_process(
         except psutil.NoSuchProcess as exc:
             if process.poll() is not None:
                 break
-            termination = stop_process(process, limits["term_grace_seconds"], now, sleep)
+            # psutil can lose a child between the loop poll and its resource
+            # read. Reap directly first: a real Popen return code proves a
+            # natural exit and avoids signalling a process that has gone away.
+            # The recovery path is bounded by initial reap + TERM grace + final
+            # reap, each using max(1.0, term_grace_seconds).
+            returncode, reap_error = _bounded_reap(process, limits["term_grace_seconds"])
+            if returncode is not None:
+                return {
+                    "cause": None,
+                    "termination": "natural_exit",
+                    "confirmed_exit": True,
+                    "returncode": returncode,
+                    "recovery": {
+                        "kind": "process_monitor_race",
+                        "error": str(exc),
+                    },
+                    "elapsed_seconds": max(0.0, now() - started),
+                    **observations,
+                }
+            diagnostics = []
+            if reap_error is not None:
+                diagnostics.append(f"initial_reap {reap_error}")
+            termination = stop_process(
+                process, limits["term_grace_seconds"], now, sleep, diagnostics
+            )
             return {
                 "cause": "process_monitor_race",
                 "error": str(exc),
                 "termination": termination,
                 "confirmed_exit": termination != "unconfirmed_exit",
+                "reap_diagnostics": diagnostics,
                 **observations,
             }
         except (psutil.AccessDenied, psutil.Error, OSError) as exc:
-            termination = stop_process(process, limits["term_grace_seconds"], now, sleep)
+            diagnostics = []
+            termination = stop_process(
+                process, limits["term_grace_seconds"], now, sleep, diagnostics
+            )
             return {
                 "cause": "process_monitor_error",
                 "error": str(exc),
                 "termination": termination,
                 "confirmed_exit": termination != "unconfirmed_exit",
+                "reap_diagnostics": diagnostics,
                 **observations,
             }
         observations["max_rss_bytes"] = max(observations["max_rss_bytes"], rss)
@@ -1246,11 +1306,15 @@ def _monitor_process(
                 cause = "resource_stop"
         if cause:
             breach = now()
-            termination = stop_process(process, limits["term_grace_seconds"], now, sleep)
+            diagnostics = []
+            termination = stop_process(
+                process, limits["term_grace_seconds"], now, sleep, diagnostics
+            )
             return {
                 "cause": cause,
                 "termination": termination,
                 "confirmed_exit": termination != "unconfirmed_exit",
+                "reap_diagnostics": diagnostics,
                 "elapsed_at_detection_seconds": breach - started,
                 "monitor_overshoot_seconds": (
                     max(0.0, breach - started - wall_seconds) if cause == "wall_stop" else None
