@@ -13,7 +13,12 @@ import torch
 
 from src.model.obs_spec import RASTER31V3
 from src.model.raster_network import SCALARS_DIM, STRATEGIC_SHAPE, TACTICAL_SHAPE
-from src.training.pqn_trainer import PQNConfig, PQNTrainer, pqn_target_contract
+from src.training.pqn_trainer import (
+    PQNConfig,
+    PQNTrainer,
+    pqn_sampler_contract,
+    pqn_target_contract,
+)
 from src.training.rollout_policies import FixedPolicySource
 
 
@@ -77,6 +82,52 @@ def test_corrected_contract_declares_pinned_episode_and_real_death_semantics() -
     assert contract["death"] == "actual_done_reward_only"
     assert contract["lambda_carry"] == "next_in_rollout_valid_transition_including_death"
     assert contract["inactive_worlds"] == "active_env_mask_freezes_world_rng_and_events"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_rng"),
+    [
+        ({"episode_seed_mode": "continuous_env_rng_v1"}, "shared_with_rollout"),
+        ({"episode_seed_mode": "derived_env_episode_v1"}, "trainer_rng_used_only_for_sgd"),
+        ({"episode_seed_mode": "derived_env_episode_v1", "sgd_seed": 19}, "independent_seed"),
+    ],
+)
+def test_sampler_contract_records_the_rng_that_the_selected_lifecycle_uses(
+    overrides: dict[str, object], expected_rng: str
+) -> None:
+    """Derived episode streams leave the trainer generator available only to SGD."""
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=1,
+        rollout_len=1,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        **overrides,
+    )
+
+    assert pqn_sampler_contract(config)["sgd_rng"] == expected_rng
+
+
+def test_sampler_contract_records_disabled_and_non_replayed_snapshot_admission() -> None:
+    """Pool provenance distinguishes disabled admission from a pinned due-slot loss."""
+    base = {
+        "num_envs": 1,
+        "num_snakes": 1,
+        "rollout_len": 1,
+        "recipe": "corrected-v3",
+        "obs_spec": RASTER31V3,
+        "flip_augment": False,
+    }
+    disabled = pqn_sampler_contract(PQNConfig(**base, pool_admission_mode="disabled_v1"))
+    scheduled = pqn_sampler_contract(PQNConfig(**base, pool_admission_mode="scheduled_v1"))
+
+    assert disabled["pool_mutation"] == "disabled_v1"
+    assert disabled["snapshot_admission"] == "disabled_pool_admission_mode"
+    assert scheduled["pool_mutation"] == (
+        "admission_after_successful_update_deferred_when_all_snapshots_pinned_"
+        "and_not_replayed_off_schedule"
+    )
 
 
 def test_corrected_max_frame_one_completes_and_resets_on_next_rollout() -> None:
@@ -165,9 +216,10 @@ def test_fixed_source_actions_and_identity_are_real_rollout_contract_inputs() ->
     assert sampler["snapshot_admission"] == "disabled_fixed_source"
     assert checkpoint["rollout_policy_source"]["mode"] == "fixed"
     assert checkpoint["rollout_policy_source"]["identity"] == policy.identity
-    assert checkpoint["rollout_policy_source"]["policy_source_contract_digest"] == checkpoint[
-        "policy_source_contract_digest"
-    ]
+    assert (
+        checkpoint["rollout_policy_source"]["policy_source_contract_digest"]
+        == checkpoint["policy_source_contract_digest"]
+    )
 
 
 def test_fixed_source_only_draws_exploration_for_actual_hero_slots() -> None:

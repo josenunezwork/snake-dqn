@@ -396,6 +396,13 @@ def validate_pqn_resume_checkpoint_config(
         old_sampler["version"] = "pqn-sampler-corrected-v3"
         old_sampler.pop("episode_lifecycle_contract_digest", None)
         old_sampler.pop("policy_source_contract_digest", None)
+        # The adapter validates actual pre-lifecycle corrected-v3 checkpoint
+        # bytes.  Its sampler descriptor predates lifecycle-sensitive
+        # provenance, so project exactly its recorded meanings instead of
+        # leaking new native fields into the old schema comparison.
+        old_sampler["sgd_rng"] = "shared_with_rollout"
+        old_sampler["pool_mutation"] = "admission_deferred_when_all_snapshots_pinned"
+        old_sampler["snapshot_admission"] = "after_sgd_positive_update_index_divisible_by_interval"
         contract_pairs.extend([("target_contract", old_target), ("sampler_contract", old_sampler)])
     for name, expected in contract_pairs:
         raw = checkpoint.get(name)

@@ -3,6 +3,7 @@
 import pytest
 import torch
 
+from src.core.runtime_contract import RunProvenance, canonical_digest
 from src.model.obs_spec import RASTER31V3
 from src.scripts import train_pqn
 from src.training.pqn_trainer import PQNConfig, PQNTrainer
@@ -80,6 +81,55 @@ def test_v3_checkpoint_continues_only_with_identical_world_and_optimizer(tmp_pat
     conflicting = PQNConfig(**{**config.__dict__, "max_frames": 120})
     with pytest.raises(RuntimeError, match="effective_world conflicts"):
         train_pqn.load_pqn_resume_checkpoint(str(path), conflicting, mode="continuation")
+
+
+def test_pre_lifecycle_corrected_checkpoint_uses_its_historical_sampler_projection(tmp_path):
+    """Continuation compares a legacy descriptor without rewriting it as a native one."""
+    config = PQNConfig(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=2,
+        max_frames=100,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+    )
+    checkpoint = PQNTrainer(config).checkpoint_state()
+    target = checkpoint["target_contract"]
+    target["version"] = "pqn-qlambda-corrected-v3"
+    target.pop("episode_lifecycle_contract_digest")
+    checkpoint["target_contract_digest"] = canonical_digest(target)
+
+    sampler = checkpoint["sampler_contract"]
+    sampler["version"] = "pqn-sampler-corrected-v3"
+    sampler.pop("episode_lifecycle_contract_digest")
+    sampler.pop("policy_source_contract_digest")
+    sampler["sgd_rng"] = "shared_with_rollout"
+    sampler["pool_mutation"] = "admission_deferred_when_all_snapshots_pinned"
+    sampler["snapshot_admission"] = "after_sgd_positive_update_index_divisible_by_interval"
+    checkpoint["sampler_contract_digest"] = canonical_digest(sampler)
+
+    checkpoint["rollout_policy_source"] = {"mode": "snapshot_pool", "identity": "episode-assigned"}
+    for key in (
+        "episode_lifecycle_contract",
+        "episode_lifecycle_contract_digest",
+        "policy_source_contract",
+        "policy_source_contract_digest",
+        "episode_reset_mode",
+        "episode_seed_mode",
+        "pool_admission_mode",
+        "initial_opponent_checkpoint_sha256",
+    ):
+        checkpoint.pop(key)
+    provenance = dict(checkpoint["run_provenance"])
+    provenance["target_digest"] = checkpoint["target_contract_digest"]
+    provenance["sampler_digest"] = checkpoint["sampler_contract_digest"]
+    checkpoint.update(RunProvenance(**provenance).to_metadata())
+
+    path = tmp_path / "pre-lifecycle-corrected.pth"
+    torch.save(checkpoint, path)
+
+    assert train_pqn.load_pqn_resume_checkpoint(str(path), config, mode="continuation")
 
 
 def test_derived_or_per_environment_mode_rejects_optimizer_continuation_before_loading(tmp_path):

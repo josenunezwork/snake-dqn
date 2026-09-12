@@ -398,6 +398,35 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
     """Describe sampling and policy assignment without inventing resume state."""
     corrected = config.recipe == "corrected-v3"
     fixed = config.rollout_policy_mode == "fixed"
+    if config.sgd_seed is not None:
+        sgd_rng = "independent_seed"
+    elif config.episode_seed_mode == "derived_env_episode_v1":
+        # Derived episode worlds, assignments, and actions do not consume
+        # ``self.rng``.  The aliased trainer RNG therefore drives SGD only.
+        sgd_rng = "trainer_rng_used_only_for_sgd"
+    else:
+        # The continuous compatibility mode retains its historical shared
+        # rollout/SGD generator and call ordering.
+        sgd_rng = "shared_with_rollout"
+
+    if fixed:
+        pool_mutation = "not_applicable_fixed_source"
+        snapshot_admission = "disabled_fixed_source"
+    elif config.pool_admission_mode == POOL_ADMISSION_DISABLED:
+        pool_mutation = "disabled_v1"
+        snapshot_admission = "disabled_pool_admission_mode"
+    elif corrected:
+        # ``add_snapshot`` returns None when every resident candidate is
+        # pinned.  The caller has no deferred queue, so that due admission is
+        # deliberately omitted rather than replayed off schedule.
+        pool_mutation = (
+            "admission_after_successful_update_deferred_when_all_snapshots_pinned_"
+            "and_not_replayed_off_schedule"
+        )
+        snapshot_admission = "after_sgd_positive_update_index_divisible_by_interval"
+    else:
+        pool_mutation = "between_rollouts"
+        snapshot_admission = "after_sgd_positive_update_index_divisible_by_interval"
     contract: Dict[str, object] = {
         "version": (
             "pqn-sampler-corrected-v3-lifecycle-v1"
@@ -422,7 +451,7 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
             if config.flip_augment
             else "disabled"
         ),
-        "sgd_rng": "shared_with_rollout" if config.sgd_seed is None else "independent_seed",
+        "sgd_rng": sgd_rng,
         "num_envs": config.num_envs,
         "num_snakes": config.num_snakes,
         "rollout_len": config.rollout_len,
@@ -455,13 +484,7 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
             else "batch_episode" if fixed or corrected else "rollout"
         ),
         "episode_pinning": corrected and not fixed,
-        "pool_mutation": (
-            "not_applicable_fixed_source"
-            if fixed
-            else (
-                "admission_deferred_when_all_snapshots_pinned" if corrected else "between_rollouts"
-            )
-        ),
+        "pool_mutation": pool_mutation,
         "rollout_policy_source": {
             "mode": config.rollout_policy_mode,
             "identity": (
@@ -470,11 +493,7 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
                 else "episode-assigned"
             ),
         },
-        "snapshot_admission": (
-            "disabled_fixed_source"
-            if fixed or config.pool_admission_mode == "disabled_v1"
-            else "after_sgd_positive_update_index_divisible_by_interval"
-        ),
+        "snapshot_admission": snapshot_admission,
         "exploration": {
             "policy": "hero_only_epsilon_greedy_constant_within_rollout",
             "clock": "valid_hero_agent_steps",
