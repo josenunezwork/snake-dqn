@@ -131,3 +131,45 @@ def test_run_refuses_existing_output_before_constructing_a_world(
     monkeypatch.setattr(cli, "verify_manifest", lambda *_: {"probe_config": {}, "batch_config": {}})
     with pytest.raises(FileExistsError, match="run output"):
         cli.run(manifest.resolve(), "a" * 64)
+
+
+def test_atomic_json_never_overwrites_an_existing_target(tmp_path: Path) -> None:
+    target = tmp_path / "terminal.json"
+    target.write_text("original")
+    with pytest.raises(FileExistsError):
+        cli._atomic_json(target, {"replacement": True})
+    assert target.read_text() == "original"
+
+
+def test_run_preflight_config_error_writes_failed_terminal_without_world_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = (tmp_path / "manifest.json").resolve()
+    manifest.write_text("{}")
+    monkeypatch.setattr(
+        cli,
+        "verify_manifest",
+        lambda *_: {"probe_config": {"unknown": 1}, "batch_config": {}},
+    )
+    terminal = cli.run(manifest, "a" * 64)
+    payload = json.loads(terminal.read_text())
+    assert payload["status"] == "failed"
+    assert payload["completed_world_count"] == 0
+    assert (terminal.parent / "raw.jsonl").exists()
+
+
+def test_partial_terminal_explicitly_marks_every_unrun_world_and_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = (tmp_path / "manifest.json").resolve()
+    manifest.write_text("{}")
+    monkeypatch.setattr(
+        cli,
+        "verify_manifest",
+        lambda *_: {"probe_config": {"unknown": 1}, "batch_config": {}},
+    )
+    # A setup exception is a failed terminal and must still expose all unrun work.
+    terminal = cli.run(manifest, "a" * 64)
+    rows = [json.loads(line) for line in (terminal.parent / "raw.jsonl").read_text().splitlines()]
+    assert sum(row.get("kind") == "world" for row in rows) == cli.WORLD_COUNT
+    assert sum(row.get("reason") == "unrun" for row in rows) == cli.WORLD_COUNT * len(cli.FRAMES)

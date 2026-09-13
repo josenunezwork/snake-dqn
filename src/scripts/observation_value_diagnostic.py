@@ -362,9 +362,6 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
         raise FileExistsError("run output or terminal already exists")
     out.mkdir()
     raw, heart = out / "raw.jsonl", out / "heartbeat.jsonl"
-    probe, config = ProbeConfig(**manifest["probe_config"]), BatchSimConfig(
-        **manifest["batch_config"]
-    )
     counters = {
         "worlds": 0,
         "natural_world_ticks": 0,
@@ -379,6 +376,8 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
     seen: set[str] = set()
     started, status, cause = time.monotonic(), "completed", "natural_collection_complete"
     try:
+        probe = ProbeConfig(**manifest["probe_config"])
+        config = BatchSimConfig(**manifest["batch_config"])
         for index, world_seed in enumerate(manifest["seeds"]["world"]):
             verify_manifest(manifest_path, manifest_sha256)
             _check_resources(started, counters)
