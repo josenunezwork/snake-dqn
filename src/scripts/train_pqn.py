@@ -43,9 +43,11 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -848,6 +850,120 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
     return record
 
 
+def _sha256_file(path: Path) -> str:
+    """Return the digest of an already-durable checkpoint artifact."""
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class _CheckpointArchive:
+    """Immutable copies of accepted rolling checkpoints for one invocation.
+
+    The trainer owns the native checkpoint contract and its atomic writer.  This
+    operational wrapper either writes the start state directly to its immutable
+    destination or replaces ``latest_pqn.pth`` through the trainer's writer and
+    then copies that completed artifact into a freshly allocated run directory.
+    Archive copies are published create-only, so an interrupted copy is never a
+    visible checkpoint and later rolling-checkpoint replacements cannot mutate
+    an archive entry.
+    """
+
+    def __init__(self, out_dir: Path, latest_path: Path) -> None:
+        root = out_dir / "checkpoints"
+        root.mkdir(parents=True, exist_ok=True)
+        # ``uuid4`` makes each invocation distinct even for rapid resumes in the
+        # same output directory. mkdir(exist_ok=False) keeps an accidental
+        # collision from overwriting prior evidence.
+        self.directory = root / f"run_{time.time_ns()}_{os.getpid()}_{uuid.uuid4().hex}"
+        self.directory.mkdir(exist_ok=False)
+        self.latest_path = latest_path
+        self.manifest_path = self.directory / "events.jsonl"
+        self._events: List[Dict[str, Any]] = []
+
+    @staticmethod
+    def _publish_temporary(temporary: Path, destination: Path) -> None:
+        """Publish a same-directory temporary file without replacing evidence."""
+        # ``link`` is create-only. The source is an archive-local temporary,
+        # rather than latest, so this never aliases the mutable rolling file.
+        os.link(temporary, destination)
+
+    def _write_manifest(self, events: Sequence[Dict[str, Any]]) -> None:
+        """Atomically replace the JSONL receipt with a complete event sequence."""
+        temporary = self.directory / f".{self.manifest_path.name}.{uuid.uuid4().hex}.tmp"
+        try:
+            with temporary.open("w", encoding="utf-8") as manifest_fh:
+                for event in events:
+                    manifest_fh.write(json.dumps(event, sort_keys=True) + "\n")
+                manifest_fh.flush()
+                os.fsync(manifest_fh.fileno())
+            # Manifest replacement is intentionally allowed: it is a complete
+            # prefix snapshot, so a crash leaves either the old valid prefix or
+            # the new valid sequence, never a torn JSONL line.
+            os.replace(temporary, self.manifest_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _copy_latest_create_only(self, destination: Path) -> None:
+        """Copy the rolling checkpoint without exposing a partial archive file."""
+        temporary = self.directory / f".{destination.name}.{uuid.uuid4().hex}.tmp"
+        try:
+            shutil.copyfile(self.latest_path, temporary)
+            with temporary.open("rb") as temporary_fh:
+                os.fsync(temporary_fh.fileno())
+            # Linking the temporary copy (never ``latest`` itself) publishes
+            # only a complete file and fails if a destination somehow exists.
+            self._publish_temporary(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def _save_start_create_only(self, trainer: PQNTrainer, destination: Path) -> None:
+        """Serialize start state without creating or replacing the rolling file."""
+        temporary = self.directory / f".{destination.name}.{uuid.uuid4().hex}.tmp"
+        try:
+            trainer.save_checkpoint(str(temporary))
+            self._publish_temporary(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def save(self, trainer: PQNTrainer, label: str, *, replace_latest: bool) -> Path:
+        """Save one accepted state and append its immutable evidence receipt."""
+        update_idx = int(trainer.update_idx)
+        agent_steps = int(trainer.agent_steps)
+        destination = self.directory / (
+            f"{label}_update_{update_idx:08d}_steps_{agent_steps:012d}.pth"
+        )
+        published = False
+        try:
+            if replace_latest:
+                trainer.save_checkpoint(str(self.latest_path))
+                # The trainer's atomic writer has completed before this copy begins.
+                self._copy_latest_create_only(destination)
+            else:
+                # Start is evidence for this invocation only. It must not create or
+                # replace latest: a first-update tripwire retains the old contract.
+                self._save_start_create_only(trainer, destination)
+            published = True
+            event = {
+                "label": label,
+                "update_idx": update_idx,
+                "agent_steps": agent_steps,
+                "checkpoint_path": destination.name,
+                "sha256": _sha256_file(destination),
+                "created_at_unix_ns": time.time_ns(),
+            }
+            candidate_events = [*self._events, event]
+            self._write_manifest(candidate_events)
+        except BaseException:
+            if published:
+                destination.unlink(missing_ok=True)
+            raise
+        self._events = candidate_events
+        return destination
+
+
 def train_loop(
     trainer: PQNTrainer,
     total_steps: int,
@@ -855,6 +971,7 @@ def train_loop(
     ckpt_every: int,
     out_dir: Path,
     append_history: bool = False,
+    archive_checkpoints: bool = False,
 ) -> Tuple[List[PQNTelemetry], Optional[str]]:
     """Run updates until ``total_steps`` hero agent-steps are reached.
 
@@ -877,6 +994,8 @@ def train_loop(
         append_history: Append to an existing ``history.jsonl`` instead of
             truncating it — set when resuming, so a preemption does not erase the
             telemetry of the run being continued.
+        archive_checkpoints: Save immutable start, periodic, and clean-final
+            copies under a unique ``checkpoints/run_*`` invocation directory.
 
     Returns:
         ``(history, tripped)``: the telemetry list collected before the
@@ -887,6 +1006,7 @@ def train_loop(
     history_path = out_dir / "history.jsonl"
     latest_path = out_dir / "latest_pqn.pth"
     incidents_dir = out_dir / "incidents"
+    archive = _CheckpointArchive(out_dir, latest_path) if archive_checkpoints else None
 
     history: List[PQNTelemetry] = []
     start = time.time()
@@ -894,6 +1014,12 @@ def train_loop(
     # non-zero odometer that was earned before this process existed.
     start_steps = trainer.agent_steps
     tripped: Optional[str] = None
+
+    # This is intentionally after resume restoration (performed by ``main``)
+    # and before the first update. It describes the exact state this invocation
+    # began from, whether that state is freshly initialized or resumed.
+    if archive is not None:
+        archive.save(trainer, "start", replace_latest=False)
 
     with history_path.open("a" if append_history else "w", encoding="utf-8") as hist_fh:
         while trainer.agent_steps < total_steps:
@@ -935,10 +1061,16 @@ def train_loop(
                 print(f"{_format_row(tel)} | {sps:,.0f} steps/s")
 
             if ckpt_every and tel.update > 0 and tel.update % ckpt_every == 0:
-                trainer.save_checkpoint(str(latest_path))
+                if archive is None:
+                    trainer.save_checkpoint(str(latest_path))
+                else:
+                    archive.save(trainer, "cadence", replace_latest=True)
 
     if not tripped:
-        trainer.save_checkpoint(str(latest_path))
+        if archive is None:
+            trainer.save_checkpoint(str(latest_path))
+        else:
+            archive.save(trainer, "final", replace_latest=True)
     elapsed = time.time() - start
     session_steps = trainer.agent_steps - start_steps
     print(
@@ -1141,6 +1273,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument(
         "--ckpt-every", type=int, default=200, help="Checkpoint every N updates (0=off)."
     )
+    p.add_argument(
+        "--archive-checkpoints",
+        action="store_true",
+        help=(
+            "Keep immutable start, periodic, and clean-final checkpoint copies in a "
+            "unique OUT_DIR/checkpoints/run_* directory."
+        ),
+    )
 
     args = p.parse_args(argv)
 
@@ -1204,6 +1344,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             ckpt_every=args.ckpt_every,
             out_dir=out_dir,
             append_history=resume_blob is not None,
+            archive_checkpoints=args.archive_checkpoints,
         )
         _print_curve_summary(history)
         if tripped:
