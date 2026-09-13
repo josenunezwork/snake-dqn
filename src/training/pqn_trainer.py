@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import re
 import time
+from copy import deepcopy
 from dataclasses import dataclass, fields
 from numbers import Complex, Real
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -90,6 +91,8 @@ from src.training.pqn_selfplay import (
 from src.training.rollout_policies import FixedPolicySource
 
 __all__ = [
+    "DECISION_PHASE_PRE_TRANSITION_V1",
+    "DECISION_PHASE_WATCH_PRE_MOVE_V1",
     "PQNConfig",
     "PQNTrainer",
     "PQNTelemetry",
@@ -118,6 +121,13 @@ _WALL_LR_SWAP = (9, 11)
 #                3=turn-left, 4=straight, 5=turn-right (boost).
 # A horizontal mirror swaps left<->right: 0<->2 and 3<->5.
 _FLIP_ACTION = np.array([2, 1, 0, 5, 4, 3], dtype=np.int64)
+
+DECISION_PHASE_PRE_TRANSITION_V1 = "pre_transition_v1"
+DECISION_PHASE_WATCH_PRE_MOVE_V1 = "watch_pre_move_v1"
+
+
+class _DecisionPreviewCaptured(RuntimeError):
+    """Private sentinel used only to stop disposable boundary-preview clones."""
 
 
 @dataclass
@@ -232,6 +242,7 @@ class PQNConfig:
     episode_seed_mode: str = "continuous_env_rng_v1"
     pool_admission_mode: str = "scheduled_v1"
     initial_opponent_checkpoint_sha256: Optional[str] = None
+    decision_phase_mode: str = DECISION_PHASE_PRE_TRANSITION_V1
 
     def __post_init__(self) -> None:
         """Reject an invalid opt-in exact-coverage epoch count."""
@@ -264,6 +275,15 @@ class PQNConfig:
             raise ValueError("legacy recipe requires obs_spec='raster31v2'")
         if self.recipe == "corrected-v3" and (self.mechanics_version != 2 or self.flip_augment):
             raise ValueError("corrected-v3 requires mechanics_version=2 and flip_augment=False")
+        if self.decision_phase_mode not in {
+            DECISION_PHASE_PRE_TRANSITION_V1,
+            DECISION_PHASE_WATCH_PRE_MOVE_V1,
+        }:
+            raise ValueError("unsupported decision_phase_mode")
+        if self.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1 and (
+            self.recipe != "corrected-v3" or self.obs_spec != RASTER31V3
+        ):
+            raise ValueError("watch decision phase requires corrected-v3 and raster31v3")
         if self.episode_reset_mode not in {"batch_barrier_v1", "per_env_autoreset_v1"}:
             raise ValueError("unsupported episode_reset_mode")
         if self.episode_seed_mode not in {"continuous_env_rng_v1", "derived_env_episode_v1"}:
@@ -347,7 +367,11 @@ def pqn_target_contract(config: PQNConfig) -> Dict[str, object]:
     """Describe the target and episode semantics selected by ``config``."""
     if config.recipe == "corrected-v3":
         contract: Dict[str, object] = {
-            "version": "pqn-qlambda-corrected-v3-lifecycle-v1",
+            "version": (
+                "pqn-qlambda-corrected-v3-lifecycle-decision-v1"
+                if config.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1
+                else "pqn-qlambda-corrected-v3-lifecycle-v1"
+            ),
             "gamma": config.gamma,
             "lambda": config.lambda_,
             "death": "actual_done_reward_only",
@@ -368,6 +392,16 @@ def pqn_target_contract(config: PQNConfig) -> Dict[str, object]:
             "reward_digest": canonical_digest(pqn_reward_contract(config)),
             "action_mask": pqn_action_mask_contract(config),
         }
+        if config.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1:
+            contract.update(
+                {
+                    "decision_phase": "watch_pre_move_after_frame_food_maintenance_v1",
+                    "successor_phase": "next_watch_pre_move_or_terminal_post_transition_v1",
+                    "rollout_edge_bootstrap": (
+                        "deepcopy_selector_capture_discards_prepared_clone_v1"
+                    ),
+                }
+            )
         lifecycle = build_pqn_episode_lifecycle_contract(
             config.episode_reset_mode, config.episode_seed_mode
         )
@@ -1187,7 +1221,9 @@ class PQNTrainer:
             torch.cuda.synchronize()
         return time.perf_counter()
 
-    def _current_obs(self) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
+    def _current_obs(
+        self, sim: Optional[BatchSim] = None
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
         """Featurize the sim's current state into device float tensors + mask.
 
         Returns:
@@ -1196,12 +1232,13 @@ class PQNTrainer:
             ``(E, S, 6)`` bool tensor on ``device``.
         """
         E, S = self.cfg.num_envs, self.cfg.num_snakes
+        world = self.sim if sim is None else sim
         # Legacy v2 learned under the historical advisory mask. Corrected v3
         # records and consumes ENV's legal/advisory row-local resolution.
         mask_np = (
-            self.sim.get_resolved_action_mask()
+            world.get_resolved_action_mask()
             if self.cfg.obs_spec == RASTER31V3
-            else self.sim.get_action_mask()
+            else world.get_action_mask()
         )  # (E, S, 6)
         if self.device.type == "cuda":
             # GPU featurizer: transfer only the compact sim state, build the
@@ -1210,7 +1247,7 @@ class PQNTrainer:
             # GPU-trained policy sees the same inputs the web app serves via the
             # NumPy featurizer. Returns (E, S, ...) tensors directly.
             state = obs_inputs_to_torch(
-                self.sim,
+                world,
                 self.device,
                 max_frames=self.cfg.max_frames,
                 starvation_max=self.cfg.starvation_max,
@@ -1224,7 +1261,7 @@ class PQNTrainer:
             }
         else:
             inp = obs_inputs_from_batch_sim(
-                self.sim,
+                world,
                 max_frames=self.cfg.max_frames,
                 starvation_max=self.cfg.starvation_max,
                 max_length=self.cfg.max_length,
@@ -1239,6 +1276,92 @@ class PQNTrainer:
             }
         mask = torch.as_tensor(mask_np, dtype=torch.bool, device=self.device)
         return obs_es, mask
+
+    def _watch_actions(
+        self,
+        policy_ids: np.ndarray,
+        acting_pool: OpponentPool | OpponentLease | PinnedOpponentPool,
+        obs: Dict[str, torch.Tensor],
+        mask: torch.Tensor,
+        eps: float,
+        sim: BatchSim,
+        live_env: np.ndarray,
+    ) -> Tuple[np.ndarray, torch.Tensor]:
+        """Choose the real WATCH actions from one prepared simulator phase."""
+        act_ids = (
+            np.where(policy_ids == HERO_POLICY_ID, HERO_POLICY_ID, HERO_POLICY_ID)
+            if self.fixed_policy is not None
+            else policy_ids
+        )
+        if self._uses_derived_episode_rng:
+            assert self._action_rngs is not None
+            decisions: PerEnvExplorationDecisions = sample_per_env_exploration(
+                policy_ids,
+                mask.detach().cpu().numpy(),
+                live_env[:, None] & sim.get_alive(),
+                eps,
+                self._action_rngs,
+            )
+            actions, hero_q = batched_act(
+                self.network,
+                acting_pool,
+                act_ids,
+                obs,
+                mask,
+                eps,
+                None,
+                self.device,
+                exploration=decisions,
+            )
+        else:
+            actions, hero_q = batched_act(
+                self.network,
+                acting_pool,
+                act_ids,
+                obs,
+                mask,
+                0.0 if self.fixed_policy else eps,
+                self.rng,
+                self.device,
+            )
+        if self.fixed_policy is not None and not self._uses_derived_episode_rng:
+            hero_slots = np.argwhere(policy_ids == HERO_POLICY_ID)
+            if hero_slots.size:
+                explore = self.rng.random(len(hero_slots)) < eps
+                for row, is_exploring in zip(hero_slots, explore):
+                    if is_exploring:
+                        choices = np.flatnonzero(mask[row[0], row[1]].cpu().numpy())
+                        if choices.size:
+                            actions[row[0], row[1]] = choices[self.rng.integers(len(choices))]
+        if self.fixed_policy is not None:
+            frozen_slots = np.argwhere(policy_ids != HERO_POLICY_ID)
+            if frozen_slots.size:
+                frozen_masks = mask.cpu().numpy()[frozen_slots[:, 0], frozen_slots[:, 1]]
+                actions[frozen_slots[:, 0], frozen_slots[:, 1]] = self.fixed_policy.actions(
+                    frozen_masks, sim, frozen_slots
+                )
+        return actions, hero_q
+
+    def _capture_watch_preview(
+        self, continuing_env: np.ndarray
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
+        """Capture the next prepared decision state on a disposable simulator clone."""
+        preview = deepcopy(self.sim)
+        captured: Dict[str, object] = {}
+
+        def capture_selector(world: BatchSim) -> np.ndarray:
+            obs, mask = self._current_obs(world)
+            captured["obs"] = obs
+            captured["mask"] = mask
+            raise _DecisionPreviewCaptured()
+
+        try:
+            preview.step_with_policy(capture_selector, active_env_mask=continuing_env)
+        except _DecisionPreviewCaptured:
+            pass
+        if "obs" not in captured or "mask" not in captured:
+            raise RuntimeError("watch boundary preview did not capture a prepared decision state")
+        return captured["obs"], captured["mask"]  # type: ignore[return-value]
 
     # -- episode boundary ---------------------------------------------------
     def _episode_over(self) -> bool:
@@ -1350,6 +1473,11 @@ class PQNTrainer:
         valid_buf = np.zeros((T, E, S), dtype=bool)
         # next-mask per step for masked-max bootstrap (mask of s_{t+1}).
         next_mask_buf = torch.zeros((T, E, S, 6), dtype=torch.bool, device=self.device)
+        decision_mask_buf = (
+            torch.zeros((T, E, S, 6), dtype=torch.bool, device=self.device)
+            if cfg.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1
+            else None
+        )
         boost_buf = np.zeros((T, E, S), dtype=bool)
         # Hero Q(s_t) over the whole grid, kept from the acting forward. The
         # learner's bootstrap for step t is the masked max of Q(s_{t+1}), and
@@ -1365,6 +1493,76 @@ class PQNTrainer:
         newly_completed_total = 0
 
         for t in range(T):
+            if cfg.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1:
+                # The WATCH selector receives the freshly prepared phase.  Its
+                # live mask is intentionally computed before preparation so an
+                # env at max_frames - 1 still takes its final legal decision.
+                live_env = ~self.sim.population_floor_reached()
+                live_env &= self.sim.frame < cfg.max_frames
+                live_env &= ~self._episode_finished_env
+                captured: Dict[str, object] = {}
+                if prof:
+                    # ``step_with_policy`` performs pre-move maintenance before
+                    # invoking the selector.  Start here so that preparation and
+                    # the eventual real transition both count as simulator work.
+                    watch_t0 = self._sync()
+                    watch_t3 = watch_t0
+
+                def watch_selector(world: BatchSim) -> np.ndarray:
+                    nonlocal feat_t, fwd_t, sim_t, watch_t3
+                    if prof:
+                        watch_t1 = self._sync()
+                        sim_t += watch_t1 - watch_t0
+                    obs, mask = self._current_obs(world)
+                    if prof:
+                        watch_t2 = self._sync()
+                        feat_t += watch_t2 - watch_t1
+                    actions, hero_q = self._watch_actions(
+                        policy_ids, acting_pool, obs, mask, eps, world, live_env
+                    )
+                    if prof:
+                        watch_t3 = self._sync()
+                        fwd_t += watch_t3 - watch_t2
+                    captured.update(
+                        {"obs": obs, "mask": mask, "actions": actions, "hero_q": hero_q}
+                    )
+                    return actions
+
+                self.sim.step_with_policy(watch_selector, active_env_mask=live_env)
+                if prof:
+                    sim_t += self._sync() - watch_t3
+                try:
+                    obs = captured["obs"]
+                    mask = captured["mask"]
+                    actions = captured["actions"]
+                    hero_q = captured["hero_q"]
+                except KeyError as exc:
+                    raise RuntimeError("watch selector did not capture decision state") from exc
+                assert isinstance(obs, dict) and isinstance(mask, torch.Tensor)
+                assert isinstance(actions, np.ndarray) and isinstance(hero_q, torch.Tensor)
+                assert decision_mask_buf is not None
+                hero_q_buf[t] = hero_q
+                tac_buf[t] = obs["tactical"]
+                strat_buf[t] = obs["strategic"]
+                scal_buf[t] = obs["scalars"]
+                act_buf[t] = actions
+                decision_mask_buf[t] = mask
+                valid_buf[t] = self.sim.get_transition_valid() & live_env[:, None]
+                done_buf[t] = self.sim.get_done()
+                boost_buf[t] = self.sim.get_boosted_this_step()
+                kill_buf[t] = self.sim.get_kill_credit()
+                death_buf[t] = self.sim.get_done()
+                rew_buf[t] = self.sim.get_reward()
+                completed_now = self.sim.population_floor_reached() | (
+                    self.sim.frame >= cfg.max_frames
+                )
+                newly_completed = completed_now & ~self._episode_finished_env
+                self._episode_finished_env |= completed_now
+                newly_completed_total += int(newly_completed.sum())
+                if not self._uses_per_env_autoreset and bool(self._episode_finished_env.all()):
+                    T = t + 1
+                    break
+                continue
             if prof:
                 t0 = self._sync()
             obs, mask = self._current_obs()
@@ -1497,7 +1695,16 @@ class PQNTrainer:
                 break
 
         # Final observation (s_T) for truncation bootstrap of the last step.
-        final_obs, final_mask = self._current_obs()
+        if cfg.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1:
+            assert decision_mask_buf is not None
+            continuing_env = ~self._episode_finished_env
+            continuing_env &= self.sim.frame < cfg.max_frames
+            continuing_env &= ~self.sim.population_floor_reached()
+            final_obs, final_mask = self._capture_watch_preview(continuing_env)
+            next_mask_buf[: T - 1] = decision_mask_buf[1:T]
+            next_mask_buf[T - 1] = final_mask
+        else:
+            final_obs, final_mask = self._current_obs()
 
         if prof:
             self._rollout_prof = {"featurize": feat_t, "forward": fwd_t, "sim": sim_t}
@@ -1512,6 +1719,7 @@ class PQNTrainer:
             "trapped": trapped_buf[:T],
             "valid": valid_buf[:T],
             "next_mask": next_mask_buf[:T],
+            **({"decision_mask": decision_mask_buf[:T]} if decision_mask_buf is not None else {}),
             "hero_q": hero_q_buf[:T],
             "boost": boost_buf[:T],
             "kills": kill_buf[:T],
@@ -2219,6 +2427,8 @@ class PQNTrainer:
                 **dict(self._last_policy_source),
                 "policy_source_contract_digest": policy_source_digest,
             }
+        if self.cfg.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1:
+            state["decision_phase_mode"] = self.cfg.decision_phase_mode
         state.update(ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
         state["target_contract_digest"] = canonical_digest(state["target_contract"])
         state["sampler_contract_digest"] = canonical_digest(state["sampler_contract"])

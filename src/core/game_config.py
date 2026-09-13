@@ -290,6 +290,7 @@ class PQNOverrides:
     episode_reset_mode: Optional[str] = None
     episode_seed_mode: Optional[str] = None
     pool_admission_mode: Optional[str] = None
+    decision_phase_mode: Optional[str] = None
 
 
 @dataclass(frozen=True)

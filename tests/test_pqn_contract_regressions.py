@@ -35,6 +35,29 @@ def test_legacy_and_corrected_v3_checkpoints_record_their_distinct_mask_resoluti
     assert legacy["action_mask_contract_digest"] != corrected["action_mask_contract_digest"]
 
 
+def test_default_decision_phase_preserves_legacy_checkpoint_contract_bytes():
+    """Opt-in Watch provenance must not perturb legacy/default checkpoint metadata."""
+    payload = _checkpoint(_config())
+    assert "decision_phase_mode" not in payload
+    assert "decision_phase_mode" not in payload["target_contract"]
+
+
+def test_watch_checkpoint_records_a_self_hashed_decision_phase_contract():
+    config = _config(
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+        decision_phase_mode="watch_pre_move_v1",
+    )
+    payload = _checkpoint(config)
+    assert payload["decision_phase_mode"] == "watch_pre_move_v1"
+    assert payload["target_contract"]["version"] == "pqn-qlambda-corrected-v3-lifecycle-decision-v1"
+    assert payload["target_contract"]["decision_phase"] == (
+        "watch_pre_move_after_frame_food_maintenance_v1"
+    )
+    assert payload["target_contract_digest"] == canonical_digest(payload["target_contract"])
+
+
 def test_legacy_recipe_rejects_the_v3_observation_spec_before_pool_setup():
     """The legacy contracts cannot run against the corrected pool/observation path."""
     with pytest.raises(ValueError, match="legacy recipe requires obs_spec"):

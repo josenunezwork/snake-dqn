@@ -727,6 +727,7 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         "episode_reset_mode": args.episode_reset_mode,
         "episode_seed_mode": args.episode_seed_mode,
         "pool_admission_mode": args.pool_admission_mode,
+        "decision_phase_mode": args.decision_phase_mode,
     }
     for key, value in cli_map.items():
         if value is not None:
@@ -1127,6 +1128,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         choices=("scheduled_v1", "disabled_v1"),
         default=None,
         help="Frozen-opponent snapshot admission mode.",
+    )
+    p.add_argument(
+        "--decision-phase-mode",
+        choices=("pre_transition_v1", "watch_pre_move_v1"),
+        default=None,
+        help="Observation/target decision phase (corrected-v3 raster31v3 only).",
     )
 
     # Logging cadence.

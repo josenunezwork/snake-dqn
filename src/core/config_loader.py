@@ -265,10 +265,9 @@ class PQNSettingsSchema(_StrictModel):
     profile: Optional[bool] = Field(default=None)
     recipe: Optional[Literal["legacy", "corrected-v3"]] = Field(default=None)
     episode_reset_mode: Optional[Literal["batch_barrier_v1", "per_env_autoreset_v1"]] = None
-    episode_seed_mode: Optional[
-        Literal["continuous_env_rng_v1", "derived_env_episode_v1"]
-    ] = None
+    episode_seed_mode: Optional[Literal["continuous_env_rng_v1", "derived_env_episode_v1"]] = None
     pool_admission_mode: Optional[Literal["scheduled_v1", "disabled_v1"]] = None
+    decision_phase_mode: Optional[Literal["pre_transition_v1", "watch_pre_move_v1"]] = None
 
     @model_validator(mode="after")
     def _check_epsilon_order(self) -> "PQNSettingsSchema":

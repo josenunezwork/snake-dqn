@@ -83,6 +83,30 @@ def test_v3_checkpoint_continues_only_with_identical_world_and_optimizer(tmp_pat
         train_pqn.load_pqn_resume_checkpoint(str(path), conflicting, mode="continuation")
 
 
+def test_watch_checkpoint_continuation_rejects_cross_phase_but_old_default_continues(tmp_path):
+    base = dict(
+        num_envs=1,
+        num_snakes=2,
+        rollout_len=2,
+        recipe="corrected-v3",
+        obs_spec=RASTER31V3,
+        flip_augment=False,
+    )
+    old = PQNConfig(**base)
+    old_path = tmp_path / "old-default.pth"
+    PQNTrainer(old).save_checkpoint(str(old_path))
+    assert train_pqn.load_pqn_resume_checkpoint(str(old_path), old, mode="continuation")
+
+    watch = PQNConfig(**base, decision_phase_mode="watch_pre_move_v1")
+    watch_path = tmp_path / "watch.pth"
+    PQNTrainer(watch).save_checkpoint(str(watch_path))
+    assert train_pqn.load_pqn_resume_checkpoint(str(watch_path), watch, mode="continuation")
+    with pytest.raises(RuntimeError, match="decision_phase"):
+        train_pqn.load_pqn_resume_checkpoint(str(watch_path), old, mode="continuation")
+    with pytest.raises(RuntimeError, match="decision_phase"):
+        train_pqn.load_pqn_resume_checkpoint(str(old_path), watch, mode="continuation")
+
+
 def test_pre_lifecycle_corrected_checkpoint_uses_its_historical_sampler_projection(tmp_path):
     """Continuation compares a legacy descriptor without rewriting it as a native one."""
     config = PQNConfig(

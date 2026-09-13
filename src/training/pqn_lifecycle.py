@@ -7,8 +7,8 @@ load weights, select a device, or mutate the checkpoint mapping.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
@@ -19,7 +19,6 @@ from src.core.runtime_contract import (
     RunProvenance,
     canonical_digest,
 )
-
 
 EPISODE_RESET_BATCH_BARRIER = "batch_barrier_v1"
 EPISODE_RESET_PER_ENV_AUTORESET = "per_env_autoreset_v1"
@@ -33,6 +32,14 @@ _POLICY_SOURCE_SCHEMA_VERSION = "pqn-rollout-policy-source/v1"
 _ADAPTER_SCHEMA_VERSION = "pqn-episode-lifecycle-legacy-adapter/v1"
 _ADAPTER_POLICY_SOURCE_SCHEMA_VERSION = "pqn-rollout-policy-source-legacy-adapter/v1"
 _SHA256_LENGTH = 64
+_LIFECYCLE_TARGET_VERSION = "pqn-qlambda-corrected-v3-lifecycle-v1"
+_WATCH_TARGET_VERSION = "pqn-qlambda-corrected-v3-lifecycle-decision-v1"
+_WATCH_DECISION_PHASE_MODE = "watch_pre_move_v1"
+_WATCH_PHASE_VALUES = {
+    "decision_phase": "watch_pre_move_after_frame_food_maintenance_v1",
+    "successor_phase": "next_watch_pre_move_or_terminal_post_transition_v1",
+    "rollout_edge_bootstrap": "deepcopy_selector_capture_discards_prepared_clone_v1",
+}
 
 _RESET_TO_RUNTIME = {
     EPISODE_RESET_BATCH_BARRIER: RESET_STRATEGY_BATCH_EPISODE,
@@ -77,6 +84,7 @@ _NATIVE_MARKERS = frozenset(
         "episode_seed_mode",
         "pool_admission_mode",
         "initial_opponent_checkpoint_sha256",
+        "decision_phase_mode",
     }
 )
 _OLD_TARGET_KEYS = frozenset(
@@ -97,6 +105,27 @@ _OLD_TARGET_KEYS = frozenset(
         "loss_eligibility",
         "reward_digest",
         "action_mask",
+    }
+)
+_NATIVE_LIFECYCLE_TARGET_KEYS = frozenset(
+    {
+        "version",
+        "gamma",
+        "lambda",
+        "death",
+        "trapped",
+        "empty_successor_bootstrap",
+        "truncation",
+        "lambda_carry",
+        "validity",
+        "inactive_worlds",
+        "reset",
+        "population_floor",
+        "bootstrap_network",
+        "loss_eligibility",
+        "reward_digest",
+        "action_mask",
+        "episode_lifecycle_contract_digest",
     }
 )
 _OLD_SAMPLER_KEYS = frozenset(
@@ -219,9 +248,7 @@ def build_pqn_episode_lifecycle_contract(
         "episode_reset_mode": episode_reset_mode,
         "episode_seed_mode": episode_seed_mode,
         "reset_timing": (
-            "selected_envs_at_next_rollout_boundary"
-            if per_environment
-            else "shared_batch_boundary"
+            "selected_envs_at_next_rollout_boundary" if per_environment else "shared_batch_boundary"
         ),
         "completion": {
             "collision_death": "done_true_reward_only",
@@ -314,7 +341,12 @@ def _validate_common_crosslinks(
     try:
         parsed_runtime = dict(runtime)
         if set(parsed_runtime) != {
-            "mode", "training", "respawn", "hero_terminal", "population_floor", "reset_strategy"
+            "mode",
+            "training",
+            "respawn",
+            "hero_terminal",
+            "population_floor",
+            "reset_strategy",
         }:
             raise ValueError("runtime_contract has an invalid key set")
         if (
@@ -343,8 +375,24 @@ def _validate_common_crosslinks(
         raise ValueError("sampler_contract lifecycle digest does not match")
     if sampler.get("policy_source_contract_digest") != policy_source_digest:
         raise ValueError("sampler_contract policy-source digest does not match")
-    if target.get("version") != "pqn-qlambda-corrected-v3-lifecycle-v1":
+    target_version = target.get("version")
+    if target_version not in {_LIFECYCLE_TARGET_VERSION, _WATCH_TARGET_VERSION}:
         raise ValueError("unsupported lifecycle target contract version")
+    if target_version == _LIFECYCLE_TARGET_VERSION:
+        _exact_mapping(target, _NATIVE_LIFECYCLE_TARGET_KEYS, "legacy lifecycle target_contract")
+        if "decision_phase_mode" in metadata:
+            raise ValueError("legacy lifecycle target must not carry decision_phase_mode")
+    else:
+        _exact_mapping(
+            target,
+            _NATIVE_LIFECYCLE_TARGET_KEYS | frozenset(_WATCH_PHASE_VALUES),
+            "watch lifecycle target_contract",
+        )
+        if metadata.get("decision_phase_mode") != _WATCH_DECISION_PHASE_MODE:
+            raise ValueError("watch lifecycle target requires matching decision_phase_mode")
+        for name, expected in _WATCH_PHASE_VALUES.items():
+            if target.get(name) != expected:
+                raise ValueError(f"watch lifecycle target has invalid {name}")
     if sampler.get("version") != "pqn-sampler-corrected-v3-lifecycle-v1":
         raise ValueError("unsupported lifecycle sampler contract version")
     if target.get("population_floor") is not parsed_runtime["population_floor"]:
@@ -424,7 +472,12 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
     target_digest = _required_digest(metadata, "target_contract_digest", target)
     sampler_digest = _required_digest(metadata, "sampler_contract_digest", sampler)
     if set(runtime) != {
-        "mode", "training", "respawn", "hero_terminal", "population_floor", "reset_strategy"
+        "mode",
+        "training",
+        "respawn",
+        "hero_terminal",
+        "population_floor",
+        "reset_strategy",
     }:
         raise ValueError("pre-lifecycle runtime_contract has an invalid key set")
     if (
@@ -524,8 +577,7 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
     ):
         raise ValueError("pre-lifecycle fixed policy requested pool parameters are invalid")
     if (
-        sampler["mode"]
-        != ("minibatch" if sampler["sgd_epochs"] is None else "exact_coverage")
+        sampler["mode"] != ("minibatch" if sampler["sgd_epochs"] is None else "exact_coverage")
         or sampler["sampling"]
         != (
             "independent_permutation_prefix_per_batch"
@@ -572,8 +624,7 @@ def _validate_legacy_adapter(metadata: Mapping[str, Any]) -> ValidatedPQNLifecyc
     if set(sampler["exploration"]) != expected_exploration_keys:
         raise ValueError("pre-lifecycle exploration descriptor has an invalid key set")
     if (
-        sampler["exploration"]["policy"]
-        != "hero_only_epsilon_greedy_constant_within_rollout"
+        sampler["exploration"]["policy"] != "hero_only_epsilon_greedy_constant_within_rollout"
         or sampler["exploration"]["clock"] != "valid_hero_agent_steps"
         or _finite_probability(sampler["exploration"]["start"], "pre-lifecycle epsilon start")
         != sampler["exploration"]["start"]
