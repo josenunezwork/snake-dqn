@@ -115,6 +115,8 @@ def test_watch_solo_death_keeps_the_real_terminal_row_then_resets_only_next_boun
             trainer.sim._last_done[0, 0] = True
             trainer.sim._last_reward[0, 0] = trainer.cfg.death_value
             trainer.sim._last_food_ate[0, 0] = True
+            trainer.sim._last_ambient_food_ate[0, 0] = True
+            trainer.sim._last_corpse_food_ate[0, 0] = False
             trainer.sim._last_transition_valid[0, 0] = True
         calls += 1
 

@@ -150,13 +150,14 @@ def test_boost_trail_duplicate_does_not_reclassify_an_existing_ambient_pellet() 
 
 def test_pickup_remains_labeled_when_the_same_transition_dies_at_a_wall() -> None:
     sim = BatchSim(_config(width=80), seeds=[11], train_mode=True, allow_respawn=False)
-    _install_body(sim, 0, [(6, 4)])
-    # The next cell is inside the food list but is the wall-impact cell. Food
+    _install_body(sim, 0, [(6, 4), (5, 4), (4, 4), (3, 4), (2, 4)])
+    # The first boost substep reaches the valid last grid cell and eats there;
+    # its second substep reaches cell 8, outside this width-80 world. Food
     # resolution deliberately happens before collision resolution.
     _set_food(sim, 0, [(7, 4)], set())
     _refresh(sim)
 
-    sim.step(np.array([[1]], dtype=np.int64))
+    sim.step(np.array([[4]], dtype=np.int64))
     events = sim.get_step_events()
     assert bool(events["transition_valid"][0, 0]) is True
     assert bool(events["food_ate"][0, 0]) is True

@@ -182,7 +182,7 @@ def test_live_collector_rewards_only_surviving_ambient_pickup(
     # wall-impact cell, so consumption precedes an actual terminal collision.
     # Lane 2 consumes an actual corpse-tagged pellet and must earn no overlay.
     _install_body(trainer, 0, [(4, 4)])
-    _install_body(trainer, 1, [(6, 4)])
+    _install_body(trainer, 1, [(6, 4), (5, 4), (4, 4), (3, 4), (2, 4)])
     _install_body(trainer, 2, [(4, 6)])
     _set_food(trainer, 0, [(5, 4)], set())
     _set_food(trainer, 1, [(7, 4)], set())
@@ -190,13 +190,15 @@ def test_live_collector_rewards_only_surviving_ambient_pickup(
     trainer.sim._rebuild_traversed_from_heads()
     trainer.sim._refresh_action_masks()
 
-    def straight(*_args: object) -> tuple[np.ndarray, torch.Tensor]:
+    def selected_actions(*_args: object) -> tuple[np.ndarray, torch.Tensor]:
         return (
-            np.ones((3, 1), dtype=np.int64),
+            # The five-segment middle lane can boost: it traverses food at
+            # x=7 then actually dies at the x=8 wall in this same transition.
+            np.asarray([[1], [4], [1]], dtype=np.int64),
             torch.zeros((3, 1, 6), dtype=torch.float32, device=trainer.device),
         )
 
-    monkeypatch.setattr(trainer, "_watch_actions", straight)
+    monkeypatch.setattr(trainer, "_watch_actions", selected_actions)
     roll = trainer._rollout()
 
     np.testing.assert_array_equal(roll["food_ate"], [[[True], [True], [True]]])
