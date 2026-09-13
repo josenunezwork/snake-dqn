@@ -61,6 +61,9 @@ def test_pqn_schema_field_parity_with_pqn_config_and_recipe_selector():
         # Solo diagnostics are explicitly opt-in through the native CLI or
         # constructor; keep the shared YAML descriptor and defaults unchanged.
         "episode_completion_mode",
+        # Ambient-food objective is a constructor-only diagnostic treatment;
+        # it must not leak into shared YAML or the generic CLI.
+        "ambient_food_reward_coefficient",
     }
     config_fields = {f.name for f in dc.fields(PQNConfig)} - runtime_or_shared
     schema_fields = set(PQNSettingsSchema.model_fields.keys())

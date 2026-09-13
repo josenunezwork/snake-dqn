@@ -188,6 +188,9 @@ class PQNConfig:
         living_mass_reward_coefficient: Opt-in base-objective coefficient for
             post-step living logical mass. Zero retains the historical reward
             arithmetic and reward contract exactly.
+        ambient_food_reward_coefficient: Constructor-only coefficient for a
+            solo ambient-food diagnostic overlay. It is intentionally absent
+            from shared YAML and CLI configuration.
     """
 
     num_envs: int = 8
@@ -224,6 +227,7 @@ class PQNConfig:
     mechanics_version: int = 2
     reward_version: int = 2
     living_mass_reward_coefficient: float = 0.0
+    ambient_food_reward_coefficient: float = 0.0
     profile: bool = False  # print a CUDA-synced per-phase time breakdown each update
     # Resolved world and observation normalization. Defaults preserve the old
     # PQN recipe; P1's CLI resolver supplies explicit values for named recipes.
@@ -279,6 +283,14 @@ class PQNConfig:
             raise ValueError("living_mass_reward_coefficient must be a finite non-negative float")
         if coefficient != 0.0 and self.recipe != "corrected-v3":
             raise ValueError("living_mass_reward_coefficient requires recipe='corrected-v3'")
+        ambient_coefficient = self.ambient_food_reward_coefficient
+        if (
+            isinstance(ambient_coefficient, bool)
+            or not isinstance(ambient_coefficient, (int, float))
+            or not np.isfinite(ambient_coefficient)
+            or ambient_coefficient < 0.0
+        ):
+            raise ValueError("ambient_food_reward_coefficient must be a finite non-negative float")
         if self.mechanics_version not in {1, 2}:
             raise ValueError("PQN supports mechanics_version 1 or 2 only")
         if self.arena_type != "rectangular":
@@ -352,6 +364,18 @@ class PQNConfig:
                     "sole_snake_death_or_frame_cap_v1 requires corrected-v3 raster31v3 Watch "
                     "S1 per-env derived hero-only snapshot-pool with no opponent identity"
                 )
+        if ambient_coefficient != 0.0 and (
+            self.recipe != "corrected-v3"
+            or isinstance(self.num_snakes, bool)
+            or not isinstance(self.num_snakes, int)
+            or self.num_snakes != 1
+            or self.episode_completion_mode != SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
+            or coefficient != 0.0
+        ):
+            raise ValueError(
+                "ambient_food_reward_coefficient requires corrected-v3 sole S1 "
+                "with living_mass_reward_coefficient=0"
+            )
         if self.initial_opponent_checkpoint_sha256 is not None:
             value = self.initial_opponent_checkpoint_sha256
             if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
@@ -423,6 +447,22 @@ def pqn_reward_contract(config: PQNConfig) -> Dict[str, object]:
             "invalid_or_inactive": "overlay_zero",
             "population_floor_survivor": "overlay_included",
             "frame_cap_survivor": "overlay_included",
+            "clipping": None,
+        }
+    if config.ambient_food_reward_coefficient != 0.0:
+        return {
+            "version": "pqn-solo-ambient-food-objective-v1",
+            "base_reward_contract": base_contract,
+            "kappa": config.ambient_food_reward_coefficient,
+            "event_source": "ambient_food_ate",
+            "source_classification": "captured_before_consumed_cell_removal",
+            "overlay": "kappa_times_ambient_food_ate_times_transition_valid_times_post_alive",
+            "post_step_convention": "post_transition_alive",
+            "corpse_food": "overlay_zero",
+            "death": "overlay_zero",
+            "invalid_or_inactive": "overlay_zero",
+            "diagnostic_only": True,
+            "promotion_eligible": False,
             "clipping": None,
         }
     return base_contract
@@ -698,6 +738,8 @@ class PQNTelemetry:
         mean_base_reward: Mean hero per-step simulator reward before the living
             mass overlay.
         mean_living_mass_reward: Mean hero per-step living-mass overlay.
+        mean_ambient_food_reward: Mean hero per-step ambient-food diagnostic
+            overlay.
         mean_total_reward: Mean hero per-step total training reward. This is
             retained separately to make the base/overlay identity inspectable;
             ``mean_reward`` remains the historical total field.
@@ -706,6 +748,8 @@ class PQNTelemetry:
         hero_deaths: Exact valid hero deaths in this rollout.
         hero_food_contact_events: Exact valid hero ``food_ate`` contacts. This
             is a boolean contact-event count, not mass gained or pellet value.
+        hero_ambient_food_contact_events: Exact valid hero ambient-food contacts.
+        hero_corpse_food_contact_events: Exact valid hero corpse/trail-food contacts.
         completed_episodes: Environments newly completed during this rollout.
         episode_reset_count: Cumulative batch resets before collecting this rollout.
         boost_fraction: Fraction of hero steps that engaged boost.
@@ -745,6 +789,8 @@ class PQNTelemetry:
     hero_kills: int = 0
     hero_deaths: int = 0
     hero_food_contact_events: int = 0
+    hero_ambient_food_contact_events: int = 0
+    hero_corpse_food_contact_events: int = 0
     completed_episodes: int = 0
     valid_transitions: int = 0
     rollout_capacity: int = 0
@@ -754,6 +800,7 @@ class PQNTelemetry:
     episode_reset_count: int = 0
     mean_base_reward: float = 0.0
     mean_living_mass_reward: float = 0.0
+    mean_ambient_food_reward: float = 0.0
     mean_total_reward: float = 0.0
 
 
@@ -1499,6 +1546,42 @@ class PQNTrainer:
         valid = np.asarray(transition_valid, dtype=bool)
         return coefficient * valid * self.sim.get_alive() * self.sim.get_lengths()
 
+    def _ambient_food_reward_overlay(
+        self, transition_valid: np.ndarray, ambient_food_ate: np.ndarray
+    ) -> np.ndarray:
+        """Return the solo diagnostic reward for valid, surviving ambient food.
+
+        Source labels are emitted by :class:`BatchSim` before the consumed food
+        cell is removed.  Inactive lanes can retain a stale event snapshot, so
+        the transition-valid mask is part of the arithmetic even though the
+        enabled constructor contract only permits one live snake per world.
+        """
+        coefficient = self.cfg.ambient_food_reward_coefficient
+        if coefficient == 0.0:
+            return np.zeros((self.cfg.num_envs, self.cfg.num_snakes), dtype=np.float64)
+        return (
+            coefficient
+            * np.asarray(ambient_food_ate, dtype=bool)
+            * np.asarray(transition_valid, dtype=bool)
+            * self.sim.get_alive()
+        )
+
+    def _step_food_events(self) -> Dict[str, np.ndarray]:
+        """Read one post-step source snapshot, failing closed for treatment.
+
+        Default runs retain compatibility with old test doubles that supplied
+        only aggregate ``food_ate``. An enabled treatment must never turn a
+        missing source label into a silent zero-reward learning signal.
+        """
+        events = self.sim.get_step_events()
+        source_keys = {"ambient_food_ate", "corpse_food_ate"}
+        if self.cfg.ambient_food_reward_coefficient != 0.0 and not source_keys.issubset(events):
+            raise RuntimeError(
+                "ambient_food_reward_coefficient requires BatchSim ambient_food_ate and "
+                "corpse_food_ate step events"
+            )
+        return events
+
     def _rollout(self) -> Dict[str, object]:
         """Collect a ``T``-step self-play rollout of hero + frozen transitions.
 
@@ -1572,6 +1655,7 @@ class PQNTrainer:
         rew_buf = np.zeros((T, E, S), dtype=np.float64)
         base_rew_buf = np.zeros((T, E, S), dtype=np.float64)
         living_mass_rew_buf = np.zeros((T, E, S), dtype=np.float64)
+        ambient_food_rew_buf = np.zeros((T, E, S), dtype=np.float64)
         done_buf = np.zeros((T, E, S), dtype=bool)
         trapped_buf = np.zeros((T, E, S), dtype=bool)
         # valid_step[t,e,s]: step t is a REAL transition for this slot — the slot
@@ -1600,10 +1684,13 @@ class PQNTrainer:
         kill_buf = np.zeros((T, E, S), dtype=np.int64)
         death_buf = np.zeros((T, E, S), dtype=bool)
         food_ate_buf = np.zeros((T, E, S), dtype=bool)
+        ambient_food_ate_buf = np.zeros((T, E, S), dtype=bool)
+        corpse_food_ate_buf = np.zeros((T, E, S), dtype=bool)
 
         prof = self.cfg.profile
         feat_t = fwd_t = sim_t = 0.0
         newly_completed_total = 0
+        food_source_events_complete = True
 
         for t in range(T):
             if cfg.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1:
@@ -1665,13 +1752,32 @@ class PQNTrainer:
                 boost_buf[t] = self.sim.get_boosted_this_step()
                 kill_buf[t] = self.sim.get_kill_credit()
                 death_buf[t] = self.sim.get_done()
-                food_ate_buf[t] = self.sim.get_step_events()["food_ate"]
+                step_events = self._step_food_events()
+                food_source_events_complete &= {
+                    "ambient_food_ate",
+                    "corpse_food_ate",
+                }.issubset(step_events)
+                food_ate_buf[t] = step_events["food_ate"]
+                ambient_food_ate_buf[t] = step_events.get(
+                    "ambient_food_ate", np.zeros((E, S), dtype=bool)
+                )
+                corpse_food_ate_buf[t] = step_events.get(
+                    "corpse_food_ate", np.zeros((E, S), dtype=bool)
+                )
                 base_rew_buf[t] = self.sim.get_reward()
-                if cfg.living_mass_reward_coefficient == 0.0:
+                if (
+                    cfg.living_mass_reward_coefficient == 0.0
+                    and cfg.ambient_food_reward_coefficient == 0.0
+                ):
                     rew_buf[t] = base_rew_buf[t]
-                else:
+                elif cfg.living_mass_reward_coefficient != 0.0:
                     living_mass_rew_buf[t] = self._living_mass_reward_overlay(valid_buf[t])
                     rew_buf[t] = base_rew_buf[t] + living_mass_rew_buf[t]
+                else:
+                    ambient_food_rew_buf[t] = self._ambient_food_reward_overlay(
+                        valid_buf[t], ambient_food_ate_buf[t]
+                    )
+                    rew_buf[t] = base_rew_buf[t] + ambient_food_rew_buf[t]
                 completed_now = self._completed_environment_mask()
                 newly_completed = completed_now & ~self._episode_finished_env
                 self._episode_finished_env |= completed_now
@@ -1782,16 +1888,35 @@ class PQNTrainer:
             # death-causing action and excludes rows dead at entry.
             valid_buf[t] = self.sim.get_transition_valid() & live_env[:, None]
             base_rew_buf[t] = self.sim.get_reward()
-            if cfg.living_mass_reward_coefficient == 0.0:
+            step_events = self._step_food_events()
+            food_source_events_complete &= {
+                "ambient_food_ate",
+                "corpse_food_ate",
+            }.issubset(step_events)
+            food_ate_buf[t] = step_events["food_ate"]
+            ambient_food_ate_buf[t] = step_events.get(
+                "ambient_food_ate", np.zeros((E, S), dtype=bool)
+            )
+            corpse_food_ate_buf[t] = step_events.get(
+                "corpse_food_ate", np.zeros((E, S), dtype=bool)
+            )
+            if (
+                cfg.living_mass_reward_coefficient == 0.0
+                and cfg.ambient_food_reward_coefficient == 0.0
+            ):
                 rew_buf[t] = base_rew_buf[t]
-            else:
+            elif cfg.living_mass_reward_coefficient != 0.0:
                 living_mass_rew_buf[t] = self._living_mass_reward_overlay(valid_buf[t])
                 rew_buf[t] = base_rew_buf[t] + living_mass_rew_buf[t]
+            else:
+                ambient_food_rew_buf[t] = self._ambient_food_reward_overlay(
+                    valid_buf[t], ambient_food_ate_buf[t]
+                )
+                rew_buf[t] = base_rew_buf[t] + ambient_food_rew_buf[t]
             done_buf[t] = self.sim.get_done()
             boost_buf[t] = self.sim.get_boosted_this_step()
             kill_buf[t] = self.sim.get_kill_credit()
             death_buf[t] = self.sim.get_done()
-            food_ate_buf[t] = self.sim.get_step_events()["food_ate"]
 
             completed_now = self._completed_environment_mask()
             newly_completed = completed_now & ~self._episode_finished_env
@@ -1840,6 +1965,7 @@ class PQNTrainer:
             "rewards": rew_buf[:T],
             "base_rewards": base_rew_buf[:T],
             "living_mass_rewards": living_mass_rew_buf[:T],
+            "ambient_food_rewards": ambient_food_rew_buf[:T],
             "dones": done_buf[:T],
             "trapped": trapped_buf[:T],
             "valid": valid_buf[:T],
@@ -1850,6 +1976,9 @@ class PQNTrainer:
             "kills": kill_buf[:T],
             "deaths": death_buf[:T],
             "food_ate": food_ate_buf[:T],
+            "ambient_food_ate": ambient_food_ate_buf[:T],
+            "corpse_food_ate": corpse_food_ate_buf[:T],
+            "food_source_events_complete": food_source_events_complete,
             "policy_ids": policy_ids,
             "policy_identities": (
                 self._derived_policy_identities(policy_ids)
@@ -2295,15 +2424,22 @@ class PQNTrainer:
         living_mass_rewards = np.asarray(
             roll.get("living_mass_rewards", np.zeros_like(rollout_rewards))
         )
+        ambient_food_rewards = np.asarray(
+            roll.get("ambient_food_rewards", np.zeros_like(rollout_rewards))
+        )
         hero_rewards = rollout_rewards[hero_mask_tes]
         hero_base_rewards = base_rewards[hero_mask_tes]
         hero_living_mass_rewards = living_mass_rewards[hero_mask_tes]
+        hero_ambient_food_rewards = ambient_food_rewards[hero_mask_tes]
         hero_boost = roll["boost"][hero_mask_tes]
         raw_actions = roll["actions"][hero_mask_tes]
         mean_reward = float(hero_rewards.mean()) if hero_rewards.size else 0.0
         mean_base_reward = float(hero_base_rewards.mean()) if hero_base_rewards.size else 0.0
         mean_living_mass_reward = (
             float(hero_living_mass_rewards.mean()) if hero_living_mass_rewards.size else 0.0
+        )
+        mean_ambient_food_reward = (
+            float(hero_ambient_food_rewards.mean()) if hero_ambient_food_rewards.size else 0.0
         )
         boost_fraction = float(hero_boost.mean()) if hero_boost.size else 0.0
         raw_hist = np.bincount(raw_actions, minlength=6).astype(np.float64)
@@ -2320,6 +2456,22 @@ class PQNTrainer:
         hero_food_contact_events = int(
             np.asarray(roll.get("food_ate", np.zeros_like(valid)), dtype=bool)[hero_mask_tes].sum()
         )
+        hero_ambient_food_contact_events = int(
+            np.asarray(roll.get("ambient_food_ate", np.zeros_like(valid)), dtype=bool)[
+                hero_mask_tes
+            ].sum()
+        )
+        hero_corpse_food_contact_events = int(
+            np.asarray(roll.get("corpse_food_ate", np.zeros_like(valid)), dtype=bool)[
+                hero_mask_tes
+            ].sum()
+        )
+        if (
+            roll.get("food_source_events_complete", False)
+            and hero_ambient_food_contact_events + hero_corpse_food_contact_events
+            != hero_food_contact_events
+        ):
+            raise RuntimeError("food-source events must partition valid hero food contacts")
         policy_exposure: Dict[str, int] = {}
         policy_identities = roll["policy_identities"]
         for policy_id in np.unique(roll["policy_ids"]):
@@ -2355,6 +2507,8 @@ class PQNTrainer:
             hero_kills=hero_kills,
             hero_deaths=hero_deaths,
             hero_food_contact_events=hero_food_contact_events,
+            hero_ambient_food_contact_events=hero_ambient_food_contact_events,
+            hero_corpse_food_contact_events=hero_corpse_food_contact_events,
             completed_episodes=int(roll["newly_completed_episodes"]),
             valid_transitions=int(valid.sum()),
             rollout_capacity=T * E * S,
@@ -2364,6 +2518,7 @@ class PQNTrainer:
             episode_reset_count=int(roll["episode_reset_count"]),
             mean_base_reward=mean_base_reward,
             mean_living_mass_reward=mean_living_mass_reward,
+            mean_ambient_food_reward=mean_ambient_food_reward,
             mean_total_reward=mean_reward,
         )
         if cfg.recipe == "corrected-v3":
@@ -2586,6 +2741,8 @@ class PQNTrainer:
             }
         if self.cfg.decision_phase_mode == DECISION_PHASE_WATCH_PRE_MOVE_V1:
             state["decision_phase_mode"] = self.cfg.decision_phase_mode
+        if self.cfg.ambient_food_reward_coefficient != 0.0:
+            state["ambient_food_reward_coefficient"] = self.cfg.ambient_food_reward_coefficient
         state.update(ModelHeadContract("pqn", "dueling_q", 6).to_metadata())
         state["target_contract_digest"] = canonical_digest(state["target_contract"])
         state["sampler_contract_digest"] = canonical_digest(state["sampler_contract"])

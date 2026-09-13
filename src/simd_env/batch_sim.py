@@ -249,6 +249,14 @@ class BatchSim:
         self._last_done = np.zeros((E, S), dtype=bool)
         self._last_transition_valid = np.zeros((E, S), dtype=bool)
         self._last_food_ate = np.zeros((E, S), dtype=bool)
+        # Food-source facts mirror ``_last_food_ate`` for the same transition.
+        # A pellet is ambient exactly when it was not tagged corpse-class at the
+        # first traversed occupied cell.  Keep these separate from the food list:
+        # the latter is deliberately mutated during consumption.
+        self._last_ambient_food_ate = np.zeros((E, S), dtype=bool)
+        self._last_corpse_food_ate = np.zeros((E, S), dtype=bool)
+        self._step_ambient_food_ate = np.zeros((E, S), dtype=bool)
+        self._step_corpse_food_ate = np.zeros((E, S), dtype=bool)
         self._last_death_cause = np.zeros((E, S), dtype=np.int64)
         self._last_kills = np.zeros((E, S), dtype=np.int64)
         # Per-killer victim logical-length lists from the last step (E, S) object
@@ -405,6 +413,10 @@ class BatchSim:
         self._last_done[e] = False
         self._last_transition_valid[e] = False
         self._last_food_ate[e] = False
+        self._last_ambient_food_ate[e] = False
+        self._last_corpse_food_ate[e] = False
+        self._step_ambient_food_ate[e] = False
+        self._step_corpse_food_ate[e] = False
         self._last_death_cause[e] = DEATH_NONE
         self._last_kills[e] = 0
         for sidx in range(self.S):
@@ -611,6 +623,8 @@ class BatchSim:
             self._last_kill_victim_len[active] = kill_victim_len[active]
             self._last_done[active] = died[active]
             self._last_food_ate[active] = ate[active]
+            self._last_ambient_food_ate[active] = self._step_ambient_food_ate[active]
+            self._last_corpse_food_ate[active] = self._step_corpse_food_ate[active]
             self._last_transition_valid[:] = active[:, None] & acted
         finally:
             del self._active_env_mask
@@ -851,6 +865,8 @@ class BatchSim:
         """
         E, S = self.E, self.S
         ate = np.zeros((E, S), dtype=bool)
+        ambient_ate = np.zeros((E, S), dtype=bool)
+        corpse_ate = np.zeros((E, S), dtype=bool)
         any_ate = np.zeros(E, dtype=bool)
         for e in range(E):
             if not self._active_envs()[e]:
@@ -867,6 +883,10 @@ class BatchSim:
                         continue
                     cell = (int(self._trav[e, sidx, t, 0]), int(self._trav[e, sidx, t, 1]))
                     if cell in fset:
+                        # Classify before removing the pellet from its source
+                        # index. A boost trail is also corpse-class, so this
+                        # source bit covers both corpse drops and v2 trails.
+                        is_corpse = cell in self.corpse_cells[e]
                         # consume_at removes every pellet in that cell (<=1). One
                         # pellet per cell -> list.remove drops the single occurrence
                         # in place (same surviving order as the old comprehension).
@@ -875,6 +895,8 @@ class BatchSim:
                         fset.discard(cell)
                         self.length[e, sidx] += 1
                         ate[e, sidx] = True
+                        corpse_ate[e, sidx] = is_corpse
+                        ambient_ate[e, sidx] = not is_corpse
                         any_ate[e] = True
                         break
                 # Non-training GameState calls maintain_count once per eating
@@ -892,6 +914,8 @@ class BatchSim:
                     deficit = self.cfg.max_food - self._ambient_count(e)
                     if deficit > 0:
                         self._spawn(e, deficit)
+        self._step_ambient_food_ate = ambient_ate
+        self._step_corpse_food_ate = corpse_ate
         return ate
 
     def _drop_trail_pellets(self, trail: np.ndarray) -> None:
@@ -1591,12 +1615,17 @@ class BatchSim:
     def get_step_events(self) -> dict[str, np.ndarray]:
         """Return existing post-step facts without deriving new game events.
 
-        Every field has shape ``(E, S)``. Consumers must respect
+        Every field has shape ``(E, S)``. ``ambient_food_ate`` and
+        ``corpse_food_ate`` partition ``food_ate`` for every valid transition;
+        source classification is captured before the consumed cell is removed
+        from the corpse index. Consumers must respect
         ``transition_valid`` before aggregating a row; inactive environments
         intentionally retain their previous world and event snapshots.
         """
         return {
             "food_ate": self._last_food_ate.copy(),
+            "ambient_food_ate": self._last_ambient_food_ate.copy(),
+            "corpse_food_ate": self._last_corpse_food_ate.copy(),
             "boosted": self._boosted_this_step.copy(),
             "done": self._last_done.copy(),
             "death_cause": self._last_death_cause.copy(),
