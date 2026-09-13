@@ -7,7 +7,6 @@ stand-ins for hero/baseline/opponents, so no checkpoint is needed.
 
 import argparse
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -882,17 +881,29 @@ class TestSimdEvalEngine:
         assert any(r["probes"]["boost_frame_fraction"] > 0.0 for r in recs)
         assert all(0.0 <= r["probes"]["boost_frame_fraction"] <= 1.0 for r in recs)
 
-    def test_vector61_checkpoint_agent_rejected(self):
-        # A 61-D vector champion is not featurized by the batch sim, so the simd
-        # engine rejects it (raster31v2 checkpoints are supported — see
-        # NetworkSimdPolicy). champion_a5 is a vector61 model.
+    @pytest.mark.parametrize("input_size", [58, 61])
+    def test_vector_checkpoint_agent_rejected(self, tmp_path, input_size):
+        # Keep this routing guard hermetic: private champion files are absent
+        # in clean worktrees, and both historical vector widths must reject.
+        import torch
+
+        from src.model.apex_network import ApexNetwork
         from src.simd_env.eval_engine import build_simd_policy
 
-        ckpt = "saved_snakes/champion_a5_freespace_20260621.pth"
-        if not os.path.exists(ckpt):
-            pytest.skip("vector champion checkpoint not present")
-        with pytest.raises(ValueError, match="raster31v2"):
-            build_simd_policy(("checkpoint", ckpt), seed=0)
+        ckpt = tmp_path / "vector.pth"
+        network = ApexNetwork(input_size=input_size, hidden_size=32, output_size=6)
+        torch.save(
+            {
+                "dqn_state_dict": network.state_dict(),
+                "input_size": input_size,
+                "hidden_size": 32,
+                "output_size": 6,
+            },
+            ckpt,
+        )
+        with pytest.raises(ValueError, match="needs a raster model") as error:
+            build_simd_policy(("checkpoint", str(ckpt)), seed=0)
+        assert "Use --engine live" in str(error.value)
 
     def test_unknown_scripted_kind_raises(self):
         from src.simd_env.eval_engine import build_simd_policy
