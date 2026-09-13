@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Dict, List, Mapping, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
 
@@ -58,6 +58,7 @@ from src.simd_env.batch_sim import (
 
 # (kind, ref) agent spec, matching tournament_eval.AgentSpec.
 AgentSpec = Tuple[str, str]
+FrameObserver = Callable[[Mapping[str, object]], None]
 
 # Death-cause code -> probe label (matches BehaviorProbes' vocabulary).
 _DEATH_CAUSE_LABEL = {
@@ -498,6 +499,53 @@ class _TerminalHeroBatchSim(BatchSim):
             self.respawn_timer[:, 0] = hero_timer
 
 
+def _readonly_array(value: np.ndarray) -> np.ndarray:
+    """Copy an observer value so callbacks cannot mutate the live simulator."""
+    copied = np.array(value, copy=True)
+    copied.setflags(write=False)
+    return copied
+
+
+def _hero_pre_frame_snapshot(
+    sim: BatchSim, resolved_masks: np.ndarray, actions: np.ndarray
+) -> Dict[str, object]:
+    """Return detached Watch-phase facts for the hero in every environment."""
+    return {
+        "alive": _readonly_array(sim.get_alive()[:, 0]),
+        "heads": _readonly_array(sim.get_heads()[:, 0, :]),
+        "directions": _readonly_array(sim.get_directions()[:, 0]),
+        "logical_mass": _readonly_array(sim.get_lengths()[:, 0]),
+        "segment_count": _readonly_array(sim.seg_count[:, 0]),
+        "frames_since_food": _readonly_array(sim.get_frames_since_food()[:, 0]),
+        "boost_frame_counter": _readonly_array(sim.get_boost_frames()[:, 0]),
+        "resolved_masks": _readonly_array(resolved_masks[:, 0, :]),
+        "actions": _readonly_array(actions[:, 0]),
+        "food_cells": tuple(
+            tuple((int(x), int(y)) for x, y in sim.get_food(env)) for env in range(sim.E)
+        ),
+    }
+
+
+def _hero_post_frame_snapshot(sim: BatchSim, events: Mapping[str, np.ndarray]) -> Dict[str, object]:
+    """Return detached post-transition hero facts for the frame observer."""
+    return {
+        "alive": _readonly_array(sim.get_alive()[:, 0]),
+        "heads": _readonly_array(sim.get_heads()[:, 0, :]),
+        "directions": _readonly_array(sim.get_directions()[:, 0]),
+        "logical_mass": _readonly_array(sim.get_lengths()[:, 0]),
+        "segment_count": _readonly_array(sim.seg_count[:, 0]),
+        "frames_since_food": _readonly_array(sim.get_frames_since_food()[:, 0]),
+        "boost_frame_counter": _readonly_array(sim.get_boost_frames()[:, 0]),
+        "reward": _readonly_array(sim.get_reward()[:, 0]),
+        "transition_valid": _readonly_array(events["transition_valid"][:, 0]),
+        "food_ate": _readonly_array(events["food_ate"][:, 0]),
+        "boosted": _readonly_array(events["boosted"][:, 0]),
+        "done": _readonly_array(events["done"][:, 0]),
+        "death_cause": _readonly_array(events["death_cause"][:, 0]),
+        "kills": _readonly_array(events["kills"][:, 0]),
+    }
+
+
 def run_simd_eval(
     hero_spec: AgentSpec,
     opponent_specs: Sequence[AgentSpec],
@@ -510,6 +558,7 @@ def run_simd_eval(
     world_identities: Mapping[int, Dict[str, object]] | None = None,
     mix_id: str = "unspecified",
     world_runtime_spec: WorldRuntimeSpec | None = None,
+    frame_observer: FrameObserver | None = None,
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -528,6 +577,9 @@ def run_simd_eval(
         max_frames: Episode-length cap for any frame-progress bookkeeping.
         world_runtime_spec: Independently bound SIMD storage allocation.  When
             omitted for a profiled run, the source-exact allocation is used.
+        frame_observer: Optional profiled-run callback invoked once after each
+            transition with detached, hero-only pre/post frame facts.  It is a
+            diagnostic seam: observer exceptions abort the evaluation.
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -540,6 +592,10 @@ def run_simd_eval(
     """
     if frames <= 0:
         raise ValueError(f"frames must be positive, got {frames}")
+    if frame_observer is not None and not callable(frame_observer):
+        raise TypeError("frame_observer must be callable")
+    if frame_observer is not None and profile is None:
+        raise ValueError("frame_observer requires an explicit evaluation profile")
     seeds = list(seeds)
     if not seeds:
         raise ValueError("at least one seed is required")
@@ -669,12 +725,16 @@ def run_simd_eval(
 
     for frame_index in range(frames):
         actions = np.ones((E, num_snakes), dtype=np.int64)
+        pre_frame: Dict[str, object] | None = None
         if profile is not None:
             # The callback sees the exact Watch pre-action snapshot: frame
             # increment, ambient-food maintenance, and respawns are complete.
             def choose_actions(prepared_sim: BatchSim) -> np.ndarray:
+                nonlocal pre_frame
                 masks = prepared_sim.get_resolved_action_mask()
                 _dispatch_actions(prepared_sim, masks, actions, hero_policies, opp_policies)
+                if frame_observer is not None:
+                    pre_frame = _hero_pre_frame_snapshot(prepared_sim, masks, actions)
                 return actions
 
             sim.step_with_policy(choose_actions)
@@ -705,6 +765,18 @@ def run_simd_eval(
         kills0 = sim.get_kill_credit()[:, 0]
         boosting0 = sim.get_boosted_this_step()[:, 0]  # boost 2nd-step engaged this frame
         exact_events = sim.get_step_events() if profile_accumulators is not None else None
+
+        if frame_observer is not None:
+            assert pre_frame is not None
+            assert exact_events is not None
+            frame_observer(
+                {
+                    "frame": frame_index,
+                    "seeds": tuple(int(seed) for seed in seeds),
+                    "pre": pre_frame,
+                    "post": _hero_post_frame_snapshot(sim, exact_events),
+                }
+            )
 
         if profile_accumulators is not None:
             assert exact_events is not None
