@@ -42,7 +42,7 @@ caught hash or manifest failure removes the newly created file. This is not a
 claim of an atomic two-file transaction across SIGKILL or power loss. Focused
 coverage verified start, cadence, and final checkpoint preservation. Native first-run
 and immutable-resume smokes are complete; the mutable-input resume attempt is retained
-separately as a source-drift partial result.
+separately as an input-hash-drift partial result.
 
 The prior product baseline's full non-slow suite completed: 2,745 passed, 5
 skipped, and 3 deselected in 94.04 seconds, with a natural reaped exit and no
@@ -86,7 +86,8 @@ Read the current research reports before using their diagnoses:
 [learning curve](</Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913/research/learning-curve-results.md>),
 [reflection](</Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913/research/reflection-results.md>),
 [VC1 completion](</Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913/research/vc1-resource-completion-results.md>), and
-[objective diagnosis](</Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913/research/objective-diagnosis.md>).
+[objective diagnosis](</Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913/research/objective-diagnosis.md>), and
+[objective trajectories](</Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913/research/objective-trace-results.md>).
 
 ## Critical unknowns
 
@@ -130,9 +131,11 @@ absolute world-x unchanged; do not enable it as a remedy.
 ## Resource and record policy
 
 Only one supervised compute-heavy process may run at once. The four-hour scientific sequence
-used 6 of 8 policy-learning arms, 35 of 40 strict calls (17 historical, 12 curve, 2 capacity
-CLI, and 4 objective trace), and 2,755.377469873754 of 4,800 supervised parent seconds in the
-scientific sequence. This sum is process time, not campaign elapsed time; setup-only work,
+used 6 of 8 policy-learning arms, 35 of 40 conservatively counted evaluation calls (17 historical, 12 curve, 2 capacity
+CLI, and 4 objective trace), and 2,755.377469873754 of the 4,800-second reported-supervisor-interval budget in the
+scientific sequence. This is a sum of reported supervisor intervals, not campaign elapsed time. The old watchdog
+receipt supplies its 20.002-second detection time rather than a complete termination-duration
+field, so the total is not an exact all-process elapsed measurement. Setup-only work,
 profiling, tests, and side
 diagnostics are accounted for separately. Before any future
 numerical work, reserve the slot and record source closure, manifest/config

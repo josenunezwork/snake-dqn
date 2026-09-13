@@ -5,6 +5,39 @@ work window. It separates prepared work from executed work so that creating a
 driver, manifest, or review assignment is never reported as an experiment
 result.
 
+## Research outcome
+
+Keep Apex as incumbent and stop extending the tested PQN recipe unchanged. Both independent
+150k training arms performed below their own 50k and initial checkpoints in the declared
+full-horizon mass comparisons. The later trace explains the observed play: both 50k trained
+policies overwhelmingly turned right and settled into tiny four-position loops. This establishes
+the behavior on the measured worlds; it does not establish its training cause.
+
+| Training seed | Mean mass change, 150k minus 50k | Mean mass change, 150k minus initial |
+| --- | ---: | ---: |
+| Seed 1 | -1.143075 | -0.492600 |
+| Seed 2 | -6.426900 | -0.642600 |
+
+These are descriptive effects from two independent training seeds, using four paired evaluation
+worlds in each of two opponent mixes. They do not provide a population confidence interval,
+Apex-versus-PQN comparison, or promotion result.
+
+The separately reproduced 50k trajectories contained 30,128 right-family choices in 30,171
+valid decisions. Food events fell from 543 initially to five after training, and boost events
+fell from 1,269 to zero. Every final trajectory contained an exact period-four head-position
+loop; final policies visited only 4-25 cells compared with 333-1,716 for initial checkpoints.
+Read the [independently checked trajectory report](</Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913/research/objective-trace-results.md>) for per-world details.
+
+The implementation delivered faster corrected tactical painting, explicit bounded evaluator
+storage, optional immutable checkpoint archives, safe snapped GameState circular spawns, and
+a detached evaluation-frame observer. The final product source `7a527428` passed 2,749 tests,
+with five skips and three slow tests deselected. Public archive/resume and evaluator CLI smokes
+passed on the prior product baseline `0020523`; exact source boundaries remain in the ledger.
+
+Start the next work from [NEXT_WAVES.md](NEXT_WAVES.md): retain training targets, TD residuals,
+and per-action legal opportunities, then test a single opt-in objective change. Keep optimizer,
+replay, architecture, and observation experiments separate.
+
 The [learning-curve v2 plot](</Users/josenunez/Projects/ml/snake-dqn-artifacts/four-hour-20260913/analysis/learning-curve/learning-curve-mass-integral-v2.png>) renders mean mass by checkpoint and opponent mix from paired-world data and has a visually approved footer. Its render supervisor completed naturally in 0.4204230420291424 s with 84,803,584-byte peak RSS and no drift; the image SHA-256 is `7dcab2e51f8305c631334c846577419ddc903374c9b6f85d62b2aa67da205309`.
 
 The campaign starts at `2026-09-13T02:47:41+00:00` and ends at
