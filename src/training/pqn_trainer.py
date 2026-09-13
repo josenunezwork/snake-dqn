@@ -665,6 +665,8 @@ class PQNTelemetry:
         action_entropy: Entropy (nats) of the hero action histogram.
         hero_kills: Exact valid hero kill credits in this rollout.
         hero_deaths: Exact valid hero deaths in this rollout.
+        hero_food_contact_events: Exact valid hero ``food_ate`` contacts. This
+            is a boolean contact-event count, not mass gained or pellet value.
         completed_episodes: Environments newly completed during this rollout.
         episode_reset_count: Cumulative batch resets before collecting this rollout.
         boost_fraction: Fraction of hero steps that engaged boost.
@@ -703,6 +705,7 @@ class PQNTelemetry:
     action_collapse_evidence_samples: int = 0
     hero_kills: int = 0
     hero_deaths: int = 0
+    hero_food_contact_events: int = 0
     completed_episodes: int = 0
     valid_transitions: int = 0
     rollout_capacity: int = 0
@@ -1543,6 +1546,7 @@ class PQNTrainer:
         hero_q_buf = torch.zeros((T, E, S, 6), dtype=torch.float32, device=self.device)
         kill_buf = np.zeros((T, E, S), dtype=np.int64)
         death_buf = np.zeros((T, E, S), dtype=bool)
+        food_ate_buf = np.zeros((T, E, S), dtype=bool)
 
         prof = self.cfg.profile
         feat_t = fwd_t = sim_t = 0.0
@@ -1608,6 +1612,7 @@ class PQNTrainer:
                 boost_buf[t] = self.sim.get_boosted_this_step()
                 kill_buf[t] = self.sim.get_kill_credit()
                 death_buf[t] = self.sim.get_done()
+                food_ate_buf[t] = self.sim.get_step_events()["food_ate"]
                 base_rew_buf[t] = self.sim.get_reward()
                 if cfg.living_mass_reward_coefficient == 0.0:
                     rew_buf[t] = base_rew_buf[t]
@@ -1735,6 +1740,7 @@ class PQNTrainer:
             boost_buf[t] = self.sim.get_boosted_this_step()
             kill_buf[t] = self.sim.get_kill_credit()
             death_buf[t] = self.sim.get_done()
+            food_ate_buf[t] = self.sim.get_step_events()["food_ate"]
 
             completed_now = self.sim.population_floor_reached() | (self.sim.frame >= cfg.max_frames)
             newly_completed = completed_now & ~self._episode_finished_env
@@ -1792,6 +1798,7 @@ class PQNTrainer:
             "boost": boost_buf[:T],
             "kills": kill_buf[:T],
             "deaths": death_buf[:T],
+            "food_ate": food_ate_buf[:T],
             "policy_ids": policy_ids,
             "policy_identities": (
                 self._derived_policy_identities(policy_ids)
@@ -2259,6 +2266,9 @@ class PQNTrainer:
 
         hero_kills = int(np.asarray(roll["kills"])[hero_mask_tes].sum())
         hero_deaths = int(np.asarray(roll["deaths"], dtype=bool)[hero_mask_tes].sum())
+        hero_food_contact_events = int(
+            np.asarray(roll.get("food_ate", np.zeros_like(valid)), dtype=bool)[hero_mask_tes].sum()
+        )
         policy_exposure: Dict[str, int] = {}
         policy_identities = roll["policy_identities"]
         for policy_id in np.unique(roll["policy_ids"]):
@@ -2293,6 +2303,7 @@ class PQNTrainer:
             action_collapse_evidence_samples=collapse_evidence_samples,
             hero_kills=hero_kills,
             hero_deaths=hero_deaths,
+            hero_food_contact_events=hero_food_contact_events,
             completed_episodes=int(roll["newly_completed_episodes"]),
             valid_transitions=int(valid.sum()),
             rollout_capacity=T * E * S,

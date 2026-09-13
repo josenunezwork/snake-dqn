@@ -831,6 +831,7 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
         "action_collapse_evidence_samples": tel.action_collapse_evidence_samples,
         "hero_kills": tel.hero_kills,
         "hero_deaths": tel.hero_deaths,
+        "hero_food_contact_events": tel.hero_food_contact_events,
         "completed_episodes": tel.completed_episodes,
         "valid_transitions": tel.valid_transitions,
         "rollout_capacity": tel.rollout_capacity,
