@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import random
 
 import numpy as np
 import pytest
@@ -50,7 +51,10 @@ def test_digest_includes_random_generator_internal_state_and_next_draw() -> None
     control = clone_sim(sim)
     before = full_state_digest(sim)
     initial_next_draw = control._rngs[0]._rng.random()
-    sim._rngs[0]._rng.random()
+    shifted_rng = random.Random()
+    shifted_rng.setstate(sim._rngs[0]._rng.getstate())
+    shifted_rng.random()
+    sim._rngs[0]._rng.setstate(shifted_rng.getstate())
     assert full_state_digest(sim) != before
     assert sim._rngs[0]._rng.random() != initial_next_draw
 
