@@ -203,6 +203,269 @@ def test_snapshot_mutation_during_eval_fails_before_writing_a_verdict(
     assert not output.exists()
 
 
+def _runtime_rows(spec, seeds):
+    return [
+        {
+            "seed": seed,
+            "mass_integral": 1.0,
+            "max_mass": 1.0,
+            "mean_mass_alive": 1.0,
+            "kills": 0.0,
+            "deaths": 0.0,
+            "survival_fraction": 1.0,
+            "probes": {
+                "death_cause": None,
+                "boost_frame_fraction": 0.0,
+                "food_eaten": 0,
+                "kill_opportunity_count": 0,
+                "entrapment_event": False,
+                "peak_length": 1,
+            },
+            "world_runtime_spec": spec.descriptor(),
+            "world_runtime_spec_digest": spec.digest,
+        }
+        for seed in seeds
+    ]
+
+
+@pytest.mark.parametrize(
+    ("policy", "capacity"),
+    [("source-exact", 400), ("fresh-reset-horizon-bound", 5002)],
+)
+def test_explicit_runtime_spec_is_reused_and_bound_to_diagnostic_json(
+    setup_config, tmp_path, monkeypatch, policy, capacity
+):
+    """The public diagnostic flag binds one typed allocation identity end-to-end."""
+    from src.scripts import tournament_eval as module
+
+    config = tmp_path / "promotion.yaml"
+    config.write_text(
+        "game:\n"
+        "  width: 400\n"
+        "  height: 300\n"
+        "  num_snakes: 3\n"
+        "  mechanics_version: 2\n"
+        "  frame_rate: 1\n"
+    )
+    seen_specs = []
+
+    def fake_run_mix(
+        hero_spec,
+        mix_specs,
+        frames,
+        seeds,
+        engine,
+        profile=None,
+        mix_id="unspecified",
+        *,
+        world_runtime_spec=None,
+    ):
+        assert engine == "simd"
+        assert profile is not None
+        assert frames == 5000
+        assert world_runtime_spec is not None
+        seen_specs.append(world_runtime_spec)
+        return _runtime_rows(world_runtime_spec, seeds)
+
+    monkeypatch.setattr(module, "run_mix", fake_run_mix)
+    output = tmp_path / "result.json"
+    assert (
+        main(
+            [
+                "scripted:greedy_food",
+                "--baseline",
+                "scripted:random_safe",
+                "--opponents",
+                "scripted:random_safe",
+                "--mixes",
+                "scripted",
+                "--frames",
+                "5000",
+                "--seeds",
+                "0,1",
+                "--config",
+                str(config),
+                "--engine",
+                "simd",
+                "--evaluation-profile",
+                "promotion-v2-watch-rect",
+                "--simd-body-storage-policy",
+                policy,
+                "--json-output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    assert len(seen_specs) == 2
+    assert all(spec is seen_specs[0] for spec in seen_specs)
+    assert seen_specs[0].body_storage_capacity == capacity
+    data = json.loads(output.read_text())
+    assert data["strict_authority"] is False
+    assert data["authority"] == "diagnostic-only"
+    assert data["world_runtime_spec"] == {
+        "descriptor": seen_specs[0].descriptor(),
+        "digest": seen_specs[0].digest,
+    }
+    receipt = json.loads(Path(data["evaluation_inputs"]["receipt"]).read_text())
+    assert receipt["world_runtime_spec"] == data["world_runtime_spec"]
+
+
+def test_explicit_runtime_spec_reaches_every_pilot_mix_and_is_bound_to_output(
+    setup_config, tmp_path, monkeypatch
+):
+    from src.scripts import tournament_eval as module
+
+    config = tmp_path / "promotion.yaml"
+    config.write_text(
+        "game:\n"
+        "  width: 400\n"
+        "  height: 300\n"
+        "  num_snakes: 3\n"
+        "  mechanics_version: 2\n"
+        "  frame_rate: 1\n"
+    )
+    seen_specs = []
+
+    def fake_run_mix(*args, world_runtime_spec=None, **kwargs):
+        assert world_runtime_spec is not None
+        seen_specs.append(world_runtime_spec)
+        return _runtime_rows(world_runtime_spec, [0, 1])
+
+    monkeypatch.setattr(module, "run_mix", fake_run_mix)
+    output = tmp_path / "pilot.json"
+    assert (
+        main(
+            [
+                "--pilot",
+                "--baseline",
+                "scripted:greedy_food",
+                "--opponents",
+                "scripted:random_safe",
+                "--mixes",
+                "scripted,mixed",
+                "--frames",
+                "5000",
+                "--seeds",
+                "0,1",
+                "--config",
+                str(config),
+                "--engine",
+                "simd",
+                "--evaluation-profile",
+                "promotion-v2-watch-rect",
+                "--simd-body-storage-policy",
+                "source-exact",
+                "--json-output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    assert len(seen_specs) == 2
+    assert all(spec is seen_specs[0] for spec in seen_specs)
+    assert seen_specs[0].body_storage_capacity == 400
+    data = json.loads(output.read_text())
+    assert data["mode"] == "pilot"
+    assert data["world_runtime_spec"] == {
+        "descriptor": seen_specs[0].descriptor(),
+        "digest": seen_specs[0].digest,
+    }
+    for mix in data["pilot"]["per_mix"].values():
+        assert all(row["world_runtime_spec"] == seen_specs[0].descriptor() for row in mix["runs"])
+        assert all(row["world_runtime_spec_digest"] == seen_specs[0].digest for row in mix["runs"])
+    receipt = json.loads(Path(data["evaluation_inputs"]["receipt"]).read_text())
+    assert receipt["world_runtime_spec"] == data["world_runtime_spec"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--engine", "live", "--evaluation-profile", "promotion-v2-watch-rect"],
+        ["--engine", "simd", "--evaluation-profile", "legacy-diagnostic"],
+    ],
+)
+def test_simd_body_storage_policy_rejects_invalid_combinations_before_snapshots(
+    monkeypatch, arguments
+):
+    from src.scripts import tournament_eval as module
+
+    called = []
+    monkeypatch.setattr(
+        module.EvaluationArtifacts,
+        "snapshot_config",
+        lambda *args, **kwargs: called.append((args, kwargs)),
+    )
+    with pytest.raises(SystemExit) as exc:
+        main([*arguments, "--simd-body-storage-policy", "source-exact"])
+    assert exc.value.code == 2
+    assert not called
+
+
+def test_runtime_row_identity_mismatch_refuses_result_before_paired_statistics(
+    setup_config, tmp_path, monkeypatch
+):
+    from src.scripts import tournament_eval as module
+
+    config = tmp_path / "promotion.yaml"
+    config.write_text(
+        "game:\n"
+        "  width: 400\n"
+        "  height: 300\n"
+        "  num_snakes: 3\n"
+        "  mechanics_version: 2\n"
+        "  frame_rate: 1\n"
+    )
+
+    calls = 0
+
+    def mismatched_candidate_run_mix(*args, world_runtime_spec=None, **kwargs):
+        nonlocal calls
+        calls += 1
+        rows = _runtime_rows(world_runtime_spec, [0])
+        if calls == 2:
+            rows[0]["world_runtime_spec_digest"] = "0" * 64
+        return rows
+
+    monkeypatch.setattr(module, "run_mix", mismatched_candidate_run_mix)
+    monkeypatch.setattr(
+        module,
+        "paired_stats",
+        lambda *args, **kwargs: pytest.fail("runtime identity must be checked before statistics"),
+    )
+    output = tmp_path / "result.json"
+    assert (
+        main(
+            [
+                "scripted:greedy_food",
+                "--baseline",
+                "scripted:random_safe",
+                "--opponents",
+                "scripted:random_safe",
+                "--mixes",
+                "scripted",
+                "--frames",
+                "5000",
+                "--seeds",
+                "0",
+                "--config",
+                str(config),
+                "--engine",
+                "simd",
+                "--evaluation-profile",
+                "promotion-v2-watch-rect",
+                "--simd-body-storage-policy",
+                "source-exact",
+                "--json-output",
+                str(output),
+            ]
+        )
+        == 2
+    )
+    assert calls == 2
+    assert not output.exists()
+
+
 class TestParseAgentSpec:
     def test_checkpoint_path_passthrough(self):
         assert parse_agent_spec("saved_snakes/foo.pth") == ("checkpoint", "saved_snakes/foo.pth")
@@ -1343,12 +1606,19 @@ def test_strict_runtime_rejects_snapshot_swap_after_worlds(monkeypatch, tmp_path
 
 
 def test_strict_runtime_rejects_diagnostic_override_before_worlds(monkeypatch, tmp_path):
+    from src.evaluation import strict_promotion
     from src.scripts import tournament_eval as module
     from tests.test_strict_artifacts import ArtifactFixture
 
     fixture = ArtifactFixture(tmp_path)
     called = []
+    frozen = []
     monkeypatch.setattr(module, "rollout", lambda *args, **kwargs: called.append(args))
+    monkeypatch.setattr(
+        strict_promotion,
+        "freeze_strict_request",
+        lambda *args, **kwargs: frozen.append((args, kwargs)),
+    )
     with pytest.raises(SystemExit):
         module.main(
             [
@@ -1364,8 +1634,9 @@ def test_strict_runtime_rejects_diagnostic_override_before_worlds(monkeypatch, t
                 str(fixture.calibration_path),
                 "--strict-serving-bundle",
                 str(fixture.serving_path),
-                "--frames",
-                "1",
+                "--simd-body-storage-pol",
+                "source-exact",
             ]
         )
     assert not called
+    assert not frozen

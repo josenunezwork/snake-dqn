@@ -13,8 +13,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
+from src.core.world_runtime import WorldRuntimeSpec
+
 CHECKPOINT_DIGEST = "sha256"
+# Strict E0 receipts bind this exact schema and key set. Keep the historical
+# constant on v1 so existing strict readers cannot reinterpret a v2 receipt.
 EVALUATOR_ARTIFACT_VERSION = "evaluation-input-snapshot-v1"
+EVALUATOR_ARTIFACT_VERSION_V2 = "evaluation-input-snapshot-v2"
 _COPY_CHUNK_BYTES = 1024 * 1024
 
 
@@ -201,8 +206,25 @@ class EvaluationArtifacts:
         source_specs: Iterable[AgentSpec],
         evaluator_sources: Iterable[str | Path] | None = None,
         evaluation_profile: Any | None = None,
+        world_runtime_spec: WorldRuntimeSpec | None = None,
     ) -> Path:
         """Persist the frozen inputs and evaluator/config identities as JSON."""
+        runtime_binding: Dict[str, Any] | None = None
+        if world_runtime_spec is not None:
+            if evaluation_profile is None:
+                raise ValueError("world_runtime_spec requires an explicit evaluation profile")
+            world_runtime_spec.validate_for_profile(evaluation_profile)
+            descriptor = world_runtime_spec.descriptor()
+            digest = world_runtime_spec.digest
+            validated_spec = WorldRuntimeSpec.from_descriptor(
+                descriptor,
+                expected_digest=digest,
+            )
+            validated_spec.validate_for_profile(evaluation_profile)
+            if validated_spec != world_runtime_spec:
+                raise ValueError("world runtime descriptor differs from the supplied runtime spec")
+            runtime_binding = {"descriptor": descriptor, "digest": digest}
+
         self.root.mkdir(parents=True, exist_ok=True)
         evaluator = Path(evaluator_path).expanduser().resolve(strict=True)
         if hasattr(effective_config, "__dataclass_fields__"):
@@ -214,7 +236,11 @@ class EvaluationArtifacts:
         else:
             effective = effective_config
         payload = {
-            "artifact_version": EVALUATOR_ARTIFACT_VERSION,
+            "artifact_version": (
+                EVALUATOR_ARTIFACT_VERSION_V2
+                if runtime_binding is not None
+                else EVALUATOR_ARTIFACT_VERSION
+            ),
             "checkpoint_digest_algorithm": CHECKPOINT_DIGEST,
             "checkpoint_snapshots": self.checkpoint_receipts(),
             "config": {
@@ -229,6 +255,8 @@ class EvaluationArtifacts:
                 "descriptor": evaluation_profile.descriptor(),
                 "digest": evaluation_profile.digest,
             }
+        if runtime_binding is not None:
+            payload["world_runtime_spec"] = runtime_binding
         receipt_path = self.root / "receipt.json"
         with tempfile.NamedTemporaryFile(
             mode="w", dir=self.root, prefix=".receipt-", suffix=".json", delete=False
@@ -273,6 +301,7 @@ def _default_evaluator_sources(repository: Path) -> List[Path]:
         "src/core/config_loader.py",
         "src/core/game_config.py",
         "src/core/runtime_contract.py",
+        "src/core/world_runtime.py",
         "src/evaluation/artifacts.py",
         "src/evaluation/protocol.py",
         "src/evaluation/metrics.py",

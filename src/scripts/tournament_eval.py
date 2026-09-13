@@ -68,6 +68,7 @@ from src.core.runtime_contract import (  # noqa: E402
     RuntimeModeContract,
     canonical_digest,
 )
+from src.core.world_runtime import WorldRuntimeSpec  # noqa: E402
 from src.evaluation.anchors import (  # noqa: E402
     SCRIPTED_ANCHOR_VERSION,
     AnchorContext,
@@ -613,6 +614,8 @@ def run_mix(
     engine: str = "live",
     profile: EvaluationProfile | None = None,
     mix_id: str = "unspecified",
+    *,
+    world_runtime_spec: WorldRuntimeSpec | None = None,
 ) -> List[Dict[str, Any]]:
     """Run one hero over all seeds of one opponent mix.
 
@@ -653,6 +656,7 @@ def run_mix(
                 else None
             ),
             mix_id=mix_id,
+            world_runtime_spec=world_runtime_spec,
         )
     return [
         rollout(
@@ -670,6 +674,35 @@ def run_mix(
         )
         for seed in seeds
     ]
+
+
+class WorldRuntimeIdentityError(ValueError):
+    """A profiled SIMD row did not retain the invocation runtime identity."""
+
+
+def verify_world_runtime_rows(
+    rows: Sequence[Mapping[str, Any]], expected: WorldRuntimeSpec
+) -> None:
+    """Require every profiled SIMD row to bind the invocation runtime exactly."""
+    expected_descriptor = expected.descriptor()
+    for row in rows:
+        try:
+            resolved = WorldRuntimeSpec.from_descriptor(
+                row["world_runtime_spec"],
+                expected_digest=row["world_runtime_spec_digest"],
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise WorldRuntimeIdentityError(
+                "SIMD evaluation row is missing or has an invalid world runtime identity"
+            ) from exc
+        if (
+            resolved != expected
+            or row["world_runtime_spec"] != expected_descriptor
+            or row["world_runtime_spec_digest"] != expected.digest
+        ):
+            raise WorldRuntimeIdentityError(
+                "SIMD evaluation row world runtime identity differs from this invocation"
+            )
 
 
 def summarize_runs(runs: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -868,6 +901,8 @@ def run_pilot(
     mde_fraction: float,
     engine: str = "live",
     profile: EvaluationProfile | None = None,
+    *,
+    world_runtime_spec: WorldRuntimeSpec | None = None,
 ) -> Dict[str, Any]:
     """Pilot mode: baseline-only variance estimate and seed-count recommendation.
 
@@ -879,7 +914,18 @@ def run_pilot(
     per_mix: Dict[str, Any] = {}
     recommendations: List[int] = []
     for mix in mixes:
-        runs = run_mix(baseline_spec, mix_specs[mix], frames, seeds, engine, profile, mix)
+        runs = run_mix(
+            baseline_spec,
+            mix_specs[mix],
+            frames,
+            seeds,
+            engine,
+            profile,
+            mix,
+            world_runtime_spec=world_runtime_spec,
+        )
+        if world_runtime_spec is not None:
+            verify_world_runtime_rows(runs, world_runtime_spec)
         vals = [r["mass_integral"] for r in runs]
         mu = mean(vals)
         sd = sample_std(vals)
@@ -1178,6 +1224,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Explicit evaluation task; promotion-v2-watch-rect fixes a 5000-frame horizon.",
     )
     p.add_argument(
+        "--simd-body-storage-policy",
+        choices=("source-exact", "fresh-reset-horizon-bound"),
+        default=None,
+        help=(
+            "Diagnostic-only SIMD allocation policy. Omitted preserves the existing "
+            "source-exact execution path; explicit policies require --engine simd and "
+            "--evaluation-profile promotion-v2-watch-rect."
+        ),
+    )
+    p.add_argument(
         "--seeds",
         type=parse_seed_list,
         default=parse_seed_list("0-9"),
@@ -1225,6 +1281,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if any(value is not None for value in strict_values) and args.strict_promotion_request is None:
         p.error("strict artifact paths require --strict-promotion-request")
     if args.strict_promotion_request:
+        if args.simd_body_storage_policy is not None:
+            p.error("strict promotion does not permit --simd-body-storage-policy")
         raw_argv = list(sys.argv[1:] if argv is None else argv)
         strict_conflicts = {
             "--engine",
@@ -1238,6 +1296,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "--json-output",
             "--snapshot-dir",
             "--evaluation-profile",
+            "--simd-body-storage-policy",
             "--mde-fraction",
         }
         supplied_conflicts = sorted(
@@ -1261,6 +1320,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_strict_promotion(args)
         except (OSError, ValueError) as exc:
             p.error(str(exc))
+
+    if args.simd_body_storage_policy is not None and (
+        args.engine != "simd" or args.evaluation_profile != PROMOTION_V2_WATCH_RECT
+    ):
+        p.error(
+            "--simd-body-storage-policy requires --engine simd and "
+            "--evaluation-profile promotion-v2-watch-rect"
+        )
 
     if not args.pilot and not args.candidates:
         p.error("at least one candidate is required (or use --pilot)")
@@ -1299,15 +1366,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         config_snapshot = artifacts.snapshot_config(args.config)
         effective_config = load_and_initialize_config(config_snapshot.snapshot_path)
         profile = evaluation_profile_for_name(args.evaluation_profile, args.frames)
+        world_runtime_spec = None
+        if args.simd_body_storage_policy == "source-exact":
+            world_runtime_spec = WorldRuntimeSpec.source_exact(profile)
+        elif args.simd_body_storage_policy == "fresh-reset-horizon-bound":
+            world_runtime_spec = WorldRuntimeSpec.fresh_reset_horizon_bound(profile)
         baseline_spec = artifacts.snapshot_agent_specs([baseline_spec])[0]
         opponent_pool = artifacts.snapshot_agent_specs(opponent_pool)
         candidate_specs = artifacts.snapshot_agent_specs(candidate_specs)
+        receipt_arguments = {
+            "config_snapshot": config_snapshot,
+            "effective_config": effective_config,
+            "evaluator_path": __file__,
+            "source_specs": source_specs,
+            "evaluation_profile": profile,
+        }
+        if world_runtime_spec is not None:
+            receipt_arguments["world_runtime_spec"] = world_runtime_spec
         receipt_path = artifacts.write_receipt(
-            config_snapshot=config_snapshot,
-            effective_config=effective_config,
-            evaluator_path=__file__,
-            source_specs=source_specs,
-            evaluation_profile=profile,
+            **receipt_arguments,
         )
     except (SnapshotError, ValueError) as exc:
         p.error(str(exc))
@@ -1319,9 +1396,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         """Keep legacy monkeypatch/caller signatures unchanged until opt-in."""
         if active_profile is None:
             return run_mix(hero_spec, specs, args.frames, args.seeds, args.engine)
-        return run_mix(
-            hero_spec, specs, args.frames, args.seeds, args.engine, active_profile, mix_id
+        rows = run_mix(
+            hero_spec,
+            specs,
+            args.frames,
+            args.seeds,
+            args.engine,
+            active_profile,
+            mix_id,
+            world_runtime_spec=world_runtime_spec,
         )
+        if world_runtime_spec is not None:
+            verify_world_runtime_rows(rows, world_runtime_spec)
+        return rows
 
     # Fail fast: --engine simd can evaluate raster ('raster31v2') checkpoints
     # (the batch sim featurizes them) but NOT 61-D 'vector61' champions. Catch a
@@ -1398,16 +1485,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     print()
 
     if args.pilot:
-        pilot = run_pilot(
-            baseline_spec,
-            args.mixes,
-            mix_specs,
-            args.frames,
-            args.seeds,
-            args.mde_fraction,
-            args.engine,
-            active_profile,
-        )
+        try:
+            if world_runtime_spec is None:
+                pilot = run_pilot(
+                    baseline_spec,
+                    args.mixes,
+                    mix_specs,
+                    args.frames,
+                    args.seeds,
+                    args.mde_fraction,
+                    args.engine,
+                    active_profile,
+                )
+            else:
+                pilot = run_pilot(
+                    baseline_spec,
+                    args.mixes,
+                    mix_specs,
+                    args.frames,
+                    args.seeds,
+                    args.mde_fraction,
+                    args.engine,
+                    active_profile,
+                    world_runtime_spec=world_runtime_spec,
+                )
+        except WorldRuntimeIdentityError as exc:
+            print(f"evaluation runtime identity failure: {exc}", file=sys.stderr)
+            return 2
         try:
             artifacts.verify_integrity()
         except SnapshotError as exc:
@@ -1424,6 +1528,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "authority": "diagnostic-only",
                         "config": args.config,
                         "engine": args.engine,
+                        **(
+                            {
+                                "world_runtime_spec": {
+                                    "descriptor": world_runtime_spec.descriptor(),
+                                    "digest": world_runtime_spec.digest,
+                                }
+                            }
+                            if world_runtime_spec is not None
+                            else {}
+                        ),
                         "frames": args.frames,
                         "seeds": args.seeds,
                         "baseline": agent_label(requested_baseline_spec),
@@ -1450,7 +1564,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     baseline_runs: Dict[str, List[Dict[str, Any]]] = {}
     baseline_summaries: Dict[str, Dict[str, Any]] = {}
     for mix in args.mixes:
-        baseline_runs[mix] = run_selected_mix(baseline_spec, mix_specs[mix], mix)
+        try:
+            baseline_runs[mix] = run_selected_mix(baseline_spec, mix_specs[mix], mix)
+        except WorldRuntimeIdentityError as exc:
+            print(f"evaluation runtime identity failure: {exc}", file=sys.stderr)
+            return 2
         baseline_summaries[mix] = summarize_runs(baseline_runs[mix])
         print(
             f"baseline [{mix:9s}] mass_int={baseline_summaries[mix]['mass_integral']:.2f} "
@@ -1483,6 +1601,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "decision": promotion_decision(paired_by_mix, args.mixes),
                 }
             )
+        except WorldRuntimeIdentityError as exc:
+            print(f"evaluation runtime identity failure: {exc}", file=sys.stderr)
+            return 2
         except Exception as exc:
             # One candidate failing (e.g. a contract/shape mismatch) must NOT
             # abort the run: record the error and keep evaluating the rest.
@@ -1514,6 +1635,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "authority": "diagnostic-only",
                     "config": args.config,
                     "engine": args.engine,
+                    **(
+                        {
+                            "world_runtime_spec": {
+                                "descriptor": world_runtime_spec.descriptor(),
+                                "digest": world_runtime_spec.digest,
+                            }
+                        }
+                        if world_runtime_spec is not None
+                        else {}
+                    ),
                     "frames": args.frames,
                     "seeds": args.seeds,
                     "baseline": agent_label(requested_baseline_spec),

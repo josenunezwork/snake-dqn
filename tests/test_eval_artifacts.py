@@ -8,7 +8,35 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.config_loader import load_config
+from src.core.runtime_contract import EffectiveWorldConfig
+from src.core.world_runtime import WorldRuntimeSpec
 from src.evaluation.artifacts import EvaluationArtifacts, SnapshotError
+from src.evaluation.protocol import EvaluationProfile, promotion_v2_watch_rect
+
+
+def _promotion_profile(*, width: int = 400) -> EvaluationProfile:
+    world = EffectiveWorldConfig(
+        width=width,
+        height=300,
+        segment_size=10,
+        wall_thickness=10,
+        arena_type="rectangular",
+        mechanics_version=2,
+        num_snakes=3,
+        max_frames=5000,
+        initial_food=2,
+        max_food=2,
+        min_boost_length=5,
+        boost_length_cost_frames=3,
+        frame_rate=1,
+        max_length=100,
+        starvation_max_frames=500,
+        max_capacity=400,
+        kill_scale=0.3,
+        death_value=-3.0,
+        normalization={"max_frames": 5000.0, "starvation_max": 500.0, "max_length": 100.0},
+    )
+    return promotion_v2_watch_rect(world)
 
 
 def test_equal_checkpoint_aliases_share_one_content_identity(tmp_path):
@@ -156,6 +184,7 @@ def test_default_source_closure_binds_profile_metric_anchor_and_runtime_adapters
         "src/evaluation/protocol.py",
         "src/evaluation/metrics.py",
         "src/evaluation/anchors.py",
+        "src/core/world_runtime.py",
         "src/simd_env/eval_engine.py",
         "src/simd_env/live_adapter.py",
         "src/simd_env/batch_sim.py",
@@ -165,35 +194,11 @@ def test_default_source_closure_binds_profile_metric_anchor_and_runtime_adapters
 
 
 def test_receipt_binds_explicit_evaluation_profile(tmp_path):
-    from src.core.runtime_contract import EffectiveWorldConfig
-    from src.evaluation.protocol import promotion_v2_watch_rect
-
     config = tmp_path / "eval.yaml"
     config.write_text("game: {}\n")
     artifacts = EvaluationArtifacts(tmp_path / "artifacts")
     snapshot = artifacts.snapshot_config(config)
-    world = EffectiveWorldConfig(
-        width=400,
-        height=300,
-        segment_size=10,
-        wall_thickness=10,
-        arena_type="rectangular",
-        mechanics_version=2,
-        num_snakes=3,
-        max_frames=5000,
-        initial_food=2,
-        max_food=2,
-        min_boost_length=5,
-        boost_length_cost_frames=3,
-        frame_rate=1,
-        max_length=100,
-        starvation_max_frames=500,
-        max_capacity=400,
-        kill_scale=0.3,
-        death_value=-3.0,
-        normalization={"max_frames": 5000.0, "starvation_max": 500.0, "max_length": 100.0},
-    )
-    profile = promotion_v2_watch_rect(world)
+    profile = _promotion_profile()
     receipt = json.loads(
         artifacts.write_receipt(
             config_snapshot=snapshot,
@@ -204,4 +209,114 @@ def test_receipt_binds_explicit_evaluation_profile(tmp_path):
         ).read_text()
     )
 
+    assert receipt["artifact_version"] == "evaluation-input-snapshot-v1"
+    assert set(receipt) == {
+        "artifact_version",
+        "checkpoint_digest_algorithm",
+        "checkpoint_snapshots",
+        "config",
+        "evaluation_profile",
+        "evaluator",
+        "source_agents",
+    }
     assert receipt["evaluation_profile"]["digest"] == profile.digest
+
+
+def test_explicit_world_runtime_spec_selects_v2_and_binds_exact_identity(tmp_path):
+    config = tmp_path / "eval.yaml"
+    config.write_text("game: {}\n")
+    artifacts = EvaluationArtifacts(tmp_path / "artifacts")
+    snapshot = artifacts.snapshot_config(config)
+    profile = _promotion_profile()
+    runtime_spec = WorldRuntimeSpec.fresh_reset_horizon_bound(profile)
+
+    receipt = json.loads(
+        artifacts.write_receipt(
+            config_snapshot=snapshot,
+            effective_config={},
+            evaluator_path=__file__,
+            source_specs=[],
+            evaluation_profile=profile,
+            world_runtime_spec=runtime_spec,
+        ).read_text()
+    )
+
+    assert receipt["artifact_version"] == "evaluation-input-snapshot-v2"
+    assert receipt["world_runtime_spec"] == {
+        "descriptor": runtime_spec.descriptor(),
+        "digest": runtime_spec.digest,
+    }
+    assert (
+        WorldRuntimeSpec.from_descriptor(
+            receipt["world_runtime_spec"]["descriptor"],
+            expected_digest=receipt["world_runtime_spec"]["digest"],
+        )
+        == runtime_spec
+    )
+
+
+def test_world_runtime_receipt_rejects_tampered_detached_digest(tmp_path):
+    config = tmp_path / "eval.yaml"
+    config.write_text("game: {}\n")
+    artifacts = EvaluationArtifacts(tmp_path / "artifacts")
+    snapshot = artifacts.snapshot_config(config)
+    profile = _promotion_profile()
+    runtime_spec = WorldRuntimeSpec.fresh_reset_horizon_bound(profile)
+
+    class TamperedRuntimeSpec(WorldRuntimeSpec):
+        @property
+        def digest(self) -> str:
+            return "0" * 64
+
+    tampered = TamperedRuntimeSpec(**runtime_spec.__dict__)
+
+    with pytest.raises(ValueError, match="descriptor digest"):
+        artifacts.write_receipt(
+            config_snapshot=snapshot,
+            effective_config={},
+            evaluator_path=__file__,
+            source_specs=[],
+            evaluation_profile=profile,
+            world_runtime_spec=tampered,
+        )
+
+    assert not (artifacts.root / "receipt.json").exists()
+
+
+def test_world_runtime_receipt_rejects_profile_mismatch_before_publication(tmp_path):
+    config = tmp_path / "eval.yaml"
+    config.write_text("game: {}\n")
+    artifacts = EvaluationArtifacts(tmp_path / "artifacts")
+    snapshot = artifacts.snapshot_config(config)
+    runtime_spec = WorldRuntimeSpec.fresh_reset_horizon_bound(_promotion_profile())
+
+    with pytest.raises(ValueError, match="profile digest"):
+        artifacts.write_receipt(
+            config_snapshot=snapshot,
+            effective_config={},
+            evaluator_path=__file__,
+            source_specs=[],
+            evaluation_profile=_promotion_profile(width=410),
+            world_runtime_spec=runtime_spec,
+        )
+
+    assert not (artifacts.root / "receipt.json").exists()
+
+
+def test_world_runtime_receipt_requires_an_explicit_profile(tmp_path):
+    config = tmp_path / "eval.yaml"
+    config.write_text("game: {}\n")
+    artifacts = EvaluationArtifacts(tmp_path / "artifacts")
+    snapshot = artifacts.snapshot_config(config)
+    profile = _promotion_profile()
+
+    with pytest.raises(ValueError, match="requires an explicit evaluation profile"):
+        artifacts.write_receipt(
+            config_snapshot=snapshot,
+            effective_config={},
+            evaluator_path=__file__,
+            source_specs=[],
+            world_runtime_spec=WorldRuntimeSpec.source_exact(profile),
+        )
+
+    assert not (artifacts.root / "receipt.json").exists()
