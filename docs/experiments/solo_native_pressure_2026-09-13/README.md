@@ -36,6 +36,9 @@ SHA-256 `e7ae4419787a65b036b72c1fcf9960e119855cdf8514cbb8a2f33caab087126d`.
 | 2026091902 | 8,192 | 176 | 122 | 176 | 0 |
 | 2026091903 | 8,192 | 243 | 3 | 243 | 0 |
 
+The native `corpse_food_ate` category also includes boost-trail pellets. These
+contacts therefore do not imply that another snake or a death was present.
+
 Every rewarded ambient contact carried a positive target-overlay contribution.
 The analysis also found overlay credit in earlier neither-food rows—18,
 1,044, and 1,595 respectively—showing that the captured Q(lambda) return carried
