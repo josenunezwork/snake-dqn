@@ -530,9 +530,54 @@ class GameState:
         import random
 
         if GameConfig.ARENA_TYPE == "circular":
+            import math
+
             width = getattr(self, "_game_width", GameConfig.WIDTH)
             height = getattr(self, "_game_height", GameConfig.HEIGHT)
-            return GameLogic.get_random_circular_position(width, height, GameConfig.WALL_THICKNESS)
+            center_x, center_y, radius = GameLogic.get_circular_arena(width, height)
+            safe_radius = max(0.0, radius - GameConfig.WALL_THICKNESS)
+
+            def is_safe_lattice_position(position: Tuple[int, int]) -> bool:
+                x, y = position
+                return (
+                    0 <= x < width
+                    and 0 <= y < height
+                    and (x - center_x) ** 2 + (y - center_y) ** 2 <= safe_radius**2
+                )
+
+            # A continuous point within the safe circle can move outside it when
+            # get_random_circular_position snaps toward the lower cell corner.
+            # Keep the ordinary single-draw behavior when that snap is valid;
+            # only re-draw the exceptional boundary case.
+            for _ in range(8):
+                position = GameLogic.get_random_circular_position(
+                    width, height, GameConfig.WALL_THICKNESS
+                )
+                if is_safe_lattice_position(position):
+                    return position
+
+            # A bounded deterministic fallback avoids an unbounded retry loop
+            # when a caller controls random generation. Pick the closest valid
+            # segment-lattice point to the effective circle center.
+            cell_size = GameConfig.SEGMENT_SIZE
+            min_x = max(0, math.ceil((center_x - safe_radius) / cell_size) * cell_size)
+            max_x = min(width - 1, math.floor((center_x + safe_radius) / cell_size) * cell_size)
+            min_y = max(0, math.ceil((center_y - safe_radius) / cell_size) * cell_size)
+            max_y = min(height - 1, math.floor((center_y + safe_radius) / cell_size) * cell_size)
+            fallback = None
+            for x in range(min_x, max_x + 1, cell_size):
+                for y in range(min_y, max_y + 1, cell_size):
+                    position = (x, y)
+                    if is_safe_lattice_position(position) and (
+                        fallback is None
+                        or (x - center_x) ** 2 + (y - center_y) ** 2
+                        < (fallback[0] - center_x) ** 2 + (fallback[1] - center_y) ** 2
+                    ):
+                        fallback = position
+            if fallback is not None:
+                return fallback
+
+            raise ValueError("Circular arena safe radius contains no segment-lattice position")
         # Snap to the segment lattice so cell-exact collision matches the legacy
         # radius test (see mechanics_constants.snap_to_cell).
         return snap_to_cell(

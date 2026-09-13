@@ -194,6 +194,49 @@ class TestCircularPositionGeneration:
             dist = math.sqrt(dx**2 + dy**2)
             assert dist <= 200
 
+    def test_game_state_rejects_lattice_snap_outside_safe_circle(self, monkeypatch):
+        """A boundary snap cannot escape the effective circular safety margin."""
+        _init_circular(radius=200, cx=300, cy=300)
+        from src.game.game_state import GameState
+
+        # This is the reported failure: a sampled safe point was snapped to
+        # (190, 130), which lies outside the radius-200 circle.
+        calls = 0
+
+        def outside_snap(width, height, margin):
+            nonlocal calls
+            calls += 1
+            return (190, 130)
+
+        monkeypatch.setattr(
+            GameLogic,
+            "get_random_circular_position",
+            outside_snap,
+        )
+
+        gs = GameState.__new__(GameState)
+        position = gs.get_random_position()
+        assert position == (300, 300)
+        assert calls == 8
+        assert math.dist(position, (300, 300)) <= 200 - GameConfig.WALL_THICKNESS
+
+    def test_game_state_keeps_valid_circular_lattice_sample(self, monkeypatch):
+        """A valid snapped point does not consume another random draw."""
+        _init_circular(radius=200, cx=300, cy=300)
+        from src.game.game_state import GameState
+
+        calls = 0
+
+        def valid_snap(width, height, margin):
+            nonlocal calls
+            calls += 1
+            return (300, 300)
+
+        monkeypatch.setattr(GameLogic, "get_random_circular_position", valid_snap)
+
+        assert GameState.__new__(GameState).get_random_position() == (300, 300)
+        assert calls == 1
+
     def test_effective_board_size_scales_circular_position_generation(self):
         _init_circular(radius=200, cx=400, cy=300, width=800, height=600)
         from src.game.game_state import GameState
