@@ -177,5 +177,13 @@ use new output directories and supervisor names because artifacts are create-onl
 public CLI also exposes the optional setting as `--living-mass-reward-coefficient`, with
 a matching YAML `pqn.living_mass_reward_coefficient` field, for corrected-v3 recipes.
 
+The closed host log contains 381 samples with no logger errors or reported thermal warnings.
+System CPU ranged from 1.6% to 98.3%; exactly one sample exceeded 80%, during the fresh-seed
+evaluation. Its cause cannot be attributed from host aggregates. System GPU utilization ranged
+from 0% to 80%, despite all experimental jobs using CPU. The host retained at least 26.33 GiB
+available in the five-second samples, and swap ended lower than it began (6.79 to 6.66 GiB).
+The supervisor's faster samples separately captured a 26.27 GiB training minimum. These
+measurements distinguish bounded learner usage from other activity on the Mac.
+
 All experiment processes and the resource logger have exited. No checkpoint was promoted
 and no remote push was performed.
