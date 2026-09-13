@@ -99,6 +99,20 @@ def test_observe_hero_is_v3_copies_and_resolved_mask() -> None:
     assert sim.get_resolved_action_mask()[0, 0].any()
 
 
+def test_observation_equality_requires_identical_float_bytes() -> None:
+    left = {
+        "scalars": np.array([-0.0], dtype=np.float32),
+        "mask": np.array([True, False], dtype=bool),
+    }
+    right = {
+        "scalars": np.array([0.0], dtype=np.float32),
+        "mask": np.array([True, False], dtype=bool),
+    }
+    assert np.array_equal(left["scalars"], right["scalars"])
+    assert np.array_equal(left["mask"], right["mask"])
+    assert not observation_probe._obs_equal(left, right)
+
+
 def test_heading_twin_rejects_enemy_with_neck_and_preserves_source() -> None:
     sim = _sim()
     source = full_state_digest(sim)

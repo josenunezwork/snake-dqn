@@ -220,7 +220,13 @@ def observe_hero(sim: BatchSim, hero: int, config: ProbeConfig) -> dict[str, np.
 
 
 def _obs_equal(left: dict[str, np.ndarray], right: dict[str, np.ndarray]) -> bool:
-    return all(np.array_equal(left[key], right[key]) for key in left)
+    if left.keys() != right.keys():
+        return False
+    for key in left:
+        lhs, rhs = left[key], right[key]
+        if lhs.shape != rhs.shape or lhs.dtype != rhs.dtype or lhs.tobytes() != rhs.tobytes():
+            return False
+    return True
 
 
 def heading_twin(
