@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import math
+import random
 import struct
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Iterable, Sequence
@@ -19,6 +20,7 @@ import numpy as np
 from src.model.obs_spec import RASTER31V3
 from src.simd_env.batch_sim import BatchSim
 from src.simd_env.featurizer import build_observations, obs_inputs_from_batch_sim
+from src.simd_env.rng import EnvRng
 
 
 @dataclass(frozen=True)
@@ -50,9 +52,13 @@ def _write_tag(hasher: "hashlib._Hash", tag: bytes) -> None:
     hasher.update(tag)
 
 
+def _write_count(hasher: "hashlib._Hash", count: int) -> None:
+    _write_tag(hasher, b"count")
+    _write_tag(hasher, str(count).encode("ascii"))
+
+
 def _canonical_hash(value: Any, hasher: "hashlib._Hash", seen: set[int]) -> None:
     """Hash a complete supported object graph, rejecting unknown/cyclic state."""
-    scalar_types = (type(None), bool, int, float, str, bytes)
     if isinstance(value, type(None)):
         _write_tag(hasher, b"none")
     elif isinstance(value, bool):
@@ -77,11 +83,20 @@ def _canonical_hash(value: Any, hasher: "hashlib._Hash", seen: set[int]) -> None
         _canonical_hash(value.item(), hasher, seen)
     elif isinstance(value, np.ndarray):
         if value.dtype.hasobject:
-            _write_tag(hasher, b"ndarray-object")
-            _write_tag(hasher, value.dtype.str.encode("ascii"))
-            _write_tag(hasher, repr(value.shape).encode("ascii"))
-            for item in value.flat:
-                _canonical_hash(item, hasher, seen)
+            identity = id(value)
+            if identity in seen:
+                raise ValueError("state digest rejects cyclic state")
+            seen.add(identity)
+            try:
+                _write_tag(hasher, b"ndarray-object")
+                _write_tag(hasher, value.dtype.str.encode("ascii"))
+                _write_tag(hasher, repr(value.shape).encode("ascii"))
+                _write_count(hasher, value.size)
+                for item in value.flat:
+                    _canonical_hash(item, hasher, seen)
+                _write_tag(hasher, b"end-ndarray-object")
+            finally:
+                seen.remove(identity)
         else:
             if not np.isfinite(value).all() if np.issubdtype(value.dtype, np.inexact) else False:
                 raise ValueError("state digest rejects non-finite ndarray state")
@@ -89,8 +104,6 @@ def _canonical_hash(value: Any, hasher: "hashlib._Hash", seen: set[int]) -> None
             _write_tag(hasher, value.dtype.str.encode("ascii"))
             _write_tag(hasher, repr(value.shape).encode("ascii"))
             _write_tag(hasher, np.ascontiguousarray(value).tobytes())
-    elif isinstance(value, scalar_types):  # Kept for type-checker exhaustiveness.
-        raise AssertionError("unreachable scalar")
     else:
         identity = id(value)
         if identity in seen:
@@ -99,41 +112,56 @@ def _canonical_hash(value: Any, hasher: "hashlib._Hash", seen: set[int]) -> None
         try:
             if isinstance(value, tuple):
                 _write_tag(hasher, b"tuple")
+                _write_count(hasher, len(value))
                 for item in value:
                     _canonical_hash(item, hasher, seen)
+                _write_tag(hasher, b"end-tuple")
             elif isinstance(value, list):
                 _write_tag(hasher, b"list")
+                _write_count(hasher, len(value))
                 for item in value:
                     _canonical_hash(item, hasher, seen)
+                _write_tag(hasher, b"end-list")
             elif isinstance(value, set):
                 _write_tag(hasher, b"set")
+                _write_count(hasher, len(value))
                 encoded = []
                 for item in value:
                     item_hash = hashlib.sha256()
-                    _canonical_hash(item, item_hash, set())
+                    _canonical_hash(item, item_hash, seen.copy())
                     encoded.append(item_hash.digest())
                 for item_hash in sorted(encoded):
                     _write_tag(hasher, item_hash)
+                _write_tag(hasher, b"end-set")
             elif isinstance(value, dict):
                 _write_tag(hasher, b"dict")
                 if not all(isinstance(key, str) for key in value):
                     raise ValueError("state digest only supports string-keyed dictionaries")
+                _write_count(hasher, len(value))
                 for key in sorted(value):
                     _write_tag(hasher, key.encode("utf-8"))
                     _canonical_hash(value[key], hasher, seen)
+                _write_tag(hasher, b"end-dict")
             elif is_dataclass(value) and not isinstance(value, type):
                 _write_tag(
                     hasher,
                     f"dataclass:{type(value).__module__}.{type(value).__qualname__}".encode(),
                 )
+                _write_count(hasher, len(fields(value)))
                 for field in fields(value):
                     _write_tag(hasher, field.name.encode())
                     _canonical_hash(getattr(value, field.name), hasher, seen)
-            elif hasattr(value, "__dict__"):
+                _write_tag(hasher, b"end-dataclass")
+            elif isinstance(value, random.Random):
+                _write_tag(hasher, b"random.Random")
+                _canonical_hash(value.getstate(), hasher, seen)
+                _write_tag(hasher, b"end-random.Random")
+            elif isinstance(value, EnvRng):
                 _write_tag(
                     hasher, f"object:{type(value).__module__}.{type(value).__qualname__}".encode()
                 )
                 _canonical_hash(vars(value), hasher, seen)
+                _write_tag(hasher, b"end-EnvRng")
             else:
                 raise ValueError(
                     f"unsupported state value: {type(value).__module__}.{type(value).__qualname__}"
@@ -212,7 +240,13 @@ def heading_twin(
         or not 0 <= new_heading < 4
     ):
         raise ValueError("new_heading must be an integer in [0, 4)")
-    if enemy == hero or not sim.alive[0, enemy] or int(sim.seg_count[0, enemy]) != 1:
+    if (
+        enemy == hero
+        or not sim.alive[0, hero]
+        or not sim.alive[0, enemy]
+        or int(sim.seg_count[0, enemy]) != 1
+        or int(sim.direction[0, enemy]) == new_heading
+    ):
         return None
     original = observe_hero(sim, hero, config)
     twin = clone_sim(sim)
@@ -257,7 +291,6 @@ def finite_action_returns(
     stop are zero by definition.  No branch is
     reset or bootstrapped, and no return is an optimal or learned value claim.
     """
-    _validate_single_hero(sim, hero, config)
     horizon_values = tuple(horizons)
     if not horizon_values or any(
         not isinstance(h, int) or isinstance(h, bool) or h <= 0 for h in horizon_values
@@ -273,6 +306,14 @@ def finite_action_returns(
         raise ValueError(
             "finite probes require mechanics-v2 train_mode=True and allow_respawn=False"
         )
+    if float(config.gamma) != float(sim.cfg.gamma):
+        raise ValueError("ProbeConfig.gamma must equal sim.cfg.gamma")
+    if not sim.alive[0, hero]:
+        raise ValueError("finite probes require a living hero")
+    if bool(sim.population_floor_reached()[0]):
+        raise ValueError("finite probes reject worlds already at the population floor")
+    if int(sim.frame[0]) >= config.max_frames:
+        raise ValueError("finite probes reject worlds already at the frame cap")
 
     source_digest = full_state_digest(sim)
     initial = observe_hero(sim, hero, config)

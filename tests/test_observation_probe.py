@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import numpy as np
 import pytest
 
+import src.evaluation.observation_probe as observation_probe
 from src.evaluation.observation_probe import (
     ProbeConfig,
     clone_sim,
@@ -42,6 +45,36 @@ def test_clone_digest_rng_and_mutable_state_are_independent() -> None:
     assert full_state_digest(clone) != before
 
 
+def test_digest_includes_random_generator_internal_state_and_next_draw() -> None:
+    sim = _sim()
+    control = clone_sim(sim)
+    before = full_state_digest(sim)
+    initial_next_draw = control._rngs[0]._rng.random()
+    sim._rngs[0]._rng.random()
+    assert full_state_digest(sim) != before
+    assert sim._rngs[0]._rng.random() != initial_next_draw
+
+
+def test_digest_rejects_unknown_objects_cycles_and_ambiguous_sequence_shapes() -> None:
+    nested = hashlib.sha256()
+    flat = hashlib.sha256()
+    observation_probe._canonical_hash([[1], 2], nested, set())
+    observation_probe._canonical_hash([[1, 2]], flat, set())
+    assert nested.hexdigest() != flat.hexdigest()
+
+    sim = _sim()
+    sim.unsupported_probe_state = object()
+    with pytest.raises(ValueError, match="unsupported"):
+        full_state_digest(sim)
+
+    cyclic = _sim()
+    objects = np.empty((1,), dtype=object)
+    objects[0] = objects
+    cyclic.probe_object_array = objects
+    with pytest.raises(ValueError, match="cyclic"):
+        full_state_digest(cyclic)
+
+
 def test_natural_step_from_equal_clones_has_equal_state() -> None:
     sim = _sim()
     left, right = clone_sim(sim), clone_sim(sim)
@@ -70,15 +103,12 @@ def test_heading_twin_rejects_enemy_with_neck_and_preserves_source() -> None:
     assert full_state_digest(sim) != source  # Test setup, then no further mutation.
 
 
-def test_heading_twin_same_heading_is_geometrically_admissible() -> None:
+def test_heading_twin_rejects_same_heading_and_dead_hero() -> None:
     sim = _sim()
     current = int(sim.direction[0, 1])
-    twin = heading_twin(sim, 0, 1, current, ProbeConfig())
-    assert twin is not None
-    assert twin is not sim
-    assert np.array_equal(
-        observe_hero(sim, 0, ProbeConfig())["mask"], observe_hero(twin, 0, ProbeConfig())["mask"]
-    )
+    assert heading_twin(sim, 0, 1, current, ProbeConfig()) is None
+    sim.alive[0, 0] = False
+    assert heading_twin(sim, 0, 1, (current + 1) % 4, ProbeConfig()) is None
 
 
 def test_heading_twin_rejects_visible_heading_change() -> None:
@@ -114,6 +144,35 @@ def test_finite_returns_is_action_order_invariant() -> None:
         sim, 0, _tape(sim), (1, 4), ProbeConfig(), action_order=(5, 4, 3, 2, 1, 0)
     )
     assert normal["actions"] == reversed_order["actions"]
+
+
+def test_finite_returns_rejects_dead_floor_capped_and_gamma_mismatch_without_mutation() -> None:
+    sim = _sim(snakes=6)
+    before = full_state_digest(sim)
+    sim.alive[0, 0] = False
+    with pytest.raises(ValueError, match="living hero"):
+        finite_action_returns(sim, 0, _tape(sim), (1,), ProbeConfig())
+    assert full_state_digest(sim) != before  # Test setup is the only mutation.
+
+    floor = _sim(snakes=6)
+    floor.alive[0, 1:] = False
+    floor_before = full_state_digest(floor)
+    with pytest.raises(ValueError, match="population floor"):
+        finite_action_returns(floor, 0, _tape(floor), (1,), ProbeConfig())
+    assert full_state_digest(floor) == floor_before
+
+    capped = _sim()
+    capped.frame[0] = 5
+    capped_before = full_state_digest(capped)
+    with pytest.raises(ValueError, match="frame cap"):
+        finite_action_returns(capped, 0, _tape(capped), (1,), ProbeConfig(max_frames=5))
+    assert full_state_digest(capped) == capped_before
+
+    mismatch = _sim()
+    mismatch_before = full_state_digest(mismatch)
+    with pytest.raises(ValueError, match="gamma"):
+        finite_action_returns(mismatch, 0, _tape(mismatch), (1,), ProbeConfig(gamma=0.9))
+    assert full_state_digest(mismatch) == mismatch_before
 
 
 @pytest.mark.parametrize(
