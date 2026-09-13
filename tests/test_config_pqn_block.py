@@ -58,6 +58,9 @@ def test_pqn_schema_field_parity_with_pqn_config_and_recipe_selector():
         # B5 injects this only after checkpoint-byte preflight; accepting it
         # from generic YAML would not establish the claimed source identity.
         "initial_opponent_checkpoint_sha256",
+        # Solo diagnostics are explicitly opt-in through the native CLI or
+        # constructor; keep the shared YAML descriptor and defaults unchanged.
+        "episode_completion_mode",
     }
     config_fields = {f.name for f in dc.fields(PQNConfig)} - runtime_or_shared
     schema_fields = set(PQNSettingsSchema.model_fields.keys())
@@ -66,6 +69,11 @@ def test_pqn_schema_field_parity_with_pqn_config_and_recipe_selector():
         f"only in PQNConfig: {sorted(config_fields - schema_fields)}, "
         f"only in schema: {sorted(schema_fields - config_fields)}"
     )
+
+
+def test_solo_completion_remains_outside_the_shared_yaml_schema() -> None:
+    with pytest.raises(ValidationError, match="episode_completion_mode"):
+        ConfigSchema(pqn={"episode_completion_mode": "sole_snake_death_or_frame_cap_v1"})
 
 
 def test_pqn_schema_accepts_the_two_explicit_lifecycle_knobs() -> None:
