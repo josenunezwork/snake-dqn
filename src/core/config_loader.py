@@ -262,6 +262,7 @@ class PQNSettingsSchema(_StrictModel):
     arena_type: Optional[Literal["rectangular", "circular"]] = Field(default=None)
     mechanics_version: Optional[int] = Field(default=None, ge=1, le=2)
     reward_version: Optional[int] = Field(default=None, ge=1, le=2)
+    living_mass_reward_coefficient: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     profile: Optional[bool] = Field(default=None)
     recipe: Optional[Literal["legacy", "corrected-v3"]] = Field(default=None)
     episode_reset_mode: Optional[Literal["batch_barrier_v1", "per_env_autoreset_v1"]] = None

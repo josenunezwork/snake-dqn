@@ -283,6 +283,7 @@ class PQNOverrides:
     arena_type: Optional[str] = None
     mechanics_version: Optional[int] = None
     reward_version: Optional[int] = None
+    living_mass_reward_coefficient: Optional[float] = None
     profile: Optional[bool] = None
     # Selects observation/target semantics, distinct from the timing profiler.
     # None preserves legacy recipe resolution until P1 explicitly selects one.

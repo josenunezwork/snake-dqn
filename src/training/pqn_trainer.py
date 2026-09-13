@@ -182,6 +182,9 @@ class PQNConfig:
         arena_type: Arena type for the sim config.
         mechanics_version: Sim mechanics version (blueprint target: 2).
         reward_version: Reward version recorded in the checkpoint metadata.
+        living_mass_reward_coefficient: Opt-in base-objective coefficient for
+            post-step living logical mass. Zero retains the historical reward
+            arithmetic and reward contract exactly.
     """
 
     num_envs: int = 8
@@ -217,6 +220,7 @@ class PQNConfig:
     arena_type: str = "rectangular"
     mechanics_version: int = 2
     reward_version: int = 2
+    living_mass_reward_coefficient: float = 0.0
     profile: bool = False  # print a CUDA-synced per-phase time breakdown each update
     # Resolved world and observation normalization. Defaults preserve the old
     # PQN recipe; P1's CLI resolver supplies explicit values for named recipes.
@@ -261,6 +265,16 @@ class PQNConfig:
                 raise ValueError(f"{name} must be a {comparator} integer")
         if self.reward_version != 2:
             raise ValueError("PQN supports reward_version=2 only")
+        coefficient = self.living_mass_reward_coefficient
+        if (
+            isinstance(coefficient, bool)
+            or not isinstance(coefficient, (int, float))
+            or not np.isfinite(coefficient)
+            or coefficient < 0.0
+        ):
+            raise ValueError("living_mass_reward_coefficient must be a finite non-negative float")
+        if coefficient != 0.0 and self.recipe != "corrected-v3":
+            raise ValueError("living_mass_reward_coefficient requires recipe='corrected-v3'")
         if self.mechanics_version not in {1, 2}:
             raise ValueError("PQN supports mechanics_version 1 or 2 only")
         if self.arena_type != "rectangular":
@@ -350,7 +364,7 @@ def pqn_action_mask_contract(config: PQNConfig) -> Dict[str, object]:
 
 def pqn_reward_contract(config: PQNConfig) -> Dict[str, object]:
     """Describe BatchSim's actual unclipped reward-v2 arithmetic."""
-    return {
+    base_contract: Dict[str, object] = {
         "version": "pqn-potential-reward-v2",
         "gamma": config.gamma,
         "potential": "logical_length_divided_by_10",
@@ -361,6 +375,22 @@ def pqn_reward_contract(config: PQNConfig) -> Dict[str, object]:
         "kill_sum": "victim_order_left_to_right",
         "clipping": None,
     }
+    if config.living_mass_reward_coefficient != 0.0:
+        return {
+            "version": "pqn-living-mass-base-objective-v1",
+            "base_reward_contract": base_contract,
+            "beta": config.living_mass_reward_coefficient,
+            "gamma": config.gamma,
+            "max_frames": config.max_frames,
+            "overlay": "beta_times_valid_times_post_alive_times_post_logical_length",
+            "post_step_convention": "post_transition_alive_and_logical_length",
+            "death": "overlay_zero",
+            "invalid_or_inactive": "overlay_zero",
+            "population_floor_survivor": "overlay_included",
+            "frame_cap_survivor": "overlay_included",
+            "clipping": None,
+        }
+    return base_contract
 
 
 def pqn_target_contract(config: PQNConfig) -> Dict[str, object]:
@@ -625,7 +655,13 @@ class PQNTelemetry:
         mean_abs_q: Mean |Q| over hero transitions.
         max_abs_q: Max |Q| over hero transitions.
         epsilon: ε used during the rollout.
-        mean_reward: Mean hero per-step reward over the rollout.
+        mean_reward: Mean hero per-step total training reward over the rollout.
+        mean_base_reward: Mean hero per-step simulator reward before the living
+            mass overlay.
+        mean_living_mass_reward: Mean hero per-step living-mass overlay.
+        mean_total_reward: Mean hero per-step total training reward. This is
+            retained separately to make the base/overlay identity inspectable;
+            ``mean_reward`` remains the historical total field.
         action_entropy: Entropy (nats) of the hero action histogram.
         hero_kills: Exact valid hero kill credits in this rollout.
         hero_deaths: Exact valid hero deaths in this rollout.
@@ -674,6 +710,9 @@ class PQNTelemetry:
     policy_exposure: Optional[Dict[str, int]] = None
     raw_action_counts: Optional[List[int]] = None
     episode_reset_count: int = 0
+    mean_base_reward: float = 0.0
+    mean_living_mass_reward: float = 0.0
+    mean_total_reward: float = 0.0
 
 
 @dataclass
@@ -1389,6 +1428,21 @@ class PQNTrainer:
         return bool(self.sim.population_floor_reached().all())
 
     # -- rollout ------------------------------------------------------------
+    def _living_mass_reward_overlay(self, transition_valid: np.ndarray) -> np.ndarray:
+        """Return the opt-in post-transition living-mass reward overlay.
+
+        The simulator keeps its reward contract untouched. This training-only
+        term is paid only for fresh, valid transitions whose actor survived the
+        step, using the rule-authoritative post-step logical length. Population
+        floor and frame-cap survivors are intentionally included because those
+        boundaries are applied after the transition has completed.
+        """
+        coefficient = self.cfg.living_mass_reward_coefficient
+        if coefficient == 0.0:
+            return np.zeros((self.cfg.num_envs, self.cfg.num_snakes), dtype=np.float64)
+        valid = np.asarray(transition_valid, dtype=bool)
+        return coefficient * valid * self.sim.get_alive() * self.sim.get_lengths()
+
     def _rollout(self) -> Dict[str, object]:
         """Collect a ``T``-step self-play rollout of hero + frozen transitions.
 
@@ -1460,6 +1514,8 @@ class PQNTrainer:
         scal_buf = torch.zeros((T, E, S, SCALARS_DIM), dtype=torch.float32, device=self.device)
         act_buf = np.zeros((T, E, S), dtype=np.int64)
         rew_buf = np.zeros((T, E, S), dtype=np.float64)
+        base_rew_buf = np.zeros((T, E, S), dtype=np.float64)
+        living_mass_rew_buf = np.zeros((T, E, S), dtype=np.float64)
         done_buf = np.zeros((T, E, S), dtype=bool)
         trapped_buf = np.zeros((T, E, S), dtype=bool)
         # valid_step[t,e,s]: step t is a REAL transition for this slot — the slot
@@ -1552,7 +1608,12 @@ class PQNTrainer:
                 boost_buf[t] = self.sim.get_boosted_this_step()
                 kill_buf[t] = self.sim.get_kill_credit()
                 death_buf[t] = self.sim.get_done()
-                rew_buf[t] = self.sim.get_reward()
+                base_rew_buf[t] = self.sim.get_reward()
+                if cfg.living_mass_reward_coefficient == 0.0:
+                    rew_buf[t] = base_rew_buf[t]
+                else:
+                    living_mass_rew_buf[t] = self._living_mass_reward_overlay(valid_buf[t])
+                    rew_buf[t] = base_rew_buf[t] + living_mass_rew_buf[t]
                 completed_now = self.sim.population_floor_reached() | (
                     self.sim.frame >= cfg.max_frames
                 )
@@ -1661,10 +1722,15 @@ class PQNTrainer:
             if prof:
                 sim_t += self._sync() - t3
 
-            rew_buf[t] = self.sim.get_reward()
             # ENV reports validity for the step just executed. It includes a
             # death-causing action and excludes rows dead at entry.
             valid_buf[t] = self.sim.get_transition_valid() & live_env[:, None]
+            base_rew_buf[t] = self.sim.get_reward()
+            if cfg.living_mass_reward_coefficient == 0.0:
+                rew_buf[t] = base_rew_buf[t]
+            else:
+                living_mass_rew_buf[t] = self._living_mass_reward_overlay(valid_buf[t])
+                rew_buf[t] = base_rew_buf[t] + living_mass_rew_buf[t]
             done_buf[t] = self.sim.get_done()
             boost_buf[t] = self.sim.get_boosted_this_step()
             kill_buf[t] = self.sim.get_kill_credit()
@@ -1715,6 +1781,8 @@ class PQNTrainer:
             "scalars": scal_buf[:T],
             "actions": act_buf[:T],
             "rewards": rew_buf[:T],
+            "base_rewards": base_rew_buf[:T],
+            "living_mass_rewards": living_mass_rew_buf[:T],
             "dones": done_buf[:T],
             "trapped": trapped_buf[:T],
             "valid": valid_buf[:T],
@@ -2159,11 +2227,26 @@ class PQNTrainer:
         valid = np.asarray(roll["valid"], dtype=bool)
         valid_slot_fraction = float(valid.mean())
 
-        # Hero-only reward / boost means.
-        hero_rewards = roll["rewards"][hero_mask_tes]
+        # Hero-only reward / boost means. ``mean_reward`` remains the historical
+        # total-training-reward field; the split makes the opt-in objective
+        # observable without changing the simulator's reward stream.
+        rollout_rewards = np.asarray(roll["rewards"])
+        # Keep direct unit-test roll fixtures written before this optional
+        # telemetry split compatible. Real rollouts always carry both buffers.
+        base_rewards = np.asarray(roll.get("base_rewards", rollout_rewards))
+        living_mass_rewards = np.asarray(
+            roll.get("living_mass_rewards", np.zeros_like(rollout_rewards))
+        )
+        hero_rewards = rollout_rewards[hero_mask_tes]
+        hero_base_rewards = base_rewards[hero_mask_tes]
+        hero_living_mass_rewards = living_mass_rewards[hero_mask_tes]
         hero_boost = roll["boost"][hero_mask_tes]
         raw_actions = roll["actions"][hero_mask_tes]
         mean_reward = float(hero_rewards.mean()) if hero_rewards.size else 0.0
+        mean_base_reward = float(hero_base_rewards.mean()) if hero_base_rewards.size else 0.0
+        mean_living_mass_reward = (
+            float(hero_living_mass_rewards.mean()) if hero_living_mass_rewards.size else 0.0
+        )
         boost_fraction = float(hero_boost.mean()) if hero_boost.size else 0.0
         raw_hist = np.bincount(raw_actions, minlength=6).astype(np.float64)
         raw_probs = raw_hist / max(1.0, raw_hist.sum())
@@ -2217,6 +2300,9 @@ class PQNTrainer:
             policy_exposure=policy_exposure,
             raw_action_counts=[int(value) for value in raw_hist],
             episode_reset_count=int(roll["episode_reset_count"]),
+            mean_base_reward=mean_base_reward,
+            mean_living_mass_reward=mean_living_mass_reward,
+            mean_total_reward=mean_reward,
         )
         if cfg.recipe == "corrected-v3":
             tel = PQNPerEnvTelemetry(

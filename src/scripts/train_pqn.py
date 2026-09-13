@@ -726,6 +726,7 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         "profile": args.profile or None,
         "kill_scale": args.kill_scale,
         "death_value": args.death_value,
+        "living_mass_reward_coefficient": getattr(args, "living_mass_reward_coefficient", None),
         "episode_reset_mode": args.episode_reset_mode,
         "episode_seed_mode": args.episode_seed_mode,
         "pool_admission_mode": args.pool_admission_mode,
@@ -790,6 +791,7 @@ def _format_row(tel: PQNTelemetry) -> str:
         f"eps {tel.epsilon:5.3f} | loss {tel.loss:9.4f} | "
         f"|Q|~ {tel.mean_abs_q:7.3f} max {tel.max_abs_q:8.3f} | "
         f"gnorm {tel.grad_norm:7.3f} | R/step {tel.mean_reward:+7.4f} | "
+        f"base {tel.mean_base_reward:+7.4f} mass {tel.mean_living_mass_reward:+7.4f} | "
         f"H {tel.action_entropy:5.3f} | hero K/D {tel.hero_kills}/{tel.hero_deaths} | "
         f"completed {tel.completed_episodes} | "
         f"boost {100 * tel.boost_fraction:4.1f}% | pool {tel.pool_size} | "
@@ -811,6 +813,9 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
         "mean_abs_q": tel.mean_abs_q,
         "max_abs_q": tel.max_abs_q,
         "mean_reward": tel.mean_reward,
+        "mean_base_reward": tel.mean_base_reward,
+        "mean_living_mass_reward": tel.mean_living_mass_reward,
+        "mean_total_reward": tel.mean_total_reward,
         "action_entropy": tel.action_entropy,
         "legacy_kills_per_rollout": tel.legacy_kills_per_rollout,
         "boost_fraction": tel.boost_fraction,
@@ -1232,6 +1237,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         type=float,
         default=None,
         help="Death reward AND trapped-state bootstrap value (default -3.0). Sweepable.",
+    )
+    p.add_argument(
+        "--living-mass-reward-coefficient",
+        type=float,
+        default=None,
+        help=(
+            "Opt-in corrected-v3 base objective: beta * valid * post_alive * "
+            "post_logical_length (default: disabled)."
+        ),
     )
     p.add_argument(
         "--profile",
