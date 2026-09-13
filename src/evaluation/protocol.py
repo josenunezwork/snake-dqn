@@ -114,7 +114,9 @@ class EvaluationProfile:
             if is_solo and self.world.num_snakes != 1:
                 raise ValueError("solo Watch diagnostic requires exactly one hero snake")
             if is_solo and (
-                self.scored_horizon != 5000 or self.observation_progress_horizon != 5000
+                self.scored_horizon != 5000
+                or self.observation_progress_horizon != 5000
+                or self.world.max_frames != 5000
             ):
                 raise ValueError("solo Watch diagnostic requires fixed 5000-frame horizons")
             if self.runtime.mode != "watch":
@@ -145,6 +147,12 @@ class EvaluationProfile:
                 raise ValueError(
                     f"{profile_label} requires complete positive integer observation normalization"
                 )
+            if is_solo and normalization != {
+                "max_frames": self.world.max_frames,
+                "starvation_max": self.world.starvation_max_frames,
+                "max_length": self.world.max_length,
+            }:
+                raise ValueError("solo Watch normalization must match its source world")
         else:
             raise ValueError(f"unknown non-legacy evaluation profile {self.name!r}")
 

@@ -162,3 +162,18 @@ def test_solo_watch_profile_is_an_exact_nonpromotion_one_hero_identity() -> None
         profile.from_descriptor(descriptor)
     with pytest.raises(ValueError, match="fixed 5000"):
         profile.__class__(**{**profile.__dict__, "scored_horizon": 4})
+
+
+@pytest.mark.parametrize("field", ["max_frames", "starvation_max", "max_length"])
+def test_solo_profile_rejects_source_normalization_transfer(field: str) -> None:
+    world = EffectiveWorldConfig(**{**_world().__dict__, "num_snakes": 1})
+    changed = dict(world.normalization)
+    changed[field] += 1
+    with pytest.raises(ValueError, match="normalization must match"):
+        solo_watch_diagnostic(EffectiveWorldConfig(**{**world.__dict__, "normalization": changed}))
+
+
+def test_solo_profile_rejects_shorter_training_horizon() -> None:
+    world = EffectiveWorldConfig(**{**_world().__dict__, "num_snakes": 1, "max_frames": 20})
+    with pytest.raises(ValueError, match="fixed 5000"):
+        solo_watch_diagnostic(world)

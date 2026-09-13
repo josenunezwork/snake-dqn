@@ -43,7 +43,7 @@ def _batch_config(
     )
 
 
-def _solo_profile(*, source_capacity: int = 3, max_frames: int = 4):
+def _solo_profile(*, source_capacity: int = 3):
     world = EffectiveWorldConfig(
         width=240,
         height=180,
@@ -52,7 +52,7 @@ def _solo_profile(*, source_capacity: int = 3, max_frames: int = 4):
         arena_type="rectangular",
         mechanics_version=2,
         num_snakes=1,
-        max_frames=max_frames,
+        max_frames=5000,
         initial_food=0,
         max_food=0,
         min_boost_length=5,
@@ -185,7 +185,7 @@ def test_solo_profile_source_exact_runtime_retains_post_step_guard(
     """Omitting the runtime spec preserves the historical source-capacity failure."""
     from src.simd_env import eval_engine
 
-    profile = _solo_profile(source_capacity=3, max_frames=1)
+    profile = _solo_profile(source_capacity=3)
     original_step = eval_engine._TerminalHeroBatchSim.step
     observed_capacities: list[int] = []
 
@@ -218,7 +218,7 @@ def test_direct_solo_profile_horizon_runtime_crosses_source_guard_and_marks_auth
     """Expanded storage changes allocation while the profile remains source-exact."""
     from src.simd_env import eval_engine
 
-    profile = _solo_profile(source_capacity=3, max_frames=4)
+    profile = _solo_profile(source_capacity=3)
     profile_before = (profile.descriptor(), profile.digest, profile.world.digest)
     runtime = WorldRuntimeSpec.fresh_reset_horizon_bound(profile)
     original_step = eval_engine._TerminalHeroBatchSim.step
@@ -262,15 +262,15 @@ def test_runtime_profile_mismatch_fails_before_simulator_allocation(
     """A valid spec for a different profile cannot become an allocation override."""
     from src.simd_env import eval_engine
 
-    profile = _solo_profile(source_capacity=3, max_frames=2)
+    profile = _solo_profile(source_capacity=3)
     runtime = WorldRuntimeSpec.fresh_reset_horizon_bound(profile)
-    changed_profile = _solo_profile(source_capacity=4, max_frames=2)
+    changed_profile = _solo_profile(source_capacity=4)
 
     def allocation_forbidden(*_args, **_kwargs):
         raise AssertionError("simulator allocation occurred before runtime validation")
 
     monkeypatch.setattr(eval_engine, "_TerminalHeroBatchSim", allocation_forbidden)
-    with pytest.raises(ValueError, match="profile digest"):
+    with pytest.raises(ValueError, match="fresh-reset horizon-bound"):
         eval_engine.run_solo_watch_diagnostic(
             ("scripted", "greedy_food"),
             frames=changed_profile.scored_horizon,
