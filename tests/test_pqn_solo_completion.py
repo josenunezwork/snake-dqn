@@ -67,7 +67,12 @@ def _solo_config(**overrides: object) -> PQNConfig:
 def test_solo_mode_rejects_invalid_combinations_before_trainer_allocation(
     override: dict,
 ):
-    with pytest.raises(ValueError, match="sole_snake_death_or_frame_cap_v1"):
+    expected = (
+        "per_env_autoreset_v1 requires corrected-v3 and derived_env_episode_v1"
+        if override.get("episode_seed_mode") == "continuous_env_rng_v1"
+        else "sole_snake_death_or_frame_cap_v1"
+    )
+    with pytest.raises(ValueError, match=expected):
         _solo_config(**override)
 
 

@@ -458,7 +458,9 @@ def _validate_common_crosslinks(
                 "top-level episode_completion_mode does not match episode_lifecycle_contract"
             )
         effective_world = metadata.get("effective_world")
-        world_snakes = effective_world.get("num_snakes") if isinstance(effective_world, Mapping) else None
+        world_snakes = (
+            effective_world.get("num_snakes") if isinstance(effective_world, Mapping) else None
+        )
         if (
             isinstance(world_snakes, bool)
             or not isinstance(world_snakes, int)

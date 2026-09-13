@@ -248,7 +248,9 @@ def test_complete_field_sources_and_recipe_config_cli_precedence(monkeypatch, tm
     cfg = _capture_cli(
         monkeypatch, ["--config", str(path), "--device", "cpu", "--no-self-play", "--seed", "0"]
     )["config"]
-    assert set(cfg.field_sources) == {field.name for field in fields(PQNConfig)} - {"field_sources", "episode_completion_mode"}
+    assert set(cfg.field_sources) == {field.name for field in fields(PQNConfig)} - {
+        "field_sources", "episode_completion_mode"
+    }
     assert cfg.field_sources["gamma"] == "config"
     assert cfg.field_sources["obs_spec"] == cfg.field_sources["flip_augment"] == "recipe"
     assert cfg.field_sources["hero_frac"] == cfg.field_sources["pool_capacity"] == "cli"
