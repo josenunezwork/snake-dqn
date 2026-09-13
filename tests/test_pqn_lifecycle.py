@@ -6,11 +6,17 @@ from typing import Any
 
 import pytest
 
-from src.core.runtime_contract import RunProvenance, RuntimeModeContract, canonical_digest
+from src.core.runtime_contract import (
+    RunProvenance,
+    RuntimeModeContract,
+    canonical_digest,
+)
 from src.training.pqn_lifecycle import (
     EPISODE_RESET_PER_ENV_AUTORESET,
     EPISODE_SEED_DERIVED,
     POOL_ADMISSION_DISABLED,
+    POPULATION_FLOOR_OR_FRAME_CAP_V1,
+    SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
     build_pqn_episode_lifecycle_contract,
     validate_pqn_episode_lifecycle_metadata,
 )
@@ -207,6 +213,71 @@ def test_per_environment_lifecycle_requires_derived_seed_stream() -> None:
     """The closed mode mapping rejects a cross-mode autoreset descriptor."""
     with pytest.raises(ValueError, match="requires derived_env_episode_v1"):
         build_pqn_episode_lifecycle_contract("per_env_autoreset_v1", "continuous_env_rng_v1")
+    with pytest.raises(ValueError, match="sole_snake_death_or_frame_cap_v1"):
+        build_pqn_episode_lifecycle_contract(
+            "batch_barrier_v1",
+            "continuous_env_rng_v1",
+            SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+        )
+
+
+def test_default_lifecycle_factory_remains_the_exact_v1_mapping() -> None:
+    """Omitting the opt-in mode must preserve the historic descriptor bytes."""
+    implicit = build_pqn_episode_lifecycle_contract(
+        EPISODE_RESET_PER_ENV_AUTORESET, EPISODE_SEED_DERIVED
+    )
+    explicit = build_pqn_episode_lifecycle_contract(
+        EPISODE_RESET_PER_ENV_AUTORESET,
+        EPISODE_SEED_DERIVED,
+        POPULATION_FLOOR_OR_FRAME_CAP_V1,
+    )
+    assert implicit == explicit
+    assert implicit["schema_version"] == "pqn-episode-lifecycle/v1"
+    assert "episode_completion_mode" not in implicit
+
+
+def test_solo_lifecycle_v2_rejects_a_rehashed_non_solo_native_shape() -> None:
+    lifecycle = build_pqn_episode_lifecycle_contract(
+        EPISODE_RESET_PER_ENV_AUTORESET,
+        EPISODE_SEED_DERIVED,
+        SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+    )
+    assert lifecycle["schema_version"] == "pqn-episode-lifecycle/v2"
+    assert lifecycle["terminal_semantics"]["sole_snake_death"] == (
+        "done_true_valid_terminal_transition_then_complete"
+    )
+    metadata = _native_metadata()
+    metadata["episode_lifecycle_contract"] = lifecycle
+    metadata["episode_lifecycle_contract_digest"] = canonical_digest(lifecycle)
+    metadata["policy_source_contract"]["episode_lifecycle_contract_digest"] = canonical_digest(
+        lifecycle
+    )
+    metadata["policy_source_contract_digest"] = canonical_digest(metadata["policy_source_contract"])
+    metadata["target_contract"]["episode_lifecycle_contract_digest"] = canonical_digest(lifecycle)
+    metadata["sampler_contract"]["episode_lifecycle_contract_digest"] = canonical_digest(lifecycle)
+    metadata["sampler_contract"]["num_snakes"] = 2
+    metadata["sampler_contract"]["policy_source_contract_digest"] = metadata[
+        "policy_source_contract_digest"
+    ]
+    metadata["rollout_policy_source"]["policy_source_contract_digest"] = metadata[
+        "policy_source_contract_digest"
+    ]
+    metadata["target_contract_digest"] = canonical_digest(metadata["target_contract"])
+    metadata["sampler_contract_digest"] = canonical_digest(metadata["sampler_contract"])
+    metadata["episode_completion_mode"] = SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
+    _provenance(metadata)
+    with pytest.raises(ValueError, match="effective_world.num_snakes=1"):
+        validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=False)
+    del metadata["episode_completion_mode"]
+    with pytest.raises(ValueError, match="episode_completion_mode"):
+        validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=False)
+
+
+def test_legacy_adapter_rejects_a_stray_solo_completion_marker() -> None:
+    metadata = _pre_lifecycle_metadata()
+    metadata["episode_completion_mode"] = SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
+    with pytest.raises(ValueError, match="partial native"):
+        validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=True)
 
 
 def test_native_metadata_crosslinks_runtime_provenance_and_policy_source() -> None:

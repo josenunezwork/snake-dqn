@@ -81,6 +81,7 @@ from src.training.pqn_lifecycle import (  # noqa: E402
 from src.training.pqn_trainer import (  # noqa: E402
     PQNConfig,
     PQNPerEnvTelemetry,
+    PQNSoloTelemetry,
     PQNTelemetry,
     PQNTrainer,
     TripwireError,
@@ -307,7 +308,9 @@ def validate_pqn_resume_checkpoint_config(
         )
         lifecycle_compatibility = lifecycle.compatibility
         expected_lifecycle = build_pqn_episode_lifecycle_contract(
-            config.episode_reset_mode, config.episode_seed_mode
+            config.episode_reset_mode,
+            config.episode_seed_mode,
+            config.episode_completion_mode,
         )
         if lifecycle.compatibility is None and lifecycle.digest != canonical_digest(
             expected_lifecycle
@@ -684,6 +687,9 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         if key not in {"field_sources", "source_revision", "requested_device", "effective_device"}
     }
     sources = {key: "default" for key in cfg_kwargs}
+    # The opt-in completion field must not perturb historical default CLI
+    # checkpoint metadata. The dataclass still supplies the compatibility value.
+    sources.pop("episode_completion_mode")
     sources.update(
         source_revision="checkout", requested_device="default", effective_device="runtime"
     )
@@ -731,6 +737,7 @@ def build_config(args: argparse.Namespace) -> PQNConfig:
         "episode_seed_mode": args.episode_seed_mode,
         "pool_admission_mode": args.pool_admission_mode,
         "decision_phase_mode": args.decision_phase_mode,
+        "episode_completion_mode": args.episode_completion_mode,
     }
     for key, value in cli_map.items():
         if value is not None:
@@ -853,6 +860,8 @@ def _telemetry_record(tel: PQNTelemetry) -> Dict[str, Any]:
                 "episode_policy_identities": tel.episode_policy_identities or {},
             }
         )
+    if isinstance(tel, PQNSoloTelemetry):
+        record["episode_completion_mode"] = tel.episode_completion_mode
     return record
 
 
@@ -1281,6 +1290,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         choices=("pre_transition_v1", "watch_pre_move_v1"),
         default=None,
         help="Observation/target decision phase (corrected-v3 raster31v3 only).",
+    )
+    p.add_argument(
+        "--episode-completion-mode",
+        choices=(
+            "population_floor_or_frame_cap_v1",
+            "sole_snake_death_or_frame_cap_v1",
+        ),
+        default=None,
+        help="Environment episode completion mode (solo mode is corrected-v3 Watch S1 only).",
     )
 
     # Logging cadence.

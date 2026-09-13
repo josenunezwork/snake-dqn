@@ -420,6 +420,51 @@ class TestBuildConfigPrecedence:
         assert config.episode_seed_mode == "derived_env_episode_v1"
         assert config.pool_admission_mode == "disabled_v1"
 
+    def test_omitted_completion_mode_does_not_change_default_field_sources(
+        self, tmp_path, monkeypatch
+    ):
+        """The new CLI-only opt-in must not rewrite ordinary checkpoint provenance."""
+        made = _install_trainer(monkeypatch)
+        train_pqn.main(["--device", "cpu", "--out-dir", str(tmp_path), "--total-steps", "1"])
+        assert made[0].config.episode_completion_mode == "population_floor_or_frame_cap_v1"
+        assert "episode_completion_mode" not in made[0].config.field_sources
+
+    def test_cli_completion_mode_is_recorded_as_an_explicit_source(self, tmp_path, monkeypatch):
+        path = tmp_path / "solo.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "pqn": {
+                        "recipe": "corrected-v3",
+                        "episode_reset_mode": "per_env_autoreset_v1",
+                        "episode_seed_mode": "derived_env_episode_v1",
+                        "pool_admission_mode": "disabled_v1",
+                    }
+                }
+            )
+        )
+        made = _install_trainer(monkeypatch)
+        train_pqn.main(
+            [
+                "--device",
+                "cpu",
+                "--out-dir",
+                str(tmp_path),
+                "--total-steps",
+                "1",
+                "--config",
+                str(path),
+                "--snakes",
+                "1",
+                "--no-self-play",
+                "--decision-phase-mode",
+                "watch_pre_move_v1",
+                "--episode-completion-mode",
+                "sole_snake_death_or_frame_cap_v1",
+            ]
+        )
+        assert made[0].config.field_sources["episode_completion_mode"] == "cli"
+
     def test_sgd_epochs_cli_flag_beats_config_file(self, tmp_path, monkeypatch):
         path = tmp_path / "c.yaml"
         path.write_text(yaml.safe_dump({"pqn": {"sgd_epochs": 2}}))

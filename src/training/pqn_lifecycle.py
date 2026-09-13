@@ -26,8 +26,11 @@ EPISODE_SEED_CONTINUOUS = "continuous_env_rng_v1"
 EPISODE_SEED_DERIVED = "derived_env_episode_v1"
 POOL_ADMISSION_SCHEDULED = "scheduled_v1"
 POOL_ADMISSION_DISABLED = "disabled_v1"
+POPULATION_FLOOR_OR_FRAME_CAP_V1 = "population_floor_or_frame_cap_v1"
+SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1 = "sole_snake_death_or_frame_cap_v1"
 
 _LIFECYCLE_SCHEMA_VERSION = "pqn-episode-lifecycle/v1"
+_SOLO_LIFECYCLE_SCHEMA_VERSION = "pqn-episode-lifecycle/v2"
 _POLICY_SOURCE_SCHEMA_VERSION = "pqn-rollout-policy-source/v1"
 _ADAPTER_SCHEMA_VERSION = "pqn-episode-lifecycle-legacy-adapter/v1"
 _ADAPTER_POLICY_SOURCE_SCHEMA_VERSION = "pqn-rollout-policy-source-legacy-adapter/v1"
@@ -60,6 +63,9 @@ _LIFECYCLE_KEYS = frozenset(
         "action_seed_stream",
     }
 )
+_SOLO_LIFECYCLE_KEYS = _LIFECYCLE_KEYS | frozenset(
+    {"episode_completion_mode", "terminal_semantics"}
+)
 _POLICY_SOURCE_KEYS = frozenset(
     {
         "schema_version",
@@ -85,6 +91,7 @@ _NATIVE_MARKERS = frozenset(
         "pool_admission_mode",
         "initial_opponent_checkpoint_sha256",
         "decision_phase_mode",
+        "episode_completion_mode",
     }
 )
 _OLD_TARGET_KEYS = frozenset(
@@ -229,9 +236,15 @@ def _finite_probability(value: object, name: str) -> float:
 
 
 def build_pqn_episode_lifecycle_contract(
-    episode_reset_mode: str, episode_seed_mode: str
+    episode_reset_mode: str,
+    episode_seed_mode: str,
+    episode_completion_mode: str = POPULATION_FLOOR_OR_FRAME_CAP_V1,
 ) -> dict[str, Any]:
-    """Build the sole supported lifecycle descriptor for a PQN mode pair."""
+    """Build a closed corrected-v3 lifecycle descriptor.
+
+    The compatibility default deliberately returns the historical v1 mapping
+    unchanged.  The solo diagnostic is a separately versioned v2 descriptor.
+    """
     if episode_reset_mode not in _RESET_TO_RUNTIME:
         raise ValueError(f"unsupported PQN episode_reset_mode {episode_reset_mode!r}")
     if episode_seed_mode not in {EPISODE_SEED_CONTINUOUS, EPISODE_SEED_DERIVED}:
@@ -240,10 +253,23 @@ def build_pqn_episode_lifecycle_contract(
         episode_seed_mode != EPISODE_SEED_DERIVED
     ):
         raise ValueError("per_env_autoreset_v1 requires derived_env_episode_v1")
+    if episode_completion_mode not in {
+        POPULATION_FLOOR_OR_FRAME_CAP_V1,
+        SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+    }:
+        raise ValueError(f"unsupported PQN episode_completion_mode {episode_completion_mode!r}")
+    if episode_completion_mode == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1 and (
+        episode_reset_mode != EPISODE_RESET_PER_ENV_AUTORESET
+        or episode_seed_mode != EPISODE_SEED_DERIVED
+    ):
+        raise ValueError(
+            "sole_snake_death_or_frame_cap_v1 requires per_env_autoreset_v1 "
+            "and derived_env_episode_v1"
+        )
 
     per_environment = episode_reset_mode == EPISODE_RESET_PER_ENV_AUTORESET
     derived = episode_seed_mode == EPISODE_SEED_DERIVED
-    return {
+    descriptor = {
         "schema_version": _LIFECYCLE_SCHEMA_VERSION,
         "episode_reset_mode": episode_reset_mode,
         "episode_seed_mode": episode_seed_mode,
@@ -268,14 +294,37 @@ def build_pqn_episode_lifecycle_contract(
             "pqn/action/env/{e}/episode/{k}" if derived else "shared_rollout_rng"
         ),
     }
+    if episode_completion_mode == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1:
+        descriptor.update(
+            {
+                "schema_version": _SOLO_LIFECYCLE_SCHEMA_VERSION,
+                "episode_completion_mode": episode_completion_mode,
+                "terminal_semantics": {
+                    "sole_snake_death": "done_true_valid_terminal_transition_then_complete",
+                    "frame_cap": "done_false_final_successor_bootstrap",
+                    "reset": "next_selected_rollout_boundary",
+                },
+            }
+        )
+    return descriptor
 
 
 def _validate_lifecycle_descriptor(value: object) -> tuple[dict[str, Any], str]:
-    descriptor = _exact_mapping(value, _LIFECYCLE_KEYS, "episode_lifecycle_contract")
-    if descriptor.get("schema_version") != _LIFECYCLE_SCHEMA_VERSION:
+    if not isinstance(value, Mapping):
+        raise ValueError("episode_lifecycle_contract must be a mapping")
+    is_solo = value.get("schema_version") == _SOLO_LIFECYCLE_SCHEMA_VERSION
+    descriptor = _exact_mapping(
+        value,
+        _SOLO_LIFECYCLE_KEYS if is_solo else _LIFECYCLE_KEYS,
+        "episode_lifecycle_contract",
+    )
+    expected_schema = _SOLO_LIFECYCLE_SCHEMA_VERSION if is_solo else _LIFECYCLE_SCHEMA_VERSION
+    if descriptor.get("schema_version") != expected_schema:
         raise ValueError("unsupported episode_lifecycle_contract schema_version")
     expected = build_pqn_episode_lifecycle_contract(
-        descriptor.get("episode_reset_mode"), descriptor.get("episode_seed_mode")
+        descriptor.get("episode_reset_mode"),
+        descriptor.get("episode_seed_mode"),
+        descriptor.get("episode_completion_mode", POPULATION_FLOOR_OR_FRAME_CAP_V1),
     )
     if descriptor != expected:
         raise ValueError("episode_lifecycle_contract does not match the closed PQN lifecycle")
@@ -402,6 +451,42 @@ def _validate_common_crosslinks(
     for name in ("episode_reset_mode", "episode_seed_mode"):
         if metadata.get(name) != lifecycle[name]:
             raise ValueError(f"top-level {name} does not match episode_lifecycle_contract")
+    solo = lifecycle.get("episode_completion_mode") == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
+    if solo:
+        if metadata.get("episode_completion_mode") != SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1:
+            raise ValueError(
+                "top-level episode_completion_mode does not match episode_lifecycle_contract"
+            )
+        effective_world = metadata.get("effective_world")
+        world_snakes = effective_world.get("num_snakes") if isinstance(effective_world, Mapping) else None
+        if (
+            isinstance(world_snakes, bool)
+            or not isinstance(world_snakes, int)
+            or world_snakes != 1
+        ):
+            raise ValueError("solo lifecycle requires effective_world.num_snakes=1")
+        if parsed_runtime["population_floor"] is not False:
+            raise ValueError("solo lifecycle requires runtime population_floor=false")
+        if (
+            metadata.get("decision_phase_mode") != _WATCH_DECISION_PHASE_MODE
+            or target_version != _WATCH_TARGET_VERSION
+            or policy_source["rollout_policy_mode"] != "snapshot_pool"
+            or policy_source["fixed_policy_identity"] is not None
+            or policy_source["pool_admission_mode"] != POOL_ADMISSION_DISABLED
+            or policy_source["initial_opponent_checkpoint_sha256"] is not None
+            or isinstance(sampler.get("hero_frac"), bool)
+            or not isinstance(sampler.get("hero_frac"), (int, float))
+            or sampler.get("hero_frac") != 1.0
+            or isinstance(sampler.get("pool_capacity"), bool)
+            or not isinstance(sampler.get("pool_capacity"), int)
+            or sampler.get("pool_capacity") != 0
+            or isinstance(sampler.get("num_snakes"), bool)
+            or not isinstance(sampler.get("num_snakes"), int)
+            or sampler.get("num_snakes") != 1
+        ):
+            raise ValueError("solo lifecycle conflicts with the required S1 Watch hero-only source")
+    elif "episode_completion_mode" in metadata:
+        raise ValueError("v1 lifecycle metadata must not carry episode_completion_mode")
     for name in ("pool_admission_mode", "initial_opponent_checkpoint_sha256"):
         if metadata.get(name) != policy_source[name]:
             raise ValueError(f"top-level {name} does not match policy_source_contract")

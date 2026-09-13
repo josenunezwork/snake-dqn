@@ -75,6 +75,8 @@ from src.training.pqn_lifecycle import (
     EPISODE_RESET_PER_ENV_AUTORESET,
     EPISODE_SEED_DERIVED,
     POOL_ADMISSION_DISABLED,
+    POPULATION_FLOOR_OR_FRAME_CAP_V1,
+    SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
     build_pqn_episode_lifecycle_contract,
 )
 from src.training.pqn_selfplay import (
@@ -97,6 +99,7 @@ __all__ = [
     "PQNTrainer",
     "PQNTelemetry",
     "PQNPerEnvTelemetry",
+    "PQNSoloTelemetry",
     "TripwireError",
     "flip_augment",
     "validate_checkpoint_numeric_state",
@@ -247,6 +250,7 @@ class PQNConfig:
     pool_admission_mode: str = "scheduled_v1"
     initial_opponent_checkpoint_sha256: Optional[str] = None
     decision_phase_mode: str = DECISION_PHASE_PRE_TRANSITION_V1
+    episode_completion_mode: str = POPULATION_FLOOR_OR_FRAME_CAP_V1
 
     def __post_init__(self) -> None:
         """Reject an invalid opt-in exact-coverage epoch count."""
@@ -304,10 +308,16 @@ class PQNConfig:
             raise ValueError("unsupported episode_seed_mode")
         if self.pool_admission_mode not in {"scheduled_v1", "disabled_v1"}:
             raise ValueError("unsupported pool_admission_mode")
+        if self.episode_completion_mode not in {
+            POPULATION_FLOOR_OR_FRAME_CAP_V1,
+            SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+        }:
+            raise ValueError("unsupported episode_completion_mode")
         lifecycle_defaults = (
             self.episode_reset_mode == "batch_barrier_v1"
             and self.episode_seed_mode == "continuous_env_rng_v1"
             and self.pool_admission_mode == "scheduled_v1"
+            and self.episode_completion_mode == POPULATION_FLOOR_OR_FRAME_CAP_V1
         )
         if self.recipe == "legacy" and not lifecycle_defaults:
             raise ValueError("legacy recipe only accepts default lifecycle compatibility values")
@@ -317,6 +327,31 @@ class PQNConfig:
             raise ValueError(
                 "per_env_autoreset_v1 requires corrected-v3 and derived_env_episode_v1"
             )
+        if self.episode_completion_mode == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1:
+            if (
+                self.recipe != "corrected-v3"
+                or self.obs_spec != RASTER31V3
+                or self.decision_phase_mode != DECISION_PHASE_WATCH_PRE_MOVE_V1
+                or isinstance(self.num_snakes, bool)
+                or not isinstance(self.num_snakes, int)
+                or self.num_snakes != 1
+                or self.episode_reset_mode != EPISODE_RESET_PER_ENV_AUTORESET
+                or self.episode_seed_mode != EPISODE_SEED_DERIVED
+                or isinstance(self.hero_frac, bool)
+                or not isinstance(self.hero_frac, (int, float))
+                or self.hero_frac != 1.0
+                or isinstance(self.pool_capacity, bool)
+                or not isinstance(self.pool_capacity, int)
+                or self.pool_capacity != 0
+                or self.pool_admission_mode != POOL_ADMISSION_DISABLED
+                or self.rollout_policy_mode != "snapshot_pool"
+                or self.fixed_policy_identity is not None
+                or self.initial_opponent_checkpoint_sha256 is not None
+            ):
+                raise ValueError(
+                    "sole_snake_death_or_frame_cap_v1 requires corrected-v3 raster31v3 Watch "
+                    "S1 per-env derived hero-only snapshot-pool with no opponent identity"
+                )
         if self.initial_opponent_checkpoint_sha256 is not None:
             value = self.initial_opponent_checkpoint_sha256
             if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
@@ -433,7 +468,9 @@ def pqn_target_contract(config: PQNConfig) -> Dict[str, object]:
                 }
             )
         lifecycle = build_pqn_episode_lifecycle_contract(
-            config.episode_reset_mode, config.episode_seed_mode
+            config.episode_reset_mode,
+            config.episode_seed_mode,
+            config.episode_completion_mode,
         )
         contract["episode_lifecycle_contract_digest"] = canonical_digest(lifecycle)
         return contract
@@ -568,7 +605,9 @@ def pqn_sampler_contract(config: PQNConfig) -> Dict[str, object]:
     }
     if corrected:
         lifecycle = build_pqn_episode_lifecycle_contract(
-            config.episode_reset_mode, config.episode_seed_mode
+            config.episode_reset_mode,
+            config.episode_seed_mode,
+            config.episode_completion_mode,
         )
         contract["episode_lifecycle_contract_digest"] = canonical_digest(lifecycle)
         contract["policy_source_contract_digest"] = canonical_digest(
@@ -730,6 +769,13 @@ class PQNPerEnvTelemetry(PQNTelemetry):
     episode_world_seeds: Optional[List[int]] = None
     episode_policy_ids: Optional[List[List[int]]] = None
     episode_policy_identities: Optional[Dict[str, str]] = None
+
+
+@dataclass
+class PQNSoloTelemetry(PQNPerEnvTelemetry):
+    """Opt-in solo lifecycle telemetry with its explicit completion identity."""
+
+    episode_completion_mode: str = SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
 
 
 class TripwireError(RuntimeError):
@@ -948,7 +994,9 @@ class PQNTrainer:
     def _static_policy_source_contract(self) -> Dict[str, object]:
         """Build the checkpoint/telemetry source contract from realized trainer state."""
         lifecycle = build_pqn_episode_lifecycle_contract(
-            self.cfg.episode_reset_mode, self.cfg.episode_seed_mode
+            self.cfg.episode_reset_mode,
+            self.cfg.episode_seed_mode,
+            self.cfg.episode_completion_mode,
         )
         return _policy_source_contract(
             self.cfg,
@@ -1045,9 +1093,7 @@ class PQNTrainer:
             self._last_reset_env_indices = np.empty(0, dtype=np.int64)
             return 0
         selected_indices = [int(value) for value in selected]
-        completed_now = self.sim.population_floor_reached() | (
-            self.sim.frame >= self.cfg.max_frames
-        )
+        completed_now = self._completed_environment_mask()
         if not bool(completed_now[selected].all()):
             raise RuntimeError(
                 "pending per-environment reset lane is not at a completed final state"
@@ -1077,6 +1123,13 @@ class PQNTrainer:
         self._episode_reset_count += 1
         self._last_reset_env_indices = selected.astype(np.int64, copy=True)
         return len(selected_indices)
+
+    def _completed_environment_mask(self) -> np.ndarray:
+        """Return environments whose episode ends after the current transition."""
+        completed = self.sim.population_floor_reached() | (self.sim.frame >= self.cfg.max_frames)
+        if self.cfg.episode_completion_mode == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1:
+            completed |= self.sim.get_done()[:, 0]
+        return completed
 
     def preload_opponent_snapshot(
         self,
@@ -1619,9 +1672,7 @@ class PQNTrainer:
                 else:
                     living_mass_rew_buf[t] = self._living_mass_reward_overlay(valid_buf[t])
                     rew_buf[t] = base_rew_buf[t] + living_mass_rew_buf[t]
-                completed_now = self.sim.population_floor_reached() | (
-                    self.sim.frame >= cfg.max_frames
-                )
+                completed_now = self._completed_environment_mask()
                 newly_completed = completed_now & ~self._episode_finished_env
                 self._episode_finished_env |= completed_now
                 newly_completed_total += int(newly_completed.sum())
@@ -1742,7 +1793,7 @@ class PQNTrainer:
             death_buf[t] = self.sim.get_done()
             food_ate_buf[t] = self.sim.get_step_events()["food_ate"]
 
-            completed_now = self.sim.population_floor_reached() | (self.sim.frame >= cfg.max_frames)
+            completed_now = self._completed_environment_mask()
             newly_completed = completed_now & ~self._episode_finished_env
             self._episode_finished_env |= completed_now
             newly_completed_total += int(newly_completed.sum())
@@ -2316,7 +2367,12 @@ class PQNTrainer:
             mean_total_reward=mean_reward,
         )
         if cfg.recipe == "corrected-v3":
-            tel = PQNPerEnvTelemetry(
+            telemetry_type = (
+                PQNSoloTelemetry
+                if cfg.episode_completion_mode == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
+                else PQNPerEnvTelemetry
+            )
+            tel = telemetry_type(
                 **tel.__dict__,
                 episode_reset_mode=cfg.episode_reset_mode,
                 episode_seed_mode=cfg.episode_seed_mode,
@@ -2488,7 +2544,9 @@ class PQNTrainer:
         }
         if self.cfg.recipe == "corrected-v3":
             lifecycle = build_pqn_episode_lifecycle_contract(
-                self.cfg.episode_reset_mode, self.cfg.episode_seed_mode
+                self.cfg.episode_reset_mode,
+                self.cfg.episode_seed_mode,
+                self.cfg.episode_completion_mode,
             )
             policy_source = self._static_policy_source_contract()
             lifecycle_digest = canonical_digest(lifecycle)
@@ -2517,6 +2575,8 @@ class PQNTrainer:
                     "restorable_environment_state": False,
                 }
             )
+            if self.cfg.episode_completion_mode != POPULATION_FLOOR_OR_FRAME_CAP_V1:
+                state["episode_completion_mode"] = self.cfg.episode_completion_mode
             target_contract["episode_lifecycle_contract_digest"] = lifecycle_digest
             sampler_contract["episode_lifecycle_contract_digest"] = lifecycle_digest
             sampler_contract["policy_source_contract_digest"] = policy_source_digest
