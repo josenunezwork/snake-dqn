@@ -73,8 +73,22 @@ def _native_metadata() -> dict[str, Any]:
         "runtime_contract_digest": runtime.digest,
         "target_contract": {
             "version": "pqn-qlambda-corrected-v3-lifecycle-v1",
+            "gamma": 0.997,
+            "lambda": 0.65,
+            "death": "actual_done_reward_only",
+            "trapped": "unsupported_alive_empty_resolved_mask_fails",
+            "empty_successor_bootstrap": "error_for_valid_alive_row",
+            "truncation": "masked_max_q_of_successor",
+            "lambda_carry": "next_in_rollout_valid_transition_including_death",
+            "validity": "env_transition_valid_and_active_episode_env",
+            "inactive_worlds": "active_env_mask_freezes_world_rng_and_events",
+            "reset": "selected_envs_at_next_rollout_boundary",
             "episode_lifecycle_contract_digest": lifecycle_digest,
             "population_floor": True,
+            "bootstrap_network": "rollout_frozen_online_network",
+            "loss_eligibility": "valid_and_episode_assigned_hero",
+            "reward_digest": "reward",
+            "action_mask": {"version": "fixture"},
         },
         "sampler_contract": {
             "version": "pqn-sampler-corrected-v3-lifecycle-v1",
@@ -197,9 +211,7 @@ def test_per_environment_lifecycle_requires_derived_seed_stream() -> None:
 
 def test_native_metadata_crosslinks_runtime_provenance_and_policy_source() -> None:
     metadata = _native_metadata()
-    result = validate_pqn_episode_lifecycle_metadata(
-        metadata, allow_corrected_v3_adapter=False
-    )
+    result = validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=False)
 
     assert result.compatibility is None
     assert result.descriptor["episode_reset_mode"] == EPISODE_RESET_PER_ENV_AUTORESET
@@ -268,9 +280,7 @@ def test_partial_native_metadata_cannot_downgrade_to_the_legacy_adapter() -> Non
 
 def test_native_returned_descriptor_does_not_share_nested_mutable_state() -> None:
     metadata = _native_metadata()
-    result = validate_pqn_episode_lifecycle_metadata(
-        metadata, allow_corrected_v3_adapter=False
-    )
+    result = validate_pqn_episode_lifecycle_metadata(metadata, allow_corrected_v3_adapter=False)
     metadata["episode_lifecycle_contract"]["completion"]["frame_cap"] = "forged"
 
     assert result.descriptor["completion"]["frame_cap"] == "done_false_final_successor_bootstrap"

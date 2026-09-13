@@ -292,6 +292,8 @@ def test_direct_script_help_has_repo_import_path() -> None:
 def test_manifest_semantic_projection_rejects_config_or_version_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    for key in cli._THREAD_KEYS:
+        monkeypatch.setenv(key, "1")
     manifest = cli.resolved_protocol("revision", 9, ROOT)
     manifest["manifest_digest"] = cli.digest_without(manifest, "manifest_digest")
     path = (tmp_path / "manifest.json").resolve()
