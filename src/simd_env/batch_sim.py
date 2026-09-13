@@ -112,6 +112,14 @@ class BatchSimConfig:
     # these to probe the kills-0 / boost-drift pathology.
     kill_scale: float = KILL_REWARD_PER_VICTIM_LENGTH
     death_value: float = DEATH_REWARD
+    # Optional runtime allocation override. ``max_capacity`` remains the
+    # source-world capacity that is serialized in historical contracts; this
+    # field exists solely for explicitly bound evaluation adapters that need a
+    # larger fixed ring without rewriting that source-world identity.
+    #
+    # Keep this field last: existing callers may construct this dataclass with
+    # the preceding configuration values positionally.
+    body_storage_capacity: int | None = None
 
 
 class BatchSim:
@@ -148,7 +156,24 @@ class BatchSim:
         E, S = config.num_envs, config.num_snakes
         self.E, self.S = E, S
         self.s = config.segment_size
-        self.cap = config.max_capacity
+        source_capacity = config.max_capacity
+        if isinstance(source_capacity, bool) or not isinstance(source_capacity, int):
+            raise ValueError("max_capacity must be a positive integer")
+        if source_capacity <= 0:
+            raise ValueError("max_capacity must be a positive integer")
+        requested_capacity = config.body_storage_capacity
+        if requested_capacity is None:
+            self.cap = source_capacity
+        else:
+            if isinstance(requested_capacity, bool) or not isinstance(requested_capacity, int):
+                raise ValueError("body_storage_capacity must be a positive integer")
+            if requested_capacity <= 0:
+                raise ValueError("body_storage_capacity must be a positive integer")
+            if requested_capacity < source_capacity:
+                raise ValueError(
+                    "body_storage_capacity must be greater than or equal to max_capacity"
+                )
+            self.cap = requested_capacity
         self.v2 = config.mechanics_version == 2
 
         # Grid extent in cells (arena is [0, width) x [0, height) in pixels).
@@ -710,16 +735,18 @@ class BatchSim:
         si = np.arange(S)[None, :]
         # Ring-buffer capacity guard: a masked snake at seg_count == cap would
         # wrap its new head onto the oldest live tail slot, silently corrupting
-        # the body (the live game's segment list grows unbounded). max_capacity
-        # MUST exceed any reachable snake length for the arena/food economy; fail
-        # loudly rather than diverge if that invariant is ever violated.
+        # the body (the live game's segment list grows unbounded). The effective
+        # source or runtime body-storage capacity MUST exceed any reachable
+        # snake length for the arena/food economy; fail loudly rather than
+        # diverge if that invariant is ever violated.
         if np.any(mask & (self.seg_count >= self.cap)):
             worst = int(self.seg_count[mask].max()) if np.any(mask) else 0
             raise RuntimeError(
                 "BatchSim ring buffer overflow: a snake reached seg_count "
-                f"{worst} >= max_capacity {self.cap}. Increase "
-                "BatchSimConfig.max_capacity above the maximum reachable snake "
-                "length for this arena/food economy."
+                f"{worst} >= body storage capacity {self.cap}. Increase "
+                "BatchSimConfig.max_capacity or its explicitly bound "
+                "body_storage_capacity above the maximum reachable snake length "
+                "for this arena/food economy."
             )
         new_ptr = (self.head_ptr + 1) % self.cap
         target = np.where(mask, new_ptr, self.head_ptr)

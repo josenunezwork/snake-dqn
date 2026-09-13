@@ -37,6 +37,7 @@ from typing import Dict, List, Mapping, Sequence, Tuple
 import numpy as np
 
 from src.core.runtime_contract import RuntimeModeContract
+from src.core.world_runtime import WorldRuntimeSpec
 from src.evaluation.anchors import AnchorContext, ScriptedAnchor
 from src.evaluation.metrics import (
     EvaluationMetricsAccumulator,
@@ -508,6 +509,7 @@ def run_simd_eval(
     opponent_specs_by_world: Mapping[int, Sequence[AgentSpec]] | None = None,
     world_identities: Mapping[int, Dict[str, object]] | None = None,
     mix_id: str = "unspecified",
+    world_runtime_spec: WorldRuntimeSpec | None = None,
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -524,6 +526,8 @@ def run_simd_eval(
         gamma: Discount for the sim's PBRS reward (unused by metrics but kept
             for parity with the live reward path).
         max_frames: Episode-length cap for any frame-progress bookkeeping.
+        world_runtime_spec: Independently bound SIMD storage allocation.  When
+            omitted for a profiled run, the source-exact allocation is used.
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -539,6 +543,7 @@ def run_simd_eval(
     seeds = list(seeds)
     if not seeds:
         raise ValueError("at least one seed is required")
+    resolved_runtime_spec: WorldRuntimeSpec | None = None
     if profile is not None:
         if profile.legacy_diagnostic:
             raise ValueError("legacy diagnostic profiles must use the legacy evaluation path")
@@ -550,6 +555,18 @@ def run_simd_eval(
             or not profile.runtime.hero_terminal
         ):
             raise ValueError("SIMD promotion evaluation requires Watch respawn with terminal hero")
+        resolved_runtime_spec = (
+            WorldRuntimeSpec.source_exact(profile)
+            if world_runtime_spec is None
+            else world_runtime_spec
+        )
+        resolved_runtime_spec.validate_for_profile(profile)
+        if resolved_runtime_spec.engine != "simd":
+            raise ValueError("SIMD evaluation requires a SIMD world runtime spec")
+        if resolved_runtime_spec.body_storage_capacity is None:
+            raise ValueError("SIMD world runtime spec requires a body storage capacity")
+    elif world_runtime_spec is not None:
+        raise ValueError("world_runtime_spec requires an explicit evaluation profile")
 
     assigned_specs = [list(opponent_specs) for _ in seeds]
     if opponent_specs_by_world is not None:
@@ -576,7 +593,17 @@ def run_simd_eval(
     num_snakes = len(assigned_specs[0]) + 1
     cfg = _config_from_game_config(num_snakes, gamma, profile)
     E = len(seeds)
-    cfg = BatchSimConfig(**{**cfg.__dict__, "num_envs": E})
+    cfg = BatchSimConfig(
+        **{
+            **cfg.__dict__,
+            "num_envs": E,
+            "body_storage_capacity": (
+                resolved_runtime_spec.body_storage_capacity
+                if resolved_runtime_spec is not None
+                else None
+            ),
+        }
+    )
 
     # train_mode would make deaths terminal for everyone, but the gate wants
     # opponents to respawn — so run in eval (non-train) mode, where only slot 0
@@ -640,7 +667,7 @@ def run_simd_eval(
 
     env_idx = np.arange(E)
 
-    for _ in range(frames):
+    for frame_index in range(frames):
         actions = np.ones((E, num_snakes), dtype=np.int64)
         if profile is not None:
             # The callback sees the exact Watch pre-action snapshot: frame
@@ -655,8 +682,22 @@ def run_simd_eval(
             masks = sim.get_action_mask()
             _dispatch_actions(sim, masks, actions, hero_policies, opp_policies)
             sim.step(actions)
-        if profile is not None and np.any(sim.get_lengths() >= profile.world.max_capacity):
-            raise RuntimeError("evaluation world exceeded its declared max_capacity")
+        exhausted = sim.get_lengths() >= sim.cap
+        if profile is not None and np.any(exhausted):
+            locations = np.argwhere(exhausted)
+            details = [
+                {
+                    "env_index": int(env_index),
+                    "snake_slot": int(snake_slot),
+                    "logical_length": int(sim.get_lengths()[env_index, snake_slot]),
+                    "segment_count": int(sim.seg_count[env_index, snake_slot]),
+                }
+                for env_index, snake_slot in locations
+            ]
+            raise RuntimeError(
+                "evaluation world exceeded its declared max_capacity/effective body storage "
+                f"capacity {sim.cap} at frame {frame_index + 1}: {details!r}"
+            )
 
         alive0 = sim.get_alive()[:, 0]
         len0 = sim.get_lengths()[:, 0].astype(np.int64)
@@ -721,6 +762,8 @@ def run_simd_eval(
                     "seed": int(seeds[e]),
                     "evaluation_profile": profile.descriptor(),
                     "evaluation_profile_digest": profile.digest,
+                    "world_runtime_spec": resolved_runtime_spec.descriptor(),
+                    "world_runtime_spec_digest": resolved_runtime_spec.digest,
                     "world_identity": derived_identities[int(seeds[e])],
                 }
             )
