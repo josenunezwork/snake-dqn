@@ -80,16 +80,14 @@ Every paired food delta was positive in each seed (8/8). These comparisons apply
 only to the eight fixed diagnostic worlds. The scripted calls supply descriptive
 scale only and do not serve as opponents, controls, or thresholds.
 
-The seeds show very different food levels: the final means are 1,100.875 and
-14.375. The [final call rows](</Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-survival/calls/call-02/calls.jsonl>)
-and [second-seed rows](</Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-survival/calls/call-05/calls.jsonl>)
-provide a concrete warning about interpreting the first as ordinary foraging: seed
-2026091601 records 8,807 food-contact frames and
-a mean boost-frame fraction of 0.6579 across its worlds, while seed 2026091602
-records 115 contacts and zero boost frames. With the configured three-frame boost
-cost cadence, repeated consumption of a snake's own boost trail is plausible. The
-frozen evaluator does not attribute food to a source, so this is a mechanism
-hypothesis, not a causal finding; a source-attribution trace has not yet run.
+The completed [food-source trace](</Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_source_trace_2026-09-13/README.md>)
+replayed these same finalist-world rows exactly and verified the mechanism. Seed
+2026091601 had 8,679 own-trail contacts among 8,807 food contacts (98.5466%);
+seed 2026091602 had 115 ambient contacts and no own-trail contacts. Seed 1601
+still collected ambient food on every world, so the large raw-food value is not
+evidence of no food learning. The trace is post-hoc and uses the same models and
+worlds; its [independent review passed](</Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-source-trace/audit.md>),
+but lack of fresh replication still limits any broader conclusion.
 
 Both final checkpoints also maintained survival of 1.0, but their initial
 checkpoints already had survival of 1.0. The survival condition is therefore a
