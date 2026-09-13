@@ -205,3 +205,34 @@ def test_default_or_missing_solo_completion_lifecycle_is_rejected(
 
     with pytest.raises(ValueError, match="solo|lifecycle|completion"):
         eval_engine.validate_v3_checkpoint_for_profile(str(checkpoint), _solo_profile())
+
+
+def test_loadable_raster_v2_cannot_enter_solo_evaluation(tmp_path, monkeypatch) -> None:
+    """The normal policy loader cannot bypass native solo lifecycle proof."""
+    import torch
+
+    from src.model.obs_spec import OBS_SPEC_KEY, RASTER31V2
+    from src.model.raster_network import RasterDuelingNetwork
+
+    checkpoint = tmp_path / "legacy-raster.pth"
+    torch.save(
+        {"dqn_state_dict": RasterDuelingNetwork().state_dict(), OBS_SPEC_KEY: RASTER31V2},
+        checkpoint,
+    )
+    # Prove this is a loadable legacy checkpoint, then exercise both public
+    # entries with the exact solo profile.
+    assert eval_engine.NetworkSimdPolicy(str(checkpoint))._obs_spec == RASTER31V2
+    profile = _solo_profile()
+    with pytest.raises(ValueError, match="native raster31v3"):
+        eval_engine.NetworkSimdPolicy(str(checkpoint), profile=profile)
+    monkeypatch.setattr(
+        eval_engine, "_TerminalHeroBatchSim", lambda *args, **kwargs: pytest.fail("allocated sim")
+    )
+    with pytest.raises(ValueError, match="native raster31v3"):
+        eval_engine.run_solo_watch_diagnostic(
+            ("checkpoint", str(checkpoint)),
+            5000,
+            [17],
+            profile=profile,
+            world_runtime_spec=WorldRuntimeSpec.fresh_reset_horizon_bound(profile),
+        )

@@ -324,6 +324,9 @@ class NetworkSimdPolicy(SimdPolicy):
             )
         if obs_spec == RASTER31V3 and profile is None:
             raise ValueError("raster31v3 SIMD evaluation requires an explicit EvaluationProfile")
+        if profile is not None and profile.name == SOLO_WATCH_DIAGNOSTIC_V1:
+            if obs_spec != RASTER31V3:
+                raise ValueError("solo Watch diagnostic requires a native raster31v3 checkpoint")
         if profile is not None and obs_spec == RASTER31V3:
             validate_v3_checkpoint_for_profile(checkpoint_path, profile)
         self._agent = agent
@@ -655,6 +658,17 @@ def run_simd_eval(
     elif world_runtime_spec is not None:
         raise ValueError("world_runtime_spec requires an explicit evaluation profile")
 
+    # Solo checkpoint contracts are checked before allocating the evaluation
+    # worlds, and the loaded policy is reused below. Scripted anchors need no
+    # checkpoint contract; other profiles retain their existing load order.
+    solo_checkpoint_policy = None
+    if (
+        profile is not None
+        and profile.name == SOLO_WATCH_DIAGNOSTIC_V1
+        and hero_spec[0] == "checkpoint"
+    ):
+        solo_checkpoint_policy = NetworkSimdPolicy(hero_spec[1], profile=profile)
+
     assigned_specs = [list(opponent_specs) for _ in seeds]
     if opponent_specs_by_world is not None:
         if set(opponent_specs_by_world) != set(seeds):
@@ -701,7 +715,9 @@ def run_simd_eval(
     # Build one policy per (spec, env-seed) for scripted agents: their RNGs must
     # remain per world/slot.  A checkpoint model is stateless at evaluation time,
     # so identical paths share one policy instance and one forward per frame.
-    checkpoint_cache: Dict[str, NetworkSimdPolicy] = {}
+    checkpoint_cache: Dict[str, NetworkSimdPolicy] = (
+        {hero_spec[1]: solo_checkpoint_policy} if solo_checkpoint_policy is not None else {}
+    )
 
     def policy_for(spec: AgentSpec, seed: int) -> SimdPolicy:
         if spec[0] != "checkpoint":
