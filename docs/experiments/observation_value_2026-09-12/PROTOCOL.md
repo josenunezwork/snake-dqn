@@ -1,6 +1,6 @@
 # H1-A remote-heading decision-relevance protocol
 
-Status: **frozen design; source and checkpoint closure pins pending.** This
+Status: **frozen design; source closure pin pending.** This
 protocol tests a narrow question: under matched, finite counterfactual rollouts,
 can rotating one eligible enemy's heading change the near-best hero action? It
 does not measure natural alias prevalence, learned-policy quality, or an optimal
@@ -10,7 +10,8 @@ terminal B5 record remain unchanged.
 The durable evidence root is
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/observation-value-20260912`.
 G0, E1, and P2 are accepted prerequisites; the root must still pin the final
-integrated source and checkpoint closure before construction.
+integrated source closure before construction. This scripted diagnostic has no
+learned checkpoint input.
 
 ## Why this test is narrower than “aliasing exists”
 
@@ -32,18 +33,19 @@ evidence that this game needs one ([Hausknecht and Stone, 2015](https://www.cs.u
 ## Frozen corpus and collection
 
 Before constructing a world, the runner creates an immutable manifest that pins
-the final source closure, configuration, seed derivation/version, policy class
-identities, trusted-local-pickle hashes, and artifact schema. The final source
-and checkpoint hashes are intentionally blank at this design stage. The manifest
-and result tree are create-only; all attempts, including rejected, missing, and
-partial cases, are retained.
+the final source closure, configuration, seed derivation/version, per-world and
+per-slot policy seeds, policy class identities, and artifact schema. Full-state
+and RNG trusted-local-pickle hashes are output evidence created during collection
+before each clone is mutated; they cannot be pre-pinned. The manifest and result
+tree are create-only; all attempts, including rejected, missing, and partial
+cases, are retained.
 
 | Item | Frozen value |
 | --- | --- |
 | World split | 24 distinct derived world seeds: 8 development and 16 untouched holdout. Holdout runs once with no result-driven tuning. |
 | Environment | `BatchSimConfig`, `E=1`, `S=6`, mechanics v2, `train_mode=True`, `allow_respawn=False`; defaults: 1450×830, segment 10, food 250/max 300, gamma 0.99, max capacity 400. |
 | Probe limits | `max_frames=5000`, hunger 500, max length 400; at most 256 natural steps per world; stop at population floor or frame cap with no reset/replacement. |
-| Roster | Slots 0–5: `random_safe`, `greedy_food`, `random_safe`, `greedy_food`, `random_safe`, `greedy_food`, using public source classes and independently derived per-world policy seeds. |
+| Roster | Slots 0–5: `random_safe`, `greedy_food`, `random_safe`, `greedy_food`, `random_safe`, `greedy_food`, using public source classes and independently derived per-world/per-slot policy seeds. |
 | Candidate frames | Only natural pre-step frames 16, 80, and 160. A dead slot-0 hero rejects the attempt. |
 
 The collection ceiling is 24 × 256 × 6 = **36,864 natural agent-slots**.
@@ -51,9 +53,10 @@ The collection ceiling is 24 × 256 × 6 = **36,864 natural agent-slots**.
 ## Candidate and counterfactual construction
 
 For an eligible frame, choose the lowest-ID alive single-segment enemy. Clone the
-complete simulator state and RNG state; hash the trusted local pickle before
-mutating it. The variant rotates that enemy's heading by `+1 mod 4`. There is no
-alternate-enemy search, fill-in candidate, or replacement attempt.
+complete simulator state and RNG state; write and hash the trusted local pickle
+as output evidence before mutating the clone. The variant rotates that enemy's
+heading by `+1 mod 4`. There is no alternate-enemy search, fill-in candidate, or
+replacement attempt.
 
 Retain a pair only when the two variants have byte-identical canonical
 `raster31v3` observations and resolved masks, and each is geometrically
@@ -62,8 +65,8 @@ is reachable from a different natural history.
 
 For every retained pair, derive one 32-row joint relative-action tape from the
 pair seed, with left/straight/right probabilities 0.1/0.8/0.1. Use the same tape
-for both variants and every initially resolved hero action; overwrite row 0 with
-that action.
+for both variants and every initially resolved hero action. Overwrite row 0 only
+for the hero; preserve the opponents' row-0 actions.
 For unavailable boost actions record `None`; do not manufacture duplicate rows.
 Run prefixes 1, 8, 16, and 32 total steps, including row 0. H16 is primary;
 the other horizons are descriptive.
