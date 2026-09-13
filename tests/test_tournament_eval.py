@@ -38,6 +38,13 @@ class TestBackwardCompat:
         assert ci95 is ci95_halfwidth
 
 
+def test_public_tournament_cli_does_not_admit_the_solo_diagnostic_profile() -> None:
+    """The empty-roster adapter remains outside the competitive CLI surface."""
+    with pytest.raises(SystemExit) as exc:
+        main(["scripted:random_safe", "--evaluation-profile", "solo-watch-diagnostic-v1"])
+    assert exc.value.code == 2
+
+
 def test_main_uses_snapshots_for_every_checkpoint_agent(setup_config, tmp_path, monkeypatch):
     """A later replacement of a source path cannot affect a seeded eval row."""
     import torch

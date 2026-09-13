@@ -44,7 +44,11 @@ from src.evaluation.metrics import (
     PostStepState,
     StepEvents,
 )
-from src.evaluation.protocol import EvaluationProfile
+from src.evaluation.protocol import (
+    SOLO_WATCH_DIAGNOSTIC_EVALUATOR,
+    SOLO_WATCH_DIAGNOSTIC_V1,
+    EvaluationProfile,
+)
 from src.simd_env.batch_sim import (
     CARDINAL,
     DEATH_BODY,
@@ -59,6 +63,7 @@ from src.simd_env.batch_sim import (
 # (kind, ref) agent spec, matching tournament_eval.AgentSpec.
 AgentSpec = Tuple[str, str]
 FrameObserver = Callable[[Mapping[str, object]], None]
+_SOLO_MIX_ID = "solo-no-opponents-v1"
 
 # Death-cause code -> probe label (matches BehaviorProbes' vocabulary).
 _DEATH_CAUSE_LABEL = {
@@ -136,6 +141,27 @@ def validate_v3_checkpoint_for_profile(checkpoint_path: str, profile: Evaluation
         raise ValueError("raster31v3 checkpoint runtime_contract_digest does not match descriptor")
     if not isinstance(blob.get("model_head"), dict):
         raise ValueError("raster31v3 checkpoint requires an explicit model head contract")
+    if profile.name == SOLO_WATCH_DIAGNOSTIC_V1:
+        from src.training.pqn_lifecycle import (
+            EPISODE_RESET_PER_ENV_AUTORESET,
+            EPISODE_SEED_DERIVED,
+            SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+            validate_pqn_episode_lifecycle_metadata,
+        )
+
+        lifecycle = validate_pqn_episode_lifecycle_metadata(blob, allow_corrected_v3_adapter=False)
+        descriptor = lifecycle.descriptor
+        if (
+            lifecycle.compatibility is not None
+            or descriptor.get("schema_version") != "pqn-episode-lifecycle/v2"
+            or descriptor.get("episode_completion_mode") != SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
+            or descriptor.get("episode_reset_mode") != EPISODE_RESET_PER_ENV_AUTORESET
+            or descriptor.get("episode_seed_mode") != EPISODE_SEED_DERIVED
+            or blob.get("episode_completion_mode") != SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
+        ):
+            raise ValueError(
+                "solo Watch diagnostic requires native v2 sole-snake lifecycle metadata"
+            )
 
 
 class SimdPolicy:
@@ -610,7 +636,7 @@ def run_simd_eval(
             or not profile.runtime.respawn
             or not profile.runtime.hero_terminal
         ):
-            raise ValueError("SIMD promotion evaluation requires Watch respawn with terminal hero")
+            raise ValueError("SIMD profiled Watch evaluation requires respawn with a terminal hero")
         resolved_runtime_spec = (
             WorldRuntimeSpec.source_exact(profile)
             if world_runtime_spec is None
@@ -621,6 +647,11 @@ def run_simd_eval(
             raise ValueError("SIMD evaluation requires a SIMD world runtime spec")
         if resolved_runtime_spec.body_storage_capacity is None:
             raise ValueError("SIMD world runtime spec requires a body storage capacity")
+        if profile.name == SOLO_WATCH_DIAGNOSTIC_V1:
+            if mix_id != _SOLO_MIX_ID:
+                raise ValueError("solo Watch diagnostic requires its fixed empty-roster mix")
+            if opponent_specs or opponent_specs_by_world is not None:
+                raise ValueError("solo Watch diagnostic requires an empty opponent roster")
     elif world_runtime_spec is not None:
         raise ValueError("world_runtime_spec requires an explicit evaluation profile")
 
@@ -839,6 +870,16 @@ def run_simd_eval(
                     "world_identity": derived_identities[int(seeds[e])],
                 }
             )
+            if profile.name == SOLO_WATCH_DIAGNOSTIC_V1:
+                record.update(
+                    {
+                        "mix_id": _SOLO_MIX_ID,
+                        "opponent_roster": [],
+                        "evaluation_authority": "diagnostic-only",
+                        "promotion_eligible": False,
+                        "strict_authority": False,
+                    }
+                )
             records.append(record)
             continue
         af = int(alive_frames[e])
@@ -865,6 +906,59 @@ def run_simd_eval(
                     "entrapment_event": False,
                     "peak_length": int(peak_length[e]),
                 },
+            }
+        )
+    return records
+
+
+def run_solo_watch_diagnostic(
+    hero_spec: AgentSpec,
+    frames: int,
+    seeds: Sequence[int],
+    *,
+    profile: EvaluationProfile,
+    world_runtime_spec: WorldRuntimeSpec,
+    gamma: float = 0.99,
+    max_frames: int = 5000,
+    frame_observer: FrameObserver | None = None,
+) -> List[Dict[str, object]]:
+    """Evaluate a one-hero Watch diagnostic against an intentionally empty roster.
+
+    The adapter is deliberately separate from the tournament path.  Solo rows
+    retain the normal profiled mass, survival, and food metrics while carrying
+    explicit diagnostic-only authority facts, so they cannot be mistaken for
+    competitive promotion evidence.
+    """
+    if profile.name != SOLO_WATCH_DIAGNOSTIC_V1:
+        raise ValueError("solo Watch diagnostic requires the exact solo profile")
+    if profile.evaluator_version != SOLO_WATCH_DIAGNOSTIC_EVALUATOR:
+        raise ValueError("solo Watch diagnostic requires its exact evaluator identity")
+    if profile.world.num_snakes != 1:
+        raise ValueError("solo Watch diagnostic requires a one-hero world")
+    expected_runtime = WorldRuntimeSpec.fresh_reset_horizon_bound(profile)
+    if world_runtime_spec.descriptor() != expected_runtime.descriptor():
+        raise ValueError("solo Watch diagnostic requires fresh-reset horizon-bound runtime")
+
+    records = run_simd_eval(
+        hero_spec,
+        (),
+        frames,
+        seeds,
+        gamma=gamma,
+        max_frames=max_frames,
+        profile=profile,
+        mix_id=_SOLO_MIX_ID,
+        world_runtime_spec=world_runtime_spec,
+        frame_observer=frame_observer,
+    )
+    for record in records:
+        record.update(
+            {
+                "mix_id": _SOLO_MIX_ID,
+                "opponent_roster": [],
+                "evaluation_authority": "diagnostic-only",
+                "promotion_eligible": False,
+                "strict_authority": False,
             }
         )
     return records

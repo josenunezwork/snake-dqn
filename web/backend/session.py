@@ -133,6 +133,11 @@ def _validate_v3_serving_checkpoint(
         raise ValueError("raster31v3 checkpoint has an invalid effective_world digest")
     if effective_world.arena_type != "rectangular":
         raise ValueError("raster31v3 serving supports rectangular arenas only")
+    if effective_world.num_snakes == 1:
+        raise ValueError(
+            "raster31v3 one-hero checkpoints are solo Watch diagnostics; use the "
+            "solo Watch diagnostic evaluator instead of serving or promotion"
+        )
     if not (
         effective_world.kill_scale == KILL_REWARD_PER_VICTIM_LENGTH
         and effective_world.death_value == DEATH_REWARD

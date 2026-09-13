@@ -649,3 +649,18 @@ def test_v3_missing_model_head_default_is_not_synthesized(v3_checkpoint, tmp_pat
     with pytest.raises(ValueError, match="complete model_head"):
         session._build(str(path), mode="watch")
     assert session.game is before_game
+
+
+def test_one_hero_v3_checkpoint_is_refused_as_solo_diagnostic(v3_checkpoint, tmp_path):
+    """Serving never turns a one-hero diagnostic into a deployable champion."""
+    session = GameSession(checkpoint=v3_checkpoint)
+    before_game = session.game
+    blob = torch.load(v3_checkpoint, map_location="cpu", weights_only=False)
+    blob["effective_world"]["num_snakes"] = 1
+    blob["effective_world_digest"] = EffectiveWorldConfig(**blob["effective_world"]).digest
+    path = tmp_path / "solo-v3.pth"
+    torch.save(blob, path)
+
+    with pytest.raises(ValueError, match="solo Watch diagnostic"):
+        session._build(str(path), mode="watch")
+    assert session.game is before_game

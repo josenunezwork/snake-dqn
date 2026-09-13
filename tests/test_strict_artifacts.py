@@ -20,7 +20,7 @@ from src.core.runtime_contract import (
     canonical_digest,
 )
 from src.core.seeding import derive_seed
-from src.evaluation.protocol import promotion_v2_watch_rect
+from src.evaluation.protocol import promotion_v2_watch_rect, solo_watch_diagnostic
 from src.evaluation.serving_episode import ServingEpisodeSpec, run_serving_episode
 from src.evaluation.strict_promotion import (
     STRICT_CALIBRATION_VERSION,
@@ -115,6 +115,16 @@ def _promotion_world() -> EffectiveWorldConfig:
         death_value=-3.0,
         normalization={"max_frames": 5000.0, "starvation_max": 500.0, "max_length": 100.0},
     )
+
+
+def test_strict_authority_rejects_the_solo_watch_diagnostic_profile() -> None:
+    """An empty-roster diagnostic can never enter the strict promotion path."""
+    from src.evaluation.strict_promotion import _profile
+
+    world = EffectiveWorldConfig(**{**_promotion_world().__dict__, "num_snakes": 1})
+    profile = solo_watch_diagnostic(world)
+    with pytest.raises(StrictPromotionArtifactError, match="fixed promotion profile"):
+        _profile({"descriptor": profile.descriptor(), "digest": profile.digest})
 
 
 def _candidate_contracts_from_metadata(checkpoint: dict[str, object]) -> dict[str, object]:

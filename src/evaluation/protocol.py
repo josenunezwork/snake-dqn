@@ -19,9 +19,14 @@ from src.core.runtime_contract import (
 
 PROMOTION_V2_WATCH_RECT = "promotion-v2-watch-rect"
 PROMOTION_V2_EVALUATOR = "promotion-v2-evaluator/v1"
+SOLO_WATCH_DIAGNOSTIC_V1 = "solo-watch-diagnostic-v1"
+SOLO_WATCH_DIAGNOSTIC_EVALUATOR = "solo-watch-diagnostic-evaluator/v1"
 LEGACY_DIAGNOSTIC_EVALUATOR = "legacy-diagnostic/v1"
 _PROMOTION_METRIC_VERSION = "logical-mass/v1"
 _PROMOTION_ANCHOR_VERSION = "scripted-anchor/v1"
+_SOLO_METRIC_VERSION = "solo-food-survival-diagnostic/v1"
+_SOLO_ANCHOR_VERSION = "no-opponent-roster/v1"
+_PROFILE_NORMALIZATION_FIELDS = {"max_frames", "starvation_max", "max_length"}
 
 
 def _raw_dataclass_descriptor(value: object) -> dict[str, Any]:
@@ -90,28 +95,46 @@ class EvaluationProfile:
         if self.legacy_diagnostic:
             if self.evaluator_version != LEGACY_DIAGNOSTIC_EVALUATOR:
                 raise ValueError("legacy profiles must use the explicit legacy evaluator identity")
-        elif self.name == PROMOTION_V2_WATCH_RECT:
-            if self.evaluator_version != PROMOTION_V2_EVALUATOR:
-                raise ValueError("promotion v2 requires its explicit evaluator identity")
+        elif self.name in {PROMOTION_V2_WATCH_RECT, SOLO_WATCH_DIAGNOSTIC_V1}:
+            is_solo = self.name == SOLO_WATCH_DIAGNOSTIC_V1
+            profile_label = "solo Watch diagnostic" if is_solo else "promotion v2"
+            expected_evaluator = (
+                SOLO_WATCH_DIAGNOSTIC_EVALUATOR if is_solo else PROMOTION_V2_EVALUATOR
+            )
+            if self.evaluator_version != expected_evaluator:
+                raise ValueError(f"{profile_label} requires its explicit evaluator identity")
             if self.world.arena_type != "rectangular" or self.world.mechanics_version != 2:
-                raise ValueError("promotion v2 Watch profile requires rectangular mechanics v2")
+                raise ValueError(f"{profile_label} Watch profile requires rectangular mechanics v2")
             if self.world.frame_rate != 1:
-                raise ValueError("promotion v2 Watch profile requires frame_rate=1")
+                raise ValueError(f"{profile_label} Watch profile requires frame_rate=1")
+            if not is_solo and self.world.num_snakes < 2:
+                raise ValueError(
+                    "promotion v2 requires at least two snakes for a competitive roster"
+                )
+            if is_solo and self.world.num_snakes != 1:
+                raise ValueError("solo Watch diagnostic requires exactly one hero snake")
+            if is_solo and (
+                self.scored_horizon != 5000 or self.observation_progress_horizon != 5000
+            ):
+                raise ValueError("solo Watch diagnostic requires fixed 5000-frame horizons")
             if self.runtime.mode != "watch":
-                raise ValueError("promotion v2 Watch profile requires runtime mode='watch'")
+                raise ValueError(f"{profile_label} Watch profile requires runtime mode='watch'")
             if self.runtime.training or not self.runtime.respawn or not self.runtime.hero_terminal:
                 raise ValueError(
-                    "promotion v2 Watch profile requires watch respawn and terminal hero"
+                    f"{profile_label} Watch profile requires watch respawn and terminal hero"
                 )
             if self.runtime.population_floor or self.runtime.reset_strategy != "manual":
-                raise ValueError("promotion v2 Watch profile requires manual reset without a floor")
-            if self.metric_version != _PROMOTION_METRIC_VERSION:
-                raise ValueError("promotion v2 requires the logical-mass/v1 metric")
-            if self.anchor_version != _PROMOTION_ANCHOR_VERSION:
-                raise ValueError("promotion v2 requires the scripted-anchor/v1 anchor")
+                raise ValueError(
+                    f"{profile_label} Watch profile requires manual reset without a floor"
+                )
+            expected_metric = _SOLO_METRIC_VERSION if is_solo else _PROMOTION_METRIC_VERSION
+            expected_anchor = _SOLO_ANCHOR_VERSION if is_solo else _PROMOTION_ANCHOR_VERSION
+            if self.metric_version != expected_metric:
+                raise ValueError(f"{profile_label} requires metric {expected_metric}")
+            if self.anchor_version != expected_anchor:
+                raise ValueError(f"{profile_label} requires anchor {expected_anchor}")
             normalization = self.world.normalization
-            required_normalization = {"max_frames", "starvation_max", "max_length"}
-            if set(normalization) != required_normalization or any(
+            if set(normalization) != _PROFILE_NORMALIZATION_FIELDS or any(
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
                 or not isfinite(value)
@@ -120,7 +143,7 @@ class EvaluationProfile:
                 for value in normalization.values()
             ):
                 raise ValueError(
-                    "promotion v2 requires complete positive integer observation normalization"
+                    f"{profile_label} requires complete positive integer observation normalization"
                 )
         else:
             raise ValueError(f"unknown non-legacy evaluation profile {self.name!r}")
@@ -187,12 +210,11 @@ class EvaluationProfile:
                 raise ValueError(f"runtime contract {field_name} must be a boolean")
         if not isinstance(raw["learn"], bool):
             raise ValueError("evaluation profile learn must be a boolean")
-        if raw["name"] == PROMOTION_V2_WATCH_RECT:
+        if raw["name"] in {PROMOTION_V2_WATCH_RECT, SOLO_WATCH_DIAGNOSTIC_V1}:
             normalization = world_raw.get("normalization")
-            required_normalization = {"max_frames", "starvation_max", "max_length"}
             if (
                 not isinstance(normalization, Mapping)
-                or set(normalization) != required_normalization
+                or set(normalization) != _PROFILE_NORMALIZATION_FIELDS
             ):
                 raise ValueError(
                     "promotion v2 requires complete positive observation normalization"
@@ -237,6 +259,8 @@ def promotion_v2_watch_rect(world: EffectiveWorldConfig) -> EvaluationProfile:
     Serving/manual S1 mode deliberately has no forced scoring horizon and is
     represented by a distinct runtime contract outside this helper.
     """
+    if world.num_snakes < 2:
+        raise ValueError("promotion v2 requires at least two snakes for a competitive roster")
     return EvaluationProfile(
         name=PROMOTION_V2_WATCH_RECT,
         evaluator_version=PROMOTION_V2_EVALUATOR,
@@ -251,6 +275,32 @@ def promotion_v2_watch_rect(world: EffectiveWorldConfig) -> EvaluationProfile:
         ),
         scored_horizon=5000,
         observation_progress_horizon=5000,
+    )
+
+
+def solo_watch_diagnostic(world: EffectiveWorldConfig) -> EvaluationProfile:
+    """Build the fixed one-hero Watch diagnostic profile.
+
+    This records solo food and survival behavior under the same explicit Watch
+    lifecycle as the profiled evaluator.  It is intentionally not a promotion
+    population: its empty roster cannot establish competitive behavior.
+    """
+    return EvaluationProfile(
+        name=SOLO_WATCH_DIAGNOSTIC_V1,
+        evaluator_version=SOLO_WATCH_DIAGNOSTIC_EVALUATOR,
+        world=world,
+        runtime=RuntimeModeContract(
+            mode="watch",
+            training=False,
+            respawn=True,
+            hero_terminal=True,
+            population_floor=False,
+            reset_strategy="manual",
+        ),
+        scored_horizon=5000,
+        observation_progress_horizon=5000,
+        metric_version=_SOLO_METRIC_VERSION,
+        anchor_version=_SOLO_ANCHOR_VERSION,
     )
 
 

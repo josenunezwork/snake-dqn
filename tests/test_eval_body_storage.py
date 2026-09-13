@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from itertools import chain, repeat
 
 import numpy as np
 import pytest
@@ -10,7 +10,7 @@ import pytest
 from src.core.game_config import get_config, initialize_config
 from src.core.runtime_contract import EffectiveWorldConfig
 from src.core.world_runtime import WorldRuntimeSpec
-from src.evaluation.protocol import promotion_v2_watch_rect
+from src.evaluation.protocol import solo_watch_diagnostic
 from src.model.obs_spec import RASTER31V3
 from src.simd_env.batch_sim import BatchSim, BatchSimConfig
 from src.simd_env.featurizer import build_observations, obs_inputs_from_batch_sim
@@ -43,7 +43,7 @@ def _batch_config(
     )
 
 
-def _profile(*, source_capacity: int = 3, horizon: int = 4):
+def _solo_profile(*, source_capacity: int = 3, max_frames: int = 4):
     world = EffectiveWorldConfig(
         width=240,
         height=180,
@@ -52,7 +52,7 @@ def _profile(*, source_capacity: int = 3, horizon: int = 4):
         arena_type="rectangular",
         mechanics_version=2,
         num_snakes=1,
-        max_frames=horizon,
+        max_frames=max_frames,
         initial_food=0,
         max_food=0,
         min_boost_length=5,
@@ -64,16 +64,12 @@ def _profile(*, source_capacity: int = 3, horizon: int = 4):
         kill_scale=0.3,
         death_value=-3.0,
         normalization={
-            "max_frames": float(horizon),
+            "max_frames": 5000.0,
             "starvation_max": 20.0,
             "max_length": 3.0,
         },
     )
-    return replace(
-        promotion_v2_watch_rect(world),
-        scored_horizon=horizon,
-        observation_progress_horizon=horizon,
-    )
+    return solo_watch_diagnostic(world)
 
 
 def _set_batch_body(sim: BatchSim, cells: list[tuple[int, int]]) -> None:
@@ -183,13 +179,13 @@ def test_ring_overflow_guard_uses_resolved_capacity(
         sim.step(np.array([[1]], dtype=np.int64))
 
 
-def test_default_profile_runtime_is_source_exact_and_retains_post_step_guard(
+def test_solo_profile_source_exact_runtime_retains_post_step_guard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Omitting the runtime spec preserves the historical source-capacity failure."""
     from src.simd_env import eval_engine
 
-    profile = _profile(source_capacity=3, horizon=1)
+    profile = _solo_profile(source_capacity=3, max_frames=1)
     original_step = eval_engine._TerminalHeroBatchSim.step
     observed_capacities: list[int] = []
 
@@ -204,9 +200,10 @@ def test_default_profile_runtime_is_source_exact_and_retains_post_step_guard(
         eval_engine.run_simd_eval(
             ("scripted", "greedy_food"),
             [],
-            frames=1,
+            frames=profile.scored_horizon,
             seeds=[17],
             profile=profile,
+            mix_id="solo-no-opponents-v1",
         )
 
     assert observed_capacities == [3]
@@ -215,17 +212,17 @@ def test_default_profile_runtime_is_source_exact_and_retains_post_step_guard(
     assert "'logical_length': 3" in str(error.value)
 
 
-def test_explicit_horizon_runtime_crosses_source_guard_and_reports_both_identities(
+def test_direct_solo_profile_horizon_runtime_crosses_source_guard_and_marks_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Expanded storage changes allocation while the profile remains source-exact."""
     from src.simd_env import eval_engine
 
-    profile = _profile(source_capacity=3, horizon=4)
+    profile = _solo_profile(source_capacity=3, max_frames=4)
     profile_before = (profile.descriptor(), profile.digest, profile.world.digest)
     runtime = WorldRuntimeSpec.fresh_reset_horizon_bound(profile)
     original_step = eval_engine._TerminalHeroBatchSim.step
-    forced_lengths = iter((3, 4, 4, 5))
+    forced_lengths = chain((3, 4, 4, 5), repeat(1))
     observed_capacities: list[int] = []
 
     def cross_source_capacity(self, actions, active_env_mask=None):
@@ -238,19 +235,24 @@ def test_explicit_horizon_runtime_crosses_source_guard_and_reports_both_identiti
     record = eval_engine.run_simd_eval(
         ("scripted", "greedy_food"),
         [],
-        frames=4,
+        frames=profile.scored_horizon,
         seeds=[19],
         profile=profile,
         world_runtime_spec=runtime,
+        mix_id="solo-no-opponents-v1",
     )[0]
 
-    assert observed_capacities == [6, 6, 6, 6]
+    assert observed_capacities[:4] == [5002, 5002, 5002, 5002]
+    assert len(observed_capacities) == profile.scored_horizon
     assert runtime.source_body_capacity == 3
-    assert runtime.body_storage_capacity == 6
+    assert runtime.body_storage_capacity == 5002
     assert record["evaluation_profile"] == profile.descriptor()
     assert record["evaluation_profile_digest"] == profile.digest
     assert record["world_runtime_spec"] == runtime.descriptor()
     assert record["world_runtime_spec_digest"] == runtime.digest
+    assert record["opponent_roster"] == []
+    assert record["promotion_eligible"] is False
+    assert record["strict_authority"] is False
     assert (profile.descriptor(), profile.digest, profile.world.digest) == profile_before
 
 
@@ -260,19 +262,18 @@ def test_runtime_profile_mismatch_fails_before_simulator_allocation(
     """A valid spec for a different profile cannot become an allocation override."""
     from src.simd_env import eval_engine
 
-    profile = _profile(source_capacity=3, horizon=2)
+    profile = _solo_profile(source_capacity=3, max_frames=2)
     runtime = WorldRuntimeSpec.fresh_reset_horizon_bound(profile)
-    changed_profile = replace(profile, observation_progress_horizon=3)
+    changed_profile = _solo_profile(source_capacity=4, max_frames=2)
 
     def allocation_forbidden(*_args, **_kwargs):
         raise AssertionError("simulator allocation occurred before runtime validation")
 
     monkeypatch.setattr(eval_engine, "_TerminalHeroBatchSim", allocation_forbidden)
     with pytest.raises(ValueError, match="profile digest"):
-        eval_engine.run_simd_eval(
+        eval_engine.run_solo_watch_diagnostic(
             ("scripted", "greedy_food"),
-            [],
-            frames=2,
+            frames=changed_profile.scored_horizon,
             seeds=[23],
             profile=changed_profile,
             world_runtime_spec=runtime,

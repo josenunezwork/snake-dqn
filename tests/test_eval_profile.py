@@ -7,9 +7,12 @@ import pytest
 from src.core.runtime_contract import EffectiveWorldConfig, RuntimeModeContract
 from src.evaluation.protocol import (
     LEGACY_DIAGNOSTIC_EVALUATOR,
+    PROMOTION_V2_WATCH_RECT,
     PROMOTION_V2_EVALUATOR,
+    SOLO_WATCH_DIAGNOSTIC_EVALUATOR,
     legacy_diagnostic_profile,
     promotion_v2_watch_rect,
+    solo_watch_diagnostic,
 )
 
 
@@ -121,3 +124,41 @@ def test_unknown_nonlegacy_profiles_fail_before_runtime_execution() -> None:
     descriptor["name"] = "unregistered-profile"
     with pytest.raises(ValueError, match="unknown non-legacy"):
         profile.from_descriptor(descriptor)
+
+
+def test_solo_watch_profile_is_an_exact_nonpromotion_one_hero_identity() -> None:
+    world = EffectiveWorldConfig(**{**_world().__dict__, "num_snakes": 1})
+    profile = solo_watch_diagnostic(world)
+
+    assert profile.evaluator_version == SOLO_WATCH_DIAGNOSTIC_EVALUATOR
+    assert profile.metric_version == "solo-food-survival-diagnostic/v1"
+    assert profile.anchor_version == "no-opponent-roster/v1"
+    assert profile.world.num_snakes == 1
+    assert profile.scored_horizon == profile.observation_progress_horizon == 5000
+    assert profile.from_descriptor(profile.descriptor()) == profile
+
+    with pytest.raises(ValueError, match="exactly one hero"):
+        solo_watch_diagnostic(_world())
+    with pytest.raises(ValueError, match="at least two snakes"):
+        promotion_v2_watch_rect(world)
+    with pytest.raises(ValueError, match="at least two snakes"):
+        profile.__class__(
+            **{
+                **profile.__dict__,
+                "name": PROMOTION_V2_WATCH_RECT,
+                "evaluator_version": PROMOTION_V2_EVALUATOR,
+                "metric_version": "logical-mass/v1",
+                "anchor_version": "scripted-anchor/v1",
+            }
+        )
+    descriptor = profile.descriptor()
+    descriptor.update(
+        name=PROMOTION_V2_WATCH_RECT,
+        evaluator_version=PROMOTION_V2_EVALUATOR,
+        metric_version="logical-mass/v1",
+        anchor_version="scripted-anchor/v1",
+    )
+    with pytest.raises(ValueError, match="at least two snakes"):
+        profile.from_descriptor(descriptor)
+    with pytest.raises(ValueError, match="fixed 5000"):
+        profile.__class__(**{**profile.__dict__, "scored_horizon": 4})
