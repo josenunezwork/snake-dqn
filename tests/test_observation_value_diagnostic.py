@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+from src.core.seeding import derive_seed
 
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -32,15 +36,74 @@ def test_resolved_protocol_has_exact_bounded_collection_and_disjoint_seed_stream
     assert protocol["collection"]["development_world_count"] == 8
     assert protocol["collection"]["max_steps_per_world"] == 256
     assert protocol["collection"]["max_pairs"] == 72
+    assert protocol["collection"]["frames"] == [16, 80, 160]
     assert protocol["collection"]["horizons"] == [1, 8, 16, 32]
+    assert protocol["collection"]["primary_horizon"] == 16
+    assert protocol["limits"]["agent_slots"] == 202752
+    assert 24 * 256 * 6 == 36864
+    assert 72 * 2 * 6 * 32 * 6 == 165888
     streams = [
         protocol["seeds"]["root"],
         protocol["seeds"]["bootstrap"],
         *protocol["seeds"]["world"],
-        *protocol["seeds"]["policy"],
-        *protocol["seeds"]["tape"],
+        *(seed for slot_seeds in protocol["seeds"]["policy"] for seed in slot_seeds),
+        *protocol["seeds"]["tape"].values(),
     ]
     assert len(streams) == len(set(streams))
+    assert cli.derive_seed is derive_seed
+
+
+def test_resource_counter_uses_agent_slots_not_world_ticks(monkeypatch: pytest.MonkeyPatch) -> None:
+    counters = {
+        "natural_agent_slots": 36864,
+        "counterfactual_agent_slots": 165888,
+    }
+    monkeypatch.setattr(
+        cli,
+        "_resource_snapshot",
+        lambda *_: {"elapsed_seconds": 0.0, "rss_bytes": 0, "available_bytes": 2**63 - 1},
+    )
+    cli._check_resources(0.0, counters)
+    counters["counterfactual_agent_slots"] += 1
+    with pytest.raises(cli.ResourceStop, match="agent_slots"):
+        cli._check_resources(0.0, counters)
+
+
+def test_seed_collision_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "derive_seed", lambda *_: 7)
+    with pytest.raises(RuntimeError, match="C0"):
+        cli.resolved_protocol("revision", 9, ROOT)
+
+
+def test_direct_script_help_has_repo_import_path() -> None:
+    completed = subprocess.run(
+        [sys.executable, str(ROOT / "src/scripts/observation_value_diagnostic.py"), "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "freeze" in completed.stdout and "run" in completed.stdout
+
+
+def test_manifest_semantic_projection_rejects_config_or_version_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = cli.resolved_protocol("revision", 9, ROOT)
+    manifest["manifest_digest"] = cli.digest_without(manifest, "manifest_digest")
+    path = (tmp_path / "manifest.json").resolve()
+    path.write_bytes(cli.canonical(manifest))
+    expected_hash = cli.sha256_file(path)
+    monkeypatch.setattr(cli, "_clean_revision", lambda *_: True)
+    monkeypatch.setattr(cli, "source_closure", lambda *_: manifest["source_closure"])
+    monkeypatch.setattr(cli, "_REPO_ROOT", ROOT)
+    assert cli.verify_manifest(path, expected_hash)["schema"] == cli.SCHEMA
+    changed = json.loads(path.read_text())
+    changed["collection"]["frames"] = [15, 80, 160]
+    changed["manifest_digest"] = cli.digest_without(changed, "manifest_digest")
+    path.write_bytes(cli.canonical(changed))
+    with pytest.raises(RuntimeError, match="semantic projection"):
+        cli.verify_manifest(path, cli.sha256_file(path))
 
 
 def test_freeze_requires_a_new_absolute_output_directory(tmp_path: Path) -> None:
