@@ -124,7 +124,9 @@ def test_native_six_snake_checkpoint_cannot_cross_into_solo_profile(tmp_path) ->
     torch.save(
         {
             "obs_contract_digest": RASTER31V3_CONTRACT.digest,
-            "effective_world": dict(source_world.__dict__),
+            "effective_world": {
+                **source_world.__dict__, "normalization": dict(source_world.normalization)
+            },
             "effective_world_digest": source_world.digest,
             "runtime_contract": dict(source_runtime.__dict__),
             "runtime_contract_digest": source_runtime.digest,
@@ -191,6 +193,9 @@ def test_native_v2_solo_lifecycle_checkpoint_is_accepted_by_solo_profile(tmp_pat
         checkpoint,
     )
     eval_engine.validate_v3_checkpoint_for_profile(str(checkpoint), _solo_profile())
+    assert eval_engine.NetworkSimdPolicy(str(checkpoint), profile=_solo_profile())._obs_spec == (
+        "raster31v3"
+    )
 
 
 @pytest.mark.parametrize("completion_mode", [None, "population_floor_or_frame_cap_v1"])
@@ -205,6 +210,8 @@ def test_default_or_missing_solo_completion_lifecycle_is_rejected(
 
     with pytest.raises(ValueError, match="solo|lifecycle|completion"):
         eval_engine.validate_v3_checkpoint_for_profile(str(checkpoint), _solo_profile())
+    with pytest.raises(ValueError, match="solo|lifecycle|completion"):
+        eval_engine.NetworkSimdPolicy(str(checkpoint), profile=_solo_profile())
 
 
 def test_loadable_raster_v2_cannot_enter_solo_evaluation(tmp_path, monkeypatch) -> None:
