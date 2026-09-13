@@ -116,6 +116,24 @@ def test_profiled_live_wrapper_uses_the_shared_watch_anchor_clock(
     from src.evaluation.protocol import promotion_v2_watch_rect
     from src.game.game_state_factory import create_training_game_state
     from src.scripts.tournament_eval import _attach_agent, _evaluation_world_from_config
+    from src.simd_env.parity import _install_v2_config
+
+    # The production Watch profile is deliberately v2-only. Keep this test's
+    # global world aligned with the compact controlled-parity setup rather than
+    # depending on the default (legacy mechanics-v1) test configuration.
+    _install_v2_config(
+        BatchSimConfig(
+            num_envs=1,
+            num_snakes=3,
+            game_width=400,
+            game_height=300,
+            initial_food=30,
+            max_food=35,
+            mechanics_version=2,
+            frame_rate=1,
+            max_capacity=64,
+        )
+    )
 
     captured = []
     original = ScriptedAnchor.action
