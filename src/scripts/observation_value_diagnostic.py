@@ -375,7 +375,8 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
     active_world: str | None = None
-    active_reached: set[int] = set()
+    candidate_rows: set[tuple[str, int]] = set()
+    active_candidate: dict[str, Any] | None = None
     started, status, cause = time.monotonic(), "completed", "natural_collection_complete"
     try:
         probe = ProbeConfig(**manifest["probe_config"])
@@ -384,7 +385,7 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
             verify_manifest(manifest_path, manifest_sha256)
             _check_resources(started, counters)
             world_id, reached, end_reason = f"world-{index:02d}", set(), "step_cap"
-            active_world, active_reached = world_id, reached
+            active_world = world_id
             sim = BatchSim(config, seeds=[world_seed], train_mode=True, allow_respawn=False)
             policies = [
                 (
@@ -417,6 +418,7 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
                         enemy=enemy,
                         old_heading=old,
                     )
+                    active_candidate = row
                     if not sim.alive[0, hero]:
                         row["reason"] = "hero_dead"
                     elif sim.population_floor_reached()[0]:
@@ -460,28 +462,36 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
                                     "tape_sha256": tape_hash,
                                 },
                             )
-                            left, right = finite_action_returns(
-                                sim, hero, tape, HORIZONS, probe
-                            ), finite_action_returns(twin, hero, tape, HORIZONS, probe)
+                            variant_results = []
+                            for label, variant in (("left", sim), ("right", twin)):
+                                _check_resources(started, counters)
+                                result = finite_action_returns(variant, hero, tape, HORIZONS, probe)
+                                variant_results.append(result)
+                                steps = sum(
+                                    item["actual_steps"]
+                                    for item in result["actions"].values()
+                                    if item is not None
+                                )
+                                counters["counterfactual_world_ticks"] += steps
+                                counters["counterfactual_agent_slots"] += steps * SNAKES
+                                counters["counterfactual_valid_transition_agent_slots"] += sum(
+                                    item["valid_agent_transitions"]
+                                    for item in result["actions"].values()
+                                    if item is not None
+                                )
+                                _append_jsonl(
+                                    raw,
+                                    {
+                                        "kind": "branch_result",
+                                        "world_id": world_id,
+                                        "pair_id": pair_id,
+                                        "variant": label,
+                                        "result": result,
+                                    },
+                                )
+                                _check_resources(started, counters)
+                            left, right = variant_results
                             left_values, right_values = _values(left), _values(right)
-                            steps = sum(
-                                item["actual_steps"]
-                                for item in left["actions"].values()
-                                if item is not None
-                            ) + sum(
-                                item["actual_steps"]
-                                for item in right["actions"].values()
-                                if item is not None
-                            )
-                            counters["counterfactual_world_ticks"] += steps
-                            counters["counterfactual_agent_slots"] += steps * SNAKES
-                            counters["counterfactual_valid_transition_agent_slots"] += sum(
-                                item["valid_agent_transitions"]
-                                for result in (left, right)
-                                for item in result["actions"].values()
-                                if item is not None
-                            )
-                            _check_resources(started, counters)
                             row.update(
                                 {
                                     "status": "accepted",
@@ -521,6 +531,8 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
                             )
                             counters["pairs"] += 1
                     _append_jsonl(raw, row)
+                    candidate_rows.add((world_id, frame))
+                    active_candidate = None
                     _append_jsonl(
                         heart,
                         {
@@ -546,9 +558,20 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
                     _append_jsonl(
                         raw, _candidate(world_id, frame, "not_reached", world_end_reason=end_reason)
                     )
+                    candidate_rows.add((world_id, frame))
             counters["worlds"] += 1
             seen.add(world_id)
             active_world = None
+            _append_jsonl(
+                raw,
+                {
+                    "kind": "world",
+                    "world_id": world_id,
+                    "status": "completed",
+                    "world_end_reason": end_reason,
+                    "natural_world_ticks": int(sim.frame[0]),
+                },
+            )
             _append_jsonl(
                 heart,
                 {
@@ -579,13 +602,22 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
             )
 
         development = aggregate_partition(expected[:DEVELOPMENT_WORLDS])
+        development.pop("decision", None)
+        development["decision_authority"] = False
+        development["scope"] = "descriptive_development_only"
         holdout = aggregate_partition(expected[DEVELOPMENT_WORLDS:])
         verify_manifest(manifest_path, manifest_sha256)
+        _check_resources(started, counters)
     except ResourceStop as exc:
         status, cause, development, holdout = "partial", str(exc), None, None
     except BaseException as exc:
         status, cause, development, holdout = "failed", f"{type(exc).__name__}: {exc}", None, None
     if status != "completed":
+        if active_candidate is not None:
+            unfinished = dict(active_candidate)
+            unfinished.update(status=status, reason=cause)
+            _append_jsonl(raw, unfinished)
+            candidate_rows.add((unfinished["world_id"], unfinished["frame"]))
         for index in range(WORLD_COUNT):
             world_id = f"world-{index:02d}"
             if world_id in seen:
@@ -596,18 +628,22 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
                 {
                     "kind": "world",
                     "world_id": world_id,
-                    "status": "partial" if current else "unrun",
+                    "status": status if current else "unrun",
                     "reason": status,
                 },
             )
             for frame in FRAMES:
-                if current and frame in active_reached:
+                if (world_id, frame) in candidate_rows:
                     continue
-                _append_jsonl(raw, _candidate(world_id, frame, "unrun", run_status=status))
+                _append_jsonl(
+                    raw, _candidate(world_id, frame, "unrun", status="unrun", run_status=status)
+                )
     try:
         final_resource = _resource_snapshot(started, counters)
     except ResourceStop as exc:
         final_resource = {"resource_error": str(exc), "counters": dict(counters)}
+        if status == "completed":
+            status, cause, development, holdout = "partial", str(exc), None, None
     terminal = {
         "schema": RUN_SCHEMA,
         "status": status,
@@ -618,6 +654,14 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
         "raw_sha256": sha256_file(raw) if raw.exists() else None,
         "development": development,
         "holdout": holdout,
+        "decision": (
+            holdout.get("decision", "INCONCLUSIVE_NOT_ADVANCED")
+            if status == "completed" and holdout is not None
+            else "INCONCLUSIVE_NOT_ADVANCED"
+        ),
+        "decision_scope": "completed_holdout_primary_horizon_only",
+        "counter_scope": "completed_natural_steps_and_completed_variant_evaluations",
+        "incomplete_variant_work_possible": status != "completed",
         "evaluation_started": False,
         "promotion_authority": False,
         "completed_world_count": len(seen),
