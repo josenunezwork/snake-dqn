@@ -335,6 +335,7 @@ def finite_action_returns(
         if not math.isfinite(rewards[0]):
             raise ValueError("finite probes reject non-finite branch rewards")
         actual_steps = 1
+        valid_agent_transitions = int(branch.get_transition_valid().sum())
         done = bool(branch.get_done()[0, hero])
         stop_cause: str | None = "hero_death" if done else None
         if stop_cause is None and bool(branch.population_floor_reached()[0]):
@@ -353,6 +354,7 @@ def finite_action_returns(
             actions = tape[index, 0].copy()
             branch.step(actions.reshape(1, branch.S))
             actual_steps += 1
+            valid_agent_transitions += int(branch.get_transition_valid().sum())
             reward = float(branch.get_reward()[0, hero])
             if not math.isfinite(reward):
                 raise ValueError("finite probes reject non-finite branch rewards")
@@ -375,6 +377,7 @@ def finite_action_returns(
             "discounted_return_by_horizon": values,
             "first_step": first,
             "actual_steps": actual_steps,
+            "valid_agent_transitions": valid_agent_transitions,
             "termination_cause": stop_cause,
             "termination_counts": {
                 "hero_death": int(stop_cause == "hero_death"),

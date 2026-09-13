@@ -150,6 +150,24 @@ def test_finite_returns_is_action_order_invariant() -> None:
     assert normal["actions"] == reversed_order["actions"]
 
 
+def test_finite_returns_reports_only_executed_valid_agent_transitions() -> None:
+    sim = _sim(snakes=4)
+    sim.alive[0, 3] = False
+    sim._refresh_action_masks(np.ones(1, dtype=bool))
+    tape = _tape(sim, 1)
+    direct = clone_sim(sim)
+    direct.step(tape[0])
+    expected_valid = int(direct.get_transition_valid().sum())
+
+    out = finite_action_returns(sim, 0, tape, (1,), ProbeConfig())
+    record = out["actions"][1]
+    assert record is not None
+    assert record["actual_steps"] == 1
+    assert record["valid_agent_transitions"] == expected_valid
+    assert record["valid_agent_transitions"] < record["actual_steps"] * sim.S
+    assert record["valid_agent_transitions"] <= record["actual_steps"] * sim.S
+
+
 @pytest.mark.parametrize("hero", (-1, True, 3))
 def test_finite_returns_rejects_invalid_hero_without_mutation(hero) -> None:
     sim = _sim()
