@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import pickle
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from src.core.seeding import derive_seed
+from src.evaluation import observation_probe
 
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -19,6 +21,207 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 cli = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(cli)
+
+
+def _tiny_manifest(monkeypatch: pytest.MonkeyPatch) -> dict:
+    """Freeze a deterministic, real-simulator-sized-down run protocol."""
+    monkeypatch.setattr(cli, "WORLD_COUNT", 2)
+    monkeypatch.setattr(cli, "DEVELOPMENT_WORLDS", 1)
+    monkeypatch.setattr(cli, "MAX_STEPS", 3)
+    monkeypatch.setattr(cli, "MAX_PAIRS", 4)
+    monkeypatch.setattr(cli, "FRAMES", (0, 1))
+    monkeypatch.setattr(cli, "HORIZONS", (1,))
+    monkeypatch.setattr(cli, "PRIMARY_HORIZON", 1)
+    monkeypatch.setattr(cli, "SNAKES", 6)
+    monkeypatch.setattr(cli, "TAPE_STEPS", 1)
+    manifest = cli.resolved_protocol("tiny-real-run", 2026091201, ROOT)
+    manifest["batch_config"].update({"initial_food": 0, "max_food": 0})
+    return manifest
+
+
+def _tiny_run_paths(tmp_path: Path) -> tuple[Path, Path]:
+    manifest = (tmp_path / "manifest.json").resolve()
+    manifest.write_text("{}")
+    return manifest, manifest.parent / "run"
+
+
+def _raw_rows(terminal: Path) -> list[dict]:
+    return [json.loads(line) for line in (terminal.parent / "raw.jsonl").read_text().splitlines()]
+
+
+def test_tiny_real_run_completes_all_worlds_with_full_h1_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _tiny_manifest(monkeypatch)
+    manifest_path, run_dir = _tiny_run_paths(tmp_path)
+    monkeypatch.setattr(cli, "verify_manifest", lambda *_: manifest)
+
+    terminal = cli.run(manifest_path, "a" * 64)
+    payload, rows = json.loads(terminal.read_text()), _raw_rows(terminal)
+    candidates = [row for row in rows if row.get("kind") == "candidate"]
+    branch_inputs = [row for row in rows if row.get("kind") == "branch_inputs"]
+    branch_results = [row for row in rows if row.get("kind") == "branch_result"]
+    worlds = [row for row in rows if row.get("kind") == "world"]
+
+    assert payload["status"] == "completed"
+    assert payload["completed_world_count"] == 2
+    assert {row["world_id"] for row in candidates} == {"world-00", "world-01"}
+    assert {(row["world_id"], row["frame"]) for row in candidates} == {
+        ("world-00", 0),
+        ("world-00", 1),
+        ("world-01", 0),
+        ("world-01", 1),
+    }
+    assert all(row["status"] == "accepted" and row["reason"] is None for row in candidates)
+    assert len(branch_inputs) == len(candidates) == 4
+    assert len(branch_results) == 8
+    assert worlds == [
+        {
+            "kind": "world",
+            "world_id": "world-00",
+            "status": "completed",
+            "world_end_reason": "step_cap",
+            "natural_world_ticks": 3,
+        },
+        {
+            "kind": "world",
+            "world_id": "world-01",
+            "status": "completed",
+            "world_end_reason": "step_cap",
+            "natural_world_ticks": 3,
+        },
+    ]
+    assert payload["counters"] == {
+        "worlds": 2,
+        "natural_world_ticks": 6,
+        "natural_agent_slots": 36,
+        "natural_valid_transition_agent_slots": 36,
+        "counterfactual_world_ticks": 24,
+        "counterfactual_agent_slots": 144,
+        "counterfactual_valid_transition_agent_slots": 144,
+        "pairs": 4,
+    }
+    assert run_dir.is_dir()
+    for row in branch_inputs:
+        for key in ("left_snapshot_path", "right_snapshot_path", "tape_path"):
+            path = Path(row[key])
+            assert path.is_file()
+            with path.open("rb") as handle:
+                pickle.load(handle)
+    for row in candidates:
+        for result_key in ("left_returns", "right_returns"):
+            result = row[result_key]
+            assert result["horizons_are_total_executed_steps"] is True
+            assert result["source_fingerprint"]
+            for action in (0, 1, 2):
+                record = result["actions"][str(action)]
+                assert record["actual_steps"] == 1
+                assert record["valid_agent_transitions"] == 6
+                assert record["discounted_return_by_horizon"] == {
+                    "1": record["first_step"]["reward"]
+                }
+
+
+def test_tiny_real_run_final_manifest_drift_suppresses_holdout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _tiny_manifest(monkeypatch)
+    manifest_path, _ = _tiny_run_paths(tmp_path)
+    calls = 0
+
+    def drift_on_final_verify(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 4:  # initial verification + one per world + final verification
+            raise RuntimeError("approved semantic projection drift: final")
+        return manifest
+
+    monkeypatch.setattr(cli, "verify_manifest", drift_on_final_verify)
+    payload = json.loads(cli.run(manifest_path, "a" * 64).read_text())
+    assert calls == 4
+    assert payload["status"] == "failed"
+    assert "projection drift" in payload["cause"]
+    assert payload["completed_world_count"] == 2
+    assert payload["development"] is None
+    assert payload["holdout"] is None
+
+
+def test_tiny_real_run_persistent_psutil_failure_is_terminal_resource_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _tiny_manifest(monkeypatch)
+    manifest_path, _ = _tiny_run_paths(tmp_path)
+    monkeypatch.setattr(cli, "verify_manifest", lambda *_: manifest)
+    monkeypatch.setattr(
+        cli.psutil,
+        "virtual_memory",
+        lambda: (_ for _ in ()).throw(cli.psutil.Error("unavailable")),
+    )
+
+    payload = json.loads(cli.run(manifest_path, "a" * 64).read_text())
+    assert payload["status"] == "partial"
+    assert payload["cause"].startswith("available_memory_unavailable")
+    assert payload["completed_world_count"] == 0
+    assert payload["resource"]["resource_error"].startswith("available_memory_unavailable")
+
+
+def test_tiny_real_run_branch_exception_retains_inputs_and_marks_active_candidate_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _tiny_manifest(monkeypatch)
+    manifest_path, _ = _tiny_run_paths(tmp_path)
+    monkeypatch.setattr(cli, "verify_manifest", lambda *_: manifest)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("injected finite branch failure")
+
+    monkeypatch.setattr(observation_probe, "finite_action_returns", boom)
+    terminal = cli.run(manifest_path, "a" * 64)
+    payload, rows = json.loads(terminal.read_text()), _raw_rows(terminal)
+    inputs = [row for row in rows if row.get("kind") == "branch_inputs"]
+    current = [
+        row
+        for row in rows
+        if row.get("kind") == "candidate" and row["world_id"] == "world-00" and row["frame"] == 0
+    ]
+
+    assert payload["status"] == "failed"
+    assert len(inputs) == 1
+    assert all(
+        Path(inputs[0][key]).is_file()
+        for key in ("left_snapshot_path", "right_snapshot_path", "tape_path")
+    )
+    assert len(current) == 1
+    assert current[0]["status"] == "failed"
+    assert current[0]["reason"] == "RuntimeError: injected finite branch failure"
+    assert any(row.get("world_id") == "world-01" and row.get("status") == "unrun" for row in rows)
+
+
+def test_tiny_real_run_last_resource_snapshot_failure_downgrades_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest = _tiny_manifest(monkeypatch)
+    manifest_path, _ = _tiny_run_paths(tmp_path)
+    monkeypatch.setattr(cli, "verify_manifest", lambda *_: manifest)
+    monkeypatch.setattr(cli, "_check_resources", lambda *_: {})
+    snapshots = 0
+
+    def snapshot(*_args):
+        nonlocal snapshots
+        snapshots += 1
+        if snapshots == 7:  # Four candidate and two world-complete heartbeats, then terminal.
+            raise cli.ResourceStop("available_memory_unavailable:final")
+        return {"elapsed_seconds": 0.0, "rss_bytes": 0, "available_bytes": 2**63 - 1}
+
+    monkeypatch.setattr(cli, "_resource_snapshot", snapshot)
+    payload = json.loads(cli.run(manifest_path, "a" * 64).read_text())
+    assert snapshots == 7
+    assert payload["status"] == "partial"
+    assert payload["cause"] == "available_memory_unavailable:final"
+    assert payload["completed_world_count"] == 2
+    assert payload["development"] is None and payload["holdout"] is None
+    assert payload["decision"] == "INCONCLUSIVE_NOT_ADVANCED"
+    assert payload["incomplete_variant_work_possible"] is True
 
 
 def test_tape_is_joint_normal_action_only_and_deterministic() -> None:
