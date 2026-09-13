@@ -226,6 +226,8 @@ suite runs alone with at most two pytest workers. `make test-fast` uses
   — dated results, corrected historical claims, and provenance.
 - [RL research portfolio](docs/experiments/rl_research_portfolio_2026-09-12/README.md)
   — experiment ledger, retained failures, measured outcomes, and parallel research waves.
+- [Living-mass reward experiment](docs/experiments/mass_objective_2026-09-13/README.md)
+  — four bounded training arms; a promising first gain reversed on the fresh seed.
 - [PQN decision-phase contract](docs/pqn_decision_phase_2026-09-12.md)
   — opt-in training/evaluation alignment and its CPU/MPS qualification.
 - [SIMD environment contract](docs/simd_env_spec.md) — documented simulator
