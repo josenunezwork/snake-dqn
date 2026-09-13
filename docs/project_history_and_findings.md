@@ -4,10 +4,16 @@ This concise evidence record separates dated observations from current promotion
 status. For the September operational cleanup, see
 [Codebase quality handoff](codebase_quality_2026-09.md).
 
+The [September RL research portfolio](experiments/rl_research_portfolio_2026-09-12/README.md)
+records newer sampler, lifecycle, observation, and decision-phase work. Its
+experiment ledger includes failed and capped attempts, source and seed identity,
+resource measurements, outcomes, and the next question each result supports.
+
 ## Current status
 
-Apex with `vector61` is the incumbent. Raster/PQN uses `raster31v2` and is an
-unpromoted candidate path. [`tournament_eval.py`](../src/scripts/tournament_eval.py)
+Apex with `vector61` is the incumbent. Raster/PQN uses `raster31v2` or the opt-in
+corrected `raster31v3` contract and remains an unpromoted candidate path.
+[`tournament_eval.py`](../src/scripts/tournament_eval.py)
 is the promotion authority: a candidate needs a positive paired mass-integral
 confidence interval on at least two opponent mixes and no regression against the
 scripted anchor. The [redesign blueprint](ml_redesign_blueprint_2026-07.md) is

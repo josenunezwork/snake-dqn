@@ -11,15 +11,17 @@ silently reinterpreted.
 The opt-in path addresses a confirmed trainer/evaluation/serving phase
 discrepancy. It is an implementation and contract change, not a learning
 result, an algorithm comparison, a promotion candidate, or a claim that every
-old decision was wrong. The bounded CPU/MPS five-update qualification and
-independent receipt review are still pending at the time this note was written.
+old decision was wrong. Focused contract tests and the CPU non-slow suite have
+passed. The bounded CPU and MPS five-update executions completed, and the
+independent receipt audit passed for engineering qualification.
 
 ## Confirmed witness and its limit
 
 The completed fixed-seed phase witness compared the trainer's action-observation
 boundary with the prepared policy boundary. It observed a change in food count
-from 1 to 2 and frame/episode-progress from 0 to 1 before the prepared policy
-observation, while the original trainer decision observation remained
+from 1 to 2, frame from 0 to 1, and the normalized episode-progress scalar
+from 0 to 0.0002 before the prepared policy observation, while the original
+trainer decision observation remained
 pre-transition. The retained v4 evidence is
 [the witness JSON](</Users/josenunez/Projects/ml/snake-dqn-artifacts/research-portfolio-20260912/phase-witness/runs/phase-witness-v4.json>)
 and [its supervision receipt](</Users/josenunez/Projects/ml/snake-dqn-artifacts/research-portfolio-20260912/supervisor-runs/phase-witness-v4/receipt.json>).
@@ -93,35 +95,40 @@ The equivalent CLI override is:
 --decision-phase-mode watch_pre_move_v1
 ```
 
-This bounded CPU qualification template is illustrative only. It must be run
-only from a new frozen execution directory with an approved manifest, explicit
-seed, resource supervisor, and terminal-receipt destination; it is not an
-instruction to start a new experiment in an arbitrary working directory.
+For an experiment, freeze the source revision, complete configuration, seeds,
+and output directory before starting it. Keep the terminal receipt and raw
+telemetry with the output so a later comparison can distinguish a completed
+run from a stopped or capped one.
 
 ```bash
-SNAKE_DQN_DEVICE=cpu /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python \
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 SNAKE_DQN_DEVICE=cpu \
+  /Users/josenunez/Projects/ml/snake-dqn/venv/bin/python \
   src/scripts/train_pqn.py \
   --recipe corrected-v3 \
   --device cpu \
+  --envs 16 \
+  --snakes 6 \
+  --rollout-len 16 \
   --decision-phase-mode watch_pre_move_v1 \
-  --total-steps FROZEN_TINY_USEFUL_STEP_TARGET \
-  --seed FROZEN_SEED \
-  --out-dir FROZEN_NEW_EXECUTION_DIRECTORY \
+  --total-steps 1280 \
+  --seed 20260912 \
+  --out-dir runs/pqn_watch_example \
   --ckpt-every 0
 ```
 
-Use the CLI only after checking that every recipe/world/lifecycle argument is
-also frozen by the manifest. The old LP1 runner is deferred and must not be
-reused under the new mode; any later 50,000-step study needs a new source/config
-closure, new seed ledger, and a newly approved budget.
+This example demonstrates configuration only; it is not a policy-quality or
+promotion run. The old LP1 runner is deferred and must not be reused under the
+new mode. Any later 50,000-step study needs a new source/configuration closure
+and seed ledger so its result cannot be mistaken for the legacy plan.
 
 ## Provenance and continuation boundary
 
 The Watch checkpoint writes `decision_phase_mode: watch_pre_move_v1` and uses
 the target-contract version
 `pqn-qlambda-corrected-v3-lifecycle-decision-v1`. Its target descriptor includes
-the three phase values above; the lifecycle policy-source descriptor also binds
-the decision phase. The metadata validator rejects a Watch target that lacks
+the three phase values above. `RunProvenance` binds those target semantics
+through the target descriptor and digest; the policy-source descriptor and
+sampler contract are unchanged. The metadata validator rejects a Watch target that lacks
 the matching top-level phase field, and rejects a legacy lifecycle target that
 claims to carry one.
 
@@ -138,23 +145,29 @@ trained on Watch-prepared states.
 
 ## Qualification status
 
-Source implementation and focused tests are being completed in a dedicated
-worktree. This documentation does not convert a source edit or a test log into
-a green qualification. The durable execution root for this repair is
+The source implementation is committed in a dedicated worktree (`ec39ece`,
+with test-fixture correction `b760b40`). This documentation does not convert a
+source edit or a test log into a green policy qualification. The durable
+execution root for this repair is
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/decision-phase-20260912`.
 
 | Check | Required evidence | Status in this document |
 | --- | --- | --- |
 | Fixed phase witness | Frozen inputs, raw pre/post observations and masks, supervised terminal receipt | Complete; establishes phase difference only |
-| Legacy default compatibility | Explicit legacy regression and old-contract checkpoint checks | Pending final receipt review |
-| Watch selection/transition parity | Prepared observation and selected action must be the executed Watch transition | Pending final receipt review |
-| Target boundaries | Continuing prepared successor, terminal post-transition handling, and discarded preview clone | Pending final receipt review |
-| CLI/YAML/config validation | Accepted opt-in, rejected unsupported mode/recipe combinations | Pending final receipt review |
-| Checkpoint/provenance | Exact phase fields and target version; tampering rejected | Pending final receipt review |
-| Cross-phase continuation | Both directions reject before state installation | Pending final receipt review |
-| CPU and MPS qualifier | One bounded five-update run per approved device with supervision/resource receipts | Pending root execution and independent review |
+| Legacy default compatibility | Explicit legacy regression and old-contract checkpoint checks | Focused regression and lifecycle-contract tests pass; receipt review remains part of the device qualifier |
+| Watch selection/transition parity | Prepared observation and selected action must be the executed Watch transition | Focused decision-phase tests pass |
+| Target boundaries | Continuing prepared successor, terminal post-transition handling, and discarded preview clone | Focused decision-phase tests pass |
+| CLI/YAML/config validation | Accepted opt-in, rejected unsupported mode/recipe combinations | Focused contract tests pass |
+| Checkpoint/provenance | Exact phase fields and target version; tampering rejected | Focused contract and continuation tests pass |
+| Cross-phase continuation | Both directions reject before state installation | Focused continuation tests pass |
+| CPU non-slow suite | Broad regression check excluding marked slow tests | 2,684 passed; 6 skipped; 3 deselected; 1 warning in 95.36 s (96.43 s supervised wall time), with no source drift |
+| CPU and MPS qualifier | One bounded five-update run per device with supervision/resource receipts | Both completed naturally without source/driver drift: 1,280 hero transitions and five updates per device; coverage was eligible/drawn/unique = 1,280/1,280/1,280, weights changed, and serialized strict-profile checkpoint validation passed. CPU: 6.61 s worker / 6.96 s supervised wall, peak RSS 737 MB. MPS: 5.26 s worker / 5.71 s supervised wall, peak RSS 713 MB and peak MPS driver memory 1.16 GB. The different seeds mean these times are not a speed comparison. The [independent audit](</Users/josenunez/Projects/ml/snake-dqn-artifacts/decision-phase-20260912/independent-audit/phase-qualification-v1.md>) passed engineering qualification. |
 
-No row above permits a promotion, a long training campaign, or a claim that the
-new mode improves policy quality. If the CPU/MPS qualification passes, the next
-action is to freeze a successor LP1 protocol; it is not to resume or relabel
-the deferred pre-transition LP1 plan.
+Neither brief smoke completed an episode or performed evaluation steps. The
+autoreset boundary is covered by the focused contract tests, not demonstrated
+by these five updates. The device runs establish bounded training/checkpoint
+health only; they do not establish policy quality.
+
+The evidence above does not establish a policy-quality improvement or a
+promotion. A later learnability study should use a successor LP1 protocol; it
+must not resume or relabel the deferred pre-transition plan.
