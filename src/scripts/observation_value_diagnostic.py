@@ -374,6 +374,8 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
     }
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
+    active_world: str | None = None
+    active_reached: set[int] = set()
     started, status, cause = time.monotonic(), "completed", "natural_collection_complete"
     try:
         probe = ProbeConfig(**manifest["probe_config"])
@@ -382,6 +384,7 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
             verify_manifest(manifest_path, manifest_sha256)
             _check_resources(started, counters)
             world_id, reached, end_reason = f"world-{index:02d}", set(), "step_cap"
+            active_world, active_reached = world_id, reached
             sim = BatchSim(config, seeds=[world_seed], train_mode=True, allow_respawn=False)
             policies = [
                 (
@@ -545,6 +548,7 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
                     )
             counters["worlds"] += 1
             seen.add(world_id)
+            active_world = None
             _append_jsonl(
                 heart,
                 {
@@ -586,11 +590,24 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
             world_id = f"world-{index:02d}"
             if world_id in seen:
                 continue
+            current = world_id == active_world
             _append_jsonl(
-                raw, {"kind": "world", "world_id": world_id, "status": "unrun", "reason": status}
+                raw,
+                {
+                    "kind": "world",
+                    "world_id": world_id,
+                    "status": "partial" if current else "unrun",
+                    "reason": status,
+                },
             )
             for frame in FRAMES:
+                if current and frame in active_reached:
+                    continue
                 _append_jsonl(raw, _candidate(world_id, frame, "unrun", run_status=status))
+    try:
+        final_resource = _resource_snapshot(started, counters)
+    except ResourceStop as exc:
+        final_resource = {"resource_error": str(exc), "counters": dict(counters)}
     terminal = {
         "schema": RUN_SCHEMA,
         "status": status,
@@ -604,7 +621,7 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
         "evaluation_started": False,
         "promotion_authority": False,
         "completed_world_count": len(seen),
-        "resource": _resource_snapshot(started, counters),
+        "resource": final_resource,
     }
     terminal["terminal_digest"] = digest_without(terminal, "terminal_digest")
     terminal_path = out / "terminal.json"
