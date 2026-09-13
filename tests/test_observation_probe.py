@@ -150,6 +150,51 @@ def test_finite_returns_is_action_order_invariant() -> None:
     assert normal["actions"] == reversed_order["actions"]
 
 
+@pytest.mark.parametrize("hero", (-1, True, 3))
+def test_finite_returns_rejects_invalid_hero_without_mutation(hero) -> None:
+    sim = _sim()
+    before = full_state_digest(sim)
+    with pytest.raises(ValueError):
+        finite_action_returns(sim, hero, _tape(sim), (1,), ProbeConfig())
+    assert full_state_digest(sim) == before
+
+
+def test_finite_returns_rejects_multi_env_and_invalid_config_before_sim_access() -> None:
+    sim = BatchSim(BatchSimConfig(num_envs=2, num_snakes=2), seeds=[1, 2], train_mode=True)
+    before = full_state_digest(sim)
+    with pytest.raises(ValueError, match="num_envs"):
+        finite_action_returns(sim, 0, _tape(sim), (1,), ProbeConfig())
+    assert full_state_digest(sim) == before
+    with pytest.raises(ValueError, match="gamma"):
+        finite_action_returns(_sim(), 0, _tape(_sim()), (1,), ProbeConfig(gamma=0.0))
+
+
+@pytest.mark.parametrize(
+    "action_order",
+    [(0, True, 2, 3, 4, 5), (0, 1.0, 2, 3, 4, 5)],
+)
+def test_finite_returns_rejects_non_integer_action_order_without_mutation(action_order) -> None:
+    sim = _sim()
+    before = full_state_digest(sim)
+    with pytest.raises(ValueError, match="built-in integer"):
+        finite_action_returns(sim, 0, _tape(sim), (1,), ProbeConfig(), action_order=action_order)
+    assert full_state_digest(sim) == before
+
+
+def test_finite_returns_rejects_nonfinite_branch_rewards_without_mutation(monkeypatch) -> None:
+    sim = _sim()
+    before = full_state_digest(sim)
+    original = BatchSim.get_reward
+    monkeypatch.setattr(
+        BatchSim,
+        "get_reward",
+        lambda branch: np.full_like(original(branch), np.inf, dtype=np.float64),
+    )
+    with pytest.raises(ValueError, match="non-finite branch rewards"):
+        finite_action_returns(sim, 0, _tape(sim), (1,), ProbeConfig())
+    assert full_state_digest(sim) == before
+
+
 def test_finite_returns_rejects_dead_floor_capped_and_gamma_mismatch_without_mutation() -> None:
     sim = _sim(snakes=6)
     before = full_state_digest(sim)

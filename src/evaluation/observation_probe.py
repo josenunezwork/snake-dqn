@@ -291,6 +291,7 @@ def finite_action_returns(
     stop are zero by definition.  No branch is
     reset or bootstrapped, and no return is an optimal or learned value claim.
     """
+    _validate_single_hero(sim, hero, config)
     horizon_values = tuple(horizons)
     if not horizon_values or any(
         not isinstance(h, int) or isinstance(h, bool) or h <= 0 for h in horizon_values
@@ -300,6 +301,8 @@ def finite_action_returns(
         raise ValueError("horizons must not contain duplicates")
     tape = _validate_tape(joint_actions, sim, horizon_values)
     order = tuple(action_order)
+    if len(order) != 6 or any(type(action) is not int for action in order):
+        raise ValueError("action_order must contain six built-in integer actions")
     if sorted(order) != list(range(6)):
         raise ValueError("action_order must be a permutation of actions 0..5")
     if not (sim.train_mode and not sim.allow_respawn and sim.v2):
@@ -329,6 +332,8 @@ def finite_action_returns(
         actions[hero] = action
         branch.step(actions.reshape(1, branch.S))
         rewards = [float(branch.get_reward()[0, hero])]
+        if not math.isfinite(rewards[0]):
+            raise ValueError("finite probes reject non-finite branch rewards")
         actual_steps = 1
         done = bool(branch.get_done()[0, hero])
         stop_cause: str | None = "hero_death" if done else None
@@ -349,6 +354,8 @@ def finite_action_returns(
             branch.step(actions.reshape(1, branch.S))
             actual_steps += 1
             reward = float(branch.get_reward()[0, hero])
+            if not math.isfinite(reward):
+                raise ValueError("finite probes reject non-finite branch rewards")
             rewards.append(reward)
             if bool(branch.get_done()[0, hero]):
                 stop_cause = "hero_death"
@@ -362,6 +369,8 @@ def finite_action_returns(
             )
             for horizon in horizon_values
         }
+        if any(not math.isfinite(value) for value in values.values()):
+            raise ValueError("finite probes reject non-finite discounted returns")
         records[action] = {
             "discounted_return_by_horizon": values,
             "first_step": first,
