@@ -73,6 +73,7 @@ from src.evaluation.anchors import (  # noqa: E402
     SCRIPTED_ANCHOR_VERSION,
     AnchorContext,
     ScriptedAnchor,
+    watch_anchor_frame,
 )
 from src.evaluation.artifacts import EvaluationArtifacts, SnapshotError  # noqa: E402
 from src.evaluation.metrics import (  # noqa: E402
@@ -443,7 +444,7 @@ def _attach_agent(
                     slot=slot,
                     # GameState increments before agents act; the shared SIMD
                     # anchor observes its pre-step frame counter.
-                    frame=int(gs.frame) - 1,
+                    frame=watch_anchor_frame(int(gs.frame)),
                     head_cell=(
                         int(self.head[0] // self.segment_size),
                         int(self.head[1] // self.segment_size),

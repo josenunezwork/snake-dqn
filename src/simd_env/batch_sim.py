@@ -279,6 +279,16 @@ class BatchSim:
         """Current head cell (col, row) per snake, shape (E, S, 2)."""
         return self._segments_at(np.zeros((self.E, self.S), dtype=np.int64))
 
+    def get_world_seeds(self) -> Tuple[int, ...]:
+        """Return immutable current unsigned world seeds in environment order.
+
+        ``reset_envs(..., seeds=...)`` replaces only selected lane seeds, so
+        observers must read this accessor at action time rather than retain the
+        constructor assignment.  Python ``int`` values preserve the full
+        unsigned-64-bit range used by the reset contract.
+        """
+        return tuple(int(seed) for seed in self._seeds)
+
     # ==================================================================
     # Reset / spawn
     # ==================================================================

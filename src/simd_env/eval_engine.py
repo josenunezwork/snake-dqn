@@ -38,7 +38,7 @@ import numpy as np
 
 from src.core.runtime_contract import RuntimeModeContract
 from src.core.world_runtime import WorldRuntimeSpec
-from src.evaluation.anchors import AnchorContext, ScriptedAnchor
+from src.evaluation.anchors import AnchorContext, ScriptedAnchor, watch_anchor_frame
 from src.evaluation.metrics import (
     EvaluationMetricsAccumulator,
     PostStepState,
@@ -251,7 +251,7 @@ class _ProfileAnchorSimdPolicy(SimdPolicy):
                 AnchorContext(
                     world_seed=self._world_seeds[env_i],
                     slot=slot_i,
-                    frame=int(sim.frame[env_i]) - 1,
+                    frame=watch_anchor_frame(int(sim.frame[env_i])),
                     head_cell=tuple(int(v) for v in heads[env_i, slot_i]),
                     heading=tuple(int(v) for v in headings[env_i, slot_i]),
                     food_cells=tuple(tuple(int(v) for v in cell) for cell in sim.get_food(env_i)),

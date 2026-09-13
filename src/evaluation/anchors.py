@@ -11,6 +11,24 @@ SCRIPTED_ANCHOR_VERSION = "scripted-anchor/v1"
 SCRIPTED_ANCHOR_KINDS = ("greedy_food", "random_safe")
 
 
+def watch_anchor_frame(prepared_frame: int) -> int:
+    """Return the canonical anchor clock for a prepared Watch decision.
+
+    ``BatchSim.step_with_policy`` and the live ``GameState`` prepare a Watch
+    decision by incrementing their public frame counter before policies act.
+    Scripted-anchor/v1 is keyed to the corresponding transition frame, whose
+    zero-based clock is therefore one less than that prepared counter.
+    """
+    if isinstance(prepared_frame, (bool, np.bool_)) or not isinstance(
+        prepared_frame, (int, np.integer)
+    ):
+        raise ValueError("prepared_frame must be a non-boolean integer")
+    value = int(prepared_frame)
+    if value < 1:
+        raise ValueError("prepared_frame must be at least 1")
+    return value - 1
+
+
 @dataclass(frozen=True)
 class AnchorContext:
     """Canonical state required for one anchor decision.
