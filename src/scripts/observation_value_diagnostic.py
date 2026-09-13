@@ -434,16 +434,34 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
                             pair_id = f"{world_id}-f{frame}"
                             tape_seed = manifest["seeds"]["tape"][f"{world_id}/frame-{frame}"]
                             tape = _tape(tape_seed, TAPE_STEPS, SNAKES)
-                            left, right = finite_action_returns(
-                                sim, hero, tape, HORIZONS, probe
-                            ), finite_action_returns(twin, hero, tape, HORIZONS, probe)
-                            left_values, right_values = _values(left), _values(right)
                             pair_dir = out / "pairs"
                             pair_dir.mkdir(exist_ok=True)
                             left_path, right_path, tape_path = (
                                 pair_dir / f"{pair_id}-{kind}.pkl"
                                 for kind in ("left", "right", "tape")
                             )
+                            left_hash = _persist_new(left_path, clone_sim(sim))
+                            right_hash = _persist_new(right_path, clone_sim(twin))
+                            tape_hash = _persist_new(tape_path, tape)
+                            _append_jsonl(
+                                raw,
+                                {
+                                    "kind": "branch_inputs",
+                                    "world_id": world_id,
+                                    "pair_id": pair_id,
+                                    "status": "persisted",
+                                    "left_snapshot_path": str(left_path),
+                                    "left_snapshot_sha256": left_hash,
+                                    "right_snapshot_path": str(right_path),
+                                    "right_snapshot_sha256": right_hash,
+                                    "tape_path": str(tape_path),
+                                    "tape_sha256": tape_hash,
+                                },
+                            )
+                            left, right = finite_action_returns(
+                                sim, hero, tape, HORIZONS, probe
+                            ), finite_action_returns(twin, hero, tape, HORIZONS, probe)
+                            left_values, right_values = _values(left), _values(right)
                             steps = sum(
                                 item["actual_steps"]
                                 for item in left["actions"].values()
@@ -470,13 +488,11 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
                                     "new_heading": (old + 1) % 4,
                                     "geometric_twin_only": True,
                                     "left_snapshot_path": str(left_path),
-                                    "left_snapshot_sha256": _persist_new(left_path, clone_sim(sim)),
+                                    "left_snapshot_sha256": left_hash,
                                     "right_snapshot_path": str(right_path),
-                                    "right_snapshot_sha256": _persist_new(
-                                        right_path, clone_sim(twin)
-                                    ),
+                                    "right_snapshot_sha256": right_hash,
                                     "tape_path": str(tape_path),
-                                    "tape_sha256": _persist_new(tape_path, tape),
+                                    "tape_sha256": tape_hash,
                                     "tape_seed": tape_seed,
                                     "left_obs_digest": _obs_digest(observe_hero(sim, hero, probe)),
                                     "right_obs_digest": _obs_digest(
@@ -566,6 +582,16 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
         status, cause, development, holdout = "partial", str(exc), None, None
     except BaseException as exc:
         status, cause, development, holdout = "failed", f"{type(exc).__name__}: {exc}", None, None
+    if status != "completed":
+        for index in range(WORLD_COUNT):
+            world_id = f"world-{index:02d}"
+            if world_id in seen:
+                continue
+            _append_jsonl(
+                raw, {"kind": "world", "world_id": world_id, "status": "unrun", "reason": status}
+            )
+            for frame in FRAMES:
+                _append_jsonl(raw, _candidate(world_id, frame, "unrun", run_status=status))
     terminal = {
         "schema": RUN_SCHEMA,
         "status": status,
