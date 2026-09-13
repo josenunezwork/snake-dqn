@@ -30,6 +30,7 @@ for _thread_key in _THREAD_KEYS:
     os.environ.setdefault(_thread_key, "1")
 
 import numpy as np  # noqa: E402
+import psutil  # noqa: E402
 
 from src.core.seeding import derive_seed  # noqa: E402
 
@@ -82,7 +83,7 @@ def _atomic_json(path: Path, value: Any) -> None:
             handle.write(canonical(_jsonable(value)) + b"\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        os.link(temporary, path)
     finally:
         if temporary.exists():
             temporary.unlink()
@@ -203,6 +204,8 @@ def freeze(out_dir: Path, source_revision: str, seed_root: int) -> Path:
         raise FileExistsError("freeze output must be a new absolute directory")
     if not _clean_revision(_REPO_ROOT, source_revision):
         raise RuntimeError("source revision is not the clean frozen checkout")
+    if any(os.environ.get(key) != "1" for key in _THREAD_KEYS):
+        raise RuntimeError("diagnostic requires one numerical thread")
     manifest = resolved_protocol(source_revision, seed_root, _REPO_ROOT)
     manifest["manifest_digest"] = digest_without(manifest, "manifest_digest")
     out_dir.mkdir(parents=True)
@@ -231,6 +234,8 @@ def verify_manifest(path: Path, expected_sha256: str) -> dict[str, Any]:
         or manifest.get("numpy") != np.__version__
     ):
         raise RuntimeError("runtime version drift")
+    if any(os.environ.get(key) != "1" for key in _THREAD_KEYS):
+        raise RuntimeError("diagnostic requires one numerical thread")
     if source_closure(repo) != manifest["source_closure"]:
         raise RuntimeError("frozen source closure drift")
     expected = resolved_protocol(manifest["source_revision"], manifest["seeds"]["root"], repo)
@@ -282,9 +287,9 @@ def _rss_bytes() -> int:
 
 def _available_bytes() -> int:
     try:
-        return int(os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE"))
-    except (AttributeError, OSError, ValueError):
-        return 2**63 - 1
+        return int(psutil.virtual_memory().available)
+    except (psutil.Error, OSError) as exc:
+        raise ResourceStop(f"available_memory_unavailable:{type(exc).__name__}") from exc
 
 
 def _resource_snapshot(started: float, counters: Mapping[str, int]) -> dict[str, Any]:
@@ -556,6 +561,7 @@ def run(manifest_path: Path, manifest_sha256: str) -> Path:
 
         development = aggregate_partition(expected[:DEVELOPMENT_WORLDS])
         holdout = aggregate_partition(expected[DEVELOPMENT_WORLDS:])
+        verify_manifest(manifest_path, manifest_sha256)
     except ResourceStop as exc:
         status, cause, development, holdout = "partial", str(exc), None, None
     except BaseException as exc:
