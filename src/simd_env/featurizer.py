@@ -282,6 +282,20 @@ _V3_CODE_BY_PRIORITY = np.array(
     ],
     dtype=np.uint8,
 )
+_V3_PRIORITY_BY_CODE = np.array(
+    [
+        _V3_PRIORITY[CODE_EMPTY],
+        _V3_PRIORITY[CODE_WALL],
+        _V3_PRIORITY[CODE_AMBIENT_FOOD],
+        _V3_PRIORITY[CODE_CORPSE_FOOD],
+        _V3_PRIORITY[CODE_ENEMY_PRED],
+        _V3_PRIORITY[CODE_OWN_BODY],
+        _V3_PRIORITY[CODE_ENEMY_BODY],
+        _V3_PRIORITY[CODE_ENEMY_HEAD],
+        _V3_PRIORITY[CODE_OWN_HEAD],
+    ],
+    dtype=np.uint32,
+)
 
 
 def _paint(
@@ -327,21 +341,32 @@ def _paint(
         if np.ndim(value):
             value = value[inb]
     if corrected:
-        codes = np.full(len(ei), int(code), dtype=np.int32) if scalar_code else np.asarray(code)
+        codes = (
+            np.full(len(ei), int(code), dtype=np.intp)
+            if scalar_code
+            else np.asarray(code, dtype=np.intp)
+        )
+        if np.any(codes < 0) or np.any(codes >= len(_V3_PRIORITY_BY_CODE)):
+            raise ValueError("Corrected tactical paint code is outside the supported range")
         values = (
             np.full(len(ei), int(value), dtype=np.uint16)
             if np.ndim(value) == 0
-            else np.asarray(value)
+            else np.asarray(value, dtype=np.uint16)
         )
-        ranks = np.asarray([_V3_PRIORITY[int(item)] for item in codes], dtype=np.int32)
-        for index in range(len(ei)):
-            current = code_plane[ei[index], si[index], row[index], col[index]]
-            current_value = val_plane[ei[index], si[index], row[index], col[index]]
-            if ranks[index] > current or (
-                ranks[index] == current and values[index] > current_value
-            ):
-                code_plane[ei[index], si[index], row[index], col[index]] = ranks[index]
-                val_plane[ei[index], si[index], row[index], col[index]] = values[index]
+        ranks = _V3_PRIORITY_BY_CODE[codes]
+        # Each rank/value pair occupies one uint32, so np.maximum.at resolves
+        # incoming collisions lexicographically and against the resident cell.
+        # The 16-bit value field matches val_plane's full range (not only the
+        # final uint8 raster byte). The one-plane scratch scales with tactical
+        # output cells, rather than source count or MAXLEN.
+        packed = np.ascontiguousarray(code_plane, dtype=np.uint32)
+        packed <<= 16
+        packed |= val_plane
+        flat = ((ei * code_plane.shape[1] + si) * size + row) * size + col
+        incoming = (ranks << 16) | values.astype(np.uint32)
+        np.maximum.at(packed.reshape(-1), flat, incoming)
+        code_plane[...] = packed >> 16
+        val_plane[...] = packed & np.iinfo(np.uint16).max
         return
     if scalar_code:
         # Uniform code: last-write-wins by position is identical to the old
