@@ -114,3 +114,78 @@ def test_aggregate_rejects_duplicate_unknown_and_malformed_records() -> None:
         aggregate_world_metrics(
             [{"world_id": "w0", "pair_id": "p0"}], expected_world_ids=["w0"], bootstrap_seed=1
         )
+
+
+def _aggregate_rows(
+    world_count: int, *, regret: float, disjoint_world_count: int
+) -> tuple[list[dict[str, object]], list[str]]:
+    expected = [f"w{index}" for index in range(world_count)]
+    rows = [
+        {
+            "world_id": world_id,
+            "pair_id": "p0",
+            "metrics": {
+                "best_common_action_regret": regret,
+                "disjoint_best_sets": index < disjoint_world_count,
+            },
+        }
+        for index, world_id in enumerate(expected)
+    ]
+    return rows, expected
+
+
+def test_exact_regret_lower_bound_threshold_does_not_advance() -> None:
+    rows, expected = _aggregate_rows(8, regret=0.01, disjoint_world_count=3)
+    result = aggregate_world_metrics(rows, expected_world_ids=expected, bootstrap_seed=13)
+    assert result["best_common_action_regret_l95"] == pytest.approx(0.01)
+    assert result["decision"] == "INCONCLUSIVE_NOT_ADVANCED"
+
+
+def test_eligible_world_threshold_requires_eight_worlds() -> None:
+    seven_rows, seven_expected = _aggregate_rows(7, regret=0.2, disjoint_world_count=3)
+    eight_rows, eight_expected = _aggregate_rows(8, regret=0.2, disjoint_world_count=3)
+    assert (
+        aggregate_world_metrics(seven_rows, expected_world_ids=seven_expected, bootstrap_seed=5)[
+            "decision"
+        ]
+        == "INCONCLUSIVE_NOT_ADVANCED"
+    )
+    assert (
+        aggregate_world_metrics(eight_rows, expected_world_ids=eight_expected, bootstrap_seed=5)[
+            "decision"
+        ]
+        == "ADVANCE_INFORMATION_DIAGNOSTIC"
+    )
+
+
+def test_disjoint_world_threshold_requires_three_distinct_worlds() -> None:
+    two_rows, expected = _aggregate_rows(8, regret=0.2, disjoint_world_count=2)
+    three_rows, _ = _aggregate_rows(8, regret=0.2, disjoint_world_count=3)
+    assert (
+        aggregate_world_metrics(two_rows, expected_world_ids=expected, bootstrap_seed=5)["decision"]
+        == "INCONCLUSIVE_NOT_ADVANCED"
+    )
+    assert (
+        aggregate_world_metrics(three_rows, expected_world_ids=expected, bootstrap_seed=5)[
+            "decision"
+        ]
+        == "ADVANCE_INFORMATION_DIAGNOSTIC"
+    )
+
+
+def test_bootstrap_is_deterministic_for_a_fixed_seed() -> None:
+    expected = [f"w{index}" for index in range(8)]
+    rows = [
+        {
+            "world_id": world_id,
+            "pair_id": "p0",
+            "metrics": {
+                "best_common_action_regret": 0.02 + (index * 0.01),
+                "disjoint_best_sets": index < 3,
+            },
+        }
+        for index, world_id in enumerate(expected)
+    ]
+    first = aggregate_world_metrics(rows, expected_world_ids=expected, bootstrap_seed=947)
+    second = aggregate_world_metrics(rows, expected_world_ids=expected, bootstrap_seed=947)
+    assert second == first
