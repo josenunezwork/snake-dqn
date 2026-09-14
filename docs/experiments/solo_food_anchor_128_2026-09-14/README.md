@@ -111,12 +111,39 @@ AQ performs no new fit inference. AP's fixed 3,072-row original behavior-cloning
 1,536-row fresh H64 teacher-agreement measurements remain available in the
 [AP report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_pqn_behavior_anchor_2026-09-14/README.md).
 Those report-only measures remain separate from H128 greedy gameplay and cannot rescue a failed
-H128 behavior decision. The next bounded work is AR: a prospective 40-second scientific and
-60-second qualification saved-action replay diagnostic over all eight fixed roles and all 14 saved
-fields. It reuses saved actions and worlds to classify no-safe-action self-traps against
-advisory-safe fatal paths, without loading a model, making a new policy decision, or scoring a new
-game. AR has no result. No further PQN training change is selected until the H128 survival failures
-are understood.
+H128 behavior decision. The completed AR diagnostic below examines the saved actions and worlds
+to distinguish no-safe-action self-traps from advisory-safe fatal transitions.
+
+## AR exact saved-action death replay
+
+AR is complete with status `CLOSED_COMPLETE_EXACT_REPLAY_ALL_SELF_TRAP_FALLBACK`. It exactly
+replayed saved actions for AQ's eight roles, eight 96-lane H128 evaluations, and all 14 saved
+fields. The diagnostic did not load a model, make policy decisions, update an optimizer, generate a
+new score, or alter the AQ results. It retained all 608 predecessor states: 16 contiguous,
+nonfatal frames before each of the 38 terminal events.
+
+Every terminal event was a self-collision (`DEATH_SELF`, cause code 2) after a legal resolved
+fallback action at a prepared state where the intersection of legal and advisory-safe actions was
+empty. No replayed death was an advisory-safe fatal transition, and there was no mask inconsistency.
+
+| AQ role | Deaths | Classification |
+|---|---:|---|
+| GreedyFood teacher | 4 | Self-trap fallback |
+| Random-safe | 0 | No terminal event |
+| BC parents for cohorts 3601 / 3602 / 3603 | 8 / 6 / 1 | Self-trap fallback |
+| AP anchored 3601 / 3602 / 3603 | 10 / 6 / 3 | Self-trap fallback |
+
+This is a terminal-state census, not proof that an earlier action could not avoid death and not a
+counterfactual rescue result. AQ's thresholds and its H128 confirmation failure remain unchanged.
+AR used one scientific job in `6.021677833981812` of 40 seconds and four tests in `2.521` of the
+60-second qualification budget. The resource rollup passed with 595,968,000-byte peak RSS and
+29,286,875,136-byte minimum available host memory. It retained all 608 predecessor records and
+all prior AQ evidence.
+
+The next prospective study is AS, `solo-food-early-space-veto`: a pure saved-state SpaceTeacher
+label diagnostic. It has a 30-second scientific and 60-second qualification budget and asks whether
+roomy alternatives existed at least two frames before death. It computes shadow-teacher labels
+without executing alternative actions or training a model; AS has not run.
 
 ## Evidence
 
@@ -133,9 +160,21 @@ are understood.
 · [Teacher anchor](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-128/anchors/teacher/report.json)
 · [Random-safe anchor](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-128/anchors/random_safe/report.json)
 
+[AR frozen intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/intent.json)
+· [AR frozen design](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/design.json)
+· [AR exact replay report](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/evidence/report.json)
+· [AR independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/independent-review.json)
+· [AR resource rollup](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/resource-rollup.json)
+· [AR qualification completion](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/qualification-complete.json)
+· [AR final closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/closeout.json)
+
 Independent review SHA-256 is
 `4a832e4ba9b73c09dd9d64c23b3b4be09159e5d17364230d70f7dbc45894a0c7`; final closeout SHA-256 is
 `ce58bd0f47de910e46c58aa073b018a7887315df3629a45555d2904b16224651`.
+AR exact replay report SHA-256 is
+`ac0da33839a78162584b1a15b862446e9305e47d57f549a8e58dd10699456561`; independent review SHA-256
+is `006f960c18d4cbfee6d579d819fddee98df9d2ab72f24d4e48a873562e7b8b38`; final closeout SHA-256 is
+`81ecef832011954af949c7635b07a501bb92b9d2f8512afca46e54d9f8453c3b`.
 
 ![AQ H128 cumulative gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-128/analysis/gameplay-curve.png)
 
