@@ -96,3 +96,25 @@ following evidence without new gameplay. The [visual review](</Users/josenunez/P
 A forced teacher action is an intervention on a frozen policy's first move. It can
 show that an alternate first move led to success in this task; it does not show
 that training the policy on that action would generalize or improve the policy.
+
+## Posthoc distance-ladder supplement
+
+An exploratory reduction of the same recorded data joined all 576 complete
+world/heading/placement ladders across distances 2–7 and exactly recounted all
+4,320 original classifications. It loaded no models and ran no new episodes or
+optimizer updates. The [supplement intent](</Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-first-action-probe/distance-ladders-intent.json>) explicitly preserves the primary mixed decision.
+
+For Q2302's straight-ahead food, all 32 matched cases selected straight and
+succeeded at distances 2 and 3. All selected left at distances 4–7, yet all still
+succeeded through distance 6. At distance 7, none of the original left-first
+branches succeeded; forcing straight or right succeeded in every case. Thus the
+ranking difference appears before the gameplay failure boundary. This does not
+establish that extending the 16-frame horizon would recover the failing branch.
+
+All 42 continuation failures occurred in worlds `2026100204` (33) and
+`2026100206` (9), including residual failures in passing checkpoints. This remains
+a separate behavior to investigate. The paired distance profiles distinguish
+these all-branch failures from failures avoidable by changing the first action.
+
+The supplement completed in 0.819 seconds under the same resource guards. Its
+[summary](</Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-first-action-probe/distance-ladders-analysis/summary.json>), [complete ladders](</Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-first-action-probe/distance-ladders-analysis/ladders.json>), and [distance-profile chart](</Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-first-action-probe/distance-ladders-analysis/distance-profiles.png>) are descriptive evidence. The PNG passed visual review; the SVG was not individually inspected. These results do not measure historical training exposure or establish a single training remedy.
