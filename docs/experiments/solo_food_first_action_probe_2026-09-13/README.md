@@ -105,8 +105,8 @@ world/heading/placement ladders across distances 2–7 and exactly recounted all
 optimizer updates. The [supplement intent](</Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-first-action-probe/distance-ladders-intent.json>) explicitly preserves the primary mixed decision.
 
 For Q2302's straight-ahead food, all 32 matched cases selected straight and
-succeeded at distances 2 and 3. All selected left at distances 4–7, yet all still
-succeeded through distance 6. At distance 7, none of the original left-first
+succeeded at distances 2 and 3. All selected a side turn at distances 4–7:
+left at 4, 5, and 7, and right at 6. All still succeeded through distance 6. At distance 7, none of the original left-first
 branches succeeded; forcing straight or right succeeded in every case. Thus the
 ranking difference appears before the gameplay failure boundary. This does not
 establish that extending the 16-frame horizon would recover the failing branch.
