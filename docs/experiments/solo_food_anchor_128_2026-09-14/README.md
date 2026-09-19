@@ -160,7 +160,8 @@ examples, but it does not establish counterfactual rescue or improved gameplay. 
 H128 confirmation failure remain unchanged. The six qualification tests passed in `1.463` of 60
 seconds. The analysis completed naturally in `2.442157917190343` of 30 seconds with no drift or
 resource violation; peak RSS was 451,084,288 bytes and minimum available host memory was
-27,656,617,984 bytes.
+27,656,617,984 bytes. The fresh-data follow-on is now complete: see
+[AT body-residual results](../solo_food_body_residual_2026-09-19/README.md).
 
 ## Evidence
 
@@ -190,6 +191,7 @@ resource violation; peak RSS was 451,084,288 bytes and minimum available host me
 · [AS independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/independent-review.json)
 · [AS resource rollup](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/resource-rollup.json)
 · [AS visual QA](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/visual-qa.json)
+· [AS qualification completion](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/qualification-complete.json)
 · [AS final closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/closeout.json)
 
 Independent review SHA-256 is
