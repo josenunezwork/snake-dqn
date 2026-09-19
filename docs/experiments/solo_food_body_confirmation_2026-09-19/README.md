@@ -1,5 +1,9 @@
 # Independent confirmation of the body correction (AU)
 
+The subsequent [AV exact-trajectory diagnostic](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_trajectory_2026-09-19/README.md)
+found reduced ordinary teacher agreement in all three seeds and sparse, weak escape agreement.
+It identifies a focused learning question without changing AU's results or proving causality.
+
 The body correction did **not** repeat AT's improvement on the independent world bank.
 All three fixed models passed the absolute H128 food/survival gate, but only two retained
 their parent's food performance and only one improved both survival measures. The failed
