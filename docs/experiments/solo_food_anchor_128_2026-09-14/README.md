@@ -140,10 +140,27 @@ AR used one scientific job in `6.021677833981812` of 40 seconds and four tests i
 29,286,875,136-byte minimum available host memory. It retained all 608 predecessor records and
 all prior AQ evidence.
 
-The next prospective study is AS, `solo-food-early-space-veto`: a pure saved-state SpaceTeacher
-label diagnostic. It has a 30-second scientific and 60-second qualification budget and asks whether
-roomy alternatives existed at least two frames before death. It computes shadow-teacher labels
-without executing alternative actions or training a model; AS has not run.
+## AS earlier SpaceTeacher diagnostic
+
+AS is complete with status `CLOSED_COMPLETE_SAVED_STATE_SUPPORT_PASS`. It applied the already
+qualified SpaceTeacher to all 608 immutable AR predecessor states. Across 38 deaths it found 44
+actionable states: the recorded normal action was legal and advisory-safe, the teacher rejected it
+for insufficient reachable space, and the teacher selected a different legal, advisory-safe action
+that met the existing room threshold. Every death had at least one such predecessor at some lead.
+
+The declared decision unit was a distinct anchored-policy death with an actionable alternative at
+least two transitions before death. Coverage was 4 of 10 deaths for seed 3601, 1 of 6 for seed
+3602, and 1 of 3 for seed 3603. The declared support criterion therefore passed in all three seeds.
+For context, the corresponding BC-parent coverage was 5 of 8, 2 of 6, and 0 of 1; teacher coverage
+was 3 of 4; random-safe had no deaths.
+
+AS classified saved states only. It executed no alternative action, stepped no simulator, loaded no
+model, and ran no optimizer update. It therefore supports collecting fresh body-aware training
+examples, but it does not establish counterfactual rescue or improved gameplay. AQ's thresholds and
+H128 confirmation failure remain unchanged. The six qualification tests passed in `1.463` of 60
+seconds. The analysis completed naturally in `2.442157917190343` of 30 seconds with no drift or
+resource violation; peak RSS was 451,084,288 bytes and minimum available host memory was
+27,656,617,984 bytes.
 
 ## Evidence
 
@@ -168,6 +185,13 @@ without executing alternative actions or training a model; AS has not run.
 · [AR qualification completion](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/qualification-complete.json)
 · [AR final closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-deaths/closeout.json)
 
+[AS frozen intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/intent.json)
+· [AS saved-state report](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/evidence/report.json)
+· [AS independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/independent-review.json)
+· [AS resource rollup](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/resource-rollup.json)
+· [AS visual QA](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/visual-qa.json)
+· [AS final closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/closeout.json)
+
 Independent review SHA-256 is
 `4a832e4ba9b73c09dd9d64c23b3b4be09159e5d17364230d70f7dbc45894a0c7`; final closeout SHA-256 is
 `ce58bd0f47de910e46c58aa073b018a7887315df3629a45555d2904b16224651`.
@@ -175,11 +199,20 @@ AR exact replay report SHA-256 is
 `ac0da33839a78162584b1a15b862446e9305e47d57f549a8e58dd10699456561`; independent review SHA-256
 is `006f960c18d4cbfee6d579d819fddee98df9d2ab72f24d4e48a873562e7b8b38`; final closeout SHA-256 is
 `81ecef832011954af949c7635b07a501bb92b9d2f8512afca46e54d9f8453c3b`.
+AS saved-state report SHA-256 is
+`45d76ea7e895da0cae5a4c377c4422f3fdbc736037afc184864d85fd1d5be322`; independent review SHA-256
+is `9cf9b13762f518800083c17b3aa4cad619bff2bff4d2370cda4ca676f90cc64a`; final closeout SHA-256 is
+`204d3bee233cf40e2468ef55dc0a621d1345e221741e5074344ab18719e3f073`.
 
 ![AQ H128 cumulative gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-128/analysis/gameplay-curve.png)
 
 ![AQ representative gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-anchor-128/analysis/representative-gameplay.png)
 
+![AS predecessor free-space curves](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-early-space-veto/evidence/case-space-curves.png)
+
 The first figure is cumulative food and survival by H128 game frame from saved raw arrays. It is
 not a new training curve. The fixed gameplay panel is the preselected first world, upward heading,
 and three food rays for anchors and all six checkpoints; it is not a selected best or worst case.
+The AS figure shows the fixed earliest anchored-policy death for each seed and all 16 saved
+predecessors, including reachable-space counts, the logical-length threshold, the recorded action,
+and the shadow teacher action.
