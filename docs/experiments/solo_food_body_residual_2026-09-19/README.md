@@ -1,5 +1,9 @@
 # Food retention with a learned body correction (AT)
 
+**Subsequent independent confirmation failed:** [AU's complete three-seed result](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_body_confirmation_2026-09-19/README.md)
+retained food in two seeds and improved both survival measures in one. The original AT
+results and criteria below are preserved; the later evidence limits their generality.
+
 The final body-aware correction passed the declared food-retention and H128 survival gates
 in all three training seeds. Endpoint survival improved by two, one, and one games out of
 96. This is a promising bounded result: all paired eight-world confidence intervals for
