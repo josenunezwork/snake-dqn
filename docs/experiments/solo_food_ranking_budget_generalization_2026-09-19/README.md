@@ -1,11 +1,12 @@
-# BL: fresh greedy gameplay stage complete; held mechanism check preparing
+# BL: fresh greedy gameplay and held mechanism gates passed
 
 BL asks whether the three fixed BK-1500 shared-head policies improve greedy food
 collection and survival in fresh solo worlds when compared with their same-seed food
 parents and BJ-500 controls. The completed game stage passed every declared gameplay
-gate, making the campaign **eligible for a separately frozen held-state check**. Its
-status is `GAMEPLAY_STAGE_COMPLETE_GAMEPASS_HELD_PREPARING`: this is not overall completion,
-mechanism evidence, a policy replacement, or tournament-promotion evidence.
+gate, and the separately frozen held-state check now passes its fixed mechanism gates
+in all three seeds. The study is complete and audited: the full ledger, resource,
+independent, and visual reviews all pass. This is neither a policy replacement nor
+tournament-promotion evidence.
 
 ## Prior learning milestone
 
@@ -100,11 +101,47 @@ Calibration passed separately. All six gameplay summary checks passed:
 - strict H128 time and endpoint gains over BJ-500 occurred in all three seeds.
 
 The paired eight-world intervals are descriptive uncertainty evidence, while the
-declared gate uses the unrounded point estimates above. The independent review verified all 48 paired-statistic blocks across both baselines.
-All 24 BK-1500-versus-BJ-500 paired intervals include zero, so this stage does not establish
-statistical superiority. The passing game stage authorizes the conditional held-state
-study only; held rows were not collected, `held_evaluated` is false, and overall
-success remains false pending that mechanism check.
+declared gate uses the unrounded point estimates above. The independent review verified
+48 paired-statistic blocks across the parent and BJ-500 baselines. All 24
+BK-1500-versus-BJ-500 paired intervals include zero, so this stage does not establish
+statistical superiority. The game-stage pass admitted the separately frozen held-state
+study; it did not itself establish the mechanism result reported below.
+
+## Frozen held-state mechanism result
+
+The conditional held check used worlds 2026104600–2026104607, which were not used
+for training. It made
+no optimizer updates and retained the same parent, BJ-500, and BK-1500 checkpoints.
+Rows were selected by the qualified parent-driven procedure, then each fixed model
+scored the same saved observations. Parent Q values supplied the correction targets
+and verified the shared parent. Thus this is a held row-distribution check, separate
+from both the BK training split and the fresh greedy gameplay bank.
+
+| Seed | BJ-500 intervention exact | BK-1500 intervention exact | BK-1500 non-intervention parent agreement |
+|---|---:|---:|---:|
+| 2026094301 | 127/144 (88.19%) | 140/144 (97.22%) | 1391/1392 (99.93%) |
+| 2026094302 | 41/45 (91.11%) | 44/45 (97.78%) | 1490/1491 (99.93%) |
+| 2026094303 | 62/70 (88.57%) | 69/70 (98.57%) | 1466/1466 (100.00%) |
+
+All three seeds cover all eight worlds and oracle target directions 0, 1, and 2. The
+fixed gates all pass without modification: each seed has at least 32 intervention
+rows across at least four worlds, BK-1500 intervention exact accuracy is at least
+0.75, non-intervention parent agreement is at least 0.97, and BK-1500 exceeds
+BJ-500 intervention accuracy by at least 0.05. The already-completed BK training
+admission and the BL gameplay gate also pass in all three seeds, so the frozen analysis
+reports `overall_success: true` and `mechanism_claim: true`.
+
+This population is deliberately enriched rather than a natural estimate of gameplay
+state prevalence. In seed 2026094301, 93 of 144 intervention rows come from world
+2026104603; the other two seed distributions differ. The all-world and all-direction
+coverage checks prevent a single-world or single-turn-only result, but they do not
+turn the selected rows into a prevalence sample or establish behavior beyond the
+defined food-seeking task.
+
+The successful object is an imitation-trained shared safety head over a frozen food
+parent. It is not a PQN learning-success result and it neither promotes nor replaces
+Apex. Apex remains the operational incumbent unless the shared tournament gate
+supports replacement.
 
 ## Gameplay evidence
 
@@ -125,23 +162,34 @@ body or food-map reconstruction.
 |---|---|
 | Teacher/random calibration | Passed |
 | Parent, BJ-500, BK-1500 H128 runs and H64 prefixes | Complete |
-| Gameplay analysis and gate decision | `GAMEPLAY_STAGE_COMPLETE_GAMEPASS_HELD_PREPARING` |
-| Conditional held-state collection/evaluation | Authorized but not yet frozen or run |
+| Gameplay analysis and gate decision | Complete; all six gameplay checks passed |
+| Conditional held-state collection/evaluation | Complete; all fixed mechanism gates passed in three seeds |
 | Gameplay-stage resource rollup, ledger review, independent review, visual QA, and closeout | Complete and passing |
+| Held-stage analysis and qualification | Complete and passing |
+| Full-study ledger, resource, independent, visual, and closeout review | Complete and passing |
 
 ## Compute and policy boundary
 
 The declared science budget is 1,120 seconds within a 1,200-second cap: 370 seconds
-for gameplay and analysis, and a conditional 750-second held-state reservation.
+for gameplay and analysis, and a 750-second held-state reservation.
 The completed game phase used all 13 declared jobs: every job exited naturally, with
 no failed or repeated attempt. A recovered parent-seed-4301 monitor race was checked
 against its confirmed exit code 0. The passing gameplay-stage resource rollup charges
 139.78918137506116 of the 370-second cap. Its guarded extrema were 1,152,057,344
 bytes recursive RSS and 30,149,869,568 bytes available host memory. Qualification
-passed 11 tests in 5.314 seconds of its independent 120-second cap. The 80 seconds
-left unallocated do not authorize a retry. The frozen run uses local CPU float32
-execution with two CPU threads and one inter-op thread under the existing RSS,
-host-memory, heartbeat, and exclusive-slot guards.
+passed 11 tests in 5.314 seconds of its independent 120-second cap. The held
+qualification then passed 13 tests in 5.841 seconds, for 11.155 cumulative seconds
+under that cap. All 29 science jobs completed naturally with no failed or repeated
+attempts. Gameplay used 139.78918137506116 seconds and held used 149.77707537810784
+seconds, totaling 289.566256753169 of the 1,120-second reservation and 1,200-second
+whole cap. The 80 seconds left unallocated do not authorize a retry. The frozen run
+used local CPU float32 execution with two CPU threads and one inter-op thread under
+the existing RSS, host-memory, heartbeat, and exclusive-slot guards. The full resource
+rollup passes: guarded peak RSS was 1,152,057,344 bytes, guarded minimum available
+memory was 30,149,869,568 bytes, and science peak RSS was 1,057,652,736 bytes. No MPS
+numerical jobs ran. The full-study ledger, resource, independent, and visual reviews
+all pass; all seven retained plots were visually reviewed. The complete closeout is
+`f98d1ea6171344f1befd2c9b09deede32a177135f3a8806246d42e7a107a05f4`.
 
 The gameplay-stage [closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/gameplay-closeout.json)
 is complete (`1d3dd70a722b25e72e7111783983d2a059c74c00e2e2321873a78979d1796b2b`).
@@ -150,9 +198,13 @@ The [ledger review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-res
 and [visual QA](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/gameplay-visual-qa.json)
 all pass; six plots were visually reviewed and pass.
 
-Apex remains the operational incumbent unless the shared tournament gate supports a
-replacement. Its larger historical training budget makes it unsuitable as evidence of
-inherent architecture superiority.
+Apex's larger historical training budget makes it unsuitable as evidence of inherent
+architecture superiority.
+
+The next planned experiment will confirm this recipe with fresh initialization and sampling
+seeds over the same frozen food parents and training datasets, while reusing the held
+and gameplay banks to isolate recipe reproducibility. That confirmation must precede
+longer solo horizons or opponents.
 
 ## Evidence
 
@@ -169,4 +221,14 @@ inherent architecture superiority.
 - [BL passing gameplay ledger review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/gameplay-ledger-review.json)
 - [BL passing gameplay independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/gameplay-independent-review.json)
 - [BL passing gameplay visual QA](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/gameplay-visual-qa.json)
+- [BL full-study closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/closeout.json)
+- [BL full-study ledger review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/ledger-review.json)
+- [BL full-study resource rollup](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/resource-rollup.json)
+- [BL full-study independent review](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/independent-review.json)
+- [BL full-study visual QA](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/visual-qa.json)
+- [BL held frozen design](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/held_design.md)
+- [BL held frozen intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/held-intent.json)
+- [BL held analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/held-analysis/analysis.json)
+- [BL held intervention-accuracy figure](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/held-analysis/held-intervention-accuracy.png)
+- [BL held qualification completion](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-ranking-budget-generalization/held-qualification-complete.json)
 - [BK completed training-admission report](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_ranking_budget_continuation_2026-09-19/README.md)
