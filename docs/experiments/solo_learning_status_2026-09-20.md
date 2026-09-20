@@ -1,6 +1,6 @@
 # Solo-learning status: evidence map
 
-**Current milestone:** Native PQN now retains food seeking across all three lineages in the bounded H128 benchmark. At H256, the completed CI diagnostic finds continued late food collection but survival failure in all six fixed policies. Each passes 14/16 unchanged diagnostic conditions; all 607 recorded deaths are self-collisions. CJ now exactly reproduces all 607 as self-collisions under empty-advisory fallback, with no advisory-safe fatal event. A matched body-observation learning experiment is next.
+**Current milestone:** Native PQN now retains food seeking across all three lineages in the bounded H128 benchmark. At H256, the completed CI diagnostic finds continued late food collection but survival failure in all six fixed policies. Each passes 14/16 unchanged diagnostic conditions; all 607 recorded deaths are self-collisions. CJ now exactly reproduces all 607 as self-collisions under empty-advisory fallback, with no advisory-safe fatal event. The matched [CK body-observation experiment](solo_food_pqn_body_access_2026-09-20/README.md) is now qualified and running; no CK learning result is available yet.
 
 This map is a recovery guide, not a pooled benchmark. Each linked study has its own fixed parents,
 data, worlds, horizon, criteria, and statistical unit. “Passes 3/3” means every predeclared per-seed
