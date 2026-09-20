@@ -1,6 +1,6 @@
 # Solo-learning status: evidence map
 
-**Current milestone:** Native PQN now retains food seeking across all three lineages in the bounded H128 benchmark. At H256, the completed CI diagnostic finds continued late food collection but survival failure in all six fixed policies. Each passes 14/16 unchanged diagnostic conditions; all 607 recorded deaths are self-collisions. Exact saved-action replay is next, to distinguish terminal mask fallback from mask-safe fatal actions before changing the learner.
+**Current milestone:** Native PQN now retains food seeking across all three lineages in the bounded H128 benchmark. At H256, the completed CI diagnostic finds continued late food collection but survival failure in all six fixed policies. Each passes 14/16 unchanged diagnostic conditions; all 607 recorded deaths are self-collisions. CJ now exactly reproduces all 607 as self-collisions under empty-advisory fallback, with no advisory-safe fatal event. A matched body-observation learning experiment is next.
 
 This map is a recovery guide, not a pooled benchmark. Each linked study has its own fixed parents,
 data, worlds, horizon, criteria, and statistical unit. “Passes 3/3” means every predeclared per-seed
@@ -70,4 +70,4 @@ training cap. The subsequent [CH H256 confirmation](solo_food_pqn_h256_confirmat
 completed only the scripted-anchor screen: H256 teacher food remained strong, while the
 frozen survival-time and endpoint calibration checks failed. All six learned CH roles
 were consequently not run. This is an H256 anchor limitation, not evidence that either
-CG learned arm regressed. CH is complete and independently audited, with its failed calibration preserved. The separate [CI H256 diagnostic](solo_food_pqn_h256_diagnostic_2026-09-20/README.md) is also complete and audited: all six policies retain food but fail H256 time and endpoint floors. It reused CH anchors and did not rerun them. All H64/H128 diagnostic conditions pass. Its 607 raw self-collision events now motivate an exact-action replay; CI itself makes no mask-mechanism claim.
+CG learned arm regressed. CH is complete and independently audited, with its failed calibration preserved. The separate [CI H256 diagnostic](solo_food_pqn_h256_diagnostic_2026-09-20/README.md) is also complete and audited: all six policies retain food but fail H256 time and endpoint floors. It reused CH anchors and did not rerun them. All H64/H128 diagnostic conditions pass. The subsequent [CJ replay](solo_food_pqn_h256_deaths_2026-09-20/README.md) exactly reproduces all 607 self-collision deaths under empty-advisory fallback; none was advisory-safe fatal. This supports testing earlier body-aware choices, without proving a rescue counterfactual or a causal representation failure.
