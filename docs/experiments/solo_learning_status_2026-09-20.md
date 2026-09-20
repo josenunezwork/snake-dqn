@@ -1,10 +1,12 @@
 # Solo-learning status: evidence map
 
-**Current milestone:** warm-start native PQN policies now pass the declared H64/H128
-food-and-survival retention benchmark in all three lineages after the additional CG
-training dose. Both training-cap arms pass, but the longer cap's strict relative
-survival benefit passes 0/3 seeds. The next question is fixed-policy reliability at
-H256, evaluated on new worlds before adding more learning or opponents.
+**Current milestone:** CG's warm-start native PQN policies pass the declared H64/H128
+food-and-survival retention benchmark in all three lineages after the additional training
+dose. Both training-cap arms pass, but the longer cap's strict relative survival benefit
+passes 0/3 seeds. The first CH H256 anchor screen then stopped at calibration: GreedyFood
+missed the frozen H256 survival-time and endpoint floors, so no learned CH policy ran.
+The next learner-facing question requires a separately frozen diagnostic, not a post-hoc
+change to CH's criteria.
 
 This map is a recovery guide, not a pooled benchmark. Each linked study has its own fixed parents,
 data, worlds, horizon, criteria, and statistical unit. “Passes 3/3” means every predeclared per-seed
@@ -70,5 +72,8 @@ line also inherits supervised food training and is not a from-scratch comparison
 CG is complete and audited, including the two preserved operational partials and
 their successful saved-evidence verifications. Its H128 absolute milestone does not
 erase CF's previous failed replication or establish a causal benefit from the longer
-training cap. The next evidence needed is the separately frozen H256 evaluation of
-both final arms on fresh worlds, with no further training or new fit inference.
+training cap. The subsequent [CH H256 confirmation](solo_food_pqn_h256_confirmation_2026-09-20/README.md)
+completed only the scripted-anchor screen: H256 teacher food remained strong, while the
+frozen survival-time and endpoint calibration checks failed. All six learned CH roles
+were consequently not run. This is an H256 anchor limitation, not evidence that either
+CG learned arm regressed. CH is complete and independently audited, with its failed calibration preserved. The separate CI diagnostic is being prepared to measure all six fixed learners on the retained CH bank while reusing the completed anchors.
