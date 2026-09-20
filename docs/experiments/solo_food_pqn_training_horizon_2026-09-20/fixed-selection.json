@@ -1,0 +1,61 @@
+{
+  "evidence": {
+    "2026095401": {
+      "endpoints": {
+        "initial": {
+          "alive": true,
+          "food": 25
+        },
+        "train_h128": {
+          "alive": true,
+          "food": 20
+        },
+        "train_h64": {
+          "alive": true,
+          "food": 25
+        }
+      },
+      "lane": 0
+    },
+    "2026095402": {
+      "endpoints": {
+        "initial": {
+          "alive": true,
+          "food": 22
+        },
+        "train_h128": {
+          "alive": true,
+          "food": 24
+        },
+        "train_h64": {
+          "alive": true,
+          "food": 24
+        }
+      },
+      "lane": 35
+    },
+    "2026095403": {
+      "endpoints": {
+        "initial": {
+          "alive": true,
+          "food": 21
+        },
+        "train_h128": {
+          "alive": true,
+          "food": 21
+        },
+        "train_h64": {
+          "alive": true,
+          "food": 21
+        }
+      },
+      "lane": 1
+    }
+  },
+  "lanes": {
+    "2026095401": 0,
+    "2026095402": 35,
+    "2026095403": 1
+  },
+  "schema": "cg-pqn-training-horizon-fixed-selection/v1"
+}
