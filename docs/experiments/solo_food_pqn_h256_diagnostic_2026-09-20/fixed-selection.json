@@ -1,0 +1,56 @@
+{
+  "evidence": {
+    "2026095401": {
+      "lane": 0,
+      "policies": {
+        "train_h128": {
+          "alive_h256": false,
+          "ambient_food_h256": 20,
+          "valid_frames": 98
+        },
+        "train_h64": {
+          "alive_h256": true,
+          "ambient_food_h256": 46,
+          "valid_frames": 256
+        }
+      }
+    },
+    "2026095402": {
+      "lane": 35,
+      "policies": {
+        "train_h128": {
+          "alive_h256": true,
+          "ambient_food_h256": 44,
+          "valid_frames": 256
+        },
+        "train_h64": {
+          "alive_h256": true,
+          "ambient_food_h256": 50,
+          "valid_frames": 256
+        }
+      }
+    },
+    "2026095403": {
+      "lane": 1,
+      "policies": {
+        "train_h128": {
+          "alive_h256": true,
+          "ambient_food_h256": 52,
+          "valid_frames": 256
+        },
+        "train_h64": {
+          "alive_h256": true,
+          "ambient_food_h256": 53,
+          "valid_frames": 256
+        }
+      }
+    }
+  },
+  "lanes": {
+    "2026095401": 0,
+    "2026095402": 35,
+    "2026095403": 1
+  },
+  "schema": "ch-pqn-h256-fixed-selection/v1",
+  "selection_rule": "preregistered original lane indices 0, 35, 1 by seed"
+}
