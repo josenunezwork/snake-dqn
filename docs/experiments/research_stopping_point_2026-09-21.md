@@ -51,9 +51,13 @@ This is a historical stopping point. The later unchanged-recipe dose is now
 completed and documented in the [dose record](solo_food_pqn_enemy_dose_2026-09-21/README.md):
 all-three cumulative, retention, and incremental packages were false. The later
 [controlled encounter calibration](controlled_encounter_calibration_2026-09-21/README.md)
-also completed and supplies a finite task bank. The current planned next step is a
-six-checkpoint greedy encounter probe over the three immediate parents and three
-final-dose checkpoints; it has no result in this historical note.
+also completed and supplies a finite task bank. The six-checkpoint
+[encounter dose probe](controlled_encounter_dose_probe_2026-09-21/README.md) is
+also complete. Subsequent [fixed-priority controls](controlled_encounter_static_controls_2026-09-21/README.md)
+showed that unconditional turning can solve the encounter survival criterion.
+A separate food-and-survival imitation study has therefore been frozen and its
+pipeline qualified. Fresh teacher-data collection is underway; this historical
+note records no scientific training result for that study.
 
 The previous resource envelope used shared CPU locks and serial jobs, two CPU/BLAS threads,
 4-GiB RSS cap, 12-GiB available-memory reserve, and 8-GiB MPS driver cap.
