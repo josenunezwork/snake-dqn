@@ -1,0 +1,65 @@
+{
+  "evidence": {
+    "2026095501": {
+      "lane": 0,
+      "roles": {
+        "body_food": {
+          "endpoint_alive": false,
+          "food": 28
+        },
+        "food_only": {
+          "endpoint_alive": true,
+          "food": 48
+        },
+        "parent": {
+          "endpoint_alive": true,
+          "food": 44
+        }
+      }
+    },
+    "2026095502": {
+      "lane": 35,
+      "roles": {
+        "body_food": {
+          "endpoint_alive": true,
+          "food": 42
+        },
+        "food_only": {
+          "endpoint_alive": true,
+          "food": 38
+        },
+        "parent": {
+          "endpoint_alive": true,
+          "food": 42
+        }
+      }
+    },
+    "2026095503": {
+      "lane": 1,
+      "roles": {
+        "body_food": {
+          "endpoint_alive": false,
+          "food": 43
+        },
+        "food_only": {
+          "endpoint_alive": true,
+          "food": 46
+        },
+        "parent": {
+          "endpoint_alive": true,
+          "food": 45
+        }
+      }
+    }
+  },
+  "final_mark": 2560,
+  "lanes": {
+    "2026095501": 0,
+    "2026095502": 35,
+    "2026095503": 1
+  },
+  "midpoint_descriptive_only": true,
+  "parent_mark": 2048,
+  "schema": "ck-pqn-body-access-fixed-selection/v1",
+  "selection_rule": "predeclared seed-order lanes (0, 35, 1)"
+}
