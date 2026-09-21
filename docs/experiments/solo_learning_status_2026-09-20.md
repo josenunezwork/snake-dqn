@@ -1,6 +1,6 @@
 # Solo-learning status: evidence map
 
-**Current milestone:** Native PQN retains food seeking across all three lineages in the bounded H128 benchmark. Reliable H256 survival remains unresolved. The completed and audited [CK body-observation experiment](solo_food_pqn_body_access_2026-09-20/README.md) retained food collection, but all six final policies missed the H256 endpoint floor. Body input improved endpoint survival in two seeds and reduced it in the third; only one seed passed the complete relative-benefit rule. The qualified [CL trace-length comparison](solo_food_pqn_credit_trace_2026-09-20/README.md) is now running from the three body-aware parents with equal added training doses. There is no CL learning result yet.
+**Current milestone:** Native PQN has established bounded H128 food/survival retention across all three lineages. Reliable H256 behavior remains unresolved. The completed and audited [CL trace-length comparison](solo_food_pqn_credit_trace_2026-09-20/README.md) gives current λ=.65 absolute passes in 2/3 seeds and longer λ=.95 passes in 1/3. No longer-trace seed passes the full paired-benefit rule; one loses food seeking while surviving all games. The next CM study examines the saved learning signals before another training change.
 
 This map is a recovery guide, not a pooled benchmark. Each linked study has its own fixed parents,
 data, worlds, horizon, criteria, and statistical unit. “Passes 3/3” means every predeclared per-seed
@@ -37,6 +37,9 @@ The completed evidence is reused and the original thresholds are preserved.
 | Death diagnosis | [CE saved-action H128 deaths](solo_food_pqn_h128_deaths_2026-09-20/README.md) | The 54 recorded H128 deaths replayed exactly as self-collisions under fallback; none was classified as wall, enemy, or advisory-safe fatal. | Replay classification does not prove earlier inevitability, a counterfactual rescue, or the cause of the learned policy's choice. |
 | Native H128 milestone | [CG training-horizon comparison](solo_food_pqn_training_horizon_2026-09-20/README.md) | Both fixed final arms pass all 17 food/survival-retention checks in all three seeds on 32 fresh worlds. The six learners added 6,144 updates and 1,568,614 valid hero transitions. | Longer-cap survival superiority passes 0/3; CG overall success remains false. This is a warm-start, bounded H128 result, not from-scratch mastery, long-game reliability, or promotion. |
 | Body-aware native PQN | [CK body access](solo_food_pqn_body_access_2026-09-20/README.md) | All six finals retain H64/H128 behavior and H256 food, including late food. Body-aware versus control endpoint intervals are positive in seeds 5501 and 5502 and negative in 5503. | All six miss the 348/384 H256 endpoint floor. Body-arm absolute reliability passes 0/3; its complete relative-benefit rule passes 1/3. This does not establish a reliable benefit from the body-input package. |
+| Trace continuation | [CL matched trace length](solo_food_pqn_credit_trace_2026-09-20/README.md) | With equal 512-update doses from shared body-aware parents, current λ=.65 passes H256 absolute criteria in 2/3 seeds; λ=.95 passes in 1/3. | The complete paired benefit rule passes 0/3. Longer-trace seed5602 has 384/384 survivors but only 1.7474 food, below random 4.6771. Longer traces are not a reliable repair. |
+
+
 
 ## How to interpret fit and gameplay
 
@@ -84,3 +87,5 @@ report repairs adopt completed evidence without replay. An earlier
 [λ=1 short-task screen](solo_food_lambda1_2026-09-13/README.md) also failed its
 all-seed rule, but used a length-one task and reused outcome-informed controls.
 It is relevant negative history, not the same survival question as CL.
+
+CL is complete and independently audited, with all 24 current receipts reconciled and all four prior physical attempts preserved. Its six learners added 3,072 updates and 781,367 valid hero transitions. CM is a saved-array diagnostic, with no new policy claim or tournament promotion.

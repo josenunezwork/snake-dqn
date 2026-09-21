@@ -1,7 +1,6 @@
 # CL: matched PQN credit-trace continuation
 
-**Status: R4 is running. The scripted anchors and all three starting policies
-are complete; the final matched learning comparison and audit remain pending.**
+**Complete and independently audited. The current trace passes the absolute H256 criteria in 2/3 seeds; the longer trace passes in 1/3. No seed passes the complete paired trace-effect rule. No promotion.**
 
 CL asks a narrow question: after the same completed CK body-aware parent state,
 does a longer native PQN trace (`lambda095`, λ=.95) behave more reliably than the
@@ -79,28 +78,101 @@ unchanged 5,940-second science cap. Heavy jobs remain serialized under the
 two-CPU-slot, CPU/BLAS-two-thread, interop-one-thread, 4 GiB RSS, 12 GiB
 available-memory, 8 GiB MPS-driver, and 20-second watchdog guards.
 
-## Current evidence
+## Final greedy gameplay: every seed
 
-The R4 teacher and random-safe reports are adopted provenance records, not new
-calibration runs. All three starting policies have completed their fresh-world
-evaluation. Matched training and post-training evaluations are in progress.
+All policies are evaluated greedily on the fixed 32 fresh worlds, 384 lanes.
+The shared starting checkpoints and the final mark3072 are reported below.
+Food is mean ambient food collected; time is the fraction of the full H256
+horizon alive. Final policies also retain exact H64/H128 prefix evidence.
 
-| Starting-policy seed | H256 food | H256 survival time | H256 endpoints |
-| --- | ---: | ---: | ---: |
-| 2026095601 | 46.578125 | 0.944163005 | 316/384 |
-| 2026095602 | 38.143229 | 0.967987061 | 351/384 |
-| 2026095603 | 37.804688 | 0.907389323 | 284/384 |
+| Seed | Policy | H256 food | Alive time | End survivors | Absolute checks |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 2026095601 | Shared initial | 46.578125 | 0.944163 | 316/384 | Reference |
+| 2026095601 | Current λ=.65 | 42.361979 | 0.953328 | 321/384 | 15/16 |
+| 2026095601 | Longer λ=.95 | 41.221354 | 0.954926 | 322/384 | 15/16 |
+| 2026095602 | Shared initial | 38.143229 | 0.967987 | 351/384 | Reference |
+| 2026095602 | Current λ=.65 | 42.367188 | 0.974213 | 352/384 | 16/16 |
+| 2026095602 | Longer λ=.95 | 1.747396 | 1.000000 | 384/384 | 6/16 |
+| 2026095603 | Shared initial | 37.804688 | 0.907389 | 284/384 | Reference |
+| 2026095603 | Current λ=.65 | 46.885417 | 0.994578 | 377/384 | 16/16 |
+| 2026095603 | Longer λ=.95 | 44.981771 | 0.997162 | 378/384 | 16/16 |
 
-The teacher reference has H256 food 43.5390625 and 325 survivors; random-safe has
-food 4.6770833 and 376 survivors. These are descriptive anchors. The learner's
-unchanged endpoint requirement is 348/384, alongside its food and time criteria.
+Both seed5601 finals fail only the H256 endpoint floor. The longer-trace
+seed5602 final fails food, pose-cell, and paired food-versus-random conditions
+at all three horizons, plus late food: ten absolute failures. Its perfect
+survival does not rescue food collection below the random reference (4.677083).
+The teacher reference collects 43.539063 food with 325 survivors. These are
+anchors, not a relaxation of the learner endpoint floor 348. All other final
+absolute conditions pass. Historical teacher-fit references are not current
+CL fit measurements; no fit calls were added.
 
-A result will separately report training telemetry, historical fit references,
-actual greedy H64/H128/H256 gameplay, all per-seed absolute gates, the three
-paired trace-effect checks, confidence intervals, representative raw evidence,
-resources, and independent audits. A reliable three-seed result would still not
-establish that terminal credit assignment alone caused any effect, because λ
-changes the return calculation for all valid rows.
+The relative comparison uses 32 paired world means per seed, never pooled lanes
+or training seeds. Each of its three confidence-interval conditions must pass.
+
+| Seed | Longer−current endpoints, mean [95% CI] | Longer−current food, mean [95% CI] | Longer−initial food, mean [95% CI] | Relative checks |
+| --- | --- | --- | --- | ---: |
+| 2026095601 | +0.002604 [−0.064137, 0.069345] | −1.140625 [−2.189143, −0.092107] | −5.356771 [−6.445263, −4.268279] | 0/3 |
+| 2026095602 | +0.083333 [0.051868, 0.114798] | −40.619792 [−41.227145, −40.012438] | −36.395833 [−36.940664, −35.851002] | 1/3 |
+| 2026095603 | +0.002604 [−0.013556, 0.018765] | −1.903646 [−2.438068, −1.369224] | +7.177083 [5.520862, 8.833305] | 1/3 |
+
+The food lower bounds against current-trace are −2.118099, −2.118359 and
+−2.344271; against initial they are −2.328906, −1.907161 and −1.890234.
+Endpoint lower bound must be strictly positive. Thus seed5602 passes only
+endpoint superiority and seed5603 only food retention against its initial
+policy. No seed passes the full relative rule. The full failed-check names and
+36 heading/placement subchecks per policy remain in the unchanged ledger.
+
+![Greedy gameplay through all fixed marks](gameplay-curves.png)
+
+![Exact-prefix behavioral comparison](behavioral-horizons.png)
+
+## Learning and representative gameplay
+
+The six learners completed 3,072 new optimizer updates and 781,367 valid hero
+transitions. Their updates remained finite, and gradient clipping at 10 never
+activated (largest reported preclip norm 1.027897). Finite loss did not guarantee
+useful final behavior. Changing lambda also changes the regression targets,
+so raw TD loss across arms is not a common measure of task performance.
+
+![Native TD loss and rollout exposure](training-curves.png)
+
+The representative lanes were frozen before results: lane 0 for5601, lane 35
+for5602 and lane 1 for5603. In the displayed seed5602 lane, the longer-trace head
+travels around the boundary while cumulative food stops at 5. This demonstrates
+one observed failure pattern; it does not establish the cause of the cohort's
+food collapse. The fixed examples, including deaths, are retained unchanged.
+
+![Fixed representative greedy gameplay](fixed-final-gameplay.png)
+
+## Audit, compute and next question
+
+All 24 current logical jobs completed naturally: six learners, seventeen logical
+evaluation reports (two adopted anchors), and one saved-evidence analysis.
+There are 28 physical attempts including the four preserved prior attempts.
+Charged science is **2336.215777 / 5940 seconds**, including 57.881651 prior
+seconds; qualification is **26.888031 / 180 seconds**. No completed science was
+rerun. Independent audit verifies 8,040 file hashes, receipt/input lineage,
+training dose, every seed and the unchanged confidence-interval decisions.
+Its first attempt differed only in failed-check name ordering; that output is
+preserved and the ordering-only auditor correction passes.
+
+Current receipt samples show maximum process-tree RSS **1568931840 bytes**,
+minimum available memory **34650488832 bytes**, and maximum MPS driver usage
+**1205059584 bytes**. All numerical work remained serial under the declared
+Mac guards. These are sampled extrema, not a guarantee about unsampled usage.
+
+Equal additional training at λ=.65 yields promising H256 behavior in two
+lineages, but the all-three reliability milestone remains unmet. Increasing
+lambda to .95 does not establish a reliable improvement and can lose food
+seeking despite surviving. Lambda changes all valid returns; this result does
+not isolate terminal credit as its causal mechanism.
+
+The next bounded diagnostic, CM, will reuse all saved rollouts to examine
+terminal-distance residuals, Huber output-derivative proxies and target
+sensitivity to native-selector deviations. It uses no new training or gameplay
+and cannot prove parameter-gradient attribution or that a loss change would
+repair the policy. Its budget is 120 CPU seconds plus 60 qualification seconds,
+frozen before execution. A later learning comparison will follow the evidence.
 
 ## Primary records
 
@@ -111,3 +183,7 @@ changes the return calculation for all valid rows.
 - [R4 teacher adoption](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/evaluation/teacher-seed0-mark0/adoption.json)
 - [R4 random-safe adoption](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/evaluation/random_safe-seed0-mark0/adoption.json)
 - [Completed CK body-access comparison](../solo_food_pqn_body_access_2026-09-20/README.md)
+
+- [Complete analysis and failure ledger](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/analysis/analysis.json)
+- [Independent audit](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/independent-audit.json)
+- [Audited closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/closeout.json)
