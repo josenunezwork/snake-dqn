@@ -2,10 +2,10 @@
 
 **Historical stopping point; explicitly resumed later on September 21.** The user
 subsequently authorized up to 85% of this Mac's RAM/compute and said “sounds great
-get started.” The capacity study is now running under a frozen protocol at
-`pqn-capacity-20260921/intent-v2.json` in the artifact base below. Earlier completed
-study criteria and results remain unchanged. The rest of this document records
-the state at the earlier stopping point.
+get started.” The [capacity study](pqn_mac_capacity_2026-09-21/README.md), longer-dose
+study, and controlled-encounter calibration have since completed. Earlier completed
+study criteria and results remain unchanged. The original results below describe
+the earlier stopping point; the resumption section records subsequent work.
 
 Completed work is preserved in local commits, frozen checkpoints, raw gameplay,
 training diagnostics, resource receipts, and audited closeouts. Apex is unchanged;
@@ -33,28 +33,27 @@ The qualified opt-in S2 lifecycle and its tests were integrated on main at
 qualified experiment checkout; no additional test rerun was needed for that
 unchanged integration. CZ results/plots were committed at `575a748`.
 
-## Resumption information
+## Historical resumption information
 
 The current durable campaign ledger is
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/campaign.json`.
-The two newest artifact roots are `solo-food-pqn-enemy-access` (CZ) and
-`solo-food-pqn-enemy-learning-diagnostic` (DA), under that same directory.
+At the stopping point, the newest artifact roots were `solo-food-pqn-enemy-access`
+(CZ) and `solo-food-pqn-enemy-learning-diagnostic` (DA). Subsequent completed roots
+are `pqn-capacity-20260921`, `solo-food-pqn-enemy-dose`, and
+`controlled-encounter-calibration`, under that same directory.
 
 Frozen training source: `runs/pqn-enemy-experience-source`, branch
 `codex/pqn-enemy-experience`, commit `1f32d2de1987d97441fa74c1898ed9039b535f24`.
 Frozen evaluation source: `/Users/josenunez/Projects/ml/snake-dqn-ambient-objective`,
 commit `56e0e92434ae510a84ebaf6f58cf41c3e4421b04`.
 
-The proposed next dose study is **planned, not frozen, implemented, qualified, or
-run**. It would retain all three visible CZ mark-4608 parents and their full Adam
-state, add 1,024 unchanged updates using fresh training streams, and evaluate
-4096/4608/5120/5632 on one fresh 32-world bank. Preserve CZ cumulative gates and
-also require retention against 4608. Report direct final-minus-4608 endpoint
-confidence intervals separately before claiming incremental practice benefit.
-Do not pick the successful seed alone or treat the outcome-informed visible-arm
-selection as a new causal visibility test. Finalize budget and freshness checks
-before any execution. The assigned builder stopped before inspecting or editing
-files; there is no partial next-study implementation to recover.
+This is a historical stopping point. The later unchanged-recipe dose is now
+completed and documented in the [dose record](solo_food_pqn_enemy_dose_2026-09-21/README.md):
+all-three cumulative, retention, and incremental packages were false. The later
+[controlled encounter calibration](controlled_encounter_calibration_2026-09-21/README.md)
+also completed and supplies a finite task bank. The current planned next step is a
+six-checkpoint greedy encounter probe over the three immediate parents and three
+final-dose checkpoints; it has no result in this historical note.
 
 The previous resource envelope used shared CPU locks and serial jobs, two CPU/BLAS threads,
 4-GiB RSS cap, 12-GiB available-memory reserve, and 8-GiB MPS driver cap.
