@@ -1,66 +1,88 @@
 # CS: H512 fixed-control confirmation
 
-**Status: frozen, qualified, and running; results pending.** CS asks whether the completed CR H256
-control cohort retains its food and survival package farther into fresh H512
-gameplay. It performs evaluation only: no new learning, optimizer step, training
-seed, fit inference, checkpoint substitution, or tournament inference.
+**Status: complete and independently audited.** CS evaluated the fixed CR
+`train_h256` final cohort on a new H512 bank. Two seeds fail only the H512
+endpoint condition; the third passes all 29 conditions. The all-three H512
+confirmation is therefore false. The original all-three rule is preserved.
 
-## Fixed cohort and question
+## Fixed scope
 
-CS evaluates exactly the three completed CR `train_h256` final checkpoints at
-mark 3584: seeds 2026095901, 2026095902, and 2026095903. They were chosen as an
-outcome-informed family because all three passed CR's final 22-condition H384
-absolute package. CR's primary H256-versus-H384 treatment comparison remains
-false, as do its all-seed H384 treatment package, CO's relative loss result,
-CP's all-three H384 confirmation, and the earlier CH calibration. CS does not
-rescue, rerun, or reinterpret any of them.
+CS evaluated exactly CR `train_h256` mark-3584 seeds 2026095901, 2026095902,
+and 2026095903. This outcome-informed family was fixed because all three passed
+CR's final H384 22-condition control package. CS made zero new optimizer updates,
+training seeds, or fit calls. Its inherited fit material is historical evidence,
+not a current measurement.
 
-The question is duration retention for this fixed cohort: whether its food and
-survival continue on longer fresh worlds. It does not ask whether a longer rollout
-cap trains a better policy, whether a prior loss choice caused the cohort's
-behavior, or whether any policy should replace Apex. Apex remains incumbent; its
-larger historical training dose is a confound rather than evidence of inherent
-superiority.
+Each checkpoint ran once on 32 fresh worlds (2026109200--2026109231), four
+headings, and three reachable food positions: 384 lanes at H512. H64, H128,
+H256, H384, and H512 are exact prefixes of one trace. The 29 conditions and 60
+cell subchecks apply separately to each seed; the 32 paired world means have
+df 31, and neither lanes nor seeds are pooled.
 
-## Fresh evaluation and criteria
+## Final fresh behavior
 
-Each fixed policy runs once to H512 on 32 fresh worlds, seeds
-2026109200--2026109231. Four headings and three reachable food placements per
-world produce 384 lanes. H64, H128, H256, H384, and H512 are exact prefixes of
-one H512 trace, and the CS native extension admits only that additional horizon.
-The smoke world is separate. Teacher and RandomSafe are descriptive anchors.
+Entries in the five horizon columns are `mean ambient food / endpoint survivors`
+out of 384 lanes. H512 survival fraction is shown separately to keep the table
+readable.
 
-Every fixed policy must meet all 29 conditions, with 60 pose-cell subchecks. CS
-keeps the 22-condition H384 package, including both inherited late windows, and
-adds the analogous H512 food, 12-cell, survival-time, endpoint, and paired-food
-conditions. It also requires late food in frames 385--512 to reach at least 75%
-of Teacher and mean H512 ambient food of at least 64. The food floor is a
-one-pellet-per-eight-frames absolute floor against a weak teacher reference.
-The 32 paired world means use df 31 confidence intervals. There is no lane or
-seed pooling, best-mark choice, or checkpoint substitution; all three policies
-must pass.
+| Seed | H64 food/end | H128 food/end | H256 food/end | H384 food/end | H512 food/end | H512 survival | 29-condition result |
+| --- | --- | --- | --- | --- | --- | ---: | --- |
+| 2026095901 | 12.242188 / 384 | 23.330729 / 382 | 44.731771 / 381 | 65.281250 / 365 | 84.369792 / 337 | 0.969289 | 28/29; H512 endpoints |
+| 2026095902 | 11.351562 / 384 | 21.341146 / 384 | 40.083333 / 377 | 57.916667 / 364 | 74.890625 / 343 | 0.969874 | 28/29; H512 endpoints |
+| 2026095903 | 11.979167 / 384 | 22.882812 / 384 | 43.299479 / 383 | 63.520833 / 380 | 83.158854 / 374 | 0.993830 | 29/29; passed |
 
-## Operations and evidence boundary
+All three policies passed the inherited 22 conditions on this new bank. All food
+thresholds passed, including the H512 absolute floor of 64 and the late
+frames-385--512 food criterion. Their late-food means were 19.088542,
+16.973958, and 19.638021, respectively, versus Teacher's 13.796875. Seeds 5901
+and 5902 each fail only the endpoint floor: 337 and 343 survivors are below the
+required 348. Seed 5903 ends with 374 survivors.
 
-The scientific budget is 1,080 seconds: Teacher and RandomSafe at 80 seconds
-each, the three fixed-policy evaluations at 240 seconds each, and analysis at
-120 seconds, for 1,000 seconds of scheduled job caps. Qualification was capped at
-180 seconds: tests 60 and smoke 120. All 32 tests passed and the H384 raw14 prefix
-matched exactly; qualification used 9.42 seconds. It makes zero optimizer updates and records
-10,752 discarded qualification gameplay lane-frames only.
+Teacher and RandomSafe remain descriptive anchors. At H512, Teacher collected
+74.924479 ambient food with 225 survivors; RandomSafe collected 8.476562 with
+296 survivors. Teacher's weak survival is not a gate or a calibration success.
 
-Jobs are serialized on the Mac with two CPU and one interop thread, a 4 GiB
-process-tree RSS cap, a 12 GiB available-memory floor, an 8 GiB MPS-driver cap,
-and heartbeat monitoring. Freeze requires CR's audited closeout, authenticates
-its fixed training lineage, and requires CS worlds, lanes, and native seeds to
-be disjoint from prior evidence.
+## Execution and figures
 
-CS has no training curve because it performs no optimization. CR's saved curves
-are historical evidence for the chosen cohort, not CS evidence or a decision
-substitute.
+The six predeclared scientific jobs completed as six physical attempts with zero
+reruns, consuming 361.970 of the 1,080-second science budget. Qualification
+passed 32 tests in 1.257 seconds and its smoke in 8.164 seconds, totaling
+9.421 of the 180-second qualification budget. It made no optimizer updates. CS has no training
+curve because it did not train a policy; the [CR training curves](../solo_food_pqn_h384_training_2026-09-20/training-curves.png) remain historical.
+Peak observed process-tree RSS was 832,749,568 bytes (0.78 GiB), and minimum
+available host memory was 36,312,170,496 bytes (33.82 GiB). All jobs were serialized.
 
-- [Frozen CS design](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-h512-control-confirmation/design.md)
-- [CS protocol](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-h512-control-confirmation/protocol.py)
+The final audit checked 1,607 distinct hashes, all 87 per-seed conditions, 180 cell
+predicates, 15 paired world intervals, and exact receipt inventory and chronology.
+Its first two attempts exposed auditor-only metadata/duplicate-ledger errors; the
+third passed, then root review strengthened inherited-conjunction and physical
+attempt checks and correctly marked unmeasured MPS usage as unavailable. The
+fourth audit passed. All four scripts and outputs are preserved; no scientific
+job was repeated.
+
+The saved panels below are descriptive reductions. Fixed lanes 0, 35, and 1 are
+all alive at H512; they are illustrative examples and do not provide failure
+coverage or replace the population criteria.
+
+![Behavioral horizons](behavioral-horizons.png)
+
+![Gameplay curves](gameplay-curves.png)
+
+![Fixed final gameplay](fixed-final-gameplay.png)
+
+## Interpretation boundary
+
+CS tests duration retention of an outcome-informed fixed cohort. It does not
+rescue CR's failed H256-versus-H384 treatment comparison, establish a causal loss
+or cap effect, or support promotion. Apex remains incumbent; its larger historical
+training dose remains a confound rather than evidence of inherent superiority.
+
+The next prospective CT step is a saved-actions and saved-CR-signal diagnostic.
+It starts no new training. No CT numerical work has run.
+
+- [CS immutable intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-h512-control-confirmation/intent.json)
+- [CS numerical analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-h512-control-confirmation/analysis/analysis.json)
+- [CS qualification accounting](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-h512-control-confirmation/qualification-accounting.json)
 - [CR audited result](../solo_food_pqn_h384_training_2026-09-20/README.md)
-- [CR historical training curves](../solo_food_pqn_h384_training_2026-09-20/training-curves.png)
-- [CR independent audit](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-h384-training/independent-audit.json)
+
+- [CS final independent audit](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-h512-control-confirmation/independent-audit.json)
