@@ -1,7 +1,11 @@
 # Research stopping point — September 21, 2026
 
-**User requested: “get to a stopping point.” Research is stopped. Do not launch
-another study or resume automatically without a new user request.**
+**Historical stopping point; explicitly resumed later on September 21.** The user
+subsequently authorized up to 85% of this Mac's RAM/compute and said “sounds great
+get started.” The capacity study is now running under a frozen protocol at
+`pqn-capacity-20260921/intent-v2.json` in the artifact base below. Earlier completed
+study criteria and results remain unchanged. The rest of this document records
+the state at the earlier stopping point.
 
 Completed work is preserved in local commits, frozen checkpoints, raw gameplay,
 training diagnostics, resource receipts, and audited closeouts. Apex is unchanged;
@@ -52,7 +56,12 @@ selection as a new causal visibility test. Finalize budget and freshness checks
 before any execution. The assigned builder stopped before inspecting or editing
 files; there is no partial next-study implementation to recover.
 
-Continue using the shared CPU locks and serial jobs, two CPU/BLAS threads,
+The previous resource envelope used shared CPU locks and serial jobs, two CPU/BLAS threads,
 4-GiB RSS cap, 12-GiB available-memory reserve, and 8-GiB MPS driver cap.
+The resumed capacity benchmark retains shared locks and serial numerical jobs;
+its prospectively declared envelope uses 2/4/8 CPU threads, a 16-GiB RSS cap,
+24-GiB MPS-driver cap, and at least 15% system memory reserved (9.6 GiB on this
+64-GiB Mac). RSS and MPS allocations overlap in unified memory. Actual system
+availability is checked at admission and throughout every child job.
 Keep Apex incumbent pending the shared tournament gate. Its larger historical
 training dose does not demonstrate inherent algorithmic superiority.
