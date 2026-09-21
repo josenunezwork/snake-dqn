@@ -156,7 +156,7 @@ def test_selected_hero_reset_preserves_peer_episode_policy_and_rng(monkeypatch) 
     trainer._rollout()
     assert trainer._action_rngs is not None and trainer._episode_policy_ids is not None
     peer_rng = copy.deepcopy(trainer._action_rngs[1].bit_generator.state)
-    peer_world_rng = copy.deepcopy(trainer.sim._rngs[1].bit_generator.state)
+    peer_world_rng = copy.deepcopy(trainer.sim._rngs[1]._rng.getstate())
     peer_bodies = trainer.sim.bodies[1].copy()
     peer_food = copy.deepcopy(trainer.sim.food_cells[1])
     peer_episode = int(trainer._episode_ids[1])
@@ -168,7 +168,7 @@ def test_selected_hero_reset_preserves_peer_episode_policy_and_rng(monkeypatch) 
     assert trainer._prepare_derived_rollout() == 1
     assert trainer._last_reset_env_indices.tolist() == [0]
     assert trainer._action_rngs[1].bit_generator.state == peer_rng
-    assert trainer.sim._rngs[1].bit_generator.state == peer_world_rng
+    assert trainer.sim._rngs[1]._rng.getstate() == peer_world_rng
     assert np.array_equal(trainer.sim.bodies[1], peer_bodies)
     assert trainer.sim.food_cells[1] == peer_food
     assert int(trainer._episode_ids[1]) == peer_episode
