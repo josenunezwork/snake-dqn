@@ -1,0 +1,58 @@
+# Research stopping point — September 21, 2026
+
+**User requested: “get to a stopping point.” Research is stopped. Do not launch
+another study or resume automatically without a new user request.**
+
+Completed work is preserved in local commits, frozen checkpoints, raw gameplay,
+training diagnostics, resource receipts, and audited closeouts. Apex is unchanged;
+no tournament promotion or remote push occurred.
+
+- The earlier solo exploration-floor campaign was reconciled from completed
+  receipts. All seeds remain reported under their original criteria.
+- The original food microbenchmark showed imitation succeeding in all three
+  seeds while the original PQN recipe succeeded in one. Subsequent native PQN
+  work established food collection and survival across all three fixed seeds in
+  768-frame solo games. See the [progress synthesis](solo_food_learning_progress_2026-09-21.md).
+- The latest [CZ comparison](solo_food_pqn_enemy_access_2026-09-21/README.md)
+  completed six training runs and 28 gameplay evaluations. All final policies
+  passed absolute food/survival checks. Enemy-aware learned progress passed only
+  seed 2026096102; 6101 lost food performance and 6103 lacked a positive endpoint
+  confidence bound. Blind learned progress passed no seeds. Both all-three
+  conclusions remain false. Scientific jobs were not repeated.
+- [DA saved-data diagnosis](solo_food_pqn_enemy_learning_diagnostic_2026-09-21/README.md)
+  completed with zero new games or training. Few death transitions, substantial
+  TD residual around death, and shifting food/boost behavior leave experience
+  coverage and adaptation stability unresolved.
+
+The qualified opt-in S2 lifecycle and its tests were integrated on main at
+`fe3f89c` and `542c5da`. The three integrated files are byte-identical to the
+qualified experiment checkout; no additional test rerun was needed for that
+unchanged integration. CZ results/plots were committed at `575a748`.
+
+## Resumption information
+
+The current durable campaign ledger is
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/campaign.json`.
+The two newest artifact roots are `solo-food-pqn-enemy-access` (CZ) and
+`solo-food-pqn-enemy-learning-diagnostic` (DA), under that same directory.
+
+Frozen training source: `runs/pqn-enemy-experience-source`, branch
+`codex/pqn-enemy-experience`, commit `1f32d2de1987d97441fa74c1898ed9039b535f24`.
+Frozen evaluation source: `/Users/josenunez/Projects/ml/snake-dqn-ambient-objective`,
+commit `56e0e92434ae510a84ebaf6f58cf41c3e4421b04`.
+
+The proposed next dose study is **planned, not frozen, implemented, qualified, or
+run**. It would retain all three visible CZ mark-4608 parents and their full Adam
+state, add 1,024 unchanged updates using fresh training streams, and evaluate
+4096/4608/5120/5632 on one fresh 32-world bank. Preserve CZ cumulative gates and
+also require retention against 4608. Report direct final-minus-4608 endpoint
+confidence intervals separately before claiming incremental practice benefit.
+Do not pick the successful seed alone or treat the outcome-informed visible-arm
+selection as a new causal visibility test. Finalize budget and freshness checks
+before any execution. The assigned builder stopped before inspecting or editing
+files; there is no partial next-study implementation to recover.
+
+Continue using the shared CPU locks and serial jobs, two CPU/BLAS threads,
+4-GiB RSS cap, 12-GiB available-memory reserve, and 8-GiB MPS driver cap.
+Keep Apex incumbent pending the shared tournament gate. Its larger historical
+training dose does not demonstrate inherent algorithmic superiority.
