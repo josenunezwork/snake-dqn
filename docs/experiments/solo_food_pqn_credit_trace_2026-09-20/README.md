@@ -1,75 +1,113 @@
-# CL: matched credit-trace continuation
+# CL: matched PQN credit-trace continuation
 
-**Qualified; serialized scientific comparison running. No learning result or promotion yet.**
+**Status: R4 is running. The scripted anchors and all three starting policies
+are complete; the final matched learning comparison and audit remain pending.**
 
-CK's completed body-input comparison retained short-horizon food seeking but did not establish reliable survival at H256. Body input helped two seeds and hurt the third. This experiment tests whether a longer return trace improves the already body-aware policy more than an equal additional dose of the current learner.
+CL asks a narrow question: after the same completed CK body-aware parent state,
+does a longer native PQN trace (`lambda095`, λ=.95) behave more reliably than the
+current trace (`lambda065`, λ=.65)? It is a matched continuation, not a new
+architecture, objective, reward, action, or teacher-label experiment. Apex
+remains the operational incumbent until the shared tournament gate supports a
+replacement. Its larger historical training budget is not evidence of inherent
+architectural superiority.
 
-All three CK body-aware mark-2560 checkpoints are common parents. Fresh seeds 2026095601–5603 each receive two runs: λ=.65 and λ=.95. Both restore the complete network, Adam moments, ages, agent-step odometer and tripwire counters. Initial simulator, action and SGD RNG states match within each pair. There is no repeated body-channel initialization. Each run makes exactly 512 additional native updates; mark 2816 is descriptive and only final mark 3072 determines success.
+## Frozen comparison
 
-The fresh evaluation bank has 32 worlds, four headings and three balanced reachable-food placements: 384 lanes per role. Seventeen greedy CPU evaluations cover teacher, random-safe, three initial parents, and both learned arms at midpoint and final. Exact H64/H128 prefixes come from each H256 trace. Training never receives evaluation arrays.
+The three common parents are completed CK `body_food` checkpoints at mark 2560.
+CL maps them one-to-one to fresh seeds 2026095601–5603. Each pair restores the
+complete network, Adam moments and ages, counters, input transform, masks,
+rewards, optimizer settings, and native PQN configuration. Both arms receive a
+fresh runtime. Within a pair they share the same fresh environment and SGD
+streams until their policies diverge; λ is the only paired-arm setting that
+changes.
 
-For every training seed, the λ=.95 final must pass the unchanged 16 absolute food/survival checks, including at least 348/384 H256 endpoint survivors. It must also have a strictly positive paired endpoint CI over λ=.65, retain food within the declared 5% noninferiority bound versus λ=.65, and retain food versus its shared initial parent. Intervals use 32 paired world means, df31; seeds and lanes are not pooled. The control's absolute results are reported independently. No midpoint or historical teacher-label fit can rescue a failed final criterion.
+Each arm performs 512 new native updates from mark 2560 through 3072. Mark 2816
+is a learning-curve checkpoint only. Mark 3072 is the only decision checkpoint.
+The fresh gameplay bank contains 32 worlds (2026108200–8231), four headings, and
+three balanced reachable-food placements per world: 384 lanes per role. One H256
+archive supplies exact H64 and H128 prefixes. Training never receives evaluation
+arrays, and the inherited CG teacher-label fit is historical report-only context,
+not a CL measurement.
 
-The science cap is 5,940 seconds for six serialized MPS learners, seventeen CPU evaluations and one saved-array analysis. Qualification has a separate 180-second aggregate cap, zero CPU optimizer updates and two discarded MPS updates. The existing two-slot lock, two CPU/BLAS threads, one interop thread, 4 GiB RSS cap, 12 GiB available-memory floor, 8 GiB MPS-driver cap and progress watchdog remain in force.
+The long-trace arm must pass all 16 inherited absolute checks in every seed:
+food, all 12 pose cells, survival time, endpoints, and paired food versus
+random-safe at H64/H128/H256, plus late H256 food. The H256 endpoint threshold is
+348/384. It must also pass three final paired-world checks in every seed, using
+32 world means and a Student-t interval with 31 degrees of freedom:
 
-The original qualification invocation stopped during test collection because a new test imported shape constants from the wrong module. It used 1.263 seconds and made no forward call, optimizer update or simulator step. Revision r1 corrected the import and passed 19 checks; one reducer fixture failed on exact floating-point equality (1.299 seconds, two planned constant-Q forwards, no optimizer or simulator work). Revision r2 corrects only that assertion and reuses the passing checks. Its eight reducer tests pass in 1.194 seconds. All attempts remain preserved and count toward the same budget. A separate pre-numeric preparation failure referenced a replay study's nonexistent bank; the incomplete directory is preserved and no intent or numerical work existed in that attempt.
+1. `lambda095 − lambda065` endpoint CI lower bound is strictly above zero.
+2. `lambda095 − lambda065` food CI lower bound is above −5% of the `lambda065`
+   world mean.
+3. `lambda095 − shared parent` food CI lower bound is above −5% of the parent
+   world mean.
 
-The root agent owns design, integration and all numerical execution. Sol reviewed the implementation and scientific criteria, Terra implemented the bounded analysis and documentation slices, and Luna checked bank freshness against 559 historical metadata files and is preparing independent result verification.
+No pooling across seeds or lanes is allowed. The `lambda065` absolute result is
+reported separately but is not an overall prerequisite. A midpoint, a selected
+lane, or an old teacher-label fit cannot rescue a missed final criterion.
 
-Apex remains incumbent until the shared tournament gate supports replacement. Its much larger historical training dose prevents treating incumbency as inherent architectural superiority. CL is a continuation experiment on existing trained body-aware parents, not a from-scratch λ comparison. A benefit would not isolate terminal credit as its cause because λ changes all valid returns.
+## Qualification and operational history
 
-- [Frozen intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r3/intent.json)
-- [Prospective design](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r3/design.md)
-- [Qualification plan](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r3/qualification-plan.json)
-- [Completed CK comparison](/Users/josenunez/Projects/ml/snake-dqn/docs/experiments/solo_food_pqn_body_access_2026-09-20/README.md)
+The original numerical qualification remains valid: it used two discarded MPS
+updates, zero CPU optimizer updates, 10,764 discarded gameplay lane-frames, and
+two separate 16-step × 16-environment training rollouts. It consumed 23.999031
+seconds across its preserved attempts. The current R4 metadata repair adds a
+new exact-fit-reference check only: **17 tests passed in 2.889 seconds**, with no
+new forward pass, optimizer update, or simulation. Cumulative qualification is
+**26.888031 / 180 seconds**.
 
+Four earlier scientific attempts remain charged and preserved, totaling
+**57.881651 seconds**:
 
-## Admission evidence
+| Attempt | Result | Charged seconds |
+| --- | --- | ---: |
+| R2 teacher evaluation | Wall guard stopped after archived gameplay, during a broad final input check | 30.101149 |
+| R3 teacher recovery | Completed naturally by reusing the archived raw evidence | 12.543018 |
+| R3 random-safe evaluation | Completed naturally | 10.435133 |
+| R3 initial-parent evaluation | Failed on metadata before yielding a learned comparison | 4.802350 |
 
-The MPS smoke passed in 20.243031 seconds. Full parent network and Adam restoration
-and initial masked actions match exactly within each pair; CPU/MPS Q parity
-uses rtol 1e-5 and atol 1e-6. The first native rollout and bootstrap tensors are
-identical between arms. The two λ target tensors differ by up to 0.247149, while
-each matches the independent scalar recurrence within tolerance (maximum absolute
-errors 2.86e-6 and 8.58e-6). Both actual rollouts contain 16 nondeath edge rows and
-no death row; the already completed synthetic canonical tests cover terminal
-returns and invalid-successor handling. Both discarded updates have finite
-gradients, with preclip norms 0.192290 and 0.498653.
+R4 adopts the completed R3 teacher and random-safe reports instead of replaying
+them. The new metadata-only jobs completed naturally in 4.169698 seconds and
+2.938298 seconds. Their adoption records bind the original commands, input
+freezes, receipts, raw report pointers, identical bank bytes, and identical
+world specifications. They created **zero** gameplay lane-frames, model
+forwards, scripted selections, optimizer updates, metric reductions, or NPZ
+loads.
 
-The smoke also verifies full model/Adam round trips at marks 2560 and 2561,
-nonzero body input through the actual native selector, and exact H64/H128
-prefixes for both H256 smoke policies. Total qualification cost is
-**23.999031 / 180 seconds**, including both failed test attempts. Exactly two MPS
-optimizer updates were discarded, alongside 10,764 gameplay lane-frames and two
-16-step × 16-environment training rollouts. No qualification checkpoint enters
-science. Peak smoke RSS was 1,401,438,208 bytes and available memory stayed above
-35,132,702,720 bytes.
+The R4 remaining job caps total 5,840 seconds. Together with the preserved
+57.881651 seconds, the admitted maximum is 5,897.881651 seconds, within the
+unchanged 5,940-second science cap. Heavy jobs remain serialized under the
+two-CPU-slot, CPU/BLAS-two-thread, interop-one-thread, 4 GiB RSS, 12 GiB
+available-memory, 8 GiB MPS-driver, and 20-second watchdog guards.
 
+## Current evidence
 
-## Preserved teacher-report recovery
+The R4 teacher and random-safe reports are adopted provenance records, not new
+calibration runs. All three starting policies have completed their fresh-world
+evaluation. Matched training and post-training evaluations are in progress.
 
-The first teacher job completed and archived all 98,304 gameplay lane-frames,
-then hit its 30-second limit during the final hash check of an unnecessarily
-broad inherited read set. The guard stopped it at 30.1011495 seconds; no learner
-training had started. The original complete raw14 archive, launch, receipt and
-heartbeats are preserved.
+| Starting-policy seed | H256 food | H256 survival time | H256 endpoints |
+| --- | ---: | ---: | ---: |
+| 2026095601 | 46.578125 | 0.944163005 | 316/384 |
+| 2026095602 | 38.143229 | 0.967987061 | 351/384 |
+| 2026095603 | 37.804688 | 0.907389323 | 284/384 |
 
-Operational revision r3 recovers the teacher report from that archive without
-replaying actions. Starting-food metadata is reconstructed with the same initial
-placement routine while stepping, learned forward calls and checkpoint loading
-are forbidden. The original full input check is completed once. Future
-evaluations bind the exact 21 historical-fit paths they read, plus seven
-explicit recovery files, instead of carrying 23,005 unrelated inherited paths.
+The teacher reference has H256 food 43.5390625 and 325 survivors; random-safe has
+food 4.6770833 and 376 survivors. These are descriptive anchors. The learner's
+unchanged endpoint requirement is 348/384, alongside its food and time criteria.
 
-All numerical learner, evaluator, reducer, smoke, test and bank files remain
-byte-identical to qualified r2, so completed qualification is reused. Remaining
-job reservations sum to 5,900 seconds; with the preserved failed attempt, the
-reservation is 5,930.1011495 seconds within the original 5,940 cap. No scientific
-threshold or training dose changes.
+A result will separately report training telemetry, historical fit references,
+actual greedy H64/H128/H256 gameplay, all per-seed absolute gates, the three
+paired trace-effect checks, confidence intervals, representative raw evidence,
+resources, and independent audits. A reliable three-seed result would still not
+establish that terminal credit assignment alone caused any effect, because λ
+changes the return calculation for all valid rows.
 
+## Primary records
 
-Recovery completed with a natural zero exit in 12.543018 seconds. The original
-teacher archive was reused unchanged: H256 food 43.5390625, survival time
-0.957143148, endpoint survivors 325/384. H128 food is 23.75 with 374 survivors;
-H64 food is 12.447917 with all 384 alive. These anchors are descriptive and do
-not relax the learner's unchanged 348/384 endpoint criterion.
+- [R4 frozen intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/intent.json)
+- [R4 design](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/design.md)
+- [R4 qualification accounting](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/qualification-accounting.json)
+- [R4 metadata qualification](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/qualification-complete.json)
+- [R4 teacher adoption](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/evaluation/teacher-seed0-mark0/adoption.json)
+- [R4 random-safe adoption](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-credit-trace-r4/evaluation/random_safe-seed0-mark0/adoption.json)
+- [Completed CK body-access comparison](../solo_food_pqn_body_access_2026-09-20/README.md)

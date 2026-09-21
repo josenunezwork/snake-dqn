@@ -1,4 +1,4 @@
-# BO: fixed shared-head policy on fresh H512 solo worlds — in progress
+# BO: fixed shared-head policy on fresh H512 solo worlds — complete and audited
 
 BO asks whether the three fixed BM mark-1,500 shared-head policies retain food
 collection and survival for twice the BN horizon on a fresh native world bank. It is
