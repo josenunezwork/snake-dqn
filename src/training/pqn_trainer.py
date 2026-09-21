@@ -74,6 +74,7 @@ from src.simd_env.gpu_featurizer import build_observations_gpu, obs_inputs_to_to
 from src.training.pqn_lifecycle import (
     EPISODE_RESET_PER_ENV_AUTORESET,
     EPISODE_SEED_DERIVED,
+    HERO_DEATH_OR_FRAME_CAP_S2_V1,
     POOL_ADMISSION_DISABLED,
     POPULATION_FLOOR_OR_FRAME_CAP_V1,
     SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
@@ -189,7 +190,7 @@ class PQNConfig:
             post-step living logical mass. Zero retains the historical reward
             arithmetic and reward contract exactly.
         ambient_food_reward_coefficient: Constructor-only coefficient for a
-            solo ambient-food diagnostic overlay. It is intentionally absent
+            solo or hero-terminal S2 ambient-food diagnostic overlay. It is intentionally absent
             from shared YAML and CLI configuration.
     """
 
@@ -323,6 +324,7 @@ class PQNConfig:
         if self.episode_completion_mode not in {
             POPULATION_FLOOR_OR_FRAME_CAP_V1,
             SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+            HERO_DEATH_OR_FRAME_CAP_S2_V1,
         }:
             raise ValueError("unsupported episode_completion_mode")
         lifecycle_defaults = (
@@ -364,16 +366,43 @@ class PQNConfig:
                     "sole_snake_death_or_frame_cap_v1 requires corrected-v3 raster31v3 Watch "
                     "S1 per-env derived hero-only snapshot-pool with no opponent identity"
                 )
+        if self.episode_completion_mode == HERO_DEATH_OR_FRAME_CAP_S2_V1:
+            if (
+                self.recipe != "corrected-v3"
+                or self.obs_spec != RASTER31V3
+                or self.decision_phase_mode != DECISION_PHASE_WATCH_PRE_MOVE_V1
+                or isinstance(self.num_snakes, bool)
+                or not isinstance(self.num_snakes, int)
+                or self.num_snakes != 2
+                or self.episode_reset_mode != EPISODE_RESET_PER_ENV_AUTORESET
+                or self.episode_seed_mode != EPISODE_SEED_DERIVED
+                or isinstance(self.hero_frac, bool)
+                or not isinstance(self.hero_frac, (int, float))
+                or self.hero_frac != 0.0
+                or isinstance(self.pool_capacity, bool)
+                or not isinstance(self.pool_capacity, int)
+                or self.pool_capacity != 0
+                or self.pool_admission_mode != POOL_ADMISSION_DISABLED
+                or self.rollout_policy_mode != "fixed"
+                or not isinstance(self.fixed_policy_identity, str)
+                or not self.fixed_policy_identity.strip()
+                or self.initial_opponent_checkpoint_sha256 is not None
+            ):
+                raise ValueError(
+                    "hero_death_or_frame_cap_s2_v1 requires corrected-v3 raster31v3 Watch "
+                    "S2 per-env derived slot-zero hero and one fixed opponent with disabled pool"
+                )
         if ambient_coefficient != 0.0 and (
             self.recipe != "corrected-v3"
-            or isinstance(self.num_snakes, bool)
-            or not isinstance(self.num_snakes, int)
-            or self.num_snakes != 1
-            or self.episode_completion_mode != SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
+            or self.episode_completion_mode
+            not in {
+                SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+                HERO_DEATH_OR_FRAME_CAP_S2_V1,
+            }
             or coefficient != 0.0
         ):
             raise ValueError(
-                "ambient_food_reward_coefficient requires corrected-v3 sole S1 "
+                "ambient_food_reward_coefficient requires corrected-v3 sole S1 or hero-terminal S2 "
                 "with living_mass_reward_coefficient=0"
             )
         if self.initial_opponent_checkpoint_sha256 is not None:
@@ -451,7 +480,11 @@ def pqn_reward_contract(config: PQNConfig) -> Dict[str, object]:
         }
     if config.ambient_food_reward_coefficient != 0.0:
         return {
-            "version": "pqn-solo-ambient-food-objective-v1",
+            "version": (
+                "pqn-hero-opponent-ambient-food-objective-v1"
+                if config.episode_completion_mode == HERO_DEATH_OR_FRAME_CAP_S2_V1
+                else "pqn-solo-ambient-food-objective-v1"
+            ),
             "base_reward_contract": base_contract,
             "kappa": config.ambient_food_reward_coefficient,
             "event_source": "ambient_food_ate",
@@ -825,6 +858,13 @@ class PQNSoloTelemetry(PQNPerEnvTelemetry):
     episode_completion_mode: str = SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
 
 
+@dataclass
+class PQNHeroOpponentTelemetry(PQNPerEnvTelemetry):
+    """Opt-in two-snake lifecycle with terminal hero and respawning opponent."""
+
+    episode_completion_mode: str = HERO_DEATH_OR_FRAME_CAP_S2_V1
+
+
 class TripwireError(RuntimeError):
     """Raised when a training tripwire fires, retaining its class and evidence."""
 
@@ -967,11 +1007,16 @@ class PQNTrainer:
             if derived_episode_rng
             else [config.seed + env for env in range(config.num_envs)]
         )
-        self.sim = BatchSim(
-            sim_cfg,
-            seeds=initial_world_seeds,
-            train_mode=True,
-        )
+        if config.episode_completion_mode == HERO_DEATH_OR_FRAME_CAP_S2_V1:
+            # Match Watch evaluation's food-maintenance order and opponent respawn.
+            # The learner is still training; train_mode here selects simulator dynamics.
+            from src.simd_env.eval_engine import _TerminalHeroBatchSim
+
+            self.sim = _TerminalHeroBatchSim(
+                sim_cfg, seeds=initial_world_seeds, train_mode=False, allow_respawn=True
+            )
+        else:
+            self.sim = BatchSim(sim_cfg, seeds=initial_world_seeds, train_mode=True)
 
         self.update_idx = 0
         self.agent_steps = 0
@@ -1174,7 +1219,10 @@ class PQNTrainer:
     def _completed_environment_mask(self) -> np.ndarray:
         """Return environments whose episode ends after the current transition."""
         completed = self.sim.population_floor_reached() | (self.sim.frame >= self.cfg.max_frames)
-        if self.cfg.episode_completion_mode == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1:
+        if self.cfg.episode_completion_mode in {
+            SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+            HERO_DEATH_OR_FRAME_CAP_S2_V1,
+        }:
             completed |= self.sim.get_done()[:, 0]
         return completed
 
@@ -1476,7 +1524,10 @@ class PQNTrainer:
                         if choices.size:
                             actions[row[0], row[1]] = choices[self.rng.integers(len(choices))]
         if self.fixed_policy is not None:
-            frozen_slots = np.argwhere(policy_ids != HERO_POLICY_ID)
+            frozen = policy_ids != HERO_POLICY_ID
+            if self.cfg.episode_completion_mode == HERO_DEATH_OR_FRAME_CAP_S2_V1:
+                frozen &= live_env[:, None] & sim.get_alive()
+            frozen_slots = np.argwhere(frozen)
             if frozen_slots.size:
                 frozen_masks = mask.cpu().numpy()[frozen_slots[:, 0], frozen_slots[:, 1]]
                 actions[frozen_slots[:, 0], frozen_slots[:, 1]] = self.fixed_policy.actions(
@@ -2525,7 +2576,11 @@ class PQNTrainer:
             telemetry_type = (
                 PQNSoloTelemetry
                 if cfg.episode_completion_mode == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1
-                else PQNPerEnvTelemetry
+                else (
+                    PQNHeroOpponentTelemetry
+                    if cfg.episode_completion_mode == HERO_DEATH_OR_FRAME_CAP_S2_V1
+                    else PQNPerEnvTelemetry
+                )
             )
             tel = telemetry_type(
                 **tel.__dict__,
@@ -2629,7 +2684,7 @@ class PQNTrainer:
         runtime = RuntimeModeContract(
             mode="pqn_train",
             training=True,
-            respawn=False,
+            respawn=self.cfg.episode_completion_mode == HERO_DEATH_OR_FRAME_CAP_S2_V1,
             hero_terminal=True,
             population_floor=self.cfg.mechanics_version == 2 and self.cfg.num_snakes >= 3,
             reset_strategy=(

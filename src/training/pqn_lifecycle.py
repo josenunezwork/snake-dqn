@@ -28,9 +28,11 @@ POOL_ADMISSION_SCHEDULED = "scheduled_v1"
 POOL_ADMISSION_DISABLED = "disabled_v1"
 POPULATION_FLOOR_OR_FRAME_CAP_V1 = "population_floor_or_frame_cap_v1"
 SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1 = "sole_snake_death_or_frame_cap_v1"
+HERO_DEATH_OR_FRAME_CAP_S2_V1 = "hero_death_or_frame_cap_s2_v1"
 
 _LIFECYCLE_SCHEMA_VERSION = "pqn-episode-lifecycle/v1"
 _SOLO_LIFECYCLE_SCHEMA_VERSION = "pqn-episode-lifecycle/v2"
+_HERO_OPPONENT_LIFECYCLE_SCHEMA_VERSION = "pqn-episode-lifecycle/v3"
 _POLICY_SOURCE_SCHEMA_VERSION = "pqn-rollout-policy-source/v1"
 _ADAPTER_SCHEMA_VERSION = "pqn-episode-lifecycle-legacy-adapter/v1"
 _ADAPTER_POLICY_SOURCE_SCHEMA_VERSION = "pqn-rollout-policy-source-legacy-adapter/v1"
@@ -243,7 +245,7 @@ def build_pqn_episode_lifecycle_contract(
     """Build a closed corrected-v3 lifecycle descriptor.
 
     The compatibility default deliberately returns the historical v1 mapping
-    unchanged.  The solo diagnostic is a separately versioned v2 descriptor.
+    unchanged. Solo uses v2; terminal-hero S2 with opponent respawn uses v3.
     """
     if episode_reset_mode not in _RESET_TO_RUNTIME:
         raise ValueError(f"unsupported PQN episode_reset_mode {episode_reset_mode!r}")
@@ -256,15 +258,18 @@ def build_pqn_episode_lifecycle_contract(
     if episode_completion_mode not in {
         POPULATION_FLOOR_OR_FRAME_CAP_V1,
         SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+        HERO_DEATH_OR_FRAME_CAP_S2_V1,
     }:
         raise ValueError(f"unsupported PQN episode_completion_mode {episode_completion_mode!r}")
-    if episode_completion_mode == SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1 and (
+    if episode_completion_mode in {
+        SOLE_SNAKE_DEATH_OR_FRAME_CAP_V1,
+        HERO_DEATH_OR_FRAME_CAP_S2_V1,
+    } and (
         episode_reset_mode != EPISODE_RESET_PER_ENV_AUTORESET
         or episode_seed_mode != EPISODE_SEED_DERIVED
     ):
         raise ValueError(
-            "sole_snake_death_or_frame_cap_v1 requires per_env_autoreset_v1 "
-            "and derived_env_episode_v1"
+            f"{episode_completion_mode} requires per_env_autoreset_v1 " "and derived_env_episode_v1"
         )
 
     per_environment = episode_reset_mode == EPISODE_RESET_PER_ENV_AUTORESET
@@ -306,19 +311,39 @@ def build_pqn_episode_lifecycle_contract(
                 },
             }
         )
+    elif episode_completion_mode == HERO_DEATH_OR_FRAME_CAP_S2_V1:
+        descriptor.update(
+            {
+                "schema_version": _HERO_OPPONENT_LIFECYCLE_SCHEMA_VERSION,
+                "episode_completion_mode": episode_completion_mode,
+                "terminal_semantics": {
+                    "hero_slot": 0,
+                    "hero_death": "done_true_valid_terminal_transition_then_complete",
+                    "hero_respawn": False,
+                    "opponent_death": "continue_environment_native_respawn",
+                    "population_floor": False,
+                    "frame_cap": "done_false_final_successor_bootstrap",
+                    "reset": "next_selected_rollout_boundary",
+                    "simulator_train_mode": False,
+                    "simulator_allow_respawn": True,
+                    "food_maintenance": "native_watch_eval_order",
+                },
+            }
+        )
     return descriptor
 
 
 def _validate_lifecycle_descriptor(value: object) -> tuple[dict[str, Any], str]:
     if not isinstance(value, Mapping):
         raise ValueError("episode_lifecycle_contract must be a mapping")
-    is_solo = value.get("schema_version") == _SOLO_LIFECYCLE_SCHEMA_VERSION
+    schema = value.get("schema_version")
+    extended = schema in {_SOLO_LIFECYCLE_SCHEMA_VERSION, _HERO_OPPONENT_LIFECYCLE_SCHEMA_VERSION}
     descriptor = _exact_mapping(
         value,
-        _SOLO_LIFECYCLE_KEYS if is_solo else _LIFECYCLE_KEYS,
+        _SOLO_LIFECYCLE_KEYS if extended else _LIFECYCLE_KEYS,
         "episode_lifecycle_contract",
     )
-    expected_schema = _SOLO_LIFECYCLE_SCHEMA_VERSION if is_solo else _LIFECYCLE_SCHEMA_VERSION
+    expected_schema = schema if extended else _LIFECYCLE_SCHEMA_VERSION
     if descriptor.get("schema_version") != expected_schema:
         raise ValueError("unsupported episode_lifecycle_contract schema_version")
     expected = build_pqn_episode_lifecycle_contract(
@@ -401,7 +426,8 @@ def _validate_common_crosslinks(
         if (
             parsed_runtime["mode"] != "pqn_train"
             or parsed_runtime["training"] is not True
-            or parsed_runtime["respawn"] is not False
+            or parsed_runtime["respawn"]
+            is not (lifecycle.get("episode_completion_mode") == HERO_DEATH_OR_FRAME_CAP_S2_V1)
             or parsed_runtime["hero_terminal"] is not True
             or not isinstance(parsed_runtime["population_floor"], bool)
             or parsed_runtime["reset_strategy"] not in PQN_TRAIN_RESET_STRATEGIES
@@ -461,11 +487,7 @@ def _validate_common_crosslinks(
         world_snakes = (
             effective_world.get("num_snakes") if isinstance(effective_world, Mapping) else None
         )
-        if (
-            isinstance(world_snakes, bool)
-            or not isinstance(world_snakes, int)
-            or world_snakes != 1
-        ):
+        if isinstance(world_snakes, bool) or not isinstance(world_snakes, int) or world_snakes != 1:
             raise ValueError("solo lifecycle requires effective_world.num_snakes=1")
         if parsed_runtime["population_floor"] is not False:
             raise ValueError("solo lifecycle requires runtime population_floor=false")
@@ -487,6 +509,37 @@ def _validate_common_crosslinks(
             or sampler.get("num_snakes") != 1
         ):
             raise ValueError("solo lifecycle conflicts with the required S1 Watch hero-only source")
+    elif lifecycle.get("episode_completion_mode") == HERO_DEATH_OR_FRAME_CAP_S2_V1:
+        effective_world = metadata.get("effective_world")
+        world_snakes = (
+            effective_world.get("num_snakes") if isinstance(effective_world, Mapping) else None
+        )
+        if (
+            metadata.get("episode_completion_mode") != HERO_DEATH_OR_FRAME_CAP_S2_V1
+            or isinstance(world_snakes, bool)
+            or not isinstance(world_snakes, int)
+            or world_snakes != 2
+            or parsed_runtime["population_floor"] is not False
+            or metadata.get("decision_phase_mode") != _WATCH_DECISION_PHASE_MODE
+            or target_version != _WATCH_TARGET_VERSION
+            or policy_source["rollout_policy_mode"] != "fixed"
+            or not isinstance(policy_source["fixed_policy_identity"], str)
+            or not policy_source["fixed_policy_identity"].strip()
+            or policy_source["pool_admission_mode"] != POOL_ADMISSION_DISABLED
+            or policy_source["initial_opponent_checkpoint_sha256"] is not None
+            or isinstance(sampler.get("hero_frac"), bool)
+            or not isinstance(sampler.get("hero_frac"), (int, float))
+            or sampler.get("hero_frac") != 0.0
+            or isinstance(sampler.get("pool_capacity"), bool)
+            or not isinstance(sampler.get("pool_capacity"), int)
+            or sampler.get("pool_capacity") != 0
+            or isinstance(sampler.get("num_snakes"), bool)
+            or not isinstance(sampler.get("num_snakes"), int)
+            or sampler.get("num_snakes") != 2
+        ):
+            raise ValueError(
+                "hero-opponent lifecycle requires S2 Watch slot-zero hero and fixed source"
+            )
     elif "episode_completion_mode" in metadata:
         raise ValueError("v1 lifecycle metadata must not carry episode_completion_mode")
     for name in ("pool_admission_mode", "initial_opponent_checkpoint_sha256"):
