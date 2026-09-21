@@ -1,6 +1,6 @@
 # Solo-learning status: evidence map
 
-**Current milestone:** Native PQN has established bounded H128 food/survival retention across all three lineages. Reliable H256 behavior remains unresolved. The completed and audited [CL trace-length comparison](solo_food_pqn_credit_trace_2026-09-20/README.md) gives current λ=.65 absolute passes in 2/3 seeds and longer λ=.95 passes in 1/3. No longer-trace seed passes the full paired-benefit rule; one loses food seeking while surviving all games. The next CM study examines the saved learning signals before another training change.
+**Current milestone:** Native PQN has established bounded H128 food/survival retention across all three lineages. Reliable H256 behavior remains unresolved. The completed and audited [CL trace-length comparison](solo_food_pqn_credit_trace_2026-09-20/README.md) gives current λ=.65 absolute passes in 2/3 seeds and longer λ=.95 passes in 1/3. No longer-trace seed passes the full paired-benefit rule; one loses food seeking while surviving all games. The completed [CM saved-signal diagnostic](solo_food_pqn_terminal_signal_2026-09-20/README.md) reproduces all native targets exactly and finds consistent target sensitivity to selector-match trace cuts. The next CN comparison tests that carry rule at equal training dose.
 
 This map is a recovery guide, not a pooled benchmark. Each linked study has its own fixed parents,
 data, worlds, horizon, criteria, and statistical unit. “Passes 3/3” means every predeclared per-seed
@@ -89,3 +89,5 @@ all-seed rule, but used a length-one task and reused outcome-informed controls.
 It is relevant negative history, not the same survival question as CL.
 
 CL is complete and independently audited, with all 24 current receipts reconciled and all four prior physical attempts preserved. Its six learners added 3,072 updates and 781,367 valid hero transitions. CM is a saved-array diagnostic, with no new policy claim or tournament promotion.
+
+CM is complete and audited: all 3,072 CL rollout batches and 781,367 transitions were reduced without new learning or gameplay. This is diagnostic evidence, not a new policy result.
