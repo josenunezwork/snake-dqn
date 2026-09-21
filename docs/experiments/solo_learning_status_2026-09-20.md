@@ -1,6 +1,6 @@
 # Solo-learning status: evidence map
 
-**Current milestone:** The fixed three-policy half-MSE cohort retains its bounded H256 food/survival result on the fresh [CP longer-game bank](solo_food_pqn_h384_confirmation_2026-09-20/README.md). At H384, two seeds pass all 22 conditions; seed 5801 passes 21 but finishes with 344/384 survivors, below the unchanged 348 floor. All three retain food collection and late food. CP's all-three result therefore fails. The earlier [CO loss comparison](solo_food_pqn_loss_shape_2026-09-20/README.md) remains an absolute H256 cohort milestone, with its separate relative-effect rule failed in all three seeds. [CR's equal-dose H256 versus H384 training comparison](solo_food_pqn_h384_training_2026-09-20/README.md) is now running under a frozen protocol and serialized resource guards; qualification passed, but no CR behavioral result is established yet.
+**Current milestone:** [CR's completed equal-dose continuation](solo_food_pqn_h384_training_2026-09-20/README.md) establishes a bounded H384 result for all three fixed H256-trained control finals: every seed passes all 22 food/survival conditions on 32 fresh worlds. Mean food is 64.03, 57.71, and 64.10, with 348, 366, and 381 survivors out of 384. The H384-trained treatment passes only 2/3 and its paired benefit fails in all three, so CR's primary result remains false. The next study is a fresh H512 duration screen of the entire control cohort, selected after CR's results, with no additional learning. It is being prepared and has not run.
 
 This map is a recovery guide, not a pooled benchmark. Each linked study has its own fixed parents,
 data, worlds, horizon, criteria, and statistical unit. “Passes 3/3” means every predeclared per-seed
@@ -117,4 +117,16 @@ Qualification passed 42 tests, exact first-update agreement, and CPU gameplay
 parity. The smoke confirmed post-256 exposure only in the longer-cap arm. Fresh
 384-lane greedy evaluations and the unchanged 22-condition absolute package
 remain separate from the paired endpoint-benefit and food-retention rules. The
-active science budget is 6,600 seconds; heavy jobs remain serialized.
+science budget was 6,600 seconds; heavy jobs remained serialized.
+
+CR is complete and independently audited: 24/24 scientific jobs, 3,072 new
+optimizer updates, 785,237 valid hero transitions, and 2,180.344256 seconds of
+science. Its fixed final control cohort passes all 22 conditions in every seed.
+The treatment's seed 5902 fails H128 food, H256 food, and food during frames
+129–256 despite 382/384 H384 survivors. The final independent audit checked
+7,850 hashes; Sol separately recomputed every final gate and paired interval.
+Midpoint behavior was not monotone and no midpoint substituted for a final.
+The proposed CS H512 screen retains every shorter-prefix requirement and adds
+seven longer-horizon checks, including an absolute mean-food floor of 64. The
+fixed control-family choice is outcome-informed; no opponent or tournament
+result follows from this solo-food milestone.
