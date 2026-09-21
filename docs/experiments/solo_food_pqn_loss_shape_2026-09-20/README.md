@@ -1,10 +1,10 @@
 # CO: native Huber versus half-MSE continuation
 
-**Status: scientific execution is in progress.** CO compares the trainer's native
-Huber objective with half mean-squared TD error after a matched continuation. The
-qualification gate has passed, but no behavioral, reliability, or policy claim is
-available until all three seeds finish and the saved evidence is independently
-audited.
+**Status: complete and independently audited.** CO compares the trainer's native
+Huber objective with half mean-squared TD error after a matched continuation.
+Half-MSE met the inherited absolute package in all three seeds, but the required
+paired half-MSE-versus-Huber benefit failed in all three. CO therefore does not
+support a treatment-superiority or promotion claim.
 
 ## Frozen comparison
 
@@ -23,9 +23,9 @@ selector cut.
 The study has six learners: both arms for each seed. Mark 2816 is descriptive;
 mark 3072 is the decision checkpoint. The fixed H256 evaluation bank contains 32
 fresh worlds, four headings, and three balanced reachable food placements per
-world (384 lanes). The existing common CK parents are a Huber-trained warm start,
-so this is a matched loss switch during continuation rather than training both
-objectives from initialization.
+world (384 lanes). The existing common CK parents include canonical Huber-trained
+Adam state, so this is a matched loss switch during continuation rather than
+training both objectives from initialization.
 
 The primary sources are the [PQN paper](https://arxiv.org/html/2407.04811v3) and
 the authors' [MinAtar implementation](https://github.com/mttga/purejaxql/blob/main/purejaxql/pqn_minatar.py),
@@ -44,10 +44,25 @@ For each seed, half-MSE must also beat Huber on all three paired conditions:
 endpoint lower 95% confidence bound strictly above zero, food lower bound above
 -5% of Huber mean food, and food-minus-initial lower bound above -5% of initial
 mean food. The unit is the 32 paired world means (df 31); neither lanes nor seeds
-are pooled. The final report will state Huber absolute reliability,
+are pooled. This report states Huber absolute reliability,
 `mse_absolute_all_three`, and `loss_effect_all_three` separately. Overall success
 requires the latter two conjunctions across all three seeds; Huber reliability is
 reported independently.
+
+## Completed fixed baselines
+
+The five fixed H256 baseline roles completed on the CO bank before the learner
+evaluations. These are reference values only: they neither decide a CO arm nor
+replace a final paired comparison. Each entry is `mean ambient food / survival
+fraction / surviving endpoints` out of 384 lanes.
+
+| Role | Seed | H256 reference |
+| --- | ---: | --- |
+| Teacher | 0 | 43.466145833333336 / 0.9559834798177084 / 334 |
+| RandomSafe | 0 | 4.653645833333333 / 0.9975077311197916 / 380 |
+| Initial CK parent | 2026095801 | 45.3359375 / 0.932159423828125 / 315 |
+| Initial CK parent | 2026095802 | 38.3359375 / 0.9633890787760416 / 338 |
+| Initial CK parent | 2026095803 | 36.6796875 / 0.8856913248697916 / 263 |
 
 ## Qualification evidence
 
@@ -70,26 +85,100 @@ the already hash-bound freshness scan into its expected metadata field. It start
 no numerical process and made no optimizer update; the bank, criteria, and budget
 were unchanged.
 
+## Final H256 analysis
+
+The six fixed final policies were evaluated greedily on the fresh bank, and the
+analysis reconciled those saved evaluations.
+Each entry is `mean ambient food / survival fraction / surviving endpoints` out
+of 384 lanes. Midpoint mark 2816 remains descriptive; only final mark 3072
+decides the gates.
+
+| Seed | Huber final | Half-MSE final |
+| --- | --- | --- |
+| 2026095801 | 3.3072916666666665 / 0.99810791015625 / 383 | 37.7578125 / 0.9886372884114584 / 368 |
+| 2026095802 | 42.6796875 / 0.986663818359375 / 366 | 41.052083333333336 / 0.9934895833333334 / 376 |
+| 2026095803 | 42.283854166666664 / 0.996917724609375 / 379 | 38.234375 / 0.9913431803385416 / 374 |
+
+| Result | Completed analysis outcome |
+| --- | --- |
+| Half-MSE absolute reliability | 3/3 seeds |
+| Huber absolute reliability | 2/3 seeds |
+| Complete paired half-MSE benefit | 0/3 seeds |
+| Overall conjunction | Failed |
+
+Half-MSE passes all 16 absolute conditions in every seed. Huber seed 5801 fails
+the food and all-cell thresholds at H64, H128, and H256; the H256 paired
+policy-minus-random food condition; and the late-food condition. Huber seeds 5802
+and 5803 pass their 16-condition packages. The half-MSE cohort therefore meets
+the absolute behavior screen, while relative superiority remains unestablished.
+
+Every seed fails the strict endpoint lower-bound condition, and each has one
+additional food non-inferiority failure:
+
+| Seed | Half-MSE minus Huber endpoint lower CI | Food lower CI | Parent-food lower CI | Failed relative condition(s) |
+| --- | ---: | ---: | ---: | --- |
+| 2026095801 | -0.05923075218857056 | 33.83877629985138 | -8.825642327819352 | Endpoint; parent-food retention |
+| 2026095802 | -0.0008718863626589225 | -2.3171802138929305 | 1.9976232643390448 | Endpoint; food versus Huber |
+| 2026095803 | -0.033368761696438154 | -4.66079514813404 | 0.07831913458145423 | Endpoint; food versus Huber |
+
+The endpoint condition requires a lower bound strictly above zero. The food
+conditions require a lower bound above -5% of the corresponding Huber or initial
+parent mean. The statistics use the 32 paired world means with df 31; no lane or
+seed pooling was used.
+
+## Training and analysis boundary
+
+All six serialized learner jobs completed from update 2560 to 3072 with 512
+optimizer updates each: 3,072 updates and 781,625 new valid hero transitions.
+The largest recorded gradient norm was 2.121435, below the clip threshold of 10.
+Their learning-rollout deaths were 147/121/133 for Huber and 87/81/71 for
+half-MSE (seeds 5801/5802/5803). Those exploratory training counts are distinct
+from the fresh greedy endpoint survivors above.
+
+Analysis made zero new fit or teacher-fit calls; historical fit references remain
+historical only. It neither establishes an objective effect nor supports policy
+promotion.
+
+![Training curves](training-curves.png)
+
+![Behavioral horizons](behavioral-horizons.png)
+
+![Gameplay curves](gameplay-curves.png)
+
+![Fixed final gameplay](fixed-final-gameplay.png)
+
+The four saved panels passed visual QA. They show learning and fresh greedy
+gameplay separately; neither substitutes a gate or changes the analysis JSON.
+
 ## Execution boundary
 
-The scientific budget is 5,940 seconds. All six learners must complete their 512
-updates, for 3,072 planned study updates, before final analysis. Every final
-policy will be evaluated at H256, with H64 and H128 obtained as saved prefixes.
+The scientific budget is 5,940 seconds. The six learners completed their 512
+updates, for 3,072 study updates, and final H256 evaluation supplied saved H64
+and H128 prefixes. The 24 scientific jobs consumed 1,765.2579427529126 seconds.
+The independent audit passed: it hashed 7,702 paths, including 7,695 full analysis-closure
+paths, independently recomputed 18 absolute horizon blocks, 216 cell checks, and
+six late-food checks, rejected a mutation, and reported zero issues. Recorded
+resource extrema were 1,504,231,424 bytes maximum RSS, 34,524,856,320 bytes
+minimum available memory, and 1,205,092,352 bytes maximum MPS driver memory.
 Jobs run serially with both compute locks, two CPU/BLAS threads, a 4 GiB process-tree
 RSS cap, a 12 GiB available-memory floor, and an 8 GiB MPS driver cap.
 No partial result, midpoint, or early seed result decides the study. The training
 and evaluation evidence remains separate from historical teacher-fit references.
 
 [CN's completed selector-cut result](../solo_food_pqn_selector_cut_2026-09-20/README.md)
-did not support advancing to H384: its selector-cut absolute reliability was 2/3,
-native was 1/3, and the complete paired benefit rule passed 0/3. CO is a new,
-lambda=.65 loss-shape comparison, not a causal comparison with CN's lambda=.95
-selector-cut continuation. Apex remains the operational incumbent; its larger
-historical training dose remains a confound rather than evidence of inherent
-superiority.
+did not support advancing to H384. CO likewise does not establish a paired loss
+effect or support promotion. With audit and visual QA complete, the next fixed
+confirmation is half-MSE's three final mark-3072 checkpoints on fresh H384 worlds.
+That outcome-selected cohort tests duration generalization only; it is neither a
+CO effect rescue nor a promotion decision. Apex remains the operational incumbent;
+its larger historical training dose remains a confound rather than evidence of
+inherent superiority.
 
 - [Immutable CO intent](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-loss-shape/intent.json)
 - [CO frozen design](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-loss-shape/design.md)
 - [Qualification completion](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-loss-shape/qualification-complete.json)
 - [Qualification accounting](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-loss-shape/qualification-accounting.json)
+- [Completed analysis](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-loss-shape/analysis/analysis.json)
+- [Independent audit V2](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-loss-shape/independent-audit.json)
+- [Completed closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-loss-shape/closeout.json)
 - [Primary-source note](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-loss-shape/research.md)

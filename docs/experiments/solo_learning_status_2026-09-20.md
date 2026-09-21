@@ -1,6 +1,6 @@
 # Solo-learning status: evidence map
 
-**Current milestone:** Native PQN has established bounded H128 food/survival retention across all three lineages, while reliable H256 behavior remains unresolved. The completed [CN selector-cut comparison](solo_food_pqn_selector_cut_2026-09-20/README.md) tested the selector-match carry rule at equal λ=.95 continuation dose: native absolute reliability passed 1/3 seeds, selector-cut passed 2/3, and the complete paired benefit rule passed 0/3 because every endpoint lower confidence bound remained non-positive. CN is complete and does not support a policy or replacement claim. [CO loss-shape comparison](solo_food_pqn_loss_shape_2026-09-20/README.md) is now frozen, qualified, and running: native λ=.65 Huber versus half-MSE on fresh seeds 5801–5803. Its behavioral results remain pending.
+**Current milestone:** The completed [CO loss-shape comparison](solo_food_pqn_loss_shape_2026-09-20/README.md) has established a bounded H256 absolute result for a fixed three-policy cohort: all three half-MSE finals passed every one of the 16 food/survival conditions on fresh worlds. Huber passed in 2/3 seeds. CO's separate relative-effect rule passed 0/3, so its overall primary result remains false; it does not establish half-MSE superiority or promotion. The next study, CP, is being prepared to evaluate those same three half-MSE finals at H384 on another fresh world bank without further training or checkpoint selection.
 
 This map is a recovery guide, not a pooled benchmark. Each linked study has its own fixed parents,
 data, worlds, horizon, criteria, and statistical unit. “Passes 3/3” means every predeclared per-seed
@@ -39,6 +39,7 @@ The completed evidence is reused and the original thresholds are preserved.
 | Body-aware native PQN | [CK body access](solo_food_pqn_body_access_2026-09-20/README.md) | All six finals retain H64/H128 behavior and H256 food, including late food. Body-aware versus control endpoint intervals are positive in seeds 5501 and 5502 and negative in 5503. | All six miss the 348/384 H256 endpoint floor. Body-arm absolute reliability passes 0/3; its complete relative-benefit rule passes 1/3. This does not establish a reliable benefit from the body-input package. |
 | Trace continuation | [CL matched trace length](solo_food_pqn_credit_trace_2026-09-20/README.md) | With equal 512-update doses from shared body-aware parents, current λ=.65 passes H256 absolute criteria in 2/3 seeds; λ=.95 passes in 1/3. | The complete paired benefit rule passes 0/3. Longer-trace seed5602 has 384/384 survivors but only 1.7474 food, below random 4.6771. Longer traces are not a reliable repair. |
 | Selector-cut continuation | [CN matched selector-cut](solo_food_pqn_selector_cut_2026-09-20/README.md) | At equal λ=.95 continuation dose, selector-cut passed the H256 absolute package in 2/3 seeds versus native 1/3. | The endpoint-benefit lower CI was below zero in all three seeds; CN overall failed. The 346/384 selector-cut endpoint count in seed5702 remained below the unchanged 348 floor. |
+| Loss-shape continuation | [CO Huber versus half-MSE](solo_food_pqn_loss_shape_2026-09-20/README.md) | At equal 512-update continuation doses from shared CK parents, all three half-MSE finals passed the 16 absolute H64/H128/H256 conditions. H256 food was 37.76, 41.05, and 38.23, with 368, 376, and 374 survivors out of 384. | Huber passed the absolute package in 2/3 seeds; half-MSE's paired-effect package failed in all three. Its food retention bounds failed against the parent in seed5801 and Huber in seeds5802/5803. This is a warm-start cohort result on one fresh bank, not a universal loss recommendation. |
 
 
 
@@ -92,3 +93,12 @@ It is relevant negative history, not the same survival question as CL.
 CL is complete and independently audited, with all 24 current receipts reconciled and all four prior physical attempts preserved. Its six learners added 3,072 updates and 781,367 valid hero transitions. CM is a saved-array diagnostic, with no new policy claim or tournament promotion.
 
 CM is complete and audited: all 3,072 CL rollout batches and 781,367 transitions were reduced without new learning or gameplay. This is diagnostic evidence, not a new policy result.
+
+CO is complete and independently audited. Its six learners added 3,072 optimizer
+updates and 781,625 valid hero transitions. The source-metric audit recomputed every
+absolute decision, all 216 cell subchecks, and every paired relative confidence
+interval; its full input closure passed byte verification. The fixed final cohort
+passes the absolute screen even though CO's stricter relative primary failed.
+CP will test duration and fresh-world generalization for that selected cohort.
+It will retain CO's failed primary, CH's failed calibration, and the distinction
+between the same three training lineages and new evaluation worlds.
