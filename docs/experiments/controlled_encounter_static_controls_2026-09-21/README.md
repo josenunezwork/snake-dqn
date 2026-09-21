@@ -8,7 +8,7 @@ The predeclared survival package is threat survival ≥0.95, each threat family 
 
 All three supervisor receipts (qualification, full control, saved analysis) classify as complete, show natural exit code 0, and report no source/driver drift. Their elapsed times sum to **13.78 seconds**, within the frozen **120-second** campaign budget. Maximum observed RSS was **268,877,824 bytes (about 257 MiB)**; the lowest available-memory sample was **31,788,384,256 bytes (about 29.6 GiB)**. The receipts do not record observed MPS-driver use. No training or model inference was performed.
 
-The next study qualifies a new teacher that replans four steps ahead at every decision and prioritizes food among surviving paths. Its pipeline qualification passed and fresh-world collection has begun under a separate frozen protocol. Full scientific training requires the declared joint food/survival and label-admission checks to pass first.
+The subsequent study qualified a new teacher that replans four steps ahead at every decision and prioritizes food among surviving paths. Its completed fresh-world collection passed the food/survival checks but failed the original label-consistency gate. No scientific training ran; see the [imitation admission closeout](../controlled_encounter_imitation_2026-09-21/README.md).
 
 ![Confirmation and calibration outcomes](static-controls.png)
 
