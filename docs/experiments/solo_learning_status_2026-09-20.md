@@ -1,6 +1,6 @@
 # Solo-learning status: evidence map
 
-**Current milestone:** The fixed three-policy half-MSE cohort retains its bounded H256 food/survival result on the fresh [CP longer-game bank](solo_food_pqn_h384_confirmation_2026-09-20/README.md). At H384, two seeds pass all 22 conditions; seed 5801 passes 21 but finishes with 344/384 survivors, below the unchanged 348 floor. All three retain food collection and late food. CP's all-three result therefore fails. The earlier [CO loss comparison](solo_food_pqn_loss_shape_2026-09-20/README.md) remains an absolute H256 cohort milestone, with its separate relative-effect rule failed in all three seeds. The next bounded question is whether longer training episodes improve late survival at an equal continuation dose.
+**Current milestone:** The fixed three-policy half-MSE cohort retains its bounded H256 food/survival result on the fresh [CP longer-game bank](solo_food_pqn_h384_confirmation_2026-09-20/README.md). At H384, two seeds pass all 22 conditions; seed 5801 passes 21 but finishes with 344/384 survivors, below the unchanged 348 floor. All three retain food collection and late food. CP's all-three result therefore fails. The earlier [CO loss comparison](solo_food_pqn_loss_shape_2026-09-20/README.md) remains an absolute H256 cohort milestone, with its separate relative-effect rule failed in all three seeds. [CR's equal-dose H256 versus H384 training comparison](solo_food_pqn_h384_training_2026-09-20/README.md) is now running under a frozen protocol and serialized resource guards; qualification passed, but no CR behavioral result is established yet.
 
 This map is a recovery guide, not a pooled benchmark. Each linked study has its own fixed parents,
 data, worlds, horizon, criteria, and statistical unit. “Passes 3/3” means every predeclared per-seed
@@ -104,3 +104,17 @@ H384 food was 54.88, 59.55, and 56.15; endpoint survivors were 344, 358, and 368
 out of 384. Its independent audit passed, with all six completed scientific jobs
 reused. It preserves CO's failed primary, CH's failed calibration, and the
 distinction between the same three training lineages and new evaluation worlds.
+
+[CQ's saved-trajectory census](solo_food_pqn_h384_death_census_2026-09-20/README.md)
+is complete and independently audited. All 82 learned-policy deaths in CP were
+self-collisions, including 53 after frame 256. It performed no new learning,
+inference, or gameplay and does not prove an earlier rescue was possible.
+
+CR gives each of those full CO model/Adam parents two paired 512-update
+continuations with fresh training streams: cap 256 and cap 384. It keeps native
+Q(lambda=.65), half-MSE, the body/food inputs, and the six-action contract fixed.
+Qualification passed 42 tests, exact first-update agreement, and CPU gameplay
+parity. The smoke confirmed post-256 exposure only in the longer-cap arm. Fresh
+384-lane greedy evaluations and the unchanged 22-condition absolute package
+remain separate from the paired endpoint-benefit and food-retention rules. The
+active science budget is 6,600 seconds; heavy jobs remain serialized.
