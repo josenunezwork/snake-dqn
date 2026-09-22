@@ -138,7 +138,8 @@ learning automatically.
 The next prospective question is a separately frozen, three-lineage matched
 continuation with 131,072 examples per arm. It must test the expansion package,
 including the target-construction difference, rather than attributing any
-outcome to world count alone. No such continuation has launched.
+outcome to world count alone. That continuation had not launched at this teacher
+closeout; its qualification and learning results belong to the separate study.
 
 ## Execution and audit boundary
 
@@ -167,12 +168,13 @@ the earlier rejected expansion and records zero learner updates in this cycle.
   — SHA-256 `d03824edf4f8a284085fb6f3ec3ea7225d9b31bf705ff7217110be5dcc05f662`
 - [Completed union-admission report](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/admission/report.json)
   — SHA-256 `e91c8f9c208a6f57590e8ac7a04a9dabd6dcbcf26164ff82b3e0684a35c6283c`
+- [Independent saved-evidence audit](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/independent-audit.json)
+  — SHA-256 `6a194c7c741a9ee64876e8594e9b61c63cc252fd7cdcb3883689870184621fac`
+- [Audited closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/closeout.json)
+  — SHA-256 `58845e2766b5460fb0d81f9d77268aa9ab36fce2bc5402890a6a8e6e7cac6b67`
 - [Collection receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/supervisor-runs/collect/receipt.json),
   [analysis receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/supervisor-runs/analysis/receipt.json),
   and [admission receipt](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/supervisor-runs/admission/receipt.json)
 - [Teacher behavior figure sources](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/analysis/gameplay-curves.png),
   [known-conflict gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/analysis/known-conflict-gameplay.png),
   and [new-world gameplay](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/analysis/new-world-gameplay.png)
-
-- [Audited closeout](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/closeout.json) — SHA-256 `58845e2766b5460fb0d81f9d77268aa9ab36fce2bc5402890a6a8e6e7cac6b67`
-- [Independent audit](/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-global-teacher/independent-audit.json) — SHA-256 `6a194c7c741a9ee64876e8594e9b61c63cc252fd7cdcb3883689870184621fac`
