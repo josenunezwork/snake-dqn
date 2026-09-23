@@ -1,0 +1,189 @@
+{
+  "discrepancies": [],
+  "valid_classes": {
+    "NO_SAFE_FALLBACK": {
+      "action": 2,
+      "arm": "h256",
+      "ate_food": false,
+      "bank": "adaptive_h256",
+      "boost_burn": false,
+      "class": "NO_SAFE_FALLBACK",
+      "collision": "self",
+      "death_cause": "self",
+      "derived_safe_mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "discrepancies": [],
+      "frame": 209,
+      "last_move_positions": [
+        [
+          200,
+          370
+        ]
+      ],
+      "legal_mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "planned_action": 2,
+      "post": {
+        "body_segments": [
+          [
+            200,
+            370
+          ],
+          [
+            200,
+            360
+          ],
+          [
+            190,
+            360
+          ],
+          [
+            190,
+            370
+          ],
+          [
+            200,
+            370
+          ],
+          [
+            210,
+            370
+          ],
+          [
+            220,
+            370
+          ],
+          [
+            220,
+            360
+          ],
+          [
+            210,
+            360
+          ],
+          [
+            210,
+            350
+          ],
+          [
+            200,
+            350
+          ]
+        ],
+        "boost_frames": 0,
+        "episode_food_eaten": 8,
+        "head": [
+          200,
+          370
+        ],
+        "logical_length": 11,
+        "segment_length": 11
+      },
+      "post_head": [
+        200,
+        370
+      ],
+      "pre": {
+        "body_segments": [
+          [
+            200,
+            360
+          ],
+          [
+            190,
+            360
+          ],
+          [
+            190,
+            370
+          ],
+          [
+            200,
+            370
+          ],
+          [
+            210,
+            370
+          ],
+          [
+            220,
+            370
+          ],
+          [
+            220,
+            360
+          ],
+          [
+            210,
+            360
+          ],
+          [
+            210,
+            350
+          ],
+          [
+            200,
+            350
+          ],
+          [
+            190,
+            350
+          ]
+        ],
+        "boost_frames": 0,
+        "episode_food_eaten": 8,
+        "head": [
+          200,
+          360
+        ],
+        "logical_length": 11,
+        "segment_length": 11
+      },
+      "pre_head": [
+        200,
+        360
+      ],
+      "raw_mask": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "resolved_mask": [
+        true,
+        true,
+        true,
+        false,
+        false,
+        false
+      ],
+      "root_id": "h0-b2-d6-x300-y100",
+      "row_index": 21,
+      "seed": 2026101001,
+      "selection_mask": [
+        true,
+        true,
+        true,
+        false,
+        false,
+        false
+      ],
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-horizon-collection-continuation/results/eval/2026101001-h256/adaptive_h256-games.json"
+    },
+    "SELECTED_SAFE_BUT_DIED": null
+  }
+}
