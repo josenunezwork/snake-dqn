@@ -1,0 +1,1090 @@
+{
+  "categories": {
+    "BOOST_PREDECESSOR": null,
+    "COMPARABLE_NORMAL": {
+      "alternatives": [
+        {
+          "action": 0,
+          "space": 1.0
+        }
+      ],
+      "arm": "h256",
+      "bank": "adaptive_h256",
+      "best_all_safe_normal": {
+        "actions": [
+          0
+        ],
+        "space": 1.0
+      },
+      "best_other_actions": [
+        0
+      ],
+      "best_other_space": 1.0,
+      "category": "COMPARABLE_NORMAL",
+      "chosen_space": 0.03125,
+      "comparison": "LOWER_RECORDED_SPACE",
+      "delta": 0.96875,
+      "first_empty": {
+        "action": 2,
+        "derived_safe_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "frame": 209,
+        "free_space": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "legal_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "planned_action": 2,
+        "post": {
+          "body_segments": [
+            [
+              200,
+              370
+            ],
+            [
+              200,
+              360
+            ],
+            [
+              190,
+              360
+            ],
+            [
+              190,
+              370
+            ],
+            [
+              200,
+              370
+            ],
+            [
+              210,
+              370
+            ],
+            [
+              220,
+              370
+            ],
+            [
+              220,
+              360
+            ],
+            [
+              210,
+              360
+            ],
+            [
+              210,
+              350
+            ],
+            [
+              200,
+              350
+            ]
+          ],
+          "head": [
+            200,
+            370
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "post_head": [
+          200,
+          370
+        ],
+        "pre": {
+          "body_segments": [
+            [
+              200,
+              360
+            ],
+            [
+              190,
+              360
+            ],
+            [
+              190,
+              370
+            ],
+            [
+              200,
+              370
+            ],
+            [
+              210,
+              370
+            ],
+            [
+              220,
+              370
+            ],
+            [
+              220,
+              360
+            ],
+            [
+              210,
+              360
+            ],
+            [
+              210,
+              350
+            ],
+            [
+              200,
+              350
+            ],
+            [
+              190,
+              350
+            ]
+          ],
+          "head": [
+            200,
+            360
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "pre_head": [
+          200,
+          360
+        ],
+        "raw_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "resolved_mask": [
+          true,
+          true,
+          true,
+          false,
+          false,
+          false
+        ],
+        "selection_mask": [
+          true,
+          true,
+          true,
+          false,
+          false,
+          false
+        ],
+        "state57": 1.0
+      },
+      "first_empty_frame": 209,
+      "predecessor": {
+        "action": 2,
+        "derived_safe_mask": [
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "frame": 208,
+        "free_space": [
+          1.0,
+          0.0,
+          0.03125
+        ],
+        "legal_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "planned_action": 2,
+        "post": {
+          "body_segments": [
+            [
+              200,
+              360
+            ],
+            [
+              190,
+              360
+            ],
+            [
+              190,
+              370
+            ],
+            [
+              200,
+              370
+            ],
+            [
+              210,
+              370
+            ],
+            [
+              220,
+              370
+            ],
+            [
+              220,
+              360
+            ],
+            [
+              210,
+              360
+            ],
+            [
+              210,
+              350
+            ],
+            [
+              200,
+              350
+            ],
+            [
+              190,
+              350
+            ]
+          ],
+          "head": [
+            200,
+            360
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "post_head": [
+          200,
+          360
+        ],
+        "pre": {
+          "body_segments": [
+            [
+              190,
+              360
+            ],
+            [
+              190,
+              370
+            ],
+            [
+              200,
+              370
+            ],
+            [
+              210,
+              370
+            ],
+            [
+              220,
+              370
+            ],
+            [
+              220,
+              360
+            ],
+            [
+              210,
+              360
+            ],
+            [
+              210,
+              350
+            ],
+            [
+              200,
+              350
+            ],
+            [
+              190,
+              350
+            ],
+            [
+              180,
+              350
+            ]
+          ],
+          "head": [
+            190,
+            360
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "pre_head": [
+          190,
+          360
+        ],
+        "raw_mask": [
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "resolved_mask": [
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "selection_mask": [
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "state57": 1.0
+      },
+      "root_id": "h0-b2-d6-x300-y100",
+      "row_index": 21,
+      "seed": 2026101001,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-horizon-collection-continuation/results/eval/2026101001-h256/adaptive_h256-games.json",
+      "terminal_frame": 209
+    },
+    "FIRST_FRAME_EMPTY": null,
+    "NO_OTHER_SAFE_NORMAL": {
+      "alternatives": null,
+      "arm": "h256",
+      "bank": "adaptive_h256",
+      "best_all_safe_normal": null,
+      "best_other_actions": null,
+      "best_other_space": null,
+      "category": "NO_OTHER_SAFE_NORMAL",
+      "chosen_space": null,
+      "comparison": null,
+      "delta": null,
+      "first_empty": {
+        "action": 2,
+        "derived_safe_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "frame": 239,
+        "free_space": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "legal_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "planned_action": 2,
+        "post": {
+          "body_segments": [
+            [
+              40,
+              80
+            ],
+            [
+              30,
+              80
+            ],
+            [
+              30,
+              90
+            ],
+            [
+              30,
+              100
+            ],
+            [
+              20,
+              100
+            ],
+            [
+              20,
+              90
+            ],
+            [
+              20,
+              80
+            ],
+            [
+              20,
+              70
+            ],
+            [
+              30,
+              70
+            ],
+            [
+              40,
+              70
+            ],
+            [
+              40,
+              80
+            ]
+          ],
+          "head": [
+            40,
+            80
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "post_head": [
+          40,
+          80
+        ],
+        "pre": {
+          "body_segments": [
+            [
+              30,
+              80
+            ],
+            [
+              30,
+              90
+            ],
+            [
+              30,
+              100
+            ],
+            [
+              20,
+              100
+            ],
+            [
+              20,
+              90
+            ],
+            [
+              20,
+              80
+            ],
+            [
+              20,
+              70
+            ],
+            [
+              30,
+              70
+            ],
+            [
+              40,
+              70
+            ],
+            [
+              40,
+              80
+            ],
+            [
+              40,
+              90
+            ]
+          ],
+          "head": [
+            30,
+            80
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "pre_head": [
+          30,
+          80
+        ],
+        "raw_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "resolved_mask": [
+          true,
+          true,
+          true,
+          false,
+          false,
+          false
+        ],
+        "selection_mask": [
+          true,
+          true,
+          true,
+          false,
+          false,
+          false
+        ],
+        "state57": 1.0
+      },
+      "first_empty_frame": 239,
+      "predecessor": {
+        "action": 1,
+        "derived_safe_mask": [
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "frame": 238,
+        "free_space": [
+          0.0,
+          0.03125,
+          0.0
+        ],
+        "legal_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "planned_action": 1,
+        "post": {
+          "body_segments": [
+            [
+              30,
+              80
+            ],
+            [
+              30,
+              90
+            ],
+            [
+              30,
+              100
+            ],
+            [
+              20,
+              100
+            ],
+            [
+              20,
+              90
+            ],
+            [
+              20,
+              80
+            ],
+            [
+              20,
+              70
+            ],
+            [
+              30,
+              70
+            ],
+            [
+              40,
+              70
+            ],
+            [
+              40,
+              80
+            ],
+            [
+              40,
+              90
+            ]
+          ],
+          "head": [
+            30,
+            80
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "post_head": [
+          30,
+          80
+        ],
+        "pre": {
+          "body_segments": [
+            [
+              30,
+              90
+            ],
+            [
+              30,
+              100
+            ],
+            [
+              20,
+              100
+            ],
+            [
+              20,
+              90
+            ],
+            [
+              20,
+              80
+            ],
+            [
+              20,
+              70
+            ],
+            [
+              30,
+              70
+            ],
+            [
+              40,
+              70
+            ],
+            [
+              40,
+              80
+            ],
+            [
+              40,
+              90
+            ],
+            [
+              40,
+              100
+            ]
+          ],
+          "head": [
+            30,
+            90
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "pre_head": [
+          30,
+          90
+        ],
+        "raw_mask": [
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "resolved_mask": [
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "selection_mask": [
+          false,
+          true,
+          false,
+          false,
+          false,
+          false
+        ],
+        "state57": 1.0
+      },
+      "root_id": "h1-b2-d4-x100-y300",
+      "row_index": 42,
+      "seed": 2026101001,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-horizon-collection-continuation/results/eval/2026101001-h256/adaptive_h256-games.json",
+      "terminal_frame": 239
+    }
+  },
+  "comparisons": {
+    "HIGHER_RECORDED_SPACE": null,
+    "LOWER_RECORDED_SPACE": {
+      "alternatives": [
+        {
+          "action": 0,
+          "space": 1.0
+        }
+      ],
+      "arm": "h256",
+      "bank": "adaptive_h256",
+      "best_all_safe_normal": {
+        "actions": [
+          0
+        ],
+        "space": 1.0
+      },
+      "best_other_actions": [
+        0
+      ],
+      "best_other_space": 1.0,
+      "category": "COMPARABLE_NORMAL",
+      "chosen_space": 0.03125,
+      "comparison": "LOWER_RECORDED_SPACE",
+      "delta": 0.96875,
+      "first_empty": {
+        "action": 2,
+        "derived_safe_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "frame": 209,
+        "free_space": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "legal_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "planned_action": 2,
+        "post": {
+          "body_segments": [
+            [
+              200,
+              370
+            ],
+            [
+              200,
+              360
+            ],
+            [
+              190,
+              360
+            ],
+            [
+              190,
+              370
+            ],
+            [
+              200,
+              370
+            ],
+            [
+              210,
+              370
+            ],
+            [
+              220,
+              370
+            ],
+            [
+              220,
+              360
+            ],
+            [
+              210,
+              360
+            ],
+            [
+              210,
+              350
+            ],
+            [
+              200,
+              350
+            ]
+          ],
+          "head": [
+            200,
+            370
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "post_head": [
+          200,
+          370
+        ],
+        "pre": {
+          "body_segments": [
+            [
+              200,
+              360
+            ],
+            [
+              190,
+              360
+            ],
+            [
+              190,
+              370
+            ],
+            [
+              200,
+              370
+            ],
+            [
+              210,
+              370
+            ],
+            [
+              220,
+              370
+            ],
+            [
+              220,
+              360
+            ],
+            [
+              210,
+              360
+            ],
+            [
+              210,
+              350
+            ],
+            [
+              200,
+              350
+            ],
+            [
+              190,
+              350
+            ]
+          ],
+          "head": [
+            200,
+            360
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "pre_head": [
+          200,
+          360
+        ],
+        "raw_mask": [
+          false,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "resolved_mask": [
+          true,
+          true,
+          true,
+          false,
+          false,
+          false
+        ],
+        "selection_mask": [
+          true,
+          true,
+          true,
+          false,
+          false,
+          false
+        ],
+        "state57": 1.0
+      },
+      "first_empty_frame": 209,
+      "predecessor": {
+        "action": 2,
+        "derived_safe_mask": [
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "frame": 208,
+        "free_space": [
+          1.0,
+          0.0,
+          0.03125
+        ],
+        "legal_mask": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "planned_action": 2,
+        "post": {
+          "body_segments": [
+            [
+              200,
+              360
+            ],
+            [
+              190,
+              360
+            ],
+            [
+              190,
+              370
+            ],
+            [
+              200,
+              370
+            ],
+            [
+              210,
+              370
+            ],
+            [
+              220,
+              370
+            ],
+            [
+              220,
+              360
+            ],
+            [
+              210,
+              360
+            ],
+            [
+              210,
+              350
+            ],
+            [
+              200,
+              350
+            ],
+            [
+              190,
+              350
+            ]
+          ],
+          "head": [
+            200,
+            360
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "post_head": [
+          200,
+          360
+        ],
+        "pre": {
+          "body_segments": [
+            [
+              190,
+              360
+            ],
+            [
+              190,
+              370
+            ],
+            [
+              200,
+              370
+            ],
+            [
+              210,
+              370
+            ],
+            [
+              220,
+              370
+            ],
+            [
+              220,
+              360
+            ],
+            [
+              210,
+              360
+            ],
+            [
+              210,
+              350
+            ],
+            [
+              200,
+              350
+            ],
+            [
+              190,
+              350
+            ],
+            [
+              180,
+              350
+            ]
+          ],
+          "head": [
+            190,
+            360
+          ],
+          "logical_length": 11,
+          "segment_length": 11
+        },
+        "pre_head": [
+          190,
+          360
+        ],
+        "raw_mask": [
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "resolved_mask": [
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "selection_mask": [
+          true,
+          false,
+          true,
+          true,
+          false,
+          false
+        ],
+        "state57": 1.0
+      },
+      "root_id": "h0-b2-d6-x300-y100",
+      "row_index": 21,
+      "seed": 2026101001,
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-horizon-collection-continuation/results/eval/2026101001-h256/adaptive_h256-games.json",
+      "terminal_frame": 209
+    },
+    "TIED_RECORDED_SPACE": null
+  }
+}
