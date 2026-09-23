@@ -1,0 +1,773 @@
+{
+  "branch": "ALL14_HAVE_TWO_FRAME_LOCAL_RESCUE",
+  "by_outcome": {
+    "ALTERNATIVE_EMPTY_SUCCESSOR": null,
+    "ALTERNATIVE_FIRST_STEP_DEATH": null,
+    "BOOST_ONLY_NO_NORMAL_FOLLOWUP": null,
+    "FOLLOWUP_DEATH": null,
+    "TWO_FRAME_LOCAL_RESCUE": {
+      "branch": {
+        "action": 2,
+        "classification": "TWO_FRAME_LOCAL_RESCUE",
+        "first": {
+          "action": 2,
+          "alive": true,
+          "ate_food": false,
+          "callback_count_this_update": 1,
+          "collision": null,
+          "current_mask": null,
+          "death_cause": null,
+          "done": false,
+          "expected_direction": [
+            -1,
+            0
+          ],
+          "frame": 85,
+          "last_move_positions": [
+            [
+              90,
+              240
+            ]
+          ],
+          "legal_mask": null,
+          "next_action_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "next_action_mask_semantics": "legacy_advisory",
+          "next_state": [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.05999999865889549,
+            -0.20000000298023224,
+            0.125,
+            0.166770800948143,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+            1.0,
+            1.0,
+            0.5320005416870117,
+            0.5333333611488342,
+            0.37913328409194946,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.9474470615386963,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.22499999403953552,
+            0.7749999761581421,
+            0.6000000238418579,
+            0.4000000059604645,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.3333333432674408,
+            0.2546440064907074,
+            0.6666666865348816,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "planned_action": 2,
+          "post": {
+            "body_segments": [
+              [
+                90,
+                240
+              ],
+              [
+                100,
+                240
+              ],
+              [
+                100,
+                230
+              ],
+              [
+                110,
+                230
+              ],
+              [
+                120,
+                230
+              ],
+              [
+                120,
+                240
+              ],
+              [
+                120,
+                250
+              ],
+              [
+                110,
+                250
+              ],
+              [
+                100,
+                250
+              ]
+            ],
+            "boost_frames": 0,
+            "episode_food_eaten": 6,
+            "food": [
+              [
+                10,
+                290
+              ]
+            ],
+            "head": [
+              90,
+              240
+            ],
+            "logical_length": 9,
+            "segment_length": 9
+          },
+          "post_head": [
+            90,
+            240
+          ],
+          "pre": {
+            "body_segments": [
+              [
+                100,
+                240
+              ],
+              [
+                100,
+                230
+              ],
+              [
+                110,
+                230
+              ],
+              [
+                120,
+                230
+              ],
+              [
+                120,
+                240
+              ],
+              [
+                120,
+                250
+              ],
+              [
+                110,
+                250
+              ],
+              [
+                100,
+                250
+              ],
+              [
+                90,
+                250
+              ]
+            ],
+            "boost_frames": 0,
+            "episode_food_eaten": 6,
+            "food": [
+              [
+                10,
+                290
+              ]
+            ],
+            "head": [
+              100,
+              240
+            ],
+            "logical_length": 9,
+            "segment_length": 9
+          },
+          "pre_head": [
+            100,
+            240
+          ],
+          "raw_successor_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "selection_action_mask": [
+            true,
+            false,
+            true,
+            false,
+            false,
+            true
+          ],
+          "state": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.05999999865889549,
+            -0.22499999403953552,
+            0.125,
+            0.18200275301933289,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+            1.0,
+            1.0,
+            0.5320005416870117,
+            0.5333333611488342,
+            0.37913328409194946,
+            1.0,
+            0.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.25,
+            0.75,
+            0.6000000238418579,
+            0.4000000059604645,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.6666666865348816,
+            1.0,
+            0.528595507144928,
+            1.0,
+            0.03125,
+            0.0,
+            1.0
+          ]
+        },
+        "followup": {
+          "action": 0,
+          "alive": true,
+          "ate_food": false,
+          "callback_count_this_update": 1,
+          "collision": null,
+          "current_mask": null,
+          "death_cause": null,
+          "done": false,
+          "expected_direction": [
+            0,
+            1
+          ],
+          "frame": 86,
+          "last_move_positions": [
+            [
+              90,
+              250
+            ]
+          ],
+          "legal_mask": null,
+          "next_action_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "next_action_mask_semantics": "legacy_advisory",
+          "next_state": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.05999999865889549,
+            -0.20000000298023224,
+            0.10000000149011612,
+            0.15811388194561005,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+            1.0,
+            1.0,
+            0.4653850793838501,
+            0.46666666865348816,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.643651008605957,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.22499999403953552,
+            0.7749999761581421,
+            0.625,
+            0.375,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.6666666865348816,
+            0.2546440064907074,
+            0.2546440064907074,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ],
+          "planned_action": 0,
+          "post": {
+            "body_segments": [
+              [
+                90,
+                250
+              ],
+              [
+                90,
+                240
+              ],
+              [
+                100,
+                240
+              ],
+              [
+                100,
+                230
+              ],
+              [
+                110,
+                230
+              ],
+              [
+                120,
+                230
+              ],
+              [
+                120,
+                240
+              ],
+              [
+                120,
+                250
+              ],
+              [
+                110,
+                250
+              ]
+            ],
+            "boost_frames": 0,
+            "episode_food_eaten": 6,
+            "food": [
+              [
+                10,
+                290
+              ]
+            ],
+            "head": [
+              90,
+              250
+            ],
+            "logical_length": 9,
+            "segment_length": 9
+          },
+          "post_head": [
+            90,
+            250
+          ],
+          "pre": {
+            "body_segments": [
+              [
+                90,
+                240
+              ],
+              [
+                100,
+                240
+              ],
+              [
+                100,
+                230
+              ],
+              [
+                110,
+                230
+              ],
+              [
+                120,
+                230
+              ],
+              [
+                120,
+                240
+              ],
+              [
+                120,
+                250
+              ],
+              [
+                110,
+                250
+              ],
+              [
+                100,
+                250
+              ]
+            ],
+            "boost_frames": 0,
+            "episode_food_eaten": 6,
+            "food": [
+              [
+                10,
+                290
+              ]
+            ],
+            "head": [
+              90,
+              240
+            ],
+            "logical_length": 9,
+            "segment_length": 9
+          },
+          "pre_head": [
+            90,
+            240
+          ],
+          "raw_successor_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "selection_action_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "state": [
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.05999999865889549,
+            -0.20000000298023224,
+            0.125,
+            0.166770800948143,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+            1.0,
+            1.0,
+            0.5320005416870117,
+            0.5333333611488342,
+            0.37913328409194946,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.9474470615386963,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.22499999403953552,
+            0.7749999761581421,
+            0.6000000238418579,
+            0.4000000059604645,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.3333333432674408,
+            0.2546440064907074,
+            0.6666666865348816,
+            1.0,
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "followup_action": 0,
+        "initial": {
+          "direction": [
+            0,
+            1
+          ],
+          "legal_mask": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "raw_mask": [
+            true,
+            false,
+            true,
+            false,
+            false,
+            true
+          ],
+          "resolved_mask": [
+            true,
+            false,
+            true,
+            false,
+            false,
+            true
+          ],
+          "rng_seed": 3867784867,
+          "selection_mask": [
+            true,
+            false,
+            true,
+            false,
+            false,
+            true
+          ],
+          "snapshot": {
+            "body_segments": [
+              [
+                100,
+                240
+              ],
+              [
+                100,
+                230
+              ],
+              [
+                110,
+                230
+              ],
+              [
+                120,
+                230
+              ],
+              [
+                120,
+                240
+              ],
+              [
+                120,
+                250
+              ],
+              [
+                110,
+                250
+              ],
+              [
+                100,
+                250
+              ],
+              [
+                90,
+                250
+              ]
+            ],
+            "boost_frames": 0,
+            "episode_food_eaten": 6,
+            "food": [
+              [
+                10,
+                290
+              ]
+            ],
+            "head": [
+              100,
+              240
+            ],
+            "logical_length": 9,
+            "segment_length": 9
+          },
+          "snapshot_sha256": "a30b05f43c7ae424a2aff3c21ae0b84c5ab0ed14c8bc4893dd0dbf2aa98c6ae4",
+          "state": [
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.05999999865889549,
+            -0.22499999403953552,
+            0.125,
+            0.18200275301933289,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+            1.0,
+            1.0,
+            0.5320005416870117,
+            0.5333333611488342,
+            0.37913328409194946,
+            1.0,
+            0.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            0.25,
+            0.75,
+            0.6000000238418579,
+            0.4000000059604645,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.6666666865348816,
+            1.0,
+            0.528595507144928,
+            1.0,
+            0.03125,
+            0.0,
+            1.0
+          ],
+          "state_float32_sha256": "8e00112dfdb939249dea496b9e16cb578f20fe63ac09ce6c33843f1396bfddca"
+        },
+        "rng_seed": 3867784867,
+        "successor_classification": "ONE_STEP_NONEMPTY_SAFE"
+      },
+      "identity": {
+        "arm": "h64",
+        "bank": "adaptive_h256",
+        "category": "COMPARABLE_NORMAL",
+        "normal_alternatives": [
+          2
+        ],
+        "predecessor_frame": 85,
+        "recorded_predecessor_action": 0,
+        "recorded_terminal_action": 0,
+        "root_id": "h0-b2-d4-x100-y100",
+        "row_index": 16,
+        "seed": 2026101001,
+        "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-horizon-collection-continuation/results/eval/2026101001-h64/adaptive_h256-games.json",
+        "terminal_frame": 86
+      }
+    }
+  },
+  "study": "apex-native-pretrap-counterfactual"
+}
