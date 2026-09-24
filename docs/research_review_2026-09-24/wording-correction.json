@@ -1,0 +1,10 @@
+{
+  "utc": "2026-09-24T02:50:11.725316+00:00",
+  "status": "WORDING_CORRECTION_ONLY",
+  "original_record_sha256": "dbf1e1a577930083322e598ee64daf6bb616c0f9655719c48523da83e979b91e",
+  "original_readme_sha256": "29c5fb1b7bc7ab12bde2eefc906bbb5a4ce91b85f9f7195b51dadfb30851d730",
+  "current_readme_sha256": "414ef38e49cb6060c7cb7f8222fe8678fb92389165aa86ff019ff012c3dc2547",
+  "correction": "CV's earlier relative conjunction remains false; the prior wording incorrectly called the relative failure false.",
+  "scientific_results_changed": false,
+  "old_science_repeated": false
+}

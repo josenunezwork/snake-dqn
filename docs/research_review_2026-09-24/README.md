@@ -10,7 +10,7 @@ Four GPT-6 Astra agents reviewed the learning evidence, evaluation design, resea
 |---|---|---|
 | Fresh canonical Apex and H64 scaling food results | Repeatable short-task food learning; smallest scaling arm 292/301/293 food versus teacher 304 and random 14 | Long survival, competitive play, or reliable width/breadth gains |
 | BO shared safety-head H512 success, all three seeds | Learned solo safety improvement within its admitted task | General enemy handling or promotion |
-| CW fixed PQN cohort passes fresh H768 package | Sustained solo food and survival are possible with existing models | Uniform retained mass or a valid cross-stack ranking; CV's earlier relative failure remains false |
+| CW fixed PQN cohort passes fresh H768 package | Sustained solo food and survival are possible with existing models | Uniform retained mass or a valid cross-stack ranking; CV's earlier relative conjunction remains false |
 | CX one-opponent screen | All three policies passed absolute packages with real encounter exposure | Retention: all three failed its paired food/survival/endpoint checks |
 | Apex H256 and continuation failures | Remaining sustained-food/survival and retention weaknesses are real | A proof that capacity never matters or that more fresh experience cannot help |
 | Schema/checker failures | Some scientific questions were never answered | Negative evidence against the unexecuted treatment |
