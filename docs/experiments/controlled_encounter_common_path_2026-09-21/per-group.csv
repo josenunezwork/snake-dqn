@@ -1,0 +1,26 @@
+group,family,step,role,common_paths,consensus_actions,exact_half_full_equality,food_sum,oracle_upper_sum,ratio
+control-00,frontal,0,control,54,[2],True,96,96,1.0
+control-01,frontal,1,control,74,[0],True,64,64,1.0
+control-02,frontal,2,control,69,[0],True,64,64,1.0
+control-03,frontal,3,control,81,[2],True,64,64,1.0
+control-04,recede,0,control,81,[0],True,32,32,1.0
+control-05,recede,1,control,81,[2],True,32,32,1.0
+control-06,recede,2,control,81,[2],True,32,32,1.0
+control-07,recede,3,control,81,[1],True,32,32,1.0
+control-08,parallel_left,0,control,41,"[1, 2]",True,32,32,1.0
+control-09,parallel_left,1,control,41,"[1, 2]",True,0,0,
+control-10,parallel_left,2,control,81,[1],True,32,32,1.0
+control-11,parallel_left,3,control,45,[2],True,32,32,1.0
+control-12,parallel_right,0,control,41,[0],True,32,32,1.0
+control-13,parallel_right,1,control,78,"[0, 1, 2]",True,32,32,1.0
+control-14,parallel_right,2,control,81,[2],True,32,32,1.0
+control-15,parallel_right,3,control,40,[1],True,32,32,1.0
+control-16,cross_left,0,control,44,[2],True,64,64,1.0
+control-17,cross_left,1,control,50,[1],True,64,64,1.0
+control-18,cross_left,2,control,67,[0],True,96,96,1.0
+control-19,cross_left,3,control,81,"[0, 1, 2]",True,32,32,1.0
+control-20,cross_right,0,control,44,[0],True,64,64,1.0
+control-21,cross_right,1,control,50,[1],True,32,32,1.0
+control-22,cross_right,2,control,79,[2],True,64,64,1.0
+control-23,cross_right,3,control,81,[2],True,64,64,1.0
+known-conflict,cross_right,2,known_conflict,65,[2],True,64,64,1.0

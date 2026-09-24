@@ -1,0 +1,65 @@
+{
+  "evidence": {
+    "2026095601": {
+      "lane": 0,
+      "roles": {
+        "lambda065": {
+          "endpoint_alive": true,
+          "food": 9
+        },
+        "lambda095": {
+          "endpoint_alive": false,
+          "food": 43
+        },
+        "parent": {
+          "endpoint_alive": true,
+          "food": 51
+        }
+      }
+    },
+    "2026095602": {
+      "lane": 35,
+      "roles": {
+        "lambda065": {
+          "endpoint_alive": false,
+          "food": 17
+        },
+        "lambda095": {
+          "endpoint_alive": true,
+          "food": 5
+        },
+        "parent": {
+          "endpoint_alive": true,
+          "food": 40
+        }
+      }
+    },
+    "2026095603": {
+      "lane": 1,
+      "roles": {
+        "lambda065": {
+          "endpoint_alive": true,
+          "food": 42
+        },
+        "lambda095": {
+          "endpoint_alive": true,
+          "food": 47
+        },
+        "parent": {
+          "endpoint_alive": true,
+          "food": 46
+        }
+      }
+    }
+  },
+  "final_mark": 3072,
+  "lanes": {
+    "2026095601": 0,
+    "2026095602": 35,
+    "2026095603": 1
+  },
+  "midpoint_descriptive_only": true,
+  "parent_mark": 2560,
+  "schema": "cl-pqn-credit-trace-fixed-selection/v1",
+  "selection_rule": "predeclared seed-order lanes (0, 35, 1)"
+}
