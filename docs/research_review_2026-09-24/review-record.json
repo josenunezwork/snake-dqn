@@ -26,10 +26,10 @@
   "root_decision": "Defer fresh interaction microstudy; design one integration-and-learning task-distribution package, exact admission pending",
   "cross_review": "Learning and evaluation checked root synthesis and proposed CZ lineage; corrected CV relative-conjunction wording",
   "files": {
-    "README.md": "608137cfe391d92b1e470bf422cb316e651be3ad0a72b055722c6b342864d861",
+    "README.md": "29c5fb1b7bc7ab12bde2eefc906bbb5a4ce91b85f9f7195b51dadfb30851d730",
     "learning.md": "2f2e5a316da0fd88433dd857c0e74c7f5677c16e466ddfe003d172ff1eebd5d1",
     "evaluation.md": "2fe38ed2188206c6ac80ca2c73b5654f45dadc829be77070f172e0b01a095c4f",
-    "operations.md": "a0396d11f26148b709e61e1d8517851377b46927848b32f5e054890860273b53",
+    "operations.md": "4de10aed4b63513d016a5a4b58258f1973a542302bcabba6a624842f05cd68ef",
     "strategy.md": "70ed962261f7ee6ae3451ff5d96dd25a6dc7df2fc4b64e830df6a7ba6bba1fc7"
   },
   "numerical_work": {
@@ -39,5 +39,6 @@
     "optimizer_updates": 0
   },
   "prior_findings_publication": "66baaaac50e2fd2dd735dec1b60eddd7dbbfc69e",
-  "validation": "Relative links verified; staged diff whitespace check; no rerun of completed qualifications"
+  "validation": "Relative links verified; staged diff whitespace check; no rerun of completed qualifications",
+  "operational_correction": "Later verification found heartbeat prompt reverted; campaign current, automation persistence unresolved."
 }
