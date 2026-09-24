@@ -36,6 +36,7 @@ class Heartbeat:
         self.path = path
         self.stop = threading.Event()
         self.progress: dict[str, Any] = {"phase": "starting"}
+        self.numerical_ready = False
         self.error: BaseException | None = None
         self.thread = threading.Thread(target=self._loop, daemon=True)
 
@@ -44,7 +45,7 @@ class Heartbeat:
             try:
                 torch = sys.modules.get("torch")
                 driver = None
-                if torch is not None and torch.backends.mps.is_available():
+                if self.numerical_ready and torch is not None and torch.backends.mps.is_available():
                     driver = int(torch.mps.driver_allocated_memory())
                 payload = {
                     "monotonic": time.monotonic(),
@@ -320,6 +321,7 @@ def main() -> None:
         try:
             if stage["kind"] in {"qualification", "training", "evaluation"}:
                 numerical_setup(stage.get("device", intent["device"]))
+                heartbeat.numerical_ready = True
             if stage["kind"] == "qualification":
                 from research.task_aligned_20260924.qualify import run_qualification
 
