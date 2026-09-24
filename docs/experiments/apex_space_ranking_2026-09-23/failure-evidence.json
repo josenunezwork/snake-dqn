@@ -1,0 +1,154 @@
+{
+  "status": "PRESERVED_FAILURE_METADATA_NOT_A_NEW_AUDIT",
+  "evidence": {
+    "qualification/held/report.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-space-ranking-continuation/qualification/held/report.json",
+      "sha256": "c618a56a492f0d45172e3cdf463033f9380c4a2d5da5a3c4a08e296853c631b0",
+      "content": {
+        "bank": {
+          "cases": 96,
+          "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-space-ranking-continuation/qualification/held/cases.json",
+          "sha256": "4ce1b0f24d08605326905c166a3080c62fa377553fdab3d13eb781878f05e3b0"
+        },
+        "descriptor_cache": null,
+        "descriptor_progress": {
+          "adaptive_h256": {
+            "count": 96,
+            "overlap": {
+              "raw_initial_tuple": 0,
+              "root_id": 0
+            },
+            "source": {
+              "bytes": 44389,
+              "expected_count": 96,
+              "format": "cases",
+              "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-reference-h256-screen/window-v2/qualification/cases.json",
+              "sha256": "b512e8ad6b8b7eef1070e49125a599beac31f2cd31bcc31b6df02879cec2632a"
+            }
+          },
+          "h16_held": {
+            "count": 96,
+            "overlap": {
+              "raw_initial_tuple": 0,
+              "root_id": 0
+            },
+            "source": {
+              "bytes": 5664159,
+              "expected_count": 96,
+              "format": "games",
+              "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-fresh-h16/teacher-games.json",
+              "sha256": "153c10916ce5cc4befc9cf4574d5102704f7ed248681b59f1a725c6893d80ff3"
+            }
+          },
+          "h64_formerly_fresh": {
+            "count": 48,
+            "overlap": {
+              "raw_initial_tuple": 0,
+              "root_id": 0
+            },
+            "source": {
+              "bytes": 12991515,
+              "expected_count": 48,
+              "format": "games",
+              "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-second-food-continuation/fresh-confirmation/teacher-games.json",
+              "sha256": "cc0a30c0d9d47782fb7f708ed5c8832d2ae1305b3212147596179d0a55aefb80"
+            }
+          },
+          "h64_known": {
+            "count": 48,
+            "overlap": {
+              "raw_initial_tuple": 0,
+              "root_id": 0
+            },
+            "source": {
+              "bytes": 13051416,
+              "expected_count": 48,
+              "format": "games",
+              "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-growth-h64/teacher-games.json",
+              "sha256": "fbe2309c46eb7f8354d47643f6eee93465d1f5b0e5d7f23c2def45bd4b2f61b1"
+            }
+          },
+          "h8_held": {
+            "count": 96,
+            "overlap": {
+              "raw_initial_tuple": 0,
+              "root_id": 0
+            },
+            "source": {
+              "bytes": 2568111,
+              "expected_count": 96,
+              "format": "games",
+              "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-solo-imitation/results/games-2026099201-512-held.json",
+              "sha256": "8dccb4d092e17c87d7a5c2a17d3debaffd47755ec2d8f9a7a6497e46912f41e7"
+            }
+          },
+          "h8_train": {
+            "count": 96,
+            "overlap": {
+              "raw_initial_tuple": 0,
+              "root_id": 0
+            },
+            "source": {
+              "bytes": 2416794,
+              "expected_count": 96,
+              "format": "games",
+              "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-solo-imitation/results/games-2026099201-512-train.json",
+              "sha256": "fe3191ce5741e9bcab050e3748c8061d3d4d154d5a2f8da9879e695aac0da9e9"
+            }
+          }
+        },
+        "error": {
+          "message": "'food'",
+          "type": "KeyError"
+        },
+        "exclusion_overlap": {},
+        "gates": {},
+        "in_progress": {
+          "descriptor_source": "rejected_action_fork"
+        },
+        "input_freeze_sha256": "529bb8acb7de60d57bdd2fe9377d0541aca91dc1027095e9028d154c6c8efc19",
+        "metrics": {},
+        "mode": "held",
+        "physical": {
+          "checkpoint_loads": 0,
+          "forwards": 0,
+          "frames": 0,
+          "games": 0,
+          "optimizer_updates": 0
+        },
+        "records": {},
+        "status": "INVALID_STOP",
+        "study": "apex-space-ranking-continuation",
+        "train_banks": {},
+        "training_input": false
+      }
+    },
+    "controller-failure.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-space-ranking-continuation/controller-failure.json",
+      "sha256": "41dd4ffd0e65d44a5ac7275f17ca957df3519dc5c8a58e8918aacab5e9dd5a1d",
+      "content": {
+        "error": "RuntimeError: receipt requires reconciliation: /Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-space-ranking-continuation/supervisor-runs/qualification-held/receipt.json",
+        "no_automatic_retry": true,
+        "utc": "2026-09-23T10:46:19.293346+00:00"
+      }
+    },
+    "supervisor-runs/qualification-held/receipt.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-space-ranking-continuation/supervisor-runs/qualification-held/receipt.json",
+      "sha256": "47c3e9bf2bdc817fe8621cc665bfddd056f5b690478d2247c5ecbbf2c9e68c5e",
+      "content": {
+        "classification": "child_failure",
+        "source_or_driver_drift": false,
+        "result": {
+          "cause": null,
+          "confirmed_exit": true,
+          "elapsed_seconds": 0.21027366700582206,
+          "latest_heartbeat": null,
+          "max_rss_bytes": 147456,
+          "min_available_bytes": 37895749632,
+          "observed_returncode": 1,
+          "termination": "natural_exit"
+        }
+      }
+    }
+  }
+}
