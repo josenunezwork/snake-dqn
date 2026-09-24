@@ -14,7 +14,7 @@ This index publishes the existing research record before the requested Astra tea
 
 ## Publication boundary
 
-The tracked reports, figures, tables, representative records, associated source changes and regression tests are published together. Large external checkpoints, full raw trajectories and local experiment-driver directories remain outside Git, as in the earlier publication. Their paths and hashes remain in the reports; a link to a local artifact is not a remotely hosted artifact. No unpublished draft is presented as a completed finding.
+The tracked reports, figures, tables, and representative records are published together. Local runtime and test changes are excluded from this documentation-only publication; source commit identities cited by reports may therefore remain local. Large external checkpoints, full raw trajectories and local experiment-driver directories remain outside Git, as in the earlier publication. Their paths and hashes remain in the reports; a link to a local artifact is not a remotely hosted artifact. No unpublished draft is presented as a completed finding.
 
 The current proposed fresh scaling-interaction replication is a draft only. The user's broader Astra strategy review now precedes further admission. All existing failed/closed study criteria and records are preserved.
 
