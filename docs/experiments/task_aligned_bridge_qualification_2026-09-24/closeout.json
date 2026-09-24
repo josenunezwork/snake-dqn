@@ -1,0 +1,19 @@
+{
+  "documentation_pending": true,
+  "failure_attestation_sha256": "e9cfa4dbf1c750a96e526cd902cb71f74e37e1d4a996d8e4080172a3d27e4de5",
+  "intent_sha256": "82f0e99a9fda82effc36d04cfe8a23ff254880694904ed50a20f7248685c84b0",
+  "new_replacement_admission_requires_explicit_user_revision_of_zero_recovery_boundary": true,
+  "original_review_sha256": "4a596d532e3d1acad0ca04c1244190354e635bf97cd4ca1ca2e43c3065e735aa",
+  "plan_sha256": "4cd3de85456ab8b762d3fb5a339c63915ff048095482c01da218aca532ee9c35",
+  "recovery_seconds": 0,
+  "retry_authorized": false,
+  "schema": "bridge-qualification-administrative-closeout/v1",
+  "scientific_audit_completed": false,
+  "source_challenger_sha256": "8d67915ef1ea5dbb0804ffd8bf9874dedb27c95878bacdd5b5e5ae77682aa46f",
+  "source_challenger_unchanged": true,
+  "stages_executed": [],
+  "status": "CLOSED_INVALID_STOP_CONTROLLER_PREFLIGHT_IDENTITY_MISMATCH",
+  "study_id": "task-aligned-bridge-qualification-20260924",
+  "utc": "2026-09-24T18:30:51.810006+00:00",
+  "window_status": "CLOSED"
+}

@@ -1,0 +1,20 @@
+{
+  "affected_records": [
+    {
+      "field": "original_challenger_sha256",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/closeout.json",
+      "sha256": "59655dd53c2f14b08c396151442a6d3781ce5c4711ef21186c878bfa069e7a7e"
+    },
+    {
+      "field": "candidate.sha256_from_completed_metadata",
+      "path": "/Users/josenunez/Projects/ml/snake-dqn/docs/research/task_aligned_challenger_qualification_preparation_2026-09-24.json",
+      "sha256": "d3e4843771491b4cd907a1f4f7447905f65a3b33413aaf96269382d9afa4ee1b"
+    }
+  ],
+  "correct_identity_from_admitted_intent": "8d67915ef1ea5dbb0804ffd8bf9874dedb27c95878bacdd5b5e5ae77682aa46f",
+  "incorrect_transcription": "8d67915ef1ea5dbb0804ffd8bf9874dedb27c95878bacdd5b5eae77682aa46f",
+  "schema": "administrative-identity-literal-corrigendum/v1",
+  "scientific_source_binding": "Actual continuation source/checkpoint metadata and new bridge intent use correct64characteridentity; these malformed administrative strings are not a model-replacement result.",
+  "scope": "Metadata identity transcription only; no source edits, checkpoint reads or scientific re-audit. Originals remain unchanged.",
+  "utc": "2026-09-24T18:30:51.810006+00:00"
+}

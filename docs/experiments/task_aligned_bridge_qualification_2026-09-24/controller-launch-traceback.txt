@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/Users/josenunez/.codex/worktrees/task-aligned-serving-bridge/snake-dqn/research/task_aligned_challenger_20260924/runner.py", line 396, in <module>
+    main()
+  File "/Users/josenunez/.codex/worktrees/task-aligned-serving-bridge/snake-dqn/research/task_aligned_challenger_20260924/runner.py", line 392, in main
+    run(args.intent, args.root.resolve())
+  File "/Users/josenunez/.codex/worktrees/task-aligned-serving-bridge/snake-dqn/research/task_aligned_challenger_20260924/runner.py", line 189, in run
+    validate_intent(intent)
+  File "/Users/josenunez/.codex/worktrees/task-aligned-serving-bridge/snake-dqn/research/task_aligned_challenger_20260924/runner.py", line 129, in validate_intent
+    require(
+  File "/Users/josenunez/.codex/worktrees/task-aligned-serving-bridge/snake-dqn/research/task_aligned_challenger_20260924/runner.py", line 88, in require
+    raise RuntimeError(message)
+RuntimeError: original nominated candidate only
