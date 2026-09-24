@@ -1,0 +1,140 @@
+{
+  "artifacts": [
+    {
+      "path": "checkpoint_rollout_31005.pth",
+      "sha256": "dc1fe4c31174e4ca5da63239d596a0017cd8247c5b3a72c8a2044de3e92d5ef8"
+    },
+    {
+      "path": "training-world-seeds.json",
+      "sha256": "39fd003689a31fa4facc7da8184e1af27b1436767106a62d91d5cc91f6a535ee"
+    },
+    {
+      "path": "training.jsonl",
+      "sha256": "f53b5a0aca60615d0bdcc64cdb49c34b55fc7ec4722e2693ded1dc2d4bb6dd32"
+    }
+  ],
+  "completed_rollouts": 31005,
+  "counters": {
+    "checkpoint_files_hashed": 1,
+    "checkpoint_loads": 1,
+    "completed_rollouts": 31005,
+    "episode_starts": 7954,
+    "hero_transitions": 7933551,
+    "model_forward_rows": 16370640,
+    "model_forwards": 558090,
+    "native_frames": 7933551,
+    "opponent_transitions": 19037397,
+    "optimizer_updates": 31005,
+    "preview_calls": 31005,
+    "sampled_transition_draws": 7933551
+  },
+  "elapsed_seconds": 11808.151329041924,
+  "final_agent_steps": 17034535,
+  "final_checkpoint": {
+    "completed_rollouts": 31005,
+    "global_update": 66618,
+    "path": "checkpoint_rollout_31005.pth",
+    "sha256": "dc1fe4c31174e4ca5da63239d596a0017cd8247c5b3a72c8a2044de3e92d5ef8"
+  },
+  "final_update": 66618,
+  "kind": "training",
+  "lineage": 2026096102,
+  "per_profile": {
+    "s2": {
+      "hero_transitions": 3173762,
+      "rollouts": 12402
+    },
+    "s6": {
+      "hero_transitions": 3172727,
+      "rollouts": 12402
+    },
+    "solo": {
+      "hero_transitions": 1587062,
+      "rollouts": 6201
+    }
+  },
+  "profile_rollouts": {
+    "S2": 12402,
+    "S6": 12402,
+    "solo": 6201
+  },
+  "promotion_eligible": false,
+  "scheduled_hero_slots": 7937280,
+  "schema_version": 1,
+  "selected_rollouts": 31005,
+  "snapshots": [
+    {
+      "completed_rollouts": 31005,
+      "global_update": 66618,
+      "path": "checkpoint_rollout_31005.pth",
+      "sha256": "dc1fe4c31174e4ca5da63239d596a0017cd8247c5b3a72c8a2044de3e92d5ef8"
+    }
+  ],
+  "source_checkpoint": {
+    "completed_rollouts": 31005,
+    "global_update": 35613,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-cz-integration-20260924/admission-v2/run/train_2026096102/output/checkpoint_rollout_31005.pth",
+    "seed": 2026096102,
+    "sha256": "8d67915ef1ea5dbb0804ffd8bf9874dedb27c95878bacdd5b5e5ae77682aa46f"
+  },
+  "source_config_sha256": "0e119eb87a2ef031959265744244efc48a555dff0a0d46f43ebcc1dacd2e08c7",
+  "stage_id": "train_2026096102",
+  "starting_agent_steps": 9100984,
+  "starting_update": 35613,
+  "status": "PASS",
+  "study_id": "task-aligned-continuation-20260924",
+  "task_contract": {
+    "ambient_food_overlay": 0.1,
+    "body_storage_capacity": 2448,
+    "death": "terminal-reward-only",
+    "enemy_weight_reset": false,
+    "evaluation_random_safe_seed": 0,
+    "fresh_environment_and_rng": true,
+    "hero_respawn": false,
+    "inactive_lanes": "native-active-env-mask",
+    "kernel_tensor_slots": 1,
+    "live_cap": "prepared-successor-bootstrap",
+    "loss": {
+      "coefficient": 0.5,
+      "name": "mse",
+      "reduction": "mean"
+    },
+    "num_envs_per_runtime": 16,
+    "observation_progress_horizon": 256,
+    "opponents": {
+      "s2": [
+        "greedy_food"
+      ],
+      "s6": [
+        "greedy_food",
+        "greedy_food",
+        "greedy_food",
+        "random_safe",
+        "random_safe"
+      ],
+      "solo": []
+    },
+    "opponents_respawn": true,
+    "physical_rosters": {
+      "s2": 2,
+      "s6": 6,
+      "solo": 1
+    },
+    "random_safe_rule": "sha256-seed-world-frame-slot-mod-normal-allowed/v1",
+    "reset": "per-env-at-next-selected-runtime-rollout-boundary",
+    "reward_change": false,
+    "rollout_length": 16,
+    "scheduled_rollout_cycle": [
+      "solo",
+      "s2",
+      "s2",
+      "s6",
+      "s6"
+    ],
+    "sgd_epochs": 1,
+    "sim_train_mode": false,
+    "training_episode_horizon": 1024,
+    "training_random_safe_seed": "runtime_seed",
+    "version": "task-aligned-native-watch-hero-terminal-mixed-roster/v1"
+  }
+}

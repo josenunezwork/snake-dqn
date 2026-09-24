@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "purpose": "Byte-for-byte documentation copies of completed saved outputs; no scientific recomputation.",
+  "artifacts": [
+    {
+      "path": "decision.json",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/decision.json",
+      "bytes": 25164,
+      "sha256": "247d4add564ec1e52f569c227dbb99baed6a50a4bd485dea095004b04a4683c3"
+    },
+    {
+      "path": "training-report.json",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/train_2026096102/output/report.json",
+      "bytes": 3981,
+      "sha256": "ef60acc81e8adb6f00227d363313423545de5062beb45df88f925008b19e5efe"
+    },
+    {
+      "path": "presentation/all-cells.md",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/all-cells.md",
+      "bytes": 1946,
+      "sha256": "c97e39bdf25f9b92a32c0e705367e6f5f4ad3b66400ab4adb29a19ff5bf07386"
+    },
+    {
+      "path": "presentation/all-cells.csv",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/all-cells.csv",
+      "bytes": 1494,
+      "sha256": "d22bb749a1c33641c176e4644977bd1a1161e3edf15cf3d382d841596f79f1ed"
+    },
+    {
+      "path": "presentation/all-cases.md",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/all-cases.md",
+      "bytes": 59789,
+      "sha256": "363bdafe45c241bb95406d738a88ab8ed49ded55e3c70e6c3fb1f75d8bee8031"
+    },
+    {
+      "path": "presentation/all-cases.csv",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/all-cases.csv",
+      "bytes": 58220,
+      "sha256": "335d527b007fb03388730e84feb24a2fb266c3c8e9fcbba90e91a11e25a517dd"
+    },
+    {
+      "path": "presentation/paired-world-differences.md",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/paired-world-differences.md",
+      "bytes": 14751,
+      "sha256": "1610ffd45ca59a137c9ee6b7ba298560fc7246cd2afc8518835625613fdae394"
+    },
+    {
+      "path": "presentation/paired-world-differences.csv",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/paired-world-differences.csv",
+      "bytes": 15758,
+      "sha256": "0003ac6f09b7d9be85480c1aa33503b7bd4f589cf5446ed0131d1f1bf905987c"
+    },
+    {
+      "path": "presentation/paired-solo.png",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/paired-solo.png",
+      "bytes": 193806,
+      "sha256": "f92ea260ab1bf267ea66d5b3981f1337b142f3a0dab782086fead324bcd74e9d"
+    },
+    {
+      "path": "presentation/paired-food_pressure.png",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/paired-food_pressure.png",
+      "bytes": 216726,
+      "sha256": "f8dc8da6407a70066784a8434aa734651882b78d575747fb5ed8edbb9d33255f"
+    },
+    {
+      "path": "presentation/paired-mixed.png",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/paired-mixed.png",
+      "bytes": 209956,
+      "sha256": "3bc024ef7cb7b451a45f517ee6d6cc818eaca0d96f7a52688b4c41cb36f66f0e"
+    },
+    {
+      "path": "presentation/training-telemetry.png",
+      "source_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-continuation-20260924/admission-v2/run/analysis/output/presentation/training-telemetry.png",
+      "bytes": 99291,
+      "sha256": "d72a0e0d8741603891d471860eb30a5f4c30260e0d8fc0925b686cb0dbdd57c9"
+    }
+  ]
+}
