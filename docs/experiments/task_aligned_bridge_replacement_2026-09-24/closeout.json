@@ -1,0 +1,32 @@
+{
+  "admitted_children": 1,
+  "attempt_id": "admission-v2",
+  "audit_executed": false,
+  "candidate_unchanged": true,
+  "closed_utc": "2026-09-24T20:28:02.299319+00:00",
+  "completed_stages": 0,
+  "controller_exit_code": 1,
+  "failure_attestation": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/failure-attestation.json",
+    "sha256": "bdfa1232bb5975d246f8462c599fe5a862bb940d30517b0e508626b898650301"
+  },
+  "further_replacement_authorized": false,
+  "guarded_seconds": 1.026056833914481,
+  "intent": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/intent.json",
+    "sha256": "883c2c4351b368c9e537c8a0fa4ccdd212615669deb1277b418c14309b8d4d40"
+  },
+  "minimum_available_ram_bytes": 32320765952,
+  "natural_child_exit_code": 1,
+  "no_numeric_active": true,
+  "original_candidate_sha256": "8d67915ef1ea5dbb0804ffd8bf9874dedb27c95878bacdd5b5e5ae77682aa46f",
+  "peak_sampled_child_rss_bytes": 316325888,
+  "qualification_passed": false,
+  "remaining": "Closed failed replacement. Any further execution requires a new explicit user decision and separately reviewed scope; no capture/metadata/seed materialization may silently repeat.",
+  "retry_authorized": false,
+  "schema_version": 1,
+  "source_revision": "b22d59c537a1d0a30c8cc9b2c503aa8d8d7f86b5",
+  "status": "CLOSED_INVALID_STOP_CAPTURE_JSON_ROUNDTRIP_MISMATCH",
+  "study_id": "task-aligned-bridge-qualification-20260924",
+  "window_status": "CLOSED"
+}

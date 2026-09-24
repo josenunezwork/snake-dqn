@@ -1,0 +1,190 @@
+{
+  "admitted_child_count": 1,
+  "all_shared_locks_acquired_and_released": true,
+  "attempt_id": "admission-v2",
+  "authorization": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/replacement-authorization-v2.json",
+    "sha256": "8ee4f8318ca4be724faf702a188dcff6958c1a26ebd41cae291fdb7c48105d03"
+  },
+  "capture_failure": {
+    "error": "ValueError: checkpoint capture: input-freeze saved result differs",
+    "retry_authorized": false,
+    "schema_version": 1,
+    "stage_id": "capture",
+    "status": "INVALID_STOP",
+    "study_id": "task-aligned-bridge-qualification-20260924"
+  },
+  "closed_utc": "2026-09-24T20:28:02.299319+00:00",
+  "completed_stage_count": 0,
+  "controller_attempts": 1,
+  "controller_exit_code": 1,
+  "controller_exit_evidence": "exec session2944 returned exit1; subsequent ps found no controller/capture process",
+  "controller_pid": 22466,
+  "evidence": {
+    "capture/admitted.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/admitted.json",
+      "sha256": "7ef45f3ea9c81c44bfbd10da5be993cf815d9ff34749c7996f767ae91c4506d7"
+    },
+    "capture/child.log": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/child.log",
+      "sha256": "2ad076a02810214ee1efe9797071c2819b6f370f5f4eb7725291f7124747f46a"
+    },
+    "capture/output/capture/capture-events.jsonl": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/capture/capture-events.jsonl",
+      "sha256": "bcd04c66c1f4da6e184ba9007c1bf2dcdf611078e23e18e5c2860df2deaa4281"
+    },
+    "capture/output/capture/capture.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/capture/capture.json",
+      "sha256": "69ef043e3b2cbcee950c51b1609eb2661ddc5a36b721f117a44fc13527e6a0d7"
+    },
+    "capture/output/failure.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/failure.json",
+      "sha256": "dac465bfb18887aa13545b0df77d8145684fb56eb77e1ee4d13c8a1a4dc0ed70"
+    },
+    "capture/output/freeze/inputs.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/freeze/inputs.json",
+      "sha256": "4f7ca39c3b0e585700d947a4ef159c0e75b6861a7dd8d9fc71408599b8ff6b47"
+    },
+    "capture/output/namespaces/events.jsonl": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/namespaces/events.jsonl",
+      "sha256": "0cbcf853f202c3916c7f28165fba6583d46da765f9a463ce2da5ed9e9e83b47d"
+    },
+    "capture/output/namespaces/namespace-materialization.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/namespaces/namespace-materialization.json",
+      "sha256": "ca9b5484b4d4f84021552dcf3d6904ca59f8d6b4e3572633cc240196ad681787"
+    },
+    "capture/output/namespaces/resolved-namespaces-intent.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/namespaces/resolved-namespaces-intent.json",
+      "sha256": "fc40bbf56c2b88c214198a28449b3e932cd1788038987082241db50f771e5b68"
+    },
+    "capture/output/physical-events.jsonl": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/physical-events.jsonl",
+      "sha256": "04c6b6a2827c7e8b0893e12946868bdc1ddcd33ba8deb2f4073724f19520f063"
+    },
+    "capture/output/physical-report.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/physical-report.json",
+      "sha256": "46530677af75b9b8773ec435bafe70a0cd2bcae479a58efcda8c8cf66628171f"
+    },
+    "capture/output/resolved-intent.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/output/resolved-intent.json",
+      "sha256": "7ccaa5bf138b6d3260563d57085c7122f2e22b98a380e6d42cc3ab592d3dcc71"
+    },
+    "capture/started.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/started.json",
+      "sha256": "b935c1950cbd764afd41dbafbce853e07d28dbcead5e8a4c7e00d0fb20d8a00b"
+    },
+    "capture/supervisor.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/capture/supervisor.json",
+      "sha256": "776e38ab26071373b9dd06f7b0042bc0fe570e6c304e5d3669b2cba8aac8fcc6"
+    },
+    "failure.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/failure.json",
+      "sha256": "1b6fd6269b217ea250e201e0771dce34c7afb1200cc4ad87dab0871571554428"
+    },
+    "started.json": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/run/started.json",
+      "sha256": "9b09d3343475b1a05403627151b68e28780a76e6819d6ba1a2713347e5f49d9f"
+    }
+  },
+  "failure_explanation": "Frozen source guarantees at least a tuple/list structural mismatch between returned serving contract descriptor and JSON-parsed saved result at capture.py580. The original runtime object is unavailable; not every differing leaf was reconstructed.",
+  "further_replacement_authorized": false,
+  "intent": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/intent.json",
+    "sha256": "883c2c4351b368c9e537c8a0fa4ccdd212615669deb1277b418c14309b8d4d40"
+  },
+  "new_runtime_or_qualification_claim": false,
+  "payloads_reopened_by_root": false,
+  "prefix_scope": "Four named metadata sources read once and206 namespace IDs materialized. Five checkpoint snapshots copied and authenticated; one candidate metadata deserialization. No models, forwards, fixtures, games, native frames or optimizer updates. Preserve these completed operations; never repeat them.",
+  "preserved_prefix": {
+    "capture_counters": {
+      "hash_bytes": 34519927,
+      "hash_passes_completed": 5,
+      "hash_passes_started": 5,
+      "snapshot_bytes_written": 34519927,
+      "snapshot_open_attempts": 5,
+      "snapshot_open_successes": 5,
+      "snapshots_completed": 5,
+      "source_open_attempts": 5,
+      "source_open_successes": 5
+    },
+    "checkpoint_byte_capture_status": "PASS",
+    "independent_scientific_audit_executed": false,
+    "namespace_counts": {
+      "development": 16,
+      "final": 120,
+      "pilot": 16,
+      "serving": 50,
+      "shakedown": 4
+    },
+    "namespace_materialization_status": "PASS",
+    "new_input_freeze_json_saved": true,
+    "stage_report_published": false,
+    "top_level_inputs_json_published": false
+  },
+  "reported_metadata_counters": {
+    "checkpoint_loads": 0,
+    "metadata_bytes": 6339153,
+    "metadata_file_reads": 4,
+    "metadata_hash_passes": 4,
+    "metadata_read_calls": 4,
+    "model_forwards": 0,
+    "optimizer_updates": 0
+  },
+  "reported_physical_counters": {
+    "activation_forwards": 0,
+    "actor_transition_attempts": 0,
+    "apex_model_constructions": 0,
+    "checkpoint_bytes_read": 86308029,
+    "checkpoint_bytes_reserved": 86308029,
+    "checkpoint_file_opens": 16,
+    "checkpoint_loads": 1,
+    "checkpoint_read_calls": 42,
+    "checkpoint_saves": 0,
+    "episodes": 0,
+    "frame_attempts": 0,
+    "frames_completed": 0,
+    "game_constructions": 0,
+    "hero_transition_attempts": 0,
+    "lifecycle_frames": 0,
+    "model_constructions": 0,
+    "model_forward_rows": 0,
+    "model_forwards": 0,
+    "optimizer_updates": 0,
+    "parity_actions": 0,
+    "parity_frames": 0,
+    "raster_model_constructions": 0,
+    "test_cases": 0
+  },
+  "retry_authorized": false,
+  "root_scope": "Administrative natural-exit, source identity, lock and receipt closure only. Not a scientific audit or qualification PASS. Physical totals are preserved instrumented child claims, not recomputed simulation.",
+  "schema_version": 1,
+  "source_drift": [],
+  "source_review": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v2/failure-source-review.md",
+    "sha256": "de301a392229a95ba290c9fd779a29c8023e34ce7849b9a7f0e90868b1396455"
+  },
+  "source_revision": "b22d59c537a1d0a30c8cc9b2c503aa8d8d7f86b5",
+  "status": "CLOSED_INVALID_STOP_CAPTURE_JSON_ROUNDTRIP_MISMATCH",
+  "study_id": "task-aligned-bridge-qualification-20260924",
+  "supervisor_result": {
+    "cause": null,
+    "confirmed_exit": true,
+    "elapsed_seconds": 1.026056833914481,
+    "latest_heartbeat": {
+      "monotonic": 779845.293394291,
+      "phase": "checkpoint_byte_capture"
+    },
+    "max_rss_bytes": 316325888,
+    "min_available_bytes": 32320765952,
+    "observed_returncode": 1,
+    "termination": "natural_exit"
+  },
+  "unexecuted_stages": [
+    "fixtures",
+    "shakedown",
+    "watch",
+    "play",
+    "audit"
+  ],
+  "window_status": "CLOSED"
+}
