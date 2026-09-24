@@ -2,6 +2,8 @@
 
 This index publishes the existing research record before the requested Astra team review of the overall strategy. It does not rerun experiments, close unresolved audits, select a model, or approve the next draft. Read each report for its exact protocol, negative results, qualification history, and limits.
 
+The subsequent [four-agent Astra review](research_review_2026-09-24/README.md) separates demonstrated learning from missing full-task reliability and recommends the next integration-and-learning milestone. It adds no numerical experiment.
+
 ## Current evidence
 
 - Apex remains the operational incumbent; no new candidate has passed the shared tournament promotion gate.
