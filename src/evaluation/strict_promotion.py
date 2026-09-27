@@ -2031,9 +2031,72 @@ def _expected_world_identity(roster: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_e1_record(
-    record_value: Any, profile: Mapping[str, Any], roster: Mapping[str, Any]
+_SAFETY_VETO_COUNTERS = (
+    "decisions",
+    "kept_base",
+    "vetoes_applied",
+    "fallback_no_spacious",
+    "vetoes_to_boost",
+    "vetoed_base_boost",
+    "vetoes_speed_switched",
+)
+
+
+def _validate_candidate_wrapper_probe(value: Any, wrapper: Mapping[str, Any]) -> None:
+    """Validate ``probes.safety_veto`` against a declared candidate wrapper descriptor.
+
+    Writer: ``FreeSpaceVeto.record()`` (``src/evaluation/safety_veto.py``), attached by
+    ``tournament_eval.rollout(..., hero_safety_veto=True)``. Only the static descriptor and
+    the counter identity ``decisions == kept_base + vetoes_applied + fallback_no_spacious``
+    (guaranteed by ``SafetyVetoCounters.record``) are checked here.
+    """
+    descriptor = dict(wrapper)
+    probe = _exact(value, set(descriptor) | {"counters"}, "candidate wrapper probe")
+    if any(probe[key] != expected for key, expected in descriptor.items()):
+        raise StrictPromotionArtifactError("candidate wrapper probe differs from its identity")
+    counters = _exact(probe["counters"], _SAFETY_VETO_COUNTERS, "candidate wrapper counters")
+    for name, count in counters.items():
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise StrictPromotionArtifactError(f"wrapper counter {name} must be non-negative")
+    parts = counters["kept_base"] + counters["vetoes_applied"] + counters["fallback_no_spacious"]
+    if counters["decisions"] != parts:
+        raise StrictPromotionArtifactError("wrapper decision counters are inconsistent")
+
+
+def validate_strict_world_record(
+    record_value: Any,
+    profile: Mapping[str, Any],
+    roster: Mapping[str, Any],
+    *,
+    candidate_wrapper: Mapping[str, Any] | None = None,
 ) -> Mapping[str, Any]:
+    """Public record-shape check for one strict H5000 world record.
+
+    ``profile`` is ``{"descriptor": ..., "digest": ...}`` and ``roster`` one materialized
+    roster row. With the default ``candidate_wrapper=None`` this is exactly the E1 record
+    check. An opt-in ``candidate_wrapper`` descriptor (a serving-time wrapper such as
+    ``FreeSpaceVeto.descriptor()``) additionally requires ``probes.safety_veto`` carrying
+    that identity; it is meant for candidate records only.
+    """
+    return _validate_e1_record(record_value, profile, roster, candidate_wrapper=candidate_wrapper)
+
+
+def _validate_e1_record(
+    record_value: Any,
+    profile: Mapping[str, Any],
+    roster: Mapping[str, Any],
+    *,
+    candidate_wrapper: Mapping[str, Any] | None = None,
+) -> Mapping[str, Any]:
+    if candidate_wrapper is not None and isinstance(record_value, Mapping):
+        probes_value = record_value.get("probes")
+        if not isinstance(probes_value, Mapping) or "safety_veto" not in probes_value:
+            raise StrictPromotionArtifactError("candidate record lacks its wrapper probe")
+        _validate_candidate_wrapper_probe(probes_value["safety_veto"], candidate_wrapper)
+        record_value = {
+            **record_value,
+            "probes": {k: v for k, v in probes_value.items() if k != "safety_veto"},
+        }
     record = _exact(
         record_value,
         {
