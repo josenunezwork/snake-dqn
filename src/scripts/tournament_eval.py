@@ -469,6 +469,8 @@ def rollout(
     profile: EvaluationProfile | None = None,
     world_identity: Dict[str, Any] | None = None,
     mix_id: str = "unspecified",
+    *,
+    hero_safety_veto: bool = False,
 ) -> Dict[str, Any]:
     """One paired rollout: hero (slot 0) vs the mix's opponents.
 
@@ -481,6 +483,10 @@ def rollout(
         opponent_specs: One spec per opponent slot (len == num_snakes - 1).
         frames: Total episode horizon.
         seed: World seed (paired across hero specs).
+        hero_safety_veto: Opt-in (default off) serving-time free-space veto on a
+            vector checkpoint hero (``src/evaluation/safety_veto.py``). When on,
+            ``probes["safety_veto"]`` carries the per-episode veto counters;
+            when off the record is unchanged.
 
     Returns:
         Per-seed metrics: ``mass_integral``, ``max_mass``, ``mean_mass_alive``
@@ -519,6 +525,7 @@ def rollout(
         configure_eval_game_state(gs)
 
         hero = gs.snakes[0]
+        safety_veto = _install_hero_safety_veto(hero, hero_spec) if hero_safety_veto else None
         hero.auto_respawn = False  # hero death is terminal; opponents keep respawning
         hero_id = hero.id
 
@@ -585,8 +592,10 @@ def rollout(
                 }
             )
             result["world_identity"] = derived_identity
+            if safety_veto is not None:
+                result["probes"]["safety_veto"] = safety_veto.record()
             return result
-        return {
+        legacy = {
             "seed": seed,
             "mass_integral": mass_integral(mass_sum, frames),
             "max_mass": float(max_mass),
@@ -603,8 +612,22 @@ def rollout(
                 "peak_length": hero_record.get("peak_length", 0),
             },
         }
+        if safety_veto is not None:
+            legacy["probes"]["safety_veto"] = safety_veto.record()
+        return legacy
     finally:
         gs.full_cleanup()
+
+
+def _install_hero_safety_veto(hero: Any, hero_spec: AgentSpec) -> Any:
+    """Install the opt-in free-space veto on a vector-checkpoint hero."""
+    from src.evaluation.safety_veto import install_free_space_veto
+    from src.model.obs_spec import VECTOR61
+
+    kind, ref = hero_spec
+    if kind != "checkpoint" or checkpoint_obs_spec(ref) != VECTOR61:
+        raise ValueError("the safety veto applies only to a vector61 checkpoint hero")
+    return install_free_space_veto(hero)
 
 
 def run_mix(

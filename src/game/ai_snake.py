@@ -229,6 +229,10 @@ class AISnake(Snake):
         self.carry_forward_selection = True
         self._carried_selection: Optional[dict] = None
 
+        # Opt-in serving-time safety veto (src/evaluation/safety_veto.py). None
+        # (the default) leaves greedy selection exactly as before.
+        self.safety_veto = None
+
     # =========================================================================
     # Action Selection
     # =========================================================================
@@ -483,6 +487,8 @@ class AISnake(Snake):
                 torch.full_like(q_values, INVALID_Q_VALUE),
             )
             action = masked_q.argmax().item()
+            if self.safety_veto is not None:
+                action = self.safety_veto.apply(self, other_snakes, masked_q, action_mask, action)
         else:
             saved_epsilon = getattr(self.policy, "epsilon", None)
             if saved_epsilon is not None:
