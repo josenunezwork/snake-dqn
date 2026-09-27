@@ -85,3 +85,22 @@ yields INCOMPLETE rather than RECOMMEND_STRICT_GATE, and it is not relabeled.
 - The observed effect is 7–15× that MDE. A strict run needs a pre-declared MDE
   justified independently of this result, and ideally the SIMD engine
   (vector61 featurizer at bit parity, not yet wired).
+
+## Addendum: determinism follow-up (run-v2-determinism)
+
+A separate 72-game run replayed arms A and B on the first 8 worlds per mix,
+plus the in-run repeat C of arm A.
+
+| Check | Result |
+|---|---|
+| In-run repeat (C vs A) | 24 of 24 games byte-identical |
+| Across runs (run-v2 vs run-v1, same worlds) | 49 of 49 matching records (both arms) identical except `wall_seconds` |
+
+Game outcomes are deterministic across processes for the champion and for
+champion + veto. The completeness gap behind run-v1's INCOMPLETE label is
+therefore closed empirically. run-v1's pre-registered decision label stays
+INCOMPLETE, and run-v2's own label is `NON_PREREGISTERED_DESIGN` (8 worlds).
+
+Neither run is relabeled. The primary result of run-v1 now stands with
+verified determinism, and it motivates the separately pre-registered strict
+Tier-2 gate.
