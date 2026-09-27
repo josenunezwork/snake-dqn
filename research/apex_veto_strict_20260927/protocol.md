@@ -6,6 +6,13 @@ final episode.** Harness: `strict_run.py` beside this file. Governance:
 (Tier 2). A `STRICT_PASS` produces a receipt only. It changes no champion file, default,
 config or deployment. Release is a separate, explicit action.
 
+Revision before `prepare` (no intent, calibration or final data exists yet): after review,
+the final wall cap rose from 30000 s to 45000 s on the measured screen timings (see
+"Runtime projection"); the run parent now holds both CPU slot locks for the whole run; the
+smoke and Tier-2 output roots are separated; the serving stage is named for what it is; the
+independent audit binds the candidate identity to the source; and a non-claim covers
+single-hero wrapping. No statistical design element changed.
+
 ## Question and decision it informs
 
 Does serving the incumbent Apex checkpoint behind the opt-in free-space veto improve the
@@ -25,7 +32,10 @@ sha256 of `src/evaluation/safety_veto.py`}. `prepare` binds all three into `inte
 Every candidate record must carry `probes.safety_veto` with that exact descriptor, and no
 incumbent record may carry it. The shape check is `validate_strict_world_record(...,
 candidate_wrapper=...)` in `src/evaluation/strict_promotion.py`; the default path of that
-validator is unchanged.
+validator is unchanged. The independent audit binds the triple to the frozen source on its
+own: `intent.candidate.wrapper_source_sha256` must equal the source-closure hash of
+`src/evaluation/safety_veto.py`, and every candidate record must carry that sha256 and a
+`probes.safety_veto` equal (without `counters`) to the intent's wrapper descriptor.
 
 ## Profile, mixes and rosters
 
@@ -104,20 +114,25 @@ incumbent), ordered by world index.
   - `INVALID_STOP`: any other failure (child crash, RSS or free-RAM breach, source or
     output drift, audit failure, producer/audit disagreement, invalid decision).
 
-## Serving-compatibility stage
+## Serving stage: rollout-harness self-play compatibility check
 
-50 candidate episodes on the serving namespace through the most deployment-faithful live
-path that can host the wrapper today: the Watch-mode `GameState` transition of
-`tournament_eval.rollout` under the named profile (runtime mode `watch`), with the veto
-installed on the hero. Checks: all 50 complete the H5000 horizon without error and pass
-the candidate record-shape validator.
+The directory and namespace keep the name `serving`, but this stage is a **rollout-harness
+self-play compatibility check**, not serving evidence. It plays 50 candidate episodes on the
+serving namespace through the same `tournament_eval.rollout(profile=...)` code as the final
+stage (the Watch-mode `GameState` transition, runtime mode `watch`), with the veto on the
+hero and the self-play roster. It runs no web backend or session code. Checks: all 50
+complete the H5000 horizon without error and pass the candidate record-shape validator.
 
-`serving_path_qualified` is recorded **false**. The web backend (`web/backend/session.py`
-`GameSession`) cannot host the wrapper without new serving code. Remaining work before a
-release: an opt-in install of `FreeSpaceVeto` on the served hero in Watch (and on AI
-snakes in Play, where human dispatch bypasses the policy), a per-episode serving receipt
-schema for vector61 + wrapper (the strict `_serving` validator accepts only raster31v3
-receipts), and a web serving run of 50 episodes under that schema.
+The intent, closeout and receipt record `serving_stage_kind: "rollout-harness self-play
+compatibility check"`, `serving_stage_exercises_web_path: false` and
+`serving_path_qualified: false`. The web backend (`web/backend/session.py` `GameSession`)
+cannot host the wrapper without new serving code. Remaining work before a release: an
+opt-in install of `FreeSpaceVeto` on the served hero in Watch (and on AI snakes in Play,
+where human dispatch bypasses the policy), a per-episode serving receipt schema for
+vector61 + wrapper (the strict `_serving` validator accepts only raster31v3 receipts), a
+web serving run of 50 episodes under that schema, and, for any deployment that wraps more
+than the one hero (every Watch snake sharing the policy, or every AI snake in Play), its
+own strict evaluation.
 
 ## Execution envelope
 
@@ -127,17 +142,58 @@ receipts), and a web serving run of 50 episodes under that schema.
   `/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909` (flock, the
   supervisor helpers' lock root and release helper). Shard assignment is deterministic:
   pair (or episode) index j goes to worker `j % 2`.
+- The run parent acquires **both** slot locks (all-or-nothing, 180 s) before it creates
+  `output/`, and holds them until closeout, so no other job can take a slot between
+  stages. Worker k inherits the parent's open lock file through `Popen(pass_fds=...)`
+  (`--slot-fd`) and asserts it with a non-blocking flock on that descriptor (flock belongs
+  to the open file description, which parent and worker share). Workers never unlock.
+  `output/started.json` lists the held lock files.
 - Each worker: CPU, torch 2 intra-op / 1 inter-op threads, process-group RSS <= 8 GiB,
   system available RAM >= 9.6 GiB, heartbeat after every episode, write-once records.
-- Stage wall caps: calibration 1800 s, final 30000 s, serving 3600 s, audit 900 s, plus a
-  separate 120 s handoff reserve. Before a stage starts, the remaining time to the intent
-  deadline must cover this stage's and every later stage's caps plus 120 s.
+- Stage wall caps: calibration 1800 s, final **45000 s**, serving 3600 s, audit 900 s, plus
+  a separate 120 s handoff reserve. Before a stage starts, the remaining time to the intent
+  deadline must cover this stage's and every later stage's caps plus 120 s, so the intent
+  deadline must be at least 51,420 s (14 h 17 min) after `prepare`.
 - Output root `/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927/run-v1`
   (create-only; outside `ongoing-research-20260913`). Nothing is written elsewhere.
-- `run` checks available RAM before creating `output/`, so a transient shortage is not an
-  attempt. After `output/started.json` exists, every stop is final: a failed slot
-  acquisition (180 s), a crash or a watchdog breach is `INVALID_STOP`; a wall-cap or
-  worker deadline stop is `INCOMPLETE`.
+  `prepare` and `run` refuse a non-smoke intent on any other root, and refuse a smoke
+  intent on that root or on any root named `run-*`.
+- `run` checks available RAM and acquires both slots before creating `output/`, so a
+  transient shortage or a busy slot is not an attempt. After `output/started.json`
+  exists, every stop is final: a crash or a watchdog breach is `INVALID_STOP`; a wall-cap
+  or worker deadline stop is `INCOMPLETE`.
+- No other CPU load may run on the host during the run (the slot locks exclude only jobs
+  that use the shared supervisor).
+
+### Runtime projection (measured basis, fixed before any data)
+
+The design's first estimate (18-30 s per episode, final cap 30000 s) understated the
+measured cost. The Tier-1 screen (`apex-safety-screen-20260926/run-v1`) ran **one** worker
+at torch 2 intra-op / 1 inter-op. Its 240 A/B records measured these rollout wall times
+(mean / max, seconds):
+
+| Mix | Incumbent (A) | Candidate (B) |
+|---|---|---|
+| frozen | 47.7 / 234.7 | 52.4 / 271.3 |
+| scripted | 17.2 / 42.1 | 20.0 / 52.3 |
+| mixed | 24.5 / 92.8 | 28.0 / 90.7 |
+
+Overall mean 31.6 s per episode. One world triplet (A+B in all three mixes) costs 189.8 s.
+The screen's 240 episodes took 8,582 s from first start to last finish against 7,590 s of
+summed rollout time (overhead factor 1.13). The same world took 35.6 s at the start of that
+run and 148.9 s at its end, so host load can slow episodes several-fold.
+
+With N = 235 the final stage is 1,410 episodes, 705 per worker: 235 x 189.8 / 2 = 22,302 s
+of rollout per worker. With a declared overhead allowance of 1.15 that is 25,647 s. The
+worker budget under the former 30000 s cap (29,970 s) would leave about 14% headroom
+after overhead, and two concurrent workers were never measured. The final cap is
+therefore **45000 s** (worker budget 44,970 s): the overhead-inclusive projection is 57%
+of it, which leaves room for about a 1.75x slowdown from 2-way contention or tail episodes.
+`prepare` recomputes this projection from the raw screen records, records it in
+`intent.caps.final_runtime_projection`, and refuses to write the intent if the projection
+exceeds 70% of the worker budget. The cap changed before any calibration or final episode
+and before any intent; it changes no statistical design element (N, MDE, margins,
+decision, bands).
 
 ## Audit stage
 
@@ -172,7 +228,10 @@ equal the producer's; otherwise `INVALID_STOP`.
 
 ## Dry-run before GO
 
-`prepare --smoke-frames <=500` builds a plumbing intent on its own namespace
+`prepare --smoke-frames <=500` writes to its own root, by default
+`/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927/smoke-v1`
+(never `run-v1`; `prepare` refuses a smoke intent on the Tier-2 root). It builds a
+plumbing intent on its own namespace
 (`apex-veto-strict-smoke-v1`, never a Tier-2 world): one scripted world, one incumbent and
 one candidate episode on the legacy truncated path, then `run` exercises both workers, the
 slot locks, the supervisor, the independent audit, the self-check and closeout
@@ -192,3 +251,9 @@ in-process workers returning real Tier-1 screen records, audited by the real
 
 No champion file, default, config or deployment changes on any outcome. A `STRICT_PASS`
 receipt does not qualify the web serving path. Tier-1 screen numbers are not evidence here.
+
+The result covers a **single wrapped hero against unwrapped opponents** under
+`promotion-v2-watch-rect` H5000 only, in both the final stage and the self-play
+compatibility check. The configuration a release would most likely ship (the wrapper on
+every Watch snake that shares the policy, or on every AI snake in Play) is not measured.
+Any deployment that wraps several or all snakes needs its own evaluation.

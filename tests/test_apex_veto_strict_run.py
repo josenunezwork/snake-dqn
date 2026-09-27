@@ -8,6 +8,7 @@ per governance "Audit scope" rule 4.
 from __future__ import annotations
 
 import copy
+import fcntl
 import json
 import os
 import sys
@@ -166,6 +167,34 @@ class TestSizing:
             b["record"]["mass_integral"] - a["record"]["mass_integral"]
         ]
         assert pilot["summary_deltas_match"] is None  # no summary in this layout
+        walls = pilot["episode_wall_seconds"]
+        assert walls["A-scripted"] == [a["wall_seconds"]] and walls["B-frozen"] == [
+            fixture("B", "frozen", FROZEN_SEED)["wall_seconds"]
+        ]
+
+    @pytest.mark.skipif(not HAVE_SCREEN, reason="Tier-1 screen records not available")
+    def test_real_screen_runtime_projection_fits_the_final_cap(self):
+        walls = sr.screen_pilot_deltas(sr.SCREEN_RUN)["episode_wall_seconds"]
+        assert {k: len(v) for k, v in walls.items()} == {
+            f"{a}-{m}": 40 for a in ("A", "B") for m in sr.MIXES
+        }
+        projection = sr.runtime_projection(walls, 235)
+        per_mix = projection["per_mix_episode_seconds"]
+        assert per_mix["frozen"]["candidate_mean_seconds"] == pytest.approx(52.4, abs=0.1)
+        assert per_mix["frozen"]["max_seconds"] == pytest.approx(271.3, abs=0.1)
+        assert projection["pair_seconds_per_world_triplet"] == pytest.approx(189.8, abs=0.1)
+        assert projection["rollout_seconds_per_worker"] == pytest.approx(22302, abs=5)
+        assert projection["within_limit"] is True
+        assert projection["fraction_of_worker_budget"] == pytest.approx(0.570, abs=0.002)
+        old_cap = sr.runtime_projection(walls, 235, cap=30000)
+        assert old_cap["within_limit"] is False  # the former 30000 s cap would be refused
+
+    def test_projection_refuses_missing_timings(self):
+        walls = {f"{a}-{m}": [10.0] for a in ("A", "B") for m in sr.MIXES}
+        assert sr.runtime_projection(walls, 40)["within_limit"] is True
+        walls["B-mixed"] = []
+        with pytest.raises(sr.StrictRunError, match="no measured screen wall times"):
+            sr.runtime_projection(walls, 40)
 
 
 # ---------------------------------------------------------------- record shape (real records)
@@ -553,25 +582,75 @@ class TestSupervision:
         )
         assert stale["cause"] == "heartbeat_stale"
 
-    def test_slot_lock_is_exclusive_and_released(self, tmp_path):
-        held = sr.acquire_slot(tmp_path, 1)
+    def test_run_slots_are_all_or_nothing_and_released(self, tmp_path):
+        busy = (tmp_path / "cpu-slot-2.lock").open("a+")
+        fcntl.flock(busy.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
-            with pytest.raises(sr.StrictRunError, match="slot 1 unavailable"):
-                sr.acquire_slot(tmp_path, 1, timeout=0.3)
-            other = sr.acquire_slot(tmp_path, 2, timeout=0.3)  # the other slot is independent
-            other.close()
+            with pytest.raises(sr.StrictRunError, match="CPU slots unavailable"):
+                sr.acquire_run_slots(tmp_path, timeout=0.3)
+            probe = (tmp_path / "cpu-slot-1.lock").open("a+")  # slot 1 was not kept
+            fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            probe.close()
         finally:
-            held.close()
-        sr.acquire_slot(tmp_path, 1, timeout=0.3).close()
+            busy.close()
+        held = sr.acquire_run_slots(tmp_path, timeout=0.3)
+        with pytest.raises(sr.StrictRunError, match="CPU slots unavailable"):
+            sr.acquire_run_slots(tmp_path, timeout=0.3)
+        sr.release_run_slots(held)
+        sr.release_run_slots(sr.acquire_run_slots(tmp_path, timeout=0.3))
+
+    def test_workers_share_the_parents_slot_locks(self, tmp_path):
+        """Held by the parent across children; inherited fds hold it, fresh opens cannot."""
+        slots = sr.acquire_run_slots(tmp_path, timeout=0.3)
+        try:
+            fds = [handle.fileno() for handle in slots]
+            for k, fd in enumerate(fds):
+                sr.assert_inherited_slot(fd, tmp_path, k + 1)
+            with pytest.raises(sr.StrictRunError, match="is not cpu-slot-2.lock"):
+                sr.assert_inherited_slot(fds[0], tmp_path, 2)
+            flock = "import fcntl,sys; fcntl.flock({fd}, fcntl.LOCK_EX | fcntl.LOCK_NB)"
+            fresh = (
+                "import fcntl; h = open({path!r}, 'a+')\n"
+                "try:\n fcntl.flock(h.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+                "except BlockingIOError:\n raise SystemExit(0)\nraise SystemExit(3)"
+            )
+            for stage in ("calibration", "final"):  # locks persist between stages
+                (tmp_path / stage).mkdir()
+                result = self.run(
+                    tmp_path / stage,
+                    [py(flock.format(fd=fd)) for fd in fds],
+                    wall_seconds=30,
+                    pass_fds=[(fd,) for fd in fds],
+                )
+                assert sr.clean_supervision(result), result
+            (tmp_path / "outsider").mkdir()
+            outsider = self.run(
+                tmp_path / "outsider",
+                [py(fresh.format(path=str(tmp_path / f"cpu-slot-{k}.lock"))) for k in (1, 2)],
+                wall_seconds=30,
+            )
+            assert sr.clean_supervision(outsider), outsider  # another job cannot take a slot
+            (tmp_path / "no-fd").mkdir()
+            missing = self.run(tmp_path / "no-fd", [py(flock.format(fd=fds[0]))], wall_seconds=30)
+            assert missing["children"][0]["returncode"] != 0  # fds are not leaked by default
+        finally:
+            sr.release_run_slots(slots)
 
 
 # ---------------------------------------------------------------- intent
 
 
+@pytest.fixture(autouse=True)
+def tier2_root(tmp_path, monkeypatch):
+    """The pre-registered Tier-2 root is replaced by a tmp root in every test."""
+    monkeypatch.setattr(sr, "TIER2_OUT_ROOT", tmp_path / "run-v1")
+    return tmp_path / "run-v1"
+
+
 def real_intent(tmp_path: Path, **overrides) -> dict:
     kwargs = dict(
         out_root=tmp_path / "run-v1",
-        deadline=datetime.now(timezone.utc) + timedelta(hours=11),
+        deadline=datetime.now(timezone.utc) + timedelta(hours=15),
         authorization_quote="i agree, continue",
         slot_lock_root=tmp_path / "locks",
         allow_dirty_source=True,
@@ -602,10 +681,16 @@ class TestIntent:
         assert intent["incumbent"]["wrapper"] is None
         assert intent["caps"]["stage_seconds"] == {
             "calibration": 1800,
-            "final": 30000,
+            "final": 45000,
             "serving": 3600,
             "audit": 900,
         }
+        projection = intent["caps"]["final_runtime_projection"]
+        assert projection["within_limit"] is True and projection["concurrency_measured"] is False
+        assert "episode_wall_seconds" not in intent["pilot"]
+        assert intent["serving_stage_exercises_web_path"] is False
+        assert intent["serving_stage_kind"] == sr.SERVING_STAGE_KIND
+        assert any("single wrapped hero" in claim for claim in intent["non_claims"])
         assert str(sr.INDEPENDENT_AUDIT) in intent["audit"]["independent_command"]
         assert str(Path(__file__).resolve().parents[1] / "src/evaluation/safety_veto.py") in (
             intent["source_closure"]["files"]
@@ -625,6 +710,8 @@ class TestIntent:
             (lambda i: i["candidate"]["wrapper_identity"].update(method="x"), "wrapper"),
             (lambda i: i["protocol"].update(sha256="0" * 64), "protocol"),
             (lambda i: i["source_closure"]["files"].update({"/nonexistent.py": "0" * 64}), "drift"),
+            (lambda i: i.update(output_root="/tmp/elsewhere/run-v1"), "pre-registered root"),
+            (lambda i: i.update(smoke_frames=40), "smoke dry-run may not use"),
         ],
     )
     def test_validate_intent_rejects(self, tmp_path, mutate, message):
@@ -640,11 +727,45 @@ class TestIntent:
             real_intent(tmp_path, out_root=tmp_path / "ongoing-research-20260913" / "x")
         with pytest.raises(sr.StrictRunError, match="authorization"):
             real_intent(tmp_path, authorization_quote="  ")
+        with pytest.raises(sr.StrictRunError, match="pre-registered root"):
+            real_intent(tmp_path, out_root=tmp_path / "elsewhere")
+        for smoke_root in (tmp_path / "run-v1", tmp_path / "other" / "run-v2"):
+            with pytest.raises(sr.StrictRunError, match="smoke dry-run may not use"):
+                real_intent(tmp_path, out_root=smoke_root, smoke_frames=40)
         monkeypatch.setattr(
             sr, "source_closure", lambda extra=(): {"dirty": [" M src/x.py"], "files": {}}
         )
         with pytest.raises(sr.StrictRunError, match="dirty source"):
             real_intent(tmp_path, allow_dirty_source=False)
+
+
+def test_output_root_policy_and_cli_defaults(monkeypatch):
+    """Smoke defaults to smoke-v1 and never run-v1; a real intent only uses run-v1."""
+    monkeypatch.setattr(sr, "TIER2_OUT_ROOT", sr.DEFAULT_OUT_ROOT)
+    assert sr.DEFAULT_SMOKE_ROOT.parent == sr.DEFAULT_OUT_ROOT.parent == sr.STUDY_ARTIFACT_ROOT
+    sr.check_output_root(sr.DEFAULT_OUT_ROOT, smoke=False)
+    sr.check_output_root(sr.DEFAULT_SMOKE_ROOT, smoke=True)
+    with pytest.raises(sr.StrictRunError, match="smoke dry-run may not use"):
+        sr.check_output_root(sr.DEFAULT_OUT_ROOT, smoke=True)
+    for other in (sr.DEFAULT_SMOKE_ROOT, sr.STUDY_ARTIFACT_ROOT / "run-v2"):
+        with pytest.raises(sr.StrictRunError, match="pre-registered root"):
+            sr.check_output_root(other, smoke=False)
+    seen = []
+
+    def capture(**kwargs):
+        seen.append(kwargs)
+        raise sr.StrictRunError("captured")
+
+    monkeypatch.setattr(sr, "build_intent", capture)
+    base = ["prepare", "--deadline-utc", "2026-09-28T00:00:00+00:00"]
+    base += ["--authorization-quote", "q"]
+    for extra, expected in (
+        (["--smoke-frames", "40"], sr.DEFAULT_SMOKE_ROOT),
+        ([], sr.DEFAULT_OUT_ROOT),
+    ):
+        with pytest.raises(sr.StrictRunError, match="captured"):
+            sr.main(base + extra)
+        assert seen[-1]["out_root"] == expected
 
 
 # ---------------------------------------------------------------- end-to-end dry run

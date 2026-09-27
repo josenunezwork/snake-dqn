@@ -222,6 +222,7 @@ def build_run(
         "final_seeds": final_seeds,
         "smoke_frames": None,
         "serving_path_qualified": False,
+        "source_closure": {"files": {str(R.WRAPPER_SOURCE.resolve()): wrapper["source_sha256"]}},
     }
     write_json(root / "intent.json", intent)
     if not sizing["feasible"]:
@@ -750,6 +751,16 @@ TAMPERS: Dict[str, tuple] = {
         _set(["candidate", "wrapper_identity", "method"], "free-space-veto/v1"),
         "identity.wrapper_source_sha256",
     ),
+    "closure_wrapper_sha": (
+        "intent.json",
+        _set(["source_closure", "files", str(R.WRAPPER_SOURCE.resolve())], "d" * 64),
+        "identity.wrapper_source_bound_to_closure",
+    ),
+    "descriptor": (
+        "intent.json",
+        _set(["candidate", "wrapper_identity", "descriptor", "free_space_min_cap"], 31),
+        "identity.candidate_records_bound",
+    ),
     "incumbent_ckpt": (
         "intent.json",
         _set(["incumbent", "checkpoint_sha256"], SA.POOL_SHA256S[2]),
@@ -777,6 +788,29 @@ def test_missing_final_record_with_pass_claim_fails(
     assert {"claims.outcome", "claims.statistics", "shards.plan_assignment_and_hashes"} <= set(
         rules
     )
+
+
+RECORD_BINDING_TAMPERS = {
+    "wrapper_source_missing": lambda e: e.pop("wrapper_source_sha256"),
+    "wrapper_source_other": lambda e: e.update(wrapper_source_sha256="e" * 64),
+    "descriptor_bfs_cap": lambda e: e["record"]["probes"]["safety_veto"].update(
+        free_space_bfs_cap=159
+    ),
+    "descriptor_extra_key": lambda e: e["record"]["probes"]["safety_veto"].update(extra=1),
+}
+
+
+@pytest.mark.parametrize("tamper", sorted(RECORD_BINDING_TAMPERS))
+def test_candidate_records_are_bound_to_the_intent(
+    tamper: str, pass_run: Path, small_pilot: Path, tmp_path: Path
+) -> None:
+    """Real candidate records carry the intent's wrapper sha and descriptor (else FAIL)."""
+    audit = run_inline(clone(pass_run, tmp_path / "ok"), small_pilot)
+    assert "identity.candidate_records_bound" not in failed_rules(audit)
+    assert "identity.wrapper_source_bound_to_closure" not in failed_rules(audit)
+    run = clone(pass_run, tmp_path / "bad")
+    edit_json(final_record(run, "candidate", "mixed", 5), RECORD_BINDING_TAMPERS[tamper])
+    assert "identity.candidate_records_bound" in failed_rules(run_inline(run, small_pilot))
 
 
 def test_changed_record_bytes_fail(pass_run: Path, small_pilot: Path, tmp_path: Path) -> None:

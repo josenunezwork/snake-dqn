@@ -92,17 +92,17 @@ def in_process_supervisor(output: Path, lock_root: Path):
             stage = command[command.index("--stage") + 1]
             shard = int(command[command.index("--shard") + 1])
             deadline = sr.parse_utc(command[command.index("--stage-deadline") + 1])
+            slot_fd = int(command[command.index("--slot-fd") + 1])
             intent = sr.read_json(Path(command[command.index("--intent") + 1]))
             admitted = sr.read_json(output / "admitted.json")
             shard_dir = output / stage / f"shard-{shard}"
             shard_dir.mkdir()
-            handle = sr.acquire_slot(lock_root, shard + 1, timeout=5)
-            try:
-                code = sr._worker_body(
-                    intent, admitted, stage, shard, deadline, shard_dir, output / stage / "records"
-                )
-            finally:
-                handle.close()
+            # The run parent holds both slots; the worker shares them via the inherited fd.
+            assert kwargs["pass_fds"][shard] == (slot_fd,)
+            sr.assert_inherited_slot(slot_fd, lock_root, shard + 1)
+            code = sr._worker_body(
+                intent, admitted, stage, shard, deadline, shard_dir, output / stage / "records"
+            )
             children.append(
                 {
                     "command": list(command),
@@ -129,9 +129,10 @@ def run_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shift: float):
     pilot = small_screen_pilot(tmp_path / "screen")
     locks = tmp_path / "locks"
     locks.mkdir()
+    monkeypatch.setattr(sr, "TIER2_OUT_ROOT", tmp_path / "run-v1")
     intent = sr.build_intent(
         out_root=tmp_path / "run-v1",
-        deadline=datetime.now(timezone.utc) + timedelta(hours=11),
+        deadline=datetime.now(timezone.utc) + timedelta(hours=15),
         authorization_quote="integration test",
         screen_run=pilot,
         slot_lock_root=locks,
@@ -180,6 +181,8 @@ def test_run_is_accepted_by_the_independent_audit(tmp_path, monkeypatch, shift, 
     assert (output / "receipt.json").is_file() == (outcome == "STRICT_PASS")
     assert closeout["promotion_performed"] is False
     assert closeout["serving_path_qualified"] is False
+    assert closeout["serving_stage_exercises_web_path"] is False
+    assert len(read(output / "started.json")["cpu_slot_locks_held"]) == sr.WORKERS
 
 
 # ---------------------------------------------------------------- smoke dry-run audit
@@ -280,6 +283,34 @@ def test_smoke_audit_rejects_mutated_real_smoke_records(smoke_run, tmp_path, mut
     arm, fn = SMOKE_RECORD_MUTATIONS[mutation]
     mutate_record(root, arm, fn)
     assert "smoke.records_valid" in smoke_audit(root, tmp_path)
+
+
+SMOKE_BINDING_MUTATIONS = {
+    "wrapper_source_sha": lambda e: e.update(wrapper_source_sha256="e" * 64),
+    "wrapper_source_missing": lambda e: e.pop("wrapper_source_sha256"),
+    "descriptor_bfs_cap": lambda e: e["record"]["probes"]["safety_veto"].update(
+        free_space_bfs_cap=159
+    ),
+    "descriptor_rule": lambda e: e["record"]["probes"]["safety_veto"].update(
+        replacement_rule="highest-q-eligible"
+    ),
+}
+
+
+@pytest.mark.parametrize("mutation", sorted(SMOKE_BINDING_MUTATIONS))
+def test_smoke_audit_binds_candidate_records_to_the_intent(smoke_run, tmp_path, mutation):
+    root = clone_smoke(smoke_run, tmp_path)
+    mutate_record(root, "candidate", SMOKE_BINDING_MUTATIONS[mutation])
+    assert "identity.candidate_records_bound" in smoke_audit(root, tmp_path)
+
+
+def test_smoke_audit_binds_wrapper_source_to_the_closure(smoke_run, tmp_path):
+    root = clone_smoke(smoke_run, tmp_path)
+    intent = read(root / "intent.json")
+    key = next(k for k in intent["source_closure"]["files"] if k.endswith("safety_veto.py"))
+    intent["source_closure"]["files"][key] = "d" * 64
+    helpers.write_json(root / "intent.json", intent)
+    assert "identity.wrapper_source_bound_to_closure" in smoke_audit(root, tmp_path)
 
 
 def test_smoke_audit_rejects_run_level_tampering(smoke_run, tmp_path):

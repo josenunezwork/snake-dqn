@@ -13,6 +13,9 @@ decision path in its own code (governance_tiers_2026-09-26.md "Audit scope"):
   namespace dev_screen checks and from apex-safety-screen-v1;
 * per-record identity: world identity rebuilt from the balanced roster recipe,
   hero/checkpoint sha, profile digest, learn/training flags, wrapper probe;
+* candidate identity bound to the source: the intent's wrapper source sha256 equals
+  the source-closure hash of src/evaluation/safety_veto.py, and every candidate
+  record carries that sha and the intent's wrapper descriptor (probe minus counters);
 * denominators: ``scored_frames`` (and ``frames_completed`` where recorded) equal
   the 5000 horizon; every other frame counter is only checked at-most-cap;
 * calibration means, absolute NI margin, survival bands; pilot sizing N;
@@ -1268,6 +1271,61 @@ def audit_identity(
     )
 
 
+WRAPPER_SOURCE_SUFFIX = "/src/evaluation/safety_veto.py"
+
+
+def audit_candidate_binding(
+    audit: Audit, intent: Mapping[str, Any], entries: Sequence[Mapping[str, Any]]
+) -> None:
+    """Bind the candidate identity to the frozen source and to every candidate record.
+
+    Rules: (1) ``intent.candidate.wrapper_source_sha256`` (and ``wrapper_identity``'s
+    ``source_sha256``) equals the source-closure hash of ``src/evaluation/safety_veto.py``;
+    (2) every candidate entry carries that ``wrapper_source_sha256``; (3) every candidate
+    record's ``probes.safety_veto`` minus ``counters`` equals the intent's wrapper descriptor.
+    """
+    candidate = intent.get("candidate") if isinstance(intent.get("candidate"), dict) else {}
+    identity = candidate.get("wrapper_identity")
+    identity = identity if isinstance(identity, dict) else {}
+    closure = intent.get("source_closure") if isinstance(intent.get("source_closure"), dict) else {}
+    files = closure.get("files") if isinstance(closure.get("files"), dict) else {}
+    matches = [sha for path, sha in files.items() if str(path).endswith(WRAPPER_SOURCE_SUFFIX)]
+    claimed = candidate.get("wrapper_source_sha256")
+    audit.rule(
+        "identity.wrapper_source_bound_to_closure",
+        len(matches) == 1
+        and is_sha256(claimed)
+        and claimed == matches[0]
+        and identity.get("source_sha256") == claimed,
+        {
+            "closure_entries": matches,
+            "candidate": claimed,
+            "identity": identity.get("source_sha256"),
+        },
+        "intent.source_closure.files[...src/evaluation/safety_veto.py]",
+    )
+    descriptor = identity.get("descriptor")
+    descriptor_ok = isinstance(descriptor, dict) and descriptor.get("method") == VETO_METHOD
+    unbound: List[str] = []
+    for entry in entries:
+        if ARM_ALIASES.get(entry.get("arm")) != "candidate":
+            continue
+        record = entry.get("record") if isinstance(entry.get("record"), dict) else {}
+        probes = record.get("probes") if isinstance(record.get("probes"), dict) else {}
+        veto = probes.get("safety_veto") if isinstance(probes.get("safety_veto"), dict) else {}
+        where = str(entry.get("episode_id", entry.get("world_seed")))
+        if entry.get("wrapper_source_sha256") != claimed:
+            unbound.append(f"{where}: wrapper_source_sha256")
+        if {k: v for k, v in veto.items() if k != "counters"} != descriptor:
+            unbound.append(f"{where}: safety_veto descriptor")
+    audit.rule(
+        "identity.candidate_records_bound",
+        descriptor_ok and not unbound,
+        {"descriptor": descriptor, "unbound": unbound[:20], "unbound_count": len(unbound)},
+        "candidate entries vs intent.candidate.{wrapper_source_sha256, wrapper_identity}",
+    )
+
+
 def audit_counters(audit: Audit, docs: Mapping[str, Any]) -> None:
     bad = [w for w, v in find_key(docs, "optimizer_updates") if v != 0]
     over: List[str] = []
@@ -1486,7 +1544,9 @@ def run_smoke_audit(root: Path, out_dir: Path) -> Dict[str, Any]:
         {"outcome_claims": claims[:10], "decision_documents": decision_docs},
         "a smoke run never decides (closeout SMOKE_NO_DECISION is written after the audit)",
     )
-    audit_identity(audit, docs, [{"entry": e} for _, e in raw["final"] if isinstance(e, dict)])
+    smoke_entries = [e for _, e in raw["final"] if isinstance(e, dict)]
+    audit_identity(audit, docs, [{"entry": e} for e in smoke_entries])
+    audit_candidate_binding(audit, intent, smoke_entries)
     audit_counters(audit, docs)
     artifacts = audit_artifacts(audit, root, docs, bool(raw["final"]))
     failures = audit.failures()
@@ -1546,6 +1606,7 @@ def run_audit(root: Path, out_dir: Path, pilot_root: Path) -> Dict[str, Any]:
     claimed = audit_outcome(audit, docs, expected)
     all_episodes = [e for stage in STAGES for e in episodes[stage]]
     audit_identity(audit, docs, all_episodes)
+    audit_candidate_binding(audit, intent, [e["entry"] for e in all_episodes])
     audit_counters(audit, docs)
     artifacts = audit_artifacts(audit, root, docs, bool(all_episodes))
     veto_consistency = sum(

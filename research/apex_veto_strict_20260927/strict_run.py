@@ -72,7 +72,10 @@ N_FLOOR = 40
 N_MAX = 300
 ALPHA = 0.05
 
-CAPS = {"calibration": 1800, "final": 30000, "serving": 3600, "audit": 900}
+# Final cap: pre-registered from the Tier-1 screen's measured episode times (protocol.md
+# "Execution envelope"): 235 x 189.8 s of A+B rollout per world triplet / 2 workers = 22.3k s
+# per worker before overhead; 45000 s keeps the overhead-inclusive projection near 57%.
+CAPS = {"calibration": 1800, "final": 45000, "serving": 3600, "audit": 900}
 HANDOFF_SECONDS = 120
 WORKERS = 2
 RSS_BYTES = 8 * 1024**3
@@ -84,15 +87,21 @@ HEARTBEAT_STALE_SECONDS = 600.0
 SLOT_TIMEOUT_SECONDS = 180.0
 WORKER_STOP_MARGIN_SECONDS = 30.0
 MIN_EPISODE_BUDGET_SECONDS = 45.0
+PROJECTION_OVERHEAD = 1.15  # screen: 8582 s elapsed / 7590 s summed A+B rollouts = 1.13
+PROJECTION_MAX_BUDGET_FRACTION = 0.70  # prepare refuses a projected final above this
 
 SLOT_LOCK_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909")
 SUPERVISOR_SOURCE = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/"
     "apex-scaling-h256-diagnostic/supervise.py"
 )
-DEFAULT_OUT_ROOT = Path(
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927/run-v1"
+STUDY_ARTIFACT_ROOT = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927"
 )
+DEFAULT_OUT_ROOT = STUDY_ARTIFACT_ROOT / "run-v1"  # the pre-registered Tier-2 root
+DEFAULT_SMOKE_ROOT = STUDY_ARTIFACT_ROOT / "smoke-v1"  # pre-GO plumbing dry-run root
+# The only root a non-smoke intent may use (tests point it at tmp_path).
+TIER2_OUT_ROOT = DEFAULT_OUT_ROOT
 SCREEN_RUN = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-safety-screen-20260926/run-v1"
 )
@@ -110,12 +119,20 @@ SERVING_REMAINING_WORK = [
     "a vector61+wrapper per-episode serving receipt schema; strict_promotion._serving "
     "accepts only raster31v3 receipts",
     "a 50-episode web serving run under that schema, with its own audit",
+    "any deployment that wraps more than the one hero (every Watch snake sharing the policy, "
+    "or every AI snake in Play) needs its own strict evaluation: this study measures one "
+    "wrapped hero against unwrapped opponents only",
 ]
+SERVING_STAGE_KIND = "rollout-harness self-play compatibility check"
 NON_CLAIMS = [
     "no champion file, default, config or deployment change on any outcome",
     "a STRICT_PASS is a receipt only; release is a separate explicit action",
     "serving_path_qualified is false: the web serving path cannot host the wrapper yet",
     "Tier-1 screen numbers are not evidence in this study (pilot variance only)",
+    "the result covers a single wrapped hero against unwrapped opponents under "
+    "promotion-v2-watch-rect H5000 only; wrapping several or all snakes is not measured",
+    "the serving stage is a rollout-harness self-play compatibility check through "
+    "tournament_eval.rollout; it exercises no web backend or session code",
 ]
 
 
@@ -354,6 +371,15 @@ def screen_pilot_deltas(screen_run: Path) -> Dict[str, Any]:
             dev_screen.sha256_file(summary_path) if summary_path.is_file() else None
         ),
         "summary_deltas_match": summary_match,
+        "episode_wall_seconds": {
+            f"{arm}-{mix}": [
+                float(e["wall_seconds"])
+                for (a, m, _), e in sorted(by_key.items())
+                if a == arm and m == mix
+            ]
+            for arm in ("A", "B")
+            for mix in MIXES
+        },
     }
 
 
@@ -371,6 +397,48 @@ def frozen_final_n(deltas_by_mix: Mapping[str, Sequence[float]]) -> Dict[str, An
         "final_worlds_per_mix": n,
         "n_max": N_MAX,
         "feasible": n <= N_MAX,
+    }
+
+
+def runtime_projection(
+    wall_seconds: Mapping[str, Sequence[float]], n_final: int, cap: float | None = None
+) -> Dict[str, Any]:
+    """Projected per-worker final-stage wall time from the screen's measured episode times.
+
+    Basis: the Tier-1 screen ran one worker (torch 2 intra-op / 1 inter-op). The final plays
+    ``n_final`` worlds x 3 mixes x both arms over ``WORKERS`` workers; ``PROJECTION_OVERHEAD``
+    covers per-episode overhead. Two concurrent workers were never measured, so the projection
+    must leave ``1 - PROJECTION_MAX_BUDGET_FRACTION`` of the worker budget for contention.
+    """
+    cap = CAPS["final"] if cap is None else cap
+    per_mix = {}
+    for mix in MIXES:
+        a, b = list(wall_seconds[f"A-{mix}"]), list(wall_seconds[f"B-{mix}"])
+        require(a and b, f"no measured screen wall times for {mix}")
+        per_mix[mix] = {
+            "incumbent_mean_seconds": sum(a) / len(a),
+            "candidate_mean_seconds": sum(b) / len(b),
+            "max_seconds": max(a + b),
+            "episodes": len(a) + len(b),
+        }
+    triplet = sum(
+        r["incumbent_mean_seconds"] + r["candidate_mean_seconds"] for r in per_mix.values()
+    )
+    rollout = n_final * triplet / WORKERS
+    projected = rollout * PROJECTION_OVERHEAD
+    budget = cap - WORKER_STOP_MARGIN_SECONDS
+    return {
+        "basis": "Tier-1 screen A/B record wall_seconds, one worker, 2 intra-op / 1 inter-op",
+        "concurrency_measured": False,
+        "per_mix_episode_seconds": per_mix,
+        "pair_seconds_per_world_triplet": triplet,
+        "rollout_seconds_per_worker": rollout,
+        "overhead_factor": PROJECTION_OVERHEAD,
+        "projected_seconds_per_worker": projected,
+        "worker_budget_seconds": budget,
+        "fraction_of_worker_budget": projected / budget,
+        "max_fraction": PROJECTION_MAX_BUDGET_FRACTION,
+        "within_limit": projected / budget <= PROJECTION_MAX_BUDGET_FRACTION,
     }
 
 
@@ -452,6 +520,21 @@ def required_seconds(from_stage: str) -> float:
     return float(sum(CAPS[s] for s in order[order.index(from_stage) :]) + HANDOFF_SECONDS)
 
 
+def check_output_root(out_root: Path, smoke: bool) -> None:
+    """A Tier-2 intent uses exactly the pre-registered root; a smoke never uses a run root."""
+    root = Path(out_root).resolve()
+    require(dev_screen.FORBIDDEN_OUTPUT_ROOT not in Path(out_root).parts, "forbidden out root")
+    require(dev_screen.FORBIDDEN_OUTPUT_ROOT not in root.parts, "forbidden out root")
+    tier2 = Path(TIER2_OUT_ROOT).resolve()
+    if smoke:
+        require(
+            root != tier2 and not root.name.startswith("run-"),
+            f"a smoke dry-run may not use a Tier-2 run root ({root}); use {DEFAULT_SMOKE_ROOT}",
+        )
+    else:
+        require(root == tier2, f"a Tier-2 intent must use the pre-registered root {tier2}")
+
+
 def build_intent(
     *,
     out_root: Path,
@@ -471,8 +554,8 @@ def build_intent(
     """Assemble the write-once intent; raises on any failed construction-time check."""
     prepared = clock()
     require(bool(authorization_quote.strip()), "an authorization quote is required")
-    require(dev_screen.FORBIDDEN_OUTPUT_ROOT not in Path(out_root).parts, "forbidden out root")
     smoke = smoke_frames is not None
+    check_output_root(out_root, smoke)
     if smoke:
         require(0 < smoke_frames <= 500, "smoke is limited to 500 frames")
     else:
@@ -502,6 +585,7 @@ def build_intent(
         parity = {"checked": False, "reason": "smoke"}
         pilot = {"deltas_by_mix": None, "smoke": True}
         sizing = {"final_worlds_per_mix": 1, "feasible": True, "smoke": True}
+        projection = {"smoke": True}
     else:
         domains = {name: domain for name, (domain, _) in NAMESPACES.items()}
         seeds = namespace_seeds()
@@ -518,6 +602,14 @@ def build_intent(
         require(pilot["summary_deltas_match"] is True, "screen records disagree with summary")
         require(all(len(pilot["deltas_by_mix"][m]) >= 2 for m in MIXES), "pilot too small")
         sizing = frozen_final_n(pilot["deltas_by_mix"])
+        projection = runtime_projection(
+            pilot.pop("episode_wall_seconds"), int(sizing["final_worlds_per_mix"])
+        )
+        require(
+            not sizing["feasible"] or projection["within_limit"],
+            f"projected final {projection['projected_seconds_per_worker']:.0f} s per worker "
+            f"exceeds {PROJECTION_MAX_BUDGET_FRACTION:.0%} of the worker budget",
+        )
     wrapper = wrapper_identity()
     n_final = int(sizing["final_worlds_per_mix"])
     final_seeds = seeds["final"][: min(n_final, len(seeds["final"]))]
@@ -583,6 +675,9 @@ def build_intent(
             "term_grace_seconds": TERM_GRACE_SECONDS,
             "heartbeat_stale_seconds": HEARTBEAT_STALE_SECONDS,
             "retry_authorized": False,
+            "slot_locks": "held by the run parent from before started.json to closeout; "
+            "workers share them through inherited descriptors (--slot-fd)",
+            "final_runtime_projection": projection,
         },
         "audit": {
             "independent_source": {
@@ -607,6 +702,8 @@ def build_intent(
         },
         "smoke_frames": smoke_frames,
         "serving_path_qualified": False,
+        "serving_stage_kind": SERVING_STAGE_KIND,
+        "serving_stage_exercises_web_path": False,
         "serving_remaining_work": SERVING_REMAINING_WORK,
         "non_claims": NON_CLAIMS,
     }
@@ -625,19 +722,56 @@ def prepare(argv_intent: Mapping[str, Any]) -> Path:
 # ---------------------------------------------------------------- worker (internal child)
 
 
-def acquire_slot(lock_root: Path, slot: int, timeout: float = SLOT_TIMEOUT_SECONDS) -> Any:
-    """Hold one shared CPU slot (``cpu-slot-<slot>.lock``, exclusive flock) or raise."""
-    handle = (Path(lock_root) / f"cpu-slot-{slot}.lock").open("a+")
+def acquire_run_slots(lock_root: Path, timeout: float = SLOT_TIMEOUT_SECONDS) -> List[Any]:
+    """All-or-nothing: hold every worker's CPU slot (``cpu-slot-1..WORKERS.lock``) or raise.
+
+    The run parent calls this before ``output/`` exists (a busy slot is not an attempt) and
+    holds the locks until closeout, so no other job can take a slot between stages.
+    """
+    handles = [(Path(lock_root) / f"cpu-slot-{k + 1}.lock").open("a+") for k in range(WORKERS)]
     started = time.monotonic()
     while True:
+        acquired: List[Any] = []
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return handle
+            for handle in handles:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired.append(handle)
+            return handles
         except BlockingIOError:
+            for handle in acquired:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             if time.monotonic() - started > timeout:
-                handle.close()
-                raise StrictRunError(f"CPU slot {slot} unavailable for {timeout:.0f} s")
+                for handle in handles:
+                    handle.close()
+                raise StrictRunError(f"CPU slots unavailable for {timeout:.0f} s")
             time.sleep(0.1)
+
+
+def release_run_slots(handles: Sequence[Any]) -> None:
+    for handle in handles:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+def assert_inherited_slot(fd: int, lock_root: Path, slot: int) -> None:
+    """Worker side: ``fd`` is the parent's open ``cpu-slot-<slot>.lock`` and holds its lock.
+
+    flock belongs to the open file description, which the worker shares with the parent, so
+    a non-blocking LOCK_EX on it succeeds without contention. It fails if another description
+    holds the lock. The worker never unlocks it (that would release the parent's lock).
+    """
+    target = Path(lock_root) / f"cpu-slot-{slot}.lock"
+    info, expected = os.fstat(fd), target.stat()
+    require(
+        (info.st_dev, info.st_ino) == (expected.st_dev, expected.st_ino),
+        f"inherited fd {fd} is not {target.name}",
+    )
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        raise StrictRunError(f"CPU slot {slot} is held by another process") from exc
 
 
 def episode_entry(
@@ -720,8 +854,13 @@ def _write_heartbeat(path: Path, value: Mapping[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def worker_main(intent_path: Path, stage: str, shard: int, stage_deadline: datetime) -> int:
-    """Internal: run one shard of one numeric stage under the parent's supervision."""
+def worker_main(
+    intent_path: Path, stage: str, shard: int, stage_deadline: datetime, slot_fd: int
+) -> int:
+    """Internal: run one shard of one numeric stage under the parent's supervision.
+
+    The CPU slot lock is the parent's, shared through the inherited descriptor ``slot_fd``.
+    """
     require(stage in STAGES, "unknown stage")
     intent = read_json(intent_path)
     intent_sha = dev_screen.sha256_file(intent_path)
@@ -733,14 +872,8 @@ def worker_main(intent_path: Path, stage: str, shard: int, stage_deadline: datet
     shard_dir = output / stage / f"shard-{shard}"
     shard_dir.mkdir()
     records_dir = output / stage / "records"
-    supervisor = load_supervisor(
-        Path(intent["supervisor_source"]["path"]), intent["supervisor_source"]["sha256"]
-    )
-    handle = acquire_slot(Path(intent["slot_lock_root"]), shard + 1)
-    try:
-        return _worker_body(intent, admitted, stage, shard, stage_deadline, shard_dir, records_dir)
-    finally:
-        supervisor.close_slots([handle])
+    assert_inherited_slot(slot_fd, Path(intent["slot_lock_root"]), shard + 1)
+    return _worker_body(intent, admitted, stage, shard, stage_deadline, shard_dir, records_dir)
 
 
 def _worker_body(
@@ -880,8 +1013,11 @@ def supervise_children(
     grace_seconds: float = TERM_GRACE_SECONDS,
     heartbeat_stale_seconds: float = HEARTBEAT_STALE_SECONDS,
     clock: Callable[[], float] = time.monotonic,
+    pass_fds: Sequence[Sequence[int]] | None = None,
 ) -> Dict[str, Any]:
     """Run children concurrently, each in its own process group, under shared watchdogs.
+
+    ``pass_fds[k]`` are descriptors child ``k`` inherits (the parent's CPU slot lock).
 
     Causes (first wins, all children are then stopped): ``child_failed`` (a nonzero exit
     while a sibling runs), ``wall_timeout`` (the stage cap, a
@@ -899,7 +1035,9 @@ def supervise_children(
     min_available = None
     interrupt: BaseException | None = None
     try:
-        for command, log in zip(commands, logs):
+        inherited = list(pass_fds) if pass_fds is not None else [() for _ in commands]
+        require(len(inherited) == len(commands), "one pass_fds entry per child")
+        for command, log, fds in zip(commands, logs, inherited):
             stream = Path(log).open("x", encoding="utf-8")
             streams.append(stream)
             children.append(
@@ -911,6 +1049,7 @@ def supervise_children(
                     stdout=stream,
                     stderr=subprocess.STDOUT,
                     start_new_session=True,
+                    pass_fds=tuple(fds),
                 )
             )
         while any(child.poll() is None for child in children):
@@ -1483,7 +1622,7 @@ def validate_intent(intent: Mapping[str, Any]) -> None:
     require(intent["caps"]["handoff_seconds"] == HANDOFF_SECONDS, "handoff reserve")
     require(intent["caps"]["retry_authorized"] is False, "retry must not be authorized")
     require(intent["caps"]["workers"] == WORKERS, "worker count")
-    require(dev_screen.FORBIDDEN_OUTPUT_ROOT not in Path(intent["output_root"]).parts, "root")
+    check_output_root(Path(intent["output_root"]), intent["smoke_frames"] is not None)
     parse_utc(intent["deadline_utc"])
     drift = closure_drift(intent["source_closure"])
     require(not drift, f"source closure drift: {drift}")
@@ -1517,8 +1656,17 @@ def _tree_hashes(directory: Path) -> Dict[str, str]:
     }
 
 
-def run_stages(intent: Mapping[str, Any], intent_path: Path, output: Path, state: Dict) -> None:
-    """Calibration -> final -> serving -> audit; records facts into ``state``."""
+def run_stages(
+    intent: Mapping[str, Any],
+    intent_path: Path,
+    output: Path,
+    state: Dict,
+    slots: Sequence[Any],
+) -> None:
+    """Calibration -> final -> serving -> audit; records facts into ``state``.
+
+    ``slots`` are the CPU slot locks the run parent holds; worker ``k`` inherits ``slots[k]``.
+    """
     smoke = intent["smoke_frames"] is not None
     supervisor = load_supervisor(
         Path(intent["supervisor_source"]["path"]), intent["supervisor_source"]["sha256"]
@@ -1572,6 +1720,8 @@ def run_stages(intent: Mapping[str, Any], intent_path: Path, output: Path, state
                 str(k),
                 "--stage-deadline",
                 worker_deadline.isoformat(),
+                "--slot-fd",
+                str(slots[k].fileno()),
             )
             for k in range(WORKERS)
         ]
@@ -1586,6 +1736,7 @@ def run_stages(intent: Mapping[str, Any], intent_path: Path, output: Path, state
             logs=[stage_dir / f"worker-{k}.log" for k in range(WORKERS)],
             heartbeats=[stage_dir / f"shard-{k}" / "heartbeat.json" for k in range(WORKERS)],
             wall_seconds=CAPS[stage],
+            pass_fds=[(slots[k].fileno(),) for k in range(WORKERS)],
         )
         write_durable(stage_dir / "supervision.json", result)
         if result["cause"] == "wall_timeout":
@@ -1769,6 +1920,8 @@ def closeout(intent: Mapping[str, Any], output: Path, state: Mapping[str, Any]) 
         "remaining_seconds_at_closeout": remaining,
         "handoff_reserve_met": remaining >= HANDOFF_SECONDS,
         "serving_path_qualified": False,
+        "serving_stage_kind": SERVING_STAGE_KIND,
+        "serving_stage_exercises_web_path": False,
         "serving_remaining_work": SERVING_REMAINING_WORK,
         "promotion_performed": False,
         "retry_authorized": False,
@@ -1788,6 +1941,8 @@ def closeout(intent: Mapping[str, Any], output: Path, state: Mapping[str, Any]) 
                 "audit_report_sha256": state["audit_report_sha256"],
                 "decision": state["decision"],
                 "serving_path_qualified": False,
+                "serving_stage_kind": SERVING_STAGE_KIND,
+                "serving_stage_exercises_web_path": False,
                 "serving_remaining_work": SERVING_REMAINING_WORK,
                 "non_claims": NON_CLAIMS,
             },
@@ -1803,12 +1958,31 @@ def run(intent_path: Path) -> Dict[str, Any]:
     validate_intent(intent)
     output = Path(intent["output_root"]) / "output"
     require(intent_path == Path(intent["output_root"]) / "intent.json", "intent location")
+    slots: List[Any] = []
     if intent["sizing"]["feasible"]:
-        # A transient RAM shortage raises here and leaves no record, so it is not an attempt.
+        # A transient RAM shortage or a busy CPU slot raises here and leaves no record, so it
+        # is not an attempt. The slots stay held by this process until closeout.
         supervisor = load_supervisor(
             Path(intent["supervisor_source"]["path"]), intent["supervisor_source"]["sha256"]
         )
+        if intent["smoke_frames"] is None:
+            require(
+                Path(intent["slot_lock_root"]) == Path(supervisor.GLOBAL_LOCK_ROOT), "lock root"
+            )
         supervisor.capacity_preflight(AVAILABLE_GIB)
+        if output.exists():  # create-only: never resumes or retries
+            raise FileExistsError(str(output))
+        slots = acquire_run_slots(Path(intent["slot_lock_root"]))
+    try:
+        return _admitted_run(intent, intent_path, output, slots)
+    finally:
+        release_run_slots(slots)
+
+
+def _admitted_run(
+    intent: Mapping[str, Any], intent_path: Path, output: Path, slots: Sequence[Any]
+) -> Dict[str, Any]:
+    """From ``output/started.json`` on, every stop is final (closeout is always written)."""
     output.mkdir(exist_ok=False)
     state: Dict[str, Any] = {
         "intent_sha256": dev_screen.sha256_file(intent_path),
@@ -1820,6 +1994,7 @@ def run(intent_path: Path) -> Dict[str, Any]:
             "utc": now_utc().isoformat(),
             "pid": os.getpid(),
             "intent_sha256": state["intent_sha256"],
+            "cpu_slot_locks_held": [str(handle.name) for handle in slots],
         },
     )
 
@@ -1829,7 +2004,7 @@ def run(intent_path: Path) -> Dict[str, Any]:
     previous = {sig: signal.signal(sig, interrupt) for sig in (signal.SIGTERM, signal.SIGHUP)}
     try:
         if intent["sizing"]["feasible"]:
-            run_stages(intent, intent_path, output, state)
+            run_stages(intent, intent_path, output, state, slots)
     except (Exception, Interrupted) as exc:  # noqa: BLE001 - recorded, never retried
         state["failure"] = f"{type(exc).__name__}: {exc}"
     finally:
@@ -1842,7 +2017,12 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     prep = sub.add_parser("prepare", help="write the intent once")
-    prep.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
+    prep.add_argument(
+        "--out-root",
+        type=Path,
+        default=None,
+        help=f"default {DEFAULT_OUT_ROOT}, or {DEFAULT_SMOKE_ROOT} with --smoke-frames",
+    )
     prep.add_argument("--deadline-utc", required=True)
     prep.add_argument("--authorization-quote", required=True)
     prep.add_argument("--screen-run", type=Path, default=SCREEN_RUN)
@@ -1861,6 +2041,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
             child.add_argument("--stage", choices=STAGES, required=True)
             child.add_argument("--shard", type=int, choices=range(WORKERS), required=True)
             child.add_argument("--stage-deadline", required=True)
+            child.add_argument("--slot-fd", type=int, required=True)
         if name == "audit":
             child.add_argument("--out", type=Path, required=True)
     return parser.parse_args(argv)
@@ -1869,8 +2050,9 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.command == "prepare":
+        default_root = DEFAULT_SMOKE_ROOT if args.smoke_frames is not None else DEFAULT_OUT_ROOT
         intent = build_intent(
-            out_root=args.out_root,
+            out_root=args.out_root or default_root,
             deadline=parse_utc(args.deadline_utc),
             authorization_quote=args.authorization_quote,
             screen_run=args.screen_run,
@@ -1896,7 +2078,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "worker":
         return worker_main(
-            args.intent.resolve(), args.stage, args.shard, parse_utc(args.stage_deadline)
+            args.intent.resolve(),
+            args.stage,
+            args.shard,
+            parse_utc(args.stage_deadline),
+            args.slot_fd,
         )
     return audit_main(args.intent.resolve(), args.out)
 
