@@ -63,7 +63,10 @@ FUTILITY_FAMILY_ALPHA = 0.10
 FUTILITY_ONE_SIDED_ALPHA = FUTILITY_FAMILY_ALPHA / len(MIXES)  # per mix, per look
 MULTIPLICATIVE_MDE_LADDER: Tuple[float, ...] = (0.10, 0.20, 0.30, 0.50)
 SIGN_MDE = 0.1  # mean sign delta 0.1 <=> P(candidate beats Apex) 0.50 -> 0.55
-SIMD_SPEEDUP = 100.0
+# Projected batch-engine speedup for vector61 gates (docs/research/
+# simd_vector61_plan_2026-09-26.md "Measured cost": 3-4x, not 100x; the
+# featurizer dominates). Not measured end to end; midpoint used here.
+SIMD_SPEEDUP = 3.5
 LIVE_SECONDS_PER_EPISODE_FALLBACK = 851.6772085831035 / 48.0
 
 Record = Dict[str, Any]

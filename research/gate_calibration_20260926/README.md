@@ -210,23 +210,32 @@ The table shows the upper bound for each mix, in the order frozen / mixed / scri
 - This matches the d column: 6102's deficit concentrates in high-mass worlds, which the log
   scale compresses. For the one real contrast on record, raw mass was the more sensitive
   estimand.
+- This table is a single-look illustration. Repeating the same fixed per-look bound at several
+  looks does not control the cumulative false-stop rate (see "Sequential futility stop"
+  below): at four looks it falsely stops about 27% of truly equal candidates.
 
 ### Throughput
 
 The incumbent arm is deterministic given the world seed (see the A/A section), so it runs once
 per world bank and is cached. Each candidate then costs 3·N candidate episodes. Figures below
-use 17.74 s per live H5000 episode on CPU, and assume the vectorized sim runs 100× faster.
+use 17.74 s per live H5000 episode on CPU. The batch-engine column uses the **3–4× projection**
+of `docs/research/simd_vector61_plan_2026-09-26.md` ("Measured cost"), not the ~100× the
+engine achieves for non-vector61 policies: for vector61 the featurizer (0.09–0.11 ms/row on
+natural states, about 0.2 ms/row with long bodies, vs 0.84–0.90 ms/row for live `get_state`)
+dominates, giving roughly 1–1.3 ms against 3.55 ms per live env-frame when all six slots are
+vector61. That projection is not measured end to end, and action parity is not yet shown.
 
-| design (binding N per mix) | candidate episodes | live CPU hours | SIMD time |
+| design (binding N per mix) | candidate episodes | live CPU hours | batch engine at 3–4× (projected) |
 |---|---|---|---|
-| pilot rule, raw mass 10% of dev mean (8676) | 26,028 | 128 | 77 min |
-| raw mass 10% of pooled mean (3047) | 9,141 | 45 | 27 min |
-| **raw mass 20% of pooled mean (762)** | **2,286** | **11.3** | **6.8 min** |
-| log1p ×1.20 (1384) | 4,152 | 20.5 | 12 min |
-| ridit P≈0.557 (480) | 1,440 | 7.1 | 4.3 min |
+| pilot rule, raw mass 10% of dev mean (8676) | 26,028 | 128 | 32–43 h |
+| raw mass 10% of pooled mean (3047) | 9,141 | 45 | 11–15 h |
+| **raw mass 20% of pooled mean (762)** | **2,286** | **11.3** | **2.8–3.8 h** |
+| log1p ×1.20 (1384) | 4,152 | 20.5 | 5.1–6.8 h |
+| ridit P≈0.557 (480) | 1,440 | 7.1 | 1.8–2.4 h |
 
-The SIMD figures are hypothetical today: `src/simd_env/eval_engine.py` does not featurize
-vector61 checkpoints. It raises an error, as of the brief for this lane. The gate needs:
+The batch-engine figures are hypothetical today: `src/simd_env/eval_engine.py` does not
+featurize vector61 checkpoints. It raises an error, as of the brief for this lane. The gate
+needs:
 
 - vector61 featurization in the batch sim;
 - a parity check against the live H5000 promotion profile, including frozen Apex opponents and
@@ -262,7 +271,8 @@ about 0.64 candidate episodes per second, which is at most 3,200 scored frames p
    of Apex deaths, and no Apex episode reached the horizon alive. Interventions that change
    survival therefore also change the noise.
 5. **A futility stop is cheap and would have caught 6102.** It stops by 16 worlds per mix on
-   raw mass, and by 8 in the frozen mix.
+   raw mass, and by 8 in the frozen mix. This is a single-look check; a repeated schedule must
+   spend α across looks (see "Sequential futility stop" below).
 
 ## Recommended gate: draft for pre-registration
 
@@ -285,34 +295,57 @@ development-only data.
   A candidate whose mechanism is survival, such as the flood-fill veto, pre-registers
   survival_fraction as its mechanism check.
 - **MDE.** 20% of the cached Apex bank mean per mix. That bank has at least 256 worlds per
-  mix, measured before the gate. A 10% MDE is feasible only once SIMD throughput exists.
+  mix, measured before the gate. A 10% MDE costs about 45 live CPU hours per candidate, or a
+  projected 11–15 hours on the batch engine once it featurizes vector61, so it is not a
+  routine gate.
 - **N.**
   - Set N from a development-only paired SD, with the largest mix binding.
   - With today's only paired SDs (6102), 20% gives **N = 762, rounded up to 768 worlds per
     mix**. At 10%, N ≈ 3,050.
   - Because a new candidate's Δ SD can differ, pre-register an upward-only re-estimate of SD
-    at the second look, with a hard cap. The recommended cap is 3,072 per mix with SIMD and
-    768 live.
+    at the second look, with a hard cap. The recommended cap is 3,072 per mix on the batch
+    engine (a projected 11–15 hours per candidate at 3–4×) and 768 live.
 - **Test.**
   - A one-sided paired t per mix.
   - Holm across the three mixes at a family α of 0.05.
   - Keep the existing scripted non-inferiority margin from `src/evaluation/strict_promotion.py`.
   - Efficacy is tested only at the final look.
 - **Sequential futility stop.** This stop is non-binding: it can only stop a candidate, never
-  promote one.
-  - Looks come at 32, 128, 384 and 768 worlds per mix.
-  - At each look, stop as a "clear loser" if any mix's one-sided upper (1 − 0.10/3) t bound on
-    mean Δ is below 0.
-  - For a truly equal candidate, the chance of a false stop is at most about 10% per look.
-    Being non-binding, the rule does not raise the promotion false-positive rate.
-  - On the pilot, the rule stops 6102 at 16 worlds.
+  promote one. It spends a futility α of 0.10 across looks and mixes with
+  `src.evaluation.screen_stats.futility_plan` (Lan–DeMets O'Brien–Fleming-type spending),
+  evaluated per look with `evaluate_futility_look`.
+  - Looks come at 32, 128, 384 and 768 worlds per mix (information fractions 1/24, 1/6, 1/2,
+    1).
+  - Each mix gets `futility_plan([32, 128, 384, 768], alpha=0.10/3)`. Its z boundaries are
+    10.36, 5.08, 2.79 and 1.85, and its cumulative α spent is 0, 0, 0.0026 and 0.0333.
+  - At each look, stop as a "clear loser" if any mix's tail-matched paired statistic is below
+    −boundary.
+  - For a truly equal candidate, the cumulative chance of a false stop over all four looks is
+    at most 0.10 (Bonferroni over mixes). A Monte Carlo with 3 independent mixes and Brownian
+    looks gives 0.096.
+  - Alternative considered and rejected: repeating a fixed one-sided (1 − 0.10/3) t bound per
+    mix at every look. It is about 10% per look (0.096 at the first look), but the same
+    Monte Carlo gives a **cumulative false stop of about 27%** over the four looks, so it
+    would kill about a quarter of truly equal candidates and cut power for small real gains.
+  - Being non-binding, neither rule raises the promotion false-positive rate.
+  - O'Brien–Fleming spending puts almost no α at the early looks: the 32-world boundary of
+    10.36 effectively never stops. Catching a clear loser early is the job of the Tier-1
+    check, not of this in-gate stop (next item).
+  - The single-look pilot table above, where a fixed bound stops 6102 at 16 worlds, remains
+    an illustration of effect size, not the recommended schedule.
+- **Relation to the Tier-1 check.** The mandatory Tier-1 "not a clear loss" check is defined
+  normatively in `docs/research/governance_tiers_2026-09-26.md` ("Rule: a cheap H5000 check
+  against Apex"): at least 16 worlds per mix, the pooled mean of per-mix means
+  (`screen_stats.stratified_mean_of_means`), 90% CI, stop if the pooled upper bound is below 0.
+  This README does not define a second version. The futility looks above belong to the
+  Tier-2 gate only.
 - **Throughput.**
   - Live, 768 worlds per mix is about 11.3 CPU hours per candidate. That is acceptable for a
     final overnight gate but not for screens.
-  - The first futility look (32 per mix, 96 candidate episodes) takes about 28 minutes live.
-    Use it as the mandatory Tier-1 "not a clear loss" check.
-  - SIMD at 100× takes a full gate to about 7 minutes. It needs vector61 featurization in
-    `src/simd_env` plus parity CI against this live profile.
+  - On the batch engine the projection is 3–4× cheaper (about 2.8–3.8 hours for a full gate),
+    not 100×. See `docs/research/simd_vector61_plan_2026-09-26.md`. It needs vector61
+    featurization wired into `src/simd_env/eval_engine.py`, action parity, and parity CI
+    against this live profile.
 - **Variance reduction to test on development data before freezing.** Adopt none of these
   without a development measurement:
   1. A respawn-continuation estimand, with `hero_terminal` off: `mass_integral` over all 5,000
@@ -389,8 +422,9 @@ its A record under canonical JSON (`INVALID_NONDETERMINISTIC` otherwise).
   power for Holm together with non-inferiority.
 - The ridit and sign Ns come from paired-t approximations on rank-transformed data. They
   indicate magnitude only.
-- Throughput for SIMD assumes a 100× speedup and vector61 support, which does not yet exist.
-  Live time uses the development stage's 17.74 s per Apex episode. Candidate episodes through a
+- Batch-engine throughput assumes the 3–4× projection from
+  `docs/research/simd_vector61_plan_2026-09-26.md` (not measured end to end) and vector61
+  support in `eval_engine`, which does not yet exist. Live time uses the development stage's 17.74 s per Apex episode. Candidate episodes through a
   serving bridge were slower in the pilot, at 30.96 s averaged over both arms.
 - The records carry no fallback or safe-set data, so the self-trap share here counts
   self-collisions, not pre-trap decisions.

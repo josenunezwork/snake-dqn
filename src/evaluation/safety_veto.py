@@ -18,8 +18,19 @@ rule to the Apex policy's greedy choice at serving time, with no training:
    *eligible* when it is allowed by the action mask AND its direction is
    spacious. If no action is eligible the choice is left unchanged; if the
    base action is eligible it is kept; otherwise the veto picks the
-   highest-Q eligible action (ties resolve to the lowest action index, the
-   same convention as ``torch.argmax``).
+   highest-Q eligible action **in the base action's speed mode** (a non-boost
+   base is replaced by a non-boost move, a boost base by a boost move), and
+   falls back to the other speed mode only when no same-mode action is
+   eligible. Ties resolve to the lowest action index, the same convention as
+   ``torch.argmax``.
+
+Speed-mode preservation (v2): the scripted veto this mirrors never boosts, and
+the Apex policy is known to over-boost, so an unrestricted highest-Q
+replacement would often turn a cramped non-boost move into a boost (which burns
+length and lowers the mass integral). Keeping the base action's speed mode
+makes arm B test the free-space veto rather than "veto plus extra boosting".
+``vetoes_speed_switched`` counts the fallback cases where no same-mode action
+was eligible.
 
 One-step approximation for boost moves: a boosted action moves the head two
 cells, but the free-space feature is measured from the ONE-step next-head cell
@@ -44,7 +55,7 @@ from src.game.snake_state import FREE_SPACE_BFS_CAP, FREE_SPACE_MIN_CAP
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from src.game.snake import Snake
 
-VETO_METHOD = "free-space-veto/v1"
+VETO_METHOD = "free-space-veto/v2-speed-preserving"
 NUM_DIRECTIONS = 3
 NUM_ACTIONS = 6
 
@@ -92,8 +103,10 @@ def veto_choice(
 
     Returns:
         ``(action, outcome)`` where ``outcome`` is ``"kept"`` (base already
-        eligible), ``"vetoed"`` (replaced by the best eligible action) or
-        ``"no_spacious"`` (no masked-legal spacious action; base unchanged).
+        eligible), ``"vetoed"`` (replaced by the best eligible action in the
+        base action's speed mode, or in the other mode only if the base mode
+        has none) or ``"no_spacious"`` (no masked-legal spacious action; base
+        unchanged).
     """
     if len(q_values) != NUM_ACTIONS or len(action_mask) != NUM_ACTIONS:
         raise ValueError(f"expected {NUM_ACTIONS} Q-values and mask entries")
@@ -106,9 +119,14 @@ def veto_choice(
         return int(base_action), OUTCOME_NO_SPACIOUS
     if 0 <= int(base_action) < NUM_ACTIONS and eligible[int(base_action)]:
         return int(base_action), OUTCOME_KEPT
+    base_boost = int(base_action) >= NUM_DIRECTIONS
+    same_mode = [
+        a for a in range(NUM_ACTIONS) if eligible[a] and (a >= NUM_DIRECTIONS) == base_boost
+    ]
+    candidates = same_mode or [a for a in range(NUM_ACTIONS) if eligible[a]]
     best: Optional[int] = None
-    for action in range(NUM_ACTIONS):
-        if eligible[action] and (best is None or float(q_values[action]) > float(q_values[best])):
+    for action in candidates:
+        if best is None or float(q_values[action]) > float(q_values[best]):
             best = action
     assert best is not None  # any(eligible) above
     return best, OUTCOME_VETOED
@@ -120,7 +138,9 @@ class SafetyVetoCounters:
 
     ``decisions == kept_base + vetoes_applied + fallback_no_spacious`` always
     holds. ``vetoes_to_boost`` counts vetoes whose replacement action boosts;
-    ``vetoed_base_boost`` counts vetoes whose overridden base action boosted.
+    ``vetoed_base_boost`` counts vetoes whose overridden base action boosted;
+    ``vetoes_speed_switched`` counts vetoes whose replacement is in the other
+    speed mode than the base (only when no same-mode action was eligible).
     """
 
     decisions: int = 0
@@ -129,6 +149,7 @@ class SafetyVetoCounters:
     fallback_no_spacious: int = 0
     vetoes_to_boost: int = 0
     vetoed_base_boost: int = 0
+    vetoes_speed_switched: int = 0
 
     def record(self, base_action: int, action: int, outcome: str) -> None:
         """Count one decision outcome."""
@@ -141,6 +162,8 @@ class SafetyVetoCounters:
                 self.vetoes_to_boost += 1
             if base_action >= NUM_DIRECTIONS:
                 self.vetoed_base_boost += 1
+            if (action >= NUM_DIRECTIONS) != (base_action >= NUM_DIRECTIONS):
+                self.vetoes_speed_switched += 1
         elif outcome == OUTCOME_NO_SPACIOUS:
             self.fallback_no_spacious += 1
         else:
@@ -202,6 +225,7 @@ class FreeSpaceVeto:
             "free_space_bfs_cap": FREE_SPACE_BFS_CAP,
             "free_space_min_cap": FREE_SPACE_MIN_CAP,
             "boost_approximation": "one-step-direction-feature",
+            "replacement_rule": "highest-q-eligible-same-speed-mode-then-other",
         }
 
     def record(self) -> Dict[str, Any]:

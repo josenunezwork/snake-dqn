@@ -296,23 +296,37 @@ Before any candidate lineage, architecture or intervention gets more than one da
 compute or effort, run one Tier-1 H5000 check against Apex. Serving-bridge qualification and
 any Tier-2 preparation count as that kind of investment.
 
+**This section is the normative definition of the mandatory Tier-1 "not a clear loss"
+check.** Other documents cite it and do not redefine it. In particular, the sequential
+futility looks in `research/gate_calibration_20260926/README.md` belong to a Tier-2 gate and
+are not this check.
+
 - **Design.**
   - Profile `promotion-v2-watch-rect`, H5000, frozen, scripted and mixed mixes.
-  - 16 fresh Tier-1 worlds per mix, with the candidate and Apex paired on each world: 96
-    episodes.
+  - At least 16 fresh Tier-1 worlds per mix (the count is fixed before the run), with the
+    candidate and Apex paired on each world: at 16, 48 candidate plus 48 Apex episodes, 96
+    in total. The Apex arm may come from a cache for the same worlds and code revision.
   - Primary metric: paired Δ `mass_integral`, the same field the strict pilot pairs in
-    `strict_promotion.py`, pooled as the mean of per-mix means.
+    `strict_promotion.py`.
+  - Estimator: the equal-weight mean of the three per-mix mean Δs, with a two-sided 90%
+    Welch–Satterthwaite t CI, computed by `src.evaluation.screen_stats.stratified_mean_of_means`
+    (`confidence=0.90`). Its `upper_below_zero` and `strata_upper_below_zero` fields are the
+    triggers below.
 - **Serving.** A research-only harness loads the candidate directly, without full bridge
   governance. If no such harness can serve the candidate, build it first. It takes hours,
   where a bridge takes days.
 - **Cost.** Apex took 853 s for 48 H5000 episodes on CPU (about 18 s each), so 96 episodes
-  take roughly 30–50 min, depending on candidate speed. Once the vectorized eval engine can
-  featurize vector61 (`src/simd_env/eval_engine.py`, about 100× cheaper), raise the world
-  count and keep the rule.
+  take roughly 30–50 min, depending on candidate speed. The vectorized eval engine is not a
+  large saving for this check: once `src/simd_env/eval_engine.py` can featurize vector61, the
+  projection in `docs/research/simd_vector61_plan_2026-09-26.md` ("Measured cost") is only
+  about 3–4× cheaper than live for all-vector61 mixes, not 100×. That figure is not measured
+  end to end, and action parity is not yet shown. Plan world counts on live cost until both
+  exist.
 - **Decision (clear-loser filter).**
-  - If the upper bound of the pooled 90% CI is below 0, stop or redesign the candidate.
-  - If any single mix's 90% CI upper bound is below 0, continuing needs a written reason in
-    the receipt.
+  - Trigger: if the upper bound of the pooled 90% CI is below 0 (`upper_below_zero`), stop or
+    redesign the candidate.
+  - If any single mix's 90% CI upper bound is below 0 (`strata_upper_below_zero` non-empty),
+    continuing needs a written reason in the receipt.
   - Otherwise the candidate may proceed.
 - **Resolution.** With the pilot's per-mix SDs (56, 118, 56) and n=16, the pooled standard
   error is about 12, so the 90% half-width is about 21. The check detects only large

@@ -47,8 +47,21 @@ Its default is off, and when off the record is byte-identical to before.
    it is mask-allowed and its direction is spacious.
    - No eligible action: the choice is unchanged (`fallback_no_spacious`).
    - Base action eligible: it is kept (`kept_base`).
-   - Otherwise: the highest-Q eligible action is played, with ties going to
-     the lowest index (`vetoes_applied`).
+   - Otherwise (`vetoes_applied`): the highest-Q eligible action **in the
+     base action's speed mode** is played. A non-boost base is replaced by a
+     non-boost move and a boost base by a boost move. Only when no same-mode
+     action is eligible does the veto fall back to the highest-Q eligible action
+     in the other mode (`vetoes_speed_switched`). Ties go to the lowest index.
+
+**Why speed mode is preserved (revision v2, made before any screen episode).**
+The scripted veto this mirrors never boosts, and Apex is known to over-boost
+(about 89% boost abuse), so its boost Q-values are likely high. The first draft
+(`free-space-veto/v1`) took the highest-Q eligible action over all six actions,
+which could turn a cramped non-boost move into a boost. Boosting burns length,
+lowers the primary mass integral, and its second step is never flood-filled.
+Arm B would then have tested "veto plus extra boosting". v2 keeps the speed
+mode so arm B tests the free-space veto itself. `tests/test_safety_veto.py`
+covers the replacement rule, including the fallback.
 
 **One-step approximation for boost moves.** A boost moves the head two cells,
 but eligibility uses the one-step feature of its direction. The mask already
@@ -64,9 +77,10 @@ Each arm-B record carries `probes.safety_veto`:
 
 | Field | What it holds |
 |---|---|
-| `method` | Veto identity: `free-space-veto/v1` |
+| `method` | Veto identity: `free-space-veto/v2-speed-preserving` |
+| `replacement_rule` | `highest-q-eligible-same-speed-mode-then-other` |
 | Caps | The BFS caps the veto used |
-| `counters` | `decisions`, `kept_base`, `vetoes_applied`, `fallback_no_spacious`, `vetoes_to_boost`, `vetoed_base_boost` |
+| `counters` | `decisions`, `kept_base`, `vetoes_applied`, `fallback_no_spacious`, `vetoes_to_boost`, `vetoed_base_boost`, `vetoes_speed_switched` |
 
 `decisions` must equal `denominators.decision_frames`. The summary reports how
 many episodes satisfy this.
@@ -78,6 +92,15 @@ many episodes satisfy this.
 | A | Apex champion (incumbent) | 40 per mix |
 | B | Apex champion + veto | same 40 per mix, paired with A |
 | C | Apex champion (determinism control) | first 8 worlds per mix, run **after** all A/B episodes |
+
+The sizes 40 and 8 are pre-registered and enforced in code
+(`PREREGISTERED_DESIGN` in `dev_screen.py`). A non-smoke run with any other
+`--worlds-per-mix` or `--determinism-worlds` still runs, but its decision is
+`NON_PREREGISTERED_DESIGN`. The screen seeds are a prefix of one fixed recipe,
+so without this a 20-world look followed by a 40-world run would be an
+optional-stopping route the decision field could not reveal. Both
+`intent.json` and `summary.json` record `preregistered_design` (pre-registered
+and actual sizes, and whether they match).
 
 Opponents, rosters, profile and seeds are identical between paired A and B
 episodes. The two differ only in the veto.
@@ -100,6 +123,12 @@ episodes. The two differ only in the veto.
   16 development worlds × 3 mixes and requires every world identity to equal
   the one recorded in the pilot's incumbent records. At preflight today, 48/48
   matched.
+- **Preflight is mandatory outside smoke mode** (`preflight_failures`). The run
+  exits with code 2 unless the `--pilot-output` directory exists, the recipe
+  check ran and reproduces the pilot's seeds (`recipe_reproduces_pilot`), and
+  roster parity was checked with exactly 48 worlds compared and no mismatches.
+  A missing or wrong `--pilot-output` is a failure, not a silent skip. Smoke
+  mode only rejects detected overlaps or mismatches.
 - **Checkpoints:** each is sha256-verified against pinned hashes, copied into
   `OUT/checkpoints/`, and verified again. Rollouts load only the copies, whose
   hashes are checked a final time at the end.
@@ -140,7 +169,12 @@ certainty is needed.
   - win/loss/tie counts.
 - **Determinism control:** every C record must equal its A record under
   canonical JSON.
+- **Named secondary readout (veto mechanics):** `vetoes_applied`,
+  `vetoes_to_boost`, `vetoed_base_boost` and `vetoes_speed_switched` per mix.
+  These show how often the veto fired and how often it changed speed mode.
 - **Decision (`summary.json` → `decision`):**
+  - `NON_PREREGISTERED_DESIGN`: the run's sizes differ from 40 worlds per mix
+    and 8 determinism worlds. No scientific decision is made.
   - `INCOMPLETE`: any planned A/B pair or C episode is missing, for example
     after a deadline stop. No scientific decision is made.
   - `INVALID_NONDETERMINISTIC`: complete, but some C ≠ A. The paired design is
@@ -161,7 +195,12 @@ certainty is needed.
     worlds paired in every mix. The mixes share world seeds, so this is the
     only one of the three that models the between-mix covariance.
   If any of the three cannot be computed (too few worlds, zero variance), it
-  is reported as `{"available": false, "reason": ...}`. A pooled upper bound
+  is reported as `{"available": false, "reason": ...}`. Non-finite values,
+  such as `df = inf` when every delta is identical (an inert veto), are
+  written as `null` with a sibling `<key>_nonfinite` tag (for example
+  `"df_nonfinite": "positive_infinity"`) and listed in
+  `pooled_informational.non_finite_fields`, so `summary.json` is always
+  written. A pooled upper bound
   below 0 would be reported as "harm not excluded at the clear-loser level";
   it does not change the decision above.
 - **Informational sizing:** `eval_stats.paired_delta_pilot_size` on the B − A
@@ -226,16 +265,20 @@ The `--smoke-frames N` mode (N ≤ 500, ≤ 2 episodes) is plumbing-only:
 
 - `tests/test_safety_veto.py` covers:
   - the pure veto (it changes the choice only when needed, never picks a masked
-    action, and matches the base when all directions are spacious);
+    action, matches the base when all directions are spacious, keeps the base
+    speed mode and falls back only when it must);
   - cap and need parity with `ScriptedSnake`;
   - counters;
   - the AISnake hook, both off and on;
   - rollout default-off byte identity and veto-on counters;
-  - the dev-screen decision rule and smoke guard.
+  - the dev-screen decision rule and smoke guard;
+  - `NON_PREREGISTERED_DESIGN` for non-(40, 8) runs, an all-zero-delta summary
+    that serializes, and the mandatory pilot preflight.
 - Existing tests pass: `test_tournament_eval`, `test_ai_snake`,
   `test_ai_snake_greedy_rng`, `test_scripted_snake`, `test_free_space`.
 - **Preflight:** disjointness passes, and roster parity is 48/48.
 - **Smoke:** 1 world × arms A, B × 500 frames on the scripted mix. No veto
   fired: 500/500 `kept_base`, because the snake stayed short. A and B were
   therefore identical, as expected. The profiled H5000 path has not been run
-  live by this lane.
+  live by this lane. The smoke ran the v1 veto; the v2 rule differs only in
+  which action replaces a vetoed one, and no veto fired in the smoke.

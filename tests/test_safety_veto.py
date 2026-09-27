@@ -35,10 +35,43 @@ class TestPureVetoChoice:
 
     def test_veto_changes_choice_only_when_base_direction_is_cramped(self):
         q = [5.0, 1.0, 2.0, 4.0, 0.5, 3.0]
-        # Base 0 (left) is cramped; best eligible is 5 (right+boost, Q 3.0).
-        assert veto_choice(q, ALL, [False, True, True], 0) == (5, OUTCOME_VETOED)
+        # Base 0 (left) is cramped; best same-mode (non-boost) eligible is 2
+        # (right, Q 2.0), not the higher-Q boost 5.
+        assert veto_choice(q, ALL, [False, True, True], 0) == (2, OUTCOME_VETOED)
         # Base 2 (right) is spacious: kept even though left has higher Q.
         assert veto_choice(q, ALL, [False, True, True], 2) == (2, OUTCOME_KEPT)
+
+    def test_non_boost_base_is_never_converted_to_boost_when_avoidable(self):
+        # Boost Q-values dominate (Apex over-boosts); the veto still keeps the
+        # non-boost speed mode whenever a spacious non-boost move is legal.
+        q = [1.0, 0.0, 0.5, 50.0, 40.0, 30.0]
+        for bits in range(1, 8):
+            spacious = [bool(bits & (1 << d)) for d in range(3)]
+            for base in range(3):
+                action, outcome = veto_choice(q, ALL, spacious, base)
+                if outcome == OUTCOME_VETOED:
+                    assert action < 3 and spacious[action]
+        assert veto_choice(q, ALL, [False, True, True], 0) == (2, OUTCOME_VETOED)
+
+    def test_boost_base_stays_boost_when_possible(self):
+        q = [9.0, 8.0, 7.0, 0.0, 1.0, 2.0]
+        # Base 3 (left+boost) cramped: best same-mode eligible is 5 (right+boost),
+        # even though non-boost moves have higher Q.
+        assert veto_choice(q, ALL, [False, True, True], 3) == (5, OUTCOME_VETOED)
+
+    def test_falls_back_to_other_speed_mode_only_when_needed(self):
+        q = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+        normal_only = [True, True, True, False, False, False]
+        boost_right_only = [True, True, False, False, False, True]
+        # Boost base, no boost legal: falls back to the best non-boost move.
+        assert veto_choice(q, normal_only, [False, True, True], 3) == (2, OUTCOME_VETOED)
+        # Non-boost base, the only spacious legal move is right+boost.
+        assert veto_choice(q, boost_right_only, [False, False, True], 0) == (5, OUTCOME_VETOED)
+        counters = SafetyVetoCounters()
+        counters.record(0, 5, OUTCOME_VETOED)
+        counters.record(3, 2, OUTCOME_VETOED)
+        counters.record(0, 2, OUTCOME_VETOED)
+        assert counters.vetoes_speed_switched == 2 and counters.vetoes_applied == 3
 
     def test_boost_shares_its_direction_flag(self):
         q = [0.0, 1.0, 0.0, 0.0, 9.0, 0.0]
@@ -116,6 +149,7 @@ class TestCounters:
             "fallback_no_spacious": 1,
             "vetoes_to_boost": 1,
             "vetoed_base_boost": 1,
+            "vetoes_speed_switched": 2,
         }
         assert data["decisions"] == (
             data["kept_base"] + data["vetoes_applied"] + data["fallback_no_spacious"]
@@ -148,18 +182,20 @@ class TestHook:
         q = torch.tensor([5.0, 1.0, 2.0, 4.0, 0.5, 3.0])
         mask = torch.tensor([True] * 6)
         assert veto.apply(_StubSnake([roomy] * 3), [], q, mask, 0) == 0
-        assert veto.apply(_StubSnake([cramped, roomy, roomy]), [], q, mask, 0) == 5
+        assert veto.apply(_StubSnake([cramped, roomy, roomy]), [], q, mask, 0) == 2
         assert veto.apply(_StubSnake([cramped] * 3), [], q, mask, 0) == 0
         assert veto.counters.to_dict() == {
             "decisions": 3,
             "kept_base": 1,
             "vetoes_applied": 1,
             "fallback_no_spacious": 1,
-            "vetoes_to_boost": 1,
+            "vetoes_to_boost": 0,
             "vetoed_base_boost": 0,
+            "vetoes_speed_switched": 0,
         }
         record = veto.record()
-        assert record["method"] == "free-space-veto/v1"
+        assert record["method"] == "free-space-veto/v2-speed-preserving"
+        assert record["replacement_rule"] == "highest-q-eligible-same-speed-mode-then-other"
         assert record["counters"]["decisions"] == 3
         veto.reset()
         assert veto.counters.decisions == 0
@@ -263,7 +299,7 @@ class TestRolloutHook:
         record = rollout(tiny_live, self.OPPONENTS, 80, 3, hero_safety_veto=True)
         veto = record["probes"]["safety_veto"]
         counters = veto["counters"]
-        assert veto["method"] == "free-space-veto/v1"
+        assert veto["method"] == "free-space-veto/v2-speed-preserving"
         assert counters["decisions"] >= 1
         assert counters["decisions"] == (
             counters["kept_base"] + counters["vetoes_applied"] + counters["fallback_no_spacious"]
@@ -304,6 +340,7 @@ class TestDevScreen:
         "fallback_no_spacious": 0,
         "vetoes_to_boost": 0,
         "vetoed_base_boost": 1,
+        "vetoes_speed_switched": 1,
     }
 
     def _entries(self, gains, seeds, control=2, corrupt_control=False):
@@ -334,8 +371,15 @@ class TestDevScreen:
         from research.apex_safety_20260926.dev_screen import summarize
 
         seeds = list(range(1000, 1010))
-        good = summarize(self._entries({"frozen": 5, "scripted": 5, "mixed": 0}, seeds), seeds, 2)
+        design = (10, 2)  # this test's own small design; the screen's is (40, 8)
+        good = summarize(
+            self._entries({"frozen": 5, "scripted": 5, "mixed": 0}, seeds),
+            seeds,
+            2,
+            preregistered=design,
+        )
         assert good["decision"] == "RECOMMEND_STRICT_GATE"
+        assert good["preregistered_design"]["matches"] is True
         assert good["holm_primary"]["successful_mixes"] == ["frozen", "scripted"]
         assert good["determinism_control"]["passes"] is True
         frozen = good["per_mix"]["frozen"]
@@ -344,16 +388,116 @@ class TestDevScreen:
         assert veto["totals"]["vetoes_applied"] == 20 and veto["veto_rate_per_decision"] == 0.2
         assert veto["episodes_decisions_match_decision_frames"] == 10
 
-        weak = summarize(self._entries({"frozen": 5, "scripted": 0, "mixed": 0}, seeds), seeds, 2)
+        weak = summarize(
+            self._entries({"frozen": 5, "scripted": 0, "mixed": 0}, seeds),
+            seeds,
+            2,
+            preregistered=design,
+        )
         assert weak["decision"] == "NOT_ADVANCED"
 
         entries = self._entries(
             {"frozen": 5, "scripted": 5, "mixed": 5}, seeds, corrupt_control=True
         )
-        assert summarize(entries, seeds, 2)["decision"] == "INVALID_NONDETERMINISTIC"
+        assert (
+            summarize(entries, seeds, 2, preregistered=design)["decision"]
+            == "INVALID_NONDETERMINISTIC"
+        )
 
         partial = self._entries({"frozen": 5, "scripted": 5, "mixed": 5}, seeds)[2:]
-        assert summarize(partial, seeds, 2)["decision"] == "INCOMPLETE"
+        assert summarize(partial, seeds, 2, preregistered=design)["decision"] == "INCOMPLETE"
+
+    def test_non_preregistered_sizes_cannot_reach_a_decision(self):
+        from research.apex_safety_20260926.dev_screen import (
+            PREREGISTERED_DESIGN,
+            preregistered_design_report,
+            summarize,
+        )
+
+        assert PREREGISTERED_DESIGN == (40, 8)
+        seeds = list(range(1000, 1010))
+        strong = self._entries({"frozen": 5, "scripted": 5, "mixed": 5}, seeds)
+        result = summarize(strong, seeds, 2)  # default = the pre-registered (40, 8)
+        assert result["complete"] is True
+        assert result["holm_primary"]["passes"] is True
+        assert result["decision"] == "NON_PREREGISTERED_DESIGN"
+        assert result["preregistered_design"] == {
+            "preregistered_worlds_per_mix": 40,
+            "preregistered_determinism_worlds": 8,
+            "run_worlds_per_mix": 10,
+            "run_determinism_worlds": 2,
+            "matches": False,
+        }
+        assert preregistered_design_report(40, 8)["matches"] is True
+        assert preregistered_design_report(40, 7)["matches"] is False
+        # The full pre-registered design reaches the scientific decision rule.
+        seeds40 = list(range(2000, 2040))
+        full = self._entries({"frozen": 5, "scripted": 5, "mixed": 5}, seeds40, control=8)
+        assert summarize(full, seeds40, 8)["decision"] == "RECOMMEND_STRICT_GATE"
+        # Smoke runs stay SMOKE_NO_DECISION whatever their size.
+        assert summarize(strong, seeds, 2, smoke=True)["decision"] == "SMOKE_NO_DECISION"
+
+    def test_all_zero_deltas_summary_serializes(self, tmp_path):
+        from research.apex_safety_20260926.dev_screen import summarize, write_new_json
+
+        seeds = list(range(1000, 1010))
+        entries = []
+        for mix in ("frozen", "scripted", "mixed"):
+            for index, seed in enumerate(seeds):
+                entries.append(_entry("A", mix, seed, 30.0 + index))
+                entries.append(_entry("B", mix, seed, 30.0 + index, veto=dict(self.VETO)))
+            entries.extend(_entry("C", mix, seed, 30.0 + i) for i, seed in enumerate(seeds[:2]))
+        summary = summarize(entries, seeds, 2, preregistered=(10, 2))
+        assert summary["decision"] == "NOT_ADVANCED"
+        json.dumps(summary, allow_nan=False)  # must not raise
+        write_new_json(tmp_path / "summary.json", summary)
+        loaded = json.loads((tmp_path / "summary.json").read_text())
+        pooled = loaded["pooled_informational"]
+        for name in ("stratified_mean_of_means", "crossed_mixes_by_worlds"):
+            block = pooled[name]
+            assert block["df"] is None and block["df_nonfinite"] == "positive_infinity"
+        assert pooled["non_finite_fields"] == [
+            "stratified_mean_of_means.df",
+            "crossed_mixes_by_worlds.df",
+        ]
+
+    def test_preflight_requires_pilot_checks_outside_smoke(self, tmp_path):
+        from research.apex_safety_20260926.dev_screen import (
+            disjointness_report,
+            preflight_failures,
+            roster_parity_report,
+            screen_seeds,
+        )
+
+        seeds = screen_seeds(4)
+        missing = tmp_path / "nonexistent"
+        disjoint = disjointness_report(seeds, missing)
+        parity = roster_parity_report(missing)
+        assert disjoint["disjoint"] is True and parity["checked"] is False
+        assert preflight_failures(disjoint, parity, smoke=True) == []
+        failures = preflight_failures(disjoint, parity, smoke=False)
+        assert any("recipe reproduction not checked" in f for f in failures)
+        assert any("roster parity not checked" in f for f in failures)
+        # An existing but empty pilot dir fails recipe reproduction and parity count.
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        failures = preflight_failures(
+            disjointness_report(seeds, empty), roster_parity_report(empty), smoke=False
+        )
+        assert any("not disjoint" in f for f in failures)
+        assert any("reproduce the strict pilot" in f for f in failures)
+        assert any("mismatches" in f for f in failures)
+        ok_disjoint = {
+            "disjoint": True,
+            "strict_pilot_observed": {"development": {}, "pilot": {}},
+            "recipe_reproduces_pilot": True,
+        }
+        full = {"checked": True, "compared": 48, "mismatches": []}
+        assert preflight_failures(ok_disjoint, full, smoke=False) == []
+        short = {"checked": True, "compared": 47, "mismatches": []}
+        assert preflight_failures(ok_disjoint, short, smoke=False) == [
+            "roster parity compared 47 worlds, expected 48"
+        ]
 
     def test_pooled_informational_summaries(self):
         from research.apex_safety_20260926.dev_screen import summarize

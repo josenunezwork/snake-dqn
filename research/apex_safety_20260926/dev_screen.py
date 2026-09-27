@@ -29,6 +29,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "2")
 import argparse  # noqa: E402
 import hashlib  # noqa: E402
 import json  # noqa: E402
+import math  # noqa: E402
 import shutil  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
@@ -36,7 +37,7 @@ import time  # noqa: E402
 from collections import Counter  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
-from typing import Any, Dict, List, Mapping, Sequence  # noqa: E402
+from typing import Any, Dict, List, Mapping, Sequence, Tuple  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -53,6 +54,14 @@ REQUIRED_MIX_SUCCESSES = 2
 MDE_FRACTION = 0.10  # informational sizing only, as in the strict calibration
 # Informational pooled summaries (screen_stats); governance clear-loser filter is at 90%.
 POOLED_CONFIDENCE = 0.90
+# Pre-registered design sizes (protocol.md "Arms"). A non-smoke run with any other
+# sizes gets decision NON_PREREGISTERED_DESIGN, so a smaller look followed by a
+# larger one (the seeds are a prefix of one fixed recipe) cannot reach a decision.
+PREREGISTERED_WORLDS_PER_MIX = 40
+PREREGISTERED_DETERMINISM_WORLDS = 8
+PREREGISTERED_DESIGN = (PREREGISTERED_WORLDS_PER_MIX, PREREGISTERED_DETERMINISM_WORLDS)
+# Roster preflight: the strict pilot's 16 development worlds x 3 mixes.
+EXPECTED_ROSTER_PARITY = 16 * len(MIXES)
 
 # Seed namespace (see protocol.md "Worlds"): uint32 big-endian SHA-256 prefix.
 SCREEN_DOMAIN = "apex-safety-screen-v1"
@@ -231,6 +240,82 @@ def roster_parity_report(pilot_output: Path | None) -> Dict[str, Any]:
     return {"checked": True, "compared": compared, "mismatches": mismatches}
 
 
+def preflight_failures(
+    disjoint: Mapping[str, Any], parity: Mapping[str, Any], smoke: bool
+) -> List[str]:
+    """Reasons the pre-run checks fail; empty means the screen may start.
+
+    Outside smoke mode the checks must actually have run against the strict
+    pilot's saved records: a missing or wrong ``--pilot-output`` is a failure,
+    not a silent skip. Smoke mode only rejects detected overlaps or mismatches.
+    """
+    failures: List[str] = []
+    if not disjoint.get("disjoint"):
+        failures.append("screen worlds are not disjoint from earlier namespaces")
+    if parity.get("checked") and parity.get("mismatches"):
+        failures.append("roster parity mismatches against the strict pilot records")
+    if smoke:
+        return failures
+    if disjoint.get("strict_pilot_observed") is None:
+        failures.append("strict pilot output unavailable: recipe reproduction not checked")
+    elif not disjoint.get("recipe_reproduces_pilot"):
+        failures.append("recomputed namespaces do not reproduce the strict pilot's seeds")
+    if not parity.get("checked"):
+        failures.append("roster parity not checked (strict pilot output unavailable)")
+    elif parity.get("compared") != EXPECTED_ROSTER_PARITY:
+        failures.append(
+            f"roster parity compared {parity.get('compared')} worlds, "
+            f"expected {EXPECTED_ROSTER_PARITY}"
+        )
+    return failures
+
+
+def preregistered_design_report(
+    worlds_per_mix: int,
+    determinism_worlds: int,
+    preregistered: Tuple[int, int] = PREREGISTERED_DESIGN,
+) -> Dict[str, Any]:
+    """Pre-registered sizes vs this run's sizes (recorded in intent and summary)."""
+    run = (int(worlds_per_mix), int(determinism_worlds))
+    return {
+        "preregistered_worlds_per_mix": int(preregistered[0]),
+        "preregistered_determinism_worlds": int(preregistered[1]),
+        "run_worlds_per_mix": run[0],
+        "run_determinism_worlds": run[1],
+        "matches": run == (int(preregistered[0]), int(preregistered[1])),
+    }
+
+
+def json_safe(value: Any, path: str = "", found: List[str] | None = None) -> Any:
+    """Replace non-finite floats with ``None`` plus a sibling ``<key>_nonfinite`` tag.
+
+    ``screen_stats`` returns ``df = inf`` (and can return other non-finite
+    statistics) when every delta is identical, e.g. an inert veto; the
+    create-only writer uses ``allow_nan=False``, so the summary must be
+    sanitized first. ``found`` collects the dotted paths that were replaced.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        if found is not None:
+            found.append(path)
+        return None
+    if isinstance(value, Mapping):
+        out: Dict[str, Any] = {}
+        for key, item in value.items():
+            child = f"{path}.{key}" if path else str(key)
+            if isinstance(item, float) and not math.isfinite(item):
+                tag = (
+                    "nan"
+                    if math.isnan(item)
+                    else ("positive_infinity" if item > 0 else "negative_infinity")
+                )
+                out[f"{key}_nonfinite"] = tag
+            out[key] = json_safe(item, child, found)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item, f"{path}[{i}]", found) for i, item in enumerate(value)]
+    return value
+
+
 def sha256_file(path: Path) -> str:
     """Streamed SHA-256 of a file."""
     digest = hashlib.sha256()
@@ -405,7 +490,11 @@ def pooled_summaries(
         return result
 
     attempt("crossed_mixes_by_worlds", crossed)
-    return out
+    # Identical deltas (e.g. an inert veto) give df = inf; report null + a tag.
+    found: List[str] = []
+    safe = json_safe(out, "", found)
+    safe["non_finite_fields"] = found
+    return safe
 
 
 def summarize(
@@ -414,8 +503,15 @@ def summarize(
     determinism_worlds: int,
     mixes: Sequence[str] = MIXES,
     smoke: bool = False,
+    preregistered: Tuple[int, int] = PREREGISTERED_DESIGN,
 ) -> Dict[str, Any]:
-    """Pre-registered analysis (protocol.md): paired B-A deltas, Holm, controls."""
+    """Pre-registered analysis (protocol.md): paired B-A deltas, Holm, controls.
+
+    ``preregistered`` is the ``(worlds_per_mix, determinism_worlds)`` design the
+    decision is valid for; any other run size yields ``NON_PREREGISTERED_DESIGN``
+    (tests pass their own small design). The result is JSON-safe
+    (non-finite floats become ``None`` with a ``<key>_nonfinite`` tag).
+    """
     from src.scripts.eval_stats import (
         holm_three_mix_superiority,
         mean,
@@ -488,8 +584,11 @@ def summarize(
     complete = all(per_mix[m]["paired_worlds"] == len(seeds) for m in mixes) and (
         len(control) == planned_control
     )
+    design = preregistered_design_report(len(seeds), determinism_worlds, preregistered)
     if smoke:
         decision = "SMOKE_NO_DECISION"
+    elif not design["matches"]:
+        decision = "NON_PREREGISTERED_DESIGN"
     elif not complete:
         decision = "INCOMPLETE"
     elif not determinism["passes"]:
@@ -501,7 +600,7 @@ def summarize(
     arm_seconds = {
         arm: [e["wall_seconds"] for e in entries if e["arm"] == arm] for arm in ("A", "B", "C")
     }
-    return {
+    summary = {
         "schema_version": SCHEMA,
         "authority": AUTHORITY,
         "promotion_authorized": False,
@@ -509,9 +608,12 @@ def summarize(
         "complete": complete,
         "decision": decision,
         "decision_rule": (
-            "RECOMMEND_STRICT_GATE iff complete, A/C deterministic, and one-sided Holm "
-            f"(alpha {ALPHA}) rejects mass-integral H0 in >= {REQUIRED_MIX_SUCCESSES} of 3 mixes"
+            "NON_PREREGISTERED_DESIGN unless worlds_per_mix and determinism_worlds equal the "
+            "pre-registered sizes; RECOMMEND_STRICT_GATE iff complete, A/C deterministic, and "
+            f"one-sided Holm (alpha {ALPHA}) rejects mass-integral H0 in >= "
+            f"{REQUIRED_MIX_SUCCESSES} of 3 mixes"
         ),
+        "preregistered_design": design,
         "per_mix": per_mix,
         "holm_primary": holm,
         "pooled_informational": pooled_summaries(deltas_by_mix, seeds_by_mix),
@@ -522,6 +624,7 @@ def summarize(
             for arm, v in arm_seconds.items()
         },
     }
+    return json_safe(summary)
 
 
 def _git_state() -> Dict[str, Any]:
@@ -625,8 +728,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     seeds = screen_seeds(args.worlds_per_mix)
     disjoint = disjointness_report(seeds, args.pilot_output, args.exclude_seeds_json)
     parity = roster_parity_report(args.pilot_output)
-    if not disjoint["disjoint"] or (parity["checked"] and parity["mismatches"]):
-        print(json.dumps({"disjointness": disjoint, "roster_parity": parity}), file=sys.stderr)
+    failures = preflight_failures(disjoint, parity, smoke)
+    if failures:
+        print(
+            json.dumps(
+                {"preflight_failures": failures, "disjointness": disjoint, "roster_parity": parity}
+            ),
+            file=sys.stderr,
+        )
         return 2
 
     out.mkdir(parents=True)
@@ -664,6 +773,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "worlds": {"domain": SCREEN_DOMAIN, "namespace": SCREEN_NAMESPACE, "seeds": seeds},
         "disjointness": disjoint,
         "roster_parity": parity,
+        "preregistered_design": preregistered_design_report(
+            args.worlds_per_mix, args.determinism_worlds
+        ),
         "planned_episodes": len(plan),
         "threads": {"torch_intraop": 2, "torch_interop": 1},
     }
