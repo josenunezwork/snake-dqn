@@ -740,14 +740,14 @@ class TestIntent:
 
 
 def test_output_root_policy_and_cli_defaults(monkeypatch):
-    """Smoke defaults to smoke-v1 and never run-v1; a real intent only uses run-v1."""
+    """Smoke defaults to smoke-v1 and never a run root; a real intent only uses run-v2."""
     monkeypatch.setattr(sr, "TIER2_OUT_ROOT", sr.DEFAULT_OUT_ROOT)
     assert sr.DEFAULT_SMOKE_ROOT.parent == sr.DEFAULT_OUT_ROOT.parent == sr.STUDY_ARTIFACT_ROOT
     sr.check_output_root(sr.DEFAULT_OUT_ROOT, smoke=False)
     sr.check_output_root(sr.DEFAULT_SMOKE_ROOT, smoke=True)
     with pytest.raises(sr.StrictRunError, match="smoke dry-run may not use"):
         sr.check_output_root(sr.DEFAULT_OUT_ROOT, smoke=True)
-    for other in (sr.DEFAULT_SMOKE_ROOT, sr.STUDY_ARTIFACT_ROOT / "run-v2"):
+    for other in (sr.DEFAULT_SMOKE_ROOT, sr.STUDY_ARTIFACT_ROOT / "run-v1"):
         with pytest.raises(sr.StrictRunError, match="pre-registered root"):
             sr.check_output_root(other, smoke=False)
     seen = []
@@ -802,3 +802,21 @@ def test_smoke_dry_run_end_to_end(tmp_path):
     assert (output / "closeout.json").is_file() and not (output / "receipt.json").exists()
     with pytest.raises(FileExistsError):
         sr.run(path)  # create-only: never resumes or retries
+
+
+def test_run_v2_namespaces_exclude_every_run_v1_bank():
+    """run-v2 banks are fresh and disjoint from all run-v1 banks (dev 16, final 300, serving 50)."""
+    assert {d for d, _ in sr.NAMESPACES.values()} == {
+        "apex-veto-strict-dev-v2",
+        "apex-veto-strict-final-v2",
+        "apex-veto-strict-serving-v2",
+    }
+    v1 = {
+        sr.dev_screen.uint32_seed(domain, sr.NAMESPACE_KEY, i)
+        for domain, count in sr.RUN_V1_NAMESPACES.items()
+        for i in range(count)
+    }
+    for domain, count in sr.NAMESPACES.values():
+        v2 = {sr.dev_screen.uint32_seed(domain, sr.NAMESPACE_KEY, i) for i in range(count)}
+        assert not v1 & v2
+    assert sr.DEFAULT_OUT_ROOT.name == "run-v2"

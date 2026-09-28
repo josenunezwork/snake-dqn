@@ -57,11 +57,17 @@ STAGES = ("calibration", "final", "serving")
 
 NAMESPACE_KEY = "worlds"
 NAMESPACES = {
-    "dev": ("apex-veto-strict-dev-v1", 16),
-    "final": ("apex-veto-strict-final-v1", 300),
-    "serving": ("apex-veto-strict-serving-v1", 50),
+    "dev": ("apex-veto-strict-dev-v2", 16),
+    "final": ("apex-veto-strict-final-v2", 300),
+    "serving": ("apex-veto-strict-serving-v2", 50),
 }
 SMOKE_DOMAIN = "apex-veto-strict-smoke-v1"  # plumbing dry-runs only; never Tier-2 worlds
+# run-v1 (INVALID_STOP, host thermal sleep) consumed part of these banks; run-v2 excludes all.
+RUN_V1_NAMESPACES = {
+    "apex-veto-strict-dev-v1": 16,
+    "apex-veto-strict-final-v1": 300,
+    "apex-veto-strict-serving-v1": 50,
+}
 SCREEN_PREFIX_CHECKED = 1000  # first seeds of apex-safety-screen-v1 checked for overlap
 
 MDE_ABSOLUTE = 20.0
@@ -98,7 +104,7 @@ SUPERVISOR_SOURCE = Path(
 STUDY_ARTIFACT_ROOT = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927"
 )
-DEFAULT_OUT_ROOT = STUDY_ARTIFACT_ROOT / "run-v1"  # the pre-registered Tier-2 root
+DEFAULT_OUT_ROOT = STUDY_ARTIFACT_ROOT / "run-v2"  # the pre-registered Tier-2 root (run-v1 invalid)
 DEFAULT_SMOKE_ROOT = STUDY_ARTIFACT_ROOT / "smoke-v1"  # pre-GO plumbing dry-run root
 # The only root a non-smoke intent may use (tests point it at tmp_path).
 TIER2_OUT_ROOT = DEFAULT_OUT_ROOT
@@ -211,6 +217,11 @@ def namespace_report(
     """
     screen = set(dev_screen.screen_seeds(SCREEN_PREFIX_CHECKED))
     smoke = {dev_screen.uint32_seed(SMOKE_DOMAIN, NAMESPACE_KEY, i) for i in range(16)}
+    smoke |= {
+        dev_screen.uint32_seed(domain, NAMESPACE_KEY, i)
+        for domain, count in RUN_V1_NAMESPACES.items()
+        for i in range(count)
+    }
     report: Dict[str, Any] = {"namespaces": {}, "cross_namespace_overlap": {}}
     ok = True
     for name, values in seeds.items():
@@ -237,6 +248,7 @@ def namespace_report(
     report["tier1_screen_domain"] = dev_screen.SCREEN_DOMAIN
     report["tier1_screen_prefix_checked"] = SCREEN_PREFIX_CHECKED
     report["smoke_domain_prefix_checked"] = {"domain": SMOKE_DOMAIN, "count": 16}
+    report["run_v1_namespaces_excluded"] = dict(RUN_V1_NAMESPACES)
     report["registry_checked"] = False
     report["registry_note"] = "governance namespace registry not implemented; in-code check only"
     report["disjoint"] = bool(ok)

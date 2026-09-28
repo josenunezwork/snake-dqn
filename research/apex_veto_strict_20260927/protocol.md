@@ -55,9 +55,9 @@ Seeds are `uint32_be(sha256("<domain>|worlds|<i>")[:4])`, the `dev_screen` recip
 
 | Namespace (domain) | Count | Use |
 |---|---|---|
-| `apex-veto-strict-dev-v1` | 16 | incumbent-only calibration, 3 mixes |
-| `apex-veto-strict-final-v1` | ordered bank, Nmax 300 | final paired worlds; the first N are played |
-| `apex-veto-strict-serving-v1` | 50 | serving-compatibility episodes |
+| `apex-veto-strict-dev-v2` | 16 | incumbent-only calibration, 3 mixes |
+| `apex-veto-strict-final-v2` | ordered bank, Nmax 300 | final paired worlds; the first N are played |
+| `apex-veto-strict-serving-v2` | 50 | serving-compatibility episodes |
 
 At construction `prepare` fails closed unless the seeds are unique within and across the
 three namespaces and disjoint from every set `dev_screen.disjointness_report` checks (the
@@ -154,7 +154,7 @@ own strict evaluation.
   a separate 120 s handoff reserve. Before a stage starts, the remaining time to the intent
   deadline must cover this stage's and every later stage's caps plus 120 s, so the intent
   deadline must be at least 51,420 s (14 h 17 min) after `prepare`.
-- Output root `/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927/run-v1`
+- Output root `/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927/run-v2`
   (create-only; outside `ongoing-research-20260913`). Nothing is written elsewhere.
   `prepare` and `run` refuse a non-smoke intent on any other root, and refuse a smoke
   intent on that root or on any root named `run-*`.
@@ -230,7 +230,7 @@ equal the producer's; otherwise `INVALID_STOP`.
 
 `prepare --smoke-frames <=500` writes to its own root, by default
 `/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927/smoke-v1`
-(never `run-v1`; `prepare` refuses a smoke intent on the Tier-2 root). It builds a
+(never `run-v2`; `prepare` refuses a smoke intent on the Tier-2 root). It builds a
 plumbing intent on its own namespace
 (`apex-veto-strict-smoke-v1`, never a Tier-2 world): one scripted world, one incumbent and
 one candidate episode on the legacy truncated path, then `run` exercises both workers, the
@@ -257,3 +257,20 @@ The result covers a **single wrapped hero against unwrapped opponents** under
 compatibility check. The configuration a release would most likely ship (the wrapper on
 every Watch snake that shares the policy, or on every AI snake in Play) is not measured.
 Any deployment that wraps several or all snakes needs its own evaluation.
+
+## Amendment 2026-09-27: run-v2
+
+run-v1 (intent `c0717256…`) ended INVALID_STOP. A host thermal-emergency sleep
+at 20:30 UTC made the worker heartbeats stale after 148 of 1,410 final
+episodes; see `docs/experiments/apex_veto_strict_gate_2026-09-27/README.md`.
+Its partial final records were **not analyzed**.
+
+run-v2 changes only three things:
+
+- **Namespaces:** fresh `-v2` namespaces, checked disjoint from every run-v1
+  bank (dev 16, final 300, serving 50) and from all earlier checks.
+- **Output root:** `run-v2`.
+- **Authorization:** the user's run-v2 authorization.
+
+The design, sizing (N = 235 at MDE 20), margins, caps (final 45000 s), decision
+rule and audit are unchanged. The host must stay on AC with the lid open.
