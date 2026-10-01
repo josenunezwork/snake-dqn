@@ -7,7 +7,7 @@ Revised once after review, still before any screen episode: the growth-gap cavea
 reported diagnostic, the refusal of non-pre-registered sizes, the 4 h wall-time cap, and
 the Tier-1 intent fields below. Arms, worlds, metric and decision rule are unchanged.
 
-- `screen_id`: `apex-veto-v3-screen-v1`
+- `screen_id`: `apex-veto-v3-screen-v2` (revision 4; v1 consumed)
 - Harness: `research/apex_safety_20260926/dev_screen.py`, driven by `screen.py` beside this
   file (`ScreenSpec` `SPEC`). Output: `intent.json` (before any episode), `records/`,
   `events.jsonl`, `summary.json`, then `receipt.json` (written by `screen.py`).
@@ -61,7 +61,7 @@ construction and checkpoint snapshots are the dev_screen ones (strict balanced r
 - Profile `promotion-v2-watch-rect`, horizon 5000, digest `d396d3ed...0e8b`. Config
   `research/apex_safety_20260926/deployment.yaml` (sha256 `4146baa3...715aa5`).
 - Mixes `frozen`, `scripted`, `mixed`. **40 worlds per mix**, the same seeds in every mix.
-- Seeds: `uint32(sha256("apex-veto-v3-screen-v1|worlds|<i>")[:4])`, i = 0..39.
+- Seeds: `uint32(sha256("apex-veto-v3-screen-v2|worlds|<i>")[:4])`, i = 0..39.
 - Construction-time disjointness (fail closed, in code; the governance registry is not
   implemented yet) against: the task-aligned challenger namespaces and the strict pilot's
   observed seeds, plus seeds 0..999 (dev_screen checks); the first 1000 seeds of
@@ -162,3 +162,29 @@ episode:
    original 264-episode screen, needed more than 3 h under host contention.
 
 Arms, seeds, metric, sizes and the decision rule are unchanged.
+
+## Revision 4 (2026-10-01): incident and fresh namespace
+
+**Incident.** A guard unit test
+(`test_dev_screen_wall_cap_only_for_capped_non_smoke_specs`) passed a
+`--deadline-utc` of now+4 h and expected a refusal under the old 3 h cap.
+Revision 3 raised the cap to 4 h, which made that deadline valid, and the test
+then executed the real screen on namespace `apex-veto-v3-screen-v1` inside
+pytest temporary directories:
+
+- 256 of 264 episodes in one 3 h 58 min pytest run;
+- 2 more episodes in a second run, which was killed.
+
+The outputs were copied unread to
+`snake-dqn-artifacts/apex-veto-v3-screen-20261001/quarantine-runaway-test-v1/`.
+They will not be analyzed or used.
+
+**Remedy.**
+
+- The screen uses the fresh namespace `apex-veto-v3-screen-v2`, checked
+  disjoint from v1 and all earlier banks.
+- The test now uses a deadline beyond the cap and makes any rollout call
+  fatal, so no guard test can play an episode.
+
+Arms, sizes, metric, decision rule and caps are unchanged. No outcome
+informed this change.

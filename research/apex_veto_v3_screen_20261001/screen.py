@@ -43,7 +43,7 @@ if str(REPO) not in sys.path:
 from research.apex_safety_20260926 import dev_screen  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-SCREEN_ID = "apex-veto-v3-screen-v1"
+SCREEN_ID = "apex-veto-v3-screen-v2"  # v1 worlds consumed by a runaway test (revision 4)
 SCHEMA = "apex-veto-v3-screen/v1"
 AUTHORITY = "screen (non-authoritative)"
 DOMAIN = SCREEN_ID
@@ -69,6 +69,8 @@ EARLIER_DOMAINS: Dict[str, Sequence[str]] = {
     "apex-veto-web-serving-v1": ("watch", "play", "parity"),
     "apex-veto-web-serving-smoke-v1": ("watch", "play", "parity"),
     SMOKE_DOMAIN: (NAMESPACE,),
+    # Consumed (unread) by the runaway unit test; quarantined, never reused.
+    "apex-veto-v3-screen-v1": (NAMESPACE,),
 }
 
 

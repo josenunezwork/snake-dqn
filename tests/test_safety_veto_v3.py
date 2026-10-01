@@ -773,7 +773,7 @@ class TestScreenPreregistrationGuards:
         assert _screen().main(self._argv(tmp_path)) == 2  # 2099 is beyond 3 h
         assert not (tmp_path / "o").exists()
 
-    def test_dev_screen_wall_cap_only_for_capped_non_smoke_specs(self, tmp_path):
+    def test_dev_screen_wall_cap_only_for_capped_non_smoke_specs(self, tmp_path, monkeypatch):
         from datetime import datetime, timedelta, timezone
 
         from research.apex_safety_20260926 import dev_screen
@@ -781,8 +781,16 @@ class TestScreenPreregistrationGuards:
         screen = _screen()
         assert screen.SPEC.max_wall_seconds == screen.MAX_WALL_SECONDS == 4 * 3600
         assert dev_screen.DEFAULT_SPEC.max_wall_seconds is None
-        soon = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
-        argv = ["--out", str(tmp_path / "o"), "--deadline-utc", soon]
+        # Well past the cap, and rollouts are made fatal: this test once launched the real
+        # 264-episode screen when the cap was raised to equal its deadline (revision 4).
+        import src.scripts.tournament_eval as tournament_eval
+
+        def no_rollouts(*args, **kwargs):
+            raise AssertionError("a guard test must never play an episode")
+
+        monkeypatch.setattr(tournament_eval, "rollout", no_rollouts)
+        late = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+        argv = ["--out", str(tmp_path / "o"), "--deadline-utc", late]
         assert dev_screen.main(argv, spec=screen.SPEC) == 2
         assert not (tmp_path / "o").exists()
 
@@ -807,7 +815,7 @@ class TestTier1IntentFields:
         assert fields["compute_cap"] == {
             "planned_episodes": 264,
             "deadline_utc": deadline.isoformat(),
-            "max_wall_seconds": 10800,
+            "max_wall_seconds": 14400,
         }
 
     def test_default_spec_decision_rule_text_unchanged(self):

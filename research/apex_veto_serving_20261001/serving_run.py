@@ -75,7 +75,11 @@ SMOKE_SEED_DOMAIN = "apex-veto-web-serving-smoke-v1"
 ARTIFACT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
 CONN_ID = "apex-veto-serving-run"
 STAND_IN_TURN_PROBABILITY = 0.08
-V3_SCREEN_DOMAINS = ("apex-veto-v3-screen-v1", "apex-veto-v3-screen-smoke-v1")
+V3_SCREEN_DOMAINS = (
+    "apex-veto-v3-screen-v1",
+    "apex-veto-v3-screen-v2",
+    "apex-veto-v3-screen-smoke-v1",
+)
 V3_SCREEN_PREFIX_CHECKED = 1000
 
 
