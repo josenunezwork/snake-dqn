@@ -1,0 +1,157 @@
+{
+  "authority": "serving-qualification (non-promoting)",
+  "checkpoint": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+    "session_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+    "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+  },
+  "decision_frames": {
+    "per_snake": {
+      "1": 500,
+      "2": 500,
+      "3": 500,
+      "4": 500,
+      "5": 500
+    },
+    "total": 2500
+  },
+  "ended_by": "horizon",
+  "episode": {
+    "game_frame": 500,
+    "human_id": 0,
+    "inputs_sent": 47,
+    "last_run": null,
+    "run_frames": 500,
+    "run_over": false
+  },
+  "episode_id": "play_ai-000",
+  "episode_index": 0,
+  "error": null,
+  "frames_stepped": 500,
+  "horizon_frames": 500,
+  "intent_sha256": "cde824631eabb53c8f3d112bba3214d2e071dc49dee7ec65a96f99eed2bea88c",
+  "kind": "play_ai",
+  "schema_version": "apex-veto-web-serving/v1",
+  "served": {
+    "config_basename": "mechanics_v2.yaml",
+    "config_path": "/Users/josenunez/.codex/worktrees/apex-safety-and-eval-tooling/snake-dqn/configs/mechanics_v2.yaml",
+    "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+    "epsilon": 0.0,
+    "hero_id": 0,
+    "human_id": 0,
+    "mode": "play",
+    "num_snakes": 6,
+    "obs_spec": "vector61",
+    "policy_class": "ApexPolicy",
+    "policy_training": false,
+    "protocol_version": 2,
+    "snake_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "veto_flags": {
+      "play_ai": true,
+      "watch_hero": false
+    },
+    "world": {
+      "height": 830,
+      "initial_food": 250,
+      "input_size": 61,
+      "max_food": 300,
+      "mechanics_version": 2,
+      "width": 1450
+    }
+  },
+  "status": "complete",
+  "study_id": "apex-veto-serving-20261001",
+  "veto": {
+    "active": true,
+    "flags": {
+      "play_ai": true,
+      "watch_hero": false
+    },
+    "per_snake": {
+      "1": {
+        "decisions": 500,
+        "fallback_no_spacious": 0,
+        "kept_base": 500,
+        "vetoed_base_boost": 0,
+        "vetoes_applied": 0,
+        "vetoes_speed_switched": 0,
+        "vetoes_to_boost": 0
+      },
+      "2": {
+        "decisions": 500,
+        "fallback_no_spacious": 0,
+        "kept_base": 500,
+        "vetoed_base_boost": 0,
+        "vetoes_applied": 0,
+        "vetoes_speed_switched": 0,
+        "vetoes_to_boost": 0
+      },
+      "3": {
+        "decisions": 500,
+        "fallback_no_spacious": 3,
+        "kept_base": 495,
+        "vetoed_base_boost": 0,
+        "vetoes_applied": 2,
+        "vetoes_speed_switched": 0,
+        "vetoes_to_boost": 0
+      },
+      "4": {
+        "decisions": 500,
+        "fallback_no_spacious": 0,
+        "kept_base": 500,
+        "vetoed_base_boost": 0,
+        "vetoes_applied": 0,
+        "vetoes_speed_switched": 0,
+        "vetoes_to_boost": 0
+      },
+      "5": {
+        "decisions": 500,
+        "fallback_no_spacious": 0,
+        "kept_base": 498,
+        "vetoed_base_boost": 1,
+        "vetoes_applied": 2,
+        "vetoes_speed_switched": 1,
+        "vetoes_to_boost": 0
+      }
+    },
+    "reason": null,
+    "scope": "play_ai",
+    "total": {
+      "decisions": 2500,
+      "fallback_no_spacious": 3,
+      "kept_base": 2493,
+      "vetoed_base_boost": 1,
+      "vetoes_applied": 4,
+      "vetoes_speed_switched": 1,
+      "vetoes_to_boost": 0
+    },
+    "wrapped_snake_ids": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "wall_seconds": 15.798072709003463,
+  "world_seed": 2674252796,
+  "wrapper": {
+    "descriptor": {
+      "boost_approximation": "one-step-direction-feature",
+      "free_space_bfs_cap": 160,
+      "free_space_min_cap": 32,
+      "method": "free-space-veto/v2-speed-preserving",
+      "replacement_rule": "highest-q-eligible-same-speed-mode-then-other"
+    },
+    "method": "free-space-veto/v2-speed-preserving",
+    "source_path": "src/evaluation/safety_veto.py",
+    "source_sha256": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428"
+  }
+}

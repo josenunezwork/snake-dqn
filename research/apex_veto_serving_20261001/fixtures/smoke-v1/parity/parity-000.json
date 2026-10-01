@@ -1,0 +1,51 @@
+{
+  "config": {
+    "path": "/Users/josenunez/.codex/worktrees/apex-safety-and-eval-tooling/snake-dqn/research/apex_safety_20260926/deployment.yaml",
+    "profile": "promotion-v2-watch-rect"
+  },
+  "error": null,
+  "first_divergence_frame": null,
+  "frames_compared": 200,
+  "horizon_frames": 200,
+  "intent_sha256": "cde824631eabb53c8f3d112bba3214d2e071dc49dee7ec65a96f99eed2bea88c",
+  "probe_id": "parity-000",
+  "probe_index": 0,
+  "rollout": {
+    "counters": {
+      "decisions": 200,
+      "fallback_no_spacious": 0,
+      "kept_base": 200,
+      "vetoed_base_boost": 0,
+      "vetoes_applied": 0,
+      "vetoes_speed_switched": 0,
+      "vetoes_to_boost": 0
+    },
+    "record": null,
+    "record_complete": false,
+    "trace_sha256": "df136b2f9a8d2da09d53aeb2eb060faa26db51fb412236774bef995e12f509be"
+  },
+  "schema_version": "apex-veto-web-serving/v1",
+  "session": {
+    "config_sha256": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5",
+    "counters": {
+      "decisions": 200,
+      "fallback_no_spacious": 0,
+      "kept_base": 200,
+      "vetoed_base_boost": 0,
+      "vetoes_applied": 0,
+      "vetoes_speed_switched": 0,
+      "vetoes_to_boost": 0
+    },
+    "decision_frames": 200,
+    "trace_sha256": "df136b2f9a8d2da09d53aeb2eb060faa26db51fb412236774bef995e12f509be",
+    "wrapped_snake_ids": [
+      0
+    ]
+  },
+  "status": "complete",
+  "study_id": "apex-veto-serving-20261001",
+  "trace_sha256_equal": true,
+  "veto_counters_equal": true,
+  "wall_seconds": 10.106468125013635,
+  "world_seed": 1949581129
+}

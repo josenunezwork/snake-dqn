@@ -1,0 +1,124 @@
+{
+  "arm": "B",
+  "authority": "non-authoritative-development-screen",
+  "hero_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+  "mix": "frozen",
+  "record": {
+    "deaths": 1,
+    "denominators": {
+      "alive_frames": 1713,
+      "boost_executed_frames": 83,
+      "decision_frames": 1714,
+      "food_event_frames": 308,
+      "scored_frames": 5000
+    },
+    "evaluation_profile": {
+      "anchor_version": "scripted-anchor/v1",
+      "evaluator_version": "promotion-v2-evaluator/v1",
+      "learn": false,
+      "legacy_diagnostic": false,
+      "metric_version": "logical-mass/v1",
+      "name": "promotion-v2-watch-rect",
+      "observation_progress_horizon": 5000,
+      "runtime": {
+        "hero_terminal": true,
+        "mode": "watch",
+        "population_floor": false,
+        "reset_strategy": "manual",
+        "respawn": true,
+        "training": false
+      },
+      "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+      "scored_horizon": 5000,
+      "world": {
+        "arena_center_x": 0,
+        "arena_center_y": 0,
+        "arena_radius": 400,
+        "arena_type": "rectangular",
+        "boost_length_cost_frames": 3,
+        "death_value": -3.0,
+        "frame_rate": 1,
+        "height": 830,
+        "initial_food": 300,
+        "kill_scale": 0.3,
+        "max_capacity": 10400,
+        "max_food": 300,
+        "max_frames": 5000,
+        "max_length": 150,
+        "mechanics_version": 2,
+        "min_boost_length": 5,
+        "normalization": {
+          "max_frames": 5000.0,
+          "max_length": 150.0,
+          "starvation_max": 500.0
+        },
+        "num_snakes": 6,
+        "segment_size": 10,
+        "starvation_max_frames": 500,
+        "wall_thickness": 10,
+        "width": 1450
+      },
+      "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 1,
+    "mass_integral": 49.085,
+    "max_mass": 288.0,
+    "mean_mass_alive": 143.27203736135434,
+    "probe_unavailable_reasons": {
+      "entrapment_event": "temporal probe is not integrated into this accumulator",
+      "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+      "boost_frame_fraction": 0.048424737456242706,
+      "death_cause": "self",
+      "entrapment_event": null,
+      "food_eaten": 308,
+      "kill_opportunity_count": null,
+      "peak_length": 288.0,
+      "safety_veto": {
+        "boost_approximation": "one-step-direction-feature",
+        "counters": {
+          "decisions": 1714,
+          "fallback_no_spacious": 3,
+          "kept_base": 1710,
+          "vetoed_base_boost": 0,
+          "vetoes_applied": 1,
+          "vetoes_speed_switched": 0,
+          "vetoes_to_boost": 0
+        },
+        "free_space_bfs_cap": 160,
+        "free_space_min_cap": 32,
+        "method": "free-space-veto/v2-speed-preserving",
+        "replacement_rule": "highest-q-eligible-same-speed-mode-then-other"
+      }
+    },
+    "seed": 603498528,
+    "survival_fraction": 0.3426,
+    "world_identity": {
+      "mix_id": "frozen",
+      "ordered_slot_content_hashes": [
+        "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+        "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+        "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+        "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+        "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+      ],
+      "roster_id": "d5e30192bc133ef02280dfcce4556e20cd72215ec619c4eb28ffdd77c9e7acad",
+      "seed": 603498528,
+      "seed_namespace": "evaluation-world/v1"
+    }
+  },
+  "roster_member_sha256s": [
+    "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+    "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+    "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+    "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+    "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d"
+  ],
+  "safety_veto": true,
+  "schema_version": "apex-safety-dev-screen/v1",
+  "wall_seconds": 22.344473749981262,
+  "world_index": 2,
+  "world_seed": 603498528
+}
