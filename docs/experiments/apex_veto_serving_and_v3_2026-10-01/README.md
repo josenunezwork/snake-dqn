@@ -62,3 +62,32 @@ the safe-and-spacious set is already empty, so the trap is entered earlier
 than any one-step reachability check can see. The next veto idea, if pursued,
 needs multi-step look-ahead (a short search over the next few moves), not a
 better one-step count. v3 is retired.
+
+## Release (2026-10-01) — DONE
+
+User approval: "release it and continue loop also i want you to make those
+choices going forward".
+
+| Step | Result |
+|---|---|
+| Merge | `apex-safety-and-eval-tooling` merged into local `main` (`63a43a1`) |
+| Release commit | `95e0db9`: `SNAKE_SERVE_VETO_WATCH_HERO` unset now means ON |
+| Play AI | Stays opt-in; wrapping every Play AI snake is unevaluated |
+| Fast suite on `main` | 3,336 passed; only the 2 known pre-existing `test_eval_controlled_parity` failures |
+| Live verification | `snake-web` from `.claude/launch.json`, no env vars set |
+
+The live server logged:
+
+```
+safety-veto-serving: active=True scope=watch_hero mode=watch wrapped_ids=[0]
+flags={'watch_hero': True, 'play_ai': False}
+checkpoint_sha256=43d4e2c5… strict_checkpoint_match=True
+wrapper_source_sha256=1b62d15c… reason=None
+```
+
+The UI rendered with no server errors.
+
+**Rollback:** set `SNAKE_SERVE_VETO_WATCH_HERO=0` and restart. No code change
+is needed.
+
+Not pushed.
