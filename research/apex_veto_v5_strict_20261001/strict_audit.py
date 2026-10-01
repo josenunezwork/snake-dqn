@@ -22,7 +22,8 @@ recomputes the decision path in its own code (governance_tiers_2026-09-26.md
   the released bytes; v5: safety_veto_v5.py, safety_veto.py, safety_veto_v3.py), and
   every record carries its arm's sha256s and descriptor (probe minus counters);
 * pilot: the v5 screen's receipt says RECOMMEND_STRICT_GATE with a passing self-check,
-  and binds every A/B record the sizing reads;
+  and binds every A/B record the sizing reads and the screen intent; the screen ran from
+  a clean commit whose veto modules (``git show``) are the strict arms' source bytes;
 * denominators: ``scored_frames`` (and ``frames_completed`` where recorded) equal
   the 5000 horizon; every other frame counter is only checked at-most-cap;
 * calibration means, absolute NI margin, survival bands; pilot sizing N;
@@ -51,6 +52,7 @@ import argparse
 import hashlib
 import json
 import math
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
@@ -166,6 +168,8 @@ SMALL_INTEGER_SEEDS = range(1000)
 DEFAULT_PILOT_ROOT = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v5-screen-20261001/run-v1"
 )
+# The repository this audit file lives in (git objects for the screen-source parity rule).
+AUDIT_REPO = Path(__file__).resolve().parents[2]
 ARM_ALIASES = {
     "incumbent": "incumbent",
     "A": "incumbent",
@@ -876,6 +880,74 @@ def screen_receipt_problems(pilot_root: Path, hashes: Mapping[str, str]) -> List
     if unbound:
         problems.append(f"records not bound by the receipt: {unbound[:5]}")
     return problems
+
+
+def git_blob_sha256(repo: Path, commit: str, rel: str) -> Optional[str]:
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "show", f"{commit}:{rel}"], capture_output=True, check=False
+    )
+    return hashlib.sha256(proc.stdout).hexdigest() if proc.returncode == 0 else None
+
+
+def screen_source_problems(
+    pilot_root: Path, intent: Mapping[str, Any], repo: Path = AUDIT_REPO
+) -> List[str]:
+    """Why the screen's arms are not the strict arms at the source level (empty: they are).
+
+    Independently of the producer: the screen ``intent.json`` is the one its receipt binds,
+    names a full commit and a clean tree; each arm's veto module read from that commit
+    (``git show``) hashes to the strict intent's ``wrapper_identity.source_sha256s[rel]``;
+    and the producer's recorded ``pilot.screen_source_parity`` agrees with all of it.
+    """
+    path, receipt_path = pilot_root / "intent.json", pilot_root / "receipt.json"
+    if not path.is_file() or not receipt_path.is_file():
+        return ["screen intent.json or receipt.json missing"]
+    problems: List[str] = []
+    screen, receipt, digest = load_json(path), load_json(receipt_path), sha256_file(path)
+    if receipt.get("intent_sha256") != digest:
+        problems.append("receipt intent_sha256 differs from the screen intent.json")
+    git = screen.get("git") if isinstance(screen.get("git"), dict) else {}
+    commit = git.get("commit")
+    commit_ok = (
+        isinstance(commit, str)
+        and len(commit) == 40
+        and all(ch in "0123456789abcdef" for ch in commit)
+    )
+    if not commit_ok:
+        problems.append(f"screen git.commit is not a full commit: {commit!r}")
+    if git.get("dirty_paths") != "":
+        problems.append(f"screen ran from a dirty tree: {git.get('dirty_paths')!r}")
+    pilot = intent.get("pilot") if isinstance(intent.get("pilot"), dict) else {}
+    parity = pilot.get("screen_source_parity")
+    parity = parity if isinstance(parity, dict) else {}
+    rows = parity.get("sources") if isinstance(parity.get("sources"), dict) else {}
+    if parity.get("passes") is not True or parity.get("problems"):
+        problems.append("intent pilot.screen_source_parity does not pass")
+    if parity.get("screen_commit") != commit or parity.get("screen_intent_sha256") != digest:
+        problems.append("intent pilot.screen_source_parity names another screen intent/commit")
+    for arm in ARM_METHODS:
+        identity = _arm_node(intent, arm).get("wrapper_identity")
+        shas = identity.get("source_sha256s") if isinstance(identity, dict) else None
+        shas = shas if isinstance(shas, dict) else {}
+        for rel in ARM_SOURCES[arm]:
+            strict = shas.get(rel)
+            mine = git_blob_sha256(repo, commit, rel) if commit_ok else None
+            row = rows.get(rel) if isinstance(rows.get(rel), dict) else {}
+            if not is_sha256(strict) or mine != strict:
+                problems.append(f"{arm} {rel}: screen-commit source {mine} != strict {strict}")
+            if row.get("screen_sha256") != mine or row.get("strict_sha256") != strict:
+                problems.append(f"{arm} {rel}: recorded parity differs from the audit's")
+    return problems
+
+
+def audit_screen_source_parity(audit: Audit, pilot_root: Path, intent: Mapping[str, Any]) -> None:
+    problems = screen_source_problems(pilot_root, intent)
+    audit.rule(
+        "pilot.screen_source_parity",
+        not problems,
+        problems[:20],
+        "screen intent.json git.{commit,dirty_paths} + git show <commit>:<veto module>",
+    )
 
 
 def audit_calibration(audit: Audit, episodes: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
@@ -1744,6 +1816,7 @@ def run_audit(root: Path, out_dir: Path, pilot_root: Path) -> Dict[str, Any]:
     )
     audit_namespaces(audit)
     pilot = load_pilot(audit, pilot_root)
+    audit_screen_source_parity(audit, pilot_root, intent)
     sizing = pilot_sizing(pilot) if pilot else None
     n_final = sizing["required_final_worlds"] if sizing else None
     audit.rule(

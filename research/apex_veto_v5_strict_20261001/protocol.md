@@ -36,10 +36,17 @@ has finished with:
   record the sizing reads listed in `receipt.records` with the same sha256;
 - 40 A/B pairs per mix, and the per-mix deltas recomputed from the raw records equal to
   `summary.json` `per_mix.<mix>.primary_mass_integral.deltas_B_minus_A`.
+- source parity (`pilot.screen_source_parity`): the screen `intent.json` is the one
+  `receipt.json` binds (`intent_sha256`), its `git.dirty_paths` is empty, and every veto
+  module each arm runs (`safety_veto.py`; `safety_veto_v5.py`, `safety_veto.py`,
+  `safety_veto_v3.py`) read at its `git.commit` (`git show <commit>:<path>`) has the same
+  sha256 as the strict arm's frozen `wrapper_identity.source_sha256s`, so N is sized from
+  the variance of the same candidate and incumbent bytes.
 
 Any other screen outcome (`NOT_ADVANCED`, `INCOMPLETE`, `INVALID_*`, a failed self-check)
 means this study does not run. The independent audit re-checks the same gate
-(`pilot.screen_receipt`).
+(`pilot.screen_receipt`) and recomputes source parity itself from the screen intent and
+`git show` (`pilot.screen_source_parity`), also comparing it with the recorded parity.
 
 ## Arms and identities
 

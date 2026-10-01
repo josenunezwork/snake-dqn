@@ -71,6 +71,7 @@ V3_SOURCE = "src/evaluation/safety_veto_v3.py"  # v5 imports grid_for/static_blo
 V5_SOURCE = "src/evaluation/safety_veto_v5.py"
 # Repo-relative veto modules each arm executes (the primary module first).
 ARM_SOURCES = {"incumbent": (V2_SOURCE,), "candidate": (V5_SOURCE, V2_SOURCE, V3_SOURCE)}
+HEX_DIGITS = "0123456789abcdef"
 
 NAMESPACE_KEY = "worlds"
 NAMESPACES = {
@@ -650,6 +651,59 @@ def arm_identities(repo: Path = REPO) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def git_blob_sha256(repo: Path, commit: str, rel: str) -> str | None:
+    """sha256 of ``git show <commit>:<rel>`` bytes (None if git cannot produce them)."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "show", f"{commit}:{rel}"], capture_output=True, check=False
+    )
+    return hashlib.sha256(proc.stdout).hexdigest() if proc.returncode == 0 else None
+
+
+def screen_source_parity(
+    screen_run: Path, identities: Mapping[str, Mapping[str, Any]], repo: Path = REPO
+) -> Dict[str, Any]:
+    """Tie the pilot's arms to the strict arms at the source level (fail closed).
+
+    The screen's ``intent.json`` must be the one its receipt binds (``intent_sha256``), name a
+    full commit and record a clean tree (``git.dirty_paths == ""``). Every veto module in
+    :data:`ARM_SOURCES` read at that commit (``git show <commit>:<rel>``) must hash to the
+    strict arm's ``source_sha256s[rel]``, so N is sized from the variance of the same bytes.
+    """
+    path, receipt_path = Path(screen_run) / "intent.json", Path(screen_run) / "receipt.json"
+    problems: List[str] = []
+    intent: Mapping[str, Any] = read_json(path) if path.is_file() else {}
+    receipt: Mapping[str, Any] = read_json(receipt_path) if receipt_path.is_file() else {}
+    intent_sha = dev_screen.sha256_file(path) if path.is_file() else None
+    if not intent:
+        problems.append("screen intent.json missing")
+    if intent_sha is None or receipt.get("intent_sha256") != intent_sha:
+        problems.append("receipt intent_sha256 differs from the screen intent.json")
+    git = intent.get("git") if isinstance(intent.get("git"), dict) else {}
+    commit, dirty = git.get("commit"), git.get("dirty_paths")
+    commit_ok = isinstance(commit, str) and len(commit) == 40 and set(commit) <= set(HEX_DIGITS)
+    if not commit_ok:
+        problems.append(f"screen git.commit is not a full commit: {commit!r}")
+    if dirty != "":
+        problems.append(f"screen ran from a dirty tree: {dirty!r}")
+    sources: Dict[str, Dict[str, Any]] = {}
+    for arm in ARMS:
+        for rel in ARM_SOURCES[arm]:
+            strict = (identities.get(arm, {}).get("source_sha256s") or {}).get(rel)
+            screen = git_blob_sha256(repo, commit, rel) if commit_ok else None
+            sources[rel] = {"screen_sha256": screen, "strict_sha256": strict}
+            if screen is None or screen != strict:
+                problems.append(f"{arm} {rel}: screen source {screen} != strict {strict}")
+    return {
+        "screen_intent_path": str(path),
+        "screen_intent_sha256": intent_sha,
+        "screen_commit": commit,
+        "screen_dirty_paths": dirty,
+        "sources": sources,
+        "problems": problems,
+        "passes": not problems,
+    }
+
+
 def install_candidate_veto(hero: Any) -> Any:
     """The candidate's hero install (v5 has no options); the incumbent uses rollout's v2."""
     from src.evaluation.safety_veto_v5 import install_boost_aware_veto
@@ -777,6 +831,14 @@ def build_intent(
         for rel, sha in identity["source_sha256s"].items():
             closed = closure["files"].get(str((REPO / rel).resolve()))
             require(closed == sha, f"{arm} veto source {rel} is not in the source closure")
+    if not smoke:
+        # The pilot's A/B arms must have run these exact veto bytes (sized variance = ours).
+        source_parity = screen_source_parity(screen_run, identities)
+        require(
+            source_parity["passes"],
+            f"v5 screen ran other veto sources: {source_parity['problems']}",
+        )
+        pilot["screen_source_parity"] = source_parity
     n_final = int(sizing["final_worlds_per_mix"])
     final_seeds = seeds["final"][: min(n_final, len(seeds["final"]))]
     mixes = ["scripted"] if smoke else list(MIXES)
@@ -1877,6 +1939,20 @@ def validate_intent(intent: Mapping[str, Any]) -> None:
     )
     if intent["smoke_frames"] is None:
         require(intent["sizing"]["final_worlds_per_mix"] >= N_FLOOR, "N below floor")
+        parity = intent["pilot"].get("screen_source_parity") or {}
+        rows = parity.get("sources") or {}
+        require(
+            parity.get("passes") is True
+            and sorted(rows) == sorted({rel for arm in ARMS for rel in ARM_SOURCES[arm]})
+            and all(
+                rows[rel]["screen_sha256"]
+                == rows[rel]["strict_sha256"]
+                == intent[arm]["wrapper_identity"]["source_sha256s"][rel]
+                for arm in ARMS
+                for rel in ARM_SOURCES[arm]
+            ),
+            "pilot screen_source_parity does not bind the arms' veto sources",
+        )
         require(
             len(intent["final_seeds"]) == min(intent["sizing"]["final_worlds_per_mix"], N_MAX),
             "final seed prefix",

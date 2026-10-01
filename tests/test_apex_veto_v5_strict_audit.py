@@ -154,7 +154,9 @@ def build_pilot(
         "per_mix": {m: {"primary_mass_integral": {"deltas_B_minus_A": deltas[m]}} for m in MIXES},
     }
     write_json(root / "summary.json", summary)
+    write_json(root / "intent.json", {"git": {"commit": head_commit(), "dirty_paths": ""}})
     receipt = {
+        "intent_sha256": sha(root / "intent.json"),
         "decision": decision if self_check_passes else "INVALID_SELF_CHECK_FAILED",
         "screen_decision_before_self_check": decision,
         "self_check": {
@@ -166,6 +168,12 @@ def build_pilot(
     }
     write_json(root / "receipt.json", receipt)
     return root
+
+
+def head_commit() -> str:
+    """The checked-out commit; its veto modules are the strict arms' (clean src in tests)."""
+    command = ["git", "-C", str(REPO), "rev-parse", "HEAD"]
+    return subprocess.run(command, capture_output=True, text=True, check=True).stdout.strip()
 
 
 def sha(path: Path) -> str:
@@ -249,7 +257,12 @@ def build_run(
             for name, values in seeds.items()
         },
         "mixes": list(MIXES),
-        "pilot": {"screen_run": str(pilot), "deltas_by_mix": deltas, "summary_deltas_match": True},
+        "pilot": {
+            "screen_run": str(pilot),
+            "deltas_by_mix": deltas,
+            "summary_deltas_match": True,
+            "screen_source_parity": R.screen_source_parity(pilot, R.arm_identities()),
+        },
         "sizing": sizing,
         "final_seeds": final_seeds,
         "smoke_frames": None,
