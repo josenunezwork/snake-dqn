@@ -78,20 +78,35 @@ def control(sess, action, value=None):
     return _apply_control(sess, {"type": "control", "action": action, "value": value}, "conn")
 
 
+@pytest.fixture
+def no_default_checkpoint(monkeypatch, tmp_path):
+    """Make ``checkpoint=None`` mean untrained weights even where the champion file exists."""
+    import web.backend.session as session_module
+
+    monkeypatch.setattr(session_module, "DEFAULT_CHECKPOINT", str(tmp_path / "absent.pth"))
+
+
 class TestFlags:
-    def test_default_is_off(self):
+    def test_released_defaults(self):
+        # Explicit flags stay off by default; the environment default releases the Watch hero.
         assert ServingVetoFlags() == ServingVetoFlags(watch_hero=False, play_ai=False)
-        assert ServingVetoFlags.from_env({}).to_dict() == {"watch_hero": False, "play_ai": False}
+        assert ServingVetoFlags.from_env({}).to_dict() == {"watch_hero": True, "play_ai": False}
+        assert serving.WATCH_HERO_RELEASED_DEFAULT is True
 
     @pytest.mark.parametrize("value", ["1", "true", "TRUE", " yes ", "on"])
-    def test_truthy_values_enable_only_their_flag(self, value):
+    def test_truthy_values_enable_their_flag(self, value):
         assert ServingVetoFlags.from_env({ENV_WATCH_HERO: value}) == ServingVetoFlags(True, False)
-        assert ServingVetoFlags.from_env({ENV_PLAY_AI: value}) == ServingVetoFlags(False, True)
+        assert ServingVetoFlags.from_env({ENV_PLAY_AI: value}) == ServingVetoFlags(True, True)
 
-    @pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "2", "enabled"])
-    def test_anything_else_is_off(self, value):
+    @pytest.mark.parametrize("value", ["0", "false", "no", "off", " OFF "])
+    def test_falsy_values_roll_back_the_watch_hero(self, value):
         flags = ServingVetoFlags.from_env({ENV_WATCH_HERO: value, ENV_PLAY_AI: value})
-        assert flags == ServingVetoFlags()
+        assert flags == ServingVetoFlags(False, False)
+
+    @pytest.mark.parametrize("value", ["", "2", "enabled"])
+    def test_unrecognized_values_keep_the_released_default(self, value):
+        flags = ServingVetoFlags.from_env({ENV_WATCH_HERO: value, ENV_PLAY_AI: value})
+        assert flags == ServingVetoFlags(True, False)
 
     def test_wrapper_identity_binds_the_unchanged_source(self):
         identity = serving.wrapper_identity()
@@ -105,7 +120,9 @@ class TestFlags:
 
 
 class TestDefaultOff:
-    def test_default_session_wraps_nothing_in_watch_or_play(self):
+    def test_rollback_flag_wraps_nothing_in_watch_or_play(self, monkeypatch):
+        monkeypatch.setenv(ENV_WATCH_HERO, "0")
+        monkeypatch.delenv(ENV_PLAY_AI, raising=False)
         sess = GameSession()
         assert wrapped_ids(sess) == []
         assert sess.safety_veto_state()["active"] is False
@@ -114,6 +131,15 @@ class TestDefaultOff:
         assert sess.mode == MODE_PLAY
         assert wrapped_ids(sess) == []
         assert sess.safety_veto_state()["active"] is False
+
+    def test_released_default_wraps_only_watch_hero_never_play_ai(self, monkeypatch, pinned):
+        monkeypatch.delenv(ENV_WATCH_HERO, raising=False)
+        monkeypatch.delenv(ENV_PLAY_AI, raising=False)
+        sess = GameSession(checkpoint=pinned)
+        assert wrapped_ids(sess) == [0]
+        assert sess.safety_veto_state()["scope"] == "watch_hero"
+        sess.set_mode(MODE_PLAY)
+        assert wrapped_ids(sess) == []
 
     def test_control_state_payload_is_unchanged(self):
         sess = GameSession(safety_veto_flags=ServingVetoFlags(True, True))
@@ -195,8 +221,8 @@ class TestPlayAndTrain:
         assert wrapped_ids(sess) == []
         assert sess.safety_veto_state()["active"] is False
 
-    def test_non_vector_policy_is_refused_with_a_reason(self):
-        sess = GameSession()
+    def test_non_vector_policy_is_refused_with_a_reason(self, no_default_checkpoint):
+        sess = GameSession(safety_veto_flags=ServingVetoFlags())
         state = install_serving_vetoes(
             sess.game, sess.policy, "watch", "raster31v2", None, ServingVetoFlags(True, True)
         )
@@ -217,7 +243,7 @@ def _other_vector61(tmp_path, name="other_vector61.pth"):
 class TestFailClosedBinding:
     """The wrapper is installed only on the strict-gated checkpoint + wrapper bytes."""
 
-    def test_no_checkpoint_untrained_weights_are_never_wrapped(self):
+    def test_no_checkpoint_untrained_weights_are_never_wrapped(self, no_default_checkpoint):
         sess = GameSession(checkpoint=None, safety_veto_flags=ServingVetoFlags(True, True))
         assert sess.obs_spec == "vector61"
         state = sess.safety_veto_state()
@@ -281,7 +307,7 @@ class TestBuildLogLine:
         assert len(lines) == 2 and "active=False" in lines[1]
         assert "no serving veto flag applies to play mode" in lines[1]
 
-    def test_refusal_is_logged_with_its_reason(self, caplog):
+    def test_refusal_is_logged_with_its_reason(self, caplog, no_default_checkpoint):
         caplog.set_level(logging.INFO, logger=self.LOGGER)
         GameSession(checkpoint=None, safety_veto_flags=ServingVetoFlags(watch_hero=True))
         (line,) = self._lines(caplog)
