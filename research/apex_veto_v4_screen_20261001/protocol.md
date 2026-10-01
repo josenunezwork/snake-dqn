@@ -5,6 +5,13 @@ Label: **screen (non-authoritative)**. Governance: Tier 1 in
 champion, a deployment profile or the released Watch-hero veto. Written 2026-10-01, before
 any screen episode or smoke of this screen ran.
 
+Revision 1 (2026-10-01, still before any screen episode or smoke): the no-escape and
+budget fallbacks now defer to the released v2 veto instead of keeping the base action
+(review finding: v4 could keep a certain-death dead end that v2 vetoes when the v2
+replacement's step-1 cell is next to another snake's head, or when the budget ran out
+after the base was proven escape-less). B therefore never drops v2's protection in an
+untriggered or fallback state, so a B loss cannot be explained by lost v2 protection.
+
 - `screen_id`: `apex-veto-v4-screen-v1`
 - Harness: `research/apex_safety_20260926/dev_screen.py`, driven by `screen.py` beside this
   file (`ScreenSpec` `SPEC`). Output: `intent.json` (before any episode), `records/`,
@@ -51,13 +58,19 @@ Full specification in the module docstring; summary:
   allows. That reading of "or any node" was therefore rejected.
 - **Veto.** Keep the base action if its direction escapes. Otherwise choose the highest-Q
   masked-legal escaping action in the base action's speed mode, else in the other mode
-  (v2's `veto_choice`). If none escapes, keep the base action (`fallback_no_escape`).
-  A boost is scored by its direction's escape: its first step is the search's first step.
-- **Budget.** At most 4000 nodes per decision. If the budget runs out, keep the base action
-  (`budget_exhausted`; no veto). Child order is fixed, so every result is deterministic.
-- The probe (`probes.safety_veto`) is the descriptor plus exactly v2's seven counters, and
-  `fallback_no_spacious` counts v4's `fallback_no_escape`. The v4 counters are stored in
-  each B/D entry's `veto_diagnostics`.
+  (v2's `veto_choice`). A boost is scored by its direction's escape: its first step is the
+  search's first step.
+- **v2 fallback.** If no masked-legal action escapes (`fallback_no_escape`), the decision
+  is exactly v2's: `veto_choice` with v2's one-step `spacious_directions`. Untriggered
+  decisions already equal v2's (the base count is at least `need`), so B is at least as
+  protective as the released v2 everywhere except where the escape search itself keeps or
+  vetoes.
+- **Budget.** At most 4000 nodes per decision. If the budget runs out (`budget_exhausted`),
+  the v2 fallback decides. Child order is fixed, so every result is deterministic.
+- The probe (`probes.safety_veto`) is the descriptor plus exactly v2's seven counters,
+  counting the action taken. The v4 counters are stored in each B/D entry's
+  `veto_diagnostics`; they split each fallback by the v2 outcome (`fallback_v2_kept`,
+  `fallback_v2_vetoes`, `fallback_v2_no_spacious`).
 
 ## Arms
 
@@ -109,8 +122,8 @@ balanced rosters).
   - per-mix means, wins and losses; survival fraction Δ; death causes;
   - veto counters for A and B;
   - the v4 counters and cost (`receipt.json` `reported.v4_cost`: searches, vetoes,
-    budget exhaustions, no-escape fallbacks, nodes; mean wall seconds per decision and per
-    search; mean B episode wall time against A's);
+    budget exhaustions, no-escape fallbacks and their v2 split, nodes; mean wall seconds
+    per decision and per search; mean B episode wall time against A's);
   - the mix-stratified mean of means with a 90% Welch CI and clear-loser flags;
   - random-effects and crossed pools;
   - sizing for a later Tier-2 design.
@@ -137,7 +150,9 @@ balanced rosters).
    seed is in the intent.
 
 Reported only (warnings): whether each B/D entry's `veto_diagnostics` agrees with its probe
-counters (`decisions`, `vetoes_applied`, `fallback_no_escape` = `fallback_no_spacious`).
+counters: equal `decisions`, `kept_base = kept_untriggered + kept_escape +
+fallback_v2_kept`, `vetoes_applied = vetoes_applied (v4) + fallback_v2_vetoes` and
+`fallback_no_spacious = fallback_v2_no_spacious` (`screen.probe_identities_hold`).
 
 ## Compute cap and operations
 
@@ -160,7 +175,10 @@ counters (`decisions`, `vetoes_applied`, `fallback_no_escape` = `fallback_no_spa
   `snake-dqn-artifacts/apex-veto-v4-screen-20261001/run-v1`. Lane work and smokes stay
   outside `snake-dqn-artifacts`.
 - Before GO: one smoke dry run (≤ 2 episodes × 500 frames, legacy path, smoke namespace)
-  through `screen.py` with self-check and receipt, from the same source.
+  through `screen.py` with self-check and receipt, from the same source. The default
+  trigger rarely fires in a short smoke, so the search path itself is pinned by a unit
+  test: a live tiny-world rollout with the trigger forced on every decision must search,
+  satisfy the probe identities and the B self-check, and replay identically.
 - Test safety: every unit test that calls `screen.main`, `dev_screen.main` or another
   harness entry first replaces `tournament_eval.rollout` and `dev_screen.run_episode` with
   functions that raise. This exists because of the v3 revision-4 runaway test.

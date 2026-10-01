@@ -233,15 +233,36 @@ def check_entry(entry: Mapping[str, Any], smoke: bool) -> Dict[str, List[str]]:
     if arm in V4_ARMS:
         probe = ((entry.get("record") or {}).get("probes") or {}).get("safety_veto") or {}
         counters = probe.get("counters") or {}
-        if not isinstance(diagnostics, Mapping) or any(
-            diagnostics.get(key) != counters.get(key) for key in ("decisions", "vetoes_applied")
+        if not isinstance(diagnostics, Mapping) or diagnostics.get("decisions") != counters.get(
+            "decisions"
         ):
             warnings.append(f"arm {arm} v4 counters missing or not one per veto decision")
-        elif diagnostics.get("fallback_no_escape") != counters.get("fallback_no_spacious"):
-            warnings.append(f"arm {arm} fallback_no_escape differs from the probe's fallback")
+        elif not probe_identities_hold(diagnostics, counters):
+            warnings.append(f"arm {arm} v4 counters disagree with the probe's v2 counters")
     elif diagnostics is not None:
         warnings.append(f"arm {arm} carries v4 diagnostics")
     return {"failures": failures, "warnings": warnings}
+
+
+def probe_identities_hold(diagnostics: Mapping[str, Any], counters: Mapping[str, Any]) -> bool:
+    """The ``LookaheadCounters`` identities against the probe's v2 counters (reported).
+
+    The probe counts the action taken, so the v2 fallback's split joins the v4 outcomes:
+    ``kept_base = kept_untriggered + kept_escape + fallback_v2_kept``, ``vetoes_applied =
+    vetoes_applied (v4) + fallback_v2_vetoes``, ``fallback_no_spacious =
+    fallback_v2_no_spacious``.
+    """
+
+    def get(key: str) -> int:
+        return int(diagnostics.get(key) or 0)
+
+    kept = get("kept_untriggered") + get("kept_escape") + get("fallback_v2_kept")
+    vetoes = get("vetoes_applied") + get("fallback_v2_vetoes")
+    return (
+        counters.get("kept_base") == kept
+        and counters.get("vetoes_applied") == vetoes
+        and counters.get("fallback_no_spacious") == get("fallback_v2_no_spacious")
+    )
 
 
 def self_check(out: Path, smoke: bool) -> Dict[str, Any]:
@@ -277,6 +298,9 @@ SUMMED_V4_FIELDS = (
     "vetoes_applied",
     "budget_exhausted",
     "fallback_no_escape",
+    "fallback_v2_kept",
+    "fallback_v2_vetoes",
+    "fallback_v2_no_spacious",
     "directions_searched",
     "nodes_total",
     "counts_total",
@@ -336,6 +360,9 @@ def v4_cost_report(entries: Sequence[Mapping[str, Any]], arm: str = "B") -> Dict
         row["mean_search_seconds_per_search"] = _ratio(row["search_seconds_total"], row["searches"])
         row["search_rate_per_decision"] = _ratio(row["searches"], row["decisions"])
         row["veto_rate_per_decision"] = _ratio(row["vetoes_applied"], row["decisions"])
+        row["fallback_v2_veto_rate_per_decision"] = _ratio(
+            row["fallback_v2_vetoes"], row["decisions"]
+        )
         row["budget_exhausted_rate_per_search"] = _ratio(row["budget_exhausted"], row["searches"])
         row["mean_nodes_per_search"] = _ratio(row["nodes_total"], row["searches"])
         row["mean_episode_wall_seconds"] = _ratio(sum(wall), len(wall))

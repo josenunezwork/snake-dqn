@@ -36,8 +36,16 @@ Rule, per greedy decision (``base`` = the policy's masked argmax, ``d = base % 3
    snake may move there now). The leaf count blocks the whole path except the leaf.
 3. **Veto.** If ``d`` has an escape the base action is kept. Otherwise v2's
    :func:`veto_choice` runs with ``spacious := escape``: the highest-Q masked-legal
-   escaping action in the base action's speed mode, else in the other mode. If no
-   masked-legal action escapes, the base action is kept (``fallback_no_escape``).
+   escaping action in the base action's speed mode, else in the other mode.
+4. **v2 fallback.** If no masked-legal action escapes (``fallback_no_escape``) or the
+   node budget runs out (``budget_exhausted``), the decision is exactly the released
+   v2 veto's: :func:`veto_choice` with v2's own one-step ``spacious_directions`` (the
+   features read in step 1). So v4 never keeps a base action that v2 would veto in an
+   untriggered or fallback state. (Untriggered: ``need <= cap``, so the base count is
+   ``>= need`` and v2 keeps it too.) Without this fallback, a direction that is
+   v2-spacious but fails v4's escape test (its step-1 cell next to another snake's
+   head, or a pocket in ``[need, need + depth)`` under the prune) let v4 keep a
+   certain-death base that v2 vetoes.
 
 Why the count is applied at the leaf only: applying "count >= need" at depth 1 would
 accept every direction v3 accepts, so v4 could never veto a move v3 allows. Requiring a
@@ -55,15 +63,17 @@ is abandoned when its tail-aware count is below ``need + depth - k``; see
 :class:`EscapeSearch`) and a per-decision node budget (default 4000 nodes across all
 directions searched in that decision). Each count is v3's breadth-first search stopped
 at the required number of cells. **Budget fallback (deterministic):** if the budget runs
-out at any point in a decision, the base action is kept (treated as an escape; no veto)
-and ``budget_exhausted`` is counted. Children are tried in the fixed order straight,
+out at any point in a decision, the v2 fallback of step 4 decides and ``budget_exhausted``
+is counted. Children are tried in the fixed order straight,
 left, right, so results never depend on timing.
 
 Records. ``record()`` is the descriptor plus exactly v2's seven counters, so
-``strict_promotion._validate_candidate_wrapper_probe`` accepts it; the v2
-``fallback_no_spacious`` field counts v4's ``fallback_no_escape``. The v4 counters
-(decisions, searches, vetoes_applied, budget_exhausted, fallback_no_escape, node and
-time totals) are returned by :meth:`LookaheadFreeSpaceVeto.diagnostics_record`, which a
+``strict_promotion._validate_candidate_wrapper_probe`` accepts it. The probe counts the
+action actually taken: v4's escape vetoes plus the v2 fallback's vetoes in
+``vetoes_applied``, and the v2 fallback's no-spacious decisions in
+``fallback_no_spacious``. The v4 counters (decisions, searches, the five reason
+outcomes, the v2 fallback's kept/vetoed/no-spacious split, node and time totals) are
+returned by :meth:`LookaheadFreeSpaceVeto.diagnostics_record`, which a
 screen stores beside the record (the timing fields are wall-clock and never gate).
 
 Default behavior is untouched: nothing installs this class unless a caller does so
@@ -84,6 +94,7 @@ from src.evaluation.safety_veto import (
     OUTCOME_VETOED,
     SafetyVetoCounters,
     free_space_threshold,
+    spacious_directions,
     veto_choice,
 )
 from src.evaluation.safety_veto_v3 import (
@@ -110,7 +121,8 @@ LOOKAHEAD_RULE = (
     "other-snakes-static/other-heads-adjacent-blocked-step-1"
 )
 BOOST_APPROXIMATION = "direction-first-step-lookahead"
-BUDGET_FALLBACK = "keep-base"
+BUDGET_FALLBACK = "v2-veto"
+NO_ESCAPE_FALLBACK = "v2-veto"
 # Up, right, down, left (GameLogic.relative_to_absolute_direction's ordering).
 CARDINAL: Tuple[Cell, ...] = ((0, -1), (1, 0), (0, 1), (-1, 0))
 CHILD_ORDER = (1, 0, 2)  # straight, left, right: fixed, so the search is deterministic
@@ -281,13 +293,19 @@ OUTCOME_KEPT_UNTRIGGERED = "kept_untriggered"
 OUTCOME_KEPT_ESCAPE = "kept_escape"
 OUTCOME_BUDGET_EXHAUSTED = "budget_exhausted"
 OUTCOME_FALLBACK_NO_ESCAPE = "fallback_no_escape"
-# v4 outcome -> the v2 outcome recorded in the seven-counter probe.
+# v4 outcome -> the v2 outcome recorded in the seven-counter probe. The two fallback
+# outcomes are absent: there the v2 veto decides and its own outcome is recorded.
 V2_OUTCOME = {
     OUTCOME_KEPT_UNTRIGGERED: OUTCOME_KEPT,
     OUTCOME_KEPT_ESCAPE: OUTCOME_KEPT,
-    OUTCOME_BUDGET_EXHAUSTED: OUTCOME_KEPT,
     OUTCOME_VETOED: OUTCOME_VETOED,
-    OUTCOME_FALLBACK_NO_ESCAPE: OUTCOME_NO_SPACIOUS,
+}
+FALLBACK_OUTCOMES = (OUTCOME_BUDGET_EXHAUSTED, OUTCOME_FALLBACK_NO_ESCAPE)
+# v2 outcome of a fallback decision -> the v4 counter that splits it.
+FALLBACK_V2_FIELD = {
+    OUTCOME_KEPT: "fallback_v2_kept",
+    OUTCOME_VETOED: "fallback_v2_vetoes",
+    OUTCOME_NO_SPACIOUS: "fallback_v2_no_spacious",
 }
 
 
@@ -296,7 +314,12 @@ class LookaheadCounters:
     """Per-episode v4 bookkeeping (reported beside the probe; never gates).
 
     ``decisions == kept_untriggered + kept_escape + vetoes_applied + budget_exhausted +
-    fallback_no_escape`` and ``searches == decisions - kept_untriggered`` always hold.
+    fallback_no_escape``, ``searches == decisions - kept_untriggered`` and
+    ``budget_exhausted + fallback_no_escape == fallback_v2_kept + fallback_v2_vetoes +
+    fallback_v2_no_spacious`` always hold. Against the probe's v2 counters:
+    ``kept_base == kept_untriggered + kept_escape + fallback_v2_kept``,
+    ``vetoes_applied (probe) == vetoes_applied + fallback_v2_vetoes`` and
+    ``fallback_no_spacious == fallback_v2_no_spacious``.
     ``nodes_total``/``counts_total``/``nodes_max`` are deterministic; the ``*_seconds``
     fields are wall-clock (``time.perf_counter``) and vary between runs.
     """
@@ -308,6 +331,9 @@ class LookaheadCounters:
     vetoes_applied: int = 0
     budget_exhausted: int = 0
     fallback_no_escape: int = 0
+    fallback_v2_kept: int = 0
+    fallback_v2_vetoes: int = 0
+    fallback_v2_no_spacious: int = 0
     directions_searched: int = 0
     nodes_total: int = 0
     counts_total: int = 0
@@ -316,10 +342,27 @@ class LookaheadCounters:
     search_seconds_total: float = 0.0
     search_seconds_max: float = 0.0
 
-    def record(self, outcome: str, search: Optional[EscapeSearch], seconds: float) -> None:
-        """Count one decision; ``search`` is ``None`` when the trigger did not fire."""
-        if outcome not in V2_OUTCOME:
+    def record(
+        self,
+        outcome: str,
+        v2_outcome: str,
+        search: Optional[EscapeSearch],
+        seconds: float,
+    ) -> None:
+        """Count one decision; ``search`` is ``None`` when the trigger did not fire.
+
+        ``v2_outcome`` is the outcome recorded in the probe: fixed by ``V2_OUTCOME`` for
+        the non-fallback outcomes, the v2 veto's own outcome for the fallbacks.
+        """
+        if outcome in FALLBACK_OUTCOMES:
+            if v2_outcome not in FALLBACK_V2_FIELD:
+                raise ValueError(f"unknown v2 outcome {v2_outcome!r}")
+            field = FALLBACK_V2_FIELD[v2_outcome]
+            setattr(self, field, getattr(self, field) + 1)
+        elif outcome not in V2_OUTCOME:
             raise ValueError(f"unknown v4 outcome {outcome!r}")
+        elif V2_OUTCOME[outcome] != v2_outcome:
+            raise ValueError(f"v4 outcome {outcome!r} must record v2 {V2_OUTCOME[outcome]!r}")
         self.decisions += 1
         name = "vetoes_applied" if outcome == OUTCOME_VETOED else outcome
         setattr(self, name, getattr(self, name) + 1)
@@ -391,9 +434,9 @@ class LookaheadFreeSpaceVeto:
         if len(q) != NUM_ACTIONS or len(mask) != NUM_ACTIONS:
             raise ValueError(f"expected {NUM_ACTIONS} Q-values and mask entries")
         base = int(base_action)
-        action, outcome, search, search_seconds = self.decide(snake, others, q, mask, base)
-        self.counters.record(base, action, V2_OUTCOME[outcome])
-        self.lookahead.record(outcome, search, search_seconds)
+        action, outcome, v2_outcome, search, seconds = self.decide(snake, others, q, mask, base)
+        self.counters.record(base, action, v2_outcome)
+        self.lookahead.record(outcome, v2_outcome, search, seconds)
         self.lookahead.apply_seconds_total += time.perf_counter() - started
         return action
 
@@ -408,20 +451,25 @@ class LookaheadFreeSpaceVeto:
         q: Sequence[float],
         mask: Sequence[bool],
         base: int,
-    ) -> Tuple[int, str, Optional[EscapeSearch], float]:
-        """``(action, v4 outcome, search or None, search seconds)`` for one decision."""
+    ) -> Tuple[int, str, str, Optional[EscapeSearch], float]:
+        """``(action, v4 outcome, probe v2 outcome, search or None, search seconds)``."""
         cap, need = free_space_threshold(snake.length, snake._logical_length())
         base_direction = base % NUM_DIRECTIONS
         features = snake._get_free_space_features(list(others))
         if round(float(features[base_direction]) * cap) >= self.trigger_threshold(cap, need):
-            return base, OUTCOME_KEPT_UNTRIGGERED, None, 0.0
+            return base, OUTCOME_KEPT_UNTRIGGERED, OUTCOME_KEPT, None, 0.0
         started = time.perf_counter()
         search = EscapeSearch(world_for(snake, others, self.slack), self.depth, self.node_budget)
         try:
             action, outcome = self._search_choice(search, q, mask, base)
         except BudgetExhausted:
             action, outcome = base, OUTCOME_BUDGET_EXHAUSTED
-        return action, outcome, search, time.perf_counter() - started
+        if outcome in FALLBACK_OUTCOMES:
+            spacious = spacious_directions(features, cap, need)
+            action, v2_outcome = veto_choice(q, mask, spacious, base)
+        else:
+            v2_outcome = V2_OUTCOME[outcome]
+        return action, outcome, v2_outcome, search, time.perf_counter() - started
 
     def _search_choice(
         self, search: EscapeSearch, q: Sequence[float], mask: Sequence[bool], base: int
@@ -439,7 +487,7 @@ class LookaheadFreeSpaceVeto:
             escape[direction] = search.escape(direction)
         action, outcome = veto_choice(q, mask, escape, base)
         if outcome == OUTCOME_NO_SPACIOUS:
-            return base, OUTCOME_FALLBACK_NO_ESCAPE
+            return base, OUTCOME_FALLBACK_NO_ESCAPE  # decide() hands this to the v2 veto
         return action, OUTCOME_VETOED
 
     def diagnostics_record(self) -> Dict[str, Any]:
@@ -459,6 +507,7 @@ class LookaheadFreeSpaceVeto:
             "lookahead_depth": self.depth,
             "node_budget": self.node_budget,
             "budget_fallback": BUDGET_FALLBACK,
+            "no_escape_fallback": NO_ESCAPE_FALLBACK,
             "trigger": "v2-base-count-below-min(factor*need,cap)",
             "trigger_factor": self.trigger_factor,
             "tail_release_slack": self.slack,

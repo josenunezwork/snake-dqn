@@ -183,15 +183,17 @@ class TestTrapGeometries:
         assert veto.counters.vetoes_applied == 1 and veto.counters.vetoes_to_boost == 1
         assert veto.counters.vetoes_speed_switched == 0
 
-    def test_no_escaping_legal_action_keeps_base(self, setup_config, factory, corridor):
+    def test_no_escaping_legal_action_falls_back_to_v2(self, setup_config, factory, corridor):
         me, other = factory()
         veto = LookaheadFreeSpaceVeto()
         mask = torch.tensor([False, True, False, False, True, False])  # only straight legal
         assert veto.apply(me, [me, other], torch.tensor(Q_PREFERS_STRAIGHT), mask, 1) == 1
-        assert veto.counters.fallback_no_spacious == 1
-        assert veto.diagnostics_record()["fallback_no_escape"] == 1
+        # Straight is v2-spacious, so the v2 fallback keeps it (as the released v2 does).
+        assert veto.counters.kept_base == 1 and veto.counters.fallback_no_spacious == 0
+        diag = veto.diagnostics_record()
+        assert diag["fallback_no_escape"] == 1 and diag["fallback_v2_kept"] == 1
 
-    def test_budget_fallback_keeps_base_deterministically(self, setup_config, factory, corridor):
+    def test_budget_fallback_is_v2_and_deterministic(self, setup_config, factory, corridor):
         outcomes = []
         for _ in range(2):
             me, other = factory()
@@ -200,9 +202,77 @@ class TestTrapGeometries:
             outcomes.append((veto.apply(me, [me, other], q, mask, 1), veto.record()))
             diag = veto.diagnostics_record()
             assert diag["budget_exhausted"] == 1 and diag["nodes_max"] == 4
-            assert veto.counters.kept_base == 1  # treated as an escape: no veto
+            assert diag["fallback_v2_kept"] == 1  # v2 decides; straight is v2-spacious
+            assert veto.counters.kept_base == 1
         assert outcomes[0] == outcomes[1] and outcomes[0][0] == 1
         assert outcomes[0][1]["node_budget"] == 3
+
+
+def head_beside_turn():
+    """Probe A (review 15): v2 vetoes into a turn that v4's escape test rejects.
+
+    Board 20x20, own snake (length 5, need 5) heads right at (5,0) along the top wall.
+    Straight is a 3-cell dead end (6..8, 0), closed by another snake whose head (6,1) is
+    4-adjacent to the right-turn cell (5,1); left leaves the board. v2: straight count 3
+    < need, right is open (spacious) -> veto to right. v4: straight has no escape and
+    right is blocked at step 1 (beside another head), so no direction escapes.
+    """
+    me = make_snake([(5, 0), (4, 0), (3, 0), (2, 0), (1, 0)], (1, 0), width=200, height=200)
+    other = make_snake(
+        [(6, 1), (7, 1), (8, 1), (9, 1), (9, 0)], (-1, 0), width=200, height=200, sid=1
+    )
+    return me, other
+
+
+class TestV2Fallback:
+    def test_no_escape_falls_back_to_the_v2_veto(self, setup_config):
+        me, other = head_beside_turn()
+        roster, q, mask = [me, other], torch.tensor(Q_PREFERS_STRAIGHT), torch.tensor(ALL)
+        assert v2_flags(me, [other]) == [False, False, True]
+        v2, v4 = FreeSpaceVeto(), LookaheadFreeSpaceVeto()
+        assert v2.apply(me, roster, q, mask, 1) == 2 and v2.counters.vetoes_applied == 1
+        assert v4.apply(me, roster, q, mask, 1) == 2  # was 1 (the dead end) before the fix
+        assert v4.record()["counters"] == v2.record()["counters"]
+        diag = v4.diagnostics_record()
+        assert diag["fallback_no_escape"] == 1 and diag["fallback_v2_vetoes"] == 1
+        assert diag["vetoes_applied"] == 0  # the escape search vetoed nothing itself
+        assert not some_continuation_survives(head_beside_turn, [1], 5)  # straight is fatal
+
+    def test_budget_exhaustion_falls_back_to_the_v2_veto(self, setup_config):
+        # Same 3-cell dead end, but the other snake's head (9,0) is far from both step-1
+        # cells: the search proves straight has no escape (1 node), then runs out of
+        # budget on right. Before the fix this kept the proven dead end.
+        def short_corridor():
+            me = make_snake([(5, 0), (4, 0), (3, 0), (2, 0), (1, 0)], (1, 0), 5, 200, 200)
+            walls = [(9, 0), (9, 1), (8, 1), (7, 1), (6, 1)]
+            return me, make_snake(walls, (0, -1), width=200, height=200, sid=1)
+
+        me, other = short_corridor()
+        roster, q, mask = [me, other], torch.tensor(Q_PREFERS_STRAIGHT), torch.tensor(ALL)
+        v2, v4 = FreeSpaceVeto(), LookaheadFreeSpaceVeto(node_budget=1)
+        assert v2.apply(me, roster, q, mask, 1) == 2
+        assert v4.apply(me, roster, q, mask, 1) == 2
+        diag = v4.diagnostics_record()
+        assert diag["budget_exhausted"] == 1 and diag["fallback_v2_vetoes"] == 1
+        assert diag["nodes_max"] == 2 and v4.record()["counters"] == v2.record()["counters"]
+        full = LookaheadFreeSpaceVeto()  # with its full budget v4 vetoes on its own
+        assert full.apply(me, roster, q, mask, 1) == 2
+        assert full.diagnostics_record()["vetoes_applied"] == 1
+        assert not some_continuation_survives(short_corridor, [1], 5)
+
+    def test_untriggered_and_fallback_decisions_equal_v2_in_random_worlds(self, setup_config):
+        fallbacks = 0
+        for budget in (DEFAULT_NODE_BUDGET, 5):
+            for me, roster, q, mask, base in random_worlds(101, 200):
+                v2, v4 = FreeSpaceVeto(), LookaheadFreeSpaceVeto(node_budget=budget)
+                action = v4.apply(me, roster, q, mask, base)
+                diag = v4.diagnostics_record()
+                if diag["kept_escape"] or diag["vetoes_applied"]:
+                    continue
+                fallbacks += diag["budget_exhausted"] + diag["fallback_no_escape"]
+                assert action == v2.apply(me, roster, q, mask, base)
+                assert v4.record()["counters"] == v2.record()["counters"]
+        assert fallbacks > 0
 
 
 class TestSearchModel:
@@ -351,7 +421,7 @@ class TestHookAndRecord:
         assert descriptor["replacement_rule"] == FreeSpaceVeto().descriptor()["replacement_rule"]
         assert descriptor["lookahead_depth"] == 8 and descriptor["node_budget"] == 4000
         assert descriptor["trigger_factor"] == 2 and descriptor["tail_release_slack"] == 1
-        assert descriptor["budget_fallback"] == "keep-base"
+        assert descriptor["budget_fallback"] == "v2-veto" == descriptor["no_escape_fallback"]
         record = veto.record()
         assert set(record) == set(descriptor) | {"counters"}
         assert set(record["counters"]) == set(FreeSpaceVeto().record()["counters"])
@@ -375,6 +445,9 @@ class TestHookAndRecord:
         parts += ("budget_exhausted", "fallback_no_escape")
         assert sum(diag[key] for key in parts) == diag["decisions"]
         assert diag["searches"] == diag["decisions"] - diag["kept_untriggered"]
+        split = ("fallback_v2_kept", "fallback_v2_vetoes", "fallback_v2_no_spacious")
+        assert sum(diag[k] for k in split) == diag["budget_exhausted"] + diag["fallback_no_escape"]
+        assert _screen().probe_identities_hold(diag, veto.counters.to_dict())
         veto.reset()
         assert veto.counters.decisions == 0 and veto.diagnostics_record()["decisions"] == 0
 
@@ -456,6 +529,37 @@ class TestLiveRollout:
         assert diag["decisions"] == probe["counters"]["decisions"] > 0
         again, veto_again = self._play(tiny_live, screen.install_v4)
         assert again == record  # deterministic replay (the D arm's premise)
+        assert deterministic(veto_again.diagnostics_record()) == deterministic(diag)
+
+    def test_forced_searches_in_a_live_rollout_are_deterministic(self, tiny_live, monkeypatch):
+        # The default trigger never fires on this tiny world, so force every decision
+        # through the escape search (and its v2 fallback) to pin the D arm's premise on the
+        # search path itself. Only rollout is real here; the screen runner is fatal.
+        from research.apex_safety_20260926 import dev_screen
+
+        def fatal(*args, **kwargs):
+            raise AssertionError("this test must not run screen episodes")
+
+        monkeypatch.setattr(dev_screen, "run_episode", fatal)
+        monkeypatch.setattr(
+            LookaheadFreeSpaceVeto, "trigger_threshold", lambda self, cap, need: int(cap) + 1
+        )
+        screen = _screen()
+        record, veto = self._play(tiny_live, screen.install_v4)
+        diag = veto.diagnostics_record()
+        counters = record["probes"]["safety_veto"]["counters"]
+        assert diag["decisions"] == counters["decisions"] > 0
+        assert diag["searches"] == diag["decisions"] and diag["kept_untriggered"] == 0
+        assert diag["nodes_total"] > 0 and diag["nodes_max"] <= DEFAULT_NODE_BUDGET + 1
+        assert screen.probe_identities_hold(diag, counters)
+        assert (
+            screen.check_record(
+                record, "B", world_seed=3, mix="scripted", roster_hashes=[], smoke=True
+            )
+            == []
+        )
+        again, veto_again = self._play(tiny_live, screen.install_v4)
+        assert again == record
         assert deterministic(veto_again.diagnostics_record()) == deterministic(diag)
 
     def test_installer_keeps_the_vector61_guard(self, tiny_live):
@@ -617,8 +721,10 @@ class TestScreenSelfCheck:
         }
         diag = {
             "decisions": counters["decisions"],
+            "kept_untriggered": counters["kept_base"],
             "vetoes_applied": counters["vetoes_applied"],
             "fallback_no_escape": counters["fallback_no_spacious"],
+            "fallback_v2_no_spacious": counters["fallback_no_spacious"],
             "searches": 3,
         }
         entry = {
@@ -639,6 +745,10 @@ class TestScreenSelfCheck:
         assert screen.check_entry(dict(entry, arm="D"), smoke=False)["failures"] == []
         stale = dict(entry, veto_diagnostics=dict(diag, decisions=diag["decisions"] + 1))
         assert screen.check_entry(stale, smoke=False)["warnings"]
+        split = dict(diag, vetoes_applied=0, fallback_v2_vetoes=counters["vetoes_applied"])
+        assert not screen.check_entry(dict(entry, veto_diagnostics=split), smoke=False)["warnings"]
+        moved = dict(diag, kept_untriggered=diag["kept_untriggered"] - 1, fallback_v2_kept=0)
+        assert screen.check_entry(dict(entry, veto_diagnostics=moved), smoke=False)["warnings"]
         assert screen.check_entry(dict(entry, arm="A"), smoke=False)["failures"]
         assert screen.check_entry(dict(entry, schema_version="x"), smoke=False)["failures"]
         assert screen.check_entry(dict(entry, arm="Z"), smoke=False)["failures"]
