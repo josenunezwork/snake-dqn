@@ -5,7 +5,8 @@ Label: **screen (non-authoritative)**. Governance: Tier 1 in
 champion, a deployment profile or the released Watch-hero veto. Written 2026-10-01, before
 any screen episode or smoke of this screen ran.
 
-Revision 1 (2026-10-01, still before any screen episode or smoke): the no-escape and
+Revision 1 (2026-10-01, before any screen episode; one 2-episode plumbing smoke on the
+smoke namespace had run from the pre-fix commit 9259e29, with 0 v4 searches): the no-escape and
 budget fallbacks now defer to the released v2 veto instead of keeping the base action
 (review finding: v4 could keep a certain-death dead end that v2 vetoes when the v2
 replacement's step-1 cell is next to another snake's head, or when the budget ran out
