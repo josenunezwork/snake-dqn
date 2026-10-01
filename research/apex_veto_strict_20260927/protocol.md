@@ -274,3 +274,24 @@ run-v2 changes only three things:
 
 The design, sizing (N = 235 at MDE 20), margins, caps (final 45000 s), decision
 rule and audit are unchanged. The host must stay on AC with the lid open.
+
+## Amendment 2026-09-30: run-v3
+
+run-v2 (intent `bef9e80f…`) also ended INVALID_STOP, on closed-lid sleep on
+battery after 104 of 1,410 final episodes. Its partial records were not
+analyzed.
+
+run-v3 changes:
+
+- **Namespaces:** fresh `-v3` namespaces, checked disjoint from every v1 and v2
+  bank and from all earlier checks.
+- **Output root:** `run-v3`.
+- **Runner hardening:**
+  - Heartbeat staleness is measured on the system monotonic clock, which
+    pauses during host sleep, instead of wall-clock file mtimes. A sleeping
+    host is no longer mistaken for a hung worker; a hung worker is still
+    caught.
+  - A Tier-2 `run` refuses to start on battery, before any record exists.
+
+The design, sizing (N = 235 at MDE 20), margins, caps (final 45000 s; wall
+caps count monotonic time), decision rule and audit are unchanged.

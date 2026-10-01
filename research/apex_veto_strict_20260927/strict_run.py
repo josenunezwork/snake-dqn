@@ -57,16 +57,20 @@ STAGES = ("calibration", "final", "serving")
 
 NAMESPACE_KEY = "worlds"
 NAMESPACES = {
-    "dev": ("apex-veto-strict-dev-v2", 16),
-    "final": ("apex-veto-strict-final-v2", 300),
-    "serving": ("apex-veto-strict-serving-v2", 50),
+    "dev": ("apex-veto-strict-dev-v3", 16),
+    "final": ("apex-veto-strict-final-v3", 300),
+    "serving": ("apex-veto-strict-serving-v3", 50),
 }
 SMOKE_DOMAIN = "apex-veto-strict-smoke-v1"  # plumbing dry-runs only; never Tier-2 worlds
-# run-v1 (INVALID_STOP, host thermal sleep) consumed part of these banks; run-v2 excludes all.
+# run-v1 and run-v2 (INVALID_STOP, host sleep) consumed parts of these banks; run-v3
+# excludes all of them. (Name kept for continuity: it lists every invalid-run bank.)
 RUN_V1_NAMESPACES = {
     "apex-veto-strict-dev-v1": 16,
     "apex-veto-strict-final-v1": 300,
     "apex-veto-strict-serving-v1": 50,
+    "apex-veto-strict-dev-v2": 16,
+    "apex-veto-strict-final-v2": 300,
+    "apex-veto-strict-serving-v2": 50,
 }
 SCREEN_PREFIX_CHECKED = 1000  # first seeds of apex-safety-screen-v1 checked for overlap
 
@@ -104,7 +108,7 @@ SUPERVISOR_SOURCE = Path(
 STUDY_ARTIFACT_ROOT = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927"
 )
-DEFAULT_OUT_ROOT = STUDY_ARTIFACT_ROOT / "run-v2"  # the pre-registered Tier-2 root (run-v1 invalid)
+DEFAULT_OUT_ROOT = STUDY_ARTIFACT_ROOT / "run-v3"  # pre-registered Tier-2 root (v1, v2 invalid)
 DEFAULT_SMOKE_ROOT = STUDY_ARTIFACT_ROOT / "smoke-v1"  # pre-GO plumbing dry-run root
 # The only root a non-smoke intent may use (tests point it at tmp_path).
 TIER2_OUT_ROOT = DEFAULT_OUT_ROOT
@@ -860,6 +864,33 @@ def run_unit_episode(
     )
 
 
+def _heartbeat_mono(path: Path, started: float) -> float:
+    """Last heartbeat on the system monotonic clock, which pauses while the host sleeps.
+
+    Wall-clock mtimes made a lid-close or thermal sleep look like a hung worker (run-v1,
+    run-v2). A missing or unreadable beat counts from stage start, so a worker that never
+    writes one is still caught; os.replace keeps a present file whole.
+    """
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")).get("mono")
+    except (OSError, ValueError, AttributeError):
+        return started
+    return float(value) if isinstance(value, (int, float)) and math.isfinite(value) else started
+
+
+def on_ac_power() -> bool:
+    """True when macOS reports the host drawing from AC; other platforms are not gated."""
+    if sys.platform != "darwin":
+        return True
+    try:
+        out = subprocess.run(
+            ["pmset", "-g", "batt"], capture_output=True, text=True, timeout=10, check=True
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "'AC Power'" in out
+
+
 def _write_heartbeat(path: Path, value: Mapping[str, Any]) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
@@ -921,7 +952,7 @@ def _worker_body(
     done: Dict[str, str] = {}
     spent: List[float] = []
     stopped = None
-    _write_heartbeat(heartbeat, {"utc": now_utc().isoformat(), "done": 0})
+    _write_heartbeat(heartbeat, {"utc": now_utc().isoformat(), "mono": time.monotonic(), "done": 0})
     for episode in planned:
         budget = max(MIN_EPISODE_BUDGET_SECONDS, 2 * sum(spent) / len(spent) if spent else 0)
         remaining = (stage_deadline - now_utc()).total_seconds()
@@ -939,7 +970,9 @@ def _worker_body(
         done[episode["episode_id"]] = write_durable(
             records_dir / f"{episode['episode_id']}.json", entry
         )
-        _write_heartbeat(heartbeat, {"utc": now_utc().isoformat(), "done": len(done)})
+        _write_heartbeat(
+            heartbeat, {"utc": now_utc().isoformat(), "mono": time.monotonic(), "done": len(done)}
+        )
     write_durable(
         shard_dir / "report.json",
         {
@@ -1075,8 +1108,7 @@ def supervise_children(
                 for beat, child in zip(heartbeats, children)
                 if beat is not None
                 and child.poll() is None
-                and time.time() - (Path(beat).stat().st_mtime if Path(beat).exists() else 0)
-                > heartbeat_stale_seconds
+                and clock() - _heartbeat_mono(Path(beat), started) > heartbeat_stale_seconds
                 and elapsed > heartbeat_stale_seconds
             ]
             failed = any(child.poll() not in (None, 0) for child in children)
@@ -1982,6 +2014,9 @@ def run(intent_path: Path) -> Dict[str, Any]:
                 Path(intent["slot_lock_root"]) == Path(supervisor.GLOBAL_LOCK_ROOT), "lock root"
             )
         supervisor.capacity_preflight(AVAILABLE_GIB)
+        if intent["smoke_frames"] is None:
+            # Two Tier-2 runs died on battery sleep; refuse before any record exists.
+            require(on_ac_power(), "host is on battery; plug in before a Tier-2 run")
         if output.exists():  # create-only: never resumes or retries
             raise FileExistsError(str(output))
         slots = acquire_run_slots(Path(intent["slot_lock_root"]))

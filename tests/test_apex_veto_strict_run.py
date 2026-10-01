@@ -582,6 +582,51 @@ class TestSupervision:
         )
         assert stale["cause"] == "heartbeat_stale"
 
+    def test_heartbeat_uses_monotonic_clock_not_wall_mtime(self, tmp_path):
+        """A beat whose file mtime is hours old (host sleep) but whose monotonic stamp is
+        fresh is not stale; a worker that keeps beating survives; a stale stamp is caught."""
+        # Child rewrites its beat with a fresh monotonic stamp, then backdates the mtime
+        # by a day, as wall time would look after a long host sleep.
+        beat = tmp_path / "beat.json"
+        code = (
+            "import json, os, time\n"
+            f"p = {str(beat)!r}\n"
+            "for _ in range(15):\n"
+            "    open(p + '.tmp', 'w').write(json.dumps({'mono': time.monotonic()}))\n"
+            "    os.replace(p + '.tmp', p)\n"
+            "    old = time.time() - 86400\n"
+            "    os.utime(p, (old, old))\n"
+            "    time.sleep(0.1)\n"
+        )
+        result = self.run(
+            tmp_path, [py(code)], wall_seconds=30, heartbeats=[beat], heartbeat_stale_seconds=0.5
+        )
+        assert result["cause"] is None
+
+    def test_heartbeat_mono_reader(self, tmp_path):
+        beat = tmp_path / "b.json"
+        assert sr._heartbeat_mono(beat, 7.0) == 7.0  # missing -> stage start
+        beat.write_text("{not json")
+        assert sr._heartbeat_mono(beat, 7.0) == 7.0
+        beat.write_text(json.dumps({"utc": "x"}))
+        assert sr._heartbeat_mono(beat, 7.0) == 7.0  # legacy beat without mono
+        beat.write_text(json.dumps({"mono": float("nan")}))
+        assert sr._heartbeat_mono(beat, 7.0) == 7.0
+        beat.write_text(json.dumps({"mono": 123.5}))
+        assert sr._heartbeat_mono(beat, 7.0) == 123.5
+
+    def test_stale_monotonic_beat_is_caught(self, tmp_path):
+        frozen = tmp_path / "frozen.json"
+        frozen.write_text(json.dumps({"mono": time.monotonic() - 3600}))
+        stale = self.run(
+            tmp_path,
+            [py("import time; time.sleep(60)")],
+            wall_seconds=30,
+            heartbeats=[frozen],
+            heartbeat_stale_seconds=0.5,
+        )
+        assert stale["cause"] == "heartbeat_stale"
+
     def test_run_slots_are_all_or_nothing_and_released(self, tmp_path):
         busy = (tmp_path / "cpu-slot-2.lock").open("a+")
         fcntl.flock(busy.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -740,14 +785,14 @@ class TestIntent:
 
 
 def test_output_root_policy_and_cli_defaults(monkeypatch):
-    """Smoke defaults to smoke-v1 and never a run root; a real intent only uses run-v2."""
+    """Smoke defaults to smoke-v1 and never a run root; a real intent only uses run-v3."""
     monkeypatch.setattr(sr, "TIER2_OUT_ROOT", sr.DEFAULT_OUT_ROOT)
     assert sr.DEFAULT_SMOKE_ROOT.parent == sr.DEFAULT_OUT_ROOT.parent == sr.STUDY_ARTIFACT_ROOT
     sr.check_output_root(sr.DEFAULT_OUT_ROOT, smoke=False)
     sr.check_output_root(sr.DEFAULT_SMOKE_ROOT, smoke=True)
     with pytest.raises(sr.StrictRunError, match="smoke dry-run may not use"):
         sr.check_output_root(sr.DEFAULT_OUT_ROOT, smoke=True)
-    for other in (sr.DEFAULT_SMOKE_ROOT, sr.STUDY_ARTIFACT_ROOT / "run-v1"):
+    for other in (sr.DEFAULT_SMOKE_ROOT, sr.STUDY_ARTIFACT_ROOT / "run-v2"):
         with pytest.raises(sr.StrictRunError, match="pre-registered root"):
             sr.check_output_root(other, smoke=False)
     seen = []
@@ -804,12 +849,12 @@ def test_smoke_dry_run_end_to_end(tmp_path):
         sr.run(path)  # create-only: never resumes or retries
 
 
-def test_run_v2_namespaces_exclude_every_run_v1_bank():
+def test_run_v3_namespaces_exclude_every_invalid_run_bank():
     """run-v2 banks are fresh and disjoint from all run-v1 banks (dev 16, final 300, serving 50)."""
     assert {d for d, _ in sr.NAMESPACES.values()} == {
-        "apex-veto-strict-dev-v2",
-        "apex-veto-strict-final-v2",
-        "apex-veto-strict-serving-v2",
+        "apex-veto-strict-dev-v3",
+        "apex-veto-strict-final-v3",
+        "apex-veto-strict-serving-v3",
     }
     v1 = {
         sr.dev_screen.uint32_seed(domain, sr.NAMESPACE_KEY, i)
@@ -819,4 +864,28 @@ def test_run_v2_namespaces_exclude_every_run_v1_bank():
     for domain, count in sr.NAMESPACES.values():
         v2 = {sr.dev_screen.uint32_seed(domain, sr.NAMESPACE_KEY, i) for i in range(count)}
         assert not v1 & v2
-    assert sr.DEFAULT_OUT_ROOT.name == "run-v2"
+    assert sr.DEFAULT_OUT_ROOT.name == "run-v3"
+
+
+def test_on_ac_power_parses_pmset(monkeypatch):
+    class Done:
+        def __init__(self, out):
+            self.stdout = out
+
+    monkeypatch.setattr(sr.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        sr.subprocess, "run", lambda *a, **k: Done("Now drawing from 'AC Power'\n -Int 100%")
+    )
+    assert sr.on_ac_power() is True
+    monkeypatch.setattr(
+        sr.subprocess, "run", lambda *a, **k: Done("Now drawing from 'Battery Power'\n")
+    )
+    assert sr.on_ac_power() is False
+
+    def boom(*a, **k):
+        raise OSError("no pmset")
+
+    monkeypatch.setattr(sr.subprocess, "run", boom)
+    assert sr.on_ac_power() is False  # fail closed on darwin
+    monkeypatch.setattr(sr.sys, "platform", "linux")
+    assert sr.on_ac_power() is True

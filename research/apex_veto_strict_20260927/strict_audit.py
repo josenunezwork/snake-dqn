@@ -98,9 +98,9 @@ SIZING_METHOD = "paired-delta-t-marginal-v1"
 # Seed recipe: uint32 big-endian prefix of sha256("<domain>|<namespace>|<index>").
 NAMESPACE_LABEL = "worlds"
 NAMESPACES = {
-    "calibration": ("apex-veto-strict-dev-v2", 16),
-    "final": ("apex-veto-strict-final-v2", N_MAX),
-    "serving": ("apex-veto-strict-serving-v2", SERVING_EPISODES),
+    "calibration": ("apex-veto-strict-dev-v3", 16),
+    "final": ("apex-veto-strict-final-v3", N_MAX),
+    "serving": ("apex-veto-strict-serving-v3", SERVING_EPISODES),
 }
 # Earlier namespaces (recomputed exactly as dev_screen.disjointness_report does).
 # The screen played its first 40 seeds (the sizing pilot); the first 1000 are excluded.
@@ -111,6 +111,9 @@ RUN_V1_NAMESPACES = {
     "apex-veto-strict-dev-v1": 16,
     "apex-veto-strict-final-v1": 300,
     "apex-veto-strict-serving-v1": 50,
+    "apex-veto-strict-dev-v2": 16,
+    "apex-veto-strict-final-v2": 300,
+    "apex-veto-strict-serving-v2": 50,
 }
 CHALLENGER_DOMAIN = "task-aligned-challenger-20260924/original6102/v1"
 CHALLENGER_COUNTS = {"development": 16, "shakedown": 4, "pilot": 16, "final": 120, "serving": 50}
@@ -857,7 +860,7 @@ def audit_serving(audit: Audit, episodes: Sequence[Mapping[str, Any]]) -> Dict[s
         "serving.worlds",
         len(seeds) == len(set(seeds)) and set(seeds) <= set(bank),
         {"episodes": len(seeds)},
-        "serving namespace apex-veto-strict-serving-v2, serving-selfplay roster",
+        "serving namespace apex-veto-strict-serving-v3, serving-selfplay roster",
     )
     return {"episodes": len(seeds), "complete": set(seeds) == set(bank)}
 
