@@ -22,10 +22,14 @@ Agents act via a :class:`SimdPolicy` — a batched, per-frame action selector ov
 the ``(num_agents, 6)`` safe-action masks the sim already computes. Three
 policies are provided: two scripted anchors (``greedy_food`` mask+food heuristic,
 ``random_safe`` mask-follower) and :class:`NetworkSimdPolicy`, which serves a
-raster (obs_spec ``raster31v2``) checkpoint through the shared featurizer. The
-61-D ``vector61`` champions are NOT featurized by the batch sim, so a vector
-checkpoint under ``--engine simd`` raises with a clear message pointing at
-``--engine live``.
+raster (obs_spec ``raster31v2``) checkpoint through the shared featurizer. By
+default a 61-D ``vector61`` checkpoint under ``--engine simd`` still raises with
+a clear message pointing at ``--engine live``.
+``run_simd_eval(..., vector61=True)`` (opt-in, profiled Watch path only)
+instead serves vector61 checkpoints through
+:class:`~src.simd_env.vector61_policy.Vector61SimdPolicy`, which reproduces the
+live AISnake carry-forward/mask/argmax semantics and, with
+``hero_safety_veto=True``, the v2 free-space veto on the hero.
 """
 
 from __future__ import annotations
@@ -58,6 +62,11 @@ from src.simd_env.batch_sim import (
     DEATH_WALL,
     BatchSim,
     BatchSimConfig,
+)
+from src.simd_env.vector61_policy import (
+    Vector61Runtime,
+    Vector61SimdPolicy,
+    checkpoint_is_vector61,
 )
 
 # (kind, ref) agent spec, matching tournament_eval.AgentSpec.
@@ -476,10 +485,12 @@ def _dispatch_actions(
     called once with all of its live ``(env, slot)`` rows for this frame.
     """
     alive = sim.get_alive()
-    network_rows: Dict[NetworkSimdPolicy, List[Tuple[int, int]]] = {}
+    network_rows: Dict[object, List[Tuple[int, int]]] = {}
 
     def dispatch(policy: SimdPolicy, env: int, slot: int) -> None:
-        if isinstance(policy, NetworkSimdPolicy):
+        # Vector61 policies are stateless per call: their per-row state was
+        # prepared by the shared Vector61Runtime before dispatch.
+        if isinstance(policy, (NetworkSimdPolicy, Vector61SimdPolicy)):
             network_rows.setdefault(policy, []).append((env, slot))
             return
         result = policy.actions(
@@ -588,6 +599,11 @@ def run_simd_eval(
     mix_id: str = "unspecified",
     world_runtime_spec: WorldRuntimeSpec | None = None,
     frame_observer: FrameObserver | None = None,
+    *,
+    vector61: bool = False,
+    hero_safety_veto: bool = False,
+    vector61_forward: str = "rowwise",
+    vector61_trace: Callable[[Mapping[str, object]], None] | None = None,
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -609,6 +625,15 @@ def run_simd_eval(
         frame_observer: Optional profiled-run callback invoked once after each
             transition with detached, hero-only pre/post frame facts.  It is a
             diagnostic seam: observer exceptions abort the evaluation.
+        vector61: Opt-in (default off). Serve ``vector61`` (Apex) checkpoints
+            with :class:`~src.simd_env.vector61_policy.Vector61SimdPolicy`.
+            Requires an explicit profile (the Watch selection phase). Off, a
+            vector checkpoint raises exactly as before.
+        hero_safety_veto: Opt-in v2 free-space veto on a vector61 hero (slot 0
+            only), with ``probes["safety_veto"]`` counters as in the live rollout.
+        vector61_forward: ``"rowwise"`` (bit-exact batch-1 forwards, default) or
+            ``"batched"`` (one forward per policy per frame).
+        vector61_trace: Optional diagnostic callable (see ``Vector61Runtime``).
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -657,6 +682,23 @@ def run_simd_eval(
                 raise ValueError("solo Watch diagnostic requires an empty opponent roster")
     elif world_runtime_spec is not None:
         raise ValueError("world_runtime_spec requires an explicit evaluation profile")
+    if vector61 and profile is None:
+        raise ValueError("vector61 SIMD evaluation requires an explicit evaluation profile")
+    vector61_runtime = Vector61Runtime(trace=vector61_trace) if vector61 else None
+    vector61_cache: Dict[Tuple[str, bool], Vector61SimdPolicy] = {}
+    vector61_specs: Dict[str, bool] = {}
+
+    def is_vector61(path: str) -> bool:
+        if path not in vector61_specs:
+            vector61_specs[path] = checkpoint_is_vector61(path)
+        return vector61_specs[path]
+
+    if hero_safety_veto and not (
+        vector61 and hero_spec[0] == "checkpoint" and is_vector61(hero_spec[1])
+    ):
+        raise ValueError(
+            "the safety veto applies only to a vector61 checkpoint hero (and needs vector61=True)"
+        )
 
     # Solo checkpoint contracts are checked before allocating the evaluation
     # worlds, and the loaded policy is reused below. Scripted anchors need no
@@ -719,7 +761,20 @@ def run_simd_eval(
         {hero_spec[1]: solo_checkpoint_policy} if solo_checkpoint_policy is not None else {}
     )
 
-    def policy_for(spec: AgentSpec, seed: int) -> SimdPolicy:
+    def policy_for(spec: AgentSpec, seed: int, *, hero: bool = False) -> SimdPolicy:
+        if vector61_runtime is not None and spec[0] == "checkpoint":
+            if is_vector61(spec[1]):
+                # The hero's veto must never reach a same-checkpoint opponent,
+                # so a vetoed hero gets its own (row-disjoint) policy instance.
+                key = (spec[1], bool(hero and hero_safety_veto))
+                if key not in vector61_cache:
+                    vector61_cache[key] = Vector61SimdPolicy(
+                        spec[1],
+                        vector61_runtime,
+                        veto_slots=(0,) if key[1] else (),
+                        forward=vector61_forward,
+                    )
+                return vector61_cache[key]
         if spec[0] != "checkpoint":
             return (
                 build_simd_policy(spec, seed)
@@ -739,13 +794,20 @@ def run_simd_eval(
             cached = built
         return cached
 
-    hero_policies = [policy_for(hero_spec, seed) for seed in seeds]
+    hero_policies = [policy_for(hero_spec, seed, hero=True) for seed in seeds]
     opp_policies: List[List[SimdPolicy]] = []
     for seed in seeds:
         row: List[SimdPolicy] = []
         for opp_slot, spec in enumerate(assigned_specs[len(opp_policies)], start=1):
             row.append(policy_for(spec, seed * 1000 + opp_slot))
         opp_policies.append(row)
+    if vector61_runtime is not None:
+        controlled = np.zeros((E, num_snakes), dtype=bool)
+        for env in range(E):
+            controlled[env, 0] = isinstance(hero_policies[env], Vector61SimdPolicy)
+            for slot, policy in enumerate(opp_policies[env], start=1):
+                controlled[env, slot] = isinstance(policy, Vector61SimdPolicy)
+        vector61_runtime.bind(sim, controlled)
 
     # The profile path consumes only exact BatchSim transition facts.  Preserve
     # the named legacy diagnostic accounting below until E2 retires it.
@@ -779,12 +841,16 @@ def run_simd_eval(
             def choose_actions(prepared_sim: BatchSim) -> np.ndarray:
                 nonlocal pre_frame
                 masks = prepared_sim.get_resolved_action_mask()
+                if vector61_runtime is not None:
+                    vector61_runtime.prepare(prepared_sim)
                 _dispatch_actions(prepared_sim, masks, actions, hero_policies, opp_policies)
                 if frame_observer is not None:
                     pre_frame = _hero_pre_frame_snapshot(prepared_sim, masks, actions)
                 return actions
 
             sim.step_with_policy(choose_actions)
+            if vector61_runtime is not None:
+                vector61_runtime.observe_step(sim)
         else:
             masks = sim.get_action_mask()
             _dispatch_actions(sim, masks, actions, hero_policies, opp_policies)
@@ -896,6 +962,10 @@ def run_simd_eval(
                         "strict_authority": False,
                     }
                 )
+            if hero_safety_veto:
+                hero_policy = hero_policies[e]
+                assert isinstance(hero_policy, Vector61SimdPolicy)
+                record.setdefault("probes", {})["safety_veto"] = hero_policy.veto_record(int(e))
             records.append(record)
             continue
         af = int(alive_frames[e])
