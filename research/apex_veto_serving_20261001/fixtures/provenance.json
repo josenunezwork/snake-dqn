@@ -1,0 +1,12 @@
+{
+  "run_v3_serving_record.json": {
+    "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927/run-v3/output/serving/records/serving-candidate-serving-selfplay-1167897278.json",
+    "sha256": "8f75b73be18aa6d0254288f935157f43a9c492b21a3932a87016848a0ca579c5",
+    "writer": "strict_run.episode_entry around tournament_eval.rollout(..., hero_safety_veto=True); probes.safety_veto from FreeSpaceVeto.record()"
+  },
+  "smoke-v1": {
+    "source": "serving_run.py --smoke (2026-10-01): 1 watch + 1 play x 500 frames, 1 parity probe x 200 frames",
+    "writer": "serving_run.main",
+    "note": "captured from the real producer path; the audit's positive tests run on this directory unmodified"
+  }
+}

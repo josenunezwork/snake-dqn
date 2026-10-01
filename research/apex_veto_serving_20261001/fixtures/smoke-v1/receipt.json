@@ -1,0 +1,17 @@
+{
+  "episodes": 2,
+  "failures": [],
+  "files": {
+    "default_check.json": "e0c910d5e2fdb95cbc80140088d3b0ec00f4dbb59e663db7e87b2e530309a9d6",
+    "parity/parity-000.json": "8bdd80cc8b25d20a4fb12d1b21502fd72224038fbc38fbe2e64ae61bddbb298f",
+    "records/play_ai-000.json": "0c5850a0c20dcf550b0483d308335c8610822c2fbb7343eeb8996919352c92d3",
+    "records/watch_hero-000.json": "11c1bb2837bd662393032fdc80c4e04b13fefabbc6432d459cabaa4ae518f401"
+  },
+  "frames": 1000,
+  "intent_sha256": "cde824631eabb53c8f3d112bba3214d2e071dc49dee7ec65a96f99eed2bea88c",
+  "note": "serving_path_qualified is set only by serving_audit.py's verdict",
+  "schema_version": "apex-veto-web-serving/v1",
+  "serving_path_qualified": null,
+  "study_id": "apex-veto-serving-20261001",
+  "wall_seconds": 43.303973000030965
+}

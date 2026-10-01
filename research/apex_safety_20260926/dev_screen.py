@@ -15,6 +15,11 @@ the strict balanced roster construction for the frozen/scripted/mixed mixes):
 Usage (about 80 min at the defaults, see protocol.md):
   SNAKE_DQN_DEVICE=cpu ./venv/bin/python research/apex_safety_20260926/dev_screen.py \
     --out /path/to/new/dir --deadline-utc 2026-09-27T06:00:00+00:00
+
+Opt-in additions (all default off; the default screen is unchanged): ``--use-slot-locks``
+holds a shared CPU slot lock around the run, ``--require-ac-power`` refuses to start on
+battery, and :class:`ScreenSpec` lets another screen reuse this harness with its own
+namespace and per-arm vetoes (``research/apex_veto_v3_screen_20261001/screen.py``).
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "2")
 os.environ.setdefault("MKL_NUM_THREADS", "2")
 
 import argparse  # noqa: E402
+import fcntl  # noqa: E402
 import hashlib  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
@@ -35,9 +41,11 @@ import subprocess  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
 from collections import Counter  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
-from typing import Any, Dict, List, Mapping, Sequence, Tuple  # noqa: E402
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Sequence, Tuple  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -95,6 +103,122 @@ POOL = (
     ("best_apex_pre_fs.pth", "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e"),
 )
 
+# Opt-in shared CPU slot locks (the strict runner's lock files; never created here).
+DEFAULT_SLOT_LOCK_ROOT = Path(
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909"
+)
+SLOT_LOCK_FILES = ("cpu-slot-1.lock", "cpu-slot-2.lock")
+# ``ScreenSpec.arm_vetoes`` value: rollout's own ``hero_safety_veto=True`` (v2) install.
+BUILTIN_VETO = "tournament_eval-builtin"
+
+
+@dataclass(frozen=True)
+class ScreenSpec:
+    """What a screen built on this harness varies (opt-in; default = this screen).
+
+    :data:`DEFAULT_SPEC` is this file's original Apex vs Apex + v2 veto screen and
+    leaves its records, intent and summary unchanged. Another screen (for example
+    ``research/apex_veto_v3_screen_20261001``) passes its own spec to :func:`main`.
+    ``arm_vetoes`` maps arm -> ``None`` (no veto), :data:`BUILTIN_VETO`, or a callable
+    ``install(hero) -> veto`` that replaces rollout's built-in install for that arm
+    (the built-in vector61 guard still runs first). Arm C must mirror arm A.
+    """
+
+    name: str = "apex-safety-dev-screen"
+    schema: str = SCHEMA
+    authority: str = AUTHORITY
+    domain: str = SCREEN_DOMAIN
+    namespace: str = SCREEN_NAMESPACE
+    protocol: Path = Path(__file__).resolve().parent / "protocol.md"
+    arm_vetoes: Mapping[str, Any] = field(
+        default_factory=lambda: {"A": None, "B": BUILTIN_VETO, "C": None}
+    )
+    arm_descriptions: Mapping[str, str] | None = None
+    extra_namespaces: Mapping[str, Sequence[int]] | None = None
+    require_slot_locks: bool = False
+    require_ac_power: bool = False
+
+    def veto_arms(self) -> Tuple[str, ...]:
+        """Arms (of A, B) whose records carry a ``safety_veto`` probe."""
+        return tuple(arm for arm in ("A", "B") if self.arm_vetoes.get(arm) is not None)
+
+
+DEFAULT_SPEC = ScreenSpec()
+
+
+@contextmanager
+def hero_veto_installer(install: Callable[[Any], Any] | None) -> Iterator[List[Any]]:
+    """Route rollout's hero veto install through ``install`` for one episode.
+
+    Yields the list of installed veto objects. ``None`` patches nothing. The
+    original installer still runs first, so its vector61-hero guard applies.
+    """
+    installed: List[Any] = []
+    if install is None:
+        yield installed
+        return
+    from src.scripts import tournament_eval
+
+    original = tournament_eval._install_hero_safety_veto
+
+    def patched(hero: Any, hero_spec: Any) -> Any:
+        original(hero, hero_spec)
+        veto = install(hero)
+        installed.append(veto)
+        return veto
+
+    tournament_eval._install_hero_safety_veto = patched
+    try:
+        yield installed
+    finally:
+        tournament_eval._install_hero_safety_veto = original
+
+
+def acquire_cpu_slots(root: Path, count: int, timeout: float) -> List[Any]:
+    """Hold ``count`` free shared CPU slot locks (first free in file order) or raise.
+
+    The lock files must already exist: they are opened read-only and never created.
+    """
+    if not 1 <= int(count) <= len(SLOT_LOCK_FILES):
+        raise ValueError(f"slot count must be 1..{len(SLOT_LOCK_FILES)}")
+    paths = [Path(root) / name for name in SLOT_LOCK_FILES]
+    missing = [str(path) for path in paths if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"slot lock files missing (not created here): {missing}")
+    started = time.monotonic()
+    while True:
+        held: List[Any] = []
+        for path in paths:
+            handle = path.open("r")
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                handle.close()
+                continue
+            held.append(handle)
+            if len(held) == count:
+                return held
+        release_cpu_slots(held)
+        if time.monotonic() - started > timeout:
+            raise TimeoutError(f"{count} CPU slot(s) unavailable for {timeout:.0f} s")
+        time.sleep(0.5)
+
+
+def release_cpu_slots(handles: Sequence[Any]) -> None:
+    """Unlock and close slot handles from :func:`acquire_cpu_slots`."""
+    for handle in handles:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+def on_ac_power() -> bool:
+    """The strict runner's AC-power check (macOS ``pmset``; other platforms pass)."""
+    from research.apex_veto_strict_20260927.strict_run import on_ac_power as strict_on_ac
+
+    return strict_on_ac()
+
 
 def uint32_seed(domain: str, namespace: str, index: int) -> int:
     """SHA-256 prefix seed, the recipe of the task-aligned namespaces module."""
@@ -102,9 +226,11 @@ def uint32_seed(domain: str, namespace: str, index: int) -> int:
     return int.from_bytes(digest[:4], "big")
 
 
-def screen_seeds(count: int) -> List[int]:
+def screen_seeds(
+    count: int, domain: str = SCREEN_DOMAIN, namespace: str = SCREEN_NAMESPACE
+) -> List[int]:
     """The screen's world seeds (shared by all three mixes, as in the strict design)."""
-    seeds = [uint32_seed(SCREEN_DOMAIN, SCREEN_NAMESPACE, index) for index in range(count)]
+    seeds = [uint32_seed(domain, namespace, index) for index in range(count)]
     if len(set(seeds)) != len(seeds):
         raise ValueError("screen seed collision inside the namespace; stop, no repair")
     return seeds
@@ -130,7 +256,12 @@ def observed_pilot_seeds(pilot_output: Path) -> Dict[str, List[int]]:
 
 
 def disjointness_report(
-    seeds: Sequence[int], pilot_output: Path | None, extra_exclusions: Sequence[Path] = ()
+    seeds: Sequence[int],
+    pilot_output: Path | None,
+    extra_exclusions: Sequence[Path] = (),
+    *,
+    screen_domain: str = SCREEN_DOMAIN,
+    extra_namespaces: Mapping[str, Sequence[int]] | None = None,
 ) -> Dict[str, Any]:
     """Check the screen worlds against every earlier namespace we can reach.
 
@@ -138,12 +269,13 @@ def disjointness_report(
     from the frozen recipe); the seeds actually played by the strict pilot's
     development and pilot records (which must equal the recomputed namespaces,
     proving the recipe); the small-integer seeds used by tournament_eval CLI
-    defaults and tests (0..999); and any JSON int lists passed explicitly.
+    defaults and tests (0..999); any JSON int lists passed explicitly; and, opt-in,
+    ``extra_namespaces`` (name -> seeds, reported under the same key).
     """
     screen = set(int(seed) for seed in seeds)
     namespaces = challenger_namespaces()
     report: Dict[str, Any] = {
-        "screen_domain": SCREEN_DOMAIN,
+        "screen_domain": screen_domain,
         "screen_count": len(screen),
         "challenger_domain": CHALLENGER_DOMAIN,
         "challenger_namespaces": {
@@ -175,9 +307,15 @@ def disjointness_report(
     for path in extra_exclusions:
         values = {int(value) for value in json.loads(Path(path).read_text())}
         report["extra_exclusions"][str(path)] = sorted(screen & values)
+    if extra_namespaces is not None:
+        report["extra_namespaces"] = {
+            name: {"count": len(values), "overlap": sorted(screen & {int(v) for v in values})}
+            for name, values in extra_namespaces.items()
+        }
     overlaps = [row["overlap"] for row in report["challenger_namespaces"].values()]
     overlaps.append(report["small_integer_seeds_0_999_overlap"])
     overlaps.extend(report["extra_exclusions"].values())
+    overlaps.extend(row["overlap"] for row in report.get("extra_namespaces", {}).values())
     if report["strict_pilot_observed"]:
         overlaps.extend(row["overlap"] for row in report["strict_pilot_observed"].values())
     report["recipe_reproduces_pilot"] = recipe_ok
@@ -375,32 +513,41 @@ def run_episode(
     profile: Any,
     records_dir: Path,
     smoke_frames: int | None = None,
+    spec: ScreenSpec = DEFAULT_SPEC,
 ) -> Dict[str, Any]:
-    """Play one hero episode for ``arm`` on one roster row and persist it."""
+    """Play one hero episode for ``arm`` on one roster row and persist it.
+
+    ``spec`` (opt-in) picks the arm's veto; :data:`DEFAULT_SPEC` is the original
+    "B = built-in v2 veto, A and C none" and writes the original entry shape.
+    """
     from src.evaluation.strict_promotion import _expected_world_identity
     from src.scripts.tournament_eval import rollout
 
     hero = lookup[CHAMPION[1]]
     opponents = [lookup[slot["member_sha256"]] for slot in row["slots"]]
-    veto = arm == "B"
+    install = spec.arm_vetoes.get(arm)
+    veto = install is not None
     started = time.monotonic()
-    if smoke_frames is not None:
-        # Plumbing smoke only: legacy (profile-free) path, truncated horizon.
-        record = rollout(hero, opponents, smoke_frames, row["world_seed"], hero_safety_veto=veto)
-    else:
-        record = rollout(
-            hero,
-            opponents,
-            HORIZON,
-            row["world_seed"],
-            profile=profile,
-            world_identity=_expected_world_identity(row),
-            mix_id=row["mix"],
-            hero_safety_veto=veto,
-        )
+    with hero_veto_installer(install if callable(install) else None) as installed:
+        if smoke_frames is not None:
+            # Plumbing smoke only: legacy (profile-free) path, truncated horizon.
+            record = rollout(
+                hero, opponents, smoke_frames, row["world_seed"], hero_safety_veto=veto
+            )
+        else:
+            record = rollout(
+                hero,
+                opponents,
+                HORIZON,
+                row["world_seed"],
+                profile=profile,
+                world_identity=_expected_world_identity(row),
+                mix_id=row["mix"],
+                hero_safety_veto=veto,
+            )
     entry = {
-        "schema_version": SCHEMA,
-        "authority": AUTHORITY,
+        "schema_version": spec.schema,
+        "authority": spec.authority,
         "arm": arm,
         "mix": row["mix"],
         "world_index": world_index,
@@ -411,6 +558,11 @@ def run_episode(
         "wall_seconds": time.monotonic() - started,
         "record": record,
     }
+    if spec is not DEFAULT_SPEC:
+        entry["screen"] = spec.name
+        entry["safety_veto_method"] = record["probes"]["safety_veto"]["method"] if veto else None
+        diagnostics = getattr(installed[-1], "diagnostics_record", None) if installed else None
+        entry["veto_diagnostics"] = diagnostics() if callable(diagnostics) else None
     write_new_json(records_dir / f"{arm}-{row['mix']}-{row['world_seed']}.json", entry)
     return entry
 
@@ -504,12 +656,14 @@ def summarize(
     mixes: Sequence[str] = MIXES,
     smoke: bool = False,
     preregistered: Tuple[int, int] = PREREGISTERED_DESIGN,
+    veto_arms: Sequence[str] = ("B",),
 ) -> Dict[str, Any]:
     """Pre-registered analysis (protocol.md): paired B-A deltas, Holm, controls.
 
     ``preregistered`` is the ``(worlds_per_mix, determinism_worlds)`` design the
     decision is valid for; any other run size yields ``NON_PREREGISTERED_DESIGN``
-    (tests pass their own small design). The result is JSON-safe
+    (tests pass their own small design). ``veto_arms`` (opt-in) lists the arms
+    whose ``safety_veto`` counters are totalled as ``safety_veto_<arm>``. The result is JSON-safe
     (non-finite floats become ``None`` with a ``<key>_nonfinite`` tag).
     """
     from src.scripts.eval_stats import (
@@ -551,8 +705,10 @@ def summarize(
                 "one_sided_test_unadjusted": paired_delta_test(survival, ALPHA),
             },
             "death_causes": {"A": _death_table(a), "B": _death_table(b)},
-            "safety_veto_B": _veto_totals(b),
         }
+        arm_records = {"A": a, "B": b}
+        for arm in veto_arms:
+            per_mix[mix][f"safety_veto_{arm}"] = _veto_totals(arm_records[arm])
     holm = None
     sizing = None
     if tuple(mixes) == MIXES and all(len(deltas_by_mix[m]) >= 2 for m in MIXES):
@@ -672,6 +828,17 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help="plumbing smoke only (<= 500 frames, <= 2 episodes, legacy path, no decision)",
     )
     parser.add_argument("--smoke-mixes", default="scripted", help="smoke only: mixes to run")
+    parser.add_argument(
+        "--use-slot-locks",
+        action="store_true",
+        help="opt-in: hold shared CPU slot lock(s) from before --out exists to the summary",
+    )
+    parser.add_argument("--slot-lock-root", type=Path, default=DEFAULT_SLOT_LOCK_ROOT)
+    parser.add_argument("--slots", type=int, default=1, help="slot locks to hold (1 process)")
+    parser.add_argument("--slot-timeout-seconds", type=float, default=180.0)
+    parser.add_argument(
+        "--require-ac-power", action="store_true", help="opt-in: refuse to start on battery"
+    )
     args = parser.parse_args(argv)
     minimum_worlds = 1 if args.smoke_frames is not None else 2
     if args.worlds_per_mix < minimum_worlds or not (
@@ -698,9 +865,14 @@ def _configure_torch() -> None:
         pass
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, spec: ScreenSpec = DEFAULT_SPEC) -> int:
     args = parse_args(argv)
     smoke = args.smoke_frames is not None
+    if spec.arm_vetoes.get("C") is not spec.arm_vetoes.get("A"):
+        print("screen spec: arm C must repeat arm A's veto configuration", file=sys.stderr)
+        return 2
+    use_locks = bool(args.use_slot_locks or spec.require_slot_locks)
+    need_ac = bool(args.require_ac_power or spec.require_ac_power)
     if args.deadline_utc <= datetime.now(timezone.utc):
         print("deadline already passed", file=sys.stderr)
         return 2
@@ -725,8 +897,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("resolved profile differs from the strict pilot's profile", file=sys.stderr)
         return 2
 
-    seeds = screen_seeds(args.worlds_per_mix)
-    disjoint = disjointness_report(seeds, args.pilot_output, args.exclude_seeds_json)
+    seeds = screen_seeds(args.worlds_per_mix, spec.domain, spec.namespace)
+    disjoint = disjointness_report(
+        seeds,
+        args.pilot_output,
+        args.exclude_seeds_json,
+        screen_domain=spec.domain,
+        extra_namespaces=spec.extra_namespaces,
+    )
     parity = roster_parity_report(args.pilot_output)
     failures = preflight_failures(disjoint, parity, smoke)
     if failures:
@@ -738,6 +916,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
+    if need_ac and not on_ac_power():
+        print("refusing to start on battery power (--require-ac-power)", file=sys.stderr)
+        return 2
+    slots: List[Any] = []
+    if use_locks:
+        try:
+            slots = acquire_cpu_slots(args.slot_lock_root, args.slots, args.slot_timeout_seconds)
+        except (OSError, TimeoutError, ValueError) as exc:
+            print(f"CPU slot locks not acquired: {exc}", file=sys.stderr)
+            return 2
+    try:
+        return _run_screen(
+            args, argv, spec, out, seeds, disjoint, parity, profile, use_locks, smoke
+        )
+    finally:
+        release_cpu_slots(slots)
+
+
+def _run_screen(
+    args: argparse.Namespace,
+    argv: Sequence[str] | None,
+    spec: ScreenSpec,
+    out: Path,
+    seeds: Sequence[int],
+    disjoint: Mapping[str, Any],
+    parity: Mapping[str, Any],
+    profile: Any,
+    use_locks: bool,
+    smoke: bool,
+) -> int:
+    """The screen body (``main`` holds any slot locks around it)."""
     out.mkdir(parents=True)
     records_dir = out / "records"
     records_dir.mkdir()
@@ -753,7 +962,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "schema_version": SCHEMA,
         "authority": AUTHORITY,
         "promotion_authorized": False,
-        "protocol": str(Path(__file__).resolve().parent / "protocol.md"),
+        "protocol": str(Path(spec.protocol).resolve()),
         "argv": list(sys.argv if argv is None else argv),
         "started_utc": datetime.now(timezone.utc).isoformat(),
         "deadline_utc": args.deadline_utc.isoformat(),
@@ -765,12 +974,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         "hero": {"name": CHAMPION[0], "sha256": CHAMPION[1]},
         "checkpoint_pool": [{"name": name, "sha256": sha} for name, sha in POOL],
         "checkpoint_snapshots": snapshots,
-        "arms": {
-            "A": "champion",
-            "B": "champion + free-space veto (src/evaluation/safety_veto.py)",
-            "C": f"champion repeated on the first {args.determinism_worlds} worlds per mix",
-        },
-        "worlds": {"domain": SCREEN_DOMAIN, "namespace": SCREEN_NAMESPACE, "seeds": seeds},
+        "arms": (
+            dict(spec.arm_descriptions)
+            if spec.arm_descriptions is not None
+            else {
+                "A": "champion",
+                "B": "champion + free-space veto (src/evaluation/safety_veto.py)",
+                "C": f"champion repeated on the first {args.determinism_worlds} worlds per mix",
+            }
+        ),
+        "worlds": {"domain": spec.domain, "namespace": spec.namespace, "seeds": list(seeds)},
         "disjointness": disjoint,
         "roster_parity": parity,
         "preregistered_design": preregistered_design_report(
@@ -779,6 +992,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         "planned_episodes": len(plan),
         "threads": {"torch_intraop": 2, "torch_interop": 1},
     }
+    if spec is not DEFAULT_SPEC:
+        intent.update({"schema_version": spec.schema, "authority": spec.authority})
+        intent["screen"] = spec.name
+    if use_locks:
+        intent["slot_locks"] = {
+            "root": str(Path(args.slot_lock_root)),
+            "held": args.slots,
+            "held_from": "before --out existed until summary.json was written",
+        }
+    if args.require_ac_power or spec.require_ac_power:
+        intent["ac_power_checked_at_start"] = True
     write_new_json(out / "intent.json", intent)
 
     entries: List[Dict[str, Any]] = []
@@ -802,6 +1026,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 profile,
                 records_dir,
                 smoke_frames=args.smoke_frames,
+                spec=spec,
             )
             entries.append(entry)
             events.write(
@@ -824,7 +1049,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     for sha, path in snapshots.items():
         if sha256_file(Path(path)) != sha:
             raise RuntimeError(f"checkpoint snapshot {path} changed during the screen")
-    summary = summarize(entries, seeds, args.determinism_worlds, args.mixes, smoke=smoke)
+    summary = summarize(
+        entries,
+        seeds,
+        args.determinism_worlds,
+        args.mixes,
+        smoke=smoke,
+        veto_arms=spec.veto_arms(),
+    )
+    if spec is not DEFAULT_SPEC:
+        summary.update({"schema_version": spec.schema, "authority": spec.authority})
     summary.update(
         {
             "finished_utc": datetime.now(timezone.utc).isoformat(),

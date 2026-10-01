@@ -34,6 +34,11 @@ from src.game.game_state import GameState
 from src.model.obs_spec import DEFAULT_OBS_SPEC, RASTER31V2, RASTER31V3, VECTOR61
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
+from web.backend.safety_veto_serving import (
+    ServingVetoFlags,
+    ServingVetoState,
+    install_serving_vetoes,
+)
 
 # The three ways to drive the shared game.
 MODE_WATCH = "watch"  # AI plays itself; we observe.
@@ -451,8 +456,17 @@ def _v3_normalization_args(world: EffectiveWorldConfig) -> dict[str, int]:
 class GameSession:
     """A single running game the whole server shares (one game, many viewers)."""
 
-    def __init__(self, checkpoint: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        checkpoint: Optional[str] = None,
+        safety_veto_flags: Optional[ServingVetoFlags] = None,
+    ) -> None:
         self._lock = threading.RLock()
+        # Opt-in serving safety veto (web/backend/safety_veto_serving.py). None
+        # reads SNAKE_SERVE_VETO_* from the environment on every build; both
+        # default to off, in which case no snake is wrapped.
+        self._safety_veto_flags: Optional[ServingVetoFlags] = safety_veto_flags
+        self.safety_veto: Optional[ServingVetoState] = None
         self.playing: bool = True
         self.speed: float = 12.0  # frames per second
         self.mode: str = MODE_WATCH
@@ -672,6 +686,12 @@ class GameSession:
             # all-respawn behavior.
             if v3_metadata is not None and game.snakes:
                 game.snakes[0].auto_respawn = False
+        flags = self._safety_veto_flags
+        if flags is None:
+            flags = ServingVetoFlags.from_env()
+        self.safety_veto = install_serving_vetoes(
+            game, policy, mode, obs_spec, checkpoint_hash, flags
+        )
 
     # -- stepping -----------------------------------------------------------
     def step(self) -> None:
@@ -1087,6 +1107,11 @@ class GameSession:
                 # not silently reset a user's Watch/Play session.
 
     # -- state report -------------------------------------------------------
+    def safety_veto_state(self) -> Optional[Dict[str, object]]:
+        """The opt-in serving veto report for the current build (None before any)."""
+        with self._lock:
+            return None if self.safety_veto is None else self.safety_veto.to_dict()
+
     def control_state(self) -> Dict[str, object]:
         with self._lock:
             return {
