@@ -364,3 +364,92 @@ there.
 - The SIMD vector61 path supports only the profiled Watch loop. The legacy
   diagnostic path (`profile=None`) raises when `vector61=True`, because its
   selection runs before food maintenance and respawn.
+
+## H5000 parity check against saved live records (2026-10-01)
+
+Development-only check: no gate, screen or decision. It is **not** the Tier-1
+A/A screen described under "The path to promote SIMD". It plays no live
+episodes. It reruns, on SIMD, worlds that already belong to another screen
+(`apex-safety-screen-v1`), and it compares against that screen's saved live
+records.
+
+- **Script.** `research/simd_parity_h5000_20261001/aa_check.py` (commit
+  `2f8086a`). Comparison-logic test: `tests/test_simd_parity_h5000_check.py`
+  (14 tests; two saved live records as fixtures; episode runners made fatal).
+- **Worlds.** The first 8 worlds of each mix in that screen's seed order
+  (`545722568 ... 2440611966`; the screen uses the same seeds for every mix):
+  frozen, scripted and mixed. Rosters were rebuilt with
+  `dev_screen._design_rows` and checked against each live record's
+  `roster_member_sha256s`. World identities came from
+  `_expected_world_identity`. The pinned checkpoint SHAs and config SHA match
+  that run's `intent.json` and `checkpoints/`, and the profile digest is
+  `d396d3ed...`.
+- **Arms.** A is the champion without a veto. B is the champion with the v2
+  veto (`hero_safety_veto=True`). Both run at H5000 with
+  `run_simd_eval(vector61=True, vector61_forward="rowwise")`.
+- **Run conditions.** CPU, `OMP_NUM_THREADS=2`, torch threads 2/1, CPU slot 2
+  held, on AC power. The v4 screen was running on slot 1 at the same time.
+  Output: `snake-dqn-artifacts/simd-h5000-parity-20261001/run-v1` (not
+  committed). The run used HEAD `af06ea0` plus the then-uncommitted script,
+  which was committed unchanged as `2f8086a`.
+- **What is compared.** The whole record, as canonical JSON with type-strict
+  equality, minus only the SIMD-only keys:
+  - `world_runtime_spec` and `world_runtime_spec_digest`: the SIMD storage
+    binding, which live never emits.
+  - `vector61_policy`: provenance, checked separately against
+    `vector61_provenance("rowwise", veto)`.
+
+  The wrapper fields `arm`, `mix`, `world_index`, `world_seed`, roster SHAs,
+  hero SHA and `safety_veto` are compared too. `wall_seconds`,
+  `schema_version` and `authority` are excluded because they are runtime
+  values or labels. Reported separately: mass integral, survival fraction,
+  deaths, death cause, kills, denominators, veto counters and world identity.
+
+**Result: 48/48 records identical, 0 differing, no first differing field.**
+By arm and mix, every cell is 8/8.
+
+Coverage over the 48 episodes:
+
+- **Arm A.** 24 deaths (23 self, 1 wall) and 37 kills.
+- **Arm B.** 23 deaths (all self), 1 survival to H5000 and 94 kills.
+- **B veto counters, all equal to live.** 59,947 decisions, 63 vetoes applied,
+  494 no-spacious fallbacks, 8 vetoes to boost, 9 vetoed base boosts and 1
+  speed switch.
+
+**Limits.**
+
+- Equality holds at the record level only. This run did not compare
+  per-decision actions or states at H5000. That was done only up to 2,000
+  frames, in the sections above.
+- Boundary veto decisions (`count == need`) were not counted here.
+- The sample is 8 worlds per mix, all from one screen's namespace.
+
+**Timing.** SIMD runs each (mix, arm) as one batch of 8 environments. Per-episode
+SIMD wall time is the batch time divided by 8 (amortized). Live wall time is
+the sum of the saved per-episode `wall_seconds` from 2026-09-27.
+
+| Mix | Arm | SIMD batch (s) | SIMD per episode (s) | Live sum (s) | Speedup |
+|---|---|---:|---:|---:|---:|
+| frozen | A | 57.7 | 7.2 | 209.4 | 3.63x |
+| frozen | B | 70.9 | 8.9 | 245.7 | 3.47x |
+| scripted | A | 61.8 | 7.7 | 189.8 | 3.07x |
+| scripted | B | 68.4 | 8.5 | 225.5 | 3.30x |
+| mixed | A | 47.0 | 5.9 | 200.2 | 4.26x |
+| mixed | B | 61.7 | 7.7 | 270.5 | 4.38x |
+| **total** | | **367.5** | **7.7** | **1341.1** | **3.65x** |
+
+The speedups compare runs made on different days under different machine
+load, so read them as approximate.
+
+**Recommendation update.**
+
+- SIMD vector61 with the v2 veto (rowwise forward) is acceptable for Tier-1
+  screens and for pilot sizing at H5000. The engine rules above still apply:
+  both arms of a screen run on one engine, and the engine is recorded in the
+  intent.
+- Strict final evidence may move to SIMD only after
+  `docs/research/governance_tiers_2026-09-26.md` is amended to allow it. That
+  amendment is not made here. Until it lands, the governance document governs
+  and strict final evidence stays on the live engine.
+- This check does not replace the planned Tier-1 A/A screen on a fresh
+  namespace. It does lower the expected risk of that screen.
