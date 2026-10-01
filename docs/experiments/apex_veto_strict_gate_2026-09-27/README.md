@@ -75,3 +75,58 @@ or the power is unplugged. Before any run-v3, do one or more of the following:
    could also resume safely.
 3. Wire the fast SIMD engine so the gate takes much less wall time.
 4. Run on an always-on machine.
+
+## run-v3 (2026-10-01): **STRICT_PASS**
+
+| Item | Value |
+|---|---|
+| Source | `c841726` (monotonic heartbeat, AC guard, fresh `-v3` namespaces) |
+| Intent | `0159e26a…7e68` |
+| Authorization | "i think we're good now continue" |
+| Run | 00:26 → 04:42 UTC, on AC; calibration 48, final 1,410, serving 50 episodes |
+| Mean episode wall time | 19.0 s |
+
+The independent stdlib audit **PASS**ed. The producer self-check agrees, and
+the decisions agree.
+
+| Record | SHA-256 |
+|---|---|
+| `closeout.json` | `9df7a851…d122` |
+| `receipt.json` | `18b65519…04c1` |
+| `decision.json` | `88f5c4ef…f5` |
+
+Final bank: 235 fresh worlds per mix, paired. Apex is the champion
+`43d4e2c5…`; the candidate is the same checkpoint plus
+`free-space-veto/v2-speed-preserving`.
+
+| Mix | Apex mass | +veto mass | Δ (95% CI) | Holm-adj p | Survival Apex → +veto | Worlds better / equal / worse |
+|---|---:|---:|---|---:|---|---|
+| frozen | 49.2 | 125.4 | +76.2 [62.6, 89.8] | 5e-23 | 0.280 → 0.485 | 156 / 63 / 16 |
+| scripted | 47.7 | 121.0 | +73.3 [59.8, 86.7] | 5e-22 | 0.247 → 0.428 | 147 / 75 / 13 |
+| mixed | 61.8 | 144.5 | +82.6 [67.3, 97.9] | 5e-22 | 0.315 → 0.515 | 156 / 48 / 31 |
+
+Every gate passed:
+
+- **Superiority:** Holm superiority in all three mixes; at least two were required.
+- **Scripted noninferiority:** the lower bound is +62.0, against a margin of −1.46.
+- **Survival bands:** passed in all three mixes.
+
+Mass is roughly 2.5× Apex's in every mix. Full-horizon survivals rose from 1
+to 27 of 705. Most deaths are still self-collisions (196 / 192 / 205 with the
+veto, vs 206 / 193 / 217 without). The veto delays self-traps far more often
+than it prevents them, so a look-ahead veto remains the obvious next lever.
+
+The Tier-1 screen estimate (+43 to +55 on 40 worlds per mix) was lower than
+this result. Both are within noise of each other and confirm the same sign.
+
+**What this does not do:**
+
+- No champion file, default, config or deployment changed. A STRICT_PASS is a
+  receipt only.
+- `serving_path_qualified = false`. The web Watch/Play path has no veto hook,
+  the serving receipt schema only accepts raster31v3, and a 50-episode web
+  serving run with its own audit is still required.
+- The study measures **one** wrapped hero against unwrapped opponents. Wrapping
+  every AI snake in Play or Watch needs its own evaluation.
+- Release is a separate, explicit user-approved action that cites this exact
+  receipt and keeps the incumbent's rollback.
