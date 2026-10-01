@@ -779,7 +779,7 @@ class TestScreenPreregistrationGuards:
         from research.apex_safety_20260926 import dev_screen
 
         screen = _screen()
-        assert screen.SPEC.max_wall_seconds == screen.MAX_WALL_SECONDS == 3 * 3600
+        assert screen.SPEC.max_wall_seconds == screen.MAX_WALL_SECONDS == 4 * 3600
         assert dev_screen.DEFAULT_SPEC.max_wall_seconds is None
         soon = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
         argv = ["--out", str(tmp_path / "o"), "--deadline-utc", soon]

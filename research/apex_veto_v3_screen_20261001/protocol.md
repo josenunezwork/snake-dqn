@@ -4,7 +4,7 @@ Label: **screen (non-authoritative)**. Governance: Tier 1 in
 `docs/research/governance_tiers_2026-09-26.md`. Nothing here can change a default, the
 champion, or a deployment profile. Written 2026-10-01, before any screen episode ran.
 Revised once after review, still before any screen episode: the growth-gap caveat and its
-reported diagnostic, the refusal of non-pre-registered sizes, the 3 h wall-time cap, and
+reported diagnostic, the refusal of non-pre-registered sizes, the 4 h wall-time cap, and
 the Tier-1 intent fields below. Arms, worlds, metric and decision rule are unchanged.
 
 - `screen_id`: `apex-veto-v3-screen-v1`
@@ -14,7 +14,7 @@ the Tier-1 intent fields below. Arms, worlds, metric and decision rule are uncha
 - Owner: Apex safety lane. The git SHA and dirty paths are recorded in `intent.json`, with
   this file's `protocol_sha256`, the owner, hypothesis, decision it informs, primary
   metric, estimator, decision rule and compute cap (`compute_cap`: planned episodes,
-  deadline and the 3 h maximum), all written before any episode runs.
+  deadline and the 4 h maximum), all written before any episode runs.
 
 ## Question and the decision it informs
 
@@ -120,8 +120,8 @@ the decision.
 
 - 264 episodes (240 A/B + 24 C). At about 21 s per v2 episode (run-v3 mean) plus v3 search
   overhead, expect about 1.6–2 h on CPU with 2 torch threads.
-- Cap: at most 3 h (10800 s) of wall time. `screen.py` refuses a `--deadline-utc` more than
-  3 h after launch, and the run stops at that deadline. The harness does not start an
+- Cap: at most 4 h (14400 s) of wall time. `screen.py` refuses a `--deadline-utc` more than
+  4 h after launch, and the run stops at that deadline. The harness does not start an
   episode with less than max(45 s, 2 × the mean episode time) remaining. A deadline stop
   gives `INCOMPLETE`.
 - Sizes: outside a smoke, `screen.py` refuses (exit 2, before any world is played) any
@@ -130,8 +130,10 @@ the decision.
 - The screen holds one shared CPU slot lock (`cpu-slot-{1,2}.lock` under
   `snake-dqn-artifacts/pqn-followup-20260909`, opened read-only, never created). It takes the
   lock before `--out` exists and holds it until `summary.json`. It refuses to start on
-  battery (macOS `pmset`). It writes nothing under `snake-dqn-artifacts`, so `--out` must be
-  elsewhere.
+  battery (macOS `pmset`). The real run writes only under its own root,
+  `snake-dqn-artifacts/apex-veto-v3-screen-20261001/run-v1` (outside
+  `ongoing-research-20260913`, which the harness refuses). Lane work and smokes stay
+  outside `snake-dqn-artifacts`.
 - Before GO: one smoke dry run (≤ 2 episodes × 500 frames, legacy path, smoke namespace)
   through `screen.py` with self-check and receipt, from the same source.
 - Recovery: one mechanical-defect recovery under `recovery-1/` with the same intent (same
@@ -147,3 +149,16 @@ the decision.
 - The v2 receipt is unaffected. `src/evaluation/safety_veto.py` is byte-identical (sha256
   `1b62d15c...c428`, asserted by a test). dev_screen's original screen (`DEFAULT_SPEC`)
   writes the same records, intent and summary as before.
+
+## Revision 3 (pre-run, 2026-10-01; no episode had been run)
+
+Two changes were made at the final verifier's request, before any real-world
+episode:
+
+1. **Output root.** The earlier text forbade any output under
+   `snake-dqn-artifacts`, which contradicted the operator root. The real run now
+   writes to `snake-dqn-artifacts/apex-veto-v3-screen-20261001/run-v1`.
+2. **Wall cap.** Raised from 3 h to 4 h. The only full-size precedent, the
+   original 264-episode screen, needed more than 3 h under host contention.
+
+Arms, seeds, metric, sizes and the decision rule are unchanged.

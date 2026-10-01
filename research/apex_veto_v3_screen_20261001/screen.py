@@ -54,7 +54,7 @@ V2_METHOD = "free-space-veto/v2-speed-preserving"
 V3_METHOD = "free-space-veto/v3-tail-aware"
 ARM_METHODS = {"A": V2_METHOD, "B": V3_METHOD, "C": V2_METHOD}
 # Pre-stated wall-time cap (protocol.md "Compute cap and operations").
-MAX_WALL_SECONDS = 3 * 3600
+MAX_WALL_SECONDS = 4 * 3600
 EXCLUSION_PREFIX = 1000  # seeds per earlier domain/purpose checked (>= any bank's size)
 # Every earlier SHA-prefix domain of this recipe we know of (name -> purposes).
 EARLIER_DOMAINS: Dict[str, Sequence[str]] = {
