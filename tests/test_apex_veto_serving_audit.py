@@ -228,3 +228,89 @@ class TestNegativeOnRealRecordCopies:
         assert result["verdict"] == "SERVING_FAIL"
         assert result["serving_path_qualified"] is False
         assert "S1" in failing(result)
+
+
+def _bound_intent():
+    """The real smoke intent shape, mutated into a correctly bound non-smoke intent."""
+    intent = json.loads((SMOKE / "intent.json").read_text())
+    intent.update(smoke=False, protocol_sha256=audit_mod.PROTOCOL_SHA256)
+    intent["git"]["dirty"] = False
+    assert intent["seed_report"]["disjoint"] is True
+    return intent
+
+
+class TestPreregistrationBinding:
+    def test_pins_equal_the_current_protocol_bytes(self):
+        from research.apex_veto_serving_20261001 import serving_run
+
+        sha = _sha(HERE / "protocol.md")
+        assert audit_mod.PROTOCOL_SHA256 == sha == serving_run.PROTOCOL_SHA256
+
+    def test_bound_intent_has_no_failures(self):
+        assert audit_mod.preregistration_failures(_bound_intent()) == []
+
+    @pytest.mark.parametrize(
+        "change, needle",
+        [
+            (lambda d: d.update(protocol_sha256="a" * 64), "protocol_sha256"),
+            (lambda d: d.pop("protocol_sha256"), "protocol_sha256"),
+            (lambda d: d["git"].update(dirty=True), "git.dirty"),
+            (lambda d: d.pop("git"), "git.dirty"),
+            (lambda d: d["seed_report"].update(disjoint=False), "disjoint"),
+            (lambda d: d["seed_report"].pop("disjoint"), "disjoint"),
+        ],
+    )
+    def test_each_binding_check(self, change, needle):
+        intent = _bound_intent()
+        change(intent)
+        failures = audit_mod.preregistration_failures(intent)
+        assert len(failures) == 1 and needle in failures[0]
+
+    def test_smoke_is_exempt_and_its_real_intent_is_unbound(self):
+        # The smoke ran on a dirty tree under the pre-revision protocol ...
+        smoke_intent = json.loads((SMOKE / "intent.json").read_text())
+        assert len(audit_mod.preregistration_failures(smoke_intent)) == 2
+        # ... which S1 ignores for a smoke (a smoke never qualifies).
+        assert audit_mod.audit(SMOKE)["criteria"]["S1"]["pass"] is True
+
+    def test_s1_enforces_it_outside_smoke(self, run_copy):
+        mutate(run_copy, "intent.json", lambda d: d.update(smoke=False), rehash=False)
+        ev = audit_mod.load_evidence(run_copy)
+        failures = audit_mod.s1_completeness(ev, audit_mod.DESIGN[False])
+        assert any("protocol_sha256" in f for f in failures)
+        assert any("git.dirty" in f for f in failures)
+
+    def test_real_design_counts_weight_watch(self):
+        assert audit_mod.DESIGN[False]["counts"] == {"watch": 25, "play": 25, "parity": 2}
+
+
+class TestReplacementBranchExercised:
+    def test_watch_gate_fails_the_real_smoke_shape_outside_smoke(self):
+        ev = audit_mod.load_evidence(SMOKE)  # the smoke Watch record has 0 vetoes_applied
+        assert audit_mod.s3_scope(ev, smoke=True) == []
+        failures = audit_mod.s3_scope(ev, smoke=False)
+        assert failures and "never replaced an action" in failures[0]
+
+    def test_watch_gate_passes_once_an_action_was_replaced(self, run_copy):
+        def one_veto(d):
+            d["veto"]["total"].update(vetoes_applied=1)
+
+        mutate(run_copy, WATCH, one_veto)
+        assert audit_mod.s3_scope(audit_mod.load_evidence(run_copy), smoke=False) == []
+
+    def test_parity_label(self, run_copy):
+        reported = audit_mod.audit(SMOKE)["reported"]["parity"]
+        assert reported == {
+            "vetoes_applied_per_probe": {"parity-000": 0},
+            "vetoes_applied_total": 0,
+            "label": "non-exercising",
+        }
+
+        def one_veto(d):
+            d["session"]["counters"].update(kept_base=199, vetoes_applied=1)
+            d["rollout"]["counters"].update(kept_base=199, vetoes_applied=1)
+
+        mutate(run_copy, PARITY, one_veto)
+        result = audit_mod.audit(run_copy)
+        assert result["reported"]["parity"]["label"] == "exercised"
+        assert result["verdict"] == "SERVING_PASS"  # the label is reported, not gated

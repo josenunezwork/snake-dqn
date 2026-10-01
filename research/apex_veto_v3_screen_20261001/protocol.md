@@ -3,12 +3,18 @@
 Label: **screen (non-authoritative)**. Governance: Tier 1 in
 `docs/research/governance_tiers_2026-09-26.md`. Nothing here can change a default, the
 champion, or a deployment profile. Written 2026-10-01, before any screen episode ran.
+Revised once after review, still before any screen episode: the growth-gap caveat and its
+reported diagnostic, the refusal of non-pre-registered sizes, the 3 h wall-time cap, and
+the Tier-1 intent fields below. Arms, worlds, metric and decision rule are unchanged.
 
 - `screen_id`: `apex-veto-v3-screen-v1`
 - Harness: `research/apex_safety_20260926/dev_screen.py`, driven by `screen.py` beside this
   file (`ScreenSpec` `SPEC`). Output: `intent.json` (before any episode), `records/`,
   `events.jsonl`, `summary.json`, then `receipt.json` (written by `screen.py`).
-- Owner: Apex safety lane. The git SHA and dirty flag are recorded in `intent.json`.
+- Owner: Apex safety lane. The git SHA and dirty paths are recorded in `intent.json`, with
+  this file's `protocol_sha256`, the owner, hypothesis, decision it informs, primary
+  metric, estimator, decision rule and compute cap (`compute_cap`: planned episodes,
+  deadline and the 3 h maximum), all written before any episode runs.
 
 ## Question and the decision it informs
 
@@ -29,6 +35,15 @@ snake that could follow its own tail out is reported as trapped. v3 counts own-b
 passable once the search distance reaches the steps until they vacate. With one-step scoring
 it is never stricter than v2: it can only keep a base move v2 would veto, or turn a v2
 no-spacious fallback into an informed choice.
+
+Known permissive approximation (the growth gap). v3's release model allows for one pellet
+of growth (`tail_release_slack=1`). Every pellet eaten on the way delays every later tail
+release by one more step (`Snake.grow` adds length, and `move()` skips the pop). The
+profile has 300 initial food plus corpse and trail pellets, so a path that follows the tail
+through dense food can be counted open while the real tail is still there. In that one
+direction v3 is less conservative than its own model, on top of being more permissive than
+v2 by design: "never stricter than v2" also means it can admit a pocket that closes. The
+screen measures the net effect; the diagnostic below separates the two cases.
 
 ## Arms
 
@@ -92,14 +107,26 @@ against real run-v3 records (`fixtures/`) and live rollout output.
    `safety_veto_method` matching the arm. The file name is `<arm>-<mix>-<seed>.json`, and the
    seed is in the intent.
 
-Reported only: whether B's `veto_diagnostics.decisions` equals its counters.
+Reported only: whether B's `veto_diagnostics.decisions` equals its counters, and the
+closing-pocket diagnostic (`receipt.json` `reported.v3_closing_pocket`, per mix). A B
+decision is *tail-admitted* when its executed direction is spacious under v3 but not under
+v2's static count. A B episode is `admitted_closing_pocket` when the hero died by
+self-collision (`probes.death_cause == "self"`) with a tail-admitted decision in its last
+50 decisions (the hero is terminal and decides once per frame alive, so about 50 frames).
+It is `rescued` when it had tail-admitted decisions and no such death. This never gates
+the decision.
 
 ## Compute cap and operations
 
 - 264 episodes (240 A/B + 24 C). At about 21 s per v2 episode (run-v3 mean) plus v3 search
   overhead, expect about 1.6–2 h on CPU with 2 torch threads.
-- Cap: the `--deadline-utc` given at launch. The harness does not start an episode with less
-  than max(45 s, 2 × the mean episode time) remaining. A deadline stop gives `INCOMPLETE`.
+- Cap: at most 3 h (10800 s) of wall time. `screen.py` refuses a `--deadline-utc` more than
+  3 h after launch, and the run stops at that deadline. The harness does not start an
+  episode with less than max(45 s, 2 × the mean episode time) remaining. A deadline stop
+  gives `INCOMPLETE`.
+- Sizes: outside a smoke, `screen.py` refuses (exit 2, before any world is played) any
+  `--worlds-per-mix`/`--determinism-worlds` other than 40/8. A smaller look at these worlds
+  would otherwise be recorded and a later 40/8 run could still reach a decision after it.
 - The screen holds one shared CPU slot lock (`cpu-slot-{1,2}.lock` under
   `snake-dqn-artifacts/pqn-followup-20260909`, opened read-only, never created). It takes the
   lock before `--out` exists and holds it until `summary.json`. It refuses to start on

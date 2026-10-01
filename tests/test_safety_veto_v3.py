@@ -324,6 +324,10 @@ class TestHookAndRecord:
             "v2_no_spacious_rescued": 1,
             "v2_vetoed_v3_kept": 0,
             "directions_released_by_tail": 2,
+            # The corridor (right) is spacious only via the tail: tail-admitted.
+            "tail_admitted": 1,
+            "tail_admitted_last_decision": 1,
+            "tail_admitted_in_final_window": 1,
         }
         assert "diagnostics" not in veto.record()  # probe shape stays strict-compatible
         veto.reset()
@@ -660,3 +664,157 @@ class TestSummaryVetoArms:
         row = out["per_mix"]["frozen"]
         assert row["safety_veto_A"]["totals"]["decisions"] == 30
         assert row["safety_veto_B"]["episodes_decisions_match_decision_frames"] == 3
+
+
+# ---------------------------------------------------------------- review fixes (2026-10-01)
+
+
+class TestTailAdmissionDiagnostics:
+    def test_window_counts_only_the_last_decisions(self):
+        from src.evaluation.safety_veto_v3 import CLOSING_POCKET_WINDOW, TailAwareDiagnostics
+
+        diag = TailAwareDiagnostics()
+        diag.decisions = 1
+        diag.admit()
+        for _ in range(CLOSING_POCKET_WINDOW - 1):
+            diag.decisions += 1
+        assert diag.to_dict()["tail_admitted_in_final_window"] == 1  # 50th-from-last
+        diag.decisions += 1
+        out = diag.to_dict()
+        assert out["tail_admitted_in_final_window"] == 0
+        assert out["tail_admitted"] == 1 and out["tail_admitted_last_decision"] == 1
+        assert all(isinstance(v, int) for v in out.values()) and "_recent" not in out
+
+    def test_not_admitted_when_v2_also_finds_the_move_spacious(self, setup_config):
+        veto = TailAwareFreeSpaceVeto(diagnostics=True)
+        snake = sealed_pocket_beside_neck()  # left is statically spacious
+        q = torch.tensor([1.0, 0.0, 9.0, 0.0, 0.0, 0.0])
+        assert veto.apply(snake, [snake], q, torch.tensor(ALL), 2) == 0
+        assert veto.diagnostics.to_dict()["tail_admitted"] == 0
+
+
+def _b_entry(real, *, death_cause, tail_admitted, in_window, mix=None):
+    """A real run-v3 record wrapped as an arm-B entry with given diagnostics."""
+    import copy
+
+    record = copy.deepcopy(real["record"])
+    record["probes"]["death_cause"] = death_cause
+    return {
+        "arm": "B",
+        "mix": mix or real["mix"],
+        "world_seed": real["world_seed"],
+        "record": record,
+        "veto_diagnostics": {
+            "decisions": 10,
+            "tail_admitted": tail_admitted,
+            "tail_admitted_last_decision": 9 if tail_admitted else 0,
+            "tail_admitted_in_final_window": in_window,
+        },
+    }
+
+
+class TestClosingPocketReport:
+    def test_classifies_real_record_shapes(self):
+        screen = _screen()
+        real = _real(REAL_CANDIDATE)
+        assert real["record"]["probes"]["death_cause"] == screen.SELF_DEATH_CAUSE
+        entries = [
+            _b_entry(real, death_cause="self", tail_admitted=3, in_window=1),
+            _b_entry(real, death_cause="self", tail_admitted=2, in_window=0),
+            _b_entry(real, death_cause=None, tail_admitted=4, in_window=2),
+            _b_entry(real, death_cause="self", tail_admitted=0, in_window=0),
+            _b_entry(real, death_cause="head_on", tail_admitted=1, in_window=1, mix="mixed"),
+            dict(real, arm="A", veto_diagnostics=None),  # arm A is ignored
+            dict(_b_entry(real, death_cause="self", tail_admitted=1, in_window=1),
+                 veto_diagnostics=None),
+        ]  # fmt: skip
+        out = screen.closing_pocket_report(entries)
+        frozen = out["per_mix"]["frozen"]
+        assert frozen == {
+            "episodes": 5,
+            "with_tail_admission": 3,
+            "admitted_closing_pocket": 1,
+            "rescued": 2,
+            "self_collision_deaths": 3,
+            "missing_diagnostics": 1,
+        }
+        assert out["per_mix"]["mixed"]["rescued"] == 1
+        assert out["total"]["episodes"] == 6 and out["gating"] is False
+        assert out["window_decisions"] == 50
+        assert screen.closing_pocket_report([])["total"] == {}
+
+
+class TestScreenPreregistrationGuards:
+    def _argv(self, tmp_path, *extra):
+        return ["--out", str(tmp_path / "o"), "--deadline-utc", "2099-01-01T00:00:00+00:00"] + [
+            *extra
+        ]
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            ("--worlds-per-mix", "5", "--determinism-worlds", "2"),
+            ("--determinism-worlds", "0"),
+            ("--worlds-per-mix", "41", "--determinism-worlds", "8"),
+        ],
+    )
+    def test_non_preregistered_sizes_are_refused_before_any_world(
+        self, tmp_path, monkeypatch, extra
+    ):
+        from research.apex_safety_20260926 import dev_screen
+
+        screen = _screen()
+        calls = []
+        monkeypatch.setattr(dev_screen, "main", lambda *a, **k: calls.append(a) or 0)
+        assert screen.main(self._argv(tmp_path, *extra)) == 2
+        assert calls == [] and not (tmp_path / "o").exists()
+
+    def test_preregistered_size_with_a_far_deadline_hits_the_wall_cap(self, tmp_path):
+        assert _screen().main(self._argv(tmp_path)) == 2  # 2099 is beyond 3 h
+        assert not (tmp_path / "o").exists()
+
+    def test_dev_screen_wall_cap_only_for_capped_non_smoke_specs(self, tmp_path):
+        from datetime import datetime, timedelta, timezone
+
+        from research.apex_safety_20260926 import dev_screen
+
+        screen = _screen()
+        assert screen.SPEC.max_wall_seconds == screen.MAX_WALL_SECONDS == 3 * 3600
+        assert dev_screen.DEFAULT_SPEC.max_wall_seconds is None
+        soon = (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat()
+        argv = ["--out", str(tmp_path / "o"), "--deadline-utc", soon]
+        assert dev_screen.main(argv, spec=screen.SPEC) == 2
+        assert not (tmp_path / "o").exists()
+
+
+class TestTier1IntentFields:
+    def test_spec_fields_bind_protocol_rule_and_cap(self):
+        from datetime import datetime, timezone
+
+        from research.apex_safety_20260926 import dev_screen
+
+        screen = _screen()
+        deadline = datetime(2026, 10, 2, 6, tzinfo=timezone.utc)
+        fields = dev_screen.spec_intent_fields(screen.SPEC, 264, deadline)
+        protocol = REPO / "research/apex_veto_v3_screen_20261001/protocol.md"
+        assert fields["protocol_sha256"] == hashlib.sha256(protocol.read_bytes()).hexdigest()
+        summary = dev_screen.summarize([], [1, 2], 0, preregistered=(2, 0))
+        assert fields["decision_rule"] == summary["decision_rule"]
+        assert fields["owner"] == "Apex safety lane"
+        assert fields["primary_metric"] == "paired mass_integral B-A per world per mix"
+        assert "Holm" in fields["estimator"] and "hypothesis" in fields
+        assert "decision_informs" in fields
+        assert fields["compute_cap"] == {
+            "planned_episodes": 264,
+            "deadline_utc": deadline.isoformat(),
+            "max_wall_seconds": 10800,
+        }
+
+    def test_default_spec_decision_rule_text_unchanged(self):
+        from research.apex_safety_20260926 import dev_screen
+
+        assert dev_screen.decision_rule_text() == (
+            "NON_PREREGISTERED_DESIGN unless worlds_per_mix and determinism_worlds equal the "
+            "pre-registered sizes; RECOMMEND_STRICT_GATE iff complete, A/C deterministic, and "
+            "one-sided Holm (alpha 0.05) rejects mass-integral H0 in >= 2 of 3 mixes"
+        )

@@ -63,8 +63,11 @@ MDE_FRACTION = 0.10  # informational sizing only, as in the strict calibration
 # Informational pooled summaries (screen_stats); governance clear-loser filter is at 90%.
 POOLED_CONFIDENCE = 0.90
 # Pre-registered design sizes (protocol.md "Arms"). A non-smoke run with any other
-# sizes gets decision NON_PREREGISTERED_DESIGN, so a smaller look followed by a
-# larger one (the seeds are a prefix of one fixed recipe) cannot reach a decision.
+# sizes gets decision NON_PREREGISTERED_DESIGN. That only LABELS the small look: it
+# still plays and records real worlds (the seeds are a prefix of one fixed recipe),
+# and a later pre-registered run into a fresh --out does reach a decision after
+# those outcomes were seen. Wrappers that must prevent the peek refuse other sizes
+# before calling main (research/apex_veto_v3_screen_20261001/screen.py does).
 PREREGISTERED_WORLDS_PER_MIX = 40
 PREREGISTERED_DETERMINISM_WORLDS = 8
 PREREGISTERED_DESIGN = (PREREGISTERED_WORLDS_PER_MIX, PREREGISTERED_DETERMINISM_WORLDS)
@@ -137,6 +140,16 @@ class ScreenSpec:
     extra_namespaces: Mapping[str, Sequence[int]] | None = None
     require_slot_locks: bool = False
     require_ac_power: bool = False
+    # Tier-1 intent fields (governance_tiers_2026-09-26.md "Required artifacts"),
+    # recorded in intent.json for a non-default spec; None leaves them out.
+    owner: str | None = None
+    hypothesis: str | None = None
+    decision_informs: str | None = None
+    primary_metric: str | None = None
+    estimator: str | None = None
+    # Pre-stated wall-time cap: a non-smoke run refuses a --deadline-utc further
+    # than this many seconds after launch. None = no cap beyond the deadline.
+    max_wall_seconds: float | None = None
 
     def veto_arms(self) -> Tuple[str, ...]:
         """Arms (of A, B) whose records carry a ``safety_veto`` probe."""
@@ -763,12 +776,7 @@ def summarize(
         "smoke": smoke,
         "complete": complete,
         "decision": decision,
-        "decision_rule": (
-            "NON_PREREGISTERED_DESIGN unless worlds_per_mix and determinism_worlds equal the "
-            "pre-registered sizes; RECOMMEND_STRICT_GATE iff complete, A/C deterministic, and "
-            f"one-sided Holm (alpha {ALPHA}) rejects mass-integral H0 in >= "
-            f"{REQUIRED_MIX_SUCCESSES} of 3 mixes"
-        ),
+        "decision_rule": decision_rule_text(),
         "preregistered_design": design,
         "per_mix": per_mix,
         "holm_primary": holm,
@@ -781,6 +789,40 @@ def summarize(
         },
     }
     return json_safe(summary)
+
+
+def decision_rule_text() -> str:
+    """The decision rule string ``summarize`` emits (also written to a spec's intent)."""
+    return (
+        "NON_PREREGISTERED_DESIGN unless worlds_per_mix and determinism_worlds equal the "
+        "pre-registered sizes; RECOMMEND_STRICT_GATE iff complete, A/C deterministic, and "
+        f"one-sided Holm (alpha {ALPHA}) rejects mass-integral H0 in >= "
+        f"{REQUIRED_MIX_SUCCESSES} of 3 mixes"
+    )
+
+
+def spec_intent_fields(
+    spec: ScreenSpec, planned_episodes: int, deadline_utc: datetime
+) -> Dict[str, Any]:
+    """Tier-1 pre-registration fields a non-default spec adds to ``intent.json``.
+
+    The protocol bytes' sha256, the decision rule ``summarize`` applies, the
+    spec's owner/hypothesis/decision/metric/estimator (when set) and the compute
+    cap. :data:`DEFAULT_SPEC` intents never carry these (unchanged records).
+    """
+    fields_out: Dict[str, Any] = {
+        "protocol_sha256": sha256_file(Path(spec.protocol)),
+        "decision_rule": decision_rule_text(),
+    }
+    for key in ("owner", "hypothesis", "decision_informs", "primary_metric", "estimator"):
+        if getattr(spec, key) is not None:
+            fields_out[key] = getattr(spec, key)
+    fields_out["compute_cap"] = {
+        "planned_episodes": int(planned_episodes),
+        "deadline_utc": deadline_utc.isoformat(),
+        "max_wall_seconds": spec.max_wall_seconds,
+    }
+    return fields_out
 
 
 def _git_state() -> Dict[str, Any]:
@@ -876,6 +918,11 @@ def main(argv: Sequence[str] | None = None, spec: ScreenSpec = DEFAULT_SPEC) -> 
     if args.deadline_utc <= datetime.now(timezone.utc):
         print("deadline already passed", file=sys.stderr)
         return 2
+    if spec.max_wall_seconds is not None and not smoke:
+        allowed = float(spec.max_wall_seconds)
+        if (args.deadline_utc - datetime.now(timezone.utc)).total_seconds() > allowed:
+            print(f"--deadline-utc exceeds the {allowed:.0f} s wall-time cap", file=sys.stderr)
+            return 2
     out = Path(args.out).resolve()
     if out.exists():
         print(f"--out {out} already exists", file=sys.stderr)
@@ -995,6 +1042,7 @@ def _run_screen(
     if spec is not DEFAULT_SPEC:
         intent.update({"schema_version": spec.schema, "authority": spec.authority})
         intent["screen"] = spec.name
+        intent.update(spec_intent_fields(spec, len(plan), args.deadline_utc))
     if use_locks:
         intent["slot_locks"] = {
             "root": str(Path(args.slot_lock_root)),

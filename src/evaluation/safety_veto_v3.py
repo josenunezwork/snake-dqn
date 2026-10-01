@@ -29,7 +29,13 @@ Tail-aware reachability (one breadth-first search per direction):
   (``i = len(segments) - 1 - j``) that is ``i + 1 + pending_growth + slack`` where
   ``pending_growth = length - len(segments)`` is the exact not-yet-filled growth.
   ``slack`` (default 1) absorbs one food eaten on the way; growth is otherwise
-  ignored, and boost burns (which only shorten the body) are ignored too.
+  ignored, and boost burns (which only shorten the body) are ignored too. This is
+  a known PERMISSIVE approximation: every pellet eaten on the way delays every
+  later release by one more step (``Snake.grow`` adds length and ``move`` skips
+  the pop), so in dense food a path that follows the tail can be counted open
+  while the real tail is still there. The opt-in diagnostics count such
+  "tail-admitted" decisions so a screen can tell a rescue from an admitted
+  pocket that closed (see :class:`TailAwareDiagnostics`).
 * A body cell is entered when some neighbour reached at distance ``d`` has
   ``d + 1 >= release``. A body cell rejected from an early neighbour can still be
   entered later from a farther one (it is not marked seen on rejection).
@@ -54,7 +60,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.core.game_config import GameConfig
@@ -74,6 +80,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 VETO_METHOD_V3 = "free-space-veto/v3-tail-aware"
 TAIL_RELEASE_SLACK = 1
+# Diagnostics only: decisions counted back from the episode's last decision when
+# asking whether a tail-admitted decision preceded a self-collision death.
+CLOSING_POCKET_WINDOW = 50
 REACHABILITY_RULE = "tail-aware-bfs/own-body-released-by-steps/other-snakes-static"
 
 Cell = Tuple[int, int]
@@ -254,6 +263,17 @@ class TailAwareDiagnostics:
 
     Kept off the ``probes.safety_veto`` record so the probe stays the exact
     descriptor-plus-seven-counters shape ``strict_promotion`` validates.
+
+    A decision is *tail-admitted* when the executed action's direction is spacious
+    only thanks to tail release (v3 spacious, v2's static count not). That covers
+    "v3 kept a base move v2 would veto", "v3 kept or chose where v2 fell back",
+    and "v3 vetoed into a released direction". ``tail_admitted_last_decision`` is
+    the 1-based index of the latest one (0 = none) and
+    ``tail_admitted_in_final_window`` counts those within the episode's last
+    :data:`CLOSING_POCKET_WINDOW` decisions. With a terminal hero (one decision per
+    frame alive) and a ``self`` death cause, a non-zero final-window count flags a
+    pocket v3 admitted that may have closed (the growth gap); a rescue is a
+    tail-admitted episode without one. Reported only; actions never change.
     """
 
     decisions: int = 0
@@ -262,9 +282,23 @@ class TailAwareDiagnostics:
     v2_no_spacious_rescued: int = 0
     v2_vetoed_v3_kept: int = 0
     directions_released_by_tail: int = 0
+    tail_admitted: int = 0
+    tail_admitted_last_decision: int = 0
+    _recent: deque = field(default_factory=deque, repr=False)
+
+    def admit(self) -> None:
+        """Record the current decision (already counted) as tail-admitted."""
+        self.tail_admitted += 1
+        self.tail_admitted_last_decision = self.decisions
+        self._recent.append(self.decisions)
+        while self._recent and self._recent[0] <= self.decisions - CLOSING_POCKET_WINDOW:
+            self._recent.popleft()
 
     def to_dict(self) -> Dict[str, int]:
-        return {key: int(value) for key, value in self.__dict__.items()}
+        out = {k: int(v) for k, v in self.__dict__.items() if not k.startswith("_")}
+        floor = self.decisions - CLOSING_POCKET_WINDOW
+        out["tail_admitted_in_final_window"] = sum(1 for i in self._recent if i > floor)
+        return out
 
 
 class TailAwareFreeSpaceVeto:
@@ -335,6 +369,9 @@ class TailAwareFreeSpaceVeto:
         diag.directions_released_by_tail += sum(
             1 for now, before in zip(spacious, static_spacious) if now and not before
         )
+        direction = int(action) % NUM_DIRECTIONS
+        if spacious[direction] and not static_spacious[direction]:
+            diag.admit()
         if v2_outcome == OUTCOME_NO_SPACIOUS:
             diag.v2_no_spacious += 1
             diag.v2_no_spacious_rescued += int(outcome != OUTCOME_NO_SPACIOUS)

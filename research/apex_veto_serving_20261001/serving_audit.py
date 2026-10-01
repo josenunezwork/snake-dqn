@@ -42,6 +42,9 @@ SERVED_CONFIG = (
     "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
 )
 PARITY_CONFIG_SHA256 = "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5"
+# protocol.md as pre-registered for the real run. A non-smoke intent must carry
+# exactly this sha256 (a later protocol edit cannot audit as SERVING_PASS).
+PROTOCOL_SHA256 = "9b65e9c568c9de76ca7aa3b3af1bb1e232a9ada5f39083062dc0b8b58d121809"
 CHAMPION_BASENAME = "champion_a5_freespace_20260621.pth"
 VETO_METHOD = "free-space-veto/v2-speed-preserving"
 # FreeSpaceVeto.descriptor() as recorded in the run-v3 STRICT_PASS records.
@@ -55,7 +58,7 @@ DESCRIPTOR = {
 DESIGN = {
     False: {
         "domain": "apex-veto-web-serving-v1",
-        "counts": {"watch": 1, "play": 49, "parity": 2},
+        "counts": {"watch": 25, "play": 25, "parity": 2},
         "horizon": 5000,
         "parity_horizon": 5000,
     },
@@ -204,9 +207,27 @@ def parity_records(ev: Mapping[str, Any]) -> List[Mapping[str, Any]]:
 # ---------------------------------------------------------------- criteria
 
 
+def preregistration_failures(intent: Mapping[str, Any]) -> List[str]:
+    """Pre-registration binding of a non-smoke intent (writer: ``serving_run.build_intent``).
+
+    The intent must name the pinned protocol sha256, come from a clean git tree
+    and carry a disjoint seed report. A smoke is exempt (it never qualifies).
+    """
+    out = []
+    if intent.get("protocol_sha256") != PROTOCOL_SHA256:
+        out.append(f"intent.protocol_sha256 {intent.get('protocol_sha256')} is not the pinned one")
+    if (intent.get("git") or {}).get("dirty") is not False:
+        out.append("intent.git.dirty is not false")
+    if (intent.get("seed_report") or {}).get("disjoint") is not True:
+        out.append("intent.seed_report.disjoint is not true")
+    return out
+
+
 def s1_completeness(ev: Mapping[str, Any], design: Mapping[str, Any]) -> List[str]:
     """Counts, statuses, intent binding, seeds and frame accounting (writer: serving_run)."""
     out, intent, receipt = [], ev["intent"], ev["receipt"]
+    if intent.get("smoke") is not True:
+        out += preregistration_failures(intent)
     if receipt.get("intent_sha256") != ev["intent_sha256"]:
         out.append("receipt.intent_sha256 does not match intent.json")
     out += [f"receipt sha256 mismatch: {rel}" for rel in ev["hash_mismatch"]]
@@ -297,9 +318,18 @@ def expected_wrapped(rec: Mapping[str, Any]) -> Optional[List[int]]:
     return sorted(i for i in ids if i != human)
 
 
-def s3_scope(ev: Mapping[str, Any]) -> List[str]:
-    """Wrapper active on exactly the flag's snakes (writer: install_serving_vetoes)."""
+def s3_scope(ev: Mapping[str, Any], smoke: bool = False) -> List[str]:
+    """Wrapper active on exactly the flag's snakes (writer: install_serving_vetoes).
+
+    Outside a smoke, the released path (Watch) must also have changed at least one
+    action: summed Watch ``veto.total.vetoes_applied`` > 0 (writer: FreeSpaceVeto).
+    """
     out = []
+    if not smoke:
+        watch = [r for r in episode_records(ev) if r.get("kind") == schema.KIND_WATCH]
+        applied = [((r.get("veto") or {}).get("total") or {}).get("vetoes_applied") for r in watch]
+        if not all(is_int(v) for v in applied) or sum(applied) <= 0:
+            out.append(f"Watch never replaced an action (vetoes_applied {applied})")
     flags = {
         schema.KIND_WATCH: ("watch_hero", {"watch_hero": True, "play_ai": False}),
         schema.KIND_PLAY: ("play_ai", {"watch_hero": False, "play_ai": True}),
@@ -455,11 +485,31 @@ def reported(ev: Mapping[str, Any]) -> Dict[str, Any]:
             "veto_rate": vetoes / decisions if decisions else None,
             "ended_by": ended,
         }
+    out["parity"] = parity_exercise(ev)
     source = REPO / WRAPPER_SOURCE_PATH
     out["current_tree_wrapper_source_sha256"] = (
         schema.sha256_file(source) if source.is_file() else None
     )
     return out
+
+
+def parity_exercise(ev: Mapping[str, Any]) -> Dict[str, Any]:
+    """Whether the parity probes exercised the replacement branch (reported, not gated).
+
+    Writer: ``run_parity_probe`` (session-side ``FreeSpaceVeto`` counters). With no
+    veto applied, S5's equality covers only the keep/fallback path: "non-exercising".
+    """
+    per_probe = {}
+    for probe in parity_records(ev):
+        counters = (probe.get("session") or {}).get("counters") or {}
+        value = counters.get("vetoes_applied")
+        per_probe[str(probe.get("probe_id"))] = value if is_int(value) else None
+    total = sum(v for v in per_probe.values() if v is not None)
+    return {
+        "vetoes_applied_per_probe": per_probe,
+        "vetoes_applied_total": total,
+        "label": "exercised" if total > 0 else "non-exercising",
+    }
 
 
 def audit(root: Path) -> Dict[str, Any]:
@@ -471,7 +521,7 @@ def audit(root: Path) -> Dict[str, Any]:
         criteria = {
             "S1": s1_completeness(ev, design),
             "S2": s2_identity(ev),
-            "S3": s3_scope(ev),
+            "S3": s3_scope(ev, smoke),
             "S4": s4_counters(ev),
             "S5": s5_parity(ev, design, smoke),
             "S6": s6_defaults(ev),

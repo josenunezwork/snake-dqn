@@ -53,6 +53,8 @@ RECEIPT_SCHEMA = "apex-veto-v3-screen-receipt/v1"
 V2_METHOD = "free-space-veto/v2-speed-preserving"
 V3_METHOD = "free-space-veto/v3-tail-aware"
 ARM_METHODS = {"A": V2_METHOD, "B": V3_METHOD, "C": V2_METHOD}
+# Pre-stated wall-time cap (protocol.md "Compute cap and operations").
+MAX_WALL_SECONDS = 3 * 3600
 EXCLUSION_PREFIX = 1000  # seeds per earlier domain/purpose checked (>= any bank's size)
 # Every earlier SHA-prefix domain of this recipe we know of (name -> purposes).
 EARLIER_DOMAINS: Dict[str, Sequence[str]] = {
@@ -110,6 +112,18 @@ def _spec(domain: str) -> dev_screen.ScreenSpec:
         },
         require_slot_locks=True,
         require_ac_power=True,
+        owner="Apex safety lane",
+        hypothesis=(
+            "Replacing the v2 free-space veto with the v3 tail-aware veto raises the Apex "
+            "champion's H5000 mass_integral (B - A > 0)."
+        ),
+        decision_informs=(
+            "RECOMMEND_STRICT_GATE: design a Tier-2 strict gate for v3 against v2; "
+            "NOT_ADVANCED: stop"
+        ),
+        primary_metric="paired mass_integral B-A per world per mix",
+        estimator="one-sided paired t, Holm over 3 mixes, alpha 0.05, >=2 of 3",
+        max_wall_seconds=MAX_WALL_SECONDS,
     )
 
 
@@ -240,6 +254,61 @@ def self_check(out: Path, smoke: bool) -> Dict[str, Any]:
     }
 
 
+SELF_DEATH_CAUSE = "self"  # probes.death_cause written by rollout for self-collision
+
+
+def closing_pocket_report(entries: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """Reported only: did v3 rescue the hero, or admit a pocket that then closed?
+
+    Per arm-B entry (writers: ``TailAwareDiagnostics`` via ``veto_diagnostics``;
+    ``probes.death_cause`` via rollout). ``admitted_closing_pocket``: the hero died
+    by self-collision with a tail-admitted decision in its last
+    ``CLOSING_POCKET_WINDOW`` decisions (the known growth gap, protocol.md).
+    ``rescued``: tail-admitted decisions and no such death. Never gates anything.
+    """
+    from src.evaluation.safety_veto_v3 import CLOSING_POCKET_WINDOW
+
+    rows: Dict[str, Dict[str, int]] = {}
+    for entry in entries:
+        if entry.get("arm") != "B":
+            continue
+        diag = entry.get("veto_diagnostics") or {}
+        probes = (entry.get("record") or {}).get("probes") or {}
+        row = rows.setdefault(
+            str(entry.get("mix")),
+            {
+                "episodes": 0,
+                "with_tail_admission": 0,
+                "admitted_closing_pocket": 0,
+                "rescued": 0,
+                "self_collision_deaths": 0,
+                "missing_diagnostics": 0,
+            },
+        )
+        row["episodes"] += 1
+        if "tail_admitted" not in diag:
+            row["missing_diagnostics"] += 1
+            continue
+        self_death = probes.get("death_cause") == SELF_DEATH_CAUSE
+        row["self_collision_deaths"] += int(self_death)
+        if int(diag["tail_admitted"]) <= 0:
+            continue
+        row["with_tail_admission"] += 1
+        if self_death and int(diag.get("tail_admitted_in_final_window", 0)) > 0:
+            row["admitted_closing_pocket"] += 1
+        else:
+            row["rescued"] += 1
+    total = {
+        key: sum(row[key] for row in rows.values()) for key in next(iter(rows.values()), {}).keys()
+    }
+    return {
+        "window_decisions": CLOSING_POCKET_WINDOW,
+        "per_mix": dict(sorted(rows.items())),
+        "total": total,
+        "gating": False,
+    }
+
+
 def build_receipt(out: Path, check: Mapping[str, Any]) -> Dict[str, Any]:
     """Tier-1 ``receipt.json`` content from a finished screen directory."""
     intent_path, summary_path = out / "intent.json", out / "summary.json"
@@ -249,8 +318,10 @@ def build_receipt(out: Path, check: Mapping[str, Any]) -> Dict[str, Any]:
     frames = 0
     seconds = 0.0
     by_arm: Dict[str, int] = {}
+    entries: List[Mapping[str, Any]] = []
     for path in sorted((out / "records").glob("*.json")):
         entry = json.loads(path.read_text())
+        entries.append(entry)
         records.append({"path": f"records/{path.name}", "sha256": dev_screen.sha256_file(path)})
         by_arm[entry["arm"]] = by_arm.get(entry["arm"], 0) + 1
         denominators = entry["record"].get("denominators") or {}
@@ -292,16 +363,28 @@ def build_receipt(out: Path, check: Mapping[str, Any]) -> Dict[str, Any]:
         "decision": decision,
         "screen_decision_before_self_check": summary["decision"],
         "self_check": dict(check),
+        "reported": {"v3_closing_pocket": closing_pocket_report(entries)},
     }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    smoke = any(arg == "--smoke-frames" or arg.startswith("--smoke-frames=") for arg in argv)
+    args = dev_screen.parse_args(argv)
+    smoke = args.smoke_frames is not None
+    design = (args.worlds_per_mix, args.determinism_worlds)
+    if not smoke and design != dev_screen.PREREGISTERED_DESIGN:
+        # Refuse before any world is played: a smaller look at the real worlds
+        # followed by the pre-registered run would reach a decision after a peek.
+        print(
+            f"refusing a non-smoke run of size {design}; the pre-registered design is "
+            f"{dev_screen.PREREGISTERED_DESIGN} (worlds per mix, determinism worlds)",
+            file=sys.stderr,
+        )
+        return 2
     code = dev_screen.main(argv, spec=SMOKE_SPEC if smoke else SPEC)
     if code != 0:
         return code
-    out = Path(dev_screen.parse_args(argv).out).resolve()
+    out = Path(args.out).resolve()
     check = self_check(out, smoke)
     receipt = build_receipt(out, check)
     receipt["written_utc"] = datetime.now(timezone.utc).isoformat()

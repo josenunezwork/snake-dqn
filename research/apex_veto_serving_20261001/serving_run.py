@@ -7,9 +7,10 @@ stepped directly (``step()`` then ``snapshot()``, the order of the app's
 
 Episodes (pre-registered in ``protocol.md``):
 
-* 1 Watch episode as served: default served config, all-respawn Watch, the
-  wrapper on the Watch hero only (``SNAKE_SERVE_VETO_WATCH_HERO`` semantics);
-* 49 Play episodes: a scripted stand-in steers the human through
+* 25 Watch episodes as served: default served config, all-respawn Watch, the
+  wrapper on the Watch hero only (``SNAKE_SERVE_VETO_WATCH_HERO`` semantics, the
+  scope a release would turn on);
+* 25 Play episodes: a scripted stand-in steers the human through
   ``human_input`` controls; every AI snake is wrapped (``SNAKE_SERVE_VETO_PLAY_AI``);
 * 2 parity probes (not served episodes): the same session stepping code on the
   promotion-v2-watch-rect deployment config with a terminal hero, compared frame
@@ -51,6 +52,9 @@ def _load_schema() -> Any:
 schema = _load_schema()
 
 PROTOCOL = HERE / "protocol.md"
+# sha256 of protocol.md as pre-registered for the real run (the audit pins it too).
+# Any protocol edit must re-pin both, deliberately; a test asserts they match.
+PROTOCOL_SHA256 = "9b65e9c568c9de76ca7aa3b3af1bb1e232a9ada5f39083062dc0b8b58d121809"
 CHAMPION_PATH = Path(
     "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth"
 )
@@ -62,7 +66,7 @@ PARITY_CONFIG_SHA256 = "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb
 PROFILE_NAME = "promotion-v2-watch-rect"
 
 HORIZON = 5000
-COUNTS = {"watch": 1, "play": 49, "parity": 2}
+COUNTS = {"watch": 25, "play": 25, "parity": 2}
 SMOKE_HORIZON = 500
 SMOKE_PARITY_HORIZON = 200
 SMOKE_COUNTS = {"watch": 1, "play": 1, "parity": 1}
@@ -303,11 +307,20 @@ class ScriptedHuman:
 
 
 def control(sess: Any, action: str, value: Any = None) -> None:
-    """One control message through the browser's dispatch path."""
+    """One control message through the browser's dispatch path; fail on any refusal.
+
+    ``web.backend.app._apply_control`` reports a failed handler (and an unknown
+    action, or a refused mode switch) on ``session.last_error`` and returns None,
+    so a None reply alone is not success. ``last_error`` is cleared before the
+    dispatch and must still be None after it. A failure raises, and the episode
+    runner records it in the record's ``error`` (status ``error``), so S1 fails.
+    """
     from web.backend.app import _apply_control
 
+    sess.last_error = None
     reply = _apply_control(sess, {"type": "control", "action": action, "value": value}, CONN_ID)
     require(reply is None, f"control {action!r} was refused: {reply}")
+    require(sess.last_error is None, f"control {action!r} failed: last_error={sess.last_error!r}")
 
 
 def set_world_seed(seed: int) -> None:
@@ -642,13 +655,18 @@ def build_intent(args: argparse.Namespace, checkpoint_sha256: str) -> Dict[str, 
     seeds = world_seeds(SMOKE_SEED_DOMAIN if args.smoke else SEED_DOMAIN, counts)
     report = seed_report(seeds)
     require(report["disjoint"], f"serving seeds overlap earlier banks: {report}")
+    git = git_state()
+    protocol_sha256 = schema.sha256_file(PROTOCOL)
+    if not args.smoke:  # the audit enforces both again; fail before any compute
+        require(not git["dirty"], "a non-smoke run needs a clean git tree")
+        require(protocol_sha256 == PROTOCOL_SHA256, "protocol.md differs from its pinned sha256")
     return {
         "schema_version": schema.SCHEMA,
         "study_id": schema.STUDY_ID,
         "authority": schema.AUTHORITY,
         "smoke": bool(args.smoke),
-        "git": git_state(),
-        "protocol_sha256": schema.sha256_file(PROTOCOL),
+        "git": git,
+        "protocol_sha256": protocol_sha256,
         "checkpoint": {"path": str(args.checkpoint), "sha256": checkpoint_sha256},
         "expected": {
             "checkpoint_sha256": CHAMPION_SHA256,
