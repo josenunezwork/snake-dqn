@@ -150,6 +150,10 @@ class ScreenSpec:
     # Pre-stated wall-time cap: a non-smoke run refuses a --deadline-utc further
     # than this many seconds after launch. None = no cap beyond the deadline.
     max_wall_seconds: float | None = None
+    # Opt-in B-replay determinism control (default 0 = none, the original plan): arm D
+    # repeats arm B on the first ``replay_worlds`` worlds per mix after every C control
+    # (non-smoke runs only). ``arm_vetoes["D"]`` must be ``arm_vetoes["B"]``.
+    replay_worlds: int = 0
 
     def veto_arms(self) -> Tuple[str, ...]:
         """Arms (of A, B) whose records carry a ``safety_veto`` probe."""
@@ -670,13 +674,16 @@ def summarize(
     smoke: bool = False,
     preregistered: Tuple[int, int] = PREREGISTERED_DESIGN,
     veto_arms: Sequence[str] = ("B",),
+    replay_worlds: int = 0,
 ) -> Dict[str, Any]:
     """Pre-registered analysis (protocol.md): paired B-A deltas, Holm, controls.
 
     ``preregistered`` is the ``(worlds_per_mix, determinism_worlds)`` design the
     decision is valid for; any other run size yields ``NON_PREREGISTERED_DESIGN``
     (tests pass their own small design). ``veto_arms`` (opt-in) lists the arms
-    whose ``safety_veto`` counters are totalled as ``safety_veto_<arm>``. The result is JSON-safe
+    whose ``safety_veto`` counters are totalled as ``safety_veto_<arm>``. ``replay_worlds``
+    (opt-in, default 0) adds the B/D replay control: every D record must equal its B
+    record, and the planned D episodes count toward completeness. The result is JSON-safe
     (non-finite floats become ``None`` with a ``<key>_nonfinite`` tag).
     """
     from src.scripts.eval_stats import (
@@ -750,9 +757,12 @@ def summarize(
         "mismatches": mismatches,
         "passes": len(control) == planned_control and not mismatches,
     }
+    replay = _replay_report(entries, by_key, seeds, mixes, replay_worlds)
     complete = all(per_mix[m]["paired_worlds"] == len(seeds) for m in mixes) and (
         len(control) == planned_control
     )
+    if replay is not None:
+        complete = complete and replay["compared"] == replay["planned"]
     design = preregistered_design_report(len(seeds), determinism_worlds, preregistered)
     if smoke:
         decision = "SMOKE_NO_DECISION"
@@ -760,15 +770,14 @@ def summarize(
         decision = "NON_PREREGISTERED_DESIGN"
     elif not complete:
         decision = "INCOMPLETE"
-    elif not determinism["passes"]:
+    elif not determinism["passes"] or (replay is not None and not replay["passes"]):
         decision = "INVALID_NONDETERMINISTIC"
     elif holm is not None and holm["passes"]:
         decision = "RECOMMEND_STRICT_GATE"
     else:
         decision = "NOT_ADVANCED"
-    arm_seconds = {
-        arm: [e["wall_seconds"] for e in entries if e["arm"] == arm] for arm in ("A", "B", "C")
-    }
+    arms = ("A", "B", "C") if replay is None else ("A", "B", "C", "D")
+    arm_seconds = {arm: [e["wall_seconds"] for e in entries if e["arm"] == arm] for arm in arms}
     summary = {
         "schema_version": SCHEMA,
         "authority": AUTHORITY,
@@ -776,12 +785,13 @@ def summarize(
         "smoke": smoke,
         "complete": complete,
         "decision": decision,
-        "decision_rule": decision_rule_text(),
+        "decision_rule": decision_rule_text(replay_worlds),
         "preregistered_design": design,
         "per_mix": per_mix,
         "holm_primary": holm,
         "pooled_informational": pooled_summaries(deltas_by_mix, seeds_by_mix),
         "determinism_control": determinism,
+        **({} if replay is None else {"replay_control": replay}),
         "independent_pilot_sizing": sizing,
         "wall_seconds": {
             arm: {"episodes": len(v), "mean": mean(v), "total": sum(v)}
@@ -791,8 +801,45 @@ def summarize(
     return json_safe(summary)
 
 
-def decision_rule_text() -> str:
-    """The decision rule string ``summarize`` emits (also written to a spec's intent)."""
+def _replay_report(
+    entries: Sequence[Mapping[str, Any]],
+    by_key: Mapping[Tuple[str, str, int], Any],
+    seeds: Sequence[int],
+    mixes: Sequence[str],
+    replay_worlds: int,
+) -> Dict[str, Any] | None:
+    """B/D replay control (opt-in ``replay_worlds``); ``None`` when not planned."""
+    if int(replay_worlds) <= 0:
+        return None
+    replays = [e for e in entries if e["arm"] == "D"]
+    mismatches = []
+    for entry in replays:
+        key = ("B", entry["mix"], int(entry["world_seed"]))
+        if key not in by_key or canonical_json(by_key[key]) != canonical_json(entry["record"]):
+            mismatches.append({"mix": entry["mix"], "world_seed": entry["world_seed"]})
+    planned = min(int(replay_worlds), len(seeds)) * len(mixes)
+    return {
+        "arm": "D repeats B",
+        "planned": planned,
+        "compared": len(replays),
+        "identical": len(replays) - len(mismatches),
+        "mismatches": mismatches,
+        "passes": len(replays) == planned and not mismatches,
+    }
+
+
+def decision_rule_text(replay_worlds: int = 0) -> str:
+    """The decision rule string ``summarize`` emits (also written to a spec's intent).
+
+    ``replay_worlds > 0`` (opt-in) appends the B/D replay requirement; the default text
+    is unchanged.
+    """
+    if int(replay_worlds) > 0:
+        return decision_rule_text() + (
+            f"; with a B/D replay control on {int(replay_worlds)} worlds per mix, every D "
+            "record must equal its B record (else INVALID_NONDETERMINISTIC) and D counts "
+            "toward completeness"
+        )
     return (
         "NON_PREREGISTERED_DESIGN unless worlds_per_mix and determinism_worlds equal the "
         "pre-registered sizes; RECOMMEND_STRICT_GATE iff complete, A/C deterministic, and "
@@ -812,7 +859,7 @@ def spec_intent_fields(
     """
     fields_out: Dict[str, Any] = {
         "protocol_sha256": sha256_file(Path(spec.protocol)),
-        "decision_rule": decision_rule_text(),
+        "decision_rule": decision_rule_text(spec.replay_worlds),
     }
     for key in ("owner", "hypothesis", "decision_informs", "primary_metric", "estimator"):
         if getattr(spec, key) is not None:
@@ -913,6 +960,9 @@ def main(argv: Sequence[str] | None = None, spec: ScreenSpec = DEFAULT_SPEC) -> 
     if spec.arm_vetoes.get("C") is not spec.arm_vetoes.get("A"):
         print("screen spec: arm C must repeat arm A's veto configuration", file=sys.stderr)
         return 2
+    if spec.replay_worlds and spec.arm_vetoes.get("D") is not spec.arm_vetoes.get("B"):
+        print("screen spec: arm D must repeat arm B's veto configuration", file=sys.stderr)
+        return 2
     use_locks = bool(args.use_slot_locks or spec.require_slot_locks)
     need_ac = bool(args.require_ac_power or spec.require_ac_power)
     if args.deadline_utc <= datetime.now(timezone.utc):
@@ -1005,6 +1055,9 @@ def _run_screen(
     for mix in args.mixes:
         control_rows = [row for row in rows if row["mix"] == mix][: args.determinism_worlds]
         plan.extend(("C", row) for row in control_rows)
+    replay_worlds = 0 if smoke else min(int(spec.replay_worlds), len(seeds))
+    for mix in args.mixes if replay_worlds else ():
+        plan.extend(("D", row) for row in [r for r in rows if r["mix"] == mix][:replay_worlds])
     intent = {
         "schema_version": SCHEMA,
         "authority": AUTHORITY,
@@ -1104,6 +1157,7 @@ def _run_screen(
         args.mixes,
         smoke=smoke,
         veto_arms=spec.veto_arms(),
+        replay_worlds=replay_worlds,
     )
     if spec is not DEFAULT_SPEC:
         summary.update({"schema_version": spec.schema, "authority": spec.authority})
