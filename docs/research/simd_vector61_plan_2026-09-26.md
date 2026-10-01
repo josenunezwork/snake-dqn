@@ -12,11 +12,15 @@ with an optional `hero_safety_veto=True`. It reproduces the live profiled Watch
 evaluator (`tournament_eval.rollout` with `AISnake`, carry-forward selection and
 `FreeSpaceVeto`) **decision for decision and bit for bit**. Every compared
 vector decision matched: hero and frozen opponents, about 28,000 in the
-committed tests and about 63,000 in the probes, with 0 divergences. Every
+committed tests and about 38,000 in the probes (about 66,000 in total), with 0
+divergences. Every
 compared float32 selection state was bit-identical, and every profiled record
 (mass integral, deaths, kills, denominators, veto counters) was equal. See
-"End-to-end parity (2026-10-01)" below. Measured throughput is **3.3 to 5.0
-times live** per env-frame on CPU. The default stays off: without
+"End-to-end parity (2026-10-01)" below. Measured throughput is **2.1 to 5.0
+times live** per env-frame on CPU, by mix: frozen 3.8 to 5.0x, mixed 3.3x, and
+scripted 2.1x (limited by the per-row scripted-anchor loop). The H5000 gate
+weights the three mixes equally, so size runs from the per-mix figures, not
+the top of the range. The default stays off: without
 `vector61=True` a vector checkpoint under `--engine simd` raises as before, and
 the `tournament_eval` CLI still rejects it. The CLI is not edited here because a
 running screen imports it. The 2026-09-26 paragraph below is kept for history.
@@ -173,7 +177,7 @@ below, and the "End-to-end parity" section records how each was closed.
 | `Vector61SimdPolicy` | same | One per checkpoint. Builds the network with the live loader (`tournament_eval.build_policy_from_checkpoint`) and the `configure_eval_game_state` inference settings. Applies masked argmax and, as an option, the veto. |
 | `batched_veto_choice`, `veto_threshold`, `free_space_counts` | same | Array versions of `safety_veto.veto_choice`, `free_space_threshold` and the `round(f * cap)` recovery. |
 | Engine wiring | `src/simd_env/eval_engine.py` | Keyword-only opt-ins on `run_simd_eval`: `vector61`, `hero_safety_veto`, `vector61_forward`, `vector61_trace`. `_dispatch_actions` groups vector61 rows like network rows. When `hero_safety_veto` is set, `probes["safety_veto"]` carries the live-shaped descriptor and counters. Nothing changes when the flags are off. |
-| Tests | `tests/test_simd_vector61_policy.py` | 12 tests, about 25 s with `OMP_NUM_THREADS=1`. |
+| Tests | `tests/test_simd_vector61_policy.py` | 16 tests, about 25 s with `OMP_NUM_THREADS=1`. |
 
 How each plan step was closed:
 
@@ -246,7 +250,19 @@ qualitative check: frozen seed 11 at 500 frames dies without the veto (mass
 **Mutation checks** (run by hand, not committed). Each of these edits fails the
 suite: dropping the respawn invalidation (first state divergence at frame 153,
 enemy columns), dropping the empty-mask fallback, skipping the memory reset at
-death, and `need + 1` in the veto threshold.
+death, and `need + 1` in the veto threshold (caught only because the logged
+`need` changes).
+
+**The veto's spacious boundary was not exercised end to end.** No parity run
+above, committed or probe, produced a decision with a flood count exactly equal
+to `need` (`veto_boundary_decisions` was 0 everywhere). A review mutation
+replacing `>=` with `>` in the spacious comparison passed the tiny-world veto
+parity at 4,700/4,700 decisions. The comparison now lives in
+`spacious_from_counts` and is pinned by unit tests instead: a grid over every
+`(length, count)` checked against the live `safety_veto.spacious_directions`
+(it includes `count == need`), and a direct `_apply_veto` call whose counts sit
+exactly at `need`. The `>` mutation fails both. End-to-end evidence at the
+boundary itself is still absent.
 
 ### Throughput (CPU, `OMP_NUM_THREADS=1`; the v4 screen held another core)
 
@@ -268,25 +284,64 @@ there.
 
 ### Recommendation
 
-- **Use SIMD vector61 for screens, pilot sizing and development A/A work.** On
-  every world and roster tested, the engine is decision-for-decision identical
-  to the live evaluator, including the v2 veto. It is 3 to 5 times cheaper per
-  env-frame, and runs all seeds of a mix in one process.
+- **Use SIMD vector61 for Tier-1 screens, pilot sizing and development A/A
+  work, under the engine rules below.** On every world and roster tested, the
+  engine is decision-for-decision identical to the live evaluator, including the
+  v2 veto. It is 2.1 to 5 times cheaper per env-frame (scripted 2.1x, mixed
+  3.3x, frozen 3.8 to 5.0x), and runs all seeds of a mix in one process.
+- **Engine rules for any screen that uses it.**
+  1. Both arms of a screen run on the same engine until the H5000 A/A below is
+     exact. A SIMD candidate arm is never paired with a live Apex arm, and the
+     governance rule that lets the Apex arm "come from a cache for the same
+     worlds and code revision" applies only to a cache produced by the same
+     engine. Parity at H5000 has not been shown, so a mixed-engine paired delta
+     would carry an unmeasured engine term.
+  2. `intent.json` records the engine (`live` or `simd`) and, for SIMD,
+     `vector61_forward`, before any episode runs. Each SIMD vector61 record also
+     carries a `vector61_policy` provenance dict (engine, forward mode,
+     `bit_exact_forward`, veto flag), so the forward mode can be checked from
+     the saved records. Live records never have this key.
+  3. Follow-up, not done here: the Cost paragraph of
+     `docs/research/governance_tiers_2026-09-26.md` still says action parity is
+     not shown and to plan on live cost. It needs an edit in a lane allowed to
+     change the governance document. This lane may edit only `src/simd_env/`,
+     new tests and its own docs. Until that edit lands, the governance document
+     governs.
 - **Keep the live engine for final strict promotion evidence**, for now. Three
   reasons:
   1. Parity is shown on bounded horizons (up to 2,000 frames) and on a handful
      of worlds, not on H5000 for whole gate rosters.
   2. One live step (`trim_ambient`) is only shown to be a no-op at this config.
   3. The strict runner and CLI are frozen to `--engine live`.
-- **The cheap path to promote SIMD:** plan step 6. Run a development-only H5000
-  A/A on the 16 development worlds x 3 mixes. First, compare SIMD's per-world
-  profiled records with the live arm-A/arm-B records the screens already
-  wrote; this needs only the SIMD pass, at about 0.2 to 0.3 of live cost. Then
-  run this harness's per-decision and per-state comparison at H5000 on a few
-  of those worlds. If both are exact, a governance decision could admit SIMD
-  for strict runs, with a periodic live spot-check.
+- **The path to promote SIMD: plan step 6, as its own Tier-1 A/A screen.** It
+  needs new simulation, so it is a Tier-1 run under
+  `docs/research/governance_tiers_2026-09-26.md`, not tooling that may borrow
+  other worlds:
+  - Allocate a fresh namespace `screen/<screen_id>/aa` (for example `screen_id`
+    `simd-vector61-aa-<date>`) with at least 16 worlds per mix, registry-checked
+    against every tier. Never use the strict `training`, `development`,
+    `shakedown`, `pilot`, `final` or `serving` seeds: Tier 1 may not run new
+    episodes on Tier-2 seeds. Never rerun another screen's namespace (for
+    example `apex-safety-screen-v1` or the v3/v4 veto screens' worlds): two
+    screens never share a namespace.
+  - Arms: Apex (`champion_a5_freespace_20260621.pth`) on the live engine and
+    the same checkpoint on SIMD (`vector61_forward="rowwise"`), H5000, frozen,
+    scripted and mixed, paired on each world. With the v2 veto, add a second
+    pair. Both arms are simulated in this screen; neither is read from another
+    screen's records.
+  - Decision rule, stated in the intent: engine admission needs every paired
+    record exactly equal (excluding the SIMD-only keys), plus the per-decision
+    and per-state comparison of this harness on a few of those worlds. The
+    result is labelled `screen (non-authoritative)` and produces no candidate
+    or veto result. It informs only a governance decision on whether SIMD may
+    run strict evidence, with a periodic live spot-check.
+  - Cost: the live arm costs full live price (about 853 s per 48 H5000 Apex
+    episodes on CPU), so each live/SIMD pair costs about 1.2 to 1.5 times one
+    live arm. Reading saved live records instead would be cheaper, but only
+    Tier 0 may reuse other runs' records, and Tier 0 creates no worlds.
 - Do not use `vector61_forward="batched"` for gate evidence: it is not
-  bit-exact by construction. Use it only for exploratory sizing.
+  bit-exact by construction. Use it only for exploratory sizing. Its records
+  say `"bit_exact_forward": false`.
 - The v4 look-ahead veto (`safety_veto_v4`) has no batched equivalent yet. Only
   the v2 free-space veto (`FreeSpaceVeto`) is ported.
 

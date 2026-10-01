@@ -34,6 +34,8 @@ from src.simd_env.vector61_policy import (
     VETO_VETOED,
     batched_veto_choice,
     free_space_counts,
+    spacious_from_counts,
+    vector61_provenance,
     veto_threshold,
 )
 
@@ -46,8 +48,9 @@ POOL_NAMES = (
     "best_apex_stage1_fs.pth",
     "best_apex_pre_fs.pth",
 )
-# Record keys that only one engine emits (SIMD binds its storage runtime).
-SIMD_ONLY_KEYS = {"world_runtime_spec", "world_runtime_spec_digest"}
+# Record keys that only one engine emits (SIMD binds its storage runtime and,
+# with vector61=True, records which policy path and forward produced it).
+SIMD_ONLY_KEYS = {"world_runtime_spec", "world_runtime_spec_digest", "vector61_policy"}
 
 Key = Tuple[int, int, int]  # (seed, frame, slot)
 
@@ -96,6 +99,115 @@ class TestBatchedVetoRule:
             assert np.array_equal(got, np.repeat(counts[:, None], 3, axis=1))
             # The live rule: round(feature * cap) on the float64 feature.
             assert [round(float(c / cap) * cap) for c in counts] == counts.tolist()
+
+    def test_spacious_boundary_matches_live_spacious_directions(self):
+        """``count == need`` is spacious, exactly as the live ``>=`` rule.
+
+        The end-to-end parity runs never hit the boundary (0 boundary decisions
+        in every committed run), so this grid pins the comparison itself: every
+        ``(length, count)`` with ``count`` in ``[0, cap]`` includes
+        ``count == need`` and its two neighbours.
+        """
+        from src.evaluation.safety_veto import spacious_directions
+
+        boundary_rows = 0
+        for length in range(0, 200):
+            cap, need = veto_threshold(np.array([length]))
+            cap_i, need_i = int(cap[0]), int(need[0])
+            counts = np.arange(cap_i + 1)
+            # Three directions per row: below, at and above the same count.
+            grid = np.stack([np.maximum(counts - 1, 0), counts, np.minimum(counts + 1, cap_i)], 1)
+            got = spacious_from_counts(grid, np.full(len(grid), need_i))
+            live = [spacious_directions((row / cap_i).tolist(), cap_i, need_i) for row in grid]
+            assert got.tolist() == live, length
+            boundary_rows += int(np.sum(grid[:, 1] == need_i))
+            assert got[need_i, 1] and not got[need_i - 1, 1]
+        assert boundary_rows == 200
+
+
+# ---------------------------------------------------------------------------
+# Veto boundary through the policy's own _apply_veto
+# ---------------------------------------------------------------------------
+class _FixedCountsRuntime:
+    """Stand-in runtime whose decision-time flood counts are given directly."""
+
+    def __init__(self, counts: np.ndarray) -> None:
+        self.counts = np.asarray(counts, dtype=np.int64)
+
+    def decision_free_space(self, sim, slots):
+        return self.counts[: len(slots)]
+
+
+class _LengthOnlySim:
+    """The two ``BatchSim`` arrays ``_apply_veto`` reads: ``length`` and ``frame``."""
+
+    def __init__(self, lengths: Sequence[int]) -> None:
+        self.length = np.asarray(lengths, dtype=np.int64)[:, None]
+        self.frame = np.ones(len(lengths), dtype=np.int64)
+
+
+def test_apply_veto_treats_count_equal_to_need_as_spacious(tiny_world):
+    """Pins ``>=`` (not ``>``) in ``Vector61SimdPolicy._apply_veto`` itself."""
+    from src.simd_env.vector61_policy import Vector61SimdPolicy
+
+    _ckpt_kind, path = tiny_world("boundary", 7)
+    # Length 10: cap 32, need 10. Base action 1 (normal, direction 1) is cramped.
+    # Row 0: direction 0 sits exactly at need -> veto to action 0.
+    # Row 1: direction 0 one below need -> nothing spacious, base kept.
+    # Row 2: direction 1 exactly at need -> base kept.
+    counts = np.array([[10, 9, 9], [9, 9, 9], [9, 10, 9]])
+    policy = Vector61SimdPolicy(path, _FixedCountsRuntime(counts), veto_slots=(0,))
+    q = torch.tensor([[0.0, 1.0, 0.5, -1.0, -1.0, -1.0]] * 3)
+    mask = np.ones((3, 6), dtype=bool)
+    slots = np.array([[0, 0], [1, 0], [2, 0]])
+    out = policy._apply_veto(_LengthOnlySim([10, 10, 10]), slots, q, mask, np.array([1, 1, 1]))
+    assert policy.last_veto["need"].tolist() == [10, 10, 10]
+    assert policy.last_veto["spacious"].tolist() == [
+        [True, False, False],
+        [False, False, False],
+        [False, True, False],
+    ]
+    assert out.tolist() == [0, 1, 1]
+    labels = {
+        env: counters.to_dict()["vetoes_applied"] for env, counters in policy.veto_counters.items()
+    }
+    assert labels == {0: 1, 1: 0, 2: 0}
+
+
+# ---------------------------------------------------------------------------
+# Record provenance (opt-in only)
+# ---------------------------------------------------------------------------
+def test_vector61_provenance_marks_forward_and_rejects_unknown_modes():
+    assert vector61_provenance("rowwise", True) == {
+        "engine": "simd",
+        "policy": "Vector61SimdPolicy",
+        "forward": "rowwise",
+        "bit_exact_forward": True,
+        "hero_safety_veto": True,
+    }
+    assert vector61_provenance("batched", False)["bit_exact_forward"] is False
+    with pytest.raises(ValueError, match="forward must be one of"):
+        vector61_provenance("fast", False)
+
+
+def test_provenance_is_opt_in_and_the_only_record_change(tiny_world):
+    """Default-off records are unchanged; vector61=True only adds the provenance."""
+    from src.simd_env import eval_engine as ee
+
+    roster = [("scripted", "random_safe")] * 4
+    hero = ("scripted", "greedy_food")
+    off = ee.run_simd_eval(hero, roster, 20, [3, 4], profile=_profile(20))
+    on = ee.run_simd_eval(
+        hero, roster, 20, [3, 4], profile=_profile(20), vector61=True, vector61_forward="batched"
+    )
+    assert all("vector61_policy" not in record for record in off)
+    for plain, tagged in zip(off, on):
+        assert tagged.pop("vector61_policy") == vector61_provenance("batched", False)
+        assert tagged == plain
+    with pytest.raises(ValueError, match="forward must be one of"):
+        ee.run_simd_eval(
+            hero, roster, 20, [3], profile=_profile(20), vector61=True, vector61_forward="fast"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -356,6 +468,8 @@ def _assert_parity(
     assert report["first_divergence"] is None, report
     assert report["decisions"] == stats["rows"]
     for live, simd in zip(live_records, simd_records):
+        assert "vector61_policy" not in live
+        assert simd["vector61_policy"] == vector61_provenance("rowwise", veto)
         simd_view = {k: v for k, v in simd.items() if k not in SIMD_ONLY_KEYS}
         assert simd_view == live, (live, simd)
     hero_decisions = sum(1 for key in live_actions if key[2] == 0)
@@ -494,7 +608,15 @@ def test_batched_forward_selects_the_same_actions_as_rowwise(tiny_world, monkeyp
     # Not bit-exact by construction (BLAS blocking changes low Q bits), so only
     # the selected actions and the resulting records are compared.
     assert _compare(rowwise[1], batched[1])["first_divergence"] is None
-    assert rowwise[0] == batched[0]
+    # The provenance is the only record difference, and it marks batched
+    # records as not bit-exact so they cannot pass as gate evidence.
+    for row, bat in zip(rowwise[0], batched[0]):
+        assert row.pop("vector61_policy")["bit_exact_forward"] is True
+        assert bat.pop("vector61_policy") == {
+            **vector61_provenance("batched", False),
+            "bit_exact_forward": False,
+        }
+        assert row == bat
 
 
 # ---------------------------------------------------------------------------

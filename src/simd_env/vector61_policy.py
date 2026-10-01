@@ -57,6 +57,8 @@ __all__ = [
     "batched_veto_choice",
     "checkpoint_is_vector61",
     "free_space_counts",
+    "spacious_from_counts",
+    "vector61_provenance",
     "veto_threshold",
 ]
 
@@ -70,6 +72,24 @@ _OUTCOME_LABELS = ("kept", "vetoed", "no_spacious")
 # "rowwise": one batch-1 forward per row (the live call shape; bit-exact).
 # "batched": one forward over all rows (faster; BLAS may change the last ulp).
 FORWARD_MODES = ("rowwise", "batched")
+
+
+def vector61_provenance(forward: str, hero_safety_veto: bool) -> Dict[str, object]:
+    """SIMD-only record provenance for a ``run_simd_eval(vector61=True)`` run.
+
+    Live records never carry this key, so a saved record shows that the SIMD
+    vector61 policy produced it and whether its forwards were the bit-exact
+    ``"rowwise"`` call shape (``"batched"`` is never gate evidence).
+    """
+    if forward not in FORWARD_MODES:
+        raise ValueError(f"forward must be one of {FORWARD_MODES}, got {forward!r}")
+    return {
+        "engine": "simd",
+        "policy": "Vector61SimdPolicy",
+        "forward": forward,
+        "bit_exact_forward": forward == "rowwise",
+        "hero_safety_veto": bool(hero_safety_veto),
+    }
 
 
 def checkpoint_is_vector61(checkpoint_path: str) -> bool:
@@ -134,6 +154,24 @@ def veto_threshold(lengths: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     cap = np.minimum(FREE_SPACE_BFS_CAP, np.maximum(FREE_SPACE_MIN_CAP, lengths * 2))
     need = np.minimum(np.maximum(1, lengths), cap)
     return cap, need
+
+
+def spacious_from_counts(counts: np.ndarray, need: np.ndarray) -> np.ndarray:
+    """Array form of ``safety_veto.spacious_directions`` on recovered counts.
+
+    A direction is spacious when its capped flood count is at least ``need``
+    (the live ``round(feature * cap) >= need``; ``count == need`` is spacious).
+
+    Args:
+        counts: ``(N, 3)`` integer counts (as from :func:`free_space_counts`).
+        need: ``(N,)`` per-row threshold (as from :func:`veto_threshold`).
+
+    Returns:
+        ``(N, 3)`` bool.
+    """
+    counts = np.asarray(counts, dtype=np.int64)
+    need = np.asarray(need, dtype=np.int64)
+    return counts >= need[:, None]
 
 
 def free_space_counts(states: np.ndarray, lengths: np.ndarray) -> np.ndarray:
@@ -382,7 +420,7 @@ class Vector61SimdPolicy:
         rows = slots[pick]
         counts = self.runtime.decision_free_space(sim, rows)
         _cap, need = veto_threshold(sim.length[rows[:, 0], rows[:, 1]])
-        spacious = counts >= need[:, None]
+        spacious = spacious_from_counts(counts, need)
         q_rows = masked_q.cpu().numpy()[pick]
         vetoed, outcomes = batched_veto_choice(q_rows, mask[pick], spacious, actions[pick])
         # Diagnostics for the last call (read by the parity tests).

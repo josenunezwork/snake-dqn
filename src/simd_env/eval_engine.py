@@ -67,6 +67,7 @@ from src.simd_env.vector61_policy import (
     Vector61Runtime,
     Vector61SimdPolicy,
     checkpoint_is_vector61,
+    vector61_provenance,
 )
 
 # (kind, ref) agent spec, matching tournament_eval.AgentSpec.
@@ -628,7 +629,10 @@ def run_simd_eval(
         vector61: Opt-in (default off). Serve ``vector61`` (Apex) checkpoints
             with :class:`~src.simd_env.vector61_policy.Vector61SimdPolicy`.
             Requires an explicit profile (the Watch selection phase). Off, a
-            vector checkpoint raises exactly as before.
+            vector checkpoint raises exactly as before. On, every record gains
+            a SIMD-only top-level ``vector61_policy`` provenance dict (engine,
+            forward mode, whether that forward is bit-exact, veto flag), so
+            saved records show which policy path and forward produced them.
         hero_safety_veto: Opt-in v2 free-space veto on a vector61 hero (slot 0
             only), with ``probes["safety_veto"]`` counters as in the live rollout.
         vector61_forward: ``"rowwise"`` (bit-exact batch-1 forwards, default) or
@@ -684,6 +688,8 @@ def run_simd_eval(
         raise ValueError("world_runtime_spec requires an explicit evaluation profile")
     if vector61 and profile is None:
         raise ValueError("vector61 SIMD evaluation requires an explicit evaluation profile")
+    # Built (and the forward mode validated) up front; copied into each record.
+    vector61_record = vector61_provenance(vector61_forward, hero_safety_veto) if vector61 else None
     vector61_runtime = Vector61Runtime(trace=vector61_trace) if vector61 else None
     vector61_cache: Dict[Tuple[str, bool], Vector61SimdPolicy] = {}
     vector61_specs: Dict[str, bool] = {}
@@ -966,6 +972,8 @@ def run_simd_eval(
                 hero_policy = hero_policies[e]
                 assert isinstance(hero_policy, Vector61SimdPolicy)
                 record.setdefault("probes", {})["safety_veto"] = hero_policy.veto_record(int(e))
+            if vector61_record is not None:
+                record["vector61_policy"] = dict(vector61_record)
             records.append(record)
             continue
         af = int(alive_frames[e])
