@@ -102,7 +102,8 @@ VARIANT_V2 = "v2"
 VARIANT_V5 = "v5"
 VARIANTS = (VARIANT_V2, VARIANT_V5)
 # Released default variant when ENV_VARIANT is unset or blank (the v5 release flips this).
-VARIANT_RELEASED_DEFAULT = VARIANT_V2
+# Released 2026-10-02 (v5 STRICT_PASS + SERVING_PASS); rollback: SNAKE_SERVE_VETO_VARIANT=v2.
+VARIANT_RELEASED_DEFAULT = VARIANT_V5
 
 # The v5 STRICT_PASS receipt (apex-veto-v5-strict-20261001/run-v1) and the candidate
 # identity its intent.json binds: champion bytes and the three veto source files.
@@ -163,7 +164,7 @@ class ServingVetoFlags:
 
     watch_hero: bool = False
     play_ai: bool = False
-    variant: str = VARIANT_V2
+    variant: str = VARIANT_RELEASED_DEFAULT
 
     @classmethod
     def from_env(cls, environ: Optional[Mapping[str, str]] = None) -> "ServingVetoFlags":

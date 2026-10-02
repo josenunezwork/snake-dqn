@@ -23,7 +23,7 @@ from web.backend import safety_veto_serving as serving  # noqa: E402
 from web.backend.safety_veto_serving import (  # noqa: E402
     ENV_PLAY_AI,
     ENV_WATCH_HERO,
-    ServingVetoFlags,
+    ServingVetoFlags as _ServingVetoFlags,
     install_serving_vetoes,
 )
 from web.backend.session import (  # noqa: E402
@@ -79,6 +79,19 @@ def control(sess, action, value=None):
     return _apply_control(sess, {"type": "control", "action": action, "value": value}, "conn")
 
 
+def ServingVetoFlags(*args, **kwargs):  # noqa: N802 - test shim with the class's name
+    """Explicit flags default to the v2 wrapper in this file (v2 is the rollback path)."""
+    kwargs.setdefault("variant", serving.VARIANT_V2)
+    return _ServingVetoFlags(*args, **kwargs)
+
+
+@pytest.fixture(autouse=True)
+def _pin_v2_variant(monkeypatch):
+    """These tests cover the v2 wrapper path, which is the rollback since the v5 release
+    (2026-10-02). Pin the variant so they keep testing v2 regardless of the released default."""
+    monkeypatch.setenv("SNAKE_SERVE_VETO_VARIANT", "v2")
+
+
 @pytest.fixture
 def no_default_checkpoint(monkeypatch, tmp_path):
     """Make ``checkpoint=None`` mean untrained weights even where the champion file exists."""
@@ -90,24 +103,24 @@ def no_default_checkpoint(monkeypatch, tmp_path):
 class TestFlags:
     def test_released_defaults(self):
         # Explicit flags stay off by default; the environment default releases the Watch hero.
-        assert ServingVetoFlags() == ServingVetoFlags(watch_hero=False, play_ai=False)
-        assert ServingVetoFlags.from_env({}).to_dict() == {"watch_hero": True, "play_ai": False}
+        assert _ServingVetoFlags() == _ServingVetoFlags(watch_hero=False, play_ai=False)
+        assert _ServingVetoFlags.from_env({}).to_dict() == {"watch_hero": True, "play_ai": False}
         assert serving.WATCH_HERO_RELEASED_DEFAULT is True
 
     @pytest.mark.parametrize("value", ["1", "true", "TRUE", " yes ", "on"])
     def test_truthy_values_enable_their_flag(self, value):
-        assert ServingVetoFlags.from_env({ENV_WATCH_HERO: value}) == ServingVetoFlags(True, False)
-        assert ServingVetoFlags.from_env({ENV_PLAY_AI: value}) == ServingVetoFlags(True, True)
+        assert _ServingVetoFlags.from_env({ENV_WATCH_HERO: value}) == _ServingVetoFlags(True, False)
+        assert _ServingVetoFlags.from_env({ENV_PLAY_AI: value}) == _ServingVetoFlags(True, True)
 
     @pytest.mark.parametrize("value", ["0", "false", "no", "off", " OFF "])
     def test_falsy_values_roll_back_the_watch_hero(self, value):
-        flags = ServingVetoFlags.from_env({ENV_WATCH_HERO: value, ENV_PLAY_AI: value})
-        assert flags == ServingVetoFlags(False, False)
+        flags = _ServingVetoFlags.from_env({ENV_WATCH_HERO: value, ENV_PLAY_AI: value})
+        assert flags == _ServingVetoFlags(False, False)
 
     @pytest.mark.parametrize("value", ["", "2", "enabled"])
     def test_unrecognized_values_keep_the_released_default(self, value):
-        flags = ServingVetoFlags.from_env({ENV_WATCH_HERO: value, ENV_PLAY_AI: value})
-        assert flags == ServingVetoFlags(True, False)
+        flags = _ServingVetoFlags.from_env({ENV_WATCH_HERO: value, ENV_PLAY_AI: value})
+        assert flags == _ServingVetoFlags(True, False)
 
     def test_wrapper_identity_binds_the_unchanged_source(self):
         identity = serving.wrapper_identity()

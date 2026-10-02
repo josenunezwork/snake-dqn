@@ -55,3 +55,18 @@ def make_test_snake(sid, pos, direction=(1, 0), segments=None):
         snake.segments = list(segments)
         snake.length = len(segments)
     return snake
+
+
+@pytest.fixture(autouse=True)
+def _restore_torch_intraop_threads():
+    """Undo torch.set_num_threads calls made by research harness helpers under test.
+
+    Several research runners pin torch to 2 intra-op threads when configured; without this,
+    that process-global setting leaks into later tests (e.g. the web app's 1-thread pin check).
+    """
+    import torch
+
+    before = torch.get_num_threads()
+    yield
+    if torch.get_num_threads() != before:
+        torch.set_num_threads(before)

@@ -348,7 +348,23 @@ class TestVectorPathUnchanged:
 # serve.py oversubscription pin
 # ---------------------------------------------------------------------------
 def test_set_num_threads_pinned_on_app_import():
-    """Importing the app pins torch to a single intra-op thread (blueprint §6)."""
-    import web.backend.app  # noqa: F401  (import triggers the pin)
+    """Importing the app pins torch to a single intra-op thread (blueprint §6).
 
-    assert torch.get_num_threads() == 1
+    Checked in a fresh interpreter: torch's thread count is process-global, and research
+    harness tests in the same pytest process may legitimately change it after the app module
+    was first imported, which made an in-process assertion order-dependent.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    out = subprocess.run(
+        [sys.executable, "-c", "import web.backend.app, torch; print(torch.get_num_threads())"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+    assert out.stdout.strip().splitlines()[-1] == "1"

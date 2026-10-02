@@ -89,16 +89,25 @@ def log_lines(caplog):
     return [r.getMessage() for r in caplog.records if r.name == LOGGER]
 
 
+@pytest.fixture
+def v2_default(monkeypatch):
+    """Pre-release configuration (default v2): the classes using this cover that config,
+    which is also what an operator gets by flipping the constant back for a rollback."""
+    monkeypatch.setattr(serving, "VARIANT_RELEASED_DEFAULT", "v2")
+
+
 class TestVariantParsing:
-    def test_released_default_is_v2(self):
-        assert serving.VARIANT_RELEASED_DEFAULT == "v2"
+    def test_released_default_is_v5(self):
+        # Released 2026-10-02 (v5 STRICT_PASS + SERVING_PASS); rollback is variant=v2.
+        assert serving.VARIANT_RELEASED_DEFAULT == "v5"
         assert serving.VARIANTS == ("v2", "v5")
-        assert ServingVetoFlags().variant == "v2"
-        assert ServingVetoFlags.from_env({}).variant == "v2"
+        assert ServingVetoFlags().variant == "v5"
+        assert ServingVetoFlags.from_env({}).variant == "v5"
+        assert ServingVetoFlags.from_env({ENV_VARIANT: "v2"}).variant == "v2"
 
     @pytest.mark.parametrize("value", ["", "   "])
     def test_blank_selects_the_default(self, value):
-        assert ServingVetoFlags.from_env({ENV_VARIANT: value}).variant == "v2"
+        assert ServingVetoFlags.from_env({ENV_VARIANT: value}).variant == "v5"
 
     @pytest.mark.parametrize("value,expected", [("v5", "v5"), (" V5 ", "v5"), ("v2", "v2")])
     def test_known_values(self, value, expected):
@@ -168,6 +177,7 @@ PLAY_VALUES = (None, "1")
 VARIANT_VALUES = (None, "v2", "v5", "bogus")
 
 
+@pytest.mark.usefixtures("v2_default")
 class TestAllCombinations:
     """Every WATCH_HERO x PLAY_AI x VARIANT setting, through env-built sessions."""
 
@@ -211,6 +221,7 @@ class TestAllCombinations:
             assert play_state["variant"] is None
 
 
+@pytest.mark.usefixtures("v2_default")
 class TestV2UnchangedWhenVariantUnset:
     def _run(self, monkeypatch, pinned, variant, frames=25):
         from src.scripts.eval_cli import set_seed
@@ -248,12 +259,14 @@ class TestV2UnchangedWhenVariantUnset:
         assert [type(v) for v in vetoes(sess).values()] == [FreeSpaceVeto]
 
     def test_v2_refusal_text_is_unchanged(self, no_default_checkpoint):
-        sess = GameSession(checkpoint=None, safety_veto_flags=ServingVetoFlags(watch_hero=True))
+        flags = ServingVetoFlags(watch_hero=True, variant="v2")
+        sess = GameSession(checkpoint=None, safety_veto_flags=flags)
         assert sess.safety_veto_state()["reason"] == (
             "no strict-gate evidence for this checkpoint (sha256 none: untrained weights)"
         )
 
 
+@pytest.mark.usefixtures("v2_default")
 class TestV5FailClosed:
     def test_untrained_weights_are_never_wrapped(self, no_default_checkpoint):
         flags = ServingVetoFlags(watch_hero=True, variant="v5")
@@ -316,6 +329,7 @@ class TestV5FailClosed:
         assert sess.safety_veto.reason is None
 
 
+@pytest.mark.usefixtures("v2_default")
 class TestLogLine:
     def test_v5_line_names_variant_and_match_flags(self, caplog, monkeypatch, pinned):
         caplog.set_level(logging.INFO, logger=LOGGER)
@@ -429,3 +443,22 @@ class TestRealChampion:
         assert "strict_checkpoint_match=True" in line and "wrapper_sources_match=True" in line
         sess.set_mode(MODE_PLAY)
         assert vetoes(sess) == {}  # release config: Play AI stays unwrapped
+
+
+class TestReleasedV5Default:
+    def test_unset_variant_serves_v5_on_the_watch_hero_only(self, monkeypatch, pinned):
+        for name in (ENV_VARIANT, "SNAKE_SERVE_VETO_WATCH_HERO", "SNAKE_SERVE_VETO_PLAY_AI"):
+            monkeypatch.delenv(name, raising=False)
+        sess = GameSession(checkpoint=pinned)
+        state = sess.safety_veto_state()
+        assert state["variant"] == "v5" and state["scope"] == "watch_hero"
+        assert state["active"] is True
+        assert isinstance(sess.game.snakes[0].safety_veto, BoostAwareFreeSpaceVeto)
+        assert all(getattr(s, "safety_veto", None) is None for s in sess.game.snakes[1:])
+
+    def test_rollback_to_v2_by_env(self, monkeypatch, pinned):
+        monkeypatch.setenv(ENV_VARIANT, "v2")
+        monkeypatch.delenv("SNAKE_SERVE_VETO_WATCH_HERO", raising=False)
+        sess = GameSession(checkpoint=pinned)
+        veto = sess.game.snakes[0].safety_veto
+        assert type(veto) is FreeSpaceVeto and sess.safety_veto_state()["variant"] == "v2"
