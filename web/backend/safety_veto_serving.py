@@ -28,10 +28,27 @@ checkpoints and HumanSnakes are never wrapped either. A requested flag that
 cannot take effect is reported in :attr:`ServingVetoState.reason` rather than
 raised, so a misconfigured flag cannot take the server down.
 
+Variant (``SNAKE_SERVE_VETO_VARIANT``, Watch hero only). ``SNAKE_SERVE_VETO_WATCH_HERO``
+stays the master switch; the variant chooses which wrapper the Watch hero gets:
+
+* ``v2`` (the default while :data:`VARIANT_RELEASED_DEFAULT` is ``"v2"``): the released
+  ``free-space-veto/v2-speed-preserving`` wrapper above, installed exactly as before.
+* ``v5``: ``free-space-veto/v5-boost-aware``
+  (:func:`src.evaluation.safety_veto_v5.install_boost_aware_veto`), bound fail closed to
+  the v5 STRICT_PASS receipt (``apex-veto-v5-strict-20261001/run-v1``, receipt sha256
+  :data:`V5_STRICT_RECEIPT_SHA256`): the served checkpoint must hash to
+  :data:`V5_STRICT_RECEIPT_CHECKPOINT_SHA256` and ``safety_veto_v5.py``,
+  ``safety_veto.py`` and ``safety_veto_v3.py`` to :data:`V5_STRICT_RECEIPT_SOURCE_SHA256S`.
+
+Unset or blank selects the default; ``v2``/``v5`` (case-insensitive) select a variant;
+any other value installs nothing on the Watch hero (fail closed) and says why. The
+variant never affects Play: ``SNAKE_SERVE_VETO_PLAY_AI`` keeps its v2 behavior.
+
 Whenever a flag is requested, each build logs one INFO line (prefix
-:data:`LOG_PREFIX`) with the scope, wrapped ids, checkpoint match and wrapper
-source sha256, or the reason nothing was installed, so an operator can confirm a
-release or rollback on the running server. The wire payload is unchanged.
+:data:`LOG_PREFIX`) with the variant, scope, wrapped ids, checkpoint and source match
+flags and the wrapper source sha256, or the reason nothing was installed, so an
+operator can confirm a release or rollback on the running server. The wire payload is
+unchanged.
 """
 
 from __future__ import annotations
@@ -43,10 +60,17 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
 from src.evaluation import safety_veto as _veto_module
+from src.evaluation import safety_veto_v3 as _veto_v3_module
+from src.evaluation import safety_veto_v5 as _veto_v5_module
 from src.evaluation.safety_veto import (
     VETO_METHOD,
     FreeSpaceVeto,
     install_free_space_veto,
+)
+from src.evaluation.safety_veto_v5 import (
+    VETO_METHOD_V5,
+    BoostAwareFreeSpaceVeto,
+    install_boost_aware_veto,
 )
 from src.model.obs_spec import VECTOR61
 
@@ -67,6 +91,33 @@ STRICT_RECEIPT_CHECKPOINT_SHA256 = (
 STRICT_RECEIPT_WRAPPER_SOURCE_SHA256 = (
     "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428"
 )
+
+# Variant selector for the Watch hero's wrapper (SNAKE_SERVE_VETO_WATCH_HERO stays the switch).
+ENV_VARIANT = "SNAKE_SERVE_VETO_VARIANT"
+VARIANT_V2 = "v2"
+VARIANT_V5 = "v5"
+VARIANTS = (VARIANT_V2, VARIANT_V5)
+# Released default variant when ENV_VARIANT is unset or blank (the v5 release flips this).
+VARIANT_RELEASED_DEFAULT = VARIANT_V2
+
+# The v5 STRICT_PASS receipt (apex-veto-v5-strict-20261001/run-v1) and the candidate
+# identity its intent.json binds: champion bytes and the three veto source files.
+V5_STRICT_RECEIPT_SHA256 = "cd843edfcfaf07158fb5135ce247735d3f63c10a24568cf0f47a24b76f4e3ceb"
+V5_STRICT_RECEIPT_CHECKPOINT_SHA256 = (
+    "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+)
+V5_STRICT_RECEIPT_SOURCE_SHA256S = {
+    "src/evaluation/safety_veto.py": (
+        "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428"
+    ),
+    "src/evaluation/safety_veto_v3.py": (
+        "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1"
+    ),
+    "src/evaluation/safety_veto_v5.py": (
+        "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c"
+    ),
+}
+V5_SOURCE_PATH = "src/evaluation/safety_veto_v5.py"
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -90,24 +141,66 @@ def _released_flag(value: Optional[str], default: bool) -> bool:
     return default
 
 
+def _variant(value: Optional[str]) -> str:
+    """Unset or blank -> the released default; otherwise the normalized word (may be unknown)."""
+    if value is None or not value.strip():
+        return VARIANT_RELEASED_DEFAULT
+    return value.strip().lower()
+
+
 @dataclass(frozen=True)
 class ServingVetoFlags:
-    """Which served snakes get the wrapper. Both default to off."""
+    """Which served snakes get the wrapper (both default to off), and the Watch variant.
+
+    ``variant`` only chooses the Watch hero's wrapper; :meth:`to_dict` keeps the two
+    flags' original shape, and the variant is reported beside it.
+    """
 
     watch_hero: bool = False
     play_ai: bool = False
+    variant: str = VARIANT_V2
 
     @classmethod
     def from_env(cls, environ: Optional[Mapping[str, str]] = None) -> "ServingVetoFlags":
-        """Read the two flags from ``environ`` (``os.environ`` when None)."""
+        """Read the two flags and the variant from ``environ`` (``os.environ`` when None)."""
         env = os.environ if environ is None else environ
         return cls(
             watch_hero=_released_flag(env.get(ENV_WATCH_HERO), WATCH_HERO_RELEASED_DEFAULT),
             play_ai=_truthy(env.get(ENV_PLAY_AI)),
+            variant=_variant(env.get(ENV_VARIANT)),
         )
 
     def to_dict(self) -> Dict[str, bool]:
         return {"watch_hero": bool(self.watch_hero), "play_ai": bool(self.play_ai)}
+
+
+def _sha256_file(path: str) -> str:
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def v5_source_sha256s() -> Dict[str, str]:
+    """sha256 of each source file the v5 receipt binds, keyed by repo-relative path."""
+    out = {}
+    for module in (_veto_module, _veto_v3_module, _veto_v5_module):
+        path = os.path.abspath(module.__file__)
+        out[os.path.relpath(path, REPO_ROOT)] = _sha256_file(path)
+    return dict(sorted(out.items()))
+
+
+def wrapper_identity_v5() -> Dict[str, Any]:
+    """Identity of the v5 wrapper, in the v5 strict intent's ``wrapper_identity`` shape.
+
+    ``source_path`` is repo-relative (the intent recorded an absolute path).
+    """
+    sources = v5_source_sha256s()
+    return {
+        "method": VETO_METHOD_V5,
+        "descriptor": BoostAwareFreeSpaceVeto().descriptor(),
+        "source_path": V5_SOURCE_PATH,
+        "source_sha256": sources.get(V5_SOURCE_PATH),
+        "source_sha256s": sources,
+    }
 
 
 def wrapper_identity() -> Dict[str, Any]:
@@ -138,7 +231,21 @@ class ServingVetoState:
     scope: Optional[str] = None
     reason: Optional[str] = None
     wrapper: Optional[Dict[str, Any]] = None
-    vetoes: Dict[int, FreeSpaceVeto] = field(default_factory=dict)
+    vetoes: Dict[int, Any] = field(default_factory=dict)
+    # The wrapper variant this build's scope uses (Watch: flags.variant; Play: always v2).
+    variant: Optional[str] = None
+    # Whether every bound wrapper source hashed to its receipt sha (None = not checked).
+    wrapper_sources_match: Optional[bool] = None
+
+    @property
+    def checkpoint_match(self) -> bool:
+        """The served checkpoint is the one the variant's strict receipt binds."""
+        pinned = (
+            V5_STRICT_RECEIPT_CHECKPOINT_SHA256
+            if self.variant == VARIANT_V5
+            else STRICT_RECEIPT_CHECKPOINT_SHA256
+        )
+        return self.checkpoint_sha256 == pinned
 
     @property
     def active(self) -> bool:
@@ -152,22 +259,32 @@ class ServingVetoState:
         """Current cumulative counters per wrapped snake id."""
         return {sid: veto.counters.to_dict() for sid, veto in sorted(self.vetoes.items())}
 
+    def diagnostics(self) -> Dict[int, Dict[str, Any]]:
+        """v5 per-snake diagnostics (``diagnostics_record``); empty for the v2 wrapper."""
+        return {
+            sid: veto.diagnostics_record()
+            for sid, veto in sorted(self.vetoes.items())
+            if hasattr(veto, "diagnostics_record")
+        }
+
     def to_dict(self) -> Dict[str, Any]:
         """JSON-safe report (snake ids become strings)."""
         return {
             "active": self.active,
             "flags": self.flags.to_dict(),
+            "variant_requested": self.flags.variant,
+            "variant": self.variant,
             "mode": self.mode,
             "obs_spec": self.obs_spec,
             "scope": self.scope,
             "reason": self.reason,
             "checkpoint_sha256": self.checkpoint_sha256,
-            "strict_receipt_checkpoint_match": (
-                self.checkpoint_sha256 == STRICT_RECEIPT_CHECKPOINT_SHA256
-            ),
+            "strict_receipt_checkpoint_match": self.checkpoint_match,
+            "strict_receipt_wrapper_match": self.wrapper_sources_match,
             "wrapper": self.wrapper,
             "wrapped_snake_ids": self.wrapped_snake_ids,
             "counters": {str(k): v for k, v in self.counters().items()},
+            "diagnostics": {str(k): v for k, v in self.diagnostics().items()},
         }
 
 
@@ -211,26 +328,50 @@ def _install(
         flags=flags, mode=str(mode), obs_spec=str(obs_spec), checkpoint_sha256=checkpoint_sha256
     )
     if mode == "watch" and flags.watch_hero:
-        state.scope = SCOPE_WATCH_HERO
+        state.scope, state.variant = SCOPE_WATCH_HERO, flags.variant
     elif mode == "play" and flags.play_ai:
-        state.scope = SCOPE_PLAY_AI
+        state.scope, state.variant = SCOPE_PLAY_AI, VARIANT_V2  # Play never uses the variant
     else:
         if flags.watch_hero or flags.play_ai:
             state.reason = f"no serving veto flag applies to {mode} mode"
         return state
+    if state.variant not in VARIANTS:
+        state.reason = (
+            f"unknown serving veto variant {state.variant!r} "
+            f"({ENV_VARIANT} must be one of {', '.join(VARIANTS)})"
+        )
+        return state
     if obs_spec != VECTOR61 or not hasattr(policy, "dqn"):
         state.reason = "the safety veto applies only to a vector61 Apex policy"
         return state
-    if checkpoint_sha256 != STRICT_RECEIPT_CHECKPOINT_SHA256:
+    if not state.checkpoint_match:
+        under = " under variant v5" if state.variant == VARIANT_V5 else ""  # v2 text unchanged
         state.reason = (
-            "no strict-gate evidence for this checkpoint "
+            f"no strict-gate evidence for this checkpoint{under} "
             f"(sha256 {checkpoint_sha256 or 'none: untrained weights'})"
         )
         return state
-    identity = wrapper_identity()
-    if identity["source_sha256"] != STRICT_RECEIPT_WRAPPER_SOURCE_SHA256:
-        state.reason = f"wrapper source sha256 {identity['source_sha256']} is not the gated one"
-        return state
+    if state.variant == VARIANT_V5:
+        identity = wrapper_identity_v5()
+        changed = sorted(
+            path
+            for path, sha in V5_STRICT_RECEIPT_SOURCE_SHA256S.items()
+            if identity["source_sha256s"].get(path) != sha
+        )
+        state.wrapper_sources_match = not changed
+        if changed:
+            state.reason = f"v5 wrapper source sha256 differs from the gated one: {changed}"
+            return state
+        install = install_boost_aware_veto
+    else:
+        identity = wrapper_identity()
+        state.wrapper_sources_match = (
+            identity["source_sha256"] == STRICT_RECEIPT_WRAPPER_SOURCE_SHA256
+        )
+        if not state.wrapper_sources_match:
+            state.reason = f"wrapper source sha256 {identity['source_sha256']} is not the gated one"
+            return state
+        install = install_free_space_veto
 
     from src.game.ai_snake import AISnake
     from src.game.human_snake import HumanSnake
@@ -246,7 +387,7 @@ def _install(
         return state
     state.wrapper = identity
     for snake in targets:
-        state.vetoes[int(snake.id)] = install_free_space_veto(snake)
+        state.vetoes[int(snake.id)] = install(snake)
     return state
 
 
@@ -272,16 +413,21 @@ def log_build(state: ServingVetoState) -> None:
     _ensure_visible()
     wrapper = state.wrapper or {}
     logger.info(
-        "%s active=%s scope=%s mode=%s wrapped_ids=%s flags=%s checkpoint_sha256=%s "
-        "strict_checkpoint_match=%s wrapper_source_sha256=%s reason=%s",
+        "%s active=%s variant=%s variant_requested=%s scope=%s mode=%s wrapped_ids=%s "
+        "flags=%s checkpoint_sha256=%s strict_checkpoint_match=%s wrapper_sources_match=%s "
+        "wrapper_method=%s wrapper_source_sha256=%s reason=%s",
         LOG_PREFIX,
         state.active,
+        state.variant,
+        state.flags.variant,
         state.scope,
         state.mode,
         state.wrapped_snake_ids,
         state.flags.to_dict(),
         state.checkpoint_sha256,
-        state.checkpoint_sha256 == STRICT_RECEIPT_CHECKPOINT_SHA256,
+        state.checkpoint_match,
+        state.wrapper_sources_match,
+        wrapper.get("method"),
         wrapper.get("source_sha256"),
         state.reason,
     )

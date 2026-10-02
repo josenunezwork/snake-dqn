@@ -46,6 +46,7 @@ def _isolate(monkeypatch):
 
     monkeypatch.delenv(ENV_WATCH_HERO, raising=False)
     monkeypatch.delenv(ENV_PLAY_AI, raising=False)
+    monkeypatch.delenv(serving.ENV_VARIANT, raising=False)
     prev = game_config._current_config
     yield
     game_config._current_config = prev
