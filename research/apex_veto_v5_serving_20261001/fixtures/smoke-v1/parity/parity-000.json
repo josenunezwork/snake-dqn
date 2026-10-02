@@ -1,0 +1,90 @@
+{
+  "config": {
+    "path": "/Users/josenunez/.codex/worktrees/apex-safety-and-eval-tooling/snake-dqn/research/apex_safety_20260926/deployment.yaml",
+    "profile": "promotion-v2-watch-rect"
+  },
+  "diagnostics_equal": true,
+  "env": {
+    "SNAKE_SERVE_VETO_PLAY_AI": null,
+    "SNAKE_SERVE_VETO_VARIANT": "v5",
+    "SNAKE_SERVE_VETO_WATCH_HERO": null
+  },
+  "error": null,
+  "first_divergence_frame": null,
+  "frames_compared": 200,
+  "horizon_frames": 200,
+  "intent_sha256": "f655137857d7b1af825f977b83821de5972dfcf3297e89e172a704e8af2424fd",
+  "probe_id": "parity-000",
+  "probe_index": 0,
+  "rollout": {
+    "counters": {
+      "decisions": 200,
+      "fallback_no_spacious": 0,
+      "kept_base": 198,
+      "vetoed_base_boost": 0,
+      "vetoes_applied": 2,
+      "vetoes_speed_switched": 0,
+      "vetoes_to_boost": 0
+    },
+    "diagnostics": {
+      "action_differs_from_v2": 0,
+      "base_landing_failed": 0,
+      "boost_base_decisions": 25,
+      "boost_landing_no_eligible": 0,
+      "boost_landing_v2_rule": 0,
+      "boost_landing_vetoes": 0,
+      "boost_to_normal_same_direction": 0,
+      "decisions": 200,
+      "kept": 198,
+      "landing_checks": 25,
+      "landing_failures": 0,
+      "no_spacious": 0,
+      "vetoes_applied": 2
+    },
+    "record": null,
+    "record_complete": false,
+    "trace_sha256": "cae4cc09d6c461b365a3b5cb588a99db4a98bc6ac731625b704fa2836d27c2e0",
+    "wrapper_method": "free-space-veto/v5-boost-aware"
+  },
+  "schema_version": "apex-veto-v5-web-serving/v1",
+  "session": {
+    "config_sha256": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5",
+    "counters": {
+      "decisions": 200,
+      "fallback_no_spacious": 0,
+      "kept_base": 198,
+      "vetoed_base_boost": 0,
+      "vetoes_applied": 2,
+      "vetoes_speed_switched": 0,
+      "vetoes_to_boost": 0
+    },
+    "decision_frames": 200,
+    "diagnostics": {
+      "action_differs_from_v2": 0,
+      "base_landing_failed": 0,
+      "boost_base_decisions": 25,
+      "boost_landing_no_eligible": 0,
+      "boost_landing_v2_rule": 0,
+      "boost_landing_vetoes": 0,
+      "boost_to_normal_same_direction": 0,
+      "decisions": 200,
+      "kept": 198,
+      "landing_checks": 25,
+      "landing_failures": 0,
+      "no_spacious": 0,
+      "vetoes_applied": 2
+    },
+    "trace_sha256": "cae4cc09d6c461b365a3b5cb588a99db4a98bc6ac731625b704fa2836d27c2e0",
+    "variant": "v5",
+    "wrapped_snake_ids": [
+      0
+    ],
+    "wrapper_method": "free-space-veto/v5-boost-aware"
+  },
+  "status": "complete",
+  "study_id": "apex-veto-v5-serving-20261001",
+  "trace_sha256_equal": true,
+  "veto_counters_equal": true,
+  "wall_seconds": 1.7482196670025587,
+  "world_seed": 921168056
+}

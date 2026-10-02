@@ -1,0 +1,141 @@
+{
+  "authority": "serving-qualification (non-promoting)",
+  "checkpoint": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+    "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+  },
+  "counts": {
+    "parity": 1,
+    "play": 1,
+    "watch": 1
+  },
+  "criteria": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "expected": {
+    "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+    "parity_config_sha256": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5",
+    "served_config_basename": "mechanics_v2.yaml",
+    "served_config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+    "v5_source_sha256s": {
+      "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+      "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+      "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c"
+    },
+    "v5_strict_receipt_sha256": "cd843edfcfaf07158fb5135ce247735d3f63c10a24568cf0f47a24b76f4e3ceb"
+  },
+  "git": {
+    "commit": "8e7f66a66762531cd4db6091703a2795116a2524",
+    "dirty": true
+  },
+  "harness_sources": {
+    "research/apex_veto_serving_20261001/schema.py": "7981db7243ba87e1f2011331fe585fac3b71a868d2bbbbed50f72a21a0abf141",
+    "research/apex_veto_serving_20261001/serving_run.py": "fd229bdba600ecd278c64bb5170418bae9b002f0485afe73aff1a30e9058117c",
+    "research/apex_veto_v5_serving_20261001/schema.py": "4c04dc35023944737cf3763b4e821e64b95f43fb4810c4fe44594e00f36558b9",
+    "research/apex_veto_v5_serving_20261001/serving_audit.py": "10dfd3ed6198a2c935d83be0992fc2c5c3287d43cd21dcb88ca784f371eeb6a4",
+    "research/apex_veto_v5_serving_20261001/serving_run.py": "1b9b3f1af67fecbbd4a8e0f96887582c29a9cb3c79731ddfae3233adfb92c302"
+  },
+  "horizon_frames": 500,
+  "parity_horizon_frames": 200,
+  "protocol_sha256": "fe79acc897e2e71eb1c70a58ad9a5aacd128972efa5aa23858c665900617682e",
+  "release_env": {
+    "SNAKE_SERVE_VETO_PLAY_AI": null,
+    "SNAKE_SERVE_VETO_VARIANT": "v5",
+    "SNAKE_SERVE_VETO_WATCH_HERO": null
+  },
+  "schema_version": "apex-veto-v5-web-serving/v1",
+  "seed_recipe": {
+    "domain": "apex-veto-v5-web-serving-smoke-v1",
+    "rule": "uint32 big-endian of sha256(f'{domain}|{purpose}|{i}')[:4]"
+  },
+  "seed_report": {
+    "checked_against": [
+      "apex-veto-strict dev/final/serving v1-v3",
+      "apex-safety-screen-v1[:1000]",
+      "task-aligned-challenger-20260924 namespaces",
+      "apex-veto-v3-screen-v1/worlds[:1000] (+ smoke)",
+      "apex-safety-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-web-serving-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-web-serving-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v4-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v4-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "trap-horizon-dev-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "trap-horizon-dev-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-strict-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-strict-dev-v1/worlds[:1000]",
+      "apex-veto-v5-strict-final-v1/worlds[:1000]",
+      "apex-veto-v5-strict-serving-v1/worlds[:1000]",
+      "apex-veto-v5-strict-smoke-v1/worlds[:1000]",
+      "small integer seeds 0..999"
+    ],
+    "disjoint": true,
+    "registry_checked": false,
+    "registry_note": "governance namespace registry not implemented; in-code check only",
+    "unique": true,
+    "v2_serving_report": {
+      "checked_against": [
+        "apex-veto-strict dev/final/serving v1-v3",
+        "apex-safety-screen-v1[:1000]",
+        "task-aligned-challenger-20260924 namespaces",
+        "apex-veto-v3-screen-v1/worlds[:1000] (+ smoke)"
+      ],
+      "disjoint": true,
+      "registry_checked": false,
+      "registry_note": "governance namespace registry not implemented; in-code check only",
+      "strict_and_screen_overlap": [],
+      "unique": true
+    },
+    "v5_earlier_overlap": []
+  },
+  "seeds": {
+    "parity": [
+      921168056
+    ],
+    "play": [
+      3913598279
+    ],
+    "watch": [
+      3175368461
+    ]
+  },
+  "smoke": true,
+  "study_id": "apex-veto-v5-serving-20261001",
+  "wrapper_identity": {
+    "descriptor": {
+      "boost_approximation": "first-cell-and-two-cell-landing",
+      "free_space_bfs_cap": 160,
+      "free_space_min_cap": 32,
+      "landing_rule": "post-move-body-blocked-except-head/other-snakes-static/v2-cap-need",
+      "method": "free-space-veto/v5-boost-aware",
+      "replacement_rule": "landing-veto-same-direction-normal-speed-first/highest-q-eligible-same-speed-mode-then-other"
+    },
+    "method": "free-space-veto/v5-boost-aware",
+    "source_path": "src/evaluation/safety_veto_v5.py",
+    "source_sha256": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+    "source_sha256s": {
+      "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+      "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+      "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c"
+    }
+  }
+}
