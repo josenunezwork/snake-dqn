@@ -453,3 +453,80 @@ load, so read them as approximate.
   and strict final evidence stays on the live engine.
 - This check does not replace the planned Tier-1 A/A screen on a fresh
   namespace. It does lower the expected risk of that screen.
+
+## v5 boost-aware veto on the SIMD vector61 path (2026-10-02)
+
+Branch `wip-simd-v5-veto-port`. `run_simd_eval(..., vector61=True,
+hero_safety_veto="v5")` serves the hero with the boost-aware veto of
+`src/evaluation/safety_veto_v5.py` (WIP port in `src/simd_env/vector61_policy.py`
+and `eval_engine.py`, commit `01d8a53`). `hero_safety_veto=True` is still the v2
+veto; `tests/test_simd_vector61_policy.py` (16 tests) passes unchanged.
+
+### Live per-decision parity (tests/test_simd_vector61_v5_veto.py)
+
+Reference: the real `tournament_eval.rollout` with the v5 screen's install
+(`dev_screen.hero_veto_installer(install_boost_aware_veto)`). Compared per
+decision: every vector action (hero and checkpoint opponents), bit-identical
+float32 selection states, and for every hero veto decision the v2 counts,
+`need`, base, final action, the floods the hook actually ran (lazy landings)
+and an eager landing table for all three directions. Also compared: the full
+records (minus SIMD-only keys) and the v5 diagnostics (minus wall-clock fields).
+
+| World | Frames | Seeds | Decisions | Hero veto decisions | Lazy floods | Eager landings (fail) | Landing vetoes |
+|---|---:|---|---:|---:|---:|---:|---:|
+| tiny (random nets) | 300 | 3-6 | 4700 | 1100 | 3 | 9 (1) | 0 |
+| deployment frozen | 300 | 12, 16 | 3600 | 600 | 11 | 1635 (83) | 1 |
+| deployment mixed | 300 | 13, 15 | 2400 | 600 | 32 | 1692 (102) | 1 |
+| deployment frozen | 500 | 11-13 | 9000 | 1500 | 87 | 4317 (262) | 0 |
+| deployment scripted | 300 | 11, 12 | 600 | 600 | 15 | 1689 (87) | 0 |
+
+All decisions matched and all states were bit-identical. There were no
+divergences, so the WIP implementation was not changed. Seeds 16 (frozen) and
+15 (mixed) came from a SIMD-only search over seeds 11-58 at 300 frames. Each
+has one real landing veto: a boost replaced by the same direction at normal
+speed (`boost_to_normal_same_direction`, `action_differs_from_v2` = 1). The
+landing veto is identical on both sides. Scripted had none in that range.
+
+Coverage limit: only these 2 per-decision landing vetoes were compared live,
+and both are `boost_to_normal_same_direction`. The other landing branches
+(`landing_v2_rule`, `landing_no_eligible`, and a v2 pick that itself fails its
+landing) never fired in the live rollouts. They are covered by the synthetic
+hook tests on constructed decisions (SIMD hook vs live hook) and by the shared
+live code the SIMD port calls (`simulate_move`, `boost_aware_choice`). A
+synthetic test also pins the boost burn: with `boost_frames=2` and
+`len(segments) == length`, the popped tail cell opens the landing pocket, and
+the SIMD count matches the live `landing_count` (skipping the burn changes it
+from open to 2 cells; checked by mutating a scratch copy, where the test fails).
+The rollout tests (5) run in about 20 s with `OMP_NUM_THREADS=1`. The full v5
+file has 37 tests.
+
+### H5000 record-level check against the v5 screen's live B records
+
+Scope: 12 of the v5 screen's 120 B records (10%), record-level only (records and
+v5 diagnostics; no per-decision comparison at H5000).
+
+Inputs (read-only): `apex-veto-v5-screen-20261001/run-v1/records/B-<mix>-<seed>.json`
+for world indices 0-3 per mix, rosters rebuilt from the records' member sha256s
+via `dev_screen.agent_lookup` on the run's checkpoint snapshots, pinned
+deployment config and `promotion-v2-watch-rect` profile (digest checked).
+Machine conditions: CPU slot 2 held, AC power, torch 2 threads (the screen's
+`_configure_torch`). Output: `snake-dqn-artifacts/simd-v5-parity-20261002/run-v1/`
+(`summary.json`, `h5000_check.py`).
+
+| Mix | Identical (record + v5 diagnostics) | Different | `base_landing_failed` | SIMD batch (s) | Live sum (s) |
+|---|---:|---:|---:|---:|---:|
+| frozen | 4 | 0 | 2 | 40.3 | 114.5 |
+| scripted | 4 | 0 | 1 | 39.5 | 54.3 |
+| mixed | 4 | 0 | 3 | 46.4 | 82.6 |
+| **total** | **12** | **0** | **6** | **126.3** | **251.3** |
+
+All 12 SIMD+v5 records match the live B records exactly, including deaths,
+mass integrals, probes and the v5 diagnostics. The last count column is the
+v5 diagnostic `base_landing_failed` summed per mix (6 in five worlds), identical
+on both sides; `boost_landing_vetoes` was not extracted into `summary.json`. The live times were measured on a different day
+under a different load, so the about 2x speedup is approximate.
+
+Status: SIMD+v5 has per-decision parity and H5000 record parity on this
+sample. It is still unreviewed WIP and is not merged. The same engine rules
+as for v2 apply: one engine per screen, and strict final evidence stays live
+until the governance tiers change.
