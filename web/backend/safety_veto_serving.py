@@ -11,8 +11,10 @@ snakes the web app serves. Nothing here runs unless an operator turns it on:
 * ``SNAKE_SERVE_VETO_PLAY_AI=1`` wraps every AI snake in Play mode (never the
   human). Wrapping more than one hero was NOT measured by the strict gate.
 
-Both default to off; only ``1``/``true``/``yes``/``on`` (case-insensitive)
-enable a flag, anything else (including unset) leaves it off. The flags are
+RELEASED 2026-10-01 (user-approved, strict receipt 18b65519…, serving run
+SERVING_PASS): when ``SNAKE_SERVE_VETO_WATCH_HERO`` is unset the Watch hero flag
+is ON. Rollback: set it to ``0``/``false``/``no``/``off``. ``SNAKE_SERVE_VETO_PLAY_AI``
+stays opt-in: only ``1``/``true``/``yes``/``on`` enable it. The flags are
 read on every session build, like ``SNAKE_MECHANICS_V2``; a
 :class:`GameSession` may instead be given explicit :class:`ServingVetoFlags`.
 
@@ -51,6 +53,9 @@ from src.model.obs_spec import VECTOR61
 ENV_WATCH_HERO = "SNAKE_SERVE_VETO_WATCH_HERO"
 ENV_PLAY_AI = "SNAKE_SERVE_VETO_PLAY_AI"
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
+_FALSY = frozenset({"0", "false", "no", "off"})
+# Released default for the Watch hero when its env var is unset (rollback: set it to "0").
+WATCH_HERO_RELEASED_DEFAULT = True
 
 SCOPE_WATCH_HERO = "watch_hero"
 SCOPE_PLAY_AI = "play_ai"
@@ -73,6 +78,18 @@ def _truthy(value: Optional[str]) -> bool:
     return value is not None and value.strip().lower() in _TRUTHY
 
 
+def _released_flag(value: Optional[str], default: bool) -> bool:
+    """Unset or unrecognized -> ``default``; an explicit truthy/falsy word wins."""
+    if value is None:
+        return default
+    word = value.strip().lower()
+    if word in _TRUTHY:
+        return True
+    if word in _FALSY:
+        return False
+    return default
+
+
 @dataclass(frozen=True)
 class ServingVetoFlags:
     """Which served snakes get the wrapper. Both default to off."""
@@ -85,7 +102,7 @@ class ServingVetoFlags:
         """Read the two flags from ``environ`` (``os.environ`` when None)."""
         env = os.environ if environ is None else environ
         return cls(
-            watch_hero=_truthy(env.get(ENV_WATCH_HERO)),
+            watch_hero=_released_flag(env.get(ENV_WATCH_HERO), WATCH_HERO_RELEASED_DEFAULT),
             play_ai=_truthy(env.get(ENV_PLAY_AI)),
         )
 
