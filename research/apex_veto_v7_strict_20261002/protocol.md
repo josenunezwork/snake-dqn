@@ -157,37 +157,27 @@ records:
 
 ## Sizing (frozen in the intent)
 
-- MDE = **40 mass-integral units absolute per mix**.
+- MDE = **30 mass-integral units absolute per mix**.
 - **Disclosure: the MDE was chosen after the v7 screen finished and after its result was
   seen.** The v2 and v5 strict gates used MDE 20 (declared before their screens' results).
   The v7 screen's paired B-A standard deviations are 139.9 (frozen), 152.9 (scripted) and
   135.3 (mixed), so MDE 20 would need N = 547 > Nmax 300 (`STOP_INFEASIBLE`). With these
-  SDs, MDE 25/30/35/40/50 give N = 350/243/179/137/88. 40 was taken as about a quarter of
-  the screen's observed mean effect (+134.8 frozen, +153.9 scripted, +153.9 mixed); that
-  effect is not evidence in this study and plays no role beyond this choice. A smaller MDE
-  would have been feasible from 30 up; the choice of 40 lowers N and power against effects
-  near 20-30 units (an effect of 20 is not "detected" by design). The intent records
-  `mde_basis`, `mde_chosen_after_v7_screen: true`, `v7_screen_complete_before_mde: true` and
-  the infeasible alternative.
-- **GO condition for the MDE.** Moving from the product threshold of 20 to 40 after the
-  screen's result was seen works around governance Tier-2 "Feasibility first". It does not
-  inflate type-I error, because the decision is Holm superiority over 0 on fresh worlds with
-  N frozen before any final data, and a larger MDE only lowers power. But 40 is a choice,
-  not a necessity: MDE 30 (N = 243) and MDE 35 (N = 179) also fit the final cap.
-  `runtime_projection` on the screen's wall times projects 22,028 s and 16,226 s per worker
-  (49% and 36% of the 44,970 s worker budget; the limit is 70%), against 12,419 s (28%) for
-  MDE 40. So the Tier-2 GO authorization quote passed to `prepare` must explicitly accept
-  MDE 40 in place of the product threshold 20. That includes the lost power against true
-  effects of 20-30 units and the fact that MDE 30 was feasible. Otherwise the MDE must be
-  re-chosen (30 or 35) and committed before `prepare`. Without that acceptance, the intent
-  is not a valid GO.
+  SDs, MDE 25/30/35/40 give N = 350/243/179/137.
+- **Rule (amendment, before `prepare`):** the smallest MDE in 5-unit steps whose N fits
+  Nmax = 300 and the 70% runtime limit, which is 30 (N = 243; 25 needs 350). This replaces
+  an earlier draft value of 40, which a reviewer flagged as a choice rather than a necessity.
+  The observed screen effect (+134.8 / +153.9 / +153.9) did not set the value and is not
+  evidence here. The MDE only affects power; the decision is Holm superiority over 0 on
+  fresh worlds with N frozen before any final data. The intent records `mde_basis`,
+  `mde_chosen_after_v7_screen: true`, `v7_screen_complete_before_mde: true` and the
+  infeasible alternative.
 - The v7 screen's paired B-A mass deltas are the independent pilot (disjoint worlds). Its A
   arm is exactly this study's incumbent (champion + v5) and its B arm exactly the candidate
   (champion + v7 at 4.0), so its B-A variance is the right planning variance. `prepare`
   recomputes the deltas from the raw screen records (not the summary), cross-checks them
   against the summary and the receipt, and freezes
-  `N = max(40, paired_delta_pilot_size(deltas, {m: 40})["required_final_worlds"])`
-  (137 from the closed screen: scripted binds).
+  `N = max(40, paired_delta_pilot_size(deltas, {m: 30})["required_final_worlds"])`
+  (243 from the closed screen: scripted binds).
 - Kill criterion: if N > 300 the intent records `STOP_INFEASIBLE` and no episode runs.
 - N is computed once. No later stage may change it.
 - Record-shape fixtures: one complete frozen A/B pair of the v7 screen (world index 0) and
@@ -271,10 +261,10 @@ A and mean B episode time) / 2 workers x 1.15 overhead. It records the projectio
 `intent.caps.final_runtime_projection` and refuses to write the intent if it exceeds 70% of
 the 44,970 s worker budget. From the closed screen: v5 episodes average 29.8 / 16.3 / 21.9 s
 and v7 episodes 38.0 / 22.2 / 29.6 s (frozen / scripted / mixed), 157.7 s per world triplet;
-N = 137 projects to about 12,400 s per worker (27.6% of the budget). Two concurrent workers
+N = 243 projects to about 22,000 s per worker (49% of the budget). Two concurrent workers
 were never measured, which is why the 70% limit leaves room for contention. Expected wall
-clock for the whole run: about 0.2 h calibration, 3.5 h final, 0.2 h serving, under 0.25 h
-audit (about 4.1 h of the 14 h 17 min the caps reserve).
+clock for the whole run: about 0.2 h calibration, 6.1 h final, 0.2 h serving, under 0.25 h
+audit (about 6.8 h of the 14 h 17 min the caps reserve).
 
 ## Audit stage
 

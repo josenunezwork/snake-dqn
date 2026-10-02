@@ -155,14 +155,15 @@ SWEEP_SCHEMA = "apex-veto-v7-lambda-sweep/v1"
 SWEEP_ID = "apex-veto-v7-dev-v1"
 SWEEP_STATUS_SELECTED = "SELECTED"
 
-# MDE 40 absolute per mix, declared AFTER the v7 screen finished (protocol.md "Sizing"):
-# its paired B-A SD (~135-153) makes MDE 20 infeasible (N = 547 > 300).
-MDE_ABSOLUTE = 40.0
+# MDE 30 absolute per mix, declared AFTER the v7 screen finished (protocol.md "Sizing"):
+# its paired B-A SD (~135-153) makes MDE 20 infeasible (N = 547 > 300); 30 is the smallest
+# MDE in 5-unit steps that fits Nmax (25 needs 350).
+MDE_ABSOLUTE = 30.0
 MDE_BASIS = (
     "chosen after the v7 Tier-1 screen finished: its paired B-A SD (135-153 per mix) "
-    "sizes MDE 20 at N = 547 > Nmax 300 (infeasible); 40 gives N = 137 (MDE 25/30/35 would "
-    "give 350/243/179); the screen's observed mean effect was +135 to +154 per mix, so 40 is "
-    "about a quarter of it (that effect is not evidence here)"
+    "sizes MDE 20 at N = 547 > Nmax 300 (infeasible); rule: the smallest MDE in 5-unit steps "
+    "that fits Nmax, i.e. 30 (N = 243; MDE 25 needs 350 > 300); the screen's observed mean "
+    "effect (+135 to +154 per mix) is not evidence here and did not set the value"
 )
 NI_FRACTION = 0.03
 BAND_BELOW = 0.02

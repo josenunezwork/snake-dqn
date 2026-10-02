@@ -342,7 +342,7 @@ class TestPilot:
         wider = {m: [(-1) ** i * 300.0 for i in range(10)] for m in sr.MIXES}
         sizing = sr.frozen_final_n(wider)
         assert sizing["final_worlds_per_mix"] > sr.N_MAX and sizing["feasible"] is False
-        assert sizing["mde_absolute_per_mix"] == 40.0
+        assert sizing["mde_absolute_per_mix"] == 30.0
 
     def test_runtime_projection_uses_screen_wall_times(self, pilot_root):
         walls = sr.screen_pilot_deltas(pilot_root)["episode_wall_seconds"]
@@ -357,7 +357,7 @@ class TestPilot:
 
     @pytest.mark.skipif(not REAL_RECEIPT.is_file(), reason="v7 screen receipt not available")
     def test_real_screen_gates_size_n_137_within_the_runtime_limit(self):
-        """Read-only: the closed v7 screen passes every gate and sizes N = 137 at MDE 40."""
+        """Read-only: the closed v7 screen passes every gate and sizes N = 243 at MDE 30."""
         receipt = json.loads(REAL_RECEIPT.read_text())
         pilot = sr.screen_pilot_deltas(sr.SCREEN_RUN)
         gate = sr.screen_receipt_gate(sr.SCREEN_RUN, pilot)
@@ -368,10 +368,10 @@ class TestPilot:
         parity = sr.screen_source_parity(sr.SCREEN_RUN, sr.arm_identities())
         assert parity["passes"] is True and parity["screen_commit"] == sr.PILOT_COMMIT
         sizing = sr.frozen_final_n(pilot["deltas_by_mix"])
-        assert sizing["final_worlds_per_mix"] == 137 and sizing["feasible"] is True
-        projection = sr.runtime_projection(pilot["episode_wall_seconds"], 137)
+        assert sizing["final_worlds_per_mix"] == 243 and sizing["feasible"] is True
+        projection = sr.runtime_projection(pilot["episode_wall_seconds"], 243)
         assert projection["within_limit"] is True
-        assert projection["fraction_of_worker_budget"] < 0.30
+        assert projection["fraction_of_worker_budget"] < 0.55
 
 
 # ---------------------------------------------------------------- record shape (real records)
@@ -853,7 +853,7 @@ class TestIntent:
             for rel, digest in arm["wrapper_identity"]["source_sha256s"].items():
                 assert files[str((sr.REPO / rel).resolve())] == digest
         design = intent["design"]
-        assert design["mde_absolute_per_mix"] == 40.0
+        assert design["mde_absolute_per_mix"] == sr.MDE_ABSOLUTE == 30.0
         assert design["v7_screen_complete_before_mde"] is True
         assert design["mde_chosen_after_v7_screen"] is True
         assert "N = 547" in design["mde_basis"]

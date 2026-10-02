@@ -30,7 +30,7 @@ recomputes the decision path in its own code (governance_tiers_2026-09-26.md
   selection and the screen intent;
 * denominators: ``scored_frames`` (and ``frames_completed`` where recorded) equal
   the 5000 horizon; every other frame counter is only checked at-most-cap;
-* calibration means, absolute NI margin, survival bands; pilot sizing N (MDE 40);
+* calibration means, absolute NI margin, survival bands; pilot sizing N (MDE 30);
 * pairing (same seed + roster identity for both arms, exactly N per mix);
 * one-sided paired t tests (own Student-t via the hypergeometric series of the
   incomplete beta), Holm, >=2-of-3 superiority, scripted NI lower bound, bands,
@@ -112,7 +112,7 @@ SCRIPTED_MIX = "scripted"
 ROSTER_WIDTH = 5
 ALPHA = 0.05
 REQUIRED_SUCCESSES = 2
-MDE_ABSOLUTE = 40.0  # declared after the v7 screen (protocol.md "Sizing", disclosed)
+MDE_ABSOLUTE = 30.0  # declared after the v7 screen (protocol.md "Sizing", disclosed)
 SIZING_FLOOR = 40
 SIZING_POWER = 0.8
 N_MAX = 300
@@ -1356,7 +1356,7 @@ def compare_producer_claims(
         "claims.required_final_worlds",
         bool(claims) and all(v == n_final for v in claims),
         {"audit": n_final, "producer": claims},
-        "eval_stats.paired_delta_pilot_size on the screen deltas, MDE 40",
+        "eval_stats.paired_delta_pilot_size on the screen deltas, MDE 30",
     )
     diffs: List[str] = []
     for where, node in _nodes(docs, lambda n: n.get("method") == SIZING_METHOD):

@@ -468,7 +468,7 @@ def test_strict_decision_matches_eval_stats(case: int) -> None:
 def test_pilot_sizing_matches_eval_stats(case: int) -> None:
     rng = random.Random(100 + case)
     deltas = {m: [rng.gauss(10, rng.choice([5, 40, 90, 150])) for _ in range(40)] for m in MIXES}
-    ref = eval_stats.paired_delta_pilot_size(deltas, {m: 40.0 for m in MIXES})
+    ref = eval_stats.paired_delta_pilot_size(deltas, {m: R.MDE_ABSOLUTE for m in MIXES})
     ours = SA.pilot_sizing(deltas)
     assert ours["required_final_worlds"] == ref["required_final_worlds"]
     assert R.frozen_final_n(deltas)["final_worlds_per_mix"] == max(40, ref["required_final_worlds"])
