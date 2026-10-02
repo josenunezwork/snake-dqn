@@ -65,3 +65,56 @@ v5 is about 3–3.6× the mass.
 
 This is a receipt only. The web serving path still has to be qualified for v5
 before release.
+
+## Web serving qualification: **SERVING_PASS** (2026-10-02)
+
+| Item | Value |
+|---|---|
+| Root | `snake-dqn-artifacts/apex-veto-v5-serving-20261002/run-v1` |
+| Source | branch `6c013cd` |
+| Design | 25 Watch + 25 Play episodes + 2 parity probes, through the real `GameSession` and `app._apply_control` |
+| Result | 0 failures; S1–S6 all PASS; `serving_path_qualified=true` |
+
+The split was accepted under standing authority. Only the Watch hero is
+wrapped by the release, so 25 Watch episodes give more relevant evidence than
+the 1 + 49 originally asked for.
+
+## Release (2026-10-02): **DONE**, local `main`, not pushed
+
+| Item | Value |
+|---|---|
+| Merge | `161d04c` |
+| Release commit | `03abe8e` |
+| Change | `VARIANT_RELEASED_DEFAULT = v5`; the Watch hero gets v5 when no environment variable is set |
+| Rollback to v2 | `SNAKE_SERVE_VETO_VARIANT=v2` |
+| Veto fully off | `SNAKE_SERVE_VETO_WATCH_HERO=0` |
+| Play AI | stays opt-in |
+| Fast suite on `main` | 3,832 passed; only the 2 known pre-existing `test_eval_controlled_parity` failures |
+
+Test-isolation fix included: the app thread-pin test now runs in a fresh
+interpreter, and conftest restores torch's intra-op thread count after each
+test.
+
+Live verification (`snake-web` from `.claude/launch.json`, no environment
+variables set) logged:
+
+```
+safety-veto-serving: active=True scope=watch_hero mode=watch wrapped_ids=[0]
+flags={'watch_hero': True, 'play_ai': False} checkpoint_sha256=43d4e2c5…
+strict_checkpoint_match=True wrapper_source_sha256=d86d084e…
+variant=v5 variant_requested=v5 wrapper_sources_match=True
+wrapper_method=free-space-veto/v5-boost-aware reason=None
+```
+
+There were no server errors.
+
+**Cumulative effect at H5000 for the Watch hero:**
+
+| Configuration | Mass, frozen / scripted / mixed |
+|---|---|
+| Original champion | 49 / 48 / 62 (v2 gate run-v3) |
+| Champion + v2 | 108 / 100 / 135 (v5 gate incumbent) |
+| Champion + v5 | 180 / 163 / 198 |
+
+Absolute levels vary between banks, but each step was gated on paired fresh
+worlds.
