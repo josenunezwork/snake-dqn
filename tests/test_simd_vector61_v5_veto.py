@@ -173,7 +173,12 @@ def test_landing_count_matches_live_on_trap_pockets(
     other = live_snake(walls, (1, 0), sid=1)
     sim = batch_world(
         [
-            {"cells": me_cells, "direction": (1, 0), "length": me.length, "boost_frames": boost_frames},
+            {
+                "cells": me_cells,
+                "direction": (1, 0),
+                "length": me.length,
+                "boost_frames": boost_frames,
+            },
             {"cells": walls, "direction": (1, 0)},
         ]
     )
@@ -197,7 +202,9 @@ def test_landing_count_ignores_dead_snakes_and_blocks_off_grid_landings(setup_co
 
     me_cells = [(98, 10), (97, 10), (96, 10), (95, 10), (94, 10), (93, 10)]
     me = live_snake(me_cells, (1, 0))
-    sim = batch_world([{"cells": me_cells, "direction": (1, 0)}, {"cells": [(5, 5)], "direction": (1, 0)}])
+    sim = batch_world(
+        [{"cells": me_cells, "direction": (1, 0)}, {"cells": [(5, 5)], "direction": (1, 0)}]
+    )
     sim.alive[0, 1] = False
     for direction in range(3):
         assert boost_landing_count(sim, 0, 0, direction, 32, (100, 80)) == landing_count(
@@ -302,3 +309,222 @@ def test_v2_variant_never_floods_landings_and_keeps_the_boost(setup_config):
         policy.veto_diagnostics(0)
     with pytest.raises(ValueError, match="veto_variant must be one of"):
         Vector61SimdPolicy("unused.pth", None, veto_variant="v4")
+
+
+# ---------------------------------------------------------------------------
+# Whole rollouts: live tournament_eval.rollout + v5 installer vs run_simd_eval("v5")
+# ---------------------------------------------------------------------------
+VetoEntry = Tuple[int, tuple, int, int, int, tuple, tuple]
+
+
+def _landing_code(count: Optional[int]) -> int:
+    return NO_BOOST if count is None else int(count)
+
+
+def _install_v5_spies(monkeypatch: pytest.MonkeyPatch, seeds: Sequence[int]):
+    """Log every hero veto decision on both sides.
+
+    Entry: ``(frame, v2 counts, need, base, final, lazy landings, eager landings)``.
+    Lazy landings are the floods the hook actually ran (``NOT_FLOODED`` otherwise);
+    eager landings are all three directions, computed outside the hook so they
+    never perturb its counters.
+    """
+    from src.evaluation import safety_veto as sv
+    from src.evaluation import safety_veto_v5 as sv5
+    from src.simd_env import vector61_policy as vp
+
+    live_logs: Dict[int, List[VetoEntry]] = {}
+    keep_alive: list = []
+    simd_logs: Dict[int, List[VetoEntry]] = {int(seed): [] for seed in seeds}
+    original_apply = sv5.BoostAwareFreeSpaceVeto.apply
+    original_landing = sv5.landing_count
+    original_apply_veto = vp.Vector61SimdPolicy._apply_veto
+    lazy: Dict[str, Optional[list]] = {"live": None}
+
+    def logging_landing(snake, other_snakes, direction, cap):
+        count = original_landing(snake, other_snakes, direction, cap)
+        if lazy["live"] is not None:
+            lazy["live"][int(direction)] = _landing_code(count)
+        return count
+
+    def live_apply(self, snake, other_snakes, q_values, action_mask, base_action):
+        others = list(other_snakes)
+        features = snake._get_free_space_features(others)
+        cap, need = sv.free_space_threshold(snake.length, snake._logical_length())
+        counts = tuple(round(float(f) * cap) for f in features)
+        eager = tuple(_landing_code(original_landing(snake, others, d, cap)) for d in range(3))
+        lazy["live"] = [NOT_FLOODED] * 3
+        try:
+            action = original_apply(self, snake, others, q_values, action_mask, base_action)
+            flooded = tuple(lazy["live"])
+        finally:
+            lazy["live"] = None
+        if id(self) not in live_logs:
+            keep_alive.append(self)
+        live_logs.setdefault(id(self), []).append(
+            (
+                int(snake._get_frame()),
+                counts,
+                int(need),
+                int(base_action),
+                int(action),
+                flooded,
+                eager,
+            )
+        )
+        return action
+
+    def simd_apply_veto(self, sim, slots, masked_q, mask, actions):
+        self.last_veto = None
+        out = original_apply_veto(self, sim, slots, masked_q, mask, actions)
+        last = self.last_veto
+        if last is not None:
+            grid = (int(self.runtime.featurizer.gw), int(self.runtime.featurizer.gh))
+            caps, _ = vp.veto_threshold(sim.length[last["rows"][:, 0], last["rows"][:, 1]])
+            for i, (env, slot) in enumerate(last["rows"].tolist()):
+                eager = tuple(
+                    _landing_code(vp.boost_landing_count(sim, env, slot, d, int(caps[i]), grid))
+                    for d in range(3)
+                )
+                simd_logs[int(seeds[int(env)])].append(
+                    (
+                        int(last["frame"][i]),
+                        tuple(int(c) for c in last["counts"][i]),
+                        int(last["need"][i]),
+                        int(last["base"][i]),
+                        int(last["final"][i]),
+                        tuple(int(c) for c in last["landing"][i]),
+                        eager,
+                    )
+                )
+        return out
+
+    monkeypatch.setattr(sv5, "landing_count", logging_landing)
+    monkeypatch.setattr(sv5.BoostAwareFreeSpaceVeto, "apply", live_apply)
+    monkeypatch.setattr(vp.Vector61SimdPolicy, "_apply_veto", simd_apply_veto)
+
+    def collected():
+        ordered = list(live_logs.values())
+        assert len(ordered) == len(seeds)
+        return {int(seed): log for seed, log in zip(seeds, ordered)}, simd_logs
+
+    return collected
+
+
+def _assert_v5_parity(
+    monkeypatch: pytest.MonkeyPatch,
+    hero: Tuple[str, str],
+    rosters: Dict[int, List[Tuple[str, str]]],
+    frames: int,
+    seeds: Sequence[int],
+    mix_id: str,
+) -> Dict[str, object]:
+    """Every vector decision, state, hero veto decision, record and v5 diagnostic."""
+    from research.apex_safety_20260926 import dev_screen
+    from src.evaluation.safety_veto_v5 import install_boost_aware_veto
+
+    veto_logs = _install_v5_spies(monkeypatch, seeds)
+    with dev_screen.hero_veto_installer(install_boost_aware_veto) as installed:
+        live_records, live_actions, live_states, trimmed = _run_live(
+            monkeypatch, hero, rosters, frames, seeds, mix_id, True
+        )
+    assert len(installed) == len(seeds)
+    simd_records, simd_actions, stats, simd_states = _run_simd(
+        monkeypatch, hero, rosters, frames, seeds, mix_id, "v5"
+    )
+    assert trimmed == 0, f"live trim_ambient removed {trimmed} pellets"
+    report = _compare(live_actions, simd_actions)
+    same_states, first_state = _first_state_divergence(live_states, simd_states)
+    report["bit_identical_states"] = same_states
+    assert first_state is None, (first_state, report)
+    assert report["first_divergence"] is None, report
+    assert report["decisions"] == stats["rows"]
+
+    live_veto, simd_veto = veto_logs()
+    for seed in seeds:
+        live_log, simd_log = live_veto[int(seed)], simd_veto[int(seed)]
+        first = next((i for i, (a, b) in enumerate(zip(live_log, simd_log)) if a != b), None)
+        assert first is None and len(live_log) == len(simd_log), (
+            seed,
+            first,
+            None if first is None else (live_log[first], simd_log[first]),
+        )
+
+    provenance = vector61_provenance("rowwise", "v5")
+    diagnostics = []
+    for live, simd, veto in zip(live_records, simd_records, installed):
+        assert "vector61_policy" not in live and "veto_diagnostics" not in live
+        assert simd["vector61_policy"] == provenance
+        live_diag = veto.diagnostics_record()
+        assert deterministic(simd["veto_diagnostics"]) == deterministic(live_diag)
+        diagnostics.append(deterministic(live_diag))
+        simd_view = {
+            k: v for k, v in simd.items() if k not in SIMD_ONLY_KEYS | {"veto_diagnostics"}
+        }
+        assert simd_view == live, (live, simd)
+
+    entries = [e for log in live_veto.values() for e in log]
+    hero_decisions = sum(1 for key in live_actions if key[2] == 0)
+    assert len(entries) == hero_decisions
+    total = {k: sum(int(d[k]) for d in diagnostics) for k in diagnostics[0]}
+    assert total["decisions"] == hero_decisions
+    report.update(stats)
+    report.update(
+        {
+            "hero_decisions": hero_decisions,
+            "veto_decisions": len(entries),
+            "lazy_floods_compared": sum(c >= 0 for e in entries for c in e[5]),
+            "eager_landings_compared": sum(c >= 0 for e in entries for c in e[6]),
+            "landing_failures_eager": sum(0 <= c < e[2] for e in entries for c in e[6]),
+            "landing_vetoes_compared": total["base_landing_failed"],
+            "boost_landing_vetoes": total["boost_landing_vetoes"],
+            "boost_to_normal_same_direction": total["boost_to_normal_same_direction"],
+            "action_differs_from_v2": total["action_differs_from_v2"],
+            "landing_checks": total["landing_checks"],
+            "vetoes_applied": total["vetoes_applied"],
+            "deaths": [r["deaths"] for r in live_records],
+        }
+    )
+    return report
+
+
+def test_tiny_world_live_and_simd_v5_decisions_are_identical(tiny_world, monkeypatch):  # noqa: F811
+    """Random 61-D networks on the tiny world: deaths, respawns and landing vetoes."""
+    seeds = (3, 4, 5, 6)
+    hero, rosters = _tiny_rosters(tiny_world, seeds)
+    report = _assert_v5_parity(monkeypatch, hero, rosters, 300, seeds, "tiny-v61")
+    print({k: v for k, v in report.items() if k != "first_divergence"})
+    assert report["matches"] == report["decisions"] > 1000
+    assert report["fresh_after_first_frame"] > 0
+    assert report["lazy_floods_compared"] > 0
+
+
+@needs_real_pool
+@pytest.mark.parametrize(
+    "mix, frames, seeds, landing_vetoes",
+    [
+        # Seeds 16 (frozen) and 15 (mixed) were found by a SIMD-only search over
+        # seeds 11..58 at 300 frames: each has one real landing veto (a boost
+        # replaced by the same direction at normal speed). Scripted had none.
+        ("frozen", 300, (12, 16), True),
+        ("mixed", 300, (13, 15), True),
+        ("frozen", 500, (11, 12, 13), False),
+        ("scripted", 300, (11, 12), False),
+    ],
+)
+def test_deployment_world_champion_v5_decisions_match_live(
+    deployment_world, monkeypatch, mix, frames, seeds, landing_vetoes  # noqa: F811
+):
+    """Champion hero + v5 vs the strict pilot pool mixes at the deployment profile."""
+    from src.scripts import tournament_eval as te
+
+    pool = deployment_world
+    specs = te.build_mix_specs(mix, 5, pool)
+    rosters = te.materialize_opponent_specs_by_world(specs, seeds)
+    report = _assert_v5_parity(monkeypatch, pool[0], rosters, frames, seeds, mix)
+    print(mix, {k: v for k, v in report.items() if k != "first_divergence"})
+    assert report["matches"] == report["decisions"] >= len(seeds) * 200
+    assert report["eager_landings_compared"] > 0 and report["landing_failures_eager"] > 0
+    if landing_vetoes:
+        assert report["landing_vetoes_compared"] > 0, report
+        assert report["boost_landing_vetoes"] > 0 and report["action_differs_from_v2"] > 0
