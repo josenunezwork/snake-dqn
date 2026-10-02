@@ -1,0 +1,54 @@
+{
+  "arm": "A",
+  "authority": "screen (non-authoritative)",
+  "hero_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+  "mix": "scripted",
+  "record": {
+    "deaths": 0.0,
+    "kills": 0.0,
+    "mass_integral": 37.642,
+    "max_mass": 72.0,
+    "mean_mass_alive": 37.642,
+    "probes": {
+      "boost_frame_fraction": 0.04,
+      "death_cause": null,
+      "entrapment_event": false,
+      "food_eaten": 76,
+      "kill_opportunity_count": 18,
+      "peak_length": 72,
+      "safety_veto": {
+        "boost_approximation": "one-step-direction-feature",
+        "counters": {
+          "decisions": 500,
+          "fallback_no_spacious": 0,
+          "kept_base": 500,
+          "vetoed_base_boost": 0,
+          "vetoes_applied": 0,
+          "vetoes_speed_switched": 0,
+          "vetoes_to_boost": 0
+        },
+        "free_space_bfs_cap": 160,
+        "free_space_min_cap": 32,
+        "method": "free-space-veto/v2-speed-preserving",
+        "replacement_rule": "highest-q-eligible-same-speed-mode-then-other"
+      }
+    },
+    "seed": 2770029302,
+    "survival_fraction": 1.0
+  },
+  "roster_member_sha256s": [
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+  ],
+  "safety_veto": true,
+  "safety_veto_method": "free-space-veto/v2-speed-preserving",
+  "schema_version": "apex-veto-v5-screen/v1",
+  "screen": "apex-veto-v5-screen-v1",
+  "veto_diagnostics": null,
+  "wall_seconds": 1.9957057498395443,
+  "world_index": 0,
+  "world_seed": 2770029302
+}

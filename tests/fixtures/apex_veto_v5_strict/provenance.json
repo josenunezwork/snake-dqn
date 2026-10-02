@@ -1,0 +1,14 @@
+{
+  "copied_utc": "2026-10-01",
+  "note": "Unmodified copies. screen/: one complete frozen A/B pair (world index 0) of the v5 Tier-1 screen run-v1, copied while the screen was running (H5000, A = champion + v2, B = champion + v5); used only as record-shape fixtures, never analyzed. smoke/: one A/B pair of a v5 screen smoke (legacy 500-frame path, smoke domain apex-veto-v5-screen-smoke-v1).",
+  "sha256": {
+    "screen/A-frozen-3131152538.json": "47383cb1b67bc53ddb91cfdf2de86f219c9e96087a5c42f32cdc3307b1556860",
+    "screen/B-frozen-3131152538.json": "79fcf5043630d14bb57b91bf8998f8645c6b93c8351d110cc53c74906b965876",
+    "smoke/A-scripted-2770029302.json": "9dd597525fa14cc52e193d394f823c17237adb7f4d9c1792eb57c3161fc87825",
+    "smoke/B-scripted-2770029302.json": "cd267467618dd8986a4b71db33c120d97018f5b97c1272a7e3e25aac8c29b778"
+  },
+  "sources": {
+    "screen": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v5-screen-20261001/run-v1/records",
+    "smoke": "/private/tmp/claude-501/-Users-josenunez-Projects-ml-snake-dqn/8b38327f-2897-4918-b079-74962b22441c/scratchpad/smoke-v5-launch/records"
+  }
+}

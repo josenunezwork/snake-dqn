@@ -581,6 +581,19 @@ def screen_v2_method():
     return FreeSpaceVeto().descriptor()["method"]
 
 
+@pytest.fixture
+def no_episodes(monkeypatch):
+    """Make every episode runner fatal (revision 4: a guard test ran a real screen)."""
+    from research.apex_safety_20260926 import dev_screen
+    from src.scripts import tournament_eval
+
+    def fatal(*args, **kwargs):
+        raise AssertionError("a guard test must never play an episode")
+
+    monkeypatch.setattr(tournament_eval, "rollout", fatal)
+    monkeypatch.setattr(dev_screen, "run_episode", fatal)
+
+
 class TestSlotLocksAndPower:
     def _root(self, tmp_path):
         from research.apex_safety_20260926 import dev_screen
@@ -619,7 +632,7 @@ class TestSlotLocksAndPower:
         ]  # fmt: skip
 
     def test_screen_refuses_on_battery_and_when_slots_are_busy(
-        self, setup_config, tmp_path, monkeypatch
+        self, setup_config, no_episodes, tmp_path, monkeypatch
     ):
         from research.apex_safety_20260926 import dev_screen
 
@@ -769,11 +782,13 @@ class TestScreenPreregistrationGuards:
         assert screen.main(self._argv(tmp_path, *extra)) == 2
         assert calls == [] and not (tmp_path / "o").exists()
 
-    def test_preregistered_size_with_a_far_deadline_hits_the_wall_cap(self, tmp_path):
+    def test_preregistered_size_with_a_far_deadline_hits_the_wall_cap(self, no_episodes, tmp_path):
         assert _screen().main(self._argv(tmp_path)) == 2  # 2099 is beyond 3 h
         assert not (tmp_path / "o").exists()
 
-    def test_dev_screen_wall_cap_only_for_capped_non_smoke_specs(self, tmp_path, monkeypatch):
+    def test_dev_screen_wall_cap_only_for_capped_non_smoke_specs(
+        self, no_episodes, tmp_path, monkeypatch
+    ):
         from datetime import datetime, timedelta, timezone
 
         from research.apex_safety_20260926 import dev_screen
