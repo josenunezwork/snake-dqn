@@ -75,12 +75,24 @@ Full specification, with code references, in the module docstring. Summary:
   speed mode, else the other mode; if there is none, v5's choice stands.
 - **Layer (b), no-spacious fallback** (only when v5's outcome is `no_spacious`; it never
   overlaps layer (a), which needs a v5-eligible alternative). (i) A firing boost whose
-  landing count is below its direction's normal-speed one-step count becomes that
-  direction at normal speed when masked-legal. (ii) v4's `EscapeSearch` (depth 8, node
-  budget 2000 per decision, fixed child order): if the action's direction has an escape it
-  is kept; otherwise the highest-Q masked-legal action whose direction escapes is chosen
-  (boosts only if their landing passes (i)'s test). Budget exhaustion leaves (i)'s result
-  unchanged (`fallback_budget_unknown`).
+  landing count is below its direction's normal-speed count minus 1 becomes that
+  direction at normal speed when masked-legal. Both counts use one model (v2's static
+  capped flood over the hero's post-move body and the other live snakes, from the new
+  head: v5's `landing_count` for the boost, `normal_post_count` for normal speed). A boost
+  uses one more cell than normal speed, so in a region the first cell does not split the
+  landing is exactly normal - 1 and the boost is NOT switched; the switch fires only when
+  the second cell cuts the hero off from part of what the first cell reaches (the census
+  pattern). `fallback_landing_switches` therefore counts pocket boosts, not every
+  no-spacious boost. (ii) v4's `EscapeSearch` (depth 8, node budget 2000 per decision,
+  fixed child order), judged per action: a normal-speed action is v4's `escape(direction)`;
+  a firing boost must escape along its forced path (first cell, then the next cell
+  straight ahead at step 2 with the first cell on the path, and that second cell not next
+  to another live snake's head, as v4 requires of a first cell). If the action escapes it
+  is kept; otherwise the other masked-legal actions are tried in descending Q (ties:
+  lowest index; boosts only if their landing passes (i)'s test) and the first that
+  escapes is chosen. Budget exhaustion leaves (i)'s result unchanged
+  (`fallback_budget_unknown`). These two model choices (like-for-like landing counts,
+  boost forced path) were fixed after review and before any real screen episode.
 - Deterministic: no randomness or timing in any choice.
 - The probe (`probes.safety_veto`) is the descriptor plus exactly v2's seven counters. A
   layer-(a) replacement is a `vetoed` decision; every layer-(b) decision stays

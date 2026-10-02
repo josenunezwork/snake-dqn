@@ -48,18 +48,33 @@ Layer (a), opponent-head avoidance (applies when v5's outcome is ``kept`` or ``v
 Layer (b), no-spacious fallback (applies only when v5's outcome is ``no_spacious``, so it
 never overlaps layer (a), which needs a v5-eligible alternative):
 
-1. **Landing.** If the action is a boost that fires and its two-cell landing count
-   (v5's :func:`~src.evaluation.safety_veto_v5.landing_count`, v2's cap) is below the
-   same direction's normal-speed one-step count (``round(feature * cap)``), switch to that
-   direction at normal speed when it is masked-legal (``fallback_landing_switches``).
+1. **Landing.** Both counts use one model: v2's static capped flood (cap from v2) over
+   the hero's body AFTER this action's one-frame move (v5's
+   :func:`~src.evaluation.safety_veto_v5.simulate_action`, cells ``segments[1:]``
+   blocked) and the other live snakes, from the new head. The boost count is v5's
+   :func:`~src.evaluation.safety_veto_v5.landing_count` (from the second cell, the first
+   cell blocked as body); the normal count is :func:`normal_post_count` (from the first
+   cell). A boost uses one more cell than normal speed, so in an unchanged region its
+   landing is exactly ``normal - 1``; the boost counts as "landing below normal" only when
+   ``landing < normal - 1``, i.e. the second cell cuts the hero off from part of what
+   the first cell reaches (the census pattern: a boost into a pocket while normal speed
+   still had a way out). If the action is such a firing boost, switch to that direction
+   at normal speed when it is masked-legal (``fallback_landing_switches``). A boost in a
+   region the first cell does not split is NOT switched.
 2. **Escape ranking.** v4's :class:`~src.evaluation.safety_veto_v4.EscapeSearch` (depth
    8, node budget 2000 for the whole decision, children straight/left/right) on
-   :func:`~src.evaluation.safety_veto_v4.world_for`. If the action's direction has an
-   escape it is kept. Otherwise every other direction with a masked-legal action is
-   searched, and the highest-Q masked-legal action whose direction escapes is chosen
-   (a boost only if its landing is not below its direction's normal count, as in step 1;
-   ties: lowest index) (``fallback_escape_switches``). If the budget runs out at any point
-   the result of step 1 stands (``fallback_budget_unknown``); if nothing escapes, too.
+   :func:`~src.evaluation.safety_veto_v4.world_for`, judged per ACTION by
+   :class:`BoostAwareEscapeSearch`: a normal-speed action (or a boost that does not
+   fire) is v4's ``escape(direction)``; a firing boost must escape along its forced
+   path, i.e. its first cell, then the second cell straight ahead entered at step 2 with
+   the first cell on the path, and that second cell must not be next to another live
+   snake's head (it is entered in the same frame as the first cell, so v4's step-1
+   head-adjacency rule applies to both). If the (step-1) action escapes it is kept.
+   Otherwise the other masked-legal actions are tried in descending Q order (ties: lowest
+   index, as ``torch.argmax``), boosts only if their landing is not below normal as in
+   step 1, and the first that escapes is chosen (``fallback_escape_switches``); this is
+   the highest-Q escaping candidate. If the budget runs out at any point the result of
+   step 1 stands (``fallback_budget_unknown``); if nothing escapes, too.
    The probe records ``no_spacious`` (no v2-spacious action existed) in every case.
 
 Determinism: no randomness and no timing in any choice; the search order is fixed.
@@ -93,8 +108,20 @@ from src.evaluation.safety_veto import (
     spacious_directions,
     veto_choice,
 )
-from src.evaluation.safety_veto_v3 import Cell, Grid, grid_for
-from src.evaluation.safety_veto_v4 import BudgetExhausted, EscapeSearch, world_for
+from src.evaluation.safety_veto_v3 import (
+    Cell,
+    Grid,
+    grid_for,
+    static_blocked,
+    tail_aware_reachable,
+)
+from src.evaluation.safety_veto_v4 import (
+    BudgetExhausted,
+    EscapeSearch,
+    LookaheadWorld,
+    turn,
+    world_for,
+)
 from src.evaluation.safety_veto_v5 import (
     BoostAwareCounters,
     boost_aware_choice,
@@ -115,8 +142,9 @@ HEAD_RULE = (
     "veto-if-v5-eligible-non-risky-alternative"
 )
 FALLBACK_RULE = (
-    "no-spacious-only/boost-landing-lt-normal-count-to-normal-speed/"
-    "v4-escape-search-depth-8-budget-2000-highest-q-escaping/budget-unknown-no-change"
+    "no-spacious-only/boost-landing-lt-normal-post-move-count-minus-1-to-normal-speed/"
+    "v4-escape-search-depth-8-budget-2000-per-action-boost-forced-straight-second-cell-"
+    "not-head-adjacent/highest-q-escaping/budget-unknown-no-change"
 )
 REPLACEMENT_RULE_V6 = (
     "v5-then-head-avoid-highest-q-v5-eligible-same-speed-mode-then-other/"
@@ -249,6 +277,68 @@ class FallbackResult:
     searched: bool = False
 
 
+def normal_post_count(
+    snake: "Snake", other_snakes: Sequence["Snake"], direction: int, cap: int
+) -> int:
+    """Reachable cells from ``direction``'s normal-speed new head (at most ``cap``).
+
+    Same model as v5's :func:`~src.evaluation.safety_veto_v5.landing_count`: the hero's
+    body after the one-frame move (``segments[1:]``) and the other live snakes are walls,
+    v2's static capped flood from the new head. 0 when the first cell is off the board.
+    """
+    move = simulate_action(snake, int(direction))
+    grid = grid_for(snake)
+    blocked = static_blocked(snake, other_snakes, grid)
+    blocked.update(grid.to_cell(x, y) for x, y in move.segments[1:])
+    start = grid.to_cell(*move.segments[0])
+    return tail_aware_reachable(start, 0, blocked, {}, grid.in_bounds, int(cap))
+
+
+def landing_below_normal_rule(landing: Optional[int], normal: int) -> bool:
+    """Layer (b)'s landing test: a firing boost (``landing`` not ``None``) whose landing
+    count is below ``normal - 1`` (a boost always uses one more cell than normal speed)."""
+    return landing is not None and int(landing) < int(normal) - 1
+
+
+class BoostAwareEscapeSearch(EscapeSearch):
+    """v4's :class:`EscapeSearch` judged per action (0..5), with a boost's forced path.
+
+    ``escape_action(a)`` for a normal-speed action (or any action when ``boost_fires`` is
+    False, since such a boost moves one cell) is v4's ``escape(a % 3)``. A firing boost
+    enters its first cell F (v4's step-1 rule) and, in the same frame, the next cell S
+    straight ahead: S must not be next to another live snake's head and must be passable
+    at step 2 with F on the path; the search then continues from S at step 2 exactly as
+    v4 does (same node budget and failed-subtree memo, so a boost's subtree is the same
+    as normal speed's straight child at F).
+    """
+
+    def __init__(self, world: LookaheadWorld, depth: int, budget: int, boost_fires: bool):
+        super().__init__(world, depth, budget)
+        self.boost_fires = bool(boost_fires)
+
+    def escape_action(self, action: int) -> bool:
+        """Whether ``action`` (0..5) has an escape; may raise :class:`BudgetExhausted`."""
+        action = int(action)
+        direction = action % NUM_DIRECTIONS
+        if action < NUM_DIRECTIONS or not self.boost_fires:
+            return self.escape(direction)
+        world = self.world
+        heading = turn(world.heading, direction)
+        first = (world.head[0] + heading[0], world.head[1] + heading[1])
+        if not self.passable(first, 1):
+            return False
+        second = (first[0] + heading[0], first[1] + heading[1])
+        self._path.append(first)
+        self._on_path.add(first)
+        try:
+            if second in world.head_adjacent or not self.passable(second, 2):
+                return False
+            return self._visit(second, heading, 2)
+        finally:
+            self._path.pop()
+            self._on_path.discard(first)
+
+
 def fallback_choice(
     q_values: Sequence[float],
     mask: Sequence[bool],
@@ -258,9 +348,11 @@ def fallback_choice(
 ) -> FallbackResult:
     """Layer (b) on one ``no_spacious`` decision (pure given its two callables).
 
-    ``landing_below_normal(d)`` says whether boost direction ``d`` fires and lands on
-    fewer cells than ``d`` at normal speed. ``escape(d)`` is the shared escape search (it
-    may raise :class:`BudgetExhausted`); ``None`` skips step 2.
+    ``landing_below_normal(d)`` says whether boost direction ``d`` fires and lands on fewer
+    than ``normal - 1`` cells (:func:`landing_below_normal_rule`). ``escape(a)`` is the
+    shared per-ACTION escape search (:meth:`BoostAwareEscapeSearch.escape_action`; it may
+    raise :class:`BudgetExhausted`); ``None`` skips step 2. Candidates are tried in
+    descending Q (ties: lowest index), so the first that escapes is the highest-Q one.
     """
     mask = [bool(value) for value in mask]
     action = int(current)
@@ -271,26 +363,22 @@ def fallback_choice(
     if escape is None:
         return FallbackResult(action, landing_switch)
     try:
-        if escape(action % NUM_DIRECTIONS):
+        if escape(action):
             return FallbackResult(action, landing_switch, searched=True)
-        escapes = [False] * NUM_DIRECTIONS
-        for other in range(NUM_DIRECTIONS):
-            legal = mask[other] or mask[other + NUM_DIRECTIONS]
-            if other != action % NUM_DIRECTIONS and legal:
-                escapes[other] = escape(other)
+        candidates = [
+            a
+            for a in range(NUM_ACTIONS)
+            if a != action
+            and mask[a]
+            and (a < NUM_DIRECTIONS or not landing_below_normal(a % NUM_DIRECTIONS))
+        ]
+        candidates.sort(key=lambda a: (-float(q_values[a]), a))
+        for candidate in candidates:
+            if escape(candidate):
+                return FallbackResult(candidate, landing_switch, escape_switch=True, searched=True)
     except BudgetExhausted:
         return FallbackResult(action, landing_switch, budget_unknown=True, searched=True)
-    candidates = [
-        a
-        for a in range(NUM_ACTIONS)
-        if mask[a]
-        and escapes[a % NUM_DIRECTIONS]
-        and (a < NUM_DIRECTIONS or not landing_below_normal(a % NUM_DIRECTIONS))
-    ]
-    best = _highest_q(q_values, candidates)
-    if best is None:
-        return FallbackResult(action, landing_switch, searched=True)
-    return FallbackResult(best, landing_switch, escape_switch=True, searched=True)
+    return FallbackResult(action, landing_switch, searched=True)
 
 
 @dataclass
@@ -464,7 +552,7 @@ class HeadAndFallbackVeto:
         action, outcome = v5_action, v5_outcome
         if v5_outcome == OUTCOME_NO_SPACIOUS:
             if self.fallback:
-                action = self._fallback(snake, others, q, mask, v5_action, features, cap, landing)
+                action = self._fallback(snake, others, q, mask, v5_action, cap, landing)
         elif self.head_avoidance:
             action = self._head_layer(snake, others, q, mask, spacious, v5_action, landing_ok)
             if action != v5_action:
@@ -516,23 +604,29 @@ class HeadAndFallbackVeto:
         q: Sequence[float],
         mask: Sequence[bool],
         current: int,
-        features: Sequence[float],
         cap: int,
         landing: Callable[[int], Optional[int]],
     ) -> int:
         """Layer (b): the no-spacious landing switch, then the budgeted escape ranking."""
         started = time.perf_counter()
         self.v6.fallback_decisions += 1
-        search: List[EscapeSearch] = []
+        search: List[BoostAwareEscapeSearch] = []
+        normal: Dict[int, int] = {}
 
         def landing_below_normal(direction: int) -> bool:
             count = landing(direction)
-            return count is not None and count < round(float(features[direction]) * cap)
+            if count is None:
+                return False
+            if direction not in normal:
+                normal[direction] = normal_post_count(snake, others, direction, cap)
+            return landing_below_normal_rule(count, normal[direction])
 
-        def escape(direction: int) -> bool:
+        def escape(action: int) -> bool:
             if not search:
-                search.append(EscapeSearch(world_for(snake, others), self.depth, self.node_budget))
-            return search[0].escape(direction)
+                fires = int(snake.length) >= int(GameConfig.MIN_BOOST_LENGTH)
+                world = world_for(snake, others)
+                search.append(BoostAwareEscapeSearch(world, self.depth, self.node_budget, fires))
+            return search[0].escape_action(action)
 
         result = fallback_choice(q, mask, current, landing_below_normal, escape)
         self.v6.fallback_landing_switches += int(result.landing_switch)

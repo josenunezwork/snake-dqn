@@ -16,22 +16,32 @@ from src.core import game_config
 from src.core.game_config import GameConfig, get_config
 from src.evaluation.safety_veto import free_space_threshold, spacious_directions
 from src.evaluation.safety_veto_v3 import grid_for
-from src.evaluation.safety_veto_v4 import BudgetExhausted
+from src.evaluation.safety_veto_v4 import BudgetExhausted, EscapeSearch, world_for
 from src.evaluation.safety_veto_v5 import BoostAwareFreeSpaceVeto, landing_count
 from src.evaluation.safety_veto_v6 import (
     FALLBACK_DEPTH,
     FALLBACK_NODE_BUDGET,
     VETO_METHOD_V6,
+    BoostAwareEscapeSearch,
     HeadAndFallbackVeto,
     fallback_choice,
     head_avoid_choice,
     head_risky_actions,
     hero_wins_head_on,
     install_head_and_fallback_veto,
+    landing_below_normal_rule,
+    normal_post_count,
     opponent_head_reach,
 )
 from src.game.game_logic import GameLogic
-from tests.test_safety_veto_v5 import clone, make_snake, random_states, survives
+from tests.test_safety_veto_v5 import (
+    body_path,
+    clone,
+    make_snake,
+    random_states,
+    survives,
+    trap_pocket,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 # Released v2 (strict receipt), released v5 (served Watch hero) and the frozen v3/v4.
@@ -335,21 +345,123 @@ class TestNoSpaciousFallback:
         # Landing switch only for a firing boost below its normal count.
         assert fallback_choice(q, mask, 4, lambda d: d == 1, None).action == 1
         assert fallback_choice(q, mask, 4, never, None).action == 4
-        # Escape ranking: highest Q among escaping directions, boosts included.
-        result = fallback_choice(q, mask, 2, never, lambda d: d == 1)
+        # Escape ranking (per action): highest Q among escaping actions, boosts included.
+        result = fallback_choice(q, mask, 2, never, lambda a: a % 3 == 1)
         assert result.action == 4 and result.escape_switch
         # ... but a boost whose landing is short is not a candidate.
-        result = fallback_choice(q, mask, 2, lambda d: d == 1, lambda d: d == 1)
+        result = fallback_choice(q, mask, 2, lambda d: d == 1, lambda a: a % 3 == 1)
         assert result.action == 1
-        # Current direction escapes: kept. Nothing escapes: kept.
-        assert fallback_choice(q, mask, 2, never, lambda d: True).action == 2
-        assert fallback_choice(q, mask, 2, never, lambda d: False).action == 2
+        # A boost is judged on its own path: when only the normal-speed action of a
+        # direction escapes, the boost is skipped for it (and a kept boost is re-ranked).
+        result = fallback_choice(q, mask, 2, never, lambda a: a == 1)
+        assert result.action == 1 and result.escape_switch
+        result = fallback_choice(q, mask, 4, never, lambda a: a == 1)
+        assert result.action == 1 and result.escape_switch and not result.landing_switch
+        # Current action escapes: kept. Nothing escapes: kept.
+        assert fallback_choice(q, mask, 2, never, lambda a: True).action == 2
+        assert fallback_choice(q, mask, 2, never, lambda a: False).action == 2
+        assert fallback_choice(q, mask, 4, never, lambda a: a == 4).action == 4
+        # Candidates are tried in descending Q, so the search stops at the first escape.
+        tried = []
+        fallback_choice(q, mask, 2, never, lambda a: tried.append(a) or a == 1)
+        assert tried == [2, 4, 1]
 
         def exhausted(direction):
             raise BudgetExhausted
 
         result = fallback_choice(q, mask, 4, lambda d: d == 1, exhausted)
         assert result.action == 1 and result.budget_unknown  # step 1 stands
+
+
+# A sealed w x h room entered through its left wall at F = (61, 40); the hero (length 160,
+# need 160) heads right at (60, 40) with its body far away (no own tail in the room), so
+# the boost's landing region is the room minus F. Turns hit the wall.
+def tail_free_room(w, h):
+    y0 = 40 - h // 2
+    ys = range(y0 - 1, y0 + h + 1)
+    wall = [(61 + w, y) for y in ys] + [(60, y) for y in ys if y != 40]
+    wall += [(x, y0 - 1) for x in range(61, 61 + w)] + [(x, y0 + h) for x in range(61, 61 + w)]
+    wall.sort(key=lambda c: -abs(c[0] - 60) - abs(c[1] - 40))  # head far from the hero
+    hero = make_snake(body_path((60, 40), 160, 80), (1, 0), width=1000, height=800)
+    other = make_snake(wall, (0, 1), width=1000, height=800, sid=1)
+    return hero, other
+
+
+# Open board; a short opponent's head at (63, 40) is next to the straight boost's second
+# cell S = (62, 40) but not to its first cell F = (61, 40).
+def head_beside_second_cell():
+    hero = make_snake([(60 - i, 40) for i in range(50)], (1, 0), width=1000, height=800)
+    other = make_snake([(63, 40), (64, 40), (65, 40)], (0, 1), width=1000, height=800, sid=1)
+    return hero, other
+
+
+ROOM_MASK = [False, True, False, False, True, False]
+ROOM_Q = [0.0, 1.0, 0.0, 0.0, 9.0, 0.0]
+
+
+class TestFallbackModels:
+    @pytest.mark.parametrize("w, h", [(5, 4), (6, 6), (10, 10), (12, 12)])
+    def test_tail_free_room_boost_is_not_a_landing_switch(self, setup_config, w, h):
+        hero, other = tail_free_room(w, h)
+        roster = [hero, other]
+        spacious, counts, need = flags_and_counts(hero, roster)
+        cap, _ = free_space_threshold(hero.length, hero._logical_length())
+        assert not any(spacious) and need == 160 and counts[1] == w * h
+        landing = landing_count(hero, roster, 1, cap)
+        normal = normal_post_count(hero, roster, 1, cap)
+        # One model: the boost's landing is exactly one cell fewer (F is body).
+        assert normal == w * h and landing == normal - 1
+        assert landing < counts[1]  # the pre-fix rule (vs round(feature * cap)) switched
+        assert not landing_below_normal_rule(landing, normal)
+        action, veto = v6_apply(hero, roster, ROOM_Q, ROOM_MASK, 4)
+        assert action == 4  # nothing escapes a room smaller than need; the boost stands
+        diag = veto.diagnostics_record()
+        assert diag["fallback_landing_switches"] == 0 and diag["fallback_escape_switches"] == 0
+        assert diag["fallback_decisions"] == 1 and diag["fallback_searches"] == 1
+
+    def test_pocket_boost_is_still_a_landing_switch(self, setup_config):
+        hero, other = boxed_pocket()
+        roster = [hero, other]
+        cap, _ = free_space_threshold(hero.length, hero._logical_length())
+        assert landing_count(hero, roster, 1, cap) == 1
+        assert normal_post_count(hero, roster, 1, cap) == 12
+        assert landing_below_normal_rule(1, 12)
+        assert not landing_below_normal_rule(None, 12)  # a boost that does not fire
+        assert not landing_below_normal_rule(11, 12) and landing_below_normal_rule(10, 12)
+
+    def test_boost_escape_follows_the_forced_straight_cell(self, setup_config):
+        me, other = trap_pocket(50, 5)
+        other.segments = other.segments[::-1]  # wall head at the pocket's far end
+        world = world_for(me, [me, other])
+        assert EscapeSearch(world, FALLBACK_DEPTH, FALLBACK_NODE_BUDGET).escape(1)  # v4: True
+        search = BoostAwareEscapeSearch(world, FALLBACK_DEPTH, FALLBACK_NODE_BUDGET, True)
+        assert search.escape_action(1)  # normal speed turns at F
+        assert not search.escape_action(4)  # the boost is committed to the pocket
+        assert search.escape_action(3) and search.escape_action(5)
+        unfired = BoostAwareEscapeSearch(world, FALLBACK_DEPTH, FALLBACK_NODE_BUDGET, False)
+        assert unfired.escape_action(4) == unfired.escape_action(1) is True
+
+    def test_boost_second_cell_next_to_an_opponent_head_does_not_escape(self, setup_config):
+        hero, other = head_beside_second_cell()
+        world = world_for(hero, [hero, other])
+        search = BoostAwareEscapeSearch(world, FALLBACK_DEPTH, FALLBACK_NODE_BUDGET, True)
+        assert search.escape_action(1) and not search.escape_action(4)
+        assert search.escape_action(3)
+        assert not search._path and not search._on_path  # path restored after each call
+
+    def test_kept_boost_is_re_ranked_by_its_own_path(self, setup_config, monkeypatch):
+        from src.evaluation import safety_veto_v6
+
+        monkeypatch.setattr(
+            safety_veto_v6, "spacious_directions", lambda features, cap, need: [False] * 3
+        )
+        hero, other = head_beside_second_cell()
+        roster = [hero, other]
+        q = [0.0, 1.0, 0.0, 0.0, 9.0, 0.0]
+        action, veto = v6_apply(hero, roster, q, ALL, 4)
+        assert action == 1  # the direction escapes, but only at normal speed
+        diag = veto.diagnostics_record()
+        assert diag["fallback_escape_switches"] == 1 and diag["fallback_landing_switches"] == 0
 
 
 # ------------------------------------------------------------------ rule properties
