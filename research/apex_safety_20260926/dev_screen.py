@@ -20,6 +20,11 @@ Opt-in additions (all default off; the default screen is unchanged): ``--use-slo
 holds a shared CPU slot lock around the run, ``--require-ac-power`` refuses to start on
 battery, and :class:`ScreenSpec` lets another screen reuse this harness with its own
 namespace and per-arm vetoes (``research/apex_veto_v3_screen_20261001/screen.py``).
+``--slot-pool 3`` (with slot locks) also lets the run take the Tier-1/dev-only
+``cpu-slot-3.lock`` (created only by ``research/compute/slot_setup.py --create``), and
+``--thermal-guard`` gates each new episode on ``research/compute/thermal_guard.py`` (bounded
+backoff, then stop with a ``thermal: ...`` reason). Policy:
+``docs/research/compute_policy_2026-10-02.md``.
 """
 
 from __future__ import annotations
@@ -111,6 +116,10 @@ DEFAULT_SLOT_LOCK_ROOT = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909"
 )
 SLOT_LOCK_FILES = ("cpu-slot-1.lock", "cpu-slot-2.lock")
+# Opt-in ``--slot-pool 3`` (Tier-1/dev only): the dev-only third slot is tried first so the
+# strict slots stay free when it is; strict packages never use it.
+SLOT_POOL_3_FILES = ("cpu-slot-3.lock", "cpu-slot-1.lock", "cpu-slot-2.lock")
+SLOT_POOLS = {2: SLOT_LOCK_FILES, 3: SLOT_POOL_3_FILES}
 # ``ScreenSpec.arm_vetoes`` value: rollout's own ``hero_safety_veto=True`` (v2) install.
 BUILTIN_VETO = "tournament_eval-builtin"
 
@@ -191,14 +200,19 @@ def hero_veto_installer(install: Callable[[Any], Any] | None) -> Iterator[List[A
         tournament_eval._install_hero_safety_veto = original
 
 
-def acquire_cpu_slots(root: Path, count: int, timeout: float) -> List[Any]:
+def acquire_cpu_slots(root: Path, count: int, timeout: float, pool: int = 2) -> List[Any]:
     """Hold ``count`` free shared CPU slot locks (first free in file order) or raise.
 
     The lock files must already exist: they are opened read-only and never created.
+    ``pool`` (opt-in) picks the file list from :data:`SLOT_POOLS`; the default 2 is
+    :data:`SLOT_LOCK_FILES`, and 3 is :data:`SLOT_POOL_3_FILES`.
     """
-    if not 1 <= int(count) <= len(SLOT_LOCK_FILES):
-        raise ValueError(f"slot count must be 1..{len(SLOT_LOCK_FILES)}")
-    paths = [Path(root) / name for name in SLOT_LOCK_FILES]
+    if int(pool) not in SLOT_POOLS:
+        raise ValueError(f"slot pool must be one of {sorted(SLOT_POOLS)}")
+    files = SLOT_POOLS[int(pool)]
+    if not 1 <= int(count) <= len(files):
+        raise ValueError(f"slot count must be 1..{len(files)}")
+    paths = [Path(root) / name for name in files]
     missing = [str(path) for path in paths if not path.is_file()]
     if missing:
         raise FileNotFoundError(f"slot lock files missing (not created here): {missing}")
@@ -928,7 +942,23 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--require-ac-power", action="store_true", help="opt-in: refuse to start on battery"
     )
+    parser.add_argument(
+        "--slot-pool",
+        type=int,
+        choices=sorted(SLOT_POOLS),
+        default=2,
+        help="opt-in 3: also use the Tier-1/dev-only cpu-slot-3.lock (needs slot locks)",
+    )
+    parser.add_argument(
+        "--thermal-guard",
+        action="store_true",
+        help="opt-in: gate each new episode on pmset thermal state and episode slowdown",
+    )
+    parser.add_argument("--thermal-backoff-seconds", type=float, default=60.0)
+    parser.add_argument("--thermal-max-backoffs", type=int, default=5)
     args = parser.parse_args(argv)
+    if args.thermal_backoff_seconds <= 0 or args.thermal_max_backoffs < 0:
+        parser.error("need --thermal-backoff-seconds > 0 and --thermal-max-backoffs >= 0")
     minimum_worlds = 1 if args.smoke_frames is not None else 2
     if args.worlds_per_mix < minimum_worlds or not (
         0 <= args.determinism_worlds <= args.worlds_per_mix
@@ -942,6 +972,17 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     else:
         args.mixes = MIXES
     return args
+
+
+def make_thermal_guard(ac_reader: Callable[[], bool] | None) -> Any:
+    """The ``--thermal-guard`` guard (tests replace this to inject readings)."""
+    from research.compute.thermal_guard import ThermalGuard
+
+    return ThermalGuard(ac_reader=ac_reader)
+
+
+def _thermal_sleep(seconds: float) -> None:
+    time.sleep(seconds)
 
 
 def _configure_torch() -> None:
@@ -965,6 +1006,9 @@ def main(argv: Sequence[str] | None = None, spec: ScreenSpec = DEFAULT_SPEC) -> 
         return 2
     use_locks = bool(args.use_slot_locks or spec.require_slot_locks)
     need_ac = bool(args.require_ac_power or spec.require_ac_power)
+    if int(getattr(args, "slot_pool", 2)) != 2 and not use_locks:
+        print("--slot-pool needs slot locks (--use-slot-locks)", file=sys.stderr)
+        return 2
     if args.deadline_utc <= datetime.now(timezone.utc):
         print("deadline already passed", file=sys.stderr)
         return 2
@@ -1019,7 +1063,12 @@ def main(argv: Sequence[str] | None = None, spec: ScreenSpec = DEFAULT_SPEC) -> 
     slots: List[Any] = []
     if use_locks:
         try:
-            slots = acquire_cpu_slots(args.slot_lock_root, args.slots, args.slot_timeout_seconds)
+            slots = acquire_cpu_slots(
+                args.slot_lock_root,
+                args.slots,
+                args.slot_timeout_seconds,
+                pool=int(getattr(args, "slot_pool", 2)),
+            )
         except (OSError, TimeoutError, ValueError) as exc:
             print(f"CPU slot locks not acquired: {exc}", file=sys.stderr)
             return 2
@@ -1102,6 +1151,20 @@ def _run_screen(
             "held": args.slots,
             "held_from": "before --out existed until summary.json was written",
         }
+        if int(getattr(args, "slot_pool", 2)) != 2:
+            intent["slot_locks"]["pool"] = list(SLOT_POOLS[int(args.slot_pool)])
+    guard = None
+    guard_totals = {"checks": 0, "not_ok_checks": 0, "backoffs": 0, "backoff_seconds": 0}
+    if getattr(args, "thermal_guard", False):
+        need_ac = bool(args.require_ac_power or spec.require_ac_power)
+        guard = make_thermal_guard(on_ac_power if need_ac else None)
+        intent["thermal_guard"] = {
+            **guard.config(),
+            "backoff_seconds": args.thermal_backoff_seconds,
+            "max_backoffs": args.thermal_max_backoffs,
+            "rule": "checked before each new episode; not ok -> bounded backoff, then stop "
+            "with a 'thermal: ...' stopped_reason (the decision rule is not changed)",
+        }
     if args.require_ac_power or spec.require_ac_power:
         intent["ac_power_checked_at_start"] = True
     write_new_json(out / "intent.json", intent)
@@ -1109,7 +1172,17 @@ def _run_screen(
     entries: List[Dict[str, Any]] = []
     stopped_reason = None
     world_index = {seed: index for index, seed in enumerate(seeds)}
+    last_guard: Dict[str, Any] | None = None
     with (out / "events.jsonl").open("x", encoding="utf-8") as events:
+
+        def log_guard(event: Dict[str, Any]) -> None:
+            nonlocal last_guard
+            if event.get("event") == "thermal_guard_check":
+                last_guard = event
+            stamped = {"utc": datetime.now(timezone.utc).isoformat(), "done": len(entries)}
+            events.write(canonical_json(json_safe({**stamped, **event})) + "\n")
+            events.flush()
+
         for arm, row in plan:
             spent = [e["wall_seconds"] for e in entries]
             budget = max(
@@ -1119,6 +1192,25 @@ def _run_screen(
             if remaining < budget:
                 stopped_reason = f"deadline: {remaining:.0f}s left < {budget:.0f}s budget"
                 break
+            if guard is not None:
+                from research.compute.thermal_guard import admit_next_episode
+
+                admitted, reason, counts = admit_next_episode(
+                    guard,
+                    backoff_seconds=args.thermal_backoff_seconds,
+                    max_backoffs=args.thermal_max_backoffs,
+                    seconds_left=lambda: (
+                        args.deadline_utc - datetime.now(timezone.utc)
+                    ).total_seconds(),
+                    budget_seconds=budget,
+                    log=log_guard,
+                    sleep=_thermal_sleep,
+                )
+                for key, value in counts.items():
+                    guard_totals[key] += value
+                if not admitted:
+                    stopped_reason = reason
+                    break
             entry = run_episode(
                 arm,
                 row,
@@ -1130,6 +1222,8 @@ def _run_screen(
                 spec=spec,
             )
             entries.append(entry)
+            if guard is not None:
+                guard.record_episode(f"{arm}/{row['mix']}", entry["wall_seconds"])
             events.write(
                 canonical_json(
                     {
@@ -1161,6 +1255,18 @@ def _run_screen(
     )
     if spec is not DEFAULT_SPEC:
         summary.update({"schema_version": spec.schema, "authority": spec.authority})
+    if guard is not None:
+        stopped_by_guard = bool(stopped_reason and stopped_reason.startswith("thermal"))
+        summary["thermal_guard"] = json_safe(
+            {
+                **intent["thermal_guard"],
+                **guard_totals,
+                "stopped": stopped_by_guard,
+                "stop_reason": stopped_reason if stopped_by_guard else None,
+                "last_check": last_guard,
+                "events": "events.jsonl lines with an 'event' key starting thermal_guard_",
+            }
+        )
     summary.update(
         {
             "finished_utc": datetime.now(timezone.utc).isoformat(),
