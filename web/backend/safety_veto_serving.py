@@ -40,15 +40,19 @@ stays the master switch; the variant chooses which wrapper the Watch hero gets:
   :data:`V5_STRICT_RECEIPT_CHECKPOINT_SHA256` and ``safety_veto_v5.py``,
   ``safety_veto.py`` and ``safety_veto_v3.py`` to :data:`V5_STRICT_RECEIPT_SOURCE_SHA256S`.
 
-Unset or blank selects the default; ``v2``/``v5`` (case-insensitive) select a variant;
-any other value installs nothing on the Watch hero (fail closed) and says why. The
+Unset or blank selects the default; ``v2``/``v5`` (case-insensitive) select a variant.
+Any other value falls back to :data:`VARIANT_RELEASED_DEFAULT`, like an unrecognized
+master-switch word falls back to the released default, so a typo cannot silently remove
+the released Watch-hero veto; the build's ``reason`` and log line name the bad value. The
 variant never affects Play: ``SNAKE_SERVE_VETO_PLAY_AI`` keeps its v2 behavior.
 
 Whenever a flag is requested, each build logs one INFO line (prefix
-:data:`LOG_PREFIX`) with the variant, scope, wrapped ids, checkpoint and source match
-flags and the wrapper source sha256, or the reason nothing was installed, so an
-operator can confirm a release or rollback on the running server. The wire payload is
-unchanged.
+:data:`LOG_PREFIX`) with the scope, wrapped ids, checkpoint and source match flags, the
+wrapper source sha256, the variant and the reason (if any), so an operator can confirm a
+release or rollback on the running server. The line starts with the released v2 fields in
+their released order (``active=... scope=... mode=... wrapped_ids=... flags=...
+checkpoint_sha256=... strict_checkpoint_match=... wrapper_source_sha256=...``); the variant
+fields follow, and ``reason=`` stays last. The wire payload is unchanged.
 """
 
 from __future__ import annotations
@@ -142,7 +146,8 @@ def _released_flag(value: Optional[str], default: bool) -> bool:
 
 
 def _variant(value: Optional[str]) -> str:
-    """Unset or blank -> the released default; otherwise the normalized word (may be unknown)."""
+    """Unset or blank -> the released default; otherwise the normalized word (may be unknown;
+    :func:`_install` then falls back to the released default and says so)."""
     if value is None or not value.strip():
         return VARIANT_RELEASED_DEFAULT
     return value.strip().lower()
@@ -327,30 +332,47 @@ def _install(
     state = ServingVetoState(
         flags=flags, mode=str(mode), obs_spec=str(obs_spec), checkpoint_sha256=checkpoint_sha256
     )
+    notice = None
     if mode == "watch" and flags.watch_hero:
         state.scope, state.variant = SCOPE_WATCH_HERO, flags.variant
+        if state.variant not in VARIANTS:
+            # Like an unrecognized master-switch word: fall back to the released default.
+            notice = (
+                f"unknown serving veto variant {flags.variant!r} "
+                f"({ENV_VARIANT} must be one of {', '.join(VARIANTS)}); "
+                f"fell back to the released default {VARIANT_RELEASED_DEFAULT}"
+            )
+            state.variant = VARIANT_RELEASED_DEFAULT
     elif mode == "play" and flags.play_ai:
         state.scope, state.variant = SCOPE_PLAY_AI, VARIANT_V2  # Play never uses the variant
     else:
         if flags.watch_hero or flags.play_ai:
             state.reason = f"no serving veto flag applies to {mode} mode"
         return state
-    if state.variant not in VARIANTS:
-        state.reason = (
-            f"unknown serving veto variant {state.variant!r} "
-            f"({ENV_VARIANT} must be one of {', '.join(VARIANTS)})"
-        )
-        return state
+    _install_scoped(state, game, policy, obs_spec, checkpoint_sha256)
+    if notice is not None:
+        state.reason = notice if state.reason is None else f"{notice}; {state.reason}"
+    return state
+
+
+def _install_scoped(
+    state: ServingVetoState,
+    game: Any,
+    policy: Any,
+    obs_spec: str,
+    checkpoint_sha256: Optional[str],
+) -> None:
+    """Install ``state.variant``'s wrapper on ``state.scope``'s snakes (fail closed)."""
     if obs_spec != VECTOR61 or not hasattr(policy, "dqn"):
         state.reason = "the safety veto applies only to a vector61 Apex policy"
-        return state
+        return
     if not state.checkpoint_match:
         under = " under variant v5" if state.variant == VARIANT_V5 else ""  # v2 text unchanged
         state.reason = (
             f"no strict-gate evidence for this checkpoint{under} "
             f"(sha256 {checkpoint_sha256 or 'none: untrained weights'})"
         )
-        return state
+        return
     if state.variant == VARIANT_V5:
         identity = wrapper_identity_v5()
         changed = sorted(
@@ -361,7 +383,7 @@ def _install(
         state.wrapper_sources_match = not changed
         if changed:
             state.reason = f"v5 wrapper source sha256 differs from the gated one: {changed}"
-            return state
+            return
         install = install_boost_aware_veto
     else:
         identity = wrapper_identity()
@@ -370,7 +392,7 @@ def _install(
         )
         if not state.wrapper_sources_match:
             state.reason = f"wrapper source sha256 {identity['source_sha256']} is not the gated one"
-            return state
+            return
         install = install_free_space_veto
 
     from src.game.ai_snake import AISnake
@@ -384,11 +406,10 @@ def _install(
     targets = [s for s in targets if isinstance(s, AISnake) and s.policy is policy]
     if not targets:
         state.reason = "no served AI snake to wrap"
-        return state
+        return
     state.wrapper = identity
     for snake in targets:
         state.vetoes[int(snake.id)] = install(snake)
-    return state
 
 
 def _ensure_visible() -> None:
@@ -413,21 +434,23 @@ def log_build(state: ServingVetoState) -> None:
     _ensure_visible()
     wrapper = state.wrapper or {}
     logger.info(
-        "%s active=%s variant=%s variant_requested=%s scope=%s mode=%s wrapped_ids=%s "
-        "flags=%s checkpoint_sha256=%s strict_checkpoint_match=%s wrapper_sources_match=%s "
-        "wrapper_method=%s wrapper_source_sha256=%s reason=%s",
+        # The released v2 fields keep their released order (operators grep for
+        # "active=True scope=watch_hero"); the variant fields follow; reason stays last.
+        "%s active=%s scope=%s mode=%s wrapped_ids=%s flags=%s checkpoint_sha256=%s "
+        "strict_checkpoint_match=%s wrapper_source_sha256=%s variant=%s variant_requested=%s "
+        "wrapper_sources_match=%s wrapper_method=%s reason=%s",
         LOG_PREFIX,
         state.active,
-        state.variant,
-        state.flags.variant,
         state.scope,
         state.mode,
         state.wrapped_snake_ids,
         state.flags.to_dict(),
         state.checkpoint_sha256,
         state.checkpoint_match,
+        wrapper.get("source_sha256"),
+        state.variant,
+        state.flags.variant,
         state.wrapper_sources_match,
         wrapper.get("method"),
-        wrapper.get("source_sha256"),
         state.reason,
     )

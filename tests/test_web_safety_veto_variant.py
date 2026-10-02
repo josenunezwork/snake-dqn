@@ -105,7 +105,7 @@ class TestVariantParsing:
         assert ServingVetoFlags.from_env({ENV_VARIANT: value}).variant == expected
 
     @pytest.mark.parametrize("value", ["v3", "5", "boost", "v5x"])
-    def test_unknown_values_are_kept_so_the_build_can_refuse(self, value):
+    def test_unknown_values_are_kept_so_the_build_can_report_them(self, value):
         assert ServingVetoFlags.from_env({ENV_VARIANT: value}).variant == value.lower()
 
     def test_flags_dict_shape_is_unchanged(self):
@@ -181,10 +181,14 @@ class TestAllCombinations:
         watch_on = watch != "0"
         if not watch_on:
             assert vetoes(sess) == {} and state["scope"] is None
-        elif variant == "bogus":
-            assert vetoes(sess) == {} and state["active"] is False
+        elif variant == "bogus":  # falls back to the released default, says why
+            got = vetoes(sess)
+            assert list(got) == [int(sess.game.snakes[0].id)]
+            assert type(got[int(sess.game.snakes[0].id)]) is FreeSpaceVeto
+            assert state["active"] is True and state["variant"] == "v2"
+            assert state["variant_requested"] == "bogus"
             assert "unknown serving veto variant 'bogus'" in state["reason"]
-            assert state["variant"] == "bogus"
+            assert "fell back to the released default v2" in state["reason"]
         else:
             expected = BoostAwareFreeSpaceVeto if variant == "v5" else FreeSpaceVeto
             got = vetoes(sess)
@@ -274,12 +278,42 @@ class TestV5FailClosed:
         assert vetoes(sess) == {} and state["active"] is False
         assert state["strict_receipt_wrapper_match"] is False and rel in state["reason"]
 
-    def test_unknown_variant_refuses_watch_but_not_play(self, pinned):
+    @pytest.mark.parametrize("value", ["2", "v5x", "v4", "garbage"])
+    def test_unknown_variant_keeps_the_released_v2_watch_veto(self, monkeypatch, pinned, value):
+        """A typo must not silently drop the released veto (like the master switch)."""
+        set_env(monkeypatch, variant=value)
+        sess = GameSession(checkpoint=pinned)
+        got = vetoes(sess)
+        assert list(got) == [int(sess.game.snakes[0].id)]
+        assert all(type(v) is FreeSpaceVeto for v in got.values())
+        state = sess.safety_veto_state()
+        assert state["wrapper"] == serving.wrapper_identity()
+        assert state["reason"] == (
+            f"unknown serving veto variant {value!r} ({ENV_VARIANT} must be one of v2, v5); "
+            "fell back to the released default v2"
+        )
+
+    def test_unknown_variant_follows_the_released_default(self, monkeypatch, pinned):
+        monkeypatch.setattr(serving, "VARIANT_RELEASED_DEFAULT", "v5")
+        sess = GameSession(checkpoint=pinned, safety_veto_flags=ServingVetoFlags(True, False, "x"))
+        assert [type(v) for v in vetoes(sess).values()] == [BoostAwareFreeSpaceVeto]
+        assert "fell back to the released default v5" in sess.safety_veto.reason
+
+    def test_unknown_variant_still_fails_closed_on_other_evidence(self, no_default_checkpoint):
+        flags = ServingVetoFlags(watch_hero=True, variant="v5x")
+        sess = GameSession(checkpoint=None, safety_veto_flags=flags)
+        reason = sess.safety_veto_state()["reason"]
+        assert vetoes(sess) == {} and reason.startswith("unknown serving veto variant 'v5x'")
+        assert reason.endswith(
+            "; no strict-gate evidence for this checkpoint (sha256 none: untrained weights)"
+        )
+
+    def test_unknown_variant_does_not_touch_play(self, pinned):
         flags = ServingVetoFlags(True, True, "v4")
         sess = GameSession(checkpoint=pinned, safety_veto_flags=flags)
-        assert vetoes(sess) == {} and "unknown serving veto variant" in sess.safety_veto.reason
         sess.set_mode(MODE_PLAY)
         assert vetoes(sess) and all(type(v) is FreeSpaceVeto for v in vetoes(sess).values())
+        assert sess.safety_veto.reason is None
 
 
 class TestLogLine:
@@ -288,27 +322,55 @@ class TestLogLine:
         set_env(monkeypatch, variant="v5")
         sess = GameSession(checkpoint=pinned)
         (line,) = log_lines(caplog)
-        assert line.startswith(serving.LOG_PREFIX) and "active=True" in line
-        assert "variant=v5 variant_requested=v5 scope=watch_hero" in line
-        assert f"wrapped_ids=[{int(sess.game.snakes[0].id)}]" in line
-        assert "strict_checkpoint_match=True wrapper_sources_match=True" in line
-        assert "wrapper_method=free-space-veto/v5-boost-aware" in line
-        assert serving.V5_STRICT_RECEIPT_SOURCE_SHA256S[serving.V5_SOURCE_PATH] in line
+        hero = int(sess.game.snakes[0].id)
+        assert line.startswith(f"{serving.LOG_PREFIX} active=True scope=watch_hero mode=watch ")
+        assert f"wrapped_ids=[{hero}]" in line
+        v5_sha = serving.V5_STRICT_RECEIPT_SOURCE_SHA256S[serving.V5_SOURCE_PATH]
+        assert (
+            f"strict_checkpoint_match=True wrapper_source_sha256={v5_sha} variant=v5 "
+            "variant_requested=v5 wrapper_sources_match=True "
+            "wrapper_method=free-space-veto/v5-boost-aware reason=None"
+        ) in line
+        assert line.endswith("reason=None")
 
-    def test_v2_default_line_names_variant(self, caplog, pinned):
+    def test_v2_default_line_keeps_the_released_prefix(self, caplog, pinned):
+        """The released check text and field order (main 95e0db9) survive the variant fields."""
         caplog.set_level(logging.INFO, logger=LOGGER)
-        GameSession(checkpoint=pinned)
+        sess = GameSession(checkpoint=pinned)
         (line,) = log_lines(caplog)
-        assert "active=True variant=v2 variant_requested=v2 scope=watch_hero" in line
-        assert "strict_checkpoint_match=True wrapper_sources_match=True" in line
-        assert serving.STRICT_RECEIPT_WRAPPER_SOURCE_SHA256 in line
+        assert "safety-veto-serving: active=True scope=watch_hero" in line
+        released_prefix = (
+            f"{serving.LOG_PREFIX} active=True scope=watch_hero mode=watch "
+            f"wrapped_ids=[{int(sess.game.snakes[0].id)}] "
+            "flags={'watch_hero': True, 'play_ai': False} "
+            f"checkpoint_sha256={serving.STRICT_RECEIPT_CHECKPOINT_SHA256} "
+            "strict_checkpoint_match=True "
+            f"wrapper_source_sha256={serving.STRICT_RECEIPT_WRAPPER_SOURCE_SHA256} "
+        )
+        assert line.startswith(released_prefix)
+        assert line[len(released_prefix) :] == (
+            "variant=v2 variant_requested=v2 wrapper_sources_match=True "
+            "wrapper_method=free-space-veto/v2-speed-preserving reason=None"
+        )
 
-    def test_refusals_are_logged(self, caplog, monkeypatch, pinned):
+    def test_unknown_variant_is_logged_with_the_fallback(self, caplog, monkeypatch, pinned):
         caplog.set_level(logging.INFO, logger=LOGGER)
         set_env(monkeypatch, variant="v9")
         GameSession(checkpoint=pinned)
         (line,) = log_lines(caplog)
-        assert "active=False variant=v9" in line and "unknown serving veto variant" in line
+        assert "safety-veto-serving: active=True scope=watch_hero" in line
+        assert "variant=v2 variant_requested=v9" in line
+        assert "reason=unknown serving veto variant 'v9'" in line
+        assert line.endswith("fell back to the released default v2")
+
+    def test_refusals_are_logged(self, caplog, monkeypatch, pinned):
+        caplog.set_level(logging.INFO, logger=LOGGER)
+        monkeypatch.setattr(serving, "V5_STRICT_RECEIPT_CHECKPOINT_SHA256", "f" * 64)
+        set_env(monkeypatch, variant="v5")
+        GameSession(checkpoint=pinned)
+        (line,) = log_lines(caplog)
+        assert "active=False scope=watch_hero" in line and "variant=v5" in line
+        assert "reason=no strict-gate evidence for this checkpoint under variant v5" in line
 
     def test_off_logs_nothing(self, caplog, monkeypatch, pinned):
         caplog.set_level(logging.INFO, logger=LOGGER)
@@ -362,6 +424,8 @@ class TestRealChampion:
         assert state["checkpoint_sha256"] == serving.V5_STRICT_RECEIPT_CHECKPOINT_SHA256
         assert state["strict_receipt_checkpoint_match"] is True
         assert state["strict_receipt_wrapper_match"] is True
-        assert "strict_checkpoint_match=True wrapper_sources_match=True" in log_lines(caplog)[0]
+        line = log_lines(caplog)[0]
+        assert "safety-veto-serving: active=True scope=watch_hero" in line
+        assert "strict_checkpoint_match=True" in line and "wrapper_sources_match=True" in line
         sess.set_mode(MODE_PLAY)
         assert vetoes(sess) == {}  # release config: Play AI stays unwrapped

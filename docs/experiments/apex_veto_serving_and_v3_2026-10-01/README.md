@@ -87,6 +87,13 @@ wrapper_source_sha256=1b62d15c… reason=None
 
 The UI rendered with no server errors.
 
+Log format note (added with the `SNAKE_SERVE_VETO_VARIANT` selector): the released fields
+above keep their order, so the check text `safety-veto-serving: active=True scope=watch_hero`
+is unchanged. The selector adds `variant=… variant_requested=… wrapper_sources_match=…
+wrapper_method=…` after `wrapper_source_sha256=…`, and `reason=` stays last. An unrecognized
+`SNAKE_SERVE_VETO_VARIANT` falls back to the released default variant and names the bad value
+in `reason`.
+
 **Rollback:** set `SNAKE_SERVE_VETO_WATCH_HERO=0` and restart. No code change
 is needed.
 

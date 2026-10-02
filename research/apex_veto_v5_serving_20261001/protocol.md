@@ -3,6 +3,9 @@
 Status: **pre-registered, written 2026-10-01 before any non-smoke serving episode.**
 Revised once after the dry-run smoke (compute paragraph only, now quoting the smoke's measured
 timings; no criterion changed), so the smoke intent records the pre-revision `protocol_sha256`.
+Revised a second time after review, still before any non-smoke episode: the hook's log field
+order, the unknown-variant fallback, and the counts-confirmation note under "Episodes and
+worlds". No pass criterion changed.
 The sha256 of this file is pinned in code (`serving_run.PROTOCOL_SHA256` and
 `serving_audit.PROTOCOL_SHA256`), not here. Any later edit must re-pin both, and a non-smoke
 intent that names another sha cannot pass.
@@ -45,16 +48,21 @@ This run measures serving correctness, not skill. It makes no mass, survival or 
 - `SNAKE_SERVE_VETO_WATCH_HERO` stays the master switch (unset = on, the released default;
   `0/false/no/off` = off). `SNAKE_SERVE_VETO_VARIANT` chooses the Watch hero's wrapper: unset or
   blank = `VARIANT_RELEASED_DEFAULT` (`v2` until the release step), `v2`, or `v5`. Any other
-  value installs nothing on the Watch hero and says why.
+  value falls back to `VARIANT_RELEASED_DEFAULT` (as an unrecognized master-switch word falls
+  back to the released default) and names the bad value in `reason` and the log line, so a
+  typo cannot silently drop the released Watch veto. Unit-tested; not part of this run.
 - `v5` installs `install_boost_aware_veto` on the slot-0 Watch hero only, and only when the
   served checkpoint hashes to the pinned champion sha and all three source files hash to the
   pinned shas (fail closed; otherwise unwrapped with a `reason`).
 - The variant never affects Play. `SNAKE_SERVE_VETO_PLAY_AI` keeps its v2 semantics (opt-in,
   v2 wrapper) and is unset here, so Play is served unwrapped. Play AI wrapping is not part of
   the release.
-- When a flag is requested, each build logs one INFO line starting `safety-veto-serving:` with
-  `active`, `variant`, `variant_requested`, `scope`, `wrapped_ids`, `strict_checkpoint_match`,
-  `wrapper_sources_match`, `wrapper_method`, the wrapper source sha256 and `reason`.
+- When a flag is requested, each build logs one INFO line starting `safety-veto-serving:`. The
+  released v2 fields come first in their released order (`active`, `scope`, `mode`,
+  `wrapped_ids`, `flags`, `checkpoint_sha256`, `strict_checkpoint_match`,
+  `wrapper_source_sha256`), so the released check text `safety-veto-serving: active=True
+  scope=watch_hero` still appears; then `variant`, `variant_requested`, `wrapper_sources_match`,
+  `wrapper_method`; `reason` is last.
 
 The release environment every served build in this run reads is
 `SNAKE_SERVE_VETO_VARIANT=v5` with the other two variables unset.
@@ -74,6 +82,14 @@ seeds 0..999. In-code check only (no namespace registry). Smoke uses
 Counts: 25 Watch + 25 Play (50 served episodes) + 2 parity probes. The v2 serving lane moved
 from 1 Watch + 49 Play to this split after review because Watch is the scope a release turns
 on; the same holds for v5, and Play is unwrapped here.
+
+**Counts confirmation (required before the real run).** The task that commissioned this lane
+asked for 1 Watch + 49 Play. This protocol pre-registers 25 Watch + 25 Play + 2 parity instead:
+under the v5 release only the Watch hero is wrapped, so Play episodes add almost no v5
+evidence, and the v2 serving lane passed with the same split. The real run must not start until
+the user explicitly confirms this split. If the user wants 1 + 49 instead, change
+`serving_run.COUNTS`, `serving_audit.DESIGN[False]` and this file, and re-pin
+`PROTOCOL_SHA256` in both scripts.
 
 1. **Watch, as served (25 episodes, 5000 frames each).** `set_seed(seed)`, then
    `GameSession(checkpoint)` under the release environment, stepped with `step()` then
@@ -177,10 +193,10 @@ false is accepted only when `intent.smoke`). Then `serving_audit.py --root <scra
 - **Release.** After a `SERVING_PASS`, with explicit user approval citing the v5 strict receipt
   and this audit: set `VARIANT_RELEASED_DEFAULT = VARIANT_V5` in
   `web/backend/safety_veto_serving.py` (and update its tests), then restart the server. Verify
-  on stderr: `safety-veto-serving: active=True variant=v5 variant_requested=v5
-  scope=watch_hero`, `wrapped_ids=[<hero id>]`, `strict_checkpoint_match=True
-  wrapper_sources_match=True`, `wrapper_method=free-space-veto/v5-boost-aware`, wrapper source
-  sha256 `d86d084e…ec86c`.
+  on stderr: `safety-veto-serving: active=True scope=watch_hero`, `wrapped_ids=[<hero id>]`,
+  `strict_checkpoint_match=True`, `wrapper_source_sha256=d86d084e…ec86c`, `variant=v5
+  variant_requested=v5 wrapper_sources_match=True`,
+  `wrapper_method=free-space-veto/v5-boost-aware`, `reason=None`.
 - **Rollback to v2.** Restart with `SNAKE_SERVE_VETO_VARIANT=v2` (no code change): the log line
   shows `variant=v2` and `wrapper_method=free-space-veto/v2-speed-preserving`.
 - **Rollback to off.** Restart with `SNAKE_SERVE_VETO_WATCH_HERO=0`: no snake is wrapped and no

@@ -54,7 +54,7 @@ schema = _load_schema()
 
 PROTOCOL = HERE / "protocol.md"
 # sha256 of protocol.md as pre-registered for the real run (the audit pins it too).
-PROTOCOL_SHA256 = "1e13a6b816fc5b5c24ab0a34b8198241d52d767dce27a6cf9aaf7b58b505e3bf"
+PROTOCOL_SHA256 = "6b4b797543b696378ad94cb7dd6a14a14e9f66fd9409d5a30d55747f63d98f75"
 CHAMPION_PATH = v2run.CHAMPION_PATH
 CHAMPION_SHA256 = v2run.CHAMPION_SHA256
 SERVED_CONFIG_SHA256 = v2run.SERVED_CONFIG_SHA256

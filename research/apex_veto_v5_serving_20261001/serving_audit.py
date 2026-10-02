@@ -83,7 +83,7 @@ RELEASE_FLAGS = {"watch_hero": True, "play_ai": False}
 PLAY_REASON = "no serving veto flag applies to play mode"
 # protocol.md as pre-registered for the real run. A non-smoke intent must carry exactly
 # this sha256 (a later protocol edit cannot audit as SERVING_PASS).
-PROTOCOL_SHA256 = "1e13a6b816fc5b5c24ab0a34b8198241d52d767dce27a6cf9aaf7b58b505e3bf"
+PROTOCOL_SHA256 = "6b4b797543b696378ad94cb7dd6a14a14e9f66fd9409d5a30d55747f63d98f75"
 DESIGN = {
     False: {
         "domain": "apex-veto-v5-web-serving-v1",
