@@ -21,7 +21,7 @@ Usage (about 2.5-3 h at the pre-registered size; hard cap 4 h):
     --sweep-summary <sweep run>/summary.json --out /path/to/new/dir \\
     --deadline-utc <now + at most 4 h, with UTC offset>
 Smoke (plumbing only, smoke namespace, <= 2 episodes x 500 frames):
-  ... screen.py --smoke-lambda 0.5 --out /tmp/x --deadline-utc ... --smoke-frames 500 \\
+  ... screen.py --smoke-lambda 2.0 --out /tmp/x --deadline-utc ... --smoke-frames 500 \\
     --worlds-per-mix 1 --determinism-worlds 0 --smoke-mixes scripted
 """
 
@@ -91,10 +91,8 @@ def earlier_namespaces(domain: str, prefix: int = EXCLUSION_PREFIX) -> Dict[str,
     }
 
 
-def tracked_modifications(dirty_paths: Any) -> List[str]:
-    """``git status --porcelain`` lines other than untracked (``??``) files."""
-    lines = [line for line in str(dirty_paths or "").splitlines() if line.strip()]
-    return [line for line in lines if not line.startswith("??")]
+# ``git status --porcelain`` lines other than untracked (``??``) files (shared with the sweep).
+tracked_modifications = sweep.tracked_modifications
 
 
 def load_sweep_selection(path: Path, git: Mapping[str, Any]) -> Tuple[float, Dict[str, Any]]:

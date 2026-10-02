@@ -70,7 +70,7 @@ class TestNamespaces:
         earlier = set(screen.EARLIER_DOMAINS)
         assert set(v6screen.EARLIER_DOMAINS) <= earlier
         assert {sweep.DOMAIN, sweep.SMOKE_DOMAIN, v6screen.DOMAIN} <= earlier
-        spec = screen.build_spec(screen.DOMAIN, 0.5, {})
+        spec = screen.build_spec(screen.DOMAIN, 2.0, {})
         assert not any(k.startswith(f"{screen.DOMAIN}/") for k in spec.extra_namespaces)
         assert any(k.startswith(f"{sweep.DOMAIN}/") for k in spec.extra_namespaces)
         seeds = dev_screen.screen_seeds(40, screen.DOMAIN, screen.NAMESPACE)
@@ -81,23 +81,23 @@ class TestNamespaces:
 
     def test_sweep_spec_and_installers(self):
         spec = sweep.SPEC
-        assert spec.arm_vetoes["R"] is spec.arm_vetoes["L050"]
+        assert spec.arm_vetoes["R"] is spec.arm_vetoes["L200"]
         assert spec.arm_vetoes["A"] is sweep.install_v5
-        assert set(spec.arm_vetoes) == {"A", "L025", "L050", "L100", "R"}
+        assert set(spec.arm_vetoes) == {"A", "L100", "L200", "L400", "R"}
         assert spec.require_slot_locks and spec.require_ac_power
         assert spec.max_wall_seconds == sweep.MAX_WALL_SECONDS == 3 * 3600
         assert sweep.expected_descriptor("A") == BoostAwareFreeSpaceVeto().descriptor()
-        assert sweep.expected_descriptor("R") == SpacePreferenceVeto(0.5).descriptor()
+        assert sweep.expected_descriptor("R") == SpacePreferenceVeto(2.0).descriptor()
         assert sweep.arm_method("L100") == "free-space-veto/v7-space-preference(lambda=1.0)"
 
     def test_screen_spec(self):
         binding = {"summary_sha256": "s" * 64, "source_commit": COMMIT}
-        spec = screen.build_spec(screen.DOMAIN, 0.25, binding)
+        spec = screen.build_spec(screen.DOMAIN, 4.0, binding)
         assert spec.arm_vetoes["A"] is spec.arm_vetoes["C"] is screen.install_v5
         assert spec.arm_vetoes["B"] is spec.arm_vetoes["D"]
-        assert spec.arm_vetoes["B"].keywords == {"lam": 0.25}
+        assert spec.arm_vetoes["B"].keywords == {"lam": 4.0}
         assert spec.replay_worlds == 4 and spec.max_wall_seconds == 4 * 3600
-        assert "s" * 64 in spec.arm_descriptions["B"] and "lambda=0.25" in (
+        assert "s" * 64 in spec.arm_descriptions["B"] and "lambda=4.0" in (
             spec.arm_descriptions["B"]
         )
         fields = dev_screen.spec_intent_fields(
@@ -106,7 +106,7 @@ class TestNamespaces:
         protocol = REPO / "research/apex_veto_v7_screen_20261002/protocol.md"
         assert fields["protocol_sha256"] == hashlib.sha256(protocol.read_bytes()).hexdigest()
         assert "B/D replay control on 4 worlds" in fields["decision_rule"]
-        assert screen.expected_descriptor("D", 0.25) == SpacePreferenceVeto(0.25).descriptor()
+        assert screen.expected_descriptor("D", 4.0) == SpacePreferenceVeto(4.0).descriptor()
 
     def test_sweep_plan_runs_every_arm_per_world_then_replays(self):
         rows = [{"mix": m, "world_seed": s} for m in dev_screen.MIXES for s in (11, 12)]
@@ -115,22 +115,32 @@ class TestNamespaces:
         assert [arm for arm, _ in plan[:4]] == list(sweep.SWEEP_ARMS)
         assert [(a, r["world_seed"]) for a, r in plan[-3:]] == [("R", 11)] * 3
         smoke = sweep.plan_episodes(rows[:1], ("frozen",), smoke=True)
-        assert [arm for arm, _ in smoke] == ["A", "L100"]
+        assert [arm for arm, _ in smoke] == ["A", "L400"]
 
 
 # ---------------------------------------------------------------- selection rule
 
 
-def _sweep_entries(deltas, seeds=(1, 2)):
-    """A at 100 per world; arm deltas per mix from ``deltas[arm][mix]``."""
+def _per_seed(value, seeds):
+    return tuple(value) if isinstance(value, (tuple, list)) else (value,) * len(seeds)
+
+
+def _sweep_entries(deltas, seeds=(1, 2), changes=None, decisions=1000):
+    """A at 100 per world; arm deltas per mix from ``deltas[arm][mix]`` (a value or one per
+    seed); every v7 episode has ``changes[arm]`` re-rank changes (default 3)."""
+    changes = changes or {}
     entries = []
     for mix in dev_screen.MIXES:
-        for seed in seeds:
+        for index, seed in enumerate(seeds):
             entries.append(_entry("A", mix, seed, 100.0))
             for arm in sweep.V7_ARMS:
-                entries.append(_entry(arm, mix, seed, 100.0 + deltas[arm][mix]))
+                delta = _per_seed(deltas[arm][mix], seeds)[index]
+                entry = _entry(arm, mix, seed, 100.0 + delta)
+                count = _per_seed(changes.get(arm, 3), seeds)[index]
+                entry["veto_diagnostics"] = {"rerank_changes": count, "decisions": decisions}
+                entries.append(entry)
     for mix in dev_screen.MIXES:
-        twin = next(e for e in entries if e["arm"] == "L050" and e["mix"] == mix)
+        twin = next(e for e in entries if e["arm"] == "L200" and e["mix"] == mix)
         entries.append(dict(twin, arm="R"))
     return entries
 
@@ -156,22 +166,63 @@ class TestSelection:
 
     def test_highest_pooled_qualifying_lambda_is_selected(self, monkeypatch):
         deltas = {
-            "L025": _flat(5, 5, 5),
-            "L050": _flat(40, -11, 40),  # best pooled but fails the scripted floor
-            "L100": _flat(20, -10, 12),  # exactly at the floor qualifies; pooled 7.33 > 5
+            "L100": _flat(5, 5, 5),
+            "L200": _flat(40, -11, 40),  # best pooled but a clear loser in scripted (sd 0)
+            "L400": _flat(20, (-30, 10), 12),  # scripted mean -10, but noisy: not a loser
         }
         summary = self._summary(_sweep_entries(deltas), monkeypatch)
         selection = summary["selection"]
         assert selection["status"] == "SELECTED" and selection["passes"] is True
-        assert selection["selected_lambda"] == 1.0
-        assert selection["qualifying_lambdas"] == [0.25, 1.0]
-        assert summary["lambdas"]["L050"]["pooled_mean_delta"] == pytest.approx(23.0)
+        assert selection["selected_lambda"] == 4.0
+        assert selection["qualifying_lambdas"] == [1.0, 4.0]
+        row = summary["lambdas"]["L200"]
+        assert row["pooled_mean_delta"] == pytest.approx(23.0)
+        assert row["active"] and row["clear_loser_in_some_mix"] and not row["qualifies"]
+        scripted = summary["lambdas"]["L400"]["per_mix"]["scripted"]
+        assert scripted["upper_bound_90_one_sided"] == pytest.approx(-10 + 3.0777 * 20)
         assert summary["source"]["commit"] == COMMIT
 
-    def test_ties_go_to_the_smaller_lambda_and_negative_pools_can_be_selected(self, monkeypatch):
-        deltas = {arm: _flat(-3, -3, -3) for arm in sweep.V7_ARMS}
+    def test_an_inert_arm_can_never_be_selected(self, monkeypatch):
+        # L100 changes nothing (all deltas 0); the active arms pool negative. The first
+        # draft's rule (floor -10, ties to the smaller lambda) would have picked L100.
+        deltas = {
+            "L100": _flat(0, 0, 0),
+            "L200": _flat((-30, 20), (-25, 15), (-20, 10)),
+            "L400": _flat((-40, 20), (-35, 15), (-30, 10)),
+        }
+        summary = self._summary(_sweep_entries(deltas, changes={"L100": 0}), monkeypatch)
+        assert summary["lambdas"]["L100"]["active"] is False
+        assert summary["selection"]["status"] == "SELECTED"
+        assert summary["selection"]["selected_lambda"] == 2.0
+        assert summary["selection"]["qualifying_lambdas"] == [2.0, 4.0]
+
+    @pytest.mark.parametrize(
+        "changes, deltas",
+        [
+            ({}, 0),  # changes but never a nonzero delta
+            ({arm: (1, 0) for arm in sweep.V7_ARMS}, 5),  # 1 episode per mix with changes
+            ({arm: 0 for arm in sweep.V7_ARMS}, 5),  # no changes at all
+        ],
+    )
+    def test_no_active_arm_stops(self, monkeypatch, changes, deltas):
+        entries = _sweep_entries(
+            {a: _flat(deltas, deltas, deltas) for a in sweep.V7_ARMS}, changes=changes
+        )
+        selection = self._summary(entries, monkeypatch)["selection"]
+        assert selection["status"] == "NONE_ACTIVE" and selection["passes"] is False
+        assert selection["selected_lambda"] is None
+
+    def test_rate_floor(self, monkeypatch):
+        deltas = {arm: _flat(5, 5, 5) for arm in sweep.V7_ARMS}
+        rare = _sweep_entries(deltas, changes={a: 1 for a in sweep.V7_ARMS}, decisions=10**5)
+        assert self._summary(rare, monkeypatch)["selection"]["status"] == "NONE_ACTIVE"
+        ok = _sweep_entries(deltas, changes={a: 1 for a in sweep.V7_ARMS}, decisions=10**4)
+        assert self._summary(ok, monkeypatch)["selection"]["status"] == "SELECTED"
+
+    def test_ties_go_to_the_larger_lambda(self, monkeypatch):
+        deltas = {arm: _flat((-3, 1), (-3, 1), (-3, 1)) for arm in sweep.V7_ARMS}
         selection = self._summary(_sweep_entries(deltas), monkeypatch)["selection"]
-        assert selection["status"] == "SELECTED" and selection["selected_lambda"] == 0.25
+        assert selection["status"] == "SELECTED" and selection["selected_lambda"] == 4.0
 
     def test_none_qualifies_stops(self, monkeypatch):
         deltas = {arm: _flat(50, -20, 50) for arm in sweep.V7_ARMS}
@@ -197,9 +248,11 @@ class TestSelection:
     def test_unknown_arm_and_bad_entry_fail_the_self_check(self):
         result = sweep.self_check([_entry("Z", "frozen", 1, 1.0)], [1], smoke=True)
         assert not result["passes"] and "unknown arm" in result["failures"][0]
-        result = sweep.self_check([_entry("L050", "frozen", 1, float("nan"))], [1], smoke=True)
+        result = sweep.self_check([_entry("L200", "frozen", 1, float("nan"))], [1], smoke=True)
         assert not result["passes"]
         assert any("finite" in failure for failure in result["failures"])
+        # Missing v7 diagnostics now gate (the activity gate reads them).
+        assert any("v7 counters missing" in failure for failure in result["failures"])
         assert not sweep.self_check([], [1], smoke=True)["passes"]
 
 
@@ -228,7 +281,7 @@ class TestLiveEntrySelfCheck:
         path = tmp_path / "vector.pth"
         torch.save({"dqn_state_dict": net.state_dict(), "input_size": 58, "hidden_size": 16}, path)
         opponents = [("scripted", "random_safe"), ("scripted", "greedy_food")]
-        for arm in ("A", "L050"):
+        for arm in ("A", "L200"):
             with dev_screen.hero_veto_installer(sweep.INSTALLERS[arm]) as installed:
                 record = rollout(("checkpoint", str(path)), opponents, 40, 5, hero_safety_veto=True)
             entry = {
@@ -251,7 +304,7 @@ class TestLiveEntrySelfCheck:
                 entry, arm=screen_arm, schema_version=screen.SCHEMA, screen=screen.SCREEN_ID
             )
             screen_entry["authority"] = screen.AUTHORITY
-            result = screen.check_entry(screen_entry, 0.5, smoke=True)
+            result = screen.check_entry(screen_entry, 2.0, smoke=True)
             assert result == {"failures": [], "warnings": []}
             assert screen.check_entry(screen_entry, 1.0, smoke=True)["failures"] or arm == "A"
 
@@ -270,7 +323,7 @@ def _write_sweep(tmp_path, **changes):
         "sweep_id": sweep.SWEEP_ID,
         "smoke": False,
         "intent_sha256": dev_screen.sha256_file(run / "intent.json"),
-        "selection": {"status": "SELECTED", "passes": True, "selected_lambda": 0.5},
+        "selection": {"status": "SELECTED", "passes": True, "selected_lambda": 2.0},
         "source": {"commit": COMMIT, "dirty_paths": "?? notes.txt"},
     }
     for key, value in changes.items():
@@ -290,7 +343,7 @@ CLEAN = {"commit": COMMIT, "dirty_paths": "?? research/untracked.txt"}
 class TestSweepBinding:
     def test_a_selected_sweep_from_this_commit_binds(self, tmp_path):
         lam, binding = screen.load_sweep_selection(_write_sweep(tmp_path), CLEAN)
-        assert lam == 0.5 and binding["source_commit"] == COMMIT
+        assert lam == 2.0 and binding["source_commit"] == COMMIT
         assert binding["summary_sha256"] == dev_screen.sha256_file(
             tmp_path / "sweep-run/summary.json"
         )
@@ -301,6 +354,7 @@ class TestSweepBinding:
             ({"status": "NONE_QUALIFIES", "passes": False, "selected_lambda": None}, CLEAN),
             ({"passes": False}, CLEAN),
             ({"selected_lambda": 0.75}, CLEAN),
+            ({"selected_lambda": 0.5}, CLEAN),  # the first draft's grid
             ({"selected_lambda": True}, CLEAN),
             ({"smoke": True}, CLEAN),
             ({"schema_version": "other"}, CLEAN),
@@ -345,6 +399,21 @@ class TestSweepGuards:
         assert sweep.main(self._argv(tmp_path)) == 2
         assert not any((tmp_path / "o").iterdir())
 
+    def test_tracked_modifications_are_refused_before_any_lock_or_output(
+        self, no_episodes, tmp_path, monkeypatch
+    ):
+        def fatal(*args, **kwargs):
+            raise AssertionError("the dirty-tree guard must run before the slot lock")
+
+        monkeypatch.setattr(dev_screen, "acquire_cpu_slots", fatal)
+        dirty = {"commit": COMMIT, "dirty_paths": " M research/x.py\n?? notes.txt"}
+        monkeypatch.setattr(dev_screen, "_git_state", lambda: dirty)
+        assert sweep.main(self._argv(tmp_path)) == 2
+        assert not (tmp_path / "o").exists()
+        assert sweep.tracked_modifications(dirty["dirty_paths"]) == [" M research/x.py"]
+        assert sweep.tracked_modifications("?? a\n?? b\n") == []
+        assert screen.tracked_modifications is sweep.tracked_modifications
+
     def test_smoke_size_guard(self, no_episodes, tmp_path):
         for extra in (
             ("--smoke-frames", "501", "--worlds-per-mix", "1"),
@@ -363,7 +432,7 @@ class TestScreenGuards:
 
     def test_a_sweep_summary_is_required(self, no_episodes, tmp_path):
         assert screen.main(self._argv(tmp_path)) == 2
-        assert screen.main(self._argv(tmp_path, "--smoke-lambda", "0.5")) == 2  # not a smoke
+        assert screen.main(self._argv(tmp_path, "--smoke-lambda", "2.0")) == 2  # not a smoke
         bad = _write_sweep(tmp_path, status="NONE_QUALIFIES", passes=False)
         assert screen.main(self._argv(tmp_path, "--sweep-summary", str(bad))) == 2
         assert not (tmp_path / "o").exists()
@@ -399,14 +468,14 @@ class TestScreenGuards:
         smoke = ("--smoke-frames", "500", "--worlds-per-mix", "1", "--determinism-worlds", "0")
         assert screen.main(self._argv(tmp_path, *smoke, "--smoke-lambda", "0.3")) == 2
         path = _write_sweep(tmp_path)
-        argv = self._argv(tmp_path, *smoke, "--smoke-lambda", "0.5", "--sweep-summary", str(path))
+        argv = self._argv(tmp_path, *smoke, "--smoke-lambda", "2.0", "--sweep-summary", str(path))
         assert screen.main(argv) == 2
         with pytest.raises(SystemExit):  # 4 episodes > 2
-            screen.main(self._argv(tmp_path, "--smoke-frames", "500", "--smoke-lambda", "0.5"))
+            screen.main(self._argv(tmp_path, "--smoke-frames", "500", "--smoke-lambda", "2.0"))
         assert not (tmp_path / "o").exists()
 
     def test_mismatched_control_arms_are_refused(self, no_episodes, tmp_path):
-        spec = screen.build_spec(screen.DOMAIN, 0.5, {})
+        spec = screen.build_spec(screen.DOMAIN, 2.0, {})
         argv = self._argv(tmp_path)
         for arm, other in (("D", screen.install_v5), ("C", spec.arm_vetoes["B"])):
             bad = dataclasses.replace(spec, arm_vetoes=dict(spec.arm_vetoes, **{arm: other}))
@@ -425,8 +494,8 @@ class TestReports:
         assert report["total"]["rerank_change_rate_per_decision"] == pytest.approx(0.1)
         assert report["total"]["mean_apply_seconds_per_decision"] == pytest.approx(0.001)
         assert report["per_mix"]["frozen"]["area_cap_max"] == 400
-        sweep_entries = [dict(e, arm="L050") if e["arm"] == "B" else e for e in entries]
+        sweep_entries = [dict(e, arm="L200") if e["arm"] == "B" else e for e in entries]
         by_arm = sweep.v7_counter_report(sweep_entries)["by_arm"]
-        assert by_arm["L050"]["rerank_changes"] == 2 and "rerank_changes" not in by_arm["A"]
+        assert by_arm["L200"]["rerank_changes"] == 2 and "rerank_changes" not in by_arm["A"]
         causes = sweep.death_causes(entries)["by_arm_and_mix"]
         assert causes["B"]["frozen"] == {"self": 2}

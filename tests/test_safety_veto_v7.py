@@ -43,7 +43,7 @@ FROZEN = {
     "safety_veto_v6.py": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
 }
 SS = 10
-LAMBDAS = (0.25, 0.5, 1.0, 10.0)
+LAMBDAS = (0.25, 1.0, 2.0, 4.0, 10.0)
 TIMING = {
     "apply_seconds_total",
     "apply_seconds_max",
@@ -219,7 +219,7 @@ class TestConstructedRegions:
         grid = grid_for(me)
         blocked = static_blocked(me, roster, grid)
         cap = area_cap(me.length, grid, blocked)
-        assert cap == 400 == 4 * me.length
+        assert cap == 200 == 2 * me.length
         assert landing_area(me, 0, blocked, grid, cap) == POCKET
         assert landing_area(me, 1, blocked, grid, cap) == cap
         assert landing_area(me, 2, blocked, grid, cap) == cap
@@ -237,7 +237,7 @@ class TestConstructedRegions:
         me, roster = pocket_world()
         q, mask, base = pocket_q(boost)
         assert BoostAwareFreeSpaceVeto().apply(me, roster, q, mask, base) == base  # v5 keeps
-        # Pocket g = log1p(168)/log1p(400) ~ 0.856; right wins iff lam * 0.144 > 0.05.
+        # Pocket g = 168/200 = 0.84; right wins iff lam * 0.16 > 0.05 (lam > 0.3125).
         for lam, expected in ((0.0, base), (0.25, base), (0.5, base + 2), (1.0, base + 2)):
             veto = SpacePreferenceVeto(lam)
             assert veto.apply(me, roster, q, mask, base) == expected, lam
@@ -252,7 +252,10 @@ class TestConstructedRegions:
                 # At 0.25 right's best case (-0.05 + 0.25) cannot beat the pocket's score.
                 assert diag["area_evaluations"] == (1 if lam == 0.25 else 2)
                 assert diag["area_cap_hits"] == diag["area_evaluations"] - 1
-                assert diag["area_cap_max"] == 400
+                assert diag["area_cap_max"] == 200
+                # The pocket's east wall is the hero's neck: static areas agree.
+                assert diag["static_area_evaluations"] == 2 * changed
+                assert diag["rerank_changes_tail_release_driven"] == 0
 
     def test_open_anchor_needs_no_other_area(self, setup_config):
         me, roster = pocket_world()
@@ -273,12 +276,89 @@ class TestConstructedRegions:
         assert area_cap(me.length, grid, {(x, y) for x in range(80) for y in range(59)}) == 80
         assert area_cap(1, grid, set()) == 32
 
+    def test_static_area_blocks_the_whole_post_move_body(self, setup_config):
+        # The head sits in a 3 x 3 room (x, y in 2..4) walled by its own body; the wall's
+        # last cell (3, 1) is next to the tail and is released within two frames, so tail
+        # release lets the
+        # count pass that wall; the static post-move area is the room alone (8 cells after
+        # the move: 9 minus the neck).
+        ring = [(2, 1), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (2, 5), (3, 5), (4, 5)]
+        ring += [(5, 5), (5, 4), (5, 3), (5, 2), (5, 1), (4, 1), (3, 1)]
+        me = make_snake([(2, 2), *ring, (3, 0)], (0, 1))
+        grid = grid_for(me)
+        assert landing_area(me, 1, set(), grid, 50, tail_release=False) == 8
+        assert landing_area(me, 1, set(), grid, 50) > 8
+        me, roster = pocket_world()
+        grid = grid_for(me)
+        blocked = static_blocked(me, roster, grid)
+        assert landing_area(me, 0, blocked, grid, 200, tail_release=False) == POCKET
+
     def test_move_into_the_vacating_tail_cell_counts(self, setup_config):
         # A 2 x 2 loop: the head at (5, 5) heading up, tail at (4, 5); turning left enters
         # the tail cell, which the tail leaves this frame (v3's pre-move model blocks it).
         me = make_snake([(5, 5), (5, 6), (4, 6), (4, 5)], (0, -1))
         grid = grid_for(me)
         assert landing_area(me, 0, set(), grid, 50) == 50
+
+
+# ---------------------------------------------------------------- long-hero pocket
+#
+# The census regime: a long hero (length 280 to 800) chooses between a pocket smaller than
+# itself and the open board, with exactly two candidates. Board 100 x 80. The head is at
+# (50, 40) heading up; the body runs down x = 50 to the bottom row and then serpentines
+# right-to-left and back over the bottom-right block (x 51..99). A static other snake
+# walls a 20 x 15 pocket (x 30..49, y 40..54, 300 cells) west of the head; its east side
+# is the hero's neck, released only after hundreds of frames. Straight is masked, so the
+# candidates are left (the pocket) and right (the open board).
+LONG_POCKET = 20 * 15
+
+
+def long_pocket_world(length):
+    width, height = 100, 80
+    cells = [(50, y) for y in range(40, height)]
+    row, y = 0, height - 1
+    while len(cells) < length:
+        xs = range(51, width) if row % 2 == 0 else range(width - 1, 50, -1)
+        cells += [(x, y) for x in xs]
+        row, y = row + 1, y - 1
+    me = make_snake(cells[:length], (0, -1), width=width * SS, height=height * SS)
+    walls = [(x, 39) for x in range(29, 50)] + [(x, 55) for x in range(29, 50)]
+    walls += [(29, y) for y in range(40, 55)]
+    other = make_snake(walls, (1, 0), width=width * SS, height=height * SS, sid=1)
+    return me, [me, other]
+
+
+class TestLongHeroPocket:
+    # Two candidates: v7 switches iff lam * (1 - 300 / (2 * length)) > 1.
+    @pytest.mark.parametrize(
+        "length, switches",
+        [
+            (800, {1.0: False, 2.0: True, 4.0: True}),  # pocket 0.375 x length
+            (400, {1.0: False, 2.0: True, 4.0: True}),  # pocket 0.75 x length
+            (280, {1.0: False, 2.0: False, 4.0: True}),  # pocket 1.07 x length
+        ],
+    )
+    def test_two_candidate_pocket_vs_open_switches_at_the_middle_grid_value(
+        self, setup_config, length, switches
+    ):
+        me, roster = long_pocket_world(length)
+        assert me.length == length
+        grid = grid_for(me)
+        blocked = static_blocked(me, roster, grid)
+        cap = area_cap(me.length, grid, blocked)
+        assert cap == 2 * length
+        assert landing_area(me, 0, blocked, grid, cap) == LONG_POCKET
+        assert landing_area(me, 2, blocked, grid, cap) == cap
+        assert landing_area(me, 0, blocked, grid, cap, tail_release=False) == LONG_POCKET
+        q = torch.tensor([1.0, -5.0, 0.2, -5.0, -5.0, -5.0])
+        mask = torch.tensor([True, False, True, False, False, False])
+        assert BoostAwareFreeSpaceVeto().apply(me, roster, q, mask, 0) == 0  # v5 keeps
+        for lam, switch in switches.items():
+            veto = SpacePreferenceVeto(lam)
+            assert veto.apply(me, roster, q, mask, 0) == (2 if switch else 0), (length, lam)
+            diag = veto.diagnostics_record()
+            assert diag["rerank_decisions"] == 1 and diag["rerank_changes"] == int(switch)
+            assert diag["rerank_changes_tail_release_driven"] == 0
 
 
 # ---------------------------------------------------------------- safety properties
@@ -321,6 +401,8 @@ class TestSafetyProperties:
         assert d["rerank_decisions"] == d["rerank_pruned"] + d["rerank_scored"]
         assert d["rerank_changes"] <= d["rerank_scored"]
         assert d["area_cap_hits"] <= d["area_evaluations"]
+        assert d["rerank_changes_tail_release_driven"] <= d["rerank_changes"]
+        assert d["static_area_evaluations"] == 2 * d["rerank_changes"]
         assert d["rerank_changes"] > 0 and d["mean_apply_seconds"] > 0
 
 

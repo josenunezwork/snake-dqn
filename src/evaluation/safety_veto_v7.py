@@ -34,9 +34,21 @@ Rule, per greedy decision (``q`` = the masked Q row, ``c`` = v5's chosen action)
    boosting. Only ``|C| >= 2`` is re-ranked.
 4. **Score** ``s(a) = Qn(a) + lambda * g(a)`` with
    ``Qn(a) = (q[a] - max_C q) / max(|max_C q - min_C q|, 1e-6)`` in ``[-1, 0]`` (unit
-   free) and ``g(a) = log1p(area(a)) / log1p(cap)`` in ``[0, 1]``. The chosen action is
-   the argmax of ``s`` over ``C``; ties go to ``c``, then to the lowest action index.
-   Every choice is deterministic (no randomness or timing).
+   free) and ``g(a) = min(area(a), cap) / cap`` in ``[0, 1]`` (linear, length-relative:
+   with ``cap = 2 * length`` a region of the hero's own length scores 0.5 and any region
+   of at least twice its length scores 1). The chosen action is the argmax of ``s`` over
+   ``C``; ties go to ``c``, then to the lowest action index. Every choice is deterministic
+   (no randomness or timing).
+
+   What ``lambda`` means (amendment 1, before any sweep episode; the first draft used
+   ``g = log1p(area)/log1p(4 * length)``, whose floor for an eligible move is about 0.7
+   for long heroes, so ``lambda <= 1`` was nearly inert). With two candidates ``Qn`` is
+   exactly ``{0, -1}`` and the rule is a pure area threshold: v7 switches iff
+   ``g(other) - g(c) > 1 / lambda``. Against an open alternative (``g = 1``) that is a
+   region smaller than ``2 * length * (1 - 1/lambda)``: never at ``lambda = 1``, below the
+   hero's length at ``lambda = 2`` (the census's "too small for it" case) and below
+   ``1.5 * length`` at ``lambda = 4``. With three or more candidates the runner-up wins
+   when its ``Qn`` gap is below ``lambda`` times its ``g`` advantage.
 5. **Area** (the v3 tail-aware model on the exact post-move state):
    :func:`~src.evaluation.safety_veto_v5.simulate_action` gives the hero's body after
    action ``a`` (one cell, or two when the boost fires, including a boost burn); the
@@ -47,12 +59,21 @@ Rule, per greedy decision (``q`` = the masked Q row, ``c`` = v5's chosen action)
    body and length, slack 1, the new head excluded). For a normal move this is v3's
    one-step model shifted by one frame, except that a move into the current tail cell
    (which the tail leaves this frame) is counted instead of being blocked.
-6. **Cap** ``min(max(32, 4 * length), 4096, open cells)``, where open cells are the
+6. **Cap** ``min(max(32, 2 * length), 4096, open cells)``, where open cells are the
    in-bounds cells not covered by another live snake (the most the count can reach).
    4096 bounds the runtime: a capped breadth-first count costs about 0.3 us per cell.
-   ``4 * length`` exceeds 4096 only for heroes longer than 1024 (census lengths
-   262 to 807), and ``g`` is logarithmic, so the cap mostly affects regions that are
-   already large.
+   ``2 * length`` exceeds 4096 only for heroes longer than 2048 (census lengths
+   262 to 807).
+
+**Known gap of the area model** (disclosed). The own-body release of item 5 is v3's
+model, which assumes the hero does not grow. For an enclosure sealed by the hero's own
+body, the count can pass the own-body wall once the tail is predicted to vacate it, so it
+can overstate an enclosed area (and understate the difference between a sealed pocket and
+the open board). Diagnostic only: on every re-rank change v7 also scores v5's choice and
+the new choice with the static post-move area (whole post-move body blocked,
+``landing_area(..., tail_release=False)``) and counts the change as
+``rerank_changes_tail_release_driven`` when it would not beat v5's choice under those
+static areas. Decisions never use the static area.
 
 **Cost.** Areas are evaluated lazily and only where they can change the result: an
 alternative ``a`` whose best case ``Qn(a) + lambda`` does not exceed the best score
@@ -63,7 +84,8 @@ Records. ``record()`` is the descriptor plus exactly v2's seven counters, so
 ``strict_promotion._validate_candidate_wrapper_probe`` accepts it. A re-rank that
 replaces the base action is a ``vetoed`` decision (also when v5 had ``kept`` it); the
 speed mode never changes in a re-rank. The v7 counters (``rerank_changes``,
-``area_evaluations``, ``area_cap_hits``, ``area_eval_seconds_*``, nested v5 counters)
+``rerank_changes_tail_release_driven``, ``area_evaluations``, ``area_cap_hits``,
+``static_area_evaluations``, ``area_eval_seconds_*``, nested v5 counters)
 come from :meth:`SpacePreferenceVeto.diagnostics_record`.
 
 Default behavior is untouched: nothing installs this class unless a caller does so
@@ -114,7 +136,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 VETO_METHOD_V7_PREFIX = "free-space-veto/v7-space-preference"
 AREA_CAP_MIN = FREE_SPACE_MIN_CAP
-AREA_CAP_LENGTH_FACTOR = 4
+AREA_CAP_LENGTH_FACTOR = 2
 AREA_CAP_LIMIT = 4096
 Q_SCALE_EPS = 1e-6
 AREA_RULE = (
@@ -125,7 +147,7 @@ AREA_CAP_RULE = (
     f"min(max({AREA_CAP_MIN}, {AREA_CAP_LENGTH_FACTOR}*length), {AREA_CAP_LIMIT}, "
     "in-bounds cells not covered by other live snakes)"
 )
-SCORE_RULE = "(q-max_C q)/max(|max_C q-min_C q|,1e-6) + lambda*log1p(area)/log1p(cap)"
+SCORE_RULE = "(q-max_C q)/max(|max_C q-min_C q|,1e-6) + lambda*min(area,cap)/cap"
 RERANK_RULE = (
     "C = v5-eligible actions in the speed mode of v5's choice; argmax score over C; "
     "ties -> v5's choice, then lowest index; unchanged when no_spacious, lambda == 0 "
@@ -149,8 +171,9 @@ def method_for(lam: float) -> str:
 
 
 def area_score(area: int, cap: int) -> float:
-    """``g = log1p(area) / log1p(cap)``, in ``[0, 1]`` for ``0 <= area <= cap``."""
-    return math.log1p(max(int(area), 0)) / math.log1p(max(int(cap), 1))
+    """``g = min(area, cap) / cap``, in ``[0, 1]`` (linear in the capped area)."""
+    cap = max(int(cap), 1)
+    return min(max(int(area), 0), cap) / cap
 
 
 @lru_cache(maxsize=32)
@@ -176,12 +199,21 @@ def landing_area(
     grid: Grid,
     cap: int,
     slack: int = TAIL_RELEASE_SLACK,
+    tail_release: bool = True,
 ) -> int:
-    """Tail-aware reachable cells from ``action``'s post-move head (at most ``cap``)."""
+    """Tail-aware reachable cells from ``action``'s post-move head (at most ``cap``).
+
+    ``tail_release=False`` (diagnostic only) blocks the whole post-move body instead of
+    releasing it by steps: the static post-move area.
+    """
     move = simulate_action(snake, int(action))
     head = grid.to_cell(*move.segments[0])
     release = own_body_release(move.segments, move.length, grid, slack)
     release.pop(head, None)  # the search starts on the new head (distance 0)
+    if not tail_release:
+        return tail_aware_reachable(
+            head, 0, set(blocked) | set(release), {}, grid.in_bounds, int(cap)
+        )
     return tail_aware_reachable(head, 0, blocked, release, grid.in_bounds, int(cap))
 
 
@@ -281,6 +313,8 @@ class SpacePreferenceCounters:
     ``vetoes_applied == v5.vetoes_applied + rerank_changes_of_v5_kept``;
     ``no_spacious == v5.no_spacious``; ``rerank_changes <= rerank_decisions``;
     ``rerank_decisions == rerank_pruned + rerank_scored``;
+    ``rerank_changes_tail_release_driven <= rerank_changes``;
+    ``static_area_evaluations == 2 * rerank_changes``;
     ``area_cap_hits <= area_evaluations``. ``*_seconds_*`` are wall-clock.
     """
 
@@ -294,9 +328,11 @@ class SpacePreferenceCounters:
     rerank_changes: int = 0
     rerank_changes_of_v5_kept: int = 0
     rerank_changes_boost_mode: int = 0
+    rerank_changes_tail_release_driven: int = 0
     area_evaluations: int = 0
     area_cap_hits: int = 0
     area_cap_max: int = 0
+    static_area_evaluations: int = 0
     extra_landing_checks: int = 0
     area_eval_seconds_total: float = 0.0
     area_eval_seconds_max: float = 0.0
@@ -464,7 +500,29 @@ class SpacePreferenceVeto:
             self.v7.rerank_scored += 1
         else:
             self.v7.rerank_pruned += 1
+        if action != anchor:
+            self._count_tail_release_driven(snake, q, candidates, anchor, action, context)
         return action
+
+    def _count_tail_release_driven(
+        self,
+        snake: "Snake",
+        q: Sequence[float],
+        candidates: Sequence[int],
+        anchor: int,
+        action: int,
+        context: Mapping[str, Any],
+    ) -> None:
+        """Diagnostic only: would ``action`` still beat ``anchor`` under static areas?"""
+        grid, blocked, cap = context["grid"], context["blocked"], context["cap"]
+        static = {
+            a: area_score(landing_area(snake, a, blocked, grid, cap, tail_release=False), cap)
+            for a in (anchor, action)
+        }
+        self.v7.static_area_evaluations += 2
+        qn = normalized_q(q, candidates)
+        if not qn[action] + self.lam * static[action] > qn[anchor] + self.lam * static[anchor]:
+            self.v7.rerank_changes_tail_release_driven += 1
 
     def diagnostics_record(self) -> Dict[str, Any]:
         """The v7 counters (``SpacePreferenceCounters.to_dict``), stored beside the probe."""

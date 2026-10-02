@@ -4,19 +4,21 @@
 Pre-declaration: ``protocol.md`` beside this file. Arms (paired on every world):
 
   A     champion + ``free-space-veto/v5-boost-aware`` (released; ``lambda = 0``).
-  L025  champion + ``free-space-veto/v7-space-preference(lambda=0.25)``.
-  L050  champion + v7 at ``lambda = 0.5``.
-  L100  champion + v7 at ``lambda = 1.0``.
-  R     L050 repeated on the first world of each mix (replay control).
+  L100  champion + ``free-space-veto/v7-space-preference(lambda=1.0)``.
+  L200  champion + v7 at ``lambda = 2.0``.
+  L400  champion + v7 at ``lambda = 4.0``.
+  R     L200 repeated on the first world of each mix (replay control).
 
 The sweep reuses ``research/apex_safety_20260926/dev_screen.py`` pieces unchanged and
 picks ONE lambda by the pre-declared selection rule (``summary.json`` ``selection``), or
-stops. It always holds a CPU slot lock and refuses to start on battery.
+stops. Inert lambdas cannot be selected (activity gate). It always holds a CPU slot lock,
+refuses to start on battery and, outside a smoke, refuses a tree with tracked
+modifications (the screen could never bind to such a sweep).
 
 Usage (about 1 h; hard cap 3 h):
   SNAKE_DQN_DEVICE=cpu ./venv/bin/python research/apex_veto_v7_lambda_sweep_20261002/sweep.py \\
     --out /path/to/new/dir --deadline-utc <now + at most 3 h, with UTC offset>
-Smoke (plumbing only, smoke namespace, arms A and L100 on 1 world, <= 500 frames):
+Smoke (plumbing only, smoke namespace, arms A and L400 on 1 world, <= 500 frames):
   ... sweep.py --out /tmp/x --deadline-utc ... --smoke-frames 500 --worlds-per-mix 1
 """
 
@@ -52,14 +54,33 @@ DOMAIN = SWEEP_ID
 SMOKE_DOMAIN = "apex-veto-v7-dev-smoke-v1"
 NAMESPACE = "worlds"
 V5_METHOD = "free-space-veto/v5-boost-aware"
-LAMBDAS = (0.25, 0.5, 1.0)
-ARM_LAMBDAS: Dict[str, float] = {"A": 0.0, "L025": 0.25, "L050": 0.5, "L100": 1.0}
+# Amendment 1 (before any sweep episode): the grid was {0.25, 0.5, 1.0} under a log area
+# score, which made two-candidate decisions unswitchable; see protocol.md.
+LAMBDAS = (1.0, 2.0, 4.0)
+ARM_LAMBDAS: Dict[str, float] = {"A": 0.0, "L100": 1.0, "L200": 2.0, "L400": 4.0}
 SWEEP_ARMS = tuple(ARM_LAMBDAS)
-V7_ARMS = ("L025", "L050", "L100")
-REPLAY_ARM, REPLAY_OF, REPLAY_WORLDS = "R", "L050", 1
-SMOKE_ARMS = ("A", "L100")
+V7_ARMS = ("L100", "L200", "L400")
+REPLAY_ARM, REPLAY_OF, REPLAY_WORLDS = "R", "L200", 1
+SMOKE_ARMS = ("A", "L400")
 WORLDS_PER_MIX = 8
-MIX_FLOOR = -10.0
+# Activity gate: a lambda that (almost) never changes a decision is v5 and cannot qualify.
+ACTIVE_MIN_EPISODES_PER_MIX = 2  # episodes with rerank_changes > 0, in EACH mix
+ACTIVE_MIN_NONZERO_DELTAS_PER_MIX = 1  # worlds with a paired delta != 0, in EACH mix
+ACTIVE_MIN_CHANGE_RATE = 1e-4  # pooled rerank_changes / v7 decisions
+# Clear-loser rule: excluded in a mix iff the one-sided 90% upper bound of its mean delta
+# (mean + t_{0.90, n-1} * sd / sqrt(n)) is below 0. One-sided 0.90 Student t quantiles.
+T90_ONE_SIDED = {
+    1: 3.0777,
+    2: 1.8856,
+    3: 1.6377,
+    4: 1.5332,
+    5: 1.4759,
+    6: 1.4398,
+    7: 1.4149,
+    8: 1.3968,
+    9: 1.3830,
+    10: 1.3722,
+}
 MAX_WALL_SECONDS = 3 * 3600
 EXCLUSION_PREFIX = 1000
 # The v7 screen's domains are excluded so the sweep can never consume screen worlds.
@@ -71,12 +92,18 @@ EARLIER_DOMAINS: Dict[str, Sequence[str]] = {
     SMOKE_DOMAIN: (NAMESPACE,),
 }
 STATUS_SELECTED = "SELECTED"
+STATUS_NONE_ACTIVE = "NONE_ACTIVE"
+STATUS_NONE_QUALIFIES = "NONE_QUALIFIES"
 SELECTION_RULE = (
-    "per lambda: paired mass_integral delta (v7_lambda - v5) per world and mix; lambda "
-    f"qualifies iff its mean delta in EACH mix is >= {MIX_FLOOR:g}; SELECTED = the qualifying "
-    "lambda with the highest pooled mean delta over all world-mix pairs (ties: smaller "
-    "lambda); NONE_QUALIFIES otherwise (stop, no screen). Before that: SMOKE_NO_SELECTION, "
-    "INVALID_SELF_CHECK_FAILED, INCOMPLETE, INVALID_NONDETERMINISTIC (R vs L050), in order."
+    "per lambda: paired mass_integral delta (v7_lambda - v5) per world and mix. ACTIVE iff "
+    f"in EACH mix >= {ACTIVE_MIN_EPISODES_PER_MIX} episodes have rerank_changes > 0 and >= "
+    f"{ACTIVE_MIN_NONZERO_DELTAS_PER_MIX} world has a nonzero delta, and the pooled "
+    f"rerank_changes/decisions >= {ACTIVE_MIN_CHANGE_RATE:g}; a CLEAR LOSER in a mix iff "
+    "mean + t(0.90, n-1) * sd / sqrt(n) < 0 there; QUALIFIES iff active and a clear loser in "
+    "no mix. SELECTED = the qualifying lambda with the highest pooled mean delta (ties: "
+    "larger lambda); NONE_ACTIVE if no lambda is active, else NONE_QUALIFIES (stop, no "
+    "screen). Before that: SMOKE_NO_SELECTION, INVALID_SELF_CHECK_FAILED, INCOMPLETE, "
+    "INVALID_NONDETERMINISTIC (R vs L200), in order."
 )
 
 
@@ -108,11 +135,11 @@ def install_v7(hero: Any, lam: float) -> Any:
 
 INSTALLERS: Dict[str, Any] = {"A": install_v5}
 INSTALLERS.update({arm: partial(install_v7, lam=ARM_LAMBDAS[arm]) for arm in V7_ARMS})
-INSTALLERS[REPLAY_ARM] = INSTALLERS[REPLAY_OF]  # the same object: R repeats L050
+INSTALLERS[REPLAY_ARM] = INSTALLERS[REPLAY_OF]  # the same object: R repeats L200
 
 
 def arm_lambda(arm: str) -> float:
-    """The arm's lambda (R is L050's)."""
+    """The arm's lambda (R is L200's)."""
     return ARM_LAMBDAS[REPLAY_OF if arm == REPLAY_ARM else arm]
 
 
@@ -173,8 +200,16 @@ def v7_identities_hold(diagnostics: Mapping[str, Any], counters: Mapping[str, An
         and get(diagnostics, "rerank_decisions")
         == get(diagnostics, "rerank_pruned") + get(diagnostics, "rerank_scored")
         and get(diagnostics, "rerank_changes") <= get(diagnostics, "rerank_scored")
+        and get(diagnostics, "rerank_changes_tail_release_driven")
+        <= get(diagnostics, "rerank_changes")
         and get(diagnostics, "area_cap_hits") <= get(diagnostics, "area_evaluations")
     )
+
+
+def tracked_modifications(dirty_paths: Any) -> List[str]:
+    """``git status --porcelain`` lines other than untracked (``??``) files."""
+    lines = [line for line in str(dirty_paths or "").splitlines() if line.strip()]
+    return [line for line in lines if not line.startswith("??")]
 
 
 # ---------------------------------------------------------------- self-check (gating)
@@ -231,7 +266,8 @@ def check_entry(entry: Mapping[str, Any], smoke: bool) -> Dict[str, List[str]]:
         if not isinstance(diagnostics, Mapping) or "boost_landing_vetoes" not in diagnostics:
             warnings.append("arm A v5 counters missing")
     elif not isinstance(diagnostics, Mapping) or "rerank_changes" not in diagnostics:
-        warnings.append(f"arm {arm} v7 counters missing")
+        # Gating since amendment 1: the activity gate reads rerank_changes.
+        failures.append(f"arm {arm} v7 counters missing")
     elif not v7_identities_hold(diagnostics, counters):
         warnings.append(f"arm {arm} v7 counters disagree with the probe's v2 counters")
     return {"failures": failures, "warnings": warnings}
@@ -276,10 +312,12 @@ def lambda_table(
 ) -> Dict[str, Any]:
     """Per v7 arm: per-mix and pooled paired mass deltas against arm A."""
     by_key = {(e["arm"], e["mix"], int(e["world_seed"])): e["record"] for e in entries}
+    diag = {(e["arm"], e["mix"], int(e["world_seed"])): _diagnostics(e) for e in entries}
     table: Dict[str, Any] = {}
     for arm in V7_ARMS:
         per_mix: Dict[str, Any] = {}
         pooled: List[float] = []
+        changes = decisions = 0
         for mix in mixes:
             paired = [s for s in seeds if ("A", mix, s) in by_key and (arm, mix, s) in by_key]
             deltas = [
@@ -287,6 +325,11 @@ def lambda_table(
                 for s in paired
             ]
             pooled.extend(deltas)
+            arm_diags = [diag[(arm, mix, s)] for s in seeds if (arm, mix, s) in diag]
+            episode_changes = [int(d.get("rerank_changes") or 0) for d in arm_diags]
+            changes += sum(episode_changes)
+            decisions += sum(int(d.get("decisions") or 0) for d in arm_diags)
+            upper = _upper_bound_90(deltas)
             per_mix[mix] = {
                 "paired_worlds": len(paired),
                 "paired_seeds": paired,
@@ -298,28 +341,58 @@ def lambda_table(
                 "wins": sum(1 for d in deltas if d > 0),
                 "losses": sum(1 for d in deltas if d < 0),
                 "ties": sum(1 for d in deltas if d == 0),
+                "episodes_with_rerank_changes": sum(1 for c in episode_changes if c > 0),
+                "rerank_changes": sum(episode_changes),
+                "nonzero_deltas": sum(1 for d in deltas if d != 0),
+                "upper_bound_90_one_sided": upper,
+                "clear_loser": upper is not None and upper < 0,
             }
-        floor_ok = all(
-            row["mean_delta"] is not None and row["mean_delta"] >= MIX_FLOOR
+        rate = changes / decisions if decisions else 0.0
+        active = rate >= ACTIVE_MIN_CHANGE_RATE and all(
+            row["episodes_with_rerank_changes"] >= ACTIVE_MIN_EPISODES_PER_MIX
+            and row["nonzero_deltas"] >= ACTIVE_MIN_NONZERO_DELTAS_PER_MIX
             for row in per_mix.values()
         )
+        clear_loser = any(row["clear_loser"] for row in per_mix.values())
         table[arm] = {
             "lambda": ARM_LAMBDAS[arm],
             "per_mix": per_mix,
             "pooled_pairs": len(pooled),
             "pooled_mean_delta": _mean(pooled),
             "pooled_sd_delta": _sd(pooled),
-            "every_mix_mean_at_or_above_floor": floor_ok,
+            "rerank_changes": changes,
+            "decisions": decisions,
+            "rerank_change_rate_per_decision": rate,
+            "active": active,
+            "clear_loser_in_some_mix": clear_loser,
+            "qualifies": active and not clear_loser and bool(per_mix),
         }
     return table
 
 
+def _diagnostics(entry: Mapping[str, Any]) -> Mapping[str, Any]:
+    diagnostics = entry.get("veto_diagnostics")
+    return diagnostics if isinstance(diagnostics, Mapping) else {}
+
+
+def _upper_bound_90(deltas: Sequence[float]) -> float | None:
+    """One-sided 90% upper bound of the mean (None below two values)."""
+    sd = _sd(deltas)
+    if sd is None:
+        return None
+    n = len(deltas)
+    t = T90_ONE_SIDED.get(n - 1, 1.2816)  # normal quantile beyond the table
+    return sum(deltas) / n + t * sd / math.sqrt(n)
+
+
 def select_lambda(table: Mapping[str, Any]) -> Tuple[str, float | None, List[float]]:
-    """``(status, lambda, qualifying)`` by the pre-declared rule (steps 5-7)."""
-    qualifying = [arm for arm in V7_ARMS if table[arm]["every_mix_mean_at_or_above_floor"]]
+    """``(status, lambda, qualifying)`` by the pre-declared rule (steps 5-8)."""
+    if not any(table[arm]["active"] for arm in V7_ARMS):
+        return STATUS_NONE_ACTIVE, None, []
+    qualifying = [arm for arm in V7_ARMS if table[arm]["qualifies"]]
     if not qualifying:
-        return "NONE_QUALIFIES", None, []
-    best = max(qualifying, key=lambda arm: (table[arm]["pooled_mean_delta"], -ARM_LAMBDAS[arm]))
+        return STATUS_NONE_QUALIFIES, None, []
+    best = max(qualifying, key=lambda arm: (table[arm]["pooled_mean_delta"], ARM_LAMBDAS[arm]))
     return STATUS_SELECTED, ARM_LAMBDAS[best], [ARM_LAMBDAS[arm] for arm in qualifying]
 
 
@@ -331,8 +404,10 @@ V7_SUMMED = (
     "rerank_changes",
     "rerank_changes_of_v5_kept",
     "rerank_changes_boost_mode",
+    "rerank_changes_tail_release_driven",
     "area_evaluations",
     "area_cap_hits",
+    "static_area_evaluations",
     "extra_landing_checks",
     "area_eval_seconds_total",
     "apply_seconds_total",
@@ -387,7 +462,7 @@ def death_causes(entries: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
 def replay_report(
     entries: Sequence[Mapping[str, Any]], seeds: Sequence[int], mixes: Sequence[str], planned: int
 ) -> Dict[str, Any]:
-    """R vs L050: every R record must equal its L050 record (canonical JSON)."""
+    """R vs L200: every R record must equal its L200 record (canonical JSON)."""
     by_key = {(e["arm"], e["mix"], int(e["world_seed"])): e["record"] for e in entries}
     replays = [e for e in entries if e["arm"] == REPLAY_ARM]
     mismatches = [
@@ -448,7 +523,11 @@ def summarize(
             "passes": status == STATUS_SELECTED,
             "selected_lambda": selected,
             "qualifying_lambdas": qualifying,
-            "mix_floor": MIX_FLOOR,
+            "activity_gate": {
+                "min_episodes_with_changes_per_mix": ACTIVE_MIN_EPISODES_PER_MIX,
+                "min_nonzero_deltas_per_mix": ACTIVE_MIN_NONZERO_DELTAS_PER_MIX,
+                "min_pooled_change_rate": ACTIVE_MIN_CHANGE_RATE,
+            },
             "rule": SELECTION_RULE,
         },
         "source": {
@@ -529,6 +608,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if out.exists() or dev_screen.FORBIDDEN_OUTPUT_ROOT in out.parts:
         print(f"--out {out} exists or is inside a forbidden root", file=sys.stderr)
         return 2
+    if not smoke:
+        dirty = tracked_modifications(dev_screen._git_state().get("dirty_paths"))
+        if dirty:
+            print(
+                "refusing a non-smoke sweep with tracked modifications (the screen could "
+                f"never bind to it): {dirty}",
+                file=sys.stderr,
+            )
+            return 2
     spec = SMOKE_SPEC if smoke else SPEC
 
     from src.core.config_loader import load_and_initialize_config

@@ -7,6 +7,12 @@ any episode of this screen ran and before any episode of the DEV lambda sweep th
 (the only episodes allowed before GO are plumbing smokes on smoke namespaces, at most 2
 episodes x 500 frames each).
 
+**Amendment 1 (2026-10-02, before any episode of this screen or of the sweep).** The v7 area
+score is now linear over `2 * length` (it was `log1p(area)/log1p(4 * length)`), the sweep grid
+is `{1, 2, 4}` (it was `{0.25, 0.5, 1.0}`, under which a two-candidate decision could never
+change) and the sweep's selection has an activity gate, so it cannot hand this screen an
+inert `lambda` (an A/A comparison). Details and the reasons are in the sweep's `protocol.md`.
+
 - `screen_id`: `apex-veto-v7-screen-v1`
 - Harness: `research/apex_safety_20260926/dev_screen.py`, driven by `screen.py` beside this
   file. No dev_screen change: the spec uses only existing opt-in fields (callable arm
@@ -36,8 +42,8 @@ is unchanged either way).
 - **`lambda` was chosen on other worlds.** `lambda` is NOT a free parameter of this screen.
   `screen.py` reads it from the summary of the pre-declared DEV sweep
   `research/apex_veto_v7_lambda_sweep_20261002` (namespace `apex-veto-v7-dev-v1`, 8 worlds
-  per mix, arms v5 and v7 at `lambda` in {0.25, 0.5, 1.0}; its selection rule is in its own
-  `protocol.md`). Outside a smoke, `screen.py` refuses to start unless:
+  per mix, arms v5 and v7 at `lambda` in {1, 2, 4}; its selection rule, including the
+  activity gate that makes an inert `lambda` ineligible, is in its own `protocol.md`). Outside a smoke, `screen.py` refuses to start unless:
   - `--sweep-summary` exists with its `intent.json` beside it and matching `intent_sha256`;
   - it is a real (non-smoke) `apex-veto-v7-lambda-sweep/v1` summary of `apex-veto-v7-dev-v1`;
   - `selection.status == SELECTED`, `selection.passes` is true and the lambda is on the grid;
@@ -45,7 +51,8 @@ is unchanged either way).
   - neither the sweep's tree nor this run's has tracked modifications (untracked files are
     allowed).
 
-  If the sweep returns `NONE_QUALIFIES` (or anything but `SELECTED`), this screen is not run.
+  If the sweep returns `NONE_ACTIVE`, `NONE_QUALIFIES` (or anything but `SELECTED`), this
+  screen is not run.
   The sweep's worlds, smoke worlds and deltas are not reused here; its selected lambda's
   sweep delta is biased upward by the selection and is not evidence.
 
@@ -54,13 +61,22 @@ is unchanged either way).
 Full specification in the module docstring. Summary: v5 runs unchanged. When v5's outcome
 is `kept` or `vetoed`, `lambda > 0` and v5's reason is not a landing veto's same-direction
 normal-speed replacement, the candidates are the v5-eligible actions in the speed mode of
-v5's choice; with at least two, v7 takes the argmax of
-`Qn + lambda * log1p(area)/log1p(cap)` (`Qn` min-max normalized over the candidates; ties
-to v5's choice, then the lowest index). `area` is the tail-aware (v3 model) reachable count
-from the action's exact post-move head (other live snakes static, own body released by
-steps, slack 1) with cap `min(max(32, 4*length), 4096, open cells)`. `no_spacious` keeps
-v5's choice. Deterministic. Analytic note: for `lambda <= 1` a two-candidate decision never
-changes and only the second-highest-Q candidate can displace v5's choice.
+v5's choice; with at least two, v7 takes the argmax of `Qn + lambda * min(area, cap)/cap`
+(`Qn` min-max normalized over the candidates; ties to v5's choice, then the lowest index).
+`area` is the tail-aware (v3 model) reachable count from the action's exact post-move head
+(other live snakes static, own body released by steps, slack 1) with cap
+`min(max(32, 2*length), 4096, open cells)`. `no_spacious` keeps v5's choice.
+Deterministic. Analytic note: with two candidates the rule is a pure area threshold (switch
+iff `lambda * (g_other - g_v5) > 1`); against the open board that means a pocket smaller
+than `2 * length * (1 - 1/lambda)`: never at `lambda = 1`, below the hero's length at 2,
+below 1.5 x its length at 4. With three or more candidates the runner-up wins when its `Qn`
+gap is below `lambda` times its `g` advantage.
+
+Area model gap (disclosed): the own-body release is v3's no-growth model, so for an
+own-body enclosure the count can pass the wall once the tail is predicted to vacate it,
+overstating the enclosed area. Each re-rank change is also scored with the static post-move
+area (whole post-move body blocked); `rerank_changes_tail_release_driven` counts changes
+that would not win under it (reported in `reported.v7_rerank_arm_B`, never gating).
 
 The probe (`probes.safety_veto`) is the descriptor (including `space_preference_lambda`)
 plus exactly v2's seven counters; a re-rank change is a `vetoed` decision. v7's counters
@@ -115,7 +131,8 @@ each B/D entry's `veto_diagnostics`.
 4. Entry schema `apex-veto-v7-screen/v1`, screen id, hero sha256, `safety_veto: true`, the
    arm's method; file name `<arm>-<mix>-<seed>.json`; seed in the intent.
 
-Reported only (warnings): B/D v7 diagnostics agree with the probe (`sweep.v7_identities_hold`),
+Reported only (warnings): B/D v7 diagnostics present and agreeing with the probe
+(`sweep.v7_identities_hold`),
 A/C v5 diagnostics agree with theirs (`v5screen.probe_identities_hold`).
 
 ## Compute cap and operations
