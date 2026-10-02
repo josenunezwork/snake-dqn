@@ -169,6 +169,18 @@ records:
   near 20-30 units (an effect of 20 is not "detected" by design). The intent records
   `mde_basis`, `mde_chosen_after_v7_screen: true`, `v7_screen_complete_before_mde: true` and
   the infeasible alternative.
+- **GO condition for the MDE.** Moving from the product threshold of 20 to 40 after the
+  screen's result was seen works around governance Tier-2 "Feasibility first". It does not
+  inflate type-I error, because the decision is Holm superiority over 0 on fresh worlds with
+  N frozen before any final data, and a larger MDE only lowers power. But 40 is a choice,
+  not a necessity: MDE 30 (N = 243) and MDE 35 (N = 179) also fit the final cap.
+  `runtime_projection` on the screen's wall times projects 22,028 s and 16,226 s per worker
+  (49% and 36% of the 44,970 s worker budget; the limit is 70%), against 12,419 s (28%) for
+  MDE 40. So the Tier-2 GO authorization quote passed to `prepare` must explicitly accept
+  MDE 40 in place of the product threshold 20. That includes the lost power against true
+  effects of 20-30 units and the fact that MDE 30 was feasible. Otherwise the MDE must be
+  re-chosen (30 or 35) and committed before `prepare`. Without that acceptance, the intent
+  is not a valid GO.
 - The v7 screen's paired B-A mass deltas are the independent pilot (disjoint worlds). Its A
   arm is exactly this study's incumbent (champion + v5) and its B arm exactly the candidate
   (champion + v7 at 4.0), so its B-A variance is the right planning variance. `prepare`
@@ -316,6 +328,10 @@ path, then `run` exercises both workers, the slot locks, the supervisor, the ind
 audit (`--smoke`), the self-check and closeout (`SMOKE_NO_DECISION`). The smoke does not
 read the screen. The full audit refuses a smoke intent (`mode.not_smoke`) and `--smoke`
 refuses a non-smoke intent (`smoke.intent`).
+
+The plumbing smoke that counts as GO evidence must run from a clean tree at the commit the
+GO binds (its intent `source_closure.dirty` empty and `source_closure.commit` equal to that
+commit). A smoke from a dirty tree is a development check only.
 
 ## Non-claims
 
