@@ -213,6 +213,54 @@ def test_landing_count_ignores_dead_snakes_and_blocks_off_grid_landings(setup_co
     assert boost_landing_count(sim, 0, 0, 1, 32, (100, 80)) == 0
 
 
+def burn_gate_cells() -> Tuple[List[tuple], List[tuple]]:
+    """Hero heading right at (60, 40); the boost burn's popped tail gates the pocket.
+
+    The hero's body loops over row 38 and comes down to (64, 40), the end of a
+    two-cell corridor walled by another snake. A straight boost lands on (62, 40).
+    With ``boost_frames=2`` and ``len(segments) == length`` the burn pops a third
+    tail cell, (64, 40), which opens the corridor onto the board; without the burn
+    that cell stays body and the landing pocket holds only 2 cells.
+    """
+    me = [(60, 40), (60, 39), (60, 38), (61, 38), (62, 38), (63, 38), (64, 38), (64, 39)]
+    me += [(64, 40), (65, 40), (66, 40)]
+    walls = [(62, 39), (63, 39), (62, 41), (63, 41)]
+    return me, walls
+
+
+def test_landing_count_matches_live_when_the_burned_tail_opens_the_pocket(setup_config):
+    """The tail popped by the boost burn decides the landing; SIMD must replay the burn."""
+    from src.core.game_config import GameConfig
+    from src.evaluation.safety_veto import free_space_threshold
+    from src.evaluation.safety_veto_v5 import landing_count, simulate_action
+
+    me_cells, walls = burn_gate_cells()
+    gate = (64, 40)
+    counts = {}
+    for boost_frames in (2, 0):
+        me = live_snake(me_cells, (1, 0), boost_frames=boost_frames)
+        other = live_snake(walls, (1, 0), sid=1)
+        assert len(me.segments) == me.length == len(me_cells)
+        sim = batch_world(
+            [
+                {"cells": me_cells, "direction": (1, 0), "boost_frames": boost_frames},
+                {"cells": walls, "direction": (1, 0)},
+            ]
+        )
+        cap, need = free_space_threshold(me.length, me._logical_length())
+        move = simulate_action(me, 4)
+        burned = (gate[0] * SS, gate[1] * SS) if boost_frames == 2 else None
+        assert move.boosted and move.burned_tail == burned
+        assert sim.cfg.boost_length_cost_frames == GameConfig.BOOST_LENGTH_COST_FRAMES == 3
+        live = landing_count(me, [me, other], 1, cap)
+        simd = boost_landing_count(sim, 0, 0, 1, cap, (100, 80))
+        assert simd == live, (boost_frames, live, simd)
+        counts[boost_frames] = (live, need)
+    (burn_count, need), (no_burn_count, _) = counts[2], counts[0]
+    assert no_burn_count == 2 < need  # without the burn the gate cell stays body
+    assert burn_count >= need  # the burn opens the pocket: the landing passes
+
+
 class _LiveCountsRuntime:
     """Runtime stand-in: v2 counts from the live features (the v2 path is pinned elsewhere)."""
 
@@ -489,7 +537,10 @@ def _assert_v5_parity(
 
 
 def test_tiny_world_live_and_simd_v5_decisions_are_identical(tiny_world, monkeypatch):  # noqa: F811
-    """Random 61-D networks on the tiny world: deaths, respawns and landing vetoes."""
+    """Random 61-D networks on the tiny world: deaths, respawns and lazy landing floods.
+
+    No landing veto fires here (0 in this range); the deployment-world tests cover those.
+    """
     seeds = (3, 4, 5, 6)
     hero, rosters = _tiny_rosters(tiny_world, seeds)
     report = _assert_v5_parity(monkeypatch, hero, rosters, 300, seeds, "tiny-v61")

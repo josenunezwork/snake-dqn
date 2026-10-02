@@ -486,10 +486,24 @@ divergences, so the WIP implementation was not changed. Seeds 16 (frozen) and
 has one real landing veto: a boost replaced by the same direction at normal
 speed (`boost_to_normal_same_direction`, `action_differs_from_v2` = 1). The
 landing veto is identical on both sides. Scripted had none in that range.
-The new tests (5) run in about 20 s with `OMP_NUM_THREADS=1`. The full v5 file
-has 36 tests.
+
+Coverage limit: only these 2 per-decision landing vetoes were compared live,
+and both are `boost_to_normal_same_direction`. The other landing branches
+(`landing_v2_rule`, `landing_no_eligible`, and a v2 pick that itself fails its
+landing) never fired in the live rollouts. They are covered by the synthetic
+hook tests on constructed decisions (SIMD hook vs live hook) and by the shared
+live code the SIMD port calls (`simulate_move`, `boost_aware_choice`). A
+synthetic test also pins the boost burn: with `boost_frames=2` and
+`len(segments) == length`, the popped tail cell opens the landing pocket, and
+the SIMD count matches the live `landing_count` (skipping the burn changes it
+from open to 2 cells; checked by mutating a scratch copy, where the test fails).
+The rollout tests (5) run in about 20 s with `OMP_NUM_THREADS=1`. The full v5
+file has 37 tests.
 
 ### H5000 record-level check against the v5 screen's live B records
+
+Scope: 12 of the v5 screen's 120 B records (10%), record-level only (records and
+v5 diagnostics; no per-decision comparison at H5000).
 
 Inputs (read-only): `apex-veto-v5-screen-20261001/run-v1/records/B-<mix>-<seed>.json`
 for world indices 0-3 per mix, rosters rebuilt from the records' member sha256s
@@ -499,7 +513,7 @@ Machine conditions: CPU slot 2 held, AC power, torch 2 threads (the screen's
 `_configure_torch`). Output: `snake-dqn-artifacts/simd-v5-parity-20261002/run-v1/`
 (`summary.json`, `h5000_check.py`).
 
-| Mix | Identical (record + v5 diagnostics) | Different | Landing-veto decisions | SIMD batch (s) | Live sum (s) |
+| Mix | Identical (record + v5 diagnostics) | Different | `base_landing_failed` | SIMD batch (s) | Live sum (s) |
 |---|---:|---:|---:|---:|---:|
 | frozen | 4 | 0 | 2 | 40.3 | 114.5 |
 | scripted | 4 | 0 | 1 | 39.5 | 54.3 |
@@ -507,8 +521,9 @@ Machine conditions: CPU slot 2 held, AC power, torch 2 threads (the screen's
 | **total** | **12** | **0** | **6** | **126.3** | **251.3** |
 
 All 12 SIMD+v5 records match the live B records exactly, including deaths,
-mass integrals, probes and the v5 diagnostics. Six landing-veto decisions in
-five worlds were reproduced. The live times were measured on a different day
+mass integrals, probes and the v5 diagnostics. The last count column is the
+v5 diagnostic `base_landing_failed` summed per mix (6 in five worlds), identical
+on both sides; `boost_landing_vetoes` was not extracted into `summary.json`. The live times were measured on a different day
 under a different load, so the about 2x speedup is approximate.
 
 Status: SIMD+v5 has per-decision parity and H5000 record parity on this
