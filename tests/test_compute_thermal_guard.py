@@ -24,13 +24,17 @@ NOMINAL = (
     "Note: No CPU power status has been recorded\n"
 )
 THROTTLED = (
-    "2026-10-02 10:00:00 +0000 Thermal Warning Level Set To 0\n"
+    "Thermal Warning Level = 0\n"
     "Note: No performance warning level has been recorded\n"
     "2026-10-02 10:00:00 +0000 CPU Power notify\n"
     "\tCPU_Scheduler_Limit \t= 100\n"
     "\tCPU_Available_CPUs \t= 18\n"
     "\tCPU_Speed_Limit \t= 70\n"
 )
+
+
+# The pre-review detector setting; mechanics tests use it explicitly (defaults are wider).
+FAST = {"baseline_k": 6, "slowdown": 1.30, "window": 3}
 
 
 def reader(text):
@@ -75,8 +79,9 @@ class TestParser:
         "line, key, level",
         [
             ("Thermal Warning Level = 2", "thermal_warning_level", 2),
-            ("thermal warning level: 1", "thermal_warning_level", 1),
-            ("2026-10-02 Performance Warning Level Set To 3", "performance_warning_level", 3),
+            ("Thermal Warning Level = 5", "thermal_warning_level", 5),
+            ("Performance Warning Level = 3", "performance_warning_level", 3),
+            ("Performance Warning Level = 5", "performance_warning_level", 5),
         ],
     )
     def test_warning_levels(self, line, key, level):
@@ -84,6 +89,46 @@ class TestParser:
         parsed = tg.parse_pmset_therm(text)
         assert parsed[key] == level
         assert f"{key}={level}" in tg.thermal_reasons(parsed)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Error:Failed to get thermal warning level with error code 0xe00002c0",
+            "Error: Failed to get performance warning level with error code 0xe00002c0",
+            "Error: No CPU power status with error code 0xe00002c0",
+        ],
+    )
+    def test_pmset_error_lines_fail_closed(self, line):
+        # pmset's own format strings (``strings /usr/bin/pmset``); "0x..." is never a level.
+        for text in (line + "\n" + NOMINAL, NOMINAL + line + "\n"):
+            parsed = tg.parse_pmset_therm(text)
+            assert parsed["unparsed"] == [line]
+            assert "pmset_unparsed_lines=1" in tg.thermal_reasons(parsed)
+        alone = tg.parse_pmset_therm(line)
+        assert alone["thermal_warning_level"] is None  # was 0 (nominal) from "0x..."
+        assert alone["performance_warning_level"] is None
+        reasons = tg.thermal_reasons(alone)
+        assert "pmset_unparsed_lines=1" in reasons
+        if "CPU power" in line:
+            assert "cpu_power_status_unknown" in reasons
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Thermal Warning Level = -1",
+            "thermal warning level: 1",
+            "2026-10-02 Performance Warning Level Set To 3",
+            "Thermal Warning Level = 2 (elevated)",
+        ],
+    )
+    def test_non_pmset_level_formats_fail_closed(self, line):
+        parsed = tg.parse_pmset_therm(NOMINAL + line + "\n")
+        assert parsed["unparsed"] == [line]
+        assert "pmset_unparsed_lines=1" in tg.thermal_reasons(parsed)
+
+    def test_negative_level_is_unknown(self):
+        parsed = {**tg.parse_pmset_therm(NOMINAL), "thermal_warning_level": -1}
+        assert tg.thermal_reasons(parsed) == ["thermal_warning_level_unknown"]
 
     def test_last_level_line_wins(self):
         text = "Thermal Warning Level = 2\nThermal Warning Level = 0\n" + NOMINAL
@@ -137,35 +182,47 @@ class TestReader:
 
 class TestSlowdown:
     def test_needs_full_baseline_and_window(self):
-        report = tg.slowdown_report({"A/frozen": [10.0] * 6 + [20.0, 20.0]})
+        report = tg.slowdown_report({"A/frozen": [10.0] * 6 + [20.0, 20.0]}, **FAST)
         row = report["keys"]["A/frozen"]
         assert row["baseline_median"] == 10.0 and "ratio" not in row
         assert report["flagged"] == []
 
     def test_flags_more_than_30_percent(self):
         times = {"A/frozen": [10, 11, 9, 10, 10, 10, 13.2, 13.4, 13.5], "B/frozen": [10] * 9}
-        report = tg.slowdown_report(times)
+        report = tg.slowdown_report(times, **FAST)
         assert report["flagged"] == ["A/frozen"]
         assert report["keys"]["A/frozen"]["ratio"] == pytest.approx(1.34)
         assert report["keys"]["B/frozen"]["ratio"] == 1.0
 
     def test_exactly_30_percent_is_not_flagged(self):
-        assert tg.slowdown_report({"k": [10] * 6 + [13, 13, 13]})["flagged"] == []
+        assert tg.slowdown_report({"k": [10] * 6 + [13, 13, 13]}, **FAST)["flagged"] == []
 
     def test_median_ignores_one_slow_outlier(self):
-        assert tg.slowdown_report({"k": [10] * 6 + [10, 99, 10]})["flagged"] == []
+        assert tg.slowdown_report({"k": [10] * 6 + [10, 99, 10]}, **FAST)["flagged"] == []
 
     def test_acknowledged_evidence_is_ignored(self):
         times = {"k": [10] * 6 + [20, 20, 20]}
-        assert tg.slowdown_report(times, acknowledged={"k": 3})["flagged"] == []
+        assert tg.slowdown_report(times, acknowledged={"k": 3}, **FAST)["flagged"] == []
         times["k"].extend([20, 20, 20])
-        assert tg.slowdown_report(times, acknowledged={"k": 3})["flagged"] == ["k"]
+        assert tg.slowdown_report(times, acknowledged={"k": 3}, **FAST)["flagged"] == ["k"]
+
+    def test_wide_defaults_ignore_content_variance(self):
+        assert (tg.DEFAULT_BASELINE_K, tg.DEFAULT_SLOWDOWN, tg.DEFAULT_WINDOW) == (12, 1.60, 8)
+        # Content-driven 10-45 s spread (CV ~0.35): the old 6/1.30/3 setting pauses here.
+        times = {"k": [12, 20, 15, 30, 18, 22, 14, 25, 19, 16, 21, 17] + [26, 30, 24, 28] * 2}
+        assert tg.slowdown_report(times, **FAST)["flagged"] == ["k"]
+        report = tg.slowdown_report(times)
+        assert report["flagged"] == [] and report["keys"]["k"]["ratio"] < 1.6
+        assert tg.slowdown_report({"k": [20] * 12 + [33] * 8})["flagged"] == ["k"]
+        assert tg.slowdown_report({"k": [20] * 12 + [33] * 7})["flagged"] == []
 
     def test_parameter_validation(self):
         with pytest.raises(ValueError):
             tg.ThermalGuard(slowdown=1.0)
         with pytest.raises(ValueError):
             tg.slowdown_report({}, baseline_k=0)
+        with pytest.raises(ValueError):
+            tg.ThermalGuard(max_slowdown_backoffs=-1)
 
 
 class TestGuard:
@@ -182,7 +239,7 @@ class TestGuard:
         def broken_ac():
             raise OSError("no pmset")
 
-        guard = tg.ThermalGuard(pmset_reader=reader(THROTTLED), ac_reader=broken_ac)
+        guard = tg.ThermalGuard(**FAST, pmset_reader=reader(THROTTLED), ac_reader=broken_ac)
         for seconds in [10] * 6 + [20] * 3:
             guard.record_episode("B/mixed", seconds)
         result = guard.check()
@@ -203,7 +260,7 @@ class TestGuard:
         assert result["ok"] and result["readings"]["pmset"]["skipped"] == "platform_not_gated"
 
     def test_acknowledge_clears_slowdown_until_new_evidence(self):
-        guard = tg.ThermalGuard(pmset_reader=reader(NOMINAL))
+        guard = tg.ThermalGuard(**FAST, pmset_reader=reader(NOMINAL))
         for seconds in [10] * 6 + [20] * 3:
             guard.record_episode("A/frozen", seconds)
         assert guard.check()["reasons"] == ["slowdown:A/frozen"]
@@ -243,11 +300,49 @@ class TestAdmission:
         assert events == ["thermal_guard_check", "thermal_guard_backoff", "thermal_guard_check"]
 
     def test_slowdown_is_answered_by_one_pause(self):
-        guard = tg.ThermalGuard(pmset_reader=reader(NOMINAL))
+        guard = tg.ThermalGuard(**FAST, pmset_reader=reader(NOMINAL))
         for seconds in [10] * 6 + [20] * 3:
             guard.record_episode("A/frozen", seconds)
         (admit, _, counts), _, sleeps = self._run(guard)
         assert admit and sleeps == [60.0] and counts["backoffs"] == 1
+
+    def test_persistent_slowdown_stops_without_another_pause(self):
+        guard = tg.ThermalGuard(**FAST, max_slowdown_backoffs=2, pmset_reader=reader(NOMINAL))
+        for seconds in [10] * 6:
+            guard.record_episode("A/frozen", seconds)
+        stops = []
+        for streak in range(3):
+            for seconds in [20] * 3:
+                guard.record_episode("A/frozen", seconds)
+            (admit, reason, counts), log, sleeps = self._run(guard, max_backoffs=5)
+            stops.append((admit, len(sleeps), counts["backoffs"]))
+        assert stops == [(True, 1, 1), (True, 1, 1), (False, 0, 0)]
+        assert reason.startswith("thermal: persistent slowdown (A/frozen) still flagged after 2")
+        assert log[0]["reasons"] == ["slowdown_persistent:A/frozen"]
+        assert log[0]["readings"]["slowdown"]["consecutive_backoffs"] == {"A/frozen": 2}
+        assert log[-1] == {"event": "thermal_guard_stop", "reason": reason}
+
+    def test_unflagged_fresh_window_resets_the_streak(self):
+        guard = tg.ThermalGuard(**FAST, max_slowdown_backoffs=2, pmset_reader=reader(NOMINAL))
+        for seconds in [10] * 6 + [20] * 3:
+            guard.record_episode("A/frozen", seconds)
+        assert self._run(guard)[0][0] and guard.slowdown_backoffs == {"A/frozen": 1}
+        for seconds in [10] * 3:
+            guard.record_episode("A/frozen", seconds)
+        assert self._run(guard)[2] == [] and guard.slowdown_backoffs == {"A/frozen": 0}
+        for _ in range(2):
+            for seconds in [20] * 3:
+                guard.record_episode("A/frozen", seconds)
+            (admit, _, _), _, sleeps = self._run(guard)
+            assert admit and sleeps == [60.0]
+        assert guard.slowdown_backoffs == {"A/frozen": 2}
+
+    def test_pmset_backoffs_do_not_count_as_slowdown_backoffs(self):
+        texts = iter([THROTTLED, NOMINAL] * 3)
+        guard = tg.ThermalGuard(**FAST, pmset_reader=lambda: reader(next(texts))())
+        for _ in range(3):
+            assert self._run(guard)[0][0]
+        assert guard.slowdown_backoffs == {}
 
     def test_budget_exhausted_stops_thermal(self):
         guard = tg.ThermalGuard(pmset_reader=reader(THROTTLED))
@@ -470,6 +565,24 @@ class TestDevScreenDefaults:
         assert dev_screen.main(argv) == 2
         assert "--slot-pool needs slot locks" in capsys.readouterr().err
         assert not (tmp_path / "out").exists()
+
+    def test_main_refuses_slot_pool_3_without_thermal_guard(
+        self, no_episodes, tmp_path, capsys, monkeypatch
+    ):
+        def no_slots(*args, **kwargs):
+            raise AssertionError("no slot may be acquired")
+
+        monkeypatch.setattr(dev_screen, "acquire_cpu_slots", no_slots)
+        base = ["--deadline-utc", _soon(), "--use-slot-locks", "--slot-pool", "3"]
+        base += ["--slot-lock-root", str(tmp_path / "locks")]
+        assert dev_screen.main(["--out", str(tmp_path / "out"), *base]) == 2
+        assert "--slot-pool 3 needs --thermal-guard" in capsys.readouterr().err
+        assert not (tmp_path / "out").exists()
+        # With the guard the pool check passes (stopped next by the existing --out).
+        (tmp_path / "exists").mkdir()
+        assert dev_screen.main(["--out", str(tmp_path / "exists"), *base, "--thermal-guard"]) == 2
+        err = capsys.readouterr().err
+        assert "already exists" in err and "--thermal-guard" not in err
 
     def test_slot_pool_3_is_recorded_in_intent(self, harness, tmp_path, monkeypatch):
         monkeypatch.setattr(dev_screen, "run_episode", _fake_entry)

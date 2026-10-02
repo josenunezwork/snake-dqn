@@ -8,13 +8,22 @@ Two signals decide whether a run may admit its next episode:
 2. An episode-slowdown detector (:func:`slowdown_report`): per key (``arm/mix``) the
    median of the run's first ``baseline_k`` episode wall times is the baseline, and the key
    is flagged once the median of its latest ``window`` later episodes exceeds the baseline
-   by more than ``slowdown`` (1.30 = 30 % slower).
+   by more than ``slowdown`` (1.60 = 60 % slower). The defaults (12 / 1.60 / 8) are wide on
+   purpose: episode wall time varies with game content (10-51 s, CV about 0.35 within a
+   run), and the earlier 6 / 1.30 / 3 setting would have paused 4-24 times per past screen
+   with no thermal cause; 12 / 1.60 / 8 paused 0 times on the same five screens.
+   A pause answers the slowdown evidence seen so far. A key that is flagged again on fresh
+   episodes after ``max_slowdown_backoffs`` consecutive slowdown pauses is a *persistent*
+   slowdown, and :func:`admit_next_episode` stops at once (no further pause).
 
 Fail-safe parsing (the guard fails CLOSED on darwin, where it can read the machine):
 
 - ``Note: No thermal warning level has been recorded`` (and the performance twin) means
-  nominal, level 0. A numeric level line ("... warning level ... = 2") sets the level; the
-  last occurrence wins. A line that names the level but carries no number is "unparsed".
+  nominal, level 0. A level line in pmset's own format (``Thermal Warning Level = %d``,
+  ``Performance Warning Level = %d``) sets the level; the last occurrence wins. Any other
+  line that names a level, including a negative level, is "unparsed".
+- Any line starting with ``Error`` (pmset prints e.g. ``Error:Failed to get thermal warning
+  level with error code 0x...``) is "unparsed"; it is never read as a level.
 - ``Note: No CPU power status has been recorded`` means no limit is in force (nominal).
   ``CPU_Speed_Limit = N`` / ``CPU_Scheduler_Limit = N`` below ``limit_floor`` (100) is a
   throttle and not ok.
@@ -38,9 +47,10 @@ import subprocess
 import sys
 from typing import Any, Callable, Dict, List, Mapping, Sequence, Tuple
 
-DEFAULT_BASELINE_K = 6
-DEFAULT_SLOWDOWN = 1.30
-DEFAULT_WINDOW = 3
+DEFAULT_BASELINE_K = 12
+DEFAULT_SLOWDOWN = 1.60
+DEFAULT_WINDOW = 8
+DEFAULT_MAX_SLOWDOWN_BACKOFFS = 2
 DEFAULT_LIMIT_FLOOR = 100
 PMSET_TIMEOUT_SECONDS = 10.0
 
@@ -70,6 +80,9 @@ def parse_pmset_therm(text: str) -> Dict[str, Any]:
         if not line:
             continue
         lower = line.lower()
+        if lower.startswith("error"):
+            unparsed.append(line)  # pmset's own failure line: fail closed, never guess
+            continue
         if _CPU_POWER_NOTE.search(line):
             out["cpu_power_status_note"] = True
             recognized += 1
@@ -84,7 +97,7 @@ def parse_pmset_therm(text: str) -> Dict[str, Any]:
                     out[key] = 0
                 recognized += 1
                 continue
-            number = re.search(rf"{phrase}\D*?(-?\d+)", lower)
+            number = re.fullmatch(rf"{phrase}\s*=\s*(\d+)", lower)
             if number is None:
                 unparsed.append(line)
             else:
@@ -112,7 +125,7 @@ def thermal_reasons(parsed: Mapping[str, Any], limit_floor: int = DEFAULT_LIMIT_
     reasons: List[str] = []
     for key in _LEVELS:
         level = parsed.get(key)
-        if level is None:
+        if level is None or level < 0:
             reasons.append(f"{key}_unknown")
         elif level > 0:
             reasons.append(f"{key}={level}")
@@ -202,6 +215,9 @@ class ThermalGuard:
 
     ``pmset_reader`` returns :func:`read_pmset_therm`-shaped dicts (tests inject one);
     ``ac_reader`` returns True on AC power (``None`` = not checked). ``check`` never raises.
+    ``slowdown_backoffs[key]`` counts the consecutive pauses taken while ``key`` was flagged;
+    it resets when a fresh window for the key is not flagged. A key flagged again once that
+    count reaches ``max_slowdown_backoffs`` is listed in ``readings.slowdown.persistent``.
     """
 
     def __init__(
@@ -210,18 +226,24 @@ class ThermalGuard:
         slowdown: float = DEFAULT_SLOWDOWN,
         window: int = DEFAULT_WINDOW,
         limit_floor: int = DEFAULT_LIMIT_FLOOR,
+        max_slowdown_backoffs: int = DEFAULT_MAX_SLOWDOWN_BACKOFFS,
         pmset_reader: Callable[[], Mapping[str, Any]] | None = None,
         ac_reader: Callable[[], bool] | None = None,
     ) -> None:
         slowdown_report({}, baseline_k, slowdown, window)  # validates the parameters
+        if int(max_slowdown_backoffs) < 0:
+            raise ValueError("need max_slowdown_backoffs >= 0")
         self.baseline_k = int(baseline_k)
         self.slowdown = float(slowdown)
         self.window = int(window)
         self.limit_floor = int(limit_floor)
+        self.max_slowdown_backoffs = int(max_slowdown_backoffs)
         self.pmset_reader = pmset_reader or read_pmset_therm
         self.ac_reader = ac_reader
         self.times: Dict[str, List[float]] = {}
         self.acknowledged: Dict[str, int] = {}
+        self.slowdown_backoffs: Dict[str, int] = {}
+        self._flagged: List[str] = []
 
     def config(self) -> Dict[str, Any]:
         return {
@@ -229,6 +251,7 @@ class ThermalGuard:
             "slowdown": self.slowdown,
             "window": self.window,
             "limit_floor": self.limit_floor,
+            "max_slowdown_backoffs": self.max_slowdown_backoffs,
             "ac_checked": self.ac_reader is not None,
         }
 
@@ -236,7 +259,13 @@ class ThermalGuard:
         self.times.setdefault(str(key), []).append(float(seconds))
 
     def acknowledge_slowdown(self) -> None:
-        """Mark every post-baseline time seen so far as answered (after a backoff)."""
+        """Mark every post-baseline time seen so far as answered (after a backoff).
+
+        Keys flagged by the latest :meth:`check` gain one consecutive slowdown backoff.
+        """
+        for key in self._flagged:
+            self.slowdown_backoffs[key] = self.slowdown_backoffs.get(key, 0) + 1
+        self._flagged = []
         for key, values in self.times.items():
             self.acknowledged[key] = max(0, len(values) - self.baseline_k)
 
@@ -259,7 +288,23 @@ class ThermalGuard:
         slow = slowdown_report(
             self.times, self.baseline_k, self.slowdown, self.window, self.acknowledged
         )
-        reasons.extend(f"slowdown:{key}" for key in slow["flagged"])
+        for key, row in slow["keys"].items():
+            if "ratio" in row and key not in slow["flagged"]:
+                self.slowdown_backoffs[key] = 0  # a fresh, unflagged window ends the streak
+        self._flagged = list(slow["flagged"])
+        persistent = [
+            key
+            for key in slow["flagged"]
+            if self.slowdown_backoffs.get(key, 0) >= self.max_slowdown_backoffs
+        ]
+        slow["persistent"] = persistent
+        slow["consecutive_backoffs"] = {
+            key: count for key, count in sorted(self.slowdown_backoffs.items()) if count
+        }
+        reasons.extend(
+            f"slowdown_persistent:{key}" if key in persistent else f"slowdown:{key}"
+            for key in slow["flagged"]
+        )
         readings: Dict[str, Any] = {"pmset": pmset, "slowdown": slow, "ac_power": None}
         if self.ac_reader is not None:
             try:
@@ -287,7 +332,8 @@ def admit_next_episode(
     Checks the guard; while it is not ok, pauses ``backoff_seconds`` (at most
     ``max_backoffs`` times, and never past the point where ``seconds_left()`` would drop
     below ``budget_seconds``), acknowledging slowdown evidence after each pause, then
-    re-checks. Every check and pause is passed to ``log``. When the guard is still not ok
+    re-checks. A persistent slowdown (see :class:`ThermalGuard`) stops at once, without a
+    pause. Every check and pause is passed to ``log``. When the guard is still not ok
     the stop reason starts with ``"thermal: "``. ``counts`` has ``checks``,
     ``not_ok_checks``, ``backoffs`` and ``backoff_seconds``.
     """
@@ -300,6 +346,15 @@ def admit_next_episode(
         if result["ok"]:
             return True, None, counts
         counts["not_ok_checks"] += 1
+        persistent = result.get("readings", {}).get("slowdown", {}).get("persistent") or []
+        if persistent:
+            reason = (
+                f"thermal: persistent slowdown ({', '.join(persistent)}) still flagged after "
+                f"{guard.max_slowdown_backoffs} consecutive slowdown backoff(s); "
+                f"reasons: {', '.join(result['reasons'])}"
+            )
+            log({"event": "thermal_guard_stop", "reason": reason})
+            return False, reason, counts
         if attempt == int(max_backoffs):
             break
         if seconds_left() - backoff_seconds < budget_seconds:

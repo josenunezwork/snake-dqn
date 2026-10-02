@@ -20,10 +20,11 @@ Opt-in additions (all default off; the default screen is unchanged): ``--use-slo
 holds a shared CPU slot lock around the run, ``--require-ac-power`` refuses to start on
 battery, and :class:`ScreenSpec` lets another screen reuse this harness with its own
 namespace and per-arm vetoes (``research/apex_veto_v3_screen_20261001/screen.py``).
-``--slot-pool 3`` (with slot locks) also lets the run take the Tier-1/dev-only
-``cpu-slot-3.lock`` (created only by ``research/compute/slot_setup.py --create``), and
-``--thermal-guard`` gates each new episode on ``research/compute/thermal_guard.py`` (bounded
-backoff, then stop with a ``thermal: ...`` reason). Policy:
+``--slot-pool 3`` (refused without slot locks and ``--thermal-guard``) also lets the run
+take the Tier-1/dev-only ``cpu-slot-3.lock`` (created only by
+``research/compute/slot_setup.py --create``), and ``--thermal-guard`` gates each new
+episode on ``research/compute/thermal_guard.py`` (bounded backoff, then stop with a
+``thermal: ...`` reason). Policy:
 ``docs/research/compute_policy_2026-10-02.md``.
 """
 
@@ -947,7 +948,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         type=int,
         choices=sorted(SLOT_POOLS),
         default=2,
-        help="opt-in 3: also use the Tier-1/dev-only cpu-slot-3.lock (needs slot locks)",
+        help="opt-in 3: also use the Tier-1/dev-only cpu-slot-3.lock (needs slot locks and "
+        "--thermal-guard)",
     )
     parser.add_argument(
         "--thermal-guard",
@@ -1008,6 +1010,9 @@ def main(argv: Sequence[str] | None = None, spec: ScreenSpec = DEFAULT_SPEC) -> 
     need_ac = bool(args.require_ac_power or spec.require_ac_power)
     if int(getattr(args, "slot_pool", 2)) != 2 and not use_locks:
         print("--slot-pool needs slot locks (--use-slot-locks)", file=sys.stderr)
+        return 2
+    if int(getattr(args, "slot_pool", 2)) == 3 and not getattr(args, "thermal_guard", False):
+        print("--slot-pool 3 needs --thermal-guard (compute policy rule 4)", file=sys.stderr)
         return 2
     if args.deadline_utc <= datetime.now(timezone.utc):
         print("deadline already passed", file=sys.stderr)
