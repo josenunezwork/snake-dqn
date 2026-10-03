@@ -73,8 +73,9 @@ def write_check(
     delta_ni=DEV_DELTA_NI,
 ):
     """A ``simulate.py --part gate`` shaped output of the per-study check (no simulation)."""
-    data = Path(data) if data is not None else tmp_path / "screen_pool.json"
-    if not data.exists():
+    given = data is not None
+    data = Path(data) if given else tmp_path / "screen_pool.json"
+    if not given and not data.exists():
         rng = random.Random(3)
         pool = {
             "world_seeds": list(range(30)),
@@ -392,6 +393,8 @@ def test_paired_check_must_use_the_study_pool_and_its_delta_ni(tmp_path):
     with pytest.raises(R.StrictRunError, match="not the spec's pool"):
         prepare_paired(tmp_path, spec)
     stock = R.PAIRED_BAND_STOCK_POOL
+    if not stock.is_file():  # never create the stock file inside the repo
+        pytest.skip("validation package stock pool not present")
     stock_spec = R.StudySpec(**{**spec.__dict__, "paired_band_pool_path": str(stock)})
     write_check(tmp_path, plan_params(stock_spec), data=stock)
     with pytest.raises(R.StrictRunError, match="stock"):
