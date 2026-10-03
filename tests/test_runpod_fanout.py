@@ -413,7 +413,12 @@ def make_runner(tmp, episodes, fake, budget=1.0, pol=None, **over):
     for e in j["episodes"]:
         e["roster_member_sha256s"] = [hero, RANDOM, GREEDY, RANDOM, GREEDY]
     (Path(tmp) / "stub.py").write_text(STUB)
-    p = pol or policy(checkpoint_root=str(ck), heartbeat_seconds=1, pull_every_seconds=3)
+    p = pol or policy(
+        checkpoint_root=str(ck),
+        heartbeat_seconds=1,
+        pull_every_seconds=3,
+        artifacts_root=str(Path(tmp) / "artifacts"),
+    )
     clock = Clock()
     return runner.Runner(
         j,
@@ -724,7 +729,7 @@ def test_create_timeout_that_made_a_pod_is_found_and_deleted(tmp_path, fake):
 
 
 def test_untracked_prefixed_pod_is_swept(tmp_path, fake):
-    fake.extra_pods.append({"id": "pod-stray", "name": "rpf-unit-job--old-1", "costPerHr": 0.06})
+    fake.extra_pods.append({"id": "pod-stray", "name": "rpf-unit-job--r1-99", "costPerHr": 0.06})
     deleted = []
     real_delete = fake.delete_pod
 
@@ -747,3 +752,33 @@ def test_rp_client_refuses_under_pytest(monkeypatch):
         RpClient().list_pods()
     with pytest.raises(RuntimeError, match="pytest"):
         runner.spawn_watchdog_process(None)
+
+
+def test_ledger_counts_unsettled_budgets(tmp_path):
+    p = policy(artifacts_root=str(tmp_path), prior_spend_usd=0.11)
+    assert runner.project_ledger(p)["total_usd"] == 0.11
+    runner.reserve_ledger(p, tmp_path / "a", "j", 2.0)
+    assert runner.project_ledger(p)["total_usd"] == 2.11  # crashed run counts at full budget
+    runner.settle_ledger(p, tmp_path / "a", 0.25, True)
+    assert runner.project_ledger(p)["total_usd"] == 0.36
+
+
+def test_project_cap_blocks_run(tmp_path, fake):
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake, budget=1.0)
+    runner.reserve_ledger(r.policy, tmp_path / "other", "j", 49.5)
+    assert r.run() == 3 and "project cap" in r.stop_reason
+    assert fake.created == []
+
+
+def test_deferred_signal_during_create_records_pod_first(tmp_path, fake):
+    real_create = fake.create_pod
+
+    def create(body_path, max_hourly, confirm):
+        out = real_create(body_path, max_hourly, confirm)
+        runner._raise_interrupt(2, None)  # Ctrl-C arrives while the POST is in flight
+        return out
+
+    fake.create_pod = create
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake)
+    assert r.run() == 130
+    assert "pod1" in r.pods and "pod1" in fake.deleted and fake.procs == {}

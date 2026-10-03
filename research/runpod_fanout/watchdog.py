@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Detached local watchdog for one fan-out run: deletes ``rpf-<job>--*`` pods when needed.
 
-Fires (deletes every pod whose name starts with ``rpf-<job_id>--``, retrying until GET /pods
+Fires (deletes every pod whose name starts with ``--prefix``, i.e. this run's
+``rpf-<job_id>--<run>-``, retrying until GET /pods
 shows none) when ANY of:
 
 * the hard time ``--fire-epoch`` (job max wall time + grace) has passed;
@@ -80,9 +81,13 @@ def watch(
     sleep: Callable[[float], None] = time.sleep,
     alive: Callable[[int], bool] = pid_alive,
     poll: float = 30.0,
+    prefix: str | None = None,
 ) -> str:
     policy = jobspec.load_policy()
-    prefix = f"{policy['pod_name_prefix']}{job_id}--"
+    job_prefix = f"{policy['pod_name_prefix']}{job_id}--"
+    prefix = prefix or job_prefix
+    if not prefix.startswith(job_prefix):
+        raise SystemExit("watchdog prefix must lie inside the job's rpf-<job>-- namespace")
     rp = rp or RpClient()
     dead_since = None
     log(f"armed prefix={prefix} fire_epoch={fire_epoch:.0f} runner_pid={runner_pid}")
@@ -120,8 +125,9 @@ def main(argv=None) -> int:
     p.add_argument("--fire-epoch", required=True, type=float)
     p.add_argument("--run-dir", required=True, type=Path)
     p.add_argument("--runner-pid", required=True, type=int)
+    p.add_argument("--prefix", default=None, help="this run's pod-name prefix")
     a = p.parse_args(argv)
-    watch(a.job_id, a.fire_epoch, a.run_dir, a.runner_pid)
+    watch(a.job_id, a.fire_epoch, a.run_dir, a.runner_pid, prefix=a.prefix)
     return 0
 
 

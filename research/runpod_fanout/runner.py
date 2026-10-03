@@ -464,20 +464,28 @@ class Runner:
         body_path = self.run_dir / "pods" / f"{name}.request.json"
         body_path.parent.mkdir(exist_ok=True)
         body_path.write_text(json.dumps(body, indent=1))
+        _DEFER["active"] = True
         try:
             out = self.rp.create_pod(
                 body_path, max_hourly=row["usd_per_hr"] * 1.01, confirm=self.confirm
             )
         except RunPodError as exc:
+            _DEFER["active"] = False
             self.bad_slots[(row["vcpu"], row["dc"])] = self.clock() + 600
             self.log(
                 "create_refused", vcpu=row["vcpu"], dc=row["dc"], detail=str(exc.payload)[:300]
             )
             self.reap_by_name(name, row)
+            self.raise_deferred()
             return False
+        except BaseException:
+            _DEFER["active"] = False
+            raise
+        _DEFER["active"] = False
         if not isinstance(out, dict) or not out.get("id"):
             self.log("create_no_pod", detail=str(out)[:300])
             self.reap_by_name(name, row)
+            self.raise_deferred()
             return False
         rate = float(out.get("costPerHr") or row["usd_per_hr"])
         pod = Pod(
@@ -504,9 +512,16 @@ class Runner:
             usd_per_hr=rate,
             committed_worst=round(self.committed_worst(), 4),
         )
+        self.raise_deferred()
         if self.committed_worst() > self.budget + 1e-6:
             raise Abort("committed worst case exceeds the budget after create")
         return True
+
+    @staticmethod
+    def raise_deferred() -> None:
+        signum, _DEFER["pending"] = _DEFER["pending"], None
+        if signum is not None:
+            raise KeyboardInterrupt(f"signal {signum} (deferred until the create was recorded)")
 
     def reap_by_name(self, name: str, row: Mapping[str, Any]) -> None:
         """A failed/timed-out create may still have made a pod: find it by name, delete it."""
@@ -702,6 +717,8 @@ class Runner:
                 pod=pod.id,
                 slots=pod.slots,
                 cores=health.get("cores"),
+                cpu_model=health.get("cpu_model"),
+                self_delete_capable=health.get("self_delete_capable"),
                 seconds_to_ready=round(now - pod.created, 1),
             )
         elif now - pod.boot_from > float(self.policy["ready_deadline_seconds"]):
@@ -714,7 +731,9 @@ class Runner:
         return getattr(self, "cpu_model_pin", None)
 
     def pull(self, pod: Pod) -> None:
-        agent = self.agents[pod.id]
+        agent = self.agents.get(pod.id)
+        if agent is None:  # an orphan we only delete
+            return
         try:
             listing = agent.get_json("/records")
         except NET_ERRORS as exc:
@@ -854,8 +873,12 @@ class Runner:
                     self.log("pod_draining", pod=pod.id)
 
     # ------------------------------------------------------------ cleanup
+    def run_prefix(self) -> str:
+        """Pods of THIS run only (job-wide prefix + run dir name); cleanup CLI is job-wide."""
+        return f"{pod_prefix(self.policy, self.job['job_id'])}{self.run_dir.name}-"
+
     def owned_live_pods(self) -> List[Dict[str, Any]]:
-        prefix = pod_prefix(self.policy, self.job["job_id"])
+        prefix = self.run_prefix()
         return [p for p in self.rp.list_pods() if str(p.get("name", "")).startswith(prefix)]
 
     def delete_everything(self, attempts: int = 10) -> List[Dict[str, Any]]:
@@ -932,12 +955,13 @@ class Runner:
         awake = None
         try:
             lock = acquire_global_lock(self.policy)
-            ledger = project_ledger(self.policy, exclude=self.run_dir)
+            ledger = project_ledger(self.policy)
             cap = float(self.policy["project_cap_usd"])
             if ledger["total_usd"] + self.budget > cap:
                 raise Abort(
                     f"project cap: spent {ledger['total_usd']:.4f} + budget {self.budget} > {cap}"
                 )
+            reserve_ledger(self.policy, self.run_dir, self.job["job_id"], self.budget)
             self.log("project_ledger", **ledger)
             manifest = self.prepare_uploads(workdir)
             self.balance_start = self.rp.balance()
@@ -956,7 +980,7 @@ class Runner:
                 "watchdog_armed",
                 fires_at_epoch=self.deadline + float(self.policy["watchdog_grace_seconds"]),
             )
-            awake = keep_awake()
+            awake = keep_awake(getattr(self.watchdog, "pid", None))
             self.loop()
             code = 0 if len(self.completed) == len(self.order) else 4
         except Abort as exc:
@@ -970,9 +994,13 @@ class Runner:
         finally:
             ignore_signals()  # a second Ctrl-C must not cut the cleanup short
             try:
-                leftovers = self.delete_everything()
+                if lock is not None:
+                    leftovers = self.delete_everything()
+                else:  # never got the lock: nothing was created by this run
+                    leftovers = []
                 shutil.rmtree(workdir, ignore_errors=True)
                 self.finish(leftovers, code)
+                settle_ledger(self.policy, self.run_dir, self.settled_cost(), lock is not None)
             finally:
                 if awake is not None:
                     awake.terminate()
@@ -980,6 +1008,15 @@ class Runner:
                     lock.close()
                 restore_signal_handlers(old_handlers)
         return code if not leftovers else 5
+
+    def settled_cost(self) -> float:
+        """What this run spent: the larger of the balance delta and the pod estimate."""
+        try:
+            receipt = json.loads((self.run_dir / "receipt.json").read_text())
+        except (OSError, ValueError):
+            return self.committed_worst()
+        delta = receipt.get("actual_cost_usd_balance_delta") or 0.0
+        return max(float(delta), float(receipt.get("estimated_cost_usd") or 0.0))
 
     def check_watchdog(self, startup: bool = False) -> None:
         """The detached watchdog must be alive while pods may exist."""
@@ -1018,7 +1055,9 @@ class Runner:
                 return
             self.check_watchdog()
             for pod in list(self.pods.values()):
-                if pod.deleted is None:
+                if pod.deleted is None and pod.id not in self.agents:
+                    self.delete_pod(pod, "retry delete of an orphan")
+                elif pod.deleted is None:
                     self.tick_pod(pod)
             self.drain_retirees()
             self.assign()
@@ -1124,28 +1163,65 @@ def acquire_global_lock(policy: Mapping[str, Any]) -> Any:
     return handle
 
 
-def project_ledger(policy: Mapping[str, Any], exclude: Optional[Path] = None) -> Dict[str, Any]:
-    """Project spend: prior spend (policy) + every RunPod receipt under runpod-fanout/."""
-    root = Path(policy["artifacts_root"]) / "runpod-fanout"
-    runs = []
-    for receipt in sorted(root.glob("*/*/receipt.json")):
-        if exclude is not None and receipt.parent == Path(exclude):
-            continue
-        data = json.loads(receipt.read_text())
-        if data.get("backend") == "local":
-            continue
-        cost = data.get("actual_cost_usd_balance_delta")
-        est = data.get("estimated_cost_usd") or 0.0
-        runs.append(max(float(cost or 0.0), float(est)))
+def ledger_path(policy: Mapping[str, Any]) -> Path:
+    return Path(policy["artifacts_root"]) / "runpod-fanout" / "ledger.jsonl"
+
+
+def _ledger_append(policy: Mapping[str, Any], row: Mapping[str, Any]) -> None:
+    path = ledger_path(policy)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as fh:
+        fh.write(json.dumps({"utc": utc_now(), **row}, sort_keys=True) + "\n")
+
+
+def reserve_ledger(policy: Mapping[str, Any], run_dir: Path, job_id: str, budget: float) -> None:
+    _ledger_append(
+        policy,
+        {"kind": "reserve", "run": str(run_dir), "job_id": job_id, "budget_usd": float(budget)},
+    )
+
+
+def settle_ledger(policy: Mapping[str, Any], run_dir: Path, cost: float, reserved: bool) -> None:
+    if reserved:
+        _ledger_append(policy, {"kind": "settle", "run": str(run_dir), "cost_usd": float(cost)})
+
+
+def project_ledger(policy: Mapping[str, Any]) -> Dict[str, Any]:
+    """Project spend = prior spend + settled run costs + FULL budgets of unsettled runs.
+
+    One central ``ledger.jsonl`` (any --run-dir); a run that died before settling keeps
+    counting at its whole budget until a human settles it.
+    """
+    reserved: Dict[str, float] = {}
+    settled: Dict[str, float] = {}
+    path = ledger_path(policy)
+    if path.exists():
+        for line in path.read_text().splitlines():
+            row = json.loads(line)
+            if row["kind"] == "reserve":
+                reserved[row["run"]] = float(row["budget_usd"])
+            elif row["kind"] == "settle":
+                settled[row["run"]] = float(row["cost_usd"])
+    open_runs = {r: b for r, b in reserved.items() if r not in settled}
     prior = float(policy.get("prior_spend_usd", 0.0))
-    return {"prior_usd": prior, "runs": len(runs), "total_usd": round(prior + sum(runs), 5)}
+    total = prior + sum(settled.values()) + sum(open_runs.values())
+    return {
+        "prior_usd": prior,
+        "settled_runs": len(settled),
+        "unsettled_runs": len(open_runs),
+        "total_usd": round(total, 5),
+    }
 
 
-def keep_awake() -> Optional[subprocess.Popen]:
-    """macOS: keep the Mac awake while this runner lives (the local guards need it)."""
+def keep_awake(pid: Optional[int]) -> Optional[subprocess.Popen]:
+    """macOS: keep the Mac awake while the watchdog (or else this runner) lives."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return None
     if sys.platform != "darwin" or not shutil.which("caffeinate"):
         return None
-    return subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
+    return subprocess.Popen(
+        ["caffeinate", "-ims", "-w", str(pid or os.getpid())], start_new_session=True
+    )
 
 
 def ignore_signals() -> None:
@@ -1156,7 +1232,13 @@ def ignore_signals() -> None:
             pass
 
 
+_DEFER: Dict[str, Any] = {"active": False, "pending": None}
+
+
 def _raise_interrupt(signum, frame):  # noqa: ARG001
+    if _DEFER["active"]:  # a create is in flight: finish and record it first
+        _DEFER["pending"] = signum
+        return
     raise KeyboardInterrupt(f"signal {signum}")
 
 
@@ -1193,6 +1275,8 @@ def spawn_watchdog_process(runner: Runner) -> subprocess.Popen:
             str(runner.run_dir),
             "--runner-pid",
             str(os.getpid()),
+            "--prefix",
+            runner.run_prefix(),
         ],
         cwd=str(REPO),
         stdout=log,
