@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import base64
 import concurrent.futures
-import fcntl
 import gzip
 import hashlib
 import http.client
@@ -53,10 +52,12 @@ from research.runpod_fanout.rp_client import RpClient, RunPodError  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 AGENT_SOURCE = HERE / "pod_agent.py"
+from research.runpod_fanout.ledger import DuplicateRun, SharedLedger  # noqa: E402
 from research.runpod_fanout.tls import USER_AGENT, preflight, ssl_context  # noqa: E402
 
 STOCKED = ("High", "Medium", "Low")
 RECEIPT_SCHEMA = "runpod-fanout-receipt/v1"
+EXIT_DUPLICATE = 6  # job already has a live or successful run: refused, nothing spent
 NET_ERRORS = (urllib.error.URLError, OSError, ValueError, http.client.HTTPException)
 
 
@@ -69,6 +70,85 @@ def spec_sha256(ep: Mapping[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(ep, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def parallelism_plan(
+    policy: Mapping[str, Any],
+    episodes: Sequence[Mapping[str, Any]],
+    budget: float,
+    max_wall_minutes: float,
+    stock_rows: Optional[Sequence[Mapping[str, Any]]] = None,
+    target_wall_minutes: float = 120.0,
+) -> Dict[str, Any]:
+    """Effective parallelism the budget/stock/caps allow, expected wall time and cost.
+
+    Model: V vCPUs run continuously (V/2 workers); wall = setup x (1 + replacements) +
+    max(longest episode, total episode-seconds / workers). The budget must cover what is
+    spent by the end plus the last reservations: 1.02 x rate x V x (wall + horizon), with
+    horizon = min(max wall, pod max lifetime + grace). Stock: one pod per stocked
+    (size, data center) row, at most max_pods (an estimate; stock changes by the minute).
+    """
+    secs = [episode_seconds(policy, ep) for ep in episodes]
+    total, longest = sum(secs), max(secs)
+    per_vcpu = 0.03
+    if stock_rows:
+        per_vcpu = max(float(r["usd_per_hr"]) / int(r["vcpu"]) for r in stock_rows)
+    life = float(policy["pod_max_lifetime_seconds"])
+    horizon_h = min(
+        max_wall_minutes / 60.0, (life + float(policy["pod_delete_grace_seconds"])) / 3600
+    )
+    setup = float(policy["pod_setup_seconds"])
+    cap_v = int(policy["max_pods"]) * max(policy["vcpu_sizes_desc"])
+    cap_v = min(cap_v, int(policy["max_live_pods"]) * max(policy["vcpu_sizes_desc"]))
+    stock_v = None
+    if stock_rows is not None:
+        stock_v = sum(int(r["vcpu"]) for r in list(stock_rows)[: int(policy["max_pods"])])
+
+    def wall_s(v: int) -> float:
+        work = max(longest, total / max(1, v // int(policy["threads_per_episode"])))
+        return setup * (1 + math.floor(work / life)) + work
+
+    def worst(v: int) -> float:
+        return 1.02 * per_vcpu * v * (wall_s(v) / 3600 + horizon_h)
+
+    def expected(v: int) -> float:
+        return per_vcpu * v * wall_s(v) / 3600
+
+    vs = list(range(2, cap_v + 1, 2))
+    v_budget = max([v for v in vs if worst(v) <= budget], default=0)
+    v_eff = min(x for x in (v_budget, stock_v if stock_v is not None else cap_v, cap_v))
+    v_eff -= v_eff % 2
+
+    def need_for(minutes: float) -> Optional[Dict[str, Any]]:
+        ok = [v for v in vs if wall_s(v) <= minutes * 60]
+        if not ok:
+            return None
+        v = ok[0]
+        return {
+            "vcpu": v,
+            "budget_usd": round(worst(v), 2),
+            "expected_usd": round(expected(v), 2),
+            "wall_minutes": round(wall_s(v) / 60, 1),
+        }
+
+    return {
+        "pod_episode_seconds_total_est": round(total, 1),
+        "longest_episode_seconds_est": round(longest, 1),
+        "usd_per_vcpu_hr": per_vcpu,
+        "reservation_horizon_hours": round(horizon_h, 3),
+        "parallelism": {
+            "vcpu_allowed_by_budget": v_budget,
+            "vcpu_allowed_by_stock_est": stock_v,
+            "vcpu_allowed_by_caps": cap_v,
+            "effective_vcpu": v_eff,
+            "effective_workers": v_eff // int(policy["threads_per_episode"]),
+            "expected_wall_minutes": round(wall_s(v_eff) / 60, 1) if v_eff else None,
+            "expected_cost_usd": round(expected(v_eff), 3) if v_eff else None,
+            "fits_max_wall": bool(v_eff) and wall_s(v_eff) <= max_wall_minutes * 60,
+        },
+        "budget_for_max_wall": need_for(max_wall_minutes),
+        f"budget_for_{int(target_wall_minutes)}_min": need_for(target_wall_minutes),
+    }
 
 
 def utc_now() -> str:
@@ -168,7 +248,11 @@ def pod_body(
     token_sha: str,
     deadline_epoch: float,
     job_id: str,
+    until_epoch: Optional[float] = None,
 ) -> Dict[str, Any]:
+    """``deadline_epoch``: the agent stops work; ``until_epoch``: the pod deletes itself
+    (pod-scoped RunPod credentials) if the runner and watchdog have not by then."""
+    until_epoch = until_epoch or (deadline_epoch + float(policy["watchdog_grace_seconds"]) + 240)
     pip = [
         ["pip", "install", "-q", "--no-cache-dir", *policy["pip_pins"]],
         [
@@ -200,9 +284,7 @@ def pod_body(
             "FANOUT_THREADS": str(policy["threads_per_episode"]),
             "FANOUT_WORKERS": str(workers_for(policy, vcpu)),
             "FANOUT_ISA_CAP": policy["isa_cap"] or "",
-            "FANOUT_SELF_DELETE_EPOCH": str(
-                int(deadline_epoch + float(policy["watchdog_grace_seconds"]) + 240)
-            ),
+            "FANOUT_SELF_DELETE_EPOCH": str(int(until_epoch)),
             "FANOUT_JOB": job_id,
         },
         "dockerStartCmd": agent_start_command(),
@@ -233,6 +315,7 @@ class Pod:
     boot_from: float = 0.0  # start of the current startup window (create or agent restart)
     first_fail: Optional[float] = None
     cpu_model: Optional[str] = None
+    until: float = 0.0  # reservation horizon: created + max lifetime + delete grace (<= hard end)
     note: str = ""
 
     def public(self) -> Dict[str, Any]:
@@ -275,6 +358,7 @@ class Runner:
         spawn_watchdog: Optional[Callable[["Runner"], Any]] = None,
         probe_workers: int = 8,
         preflight_fn: Optional[Callable[[], List[str]]] = None,
+        ledger: Optional[SharedLedger] = None,
     ):
         self.job = job
         self.policy = policy
@@ -314,6 +398,10 @@ class Runner:
         self.pod_counter = 0
         self.stop_reason: Optional[str] = None
         self.verified: set = set()  # (key, sha256 on a pod) already accepted
+        self.ledger = ledger or SharedLedger(policy, clock=clock)
+        self.run_id = str(self.run_dir)
+        self._balance: Optional[tuple] = None
+        self.account_refused = False
         self.platform_ids: set = set()
         self.watchdog: Any = None
         self.cpu_model_pin: Optional[str] = None
@@ -353,27 +441,30 @@ class Runner:
         return sum(p.cost_until(now) for p in self.pods.values())
 
     def committed_worst(self) -> float:
-        """Spend if every live pod ran until the hard end (watchdog firing), plus slack.
+        """This run's spend if every live pod ran to its reservation horizon, plus slack.
 
+        A pod's horizon is ``min(hard end, created + max lifetime + delete grace)``; the
+        runner retires pods at their lifetime and the watchdog/pod self-delete enforce it.
         Slack: 2% and one extra minute per pod (billing starts before our timestamp).
         """
         total = 0.0
         for p in self.pods.values():
-            end = p.deleted if p.deleted is not None else self.hard_end
+            end = p.deleted if p.deleted is not None else (p.until or self.hard_end)
             total += p.rate * (max(0.0, end - p.created) + 60.0) / 3600.0
         return total * 1.02
+
+    def pod_until(self, now: float) -> float:
+        life = float(self.policy["pod_max_lifetime_seconds"])
+        grace = float(self.policy["pod_delete_grace_seconds"])
+        return min(self.hard_end, now + life + grace)
 
     def launch_allowed(self, rate: float) -> Optional[str]:
         """None if a new pod at ``rate`` fits the job budget and the global floor."""
         now = self.clock()
-        extra = 1.02 * rate * (max(0.0, self.hard_end - now) + 60.0) / 3600.0
+        extra = 1.02 * rate * (max(0.0, self.pod_until(now) - now) + 60.0) / 3600.0
         worst = self.committed_worst() + extra
         if worst > self.budget + 1e-9:
             return f"job budget: worst case {worst:.4f} > budget {self.budget:.4f}"
-        if self.balance_start is not None:
-            floor = float(self.policy["global_floor_usd"])
-            if self.balance_start - worst < floor:
-                return f"global floor: balance {self.balance_start:.2f} - {worst:.4f} < {floor}"
         if rate > float(self.policy["max_hourly_per_pod_usd"]):
             return f"rate {rate} above policy max_hourly_per_pod_usd"
         if len([p for p in self.pods.values() if p.deleted is None]) >= int(
@@ -451,11 +542,26 @@ class Runner:
             self.stop_reason = "budget: no stocked size is affordable within the budget/floor"
             self.log("stop", reason=self.stop_reason)
 
+    def account_balance(self) -> float:
+        now = self.clock()
+        if self._balance is None or now - self._balance[0] > 60:
+            self._balance = (now, float(self.rp.balance()))
+        return self._balance[1]
+
     def create_pod(self, row: Mapping[str, Any]) -> bool:
+        now = self.clock()
+        until = self.pod_until(now)
         self.pod_counter += 1
         name = (
             f"{pod_prefix(self.policy, self.job['job_id'])}{self.run_dir.name}-{self.pod_counter}"
         )
+        why = self.ledger.reserve_pod(
+            self.run_id, name, float(row["usd_per_hr"]), until, self.account_balance()
+        )
+        if why:
+            self.log("launch_refused_account", row=row, reason=why)
+            self.account_refused = True
+            return False
         token = secrets.token_urlsafe(32)
         body = pod_body(
             self.policy,
@@ -463,8 +569,9 @@ class Runner:
             row["vcpu"],
             row["dc"],
             hashlib.sha256(token.encode()).hexdigest(),
-            self.deadline,
+            min(self.deadline, now + float(self.policy["pod_max_lifetime_seconds"])),
             self.job["job_id"],
+            until_epoch=until,
         )
         body_path = self.run_dir / "pods" / f"{name}.request.json"
         body_path.parent.mkdir(exist_ok=True)
@@ -481,6 +588,7 @@ class Runner:
                 "create_refused", vcpu=row["vcpu"], dc=row["dc"], detail=str(exc.payload)[:300]
             )
             self.reap_by_name(name, row)
+            self.release_if_untracked(name)
             self.raise_deferred()
             return False
         except BaseException:
@@ -490,6 +598,7 @@ class Runner:
         if not isinstance(out, dict) or not out.get("id"):
             self.log("create_no_pod", detail=str(out)[:300])
             self.reap_by_name(name, row)
+            self.release_if_untracked(name)
             self.raise_deferred()
             return False
         rate = float(out.get("costPerHr") or row["usd_per_hr"])
@@ -500,14 +609,16 @@ class Runner:
             dc=row["dc"],
             rate=rate,
             token=token,
-            created=self.clock(),
+            created=now,
+            until=until,
         )
         pod.boot_from = pod.created
         self.pods[pod.id] = pod
         self.agents[pod.id] = self.agent_factory(pod.id, token)
-        (self.run_dir / "pods" / f"{name}.response.json").write_text(
-            json.dumps({k: v for k, v in out.items() if k != "env"}, indent=1)
-        )
+        self.ledger.bind_pod(self.run_id, name, pod.id, rate)
+        registry = {k: v for k, v in out.items() if k != "env"}
+        registry.update({"name": name, "rpf_until_epoch": until})
+        (self.run_dir / "pods" / f"{name}.response.json").write_text(json.dumps(registry, indent=1))
         self.log(
             "pod_created",
             pod=pod.id,
@@ -521,6 +632,11 @@ class Runner:
         if self.committed_worst() > self.budget + 1e-6:
             raise Abort("committed worst case exceeds the budget after create")
         return True
+
+    def release_if_untracked(self, name: str) -> None:
+        """Release a failed create's reservation unless an orphan pod of that name lives."""
+        if not any(p.name == name and p.deleted is None for p in self.pods.values()):
+            self.ledger.release_pod(self.run_id, name, 0.0)
 
     @staticmethod
     def raise_deferred() -> None:
@@ -606,15 +722,20 @@ class Runner:
         else:
             return
         pod.deleted = self.clock()
+        self.ledger.release_pod(self.run_id, pod.name, pod.cost_until(pod.deleted))
         if pod.state != "lost":
             pod.state = "deleted"
         self.log("pod_deleted", pod=pod.id, why=why, est_cost=round(pod.cost_until(pod.deleted), 5))
 
-    def requeue(self, pod: Pod, keys: Iterable[str], why: str) -> None:
+    def requeue(self, pod: Pod, keys: Iterable[str], why: str, penalize: bool = True) -> None:
         for key in sorted(keys):
             pod.inflight.discard(key)
             pod.unpulled.discard(key)
             if key in self.completed or key in self.failed or key in self.pending:
+                continue
+            if not penalize:  # re-dispatch after a planned retirement: not a failure
+                self.pending.insert(0, key)
+                self.log("episode_redispatched", key=key, why=why)
                 continue
             self.attempts[key] += 1
             if self.attempts[key] >= int(self.policy["max_attempts_per_episode"]):
@@ -682,6 +803,8 @@ class Runner:
         if pod.state == "booting":
             self.tick_booting(pod, agent, health, now)
             return
+        if self.retire_if_old(pod, now):
+            return
         for key, info in (health.get("failed") or {}).items():
             if key in pod.inflight:
                 self.log("episode_error", pod=pod.id, key=key, info=info)
@@ -702,6 +825,24 @@ class Runner:
             self.pull(pod)
         if pod.state == "draining" and not pod.inflight and not pod.unpulled:
             self.delete_pod(pod, "retired (drained)")
+
+    def life_left(self, pod: Pod, now: float) -> float:
+        return pod.created + float(self.policy["pod_max_lifetime_seconds"]) - now
+
+    def retire_if_old(self, pod: Pod, now: float) -> bool:
+        """Max pod lifetime: pull, re-dispatch unfinished work (no penalty), delete."""
+        left = self.life_left(pod, now)
+        idle = not pod.inflight and not pod.unpulled
+        shortest = min(
+            (episode_seconds(self.policy, self.episodes[k]) for k in self.pending), default=0
+        )
+        too_short = left < 1.5 * shortest + 60 if self.pending else False
+        if left > 0 and not (idle and too_short and pod.state == "ready"):
+            return False
+        self.pull(pod)
+        self.requeue(pod, pod.inflight | pod.unpulled, "pod max lifetime", penalize=False)
+        self.delete_pod(pod, "max pod lifetime reached" if left <= 0 else "retired near lifetime")
+        return True
 
     def tick_booting(self, pod: Pod, agent: Any, health: Mapping[str, Any], now: float) -> None:
         if health.get("pip") == "failed":
@@ -830,7 +971,13 @@ class Runner:
             free = pod.slots - len(pod.inflight)
             if free <= 0:
                 continue
-            batch = [k for k in self.pending if k not in self.completed][:free]
+            left = self.life_left(pod, self.clock())
+            batch = [
+                k
+                for k in self.pending
+                if k not in self.completed
+                and 1.5 * episode_seconds(self.policy, self.episodes[k]) + 60 <= left
+            ][:free]
             if not batch:
                 continue
             longest = max(episode_seconds(self.policy, self.episodes[k]) for k in batch)
@@ -974,33 +1121,31 @@ class Runner:
         self.start = self.clock()
         self.deadline = self.start + 60.0 * float(self.job["max_wall_minutes"])
         self.hard_end = self.deadline + float(self.policy["watchdog_grace_seconds"]) + 300.0
+        if self.run_dir.exists():
+            raise jobspec.JobError(f"run dir {self.run_dir} already exists")
+        try:  # idempotency + account-level registration (no pod, no spend on refusal)
+            totals = self.ledger.register_run(
+                self.run_id, self.job["job_id"], self.run_id, self.budget, os.getpid()
+            )
+        except DuplicateRun as exc:
+            print(f"refusing: {exc}", file=sys.stderr)
+            self.stop_reason = f"duplicate: {exc}"
+            return EXIT_DUPLICATE
         self.run_dir.mkdir(parents=True)
         (self.run_dir / "job.json").write_text(json.dumps(self.job, indent=1, sort_keys=True))
         self.events = (self.run_dir / "events.jsonl").open("x")
+        self.log("account_ledger", **totals)
         workdir = Path(tempfile.mkdtemp(prefix="rpf-upload-"))
         leftovers: List[Dict[str, Any]] = [{"unknown": True}]
         old_handlers = install_signal_handlers()
         code = 1
-        lock = None
         awake = None
         try:
-            lock = acquire_global_lock(self.policy)
-            ledger = project_ledger(self.policy)
-            cap = float(self.policy["project_cap_usd"])
-            if ledger["total_usd"] + self.budget > cap:
-                raise Abort(
-                    f"project cap: spent {ledger['total_usd']:.4f} + budget {self.budget} > {cap}"
-                )
-            reserve_ledger(self.policy, self.run_dir, self.job["job_id"], self.budget)
-            self.log("project_ledger", **ledger)
             self.tls_preflight()
             manifest = self.prepare_uploads(workdir)
             self.balance_start = self.rp.balance()
-            if self.balance_start - self.budget < float(self.policy["global_floor_usd"]):
-                raise Abort(
-                    f"balance {self.balance_start:.2f} - budget {self.budget:.2f} would go "
-                    f"below the ${self.policy['global_floor_usd']} floor"
-                )
+            if self.balance_start - float(self.policy["global_floor_usd"]) <= 0:
+                raise Abort(f"balance {self.balance_start:.2f} is at or below the floor")
             plan = self.cost_plan()
             plan.update({"uploads": manifest, "balance_start": self.balance_start})
             (self.run_dir / "plan.json").write_text(json.dumps(plan, indent=1, sort_keys=True))
@@ -1025,18 +1170,13 @@ class Runner:
         finally:
             ignore_signals()  # a second Ctrl-C must not cut the cleanup short
             try:
-                if lock is not None:
-                    leftovers = self.delete_everything()
-                else:  # never got the lock: nothing was created by this run
-                    leftovers = []
+                leftovers = self.delete_everything() if self.pods else []
                 shutil.rmtree(workdir, ignore_errors=True)
                 self.finish(leftovers, code)
-                settle_ledger(self.policy, self.run_dir, self.settled_cost(), lock is not None)
+                self.ledger.finish_run(self.run_id, success=(code == 0 and not leftovers))
             finally:
                 if awake is not None:
                     awake.terminate()
-                if lock is not None:
-                    lock.close()
                 restore_signal_handlers(old_handlers)
         return code if not leftovers else 5
 
@@ -1114,31 +1254,22 @@ class Runner:
             self.sleep(hb)
 
     def cost_plan(self, sizes_rows: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-        eps = list(self.episodes.values())
-        total = sum(episode_seconds(self.policy, ep) for ep in eps)
-        longest = max(episode_seconds(self.policy, ep) for ep in eps)
-        size = size_cap_for(self.policy, len(eps))
-        rate = 0.03 * size
-        if sizes_rows:
-            fits = [r for r in sizes_rows if r["vcpu"] <= size]
-            if fits:
-                size, rate = fits[0]["vcpu"], fits[0]["usd_per_hr"]
-        workers = workers_for(self.policy, size)
-        waves = math.ceil(len(eps) / workers)
-        wall = float(self.policy["pod_setup_seconds"]) + max(longest, waves * total / len(eps))
-        max_wall_h = float(self.job["max_wall_minutes"]) / 60.0
-        hard_h = max_wall_h + (float(self.policy["watchdog_grace_seconds"]) + 300) / 3600
+        par = parallelism_plan(
+            self.policy,
+            list(self.episodes.values()),
+            self.budget,
+            float(self.job["max_wall_minutes"]),
+            sizes_rows,
+        )
         return {
             "cost": {
-                "episodes": len(eps),
-                "pod_episode_seconds_total_est": round(total, 1),
-                "first_pod": {"vcpu": size, "workers": workers, "usd_per_hr": rate},
-                "expected_wall_minutes_one_pod": round(wall / 60, 1),
-                "expected_cost_usd_one_pod": round(rate * wall / 3600, 4),
-                "worst_case_first_pod_usd": round(rate * hard_h, 4),
+                "episodes": len(self.episodes),
                 "budget_usd_hard_cap": self.budget,
-                "note": "the runner never lets committed worst case (every live pod billed to "
-                "the watchdog hard end) exceed the budget, nor the balance drop below the floor",
+                **par,
+                "note": "the runner never lets this run's committed worst case (each live pod "
+                "billed to its reservation horizon = min(hard end, created + max pod lifetime "
+                "+ grace)) exceed the budget; account-wide, all live runs' reservations must "
+                "fit balance - floor and the project cap",
             }
         }
 
@@ -1170,6 +1301,8 @@ class Runner:
             "cost_note": "balance delta also includes any other spend on the account in the "
             "same window; billing may lag a few seconds",
             "final_get_pods_runner_owned": leftovers,
+            "cost_basis": "estimated_cost_usd (per-pod costPerHr x lifetime) is this run's "
+            "cost; the balance delta is account-wide and includes concurrent runs",
             "finished_utc": utc_now(),
         }
         (self.run_dir / "receipt.json").write_text(json.dumps(receipt, indent=1, sort_keys=True))
@@ -1186,69 +1319,6 @@ class Runner:
 
 
 # ---------------------------------------------------------------- signals / watchdog
-
-
-def acquire_global_lock(policy: Mapping[str, Any]) -> Any:
-    """One live RunPod fan-out run per machine (shared balance, floor and cap checks)."""
-    root = Path(policy["artifacts_root"]) / "runpod-fanout"
-    root.mkdir(parents=True, exist_ok=True)
-    handle = (root / ".runpod-runner.lock").open("a")
-    try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        handle.close()
-        raise Abort("another RunPod fan-out run is live (global lock held)")
-    return handle
-
-
-def ledger_path(policy: Mapping[str, Any]) -> Path:
-    return Path(policy["artifacts_root"]) / "runpod-fanout" / "ledger.jsonl"
-
-
-def _ledger_append(policy: Mapping[str, Any], row: Mapping[str, Any]) -> None:
-    path = ledger_path(policy)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as fh:
-        fh.write(json.dumps({"utc": utc_now(), **row}, sort_keys=True) + "\n")
-
-
-def reserve_ledger(policy: Mapping[str, Any], run_dir: Path, job_id: str, budget: float) -> None:
-    _ledger_append(
-        policy,
-        {"kind": "reserve", "run": str(run_dir), "job_id": job_id, "budget_usd": float(budget)},
-    )
-
-
-def settle_ledger(policy: Mapping[str, Any], run_dir: Path, cost: float, reserved: bool) -> None:
-    if reserved:
-        _ledger_append(policy, {"kind": "settle", "run": str(run_dir), "cost_usd": float(cost)})
-
-
-def project_ledger(policy: Mapping[str, Any]) -> Dict[str, Any]:
-    """Project spend = prior spend + settled run costs + FULL budgets of unsettled runs.
-
-    One central ``ledger.jsonl`` (any --run-dir); a run that died before settling keeps
-    counting at its whole budget until a human settles it.
-    """
-    reserved: Dict[str, float] = {}
-    settled: Dict[str, float] = {}
-    path = ledger_path(policy)
-    if path.exists():
-        for line in path.read_text().splitlines():
-            row = json.loads(line)
-            if row["kind"] == "reserve":
-                reserved[row["run"]] = float(row["budget_usd"])
-            elif row["kind"] == "settle":
-                settled[row["run"]] = float(row["cost_usd"])
-    open_runs = {r: b for r, b in reserved.items() if r not in settled}
-    prior = float(policy.get("prior_spend_usd", 0.0))
-    total = prior + sum(settled.values()) + sum(open_runs.values())
-    return {
-        "prior_usd": prior,
-        "settled_runs": len(settled),
-        "unsettled_runs": len(open_runs),
-        "total_usd": round(total, 5),
-    }
 
 
 def keep_awake(pid: Optional[int]) -> Optional[subprocess.Popen]:
@@ -1624,6 +1694,17 @@ def cmd_plan(a, job, policy, allow) -> int:
         rows = runner.probe()
         balance = runner.rp.balance()
         plan = runner.cost_plan(rows)
+        par = plan["cost"]["parallelism"]
+        print(
+            f"PLAN {job['job_id']}: {len(job['episodes'])} episodes; "
+            f"budget ${a.budget or 0} allows "
+            f"{par['vcpu_allowed_by_budget']} vCPU, "
+            f"stock ~{par['vcpu_allowed_by_stock_est']}, "
+            f"caps {par['vcpu_allowed_by_caps']} -> effective {par['effective_vcpu']} vCPU "
+            f"({par['effective_workers']} workers), expected wall "
+            f"{par['expected_wall_minutes']} min, expected cost ${par['expected_cost_usd']}",
+            file=sys.stderr,
+        )
         live = [
             p
             for p in runner.rp.list_pods()
@@ -1638,27 +1719,15 @@ def cmd_plan(a, job, policy, allow) -> int:
             **plan,
             "upload_manifest": manifest,
             "existing_runner_pods": live,
-            "pod_request_example": {
-                k: v
-                for k, v in pod_body(
-                    policy,
-                    pod_prefix(policy, job["job_id"]) + "x-1",
-                    plan["cost"]["first_pod"]["vcpu"],
-                    "<dc>",
-                    "<sha256 " "of an ephemeral token>",
-                    0,
-                    job["job_id"],
-                ).items()
-                if k != "dockerStartCmd"
-            },
+            "account": SharedLedger(policy).snapshot(),
         }
         if a.budget:
-            worst = plan["cost"]["worst_case_first_pod_usd"]
+            par = plan["cost"]["parallelism"]
             out["budget_check"] = {
                 "budget": a.budget,
-                "first_pod_worst_fits": worst <= a.budget,
-                "balance_minus_budget_above_floor": balance - a.budget
-                >= policy["global_floor_usd"],
+                "effective_vcpu": par["effective_vcpu"],
+                "expected_wall_minutes": par["expected_wall_minutes"],
+                "fits_max_wall": par["fits_max_wall"],
             }
         print(json.dumps(out, indent=1, sort_keys=True))
         return 0
