@@ -20,9 +20,12 @@ shard directories into one ``summary.json`` with the pre-declared selection and 
 pre-declared calibration verdict.
 
 Usage (each shard about 20-30 min; hard cap 3 h; see protocol.md for the full commands):
+  ... sweep.py slots-free      # pre-launch: exit 0 only if all 3 pool-3 slots are free now
   SNAKE_DQN_DEVICE=cpu ./venv/bin/python research/apex_veto_v8_lambda_sweep_20261002/sweep.py \\
     run --shard K --out <dir>/shard-K --deadline-utc <now + <= 3 h> \\
     --use-slot-locks --slot-pool 3 --thermal-guard --require-ac-power      # K = 0, 1, 2
+  Each non-smoke shard waits (start barrier, <= 120 s) after taking its slot until all 3
+  shards hold the 3 pool-3 slots; otherwise it exits 2 before any episode.
   ... sweep.py merge --shard-dirs <dir>/shard-0 <dir>/shard-1 <dir>/shard-2 --out <dir>/merged
 Smoke (plumbing only, smoke namespace, arms A and H400 on 1 world, <= 500 frames):
   ... sweep.py run --shard 0 --shards 1 --out /tmp/x --deadline-utc ... --smoke-frames 500 \\
@@ -41,6 +44,7 @@ import argparse  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import sys  # noqa: E402
+import time  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from functools import partial  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -119,8 +123,14 @@ BASELINE_EVENTS = Path(
 )
 BASELINE_EVENTS_SHA256 = "0ea51914d8c0a8384c04bcfc662fe1a258a73990caed60211fca2ddb333c38ae"
 BASELINE_ARM = "L400"
-CALIBRATION_MAX_SLOWDOWN_PAUSES = 2
+# Arm A's wall ratio vs the baseline must be strictly below this, pooled AND in every mix.
 CALIBRATION_MAX_WALL_RATIO = 1.30
+# The 3 shards must overlap for at least this fraction of the shortest shard's duration.
+CALIBRATION_MIN_OVERLAP_FRACTION = 0.9
+# Start barrier (non-smoke runs): after taking its slot, a shard plays nothing until all 3
+# shards hold 3 distinct pool-3 slots from the same commit and protocol bytes.
+BARRIER_DIRNAME = ".barrier"
+BARRIER_TIMEOUT_SECONDS = 120.0
 STATUS_SELECTED = "SELECTED"
 STATUS_NONE_ACTIVE = "NONE_ACTIVE"
 STATUS_NONE_QUALIFIES = "NONE_QUALIFIES"
@@ -609,63 +619,37 @@ def load_baseline(path: Path) -> Dict[str, Any]:
 
 
 CALIBRATION_RULE = (
-    "valid only with 3 shard processes holding the 3 distinct slot files concurrently "
-    "(max start < min finish) and the pinned baseline; PASS iff zero thermal-guard stops, "
-    "zero not-ok guard checks for a non-slowdown reason (warning level, CPU speed or "
-    f"scheduler limit < 100, pmset unknown, battery), at most {CALIBRATION_MAX_SLOWDOWN_PAUSES} "
-    "slowdown pauses in total, and arm A's mean episode wall time at most "
-    f"{CALIBRATION_MAX_WALL_RATIO:.2f} x the baseline's ({BASELINE_ARM} of the v7 sweep "
-    "run-v1, the same veto, 2-slot era) and the sweep complete; FAIL if any criterion "
-    "fails (a thermal stop is FAIL even though the sweep is then incomplete); INVALID "
-    "otherwise. PASS -> 3 slots may become the Tier-1/dev default (a separate, explicit "
-    "edit with its own note); FAIL -> keep 2 slots."
+    "valid only with 3 shard processes that each passed the start barrier, held the 3 "
+    "distinct pool-3 slot files and ran at the same time for at least "
+    f"{CALIBRATION_MIN_OVERLAP_FRACTION:.0%} of the shortest shard's duration (starts within "
+    "the rest of it), and the pinned baseline; PASS iff zero thermal-guard stops, zero "
+    "not-ok guard checks for a non-slowdown reason (warning level, CPU speed or scheduler "
+    "limit < 100, pmset unknown, battery), arm "
+    f"A's mean episode wall time strictly below {CALIBRATION_MAX_WALL_RATIO:.2f} x the "
+    f"baseline's ({BASELINE_ARM} of the v7 sweep run-v1, the same veto, 2-slot era) pooled "
+    "AND in each mix, and the sweep complete; slowdown pauses are reported only; FAIL if any "
+    "criterion fails (a thermal stop is FAIL even though the sweep is then incomplete); "
+    "INVALID otherwise. PASS -> 3 slots may become the Tier-1/dev default (a separate, "
+    "explicit edit with its own note that cites the disclosed deviations from the policy: "
+    "arm A only, different worlds); FAIL -> keep 2 slots."
 )
 
 
-def calibration_report(
-    shards: Sequence[Mapping[str, Any]],
-    entries: Sequence[Mapping[str, Any]],
-    baseline: Mapping[str, Any],
-    complete: bool,
-) -> Dict[str, Any]:
-    """The pre-declared 3-slot calibration verdict (protocol.md). JSON-safe.
-
-    ``shards`` are the shard summaries with ``guard`` = :func:`guard_stats` of the shard's
-    events (recomputed by ``merge``); ``entries`` are all episode entries.
-    """
-    problems: List[str] = []
-    indices = sorted(int(s.get("shard", -1)) for s in shards)
-    if indices != list(range(SHARDS)):
-        problems.append(f"shards {indices} are not 0..{SHARDS - 1}")
-    held = sorted(str(s.get("slot_held")) for s in shards)
-    if held != sorted(dev_screen.SLOT_POOLS[SLOT_POOL]):
-        problems.append(f"slot files held {held} are not the 3 distinct pool-3 slots")
-    starts = [dev_screen._utc(str(s["started_utc"])) for s in shards if s.get("started_utc")]
-    ends = [dev_screen._utc(str(s["finished_utc"])) for s in shards if s.get("finished_utc")]
-    overlap_seconds = None
-    if len(starts) == len(ends) == len(shards) == SHARDS:
-        overlap_seconds = (min(ends) - max(starts)).total_seconds()
-    if overlap_seconds is None or overlap_seconds <= 0:
-        problems.append("the shard processes did not all run at the same time")
-    if not baseline.get("ok"):
-        problems.append(f"baseline not usable: {baseline.get('reason')}")
-    totals = {
-        key: sum(int((s.get("guard") or {}).get(key) or 0) for s in shards)
-        for key in ("checks", "not_ok_checks", "thermal_not_ok_checks", "slowdown_pauses", "stops")
-    }
-    ratios = [
-        (s.get("guard") or {}).get("max_slowdown_ratio")
-        for s in shards
-        if (s.get("guard") or {}).get("max_slowdown_ratio") is not None
-    ]
-    a_times: Dict[str, List[float]] = {}
+def _a_times_by_mix(entries: Sequence[Mapping[str, Any]]) -> Dict[str, List[float]]:
+    times: Dict[str, List[float]] = {}
     for entry in entries:
         if entry.get("arm") == "A":
-            a_times.setdefault(str(entry["mix"]), []).append(float(entry["wall_seconds"]))
-    base_times = baseline.get("times_by_mix") or {}
+            times.setdefault(str(entry["mix"]), []).append(float(entry["wall_seconds"]))
+    return times
+
+
+def _wall_ratios(
+    a_times: Mapping[str, List[float]], base_times: Mapping[str, List[float]]
+) -> Tuple[float | None, Dict[str, Dict[str, Any]]]:
+    """Arm A vs baseline mean wall-time ratio, pooled and per mix."""
     a_all = [t for times in a_times.values() for t in times]
     base_all = [t for times in base_times.values() for t in times]
-    wall_ratio = v7sweep._mean(a_all) / v7sweep._mean(base_all) if a_all and base_all else None
+    pooled = v7sweep._mean(a_all) / v7sweep._mean(base_all) if a_all and base_all else None
     per_mix = {
         mix: {
             "mean_A": v7sweep._mean(a_times.get(mix, [])),
@@ -678,12 +662,98 @@ def calibration_report(
         }
         for mix in sorted(set(a_times) | set(base_times))
     }
+    return pooled, per_mix
+
+
+def _concurrency(shards: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """Whether the shards ran together, and arm A episodes finished outside that window.
+
+    ``concurrent`` iff the overlap (latest start to earliest finish) is at least
+    :data:`CALIBRATION_MIN_OVERLAP_FRACTION` of the shortest shard's duration AND the starts
+    are spread over at most the rest of it (so a short, late shard cannot pass).
+    """
+    spans = [
+        (dev_screen._utc(str(s["started_utc"])), dev_screen._utc(str(s["finished_utc"])))
+        for s in shards
+        if s.get("started_utc") and s.get("finished_utc")
+    ]
+    if len(spans) != len(shards) or len(shards) != SHARDS:
+        return {
+            "concurrent": False,
+            "overlap_seconds": None,
+            "shortest_seconds": None,
+            "start_spread_seconds": None,
+            "a_outside": None,
+        }
+    start, end = max(a for a, _ in spans), min(b for _, b in spans)
+    overlap = (end - start).total_seconds()
+    shortest = min((b - a).total_seconds() for a, b in spans)
+    spread = (start - min(a for a, _ in spans)).total_seconds()
+    outside = [
+        utc
+        for s in shards
+        for utc in s.get("arm_a_finished_utc") or []
+        if not start <= dev_screen._utc(str(utc)) <= end
+    ]
+    return {
+        "concurrent": 0 < CALIBRATION_MIN_OVERLAP_FRACTION * shortest <= overlap
+        and spread <= (1 - CALIBRATION_MIN_OVERLAP_FRACTION) * shortest,
+        "overlap_seconds": overlap,
+        "shortest_seconds": shortest,
+        "start_spread_seconds": spread,
+        "a_outside": len(outside),
+    }
+
+
+def calibration_report(
+    shards: Sequence[Mapping[str, Any]],
+    entries: Sequence[Mapping[str, Any]],
+    baseline: Mapping[str, Any],
+    complete: bool,
+) -> Dict[str, Any]:
+    """The pre-declared 3-slot calibration verdict (protocol.md). JSON-safe.
+
+    ``shards`` are the shard rows built by ``merge``: ``guard`` = :func:`guard_stats` of the
+    shard's events, ``start_barrier_passed`` from its intent, ``arm_a_finished_utc`` from its
+    episode events; ``entries`` are all episode entries.
+    """
+    problems: List[str] = []
+    indices = sorted(int(s.get("shard", -1)) for s in shards)
+    if indices != list(range(SHARDS)):
+        problems.append(f"shards {indices} are not 0..{SHARDS - 1}")
+    held = sorted(str(s.get("slot_held")) for s in shards)
+    if held != sorted(dev_screen.SLOT_POOLS[SLOT_POOL]):
+        problems.append(f"slot files held {held} are not the 3 distinct pool-3 slots")
+    if not all(s.get("start_barrier_passed") is True for s in shards):
+        problems.append("a shard did not pass the start barrier")
+    overlap = _concurrency(shards)
+    if not overlap["concurrent"]:
+        problems.append(
+            "the shard processes did not run at the same time for at least "
+            f"{CALIBRATION_MIN_OVERLAP_FRACTION:.0%} of the shortest shard's duration, with "
+            "starts within the rest of it"
+        )
+    if not baseline.get("ok"):
+        problems.append(f"baseline not usable: {baseline.get('reason')}")
+    totals = {
+        key: sum(int((s.get("guard") or {}).get(key) or 0) for s in shards)
+        for key in ("checks", "not_ok_checks", "thermal_not_ok_checks", "slowdown_pauses", "stops")
+    }
+    ratios = [
+        (s.get("guard") or {}).get("max_slowdown_ratio")
+        for s in shards
+        if (s.get("guard") or {}).get("max_slowdown_ratio") is not None
+    ]
+    a_times = _a_times_by_mix(entries)
+    wall_ratio, per_mix = _wall_ratios(a_times, baseline.get("times_by_mix") or {})
+    mix_ratios = [row["ratio"] for row in per_mix.values()]
     criteria = {
         "zero_guard_stops": totals["stops"] == 0,
         "zero_thermal_not_ok_checks": totals["thermal_not_ok_checks"] == 0,
-        "slowdown_pauses_at_most_max": totals["slowdown_pauses"] <= CALIBRATION_MAX_SLOWDOWN_PAUSES,
-        "wall_ratio_at_most_max": wall_ratio is not None
-        and wall_ratio <= CALIBRATION_MAX_WALL_RATIO,
+        "wall_ratio_below_max": wall_ratio is not None and wall_ratio < CALIBRATION_MAX_WALL_RATIO,
+        "wall_ratio_below_max_in_every_mix": bool(mix_ratios)
+        and len(per_mix) == len(dev_screen.MIXES)
+        and all(r is not None and r < CALIBRATION_MAX_WALL_RATIO for r in mix_ratios),
     }
     if problems:
         status = "CALIBRATION_INVALID"
@@ -697,7 +767,10 @@ def calibration_report(
     else:
         status = "CALIBRATION_FAIL"
     recommendation = {
-        "CALIBRATION_PASS": "3 slots may become the Tier-1/dev default (separate explicit edit)",
+        "CALIBRATION_PASS": (
+            "3 slots may become the Tier-1/dev default (separate explicit edit citing the "
+            "disclosed deviations: arm A only, different worlds)"
+        ),
         "CALIBRATION_FAIL": "keep 2 slots for Tier-1/dev; record why",
         "CALIBRATION_INVALID": "no change; the calibration must be rerun",
     }[status]
@@ -708,9 +781,17 @@ def calibration_report(
             "rule": CALIBRATION_RULE,
             "problems": problems,
             "criteria": criteria,
+            "reported_only": {"slowdown_pauses": totals["slowdown_pauses"]},
+            "policy_deviations": [
+                "only arm A has a 2-slot baseline (the policy says per arm and mix)",
+                "the baseline played different worlds (the policy says the same episodes)",
+            ],
             "guard_totals": totals,
             "max_in_run_slowdown_ratio": max(ratios) if ratios else None,
-            "shard_overlap_seconds": overlap_seconds,
+            "shard_overlap_seconds": overlap["overlap_seconds"],
+            "shortest_shard_seconds": overlap["shortest_seconds"],
+            "shard_start_spread_seconds": overlap["start_spread_seconds"],
+            "arm_a_episodes_outside_concurrent_window": overlap["a_outside"],
             "slots_held": held,
             "wall_ratio_A_vs_baseline": wall_ratio,
             "wall_per_mix": per_mix,
@@ -779,6 +860,9 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     run.add_argument("--slot-timeout-seconds", type=float, default=180.0)
     run.add_argument("--thermal-backoff-seconds", type=float, default=60.0)
     run.add_argument("--thermal-max-backoffs", type=int, default=5)
+    run.add_argument("--barrier-timeout-seconds", type=float, default=BARRIER_TIMEOUT_SECONDS)
+    free = sub.add_parser("slots-free", help="pre-launch: are all 3 pool-3 slots free now?")
+    free.add_argument("--slot-lock-root", type=Path, default=dev_screen.DEFAULT_SLOT_LOCK_ROOT)
     merge = sub.add_parser("merge", help="combine the 3 shard dirs into summary.json")
     merge.add_argument("--shard-dirs", required=True, nargs="+", type=Path)
     merge.add_argument("--out", required=True, type=Path, help="new output dir (must not exist)")
@@ -787,6 +871,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     if args.command == "run":
         if args.thermal_backoff_seconds <= 0 or args.thermal_max_backoffs < 0:
             parser.error("need --thermal-backoff-seconds > 0 and --thermal-max-backoffs >= 0")
+        if args.barrier_timeout_seconds <= 0:
+            parser.error("need --barrier-timeout-seconds > 0")
         if args.smoke_frames is not None:
             args.mixes = tuple(m for m in args.smoke_mixes.split(",") if m)
             episodes = len(args.mixes) * args.worlds_per_mix * len(SMOKE_ARMS)
@@ -805,7 +891,108 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.command == "merge":
         return merge_main(args)
+    if args.command == "slots-free":
+        return slots_free_main(args)
     return run_main(args, argv)
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _barrier_problems(
+    markers: Mapping[int, Mapping[str, Any] | None],
+    identity: Mapping[str, Any],
+    mine: datetime,
+    timeout: float,
+    pid_alive: Callable[[int], bool],
+) -> List[str]:
+    """Why the barrier is not (yet) met; empty when all shards are ready."""
+    problems = [f"shard {k} has no readable marker" for k, m in markers.items() if m is None]
+    present = {k: m for k, m in markers.items() if m is not None}
+    for k, marker in sorted(present.items()):
+        if any(marker.get(key) != value for key, value in identity.items()):
+            problems.append(f"shard {k} marker is from another commit, protocol or plan")
+        written = dev_screen._utc(str(marker.get("written_utc")))
+        if abs((written - mine).total_seconds()) > timeout:
+            problems.append(f"shard {k} marker is stale")
+        if not pid_alive(int(marker.get("pid", -1))):
+            problems.append(f"shard {k} process {marker.get('pid')} is not running")
+    slots = sorted(str(m.get("slot_held")) for m in present.values())
+    if len(present) == len(markers) and slots != sorted(dev_screen.SLOT_POOLS[SLOT_POOL]):
+        problems.append(f"slots held {slots} are not the 3 distinct pool-3 slots")
+    return problems
+
+
+def start_barrier(
+    barrier_dir: Path,
+    shard: int,
+    identity: Mapping[str, Any],
+    slot_held: str,
+    timeout: float,
+    *,
+    poll: float = 1.0,
+    sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
+    pid_alive: Callable[[int], bool] = _pid_alive,
+) -> Dict[str, Any]:
+    """Rendezvous of the 3 non-smoke shards, after each took its slot, before any episode.
+
+    Writes ``<barrier_dir>/shard-<shard>.json`` (atomically; commit, protocol sha256,
+    shards, slot held, pid, time), then waits at most ``timeout`` s until every shard's
+    marker is present, fresh (written within ``timeout`` of this one), from a live process,
+    with the same ``identity``, and the markers hold the 3 distinct pool-3 slots. Returns
+    ``{"passed": bool, "problems": [...], ...}``; a shard that does not pass plays nothing.
+    """
+    barrier_dir = Path(barrier_dir)
+    barrier_dir.mkdir(parents=True, exist_ok=True)
+    mine = datetime.now(timezone.utc)
+    own = {**identity, "shard": shard, "slot_held": slot_held, "pid": os.getpid()}
+    own["written_utc"] = mine.isoformat()
+    tmp = barrier_dir / f".shard-{shard}.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps(own, sort_keys=True), encoding="utf-8")
+    os.replace(tmp, barrier_dir / f"shard-{shard}.json")
+    started = clock()
+    while True:
+        markers: Dict[int, Mapping[str, Any] | None] = {}
+        for k in range(SHARDS):
+            try:
+                markers[k] = json.loads((barrier_dir / f"shard-{k}.json").read_text("utf-8"))
+            except (OSError, ValueError):
+                markers[k] = None
+        problems = _barrier_problems(markers, identity, mine, timeout, pid_alive)
+        waited = clock() - started
+        if not problems or waited >= timeout:
+            return {
+                "passed": not problems,
+                "problems": problems,
+                "dir": str(barrier_dir),
+                "timeout_seconds": timeout,
+                "waited_seconds": round(waited, 3),
+                "markers": {str(k): m for k, m in markers.items()},
+            }
+        sleep(poll)
+
+
+def slots_free_main(args: argparse.Namespace) -> int:
+    """Pre-launch check: try-lock all 3 pool-3 slots at once (non-blocking), then release.
+
+    Exit 0 iff all three are free right now (no strict run or other holder), else 2.
+    """
+    try:
+        slots = dev_screen.acquire_cpu_slots(args.slot_lock_root, SHARDS, 0.0, pool=SLOT_POOL)
+    except (OSError, TimeoutError, ValueError) as exc:
+        print(f"not all {SHARDS} pool-3 slots are free: {exc}", file=sys.stderr)
+        return 2
+    dev_screen.release_cpu_slots(slots)
+    print(json.dumps({"slots_free": list(dev_screen.SLOT_POOLS[SLOT_POOL])}))
+    return 0
 
 
 def run_refusal(args: argparse.Namespace, now: datetime) -> str | None:
@@ -881,7 +1068,26 @@ def run_main(args: argparse.Namespace, argv: Sequence[str] | None) -> int:
         return 2
     try:
         held = Path(slots[0].name).name
-        return _run_shard(args, argv, spec, out, seeds, disjoint, parity, profile, smoke, held)
+        barrier = None
+        if not smoke:
+            identity = {
+                "commit": dev_screen._git_state().get("commit"),
+                "protocol_sha256": dev_screen.sha256_file(Path(spec.protocol)),
+                "shards": args.shards,
+            }
+            barrier = start_barrier(
+                out.parent / BARRIER_DIRNAME,
+                args.shard,
+                identity,
+                held,
+                args.barrier_timeout_seconds,
+            )
+            if not barrier["passed"]:
+                print(json.dumps({"start_barrier_refusal": barrier}), file=sys.stderr)
+                return 2
+        return _run_shard(
+            args, argv, spec, out, seeds, disjoint, parity, profile, smoke, held, barrier=barrier
+        )
     finally:
         dev_screen.release_cpu_slots(slots)
 
@@ -898,6 +1104,7 @@ def _run_shard(
     smoke: bool,
     slot_held: str,
     runner: Callable[..., Dict[str, Any]] | None = None,
+    barrier: Mapping[str, Any] | None = None,
 ) -> int:
     """The shard body (``run_main`` holds the slot lock around it).
 
@@ -964,6 +1171,7 @@ def _run_shard(
             "backoff_seconds": args.thermal_backoff_seconds,
             "max_backoffs": args.thermal_max_backoffs,
         },
+        "start_barrier": barrier,
         "ac_power_checked_at_start": True,
         "threads": {"torch_intraop": 2, "torch_interop": 1},
     }
@@ -1190,6 +1398,10 @@ def merge_main(args: argparse.Namespace) -> int:
             "planned_episodes": len(s["intent"]["plan"]),
             "stopped_reason": s["summary"].get("stopped_reason"),
             "guard": guard_stats(s["events"]),
+            "start_barrier_passed": (s["intent"].get("start_barrier") or {}).get("passed"),
+            "arm_a_finished_utc": [
+                e["utc"] for e in s["events"] if e.get("arm") == "A" and "wall_seconds" in e
+            ],
             "intent_sha256": dev_screen.sha256_file(Path(s["dir"]) / "intent.json"),
         }
         for s in shards

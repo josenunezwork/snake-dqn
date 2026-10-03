@@ -158,6 +158,17 @@ counter identities against the probe (`sweep.v8_identities_hold`) and arm A's v7
   `snake-dqn-artifacts/pqn-followup-20260909`, opened read-only, never created; slot 3 exists
   only after `research/compute/slot_setup.py --create`), taken before `--out` exists and held
   until `shard_summary.json` is written. A shard that cannot get a slot within 180 s refuses.
+- Start barrier (non-smoke runs, in code): after taking its slot and before `--out` exists,
+  each shard writes a marker `<parent of --out>/.barrier/shard-K.json` (commit, this file's
+  sha256, `shards = 3`, slot held, pid, time) and waits at most 120 s
+  (`--barrier-timeout-seconds`) until all three markers are present, written within 120 s
+  of its own, from live processes, with the same commit, protocol sha256 and shard count,
+  and hold the three distinct pool-3 slot files. Otherwise it prints the refusal and exits
+  2 before any episode or output. Since the three markers mean the three shards hold every
+  pool-3 slot at once, no other holder (in particular the v7 strict run on slots 1 and 2)
+  can run beside the sweep, and a partial launch (one shard on slot 3 while slots 1 and 2
+  are held, or a sibling that failed to start) plays nothing. The barrier report is in
+  `intent.json` (`start_barrier`). A smoke (one shard) has no barrier.
 - Thermal guard: before each episode, `admit_next_episode` with dev_screen's defaults (pmset
   thermal/performance warning levels 0, CPU speed/scheduler limits not below 100, AC power;
   slowdown baseline 12 / window 8 / 60 %; 60 s backoff, at most 5 in a row; a persistent
@@ -165,7 +176,14 @@ counter identities against the probe (`sweep.v8_identities_hold`) and arm A's v7
   deviation, disclosed: the slowdown key is the whole shard (`shard`), not `arm/mix`. With
   8 episodes per arm and mix in the WHOLE sweep (at most 3 per shard), an `arm/mix` key never
   reaches the 12-episode baseline, so the detector would be inert. Each shard's order
-  interleaves mixes and arms per world, so its episode mix is roughly stationary.
+  interleaves mixes and arms per world, but world content still moves the shard key's wall
+  times. Measured before any episode (a proxy replay, no thermal cause): the pinned v7
+  sweep's single-process wall times, mapped onto this shard plan (4 arms per row) for all 6
+  mix orders and run through the real `ThermalGuard` / `admit_next_episode` at 12 / 1.60 /
+  8 with a whole-shard key, paused twice in 3 of 18 shard runs (including shard 1 in the
+  pre-declared frozen/scripted/mixed order), 0 times in the other 15, never stopped, and
+  the largest reported in-run ratio was 1.71. Slowdown pauses are therefore content-driven
+  at a known rate, and the calibration only reports them (below).
 - Output: real runs write only under
   `snake-dqn-artifacts/apex-veto-v8-lambda-sweep-20261002/run-v1/{shard-0,shard-1,shard-2,merged}`;
   smokes stay outside `snake-dqn-artifacts`.
@@ -181,27 +199,45 @@ This run doubles as the calibration in `docs/research/compute_policy_2026-10-02.
 output directory and a development-only namespace, on AC power with the lid open and
 `caffeinate`, while no strict run holds slots 1 and 2.
 
-- **Valid** only if the three shards held the three distinct pool-3 slot files and all ran
-  at the same time (latest start before earliest finish), and the 2-slot baseline is the
+- **Valid** only if the three shards each passed the start barrier, held the three distinct
+  pool-3 slot files, and ran at the same time for at least 90 % of the shortest shard's
+  duration (latest start to earliest finish), with all starts within the remaining 10 % of
+  it (any positive overlap is not enough: episodes in a long 1- or 2-shard tail are not
+  3-slot load, and a short late shard must not pass), and the 2-slot baseline is the
   pinned file: the v7 sweep's `run-v1/events.jsonl` (sha256 `0ea51914...c38ae`), arm L400 =
-  v7(lambda=4), the same veto as arm A here, one process holding one slot.
+  v7(lambda=4), the same veto as arm A here, one process holding one slot. The number of
+  arm A episodes that finished outside the all-three window is reported.
 - **PASS** iff all of: (a) zero thermal-guard stops on any shard; (b) zero guard checks that
   were not ok for a non-slowdown reason (any thermal or performance warning level above 0,
   `CPU_Speed_Limit` or `CPU_Scheduler_Limit` below 100, pmset unknown or failing, battery);
-  (c) at most 2 slowdown pauses in total over the three shards; (d) arm A's mean episode wall
-  time over its 24 episodes is at most 1.30 x the baseline's over its 24 (the policy's "under
-  30 %" against the 2-slot baseline; per-mix ratios and the guard's in-run slowdown ratios
-  are reported); and the sweep complete.
+  (c) arm A's mean episode wall time over its 24 episodes is strictly below 1.30 x the
+  baseline's over its 24, AND in each mix arm A's mean over its 8 episodes is strictly
+  below 1.30 x the baseline's 8 in that mix (the policy's "under 30 %" per mix, for arm A
+  only and on other worlds: see the deviations below); and the sweep complete. Reported
+  only: slowdown pauses (content-driven at a known rate, see "Thermal guard"; a pause still
+  costs 60 s and a persistent-slowdown stop is still a stop under (a)) and the guard's
+  in-run slowdown ratios.
 - **FAIL** if any criterion fails. A thermal stop is FAIL even though the sweep is then
   incomplete.
-- **INVALID** otherwise (for example a deadline stop, two shards not overlapping, or a
-  baseline whose bytes changed): no conclusion, rerun.
+- **INVALID** otherwise (for example a deadline stop, a shard without a passed barrier,
+  shards overlapping for less than 90 % of the shortest, or a baseline whose bytes
+  changed): no conclusion, rerun.
+- **Explicit deviations from policy step 4** (`compute_policy_2026-10-02.md`, which asks for
+  a slowdown under 30 % "per arm and mix" against a 2-slot baseline "for the same
+  episodes"): (1) only arm A is tested, because only v7(4) has a 2-slot baseline (the v8
+  arms never ran at 2 slots); (2) the baseline played different worlds (the v7 sweep's), so
+  each ratio mixes load with content. Episode wall time has a CV of about 0.35, so a per-mix
+  ratio of two 8-episode means has an SE of about 17 % and the pooled 24 vs 24 ratio about
+  10 %. With no true slowdown, each mix exceeds 1.30 with probability about 0.07, so the
+  per-mix gate gives a false FAIL about 18 % of the time; that error is conservative (it
+  keeps 2 slots). A PASS therefore does not meet the policy's literal criterion (same
+  episodes, every arm). The separate edit that makes 3 slots the default must cite these
+  two deviations and weigh the reported per-mix ratios and the in-run slowdown ratios.
 - Consequence: PASS -> 3 slots may become the default for Tier-1/dev runs, as the policy
   requires, in a separate explicit edit with its own note. FAIL -> keep 2 slots for
   Tier-1/dev and record why. Strict (Tier-2) packages stay on slots 1 and 2 either way.
-- Disclosed limits: the baseline worlds differ from this sweep's (content-dependent wall
-  time, CV about 0.35 per episode, so the ratio of two 24-episode means has an SE of about
-  10 %); what else ran during the baseline is not recorded; the guard does not read the lid.
+- Disclosed limits: what else ran during the baseline is not recorded; the guard does not
+  read the lid.
 
 ## Operator commands (after the v7 strict run has closed)
 
@@ -210,6 +246,8 @@ cd <this worktree>   # the commit that holds this file; tree clean for the real 
 R=/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909
 A=/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-lambda-sweep-20261002/run-v1
 PY=/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python
+# 0. Confirm the v7 strict run (apex-veto-v7-strict-20261002) has CLOSED: its final
+#    summary is written and its process has exited. Do not continue while it runs.
 # 1. Create the Tier-1/dev third slot (create-only; status first).
 $PY research/compute/slot_setup.py --root $R
 $PY research/compute/slot_setup.py --root $R --create
@@ -219,7 +257,9 @@ SNAKE_DQN_DEVICE=cpu $PY research/apex_veto_v8_lambda_sweep_20261002/sweep.py ru
   --deadline-utc $(date -u -v+20M +%Y-%m-%dT%H:%M:%S+00:00) \
   --smoke-frames 500 --worlds-per-mix 1 \
   --use-slot-locks --slot-pool 3 --thermal-guard --require-ac-power
-# 3. The real sweep: three shards at once, then merge.
+# 3. The real sweep: abort unless all 3 pool-3 slots are free now, then three shards at
+#    once (each waits at the start barrier for the other two), then merge.
+$PY research/apex_veto_v8_lambda_sweep_20261002/sweep.py slots-free --slot-lock-root $R || exit 1
 D=$(date -u -v+3H -v-5M +%Y-%m-%dT%H:%M:%S+00:00)
 for K in 0 1 2; do
   SNAKE_DQN_DEVICE=cpu caffeinate -dimsu $PY research/apex_veto_v8_lambda_sweep_20261002/sweep.py run \
@@ -230,7 +270,9 @@ $PY research/apex_veto_v8_lambda_sweep_20261002/sweep.py merge \
   --shard-dirs $A/shard-0 $A/shard-1 $A/shard-2 --out $A/merged
 ```
 
-(`mkdir -p` the parent of `$A` first; each `--out` must not exist.)
+(`mkdir -p` the parent of `$A` first; each `--out` must not exist. A barrier refusal
+exits 2 with no `--out` and no episode; its markers are ignored once their process is gone
+or they are older than 120 s, so the three shards can be relaunched together.)
 
 ## Non-claims
 

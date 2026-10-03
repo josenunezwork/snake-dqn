@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -285,7 +286,17 @@ def _shard_row(shard, guard_events=(), start="2026-10-03T00:00:00+00:00", end=No
         "started_utc": start,
         "finished_utc": end or "2026-10-03T00:30:00+00:00",
         "guard": sweep.guard_stats(list(guard_events)),
+        "start_barrier_passed": True,
+        "arm_a_finished_utc": ["2026-10-03T00:10:00+00:00"],
     }
+
+
+def _mix_entries(seconds_by_mix):
+    return [
+        dict(_entry("A", mix, i, 1.0), wall_seconds=seconds)
+        for mix, seconds in seconds_by_mix.items()
+        for i in range(8)
+    ]
 
 
 def _a_entries(seconds):
@@ -324,13 +335,42 @@ class TestCalibration:
         assert report["wall_ratio_A_vs_baseline"] == pytest.approx(1.2)
         assert report["max_in_run_slowdown_ratio"] == 1.1
         assert report["shard_overlap_seconds"] == 1800
+        assert report["arm_a_episodes_outside_concurrent_window"] == 0
+        assert report["criteria"]["wall_ratio_below_max_in_every_mix"]
+
+    def test_slowdown_pauses_are_reported_only(self):
+        pauses = [{"event": "thermal_guard_backoff", "reasons": ["slowdown:shard"]}] * 3
+        shards = [_shard_row(0, pauses), _shard_row(1), _shard_row(2)]
+        report = sweep.calibration_report(shards, _a_entries(30.0), BASELINE, complete=True)
+        assert report["status"] == "CALIBRATION_PASS", report["problems"]
+        assert report["reported_only"]["slowdown_pauses"] == 3
+        assert "slowdown_pauses_at_most_max" not in report["criteria"]
+
+    def test_one_slow_mix_fails_although_the_pooled_ratio_passes(self):
+        entries = _mix_entries({"frozen": 31.5, "mixed": 36.0, "scripted": 43.5})
+        shards = [_shard_row(k) for k in range(3)]
+        report = sweep.calibration_report(shards, entries, BASELINE, complete=True)
+        assert report["wall_ratio_A_vs_baseline"] == pytest.approx(37.0 / 30.0)
+        assert report["criteria"]["wall_ratio_below_max"]
+        assert not report["criteria"]["wall_ratio_below_max_in_every_mix"]
+        assert report["wall_per_mix"]["scripted"]["ratio"] == pytest.approx(1.45)
+        assert report["status"] == "CALIBRATION_FAIL"
+
+    def test_the_wall_bound_is_strict(self):
+        shards = [_shard_row(k) for k in range(3)]
+        report = sweep.calibration_report(shards, _a_entries(39.0), BASELINE, complete=True)
+        assert report["wall_ratio_A_vs_baseline"] == pytest.approx(1.30)
+        assert report["status"] == "CALIBRATION_FAIL"
+        missing_mix = _mix_entries({"frozen": 30.0, "mixed": 30.0})
+        report = sweep.calibration_report(shards, missing_mix, BASELINE, complete=True)
+        assert report["status"] == "CALIBRATION_FAIL"  # scripted has no A ratio
 
     @pytest.mark.parametrize(
         "events, seconds",
         [
             ([_check(False, ["thermal_warning_level=1"])], 30.0),
             ([_check(False, ["on_battery"])], 30.0),
-            ([{"event": "thermal_guard_backoff", "reasons": ["slowdown:shard"]}] * 3, 30.0),
+            ([{"event": "thermal_guard_check", "reasons": ["pmset_unavailable"]}], 30.0),
             ([], 40.0),  # 1.33 x the baseline
         ],
     )
@@ -361,6 +401,22 @@ class TestCalibration:
                 BASELINE,
                 True,
             ),
+            (
+                [*good[:2], _shard_row(2, start="2026-10-03T00:29:59+00:00")],  # 1 s overlap
+                BASELINE,
+                True,
+            ),
+            (
+                [  # 25 min overlap < 0.9 x the 30 min shortest shard
+                    *good[:2],
+                    _shard_row(
+                        2, start="2026-10-03T00:05:00+00:00", end="2026-10-03T00:40:00+00:00"
+                    ),
+                ],
+                BASELINE,
+                True,
+            ),
+            ([*good[:2], dict(good[2], start_barrier_passed=None)], BASELINE, True),
             (good, {"ok": False, "reason": "sha", "times_by_mix": {}}, True),
             (good, BASELINE, False),  # a deadline stop
         ]
@@ -612,6 +668,7 @@ def _write_shards(root, commit=COMMIT, tamper=None):
             "mixes": list(dev_screen.MIXES),
             "git": {"commit": commit if shard else COMMIT, "dirty_paths": ""},
             "plan": sweep.plan_keys(plan),
+            "start_barrier": {"passed": True},
         }
         if tamper is not None and shard == 2:
             intent["plan"] = intent["plan"][:-1]
@@ -693,3 +750,133 @@ class TestMerge:
         assert not (tmp_path / "merged").exists()
         (tmp_path / "merged").mkdir()
         assert self._merge(tmp_path, dirs, baseline) == 2
+
+
+# ---------------------------------------------------------------- start barrier, slots-free
+
+IDENTITY = {"commit": COMMIT, "protocol_sha256": "p" * 64, "shards": 3}
+
+
+def _marker(directory, shard, slot, *, pid=None, age_seconds=0.0, **identity):
+    written = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+    marker = {**IDENTITY, **identity, "shard": shard, "slot_held": slot}
+    marker.update(pid=os.getpid() if pid is None else pid, written_utc=written.isoformat())
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"shard-{shard}.json").write_text(json.dumps(marker))
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class TestStartBarrier:
+    def _wait(self, directory, shard=0, slot=SLOTS[2], **kwargs):
+        clock = _Clock()
+        return sweep.start_barrier(
+            directory, shard, IDENTITY, slot, 5.0, sleep=clock.sleep, clock=clock, **kwargs
+        )
+
+    def test_passes_when_all_three_shards_hold_distinct_slots(self, tmp_path):
+        _marker(tmp_path, 1, SLOTS[0])
+        _marker(tmp_path, 2, SLOTS[1])
+        report = self._wait(tmp_path)
+        assert report["passed"] and report["problems"] == []
+        own = json.loads((tmp_path / "shard-0.json").read_text())
+        assert own["slot_held"] == SLOTS[2] and own["pid"] == os.getpid()
+        assert own["commit"] == COMMIT and own["shards"] == 3
+
+    @pytest.mark.parametrize(
+        "sibling, expected",
+        [
+            ({}, "shard 2 has no readable marker"),  # a partial launch: shard 2 never started
+            ({"slot": SLOTS[0]}, "not the 3 distinct pool-3 slots"),
+            ({"age_seconds": 60.0}, "marker is stale"),
+            ({"pid": 999999999}, "is not running"),
+            ({"commit": "e" * 40}, "another commit"),
+            ({"protocol_sha256": "q" * 64}, "another commit, protocol"),
+        ],
+    )
+    def test_a_partial_or_mismatched_launch_never_passes(self, tmp_path, sibling, expected):
+        _marker(tmp_path, 1, SLOTS[0])
+        if sibling:
+            _marker(tmp_path, 2, sibling.pop("slot", SLOTS[1]), **sibling)
+        report = self._wait(tmp_path)
+        assert not report["passed"] and report["waited_seconds"] >= 5.0
+        assert any(expected in problem for problem in report["problems"]), report["problems"]
+
+
+class TestSlotsFree:
+    def test_all_free_busy_and_missing(self, tmp_path):
+        import fcntl
+
+        assert sweep.main(["slots-free", "--slot-lock-root", str(tmp_path)]) == 2  # missing
+        assert not any(tmp_path.iterdir())  # never created
+        for name in SLOTS:
+            (tmp_path / name).write_text("")
+        assert sweep.main(["slots-free", "--slot-lock-root", str(tmp_path)]) == 0
+        with (tmp_path / SLOTS[0]).open("r") as held:  # e.g. the strict run on slot 1
+            fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            assert sweep.main(["slots-free", "--slot-lock-root", str(tmp_path)]) == 2
+        assert sweep.main(["slots-free", "--slot-lock-root", str(tmp_path)]) == 0  # released
+
+
+class TestRunBarrier:
+    @pytest.fixture
+    def ready(self, setup_config, tmp_path, monkeypatch):
+        monkeypatch.setattr(dev_screen, "_configure_torch", lambda: None)
+        monkeypatch.setattr(dev_screen, "on_ac_power", lambda: True)
+        monkeypatch.setattr(dev_screen, "_git_state", lambda: {"commit": COMMIT, "dirty_paths": ""})
+        monkeypatch.setattr(dev_screen, "preflight_failures", lambda *a: [])
+        locks = tmp_path / "locks"
+        locks.mkdir()
+        for name in SLOTS:
+            (locks / name).write_text("")
+        return [
+            "run",
+            "--shard",
+            "0",
+            "--out",
+            str(tmp_path / "run" / "shard-0"),
+            "--deadline-utc",
+            _soon(1.0),
+            "--slot-lock-root",
+            str(locks),
+            "--barrier-timeout-seconds",
+            "0.2",
+            *FLAGS,
+        ]
+
+    def test_a_lone_shard_exits_before_any_output_or_episode(
+        self, ready, tmp_path, monkeypatch, capsys
+    ):
+        def body(*args, **kwargs):
+            raise AssertionError("a refused shard must not reach the shard body")
+
+        monkeypatch.setattr(sweep, "_run_shard", body)
+        assert sweep.main(ready) == 2
+        assert "start_barrier_refusal" in capsys.readouterr().err
+        assert not (tmp_path / "run" / "shard-0").exists()
+        marker = json.loads((tmp_path / "run" / ".barrier" / "shard-0.json").read_text())
+        assert marker["slot_held"] == "cpu-slot-3.lock"  # took slot 3 first, then refused
+        assert sweep.main(["slots-free", "--slot-lock-root", str(tmp_path / "locks")]) == 0
+
+    def test_a_full_rendezvous_reaches_the_shard_body(self, ready, tmp_path, monkeypatch):
+        sha = dev_screen.sha256_file(sweep.SPEC.protocol)
+        for shard, slot in ((1, SLOTS[0]), (2, SLOTS[1])):
+            _marker(tmp_path / "run" / ".barrier", shard, slot, protocol_sha256=sha)
+        seen = {}
+
+        def body(*args, barrier=None, **kwargs):
+            seen.update(slot=args[-1], barrier=barrier)
+            return 0
+
+        monkeypatch.setattr(sweep, "_run_shard", body)
+        assert sweep.main(ready) == 0
+        assert seen["slot"] == "cpu-slot-3.lock" and seen["barrier"]["passed"]
