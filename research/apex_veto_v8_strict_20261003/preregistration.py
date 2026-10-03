@@ -40,6 +40,7 @@ import hashlib  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import sys  # noqa: E402
+import tempfile  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
 from statistics import NormalDist  # noqa: E402
@@ -514,7 +515,9 @@ def band_cost(screen, plan) -> Dict[str, Any]:
 
 
 def skew_prerun(deltas_by_mix, n_max: int, delta_ni: float, reps: int) -> Dict[str, Any]:
-    tmp = HERE / ".skew_prerun_tmp.json"
+    handle, name = tempfile.mkstemp(suffix=".json", prefix="v8strict-skew-prerun-")
+    os.close(handle)
+    tmp = Path(name)  # outside the repo (never in the source closure)
     out = {}
     try:
         for mix in MIXES:

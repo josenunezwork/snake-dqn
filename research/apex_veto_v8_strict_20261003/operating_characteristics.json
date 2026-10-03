@@ -1,5 +1,5 @@
 {
- "cpu_seconds_total": 49.1,
+ "cpu_seconds_total": 51.2,
  "expected_duration": {
   "calibration_h": 0.25355519193004067,
   "final_expected_h_at_screen_effects": 7.642119318079567,
@@ -170,7 +170,7 @@
    }
   },
   "boundary_precision": {
-   "cpu_seconds": 3.34,
+   "cpu_seconds": 3.46,
    "efficacy_any_look_at_zero": {
     "high": 0.01694688193646812,
     "k": 33536,
@@ -197,7 +197,7 @@
   },
   "scenarios": {
    "delta_mde": {
-    "cpu_seconds": 0.34,
+    "cpu_seconds": 0.35,
     "honor_futility": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -365,7 +365,7 @@
     }
    },
    "frozen_mean_scripted_mde_mixed_zero": {
-    "cpu_seconds": 0.68,
+    "cpu_seconds": 0.69,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -537,7 +537,7 @@
     }
    },
    "frozen_mean_scripted_zero_mixed_zero": {
-    "cpu_seconds": 0.68,
+    "cpu_seconds": 0.71,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -711,7 +711,7 @@
     }
    },
    "lfc_one_effect_two_null": {
-    "cpu_seconds": 2.69,
+    "cpu_seconds": 3.03,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -885,7 +885,7 @@
     }
    },
    "ni_null_scripted_at_margin": {
-    "cpu_seconds": 2.64,
+    "cpu_seconds": 2.7,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -1057,7 +1057,7 @@
     }
    },
    "null_indep": {
-    "cpu_seconds": 2.75,
+    "cpu_seconds": 2.97,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -1233,7 +1233,7 @@
     }
    },
    "null_screen_corr": {
-    "cpu_seconds": 3.58,
+    "cpu_seconds": 3.78,
     "futility_overridden": {
      "between_mix_correlation": 0.0669500386882195,
      "deltas": [
@@ -1465,7 +1465,7 @@
     }
    },
    "screen_means_screen_corr": {
-    "cpu_seconds": 0.45,
+    "cpu_seconds": 0.46,
     "honor_futility": {
      "between_mix_correlation": 0.0669500386882195,
      "deltas": [

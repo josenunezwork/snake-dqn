@@ -114,21 +114,28 @@ MDE 25 -> N_max 359 (infeasible), **MDE 30 -> n_fixed 244, N_max 249**, projecte
 worker = 66.8% of 44,970 s (basis: the screen's mean episode times, v7 41.3/24.7/33.2 s and v8
 46.4/28.5/35.6 s for frozen/scripted/mixed, 3 concurrent shards, the v8 arm also running a
 reference v7; x1.15 overhead). The MC confirms 90.4% / 90.2% per-mix sequential power at the
-MDE (frozen / scripted SD).
+MDE (frozen / scripted SD). **These are efficacy-only figures.** The whole gate (efficacy, NI
+and the survival bands) passes only about 47% with the MDE in every mix and the screen's
+survival data (joint bootstrap `screen_shape_at_mde_all_mixes`: STOP_FAIL_BANDS 0.469), because
+of the band cost described below.
 
 ## Operating characteristics (`operating_characteristics.json`)
 
 Normal deltas with the per-mix screen SDs (simulate.py's `Replica`, reused unchanged; bands not
 simulated here), 200k replicates per null row, 50k per power row:
 
-| Scenario (frozen, scripted, mixed) | P(PASS) | familywise false rejection | E[worlds/mix] |
+| Scenario (frozen, scripted, mixed) | P(PASS) | familywise false rejection: futility followed / ignored | E[worlds/mix] |
 |---|---|---|---|
-| global null (0,0,0) | 0.0006 | 0.033 | 195 |
-| one effect, two nulls (130,0,0) | 0.021 | 0.033 | 222 |
+| global null (0,0,0) | 0.0006 | 0.033 / **0.0499** | 195 |
+| one effect, two nulls (130,0,0) | 0.021 | 0.033 / 0.033 | 222 |
 | scripted at NI margin (130,-9.42,130) | 0.050 | - | 247 |
 | MDE in every mix (30,30,30) | 0.989 | - | 178 |
 | **screen means (38.6, 19.6, 1.4)** | **0.543** (frozen crosses 0.99, scripted 0.54, mixed 0.03) | - | 229 |
 | frozen at its 90% LB (15.8, 19.6, 1.4) | 0.218 | - | 236 |
+
+Futility is non-binding, so the guaranteed familywise error is the futility-ignored column
+(0.0499 at the global null, 0.0494 with the screen's between-mix correlation); following
+futility only lowers it.
 
 Boundary precision (2M replicates): efficacy any-look at zero 0.01677 (target 0.01667), NI at
 its null 0.0502 (target 0.05).
@@ -181,6 +188,19 @@ create-only look receipts -> independent stdlib audit (`sequential_audit.py`) ->
 `SKEW_CHECK_FAILED`, `INCOMPLETE`, `INVALID_STOP`; never relabelled, never resumed or rerun,
 never stopped early outside these rules. After an early stop per-mix means are naive and
 descriptive only.
+
+Audit scope (disclosed): the template's independent audit re-derives the plan, calibration,
+banks, skew verdict, every look's decision, prefix integrity and provenance from the raw
+records, but it checks only envelope fields and finite metrics per record. It does not re-run
+`validate_strict_world_record`, the probe method or the diagnostics kind, as the v7 package's
+audit did. Record-level arm identity rests on the in-worker checks (`episode_runner` and
+`validate_record`, both in the hashed source closure) and on the `arm_identity_sha256` each
+envelope carries. A stdlib record-shape check in the template audit is future work.
+
+Checkpoints (disclosed difference from the v7 package): the pool checkpoints are loaded from
+`/Users/josenunez/Projects/ml/snake-dqn/saved_snakes`, not snapshotted into the output root.
+Every episode re-hashes all four against their pinned sha256s before `rollout` loads them, and
+the champion is re-hashed in the arm identities before every segment.
 
 Expected duration: calibration about 0.25 h; skew check under 1 min; each look about 2.1 h;
 final about 7.6 h at the screen's effects (8.3 h at N_max); audit minutes. The deadline is set

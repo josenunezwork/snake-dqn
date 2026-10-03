@@ -623,3 +623,42 @@ def test_cli_resolves_a_study_spec_when_the_runner_is_main(tmp_path):
     assert "spec must be a StudySpec" not in proc.stderr
     assert "example_spec: list every earlier namespace" in proc.stderr
     assert not (tmp_path / "x").exists()
+
+
+@needs_artifacts
+def test_cli_prepare_resolves_the_real_spec_when_the_runner_is_main(tmp_path):
+    """Script-mode ``prepare`` of this study's SPEC gets past spec resolution, identities and
+    the bank check, and fails only at the deliberately missing skew input (writes nothing)."""
+    proc = subprocess.run(
+        [
+            str(PYTHON),
+            "-I",
+            "-B",
+            str(REPO / "research/sequential_strict_template/sequential_runner.py"),
+            "prepare",
+            "--spec",
+            "research.apex_veto_v8_strict_20261003.spec:SPEC",
+            "--out-root",
+            str(tmp_path / "x"),
+            "--n-max",
+            "249",
+            "--mde",
+            "30",
+            "--n-calibration",
+            "16",
+            "--skew-input",
+            str(tmp_path / "missing-deltas.json"),
+            "--deadline-utc",
+            "2030-01-01T00:00:00+00:00",
+            "--authorization-quote",
+            "test",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+        env={"SNAKE_DQN_DEVICE": "cpu", "OMP_NUM_THREADS": "1", "PATH": "/usr/bin:/bin"},
+    )
+    assert proc.returncode != 0
+    assert "spec must be a StudySpec" not in proc.stderr
+    assert "missing-deltas.json" in proc.stderr, proc.stderr[-2000:]
+    assert not (tmp_path / "x").exists()
