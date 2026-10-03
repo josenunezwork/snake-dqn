@@ -56,6 +56,20 @@ Design (all pre-registered in a :class:`SequentialGatePlan` before any final dat
   is 0 (the fixed-N point rule).  For independent band data, a candidate whose band
   violation the fixed-N gate catches with probability ``>= Phi(band_margin_z)`` is caught
   at an interim stop with at least that probability.
+* **Paired noninferiority bands (``band_policy="paired_ni_at_stop"``, opt-in).**  Proposed by
+  ``docs/research/governance_amendment_paired_bands_2026-10-03.md``.  Still judged once, at
+  the qualifying look, and never delaying a stop, but on the *paired* per-world delta
+  (candidate minus incumbent on the same final worlds) instead of the candidate mean
+  against a calibration reference.  A band passes iff the one-sided lower confidence bound
+  ``mean - t_{n-1}(band_nominal_p[k]) * se > -band_ni_margin`` (strict ``>``, as in
+  :func:`src.scripts.eval_stats.scripted_noninferiority`), and, if a ``band_floor`` is
+  pre-registered, the candidate mean is ``>= band_floor`` (a mechanical sanity tripwire, not a
+  test).  ``band_bound="rci_obf"`` takes ``band_nominal_p`` from a Lan-DeMets OBF spending at
+  ``band_alpha`` (a repeated confidence bound: its coverage holds at any data-dependent
+  stopping look, including one selected by the correlated mass deltas);
+  ``band_bound="pointwise"`` uses ``band_alpha`` at every look (exact at a fixed look, not
+  under selection).  ``band_margin_z`` is not used by this policy.  See
+  :func:`paired_band_check` and :func:`plan_paired_band_check`.
 * **Decision at look k.**  At a qualifying interim look ``STOP_PASS`` if the bands pass,
   else ``STOP_FAIL_BANDS``; otherwise ``STOP_FUTILE`` if so many uncrossed mixes are
   futile that ``required_successes`` can no longer be reached; else ``CONTINUE``.  At
@@ -75,7 +89,11 @@ from statistics import NormalDist
 from typing import Any
 
 from src.evaluation.screen_stats import futility_plan
-from src.scripts.eval_stats import paired_delta_test, scripted_noninferiority
+from src.scripts.eval_stats import (
+    paired_delta_test,
+    scripted_noninferiority,
+    student_t_isf,
+)
 
 __all__ = [
     "DEFAULT_FRACTIONS",
@@ -83,6 +101,8 @@ __all__ = [
     "SequentialGatePlan",
     "band_check",
     "conditional_power",
+    "paired_band_check",
+    "plan_paired_band_check",
     "look_sizes_for",
     "round_robin_plan",
     "run_sequential_gate",
@@ -97,7 +117,11 @@ DEFAULT_MIXES = ("frozen", "scripted", "mixed")
 DEFAULT_FUTILITY_CP = 0.10
 DEFAULT_BAND_MARGIN_Z = 1.645
 FUTILITY_POLICIES = ("followed", "overridable")
-BAND_POLICIES = ("block_at_stop",)
+BAND_POLICIES = ("block_at_stop", "paired_ni_at_stop")
+PAIRED_BAND_BOUNDS = ("rci_obf", "pointwise")
+# Plan fields that exist only under band_policy "paired_ni_at_stop".  They are omitted from
+# ``as_dict`` under "block_at_stop", so every legacy plan dict (and its sha256) is unchanged.
+_PAIRED_BAND_FIELDS = ("band_ni_margin", "band_alpha", "band_bound", "band_nominal_p", "band_floor")
 _NORMAL = NormalDist()
 
 
@@ -149,6 +173,11 @@ class SequentialGatePlan:
     futility_policy: str = "followed"
     band_policy: str = "block_at_stop"
     band_margin_z: float = DEFAULT_BAND_MARGIN_Z
+    band_ni_margin: float | None = None
+    band_alpha: float | None = None
+    band_bound: str | None = None
+    band_nominal_p: tuple[float, ...] | None = None
+    band_floor: float | None = None
 
     @property
     def n_looks(self) -> int:
@@ -157,6 +186,8 @@ class SequentialGatePlan:
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"method": SEQUENTIAL_GATE_METHOD}
         for key, value in self.__dict__.items():
+            if key in _PAIRED_BAND_FIELDS and self.band_policy != "paired_ni_at_stop":
+                continue
             out[key] = list(value) if isinstance(value, tuple) else value
         out["spending"] = "lan_demets_obrien_fleming"
         out["multiplicity"] = "bonferroni_across_mixes"
@@ -178,8 +209,17 @@ def sequential_gate_plan(
     futility_policy: str = "followed",
     band_policy: str = "block_at_stop",
     band_margin_z: float = DEFAULT_BAND_MARGIN_Z,
+    band_ni_margin: float | None = None,
+    band_alpha: float | None = None,
+    band_bound: str | None = None,
+    band_floor: float | None = None,
 ) -> SequentialGatePlan:
-    """Compute and freeze the looks, boundaries and nominal levels of the gate."""
+    """Compute and freeze the looks, boundaries and nominal levels of the gate.
+
+    ``band_ni_margin``, ``band_alpha``, ``band_bound`` and ``band_floor`` belong to
+    ``band_policy="paired_ni_at_stop"`` (margin, alpha and bound are then required, the floor
+    is optional) and must be left ``None`` under the default ``"block_at_stop"``.
+    """
     names = tuple(str(m) for m in mixes)
     if len(names) < 1 or len(set(names)) != len(names):
         raise ValueError("mixes must be distinct and non-empty")
@@ -205,6 +245,9 @@ def sequential_gate_plan(
     ):
         raise ValueError("band_margin_z must be a finite number >= 0")
     sizes = look_sizes_for(n_max, fractions)
+    paired = _paired_band_parameters(
+        band_policy, sizes, n_max, band_ni_margin, band_alpha, band_bound, band_floor
+    )
     per_mix = family_alpha / len(names)
     efficacy = futility_plan(sizes, alpha=per_mix, max_size=n_max)
     ni = futility_plan(sizes, alpha=ni_alpha, max_size=n_max)
@@ -229,7 +272,140 @@ def sequential_gate_plan(
         futility_policy=futility_policy,
         band_policy=band_policy,
         band_margin_z=float(band_margin_z),
+        **paired,
     )
+
+
+def _paired_band_parameters(
+    band_policy: str,
+    sizes: tuple[int, ...],
+    n_max: int,
+    margin: object,
+    alpha: object,
+    bound: object,
+    floor: object,
+) -> dict[str, Any]:
+    if band_policy != "paired_ni_at_stop":
+        if any(v is not None for v in (margin, alpha, bound, floor)):
+            raise ValueError(
+                "band_ni_margin, band_alpha, band_bound and band_floor need "
+                'band_policy="paired_ni_at_stop"'
+            )
+        return {}
+    if (
+        isinstance(margin, bool)
+        or not isinstance(margin, (int, float))
+        or not (math.isfinite(margin) and margin > 0.0)
+    ):
+        raise ValueError("band_ni_margin must be a positive finite number")
+    alpha = _probability(alpha, "band_alpha", 0.5)
+    if bound not in PAIRED_BAND_BOUNDS:
+        raise ValueError(f"band_bound must be one of {PAIRED_BAND_BOUNDS}")
+    if floor is not None and (
+        isinstance(floor, bool) or not isinstance(floor, (int, float)) or not math.isfinite(floor)
+    ):
+        raise ValueError("band_floor must be None or a finite number")
+    if bound == "rci_obf":
+        spent = futility_plan(sizes, alpha=alpha, max_size=n_max)
+        nominal = tuple(_NORMAL.cdf(-c) for c in spent.boundaries)
+    else:
+        nominal = (alpha,) * len(sizes)
+    return {
+        "band_ni_margin": float(margin),
+        "band_alpha": alpha,
+        "band_bound": bound,
+        "band_nominal_p": nominal,
+        "band_floor": None if floor is None else float(floor),
+    }
+
+
+def paired_band_check(
+    candidate: Sequence[float],
+    incumbent: Sequence[float],
+    *,
+    margin: float,
+    nominal_p: float,
+    floor: float | None = None,
+) -> dict[str, Any]:
+    """One paired noninferiority band on the worlds available at a look.
+
+    ``candidate[i]`` and ``incumbent[i]`` are the band metric of the two arms on the same
+    world.  Passes iff ``mean(d) - t_{n-1}(nominal_p) * sd(d) / sqrt(n) > -margin`` with
+    ``d = candidate - incumbent`` (strict ``>``), and ``mean(candidate) >= floor`` when a floor
+    is given.  With zero spread the bound is the mean itself.
+    """
+    cand = [float(v) for v in candidate]
+    inc = [float(v) for v in incumbent]
+    if len(cand) != len(inc):
+        raise ValueError("candidate and incumbent must pair one value per world")
+    if len(cand) < 2 or not all(math.isfinite(v) for v in cand + inc):
+        raise ValueError("paired_band_check needs at least two finite pairs")
+    if isinstance(margin, bool) or not isinstance(margin, (int, float)):
+        raise TypeError("margin must be a real number")
+    margin = float(margin)
+    if not (math.isfinite(margin) and margin > 0.0):
+        raise ValueError("margin must be a positive finite number")
+    nominal_p = _probability(nominal_p, "nominal_p", 0.5)
+    if floor is not None and not math.isfinite(float(floor)):
+        raise ValueError("floor must be None or finite")
+    n = len(cand)
+    deltas = [c - i for c, i in zip(cand, inc)]
+    mean = math.fsum(deltas) / n
+    sd = math.sqrt(math.fsum((v - mean) ** 2 for v in deltas) / (n - 1))
+    se = sd / math.sqrt(n)
+    t_crit = student_t_isf(nominal_p, n - 1)
+    lower = mean - t_crit * se
+    candidate_mean = math.fsum(cand) / n
+    passes_ni = bool(lower > -margin)
+    passes_floor = True if floor is None else bool(candidate_mean >= float(floor))
+    return {
+        "n": n,
+        "mean_delta": mean,
+        "sample_std": sd,
+        "standard_error": se,
+        "nominal_p": nominal_p,
+        "t_critical": t_crit,
+        "lower_bound": lower,
+        "margin": margin,
+        "candidate_mean": candidate_mean,
+        "incumbent_mean": math.fsum(inc) / n,
+        "floor": None if floor is None else float(floor),
+        "passes_ni": passes_ni,
+        "passes_floor": passes_floor,
+        "passes": passes_ni and passes_floor,
+    }
+
+
+def plan_paired_band_check(
+    plan: SequentialGatePlan,
+    look: int,
+    candidate: Sequence[float],
+    incumbent: Sequence[float],
+) -> dict[str, Any]:
+    """:func:`paired_band_check` with the plan's margin, floor and look-``look`` level.
+
+    The pair lists must hold exactly ``plan.look_sizes[look]`` worlds (the look's prefix).
+    """
+    if not isinstance(plan, SequentialGatePlan):
+        raise TypeError("plan must be a SequentialGatePlan")
+    if plan.band_policy != "paired_ni_at_stop" or plan.band_nominal_p is None:
+        raise ValueError('plan_paired_band_check needs band_policy="paired_ni_at_stop"')
+    if isinstance(look, bool) or not isinstance(look, int) or not 0 <= look < plan.n_looks:
+        raise ValueError("look index out of range")
+    expected = plan.look_sizes[look]
+    if len(candidate) != expected or len(incumbent) != expected:
+        raise ValueError(f"look {look} is pre-declared at {expected} worlds per band")
+    assert plan.band_ni_margin is not None
+    out = paired_band_check(
+        candidate,
+        incumbent,
+        margin=plan.band_ni_margin,
+        nominal_p=plan.band_nominal_p[look],
+        floor=plan.band_floor,
+    )
+    out["look"] = look
+    out["band_bound"] = plan.band_bound
+    return out
 
 
 def band_check(
@@ -358,7 +534,7 @@ def _decide(
     qualifies = successes >= plan.required_successes and ni
     if look == plan.n_looks - 1:
         return "FINAL_PASS" if qualifies and bands else "FINAL_FAIL"
-    if qualifies:  # band_policy "block_at_stop": bands judged once, never delay
+    if qualifies:  # both band policies: bands judged once, at this look, never delay
         return "STOP_PASS" if bands else "STOP_FAIL_BANDS"
     if len(plan.mixes) - futile < plan.required_successes:
         return "STOP_FUTILE"
@@ -376,9 +552,11 @@ def sequential_decision(
 
     ``deltas_by_mix[m]`` holds exactly ``plan.look_sizes[look]`` candidate-minus-incumbent
     deltas of mix ``m`` in the pre-declared world order; earlier looks are its prefixes.
-    ``bands_pass[i]`` is the behavioral-band verdict (every band through :func:`band_check`
-    with ``plan.band_margin_z`` and ``n_final = plan.n_max``) on the data available at look
-    ``i``, one entry per look ``0..look``; only the qualifying look's entry is used.  If an
+    ``bands_pass[i]`` is the behavioral-band verdict on the data available at look ``i``, one
+    entry per look ``0..look``; only the qualifying look's entry is used.  Under
+    ``band_policy="block_at_stop"`` every band goes through :func:`band_check` with
+    ``plan.band_margin_z`` and ``n_final = plan.n_max``; under ``"paired_ni_at_stop"`` through
+    :func:`plan_paired_band_check` at look ``i``.  If an
     earlier look already reached ``STOP_PASS`` or ``STOP_FAIL_BANDS`` the result is invalid.
     An earlier ``STOP_FUTILE`` that was overridden is listed in ``futility_overrides``; it
     is valid only under ``futility_policy="overridable"`` (futility is non-binding, so

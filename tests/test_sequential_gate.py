@@ -1,5 +1,6 @@
 """Tests for src/evaluation/sequential_gate.py (group-sequential strict gate, opt-in)."""
 
+import hashlib
 import json
 import math
 from statistics import NormalDist
@@ -12,6 +13,8 @@ from src.evaluation.sequential_gate import (
     band_check,
     conditional_power,
     look_sizes_for,
+    paired_band_check,
+    plan_paired_band_check,
     round_robin_plan,
     run_sequential_gate,
     sequential_decision,
@@ -380,3 +383,212 @@ def test_skew_probe_rates_and_resample_check(plan, tmp_path):
     saved.write_text(json.dumps((np.random.default_rng(4).standard_normal(300) * 140).tolist()))
     ok = probe.part_resample(str(saved), 20_000, 243, 3.5, (0.25, 0.5, 0.75, 1.0))
     assert ok["passes"] and ok["look_sizes"] == [61, 122, 183, 243]
+
+
+# ------------------------------------------- paired noninferiority bands (2026-10-03, opt-in)
+
+LEGACY_PLAN_KEYS = {
+    "method", "mixes", "scripted_mix", "n_max", "look_sizes", "fractions", "family_alpha",
+    "efficacy_alpha_per_mix", "efficacy_boundaries", "efficacy_nominal_p",
+    "efficacy_alpha_spent", "ni_alpha", "ni_boundaries", "ni_nominal_p", "ni_alpha_spent",
+    "required_successes", "mde", "futility_cp", "futility_policy", "band_policy",
+    "band_margin_z", "spending", "multiplicity", "futility",
+}  # fmt: skip
+
+
+def _sha(plan_dict):
+    text = json.dumps(plan_dict, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _paired_plan(**overrides):
+    kwargs = dict(
+        band_policy="paired_ni_at_stop", band_ni_margin=0.05, band_alpha=0.05,
+        band_bound="pointwise",
+    )  # fmt: skip
+    kwargs.update(overrides)
+    return sequential_gate_plan(249, mde=30.0, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "n_max, digest",
+    [
+        (243, "63f5e8eec780e20527481fa5321d877760773d1078fe619cf60bfbfc93b2c36c"),
+        (249, "6eb9fb20cd6467c1e6309dd3a9868d34506302d023a0466aa96960e25b37a45b"),
+    ],
+)
+def test_default_band_policy_plan_dict_and_hash_are_unchanged(n_max, digest):
+    # Golden sha256 values were computed on main (5a82a6d) before paired bands existed.
+    frozen = sequential_gate_plan(n_max, mde=30.0).as_dict()
+    assert set(frozen) == LEGACY_PLAN_KEYS
+    assert _sha(frozen) == digest
+
+
+def test_paired_band_fields_are_part_of_the_hashed_plan():
+    plan = _paired_plan()
+    frozen = plan.as_dict()
+    assert frozen["band_policy"] == "paired_ni_at_stop"
+    assert frozen["band_ni_margin"] == 0.05 and frozen["band_alpha"] == 0.05
+    assert frozen["band_bound"] == "pointwise" and frozen["band_floor"] is None
+    assert frozen["band_nominal_p"] == [0.05] * 4
+    assert set(frozen) == LEGACY_PLAN_KEYS | {
+        "band_ni_margin", "band_alpha", "band_bound", "band_nominal_p", "band_floor",
+    }  # fmt: skip
+    digests = {
+        _sha(p.as_dict())
+        for p in (
+            plan,
+            _paired_plan(band_ni_margin=0.075),
+            _paired_plan(band_alpha=0.10),
+            _paired_plan(band_bound="rci_obf"),
+            _paired_plan(band_floor=0.3),
+            sequential_gate_plan(249, mde=30.0),
+        )
+    }
+    assert len(digests) == 6
+    assert json.loads(json.dumps(frozen)) == frozen
+    # Efficacy, NI and futility parts are untouched by the band policy.
+    legacy = sequential_gate_plan(249, mde=30.0).as_dict()
+    for key in LEGACY_PLAN_KEYS - {"band_policy"}:
+        assert frozen[key] == legacy[key]
+
+
+def test_rci_band_levels_are_obf_spending_at_band_alpha():
+    from src.evaluation.screen_stats import futility_plan
+
+    plan = _paired_plan(band_bound="rci_obf", band_alpha=0.10)
+    spent = futility_plan(plan.look_sizes, alpha=0.10, max_size=plan.n_max)
+    assert plan.band_nominal_p == pytest.approx([N.cdf(-c) for c in spent.boundaries])
+    assert all(a < b for a, b in zip(plan.band_nominal_p, plan.band_nominal_p[1:]))
+    assert plan.band_nominal_p[-1] < 0.10
+    assert sum(plan.band_nominal_p) >= 0.10  # any-look spending is at most the sum
+
+
+def test_paired_band_plan_rejects_bad_inputs():
+    with pytest.raises(ValueError):  # paired fields under the default policy
+        sequential_gate_plan(249, mde=30.0, band_ni_margin=0.05)
+    with pytest.raises(ValueError):
+        sequential_gate_plan(249, mde=30.0, band_floor=0.3)
+    for bad in (
+        dict(band_ni_margin=None),
+        dict(band_ni_margin=0.0),
+        dict(band_ni_margin=math.inf),
+        dict(band_ni_margin=True),
+        dict(band_alpha=None),
+        dict(band_alpha=0.5),
+        dict(band_bound=None),
+        dict(band_bound="holm"),
+        dict(band_floor=math.nan),
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            _paired_plan(**bad)
+    with pytest.raises(ValueError):
+        sequential_gate_plan(249, mde=30.0, band_policy="paired")
+
+
+def test_paired_band_check_matches_the_scripted_ni_oracle():
+    rng = np.random.default_rng(11)
+    for trial in range(40):
+        n = int(rng.integers(5, 250))
+        inc = rng.uniform(0, 1, n)
+        cand = np.clip(inc + rng.normal(-0.03 + 0.002 * trial, 0.23, n), 0, 1)
+        margin, alpha = float(rng.choice([0.02, 0.05, 0.075])), float(rng.choice([0.05, 0.1]))
+        mine = paired_band_check(cand.tolist(), inc.tolist(), margin=margin, nominal_p=alpha)
+        oracle = scripted_noninferiority((cand - inc).tolist(), margin, alpha=alpha)
+        assert mine["passes"] == oracle["passes"] == mine["passes_ni"]
+        assert mine["lower_bound"] == pytest.approx(oracle["lower_bound"], abs=1e-12)
+        assert mine["candidate_mean"] == pytest.approx(cand.mean())
+        assert mine["incumbent_mean"] == pytest.approx(inc.mean())
+
+
+def test_paired_band_check_is_strict_floor_and_zero_spread():
+    inc = [0.5] * 10
+    same = paired_band_check([0.45] * 10, inc, margin=0.05, nominal_p=0.05)
+    assert same["sample_std"] == 0.0
+    assert same["lower_bound"] == pytest.approx(-0.05)
+    exact = paired_band_check([0.5 - 0.25] * 4, [0.5] * 4, margin=0.25, nominal_p=0.05)
+    assert exact["lower_bound"] == -0.25 and not exact["passes"]  # strict >
+    ok = paired_band_check([0.31, 0.29, 0.30], [0.30, 0.30, 0.30], margin=0.05, nominal_p=0.05)
+    assert ok["passes"]
+    floored = paired_band_check(
+        [0.31, 0.29, 0.30], [0.30, 0.30, 0.30], margin=0.05, nominal_p=0.05, floor=0.35
+    )
+    assert floored["passes_ni"] and not floored["passes_floor"] and not floored["passes"]
+    assert paired_band_check(
+        [0.31, 0.29, 0.30], [0.30] * 3, margin=0.05, nominal_p=0.05, floor=0.30
+    )["passes"]
+
+
+def test_paired_band_check_validation():
+    with pytest.raises(ValueError):
+        paired_band_check([0.5, 0.6], [0.5], margin=0.05, nominal_p=0.05)
+    with pytest.raises(ValueError):
+        paired_band_check([0.5], [0.5], margin=0.05, nominal_p=0.05)
+    with pytest.raises(ValueError):
+        paired_band_check([0.5, math.nan], [0.5, 0.5], margin=0.05, nominal_p=0.05)
+    with pytest.raises(ValueError):
+        paired_band_check([0.5, 0.6], [0.5, 0.5], margin=0.0, nominal_p=0.05)
+    with pytest.raises(TypeError):
+        paired_band_check([0.5, 0.6], [0.5, 0.5], margin=True, nominal_p=0.05)
+    with pytest.raises(ValueError):
+        paired_band_check([0.5, 0.6], [0.5, 0.5], margin=0.05, nominal_p=0.5)
+    with pytest.raises(ValueError):
+        paired_band_check([0.5, 0.6], [0.5, 0.5], margin=0.05, nominal_p=0.05, floor=math.inf)
+
+
+def test_plan_paired_band_check_uses_the_look_level_and_prefix():
+    plan = _paired_plan(band_bound="rci_obf")
+    rng = np.random.default_rng(5)
+    inc = rng.uniform(0, 1, 249)
+    cand = inc + rng.normal(0.05, 0.2, 249)
+    for look, n in enumerate(plan.look_sizes):
+        out = plan_paired_band_check(plan, look, cand[:n].tolist(), inc[:n].tolist())
+        direct = paired_band_check(
+            cand[:n].tolist(), inc[:n].tolist(), margin=0.05, nominal_p=plan.band_nominal_p[look]
+        )
+        assert out["look"] == look and out["band_bound"] == "rci_obf"
+        assert out["lower_bound"] == direct["lower_bound"]
+        assert out["passes"] == direct["passes"]
+    with pytest.raises(ValueError):
+        plan_paired_band_check(plan, 0, cand[:62].tolist(), inc[:62].tolist())
+    with pytest.raises(ValueError):
+        plan_paired_band_check(plan, 4, cand.tolist(), inc.tolist())
+    with pytest.raises(ValueError):  # default plan has no paired band
+        plan_paired_band_check(sequential_gate_plan(249, mde=30.0), 0, cand[:63], inc[:63])
+    with pytest.raises(TypeError):
+        plan_paired_band_check(plan.as_dict(), 0, cand[:63], inc[:63])
+
+
+def _paired_band_verdicts(plan, cand, inc):
+    return [
+        all(plan_paired_band_check(plan, k, cand[m][:n], inc[m][:n])["passes"] for m in plan.mixes)
+        for k, n in enumerate(plan.look_sizes)
+    ]
+
+
+@pytest.mark.parametrize("shift, decision", [(0.10, "STOP_PASS"), (-0.10, "STOP_FAIL_BANDS")])
+def test_paired_bands_plug_into_the_sequential_decision(shift, decision):
+    plan = _paired_plan()
+    mass = _draw((300, 300, 300), 249, seed=7)
+    rng = np.random.default_rng(8)
+    inc = {m: rng.uniform(0.3, 0.9, 249).tolist() for m in MIXES}
+    cand = {m: (np.asarray(inc[m]) + shift + rng.normal(0, 0.1, 249)).tolist() for m in MIXES}
+    bands = _paired_band_verdicts(plan, cand, inc)
+    out = run_sequential_gate(plan, mass, 3.5, bands)
+    assert out["decision"] == decision and out["look"] == 0
+    assert out["plan"]["band_policy"] == "paired_ni_at_stop"
+
+
+def test_paired_band_pointwise_level_at_the_margin_by_simulation():
+    # Vectorized replica of paired_band_check at a fixed look: P(pass | true delta = -M)
+    # equals the nominal level (here 0.05) for normal per-world deltas.
+    from src.scripts.eval_stats import student_t_isf
+
+    rng = np.random.default_rng(9)
+    n, margin, reps = 63, 0.05, 40000
+    d = rng.normal(-margin, 0.23, size=(reps, n))
+    lower = d.mean(axis=1) - student_t_isf(0.05, n - 1) * d.std(axis=1, ddof=1) / math.sqrt(n)
+    rate = float((lower > -margin).mean())
+    assert abs(rate - 0.05) < 0.006
+    one = paired_band_check((d[0] + 0.5).tolist(), [0.5] * n, margin=margin, nominal_p=0.05)
+    assert one["lower_bound"] == pytest.approx(lower[0], abs=1e-12)
