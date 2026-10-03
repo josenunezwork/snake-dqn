@@ -206,3 +206,9 @@ the look-k prefix of n_k final worlds:
   bound was not simulated.
 - The fixed-N strict gate could use the same rule at a single look with p = alpha. That is
   not proposed here.
+
+## Ratification (2026-10-03)
+
+The research loop owner adopted the paired rule on 2026-10-03, acting under the standing authority the user granted. Ratified settings: `paired_ni_at_stop` with M = 0.05, alpha = 0.05 (pointwise, at the qualifying look) and an absolute floor of 0.30.
+
+The rule is the default for **new** strict pre-registrations. It needs a new sequential runner/audit package version, which is not built yet. It never applies to the running v8 strict gate (`apex-veto-v8-strict-20261003/run-v1`), which keeps its pre-registered rule.
