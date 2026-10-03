@@ -97,17 +97,18 @@ def v2_default(monkeypatch):
 
 
 class TestVariantParsing:
-    def test_released_default_is_v5(self):
-        # Released 2026-10-02 (v5 STRICT_PASS + SERVING_PASS); rollback is variant=v2.
-        assert serving.VARIANT_RELEASED_DEFAULT == "v5"
-        assert serving.VARIANTS == ("v2", "v5", "v7")  # v7 is opt-in only
-        assert ServingVetoFlags().variant == "v5"
-        assert ServingVetoFlags.from_env({}).variant == "v5"
+    def test_released_default_is_v7(self):
+        # v7 released 2026-10-03 (STRICT_PASS + SERVING_PASS); rollback is variant=v5 (or v2).
+        assert serving.VARIANT_RELEASED_DEFAULT == "v7"
+        assert serving.VARIANTS == ("v2", "v5", "v7")
+        assert ServingVetoFlags().variant == "v7"
+        assert ServingVetoFlags.from_env({}).variant == "v7"
+        assert ServingVetoFlags.from_env({ENV_VARIANT: "v5"}).variant == "v5"
         assert ServingVetoFlags.from_env({ENV_VARIANT: "v2"}).variant == "v2"
 
     @pytest.mark.parametrize("value", ["", "   "])
     def test_blank_selects_the_default(self, value):
-        assert ServingVetoFlags.from_env({ENV_VARIANT: value}).variant == "v5"
+        assert ServingVetoFlags.from_env({ENV_VARIANT: value}).variant == "v7"
 
     @pytest.mark.parametrize("value,expected", [("v5", "v5"), (" V5 ", "v5"), ("v2", "v2")])
     def test_known_values(self, value, expected):
@@ -446,9 +447,12 @@ class TestRealChampion:
 
 
 class TestReleasedV5Default:
+    """The v5 release config, now reached by the rollback env SNAKE_SERVE_VETO_VARIANT=v5."""
+
     def test_unset_variant_serves_v5_on_the_watch_hero_only(self, monkeypatch, pinned):
-        for name in (ENV_VARIANT, "SNAKE_SERVE_VETO_WATCH_HERO", "SNAKE_SERVE_VETO_PLAY_AI"):
+        for name in ("SNAKE_SERVE_VETO_WATCH_HERO", "SNAKE_SERVE_VETO_PLAY_AI"):
             monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(ENV_VARIANT, "v5")
         sess = GameSession(checkpoint=pinned)
         state = sess.safety_veto_state()
         assert state["variant"] == "v5" and state["scope"] == "watch_hero"

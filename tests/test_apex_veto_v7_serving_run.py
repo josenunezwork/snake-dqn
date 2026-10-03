@@ -268,8 +268,11 @@ class TestTinyEpisodesOnTheChampion:
         assert probe["session"]["wrapper_method"] == audit_mod.V7_METHOD
         assert probe["rollout"]["wrapper_method"] == audit_mod.V7_METHOD
 
-    def test_default_check_passes_on_this_tree(self):
-        # S6 is a PRE-release precondition: the released default must still be v5 here.
+    def test_default_check_passes_on_this_tree(self, monkeypatch):
+        # S6 is a PRE-release precondition (the serving run happened while the default was
+        # v5; run-v1 recorded it). After the v7 release flip, pin the pre-release default
+        # so this keeps testing the harness logic rather than today's released constant.
+        monkeypatch.setattr(serving, "VARIANT_RELEASED_DEFAULT", "v5")
         doc = run_mod.default_check(run_mod.CHAMPION_PATH)
         assert run_mod.default_check_failures(doc) == [] and doc["pass"] is True
         assert doc["builds"]["empty_env"]["modes"]["watch"]["method"] == run_mod.V5_METHOD

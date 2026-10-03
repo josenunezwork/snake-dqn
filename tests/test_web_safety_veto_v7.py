@@ -89,11 +89,12 @@ V7_FLAGS = ServingVetoFlags(watch_hero=True, play_ai=False, variant="v7")
 
 
 class TestSelection:
-    def test_v7_is_known_but_not_the_released_default(self):
+    def test_v7_is_the_released_default(self):
+        # Released 2026-10-03 (v7 STRICT_PASS + SERVING_PASS); rollback is variant=v5.
         assert serving.VARIANT_V7 == "v7" and "v7" in serving.VARIANTS
-        assert serving.VARIANT_RELEASED_DEFAULT == "v5"
-        assert ServingVetoFlags().variant == "v5"
-        assert ServingVetoFlags.from_env({}).variant == "v5"
+        assert serving.VARIANT_RELEASED_DEFAULT == "v7"
+        assert ServingVetoFlags().variant == "v7"
+        assert ServingVetoFlags.from_env({}).variant == "v7"
 
     @pytest.mark.parametrize("value", ["v7", " V7 ", "v7\n"])
     def test_env_selects_v7(self, value):
@@ -141,8 +142,16 @@ class TestSelection:
         assert vetoes(sess) == {}
 
 
-class TestReleasedDefaultStillV5:
-    def test_unset_env_serves_v5(self, pinned):
+class TestReleasedDefaultV7:
+    def test_unset_env_serves_v7_on_the_watch_hero_only(self, pinned):
+        sess = GameSession(checkpoint=pinned)
+        assert type(sess.game.snakes[0].safety_veto) is SpacePreferenceVeto
+        assert all(getattr(s, "safety_veto", None) is None for s in sess.game.snakes[1:])
+        state = sess.safety_veto_state()
+        assert state["variant"] == "v7" and state["active"] is True and state["reason"] is None
+
+    def test_rollback_to_v5_by_env(self, monkeypatch, pinned):
+        monkeypatch.setenv(ENV_VARIANT, "v5")
         sess = GameSession(checkpoint=pinned)
         assert type(sess.game.snakes[0].safety_veto) is BoostAwareFreeSpaceVeto
         assert sess.safety_veto_state()["variant"] == "v5"
@@ -151,6 +160,7 @@ class TestReleasedDefaultStillV5:
         monkeypatch.setattr(serving, "V7_STRICT_RECEIPT_CHECKPOINT_SHA256", "0" * 64)
         monkeypatch.setattr(serving, "V7_STRICT_RECEIPT_SOURCE_SHA256S", {})
         monkeypatch.setattr(serving, "V7_STRICT_RECEIPT_METHOD", "nope")
+        monkeypatch.setenv(ENV_VARIANT, "v5")
         sess = GameSession(checkpoint=pinned)
         assert [type(v) for v in vetoes(sess).values()] == [BoostAwareFreeSpaceVeto]
         monkeypatch.setenv(ENV_VARIANT, "v2")

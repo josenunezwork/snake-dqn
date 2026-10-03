@@ -39,7 +39,7 @@ stays the master switch; the variant chooses which wrapper the Watch hero gets:
   :data:`V5_STRICT_RECEIPT_SHA256`): the served checkpoint must hash to
   :data:`V5_STRICT_RECEIPT_CHECKPOINT_SHA256` and ``safety_veto_v5.py``,
   ``safety_veto.py`` and ``safety_veto_v3.py`` to :data:`V5_STRICT_RECEIPT_SOURCE_SHA256S`.
-* ``v7`` (opt-in; not the released default): ``free-space-veto/v7-space-preference(lambda=4.0)``
+* ``v7`` (the released default since 2026-10-03; rollback ``v5``):``free-space-veto/v7-space-preference(lambda=4.0)``
   (:func:`src.evaluation.safety_veto_v7.install_space_preference_veto` with
   :data:`V7_LAMBDA`), bound fail closed to the v7 STRICT_PASS receipt
   (``apex-veto-v7-strict-20261002/run-v1``, receipt sha256 :data:`V7_STRICT_RECEIPT_SHA256`):
@@ -111,9 +111,11 @@ VARIANT_V2 = "v2"
 VARIANT_V5 = "v5"
 VARIANT_V7 = "v7"
 VARIANTS = (VARIANT_V2, VARIANT_V5, VARIANT_V7)
-# Released default variant when ENV_VARIANT is unset or blank (the v5 release flips this).
-# Released 2026-10-02 (v5 STRICT_PASS + SERVING_PASS); rollback: SNAKE_SERVE_VETO_VARIANT=v2.
-VARIANT_RELEASED_DEFAULT = VARIANT_V5
+# Released default variant when ENV_VARIANT is unset or blank.
+# v5 released 2026-10-02 (v5 STRICT_PASS + SERVING_PASS).
+# v7 released 2026-10-03 (v7 STRICT_PASS + SERVING_PASS); rollback: SNAKE_SERVE_VETO_VARIANT=v5
+# (or v2).
+VARIANT_RELEASED_DEFAULT = VARIANT_V7
 
 # The v5 STRICT_PASS receipt (apex-veto-v5-strict-20261001/run-v1) and the candidate
 # identity its intent.json binds: champion bytes and the three veto source files.

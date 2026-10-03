@@ -131,3 +131,24 @@ default is **not** changed: v7 is served only with `SNAKE_SERVE_VETO_VARIANT=v7`
    - `SNAKE_SERVE_VETO_VARIANT=v5` to return to v5
    - `SNAKE_SERVE_VETO_VARIANT=v2` to return to v2
    - `SNAKE_SERVE_VETO_WATCH_HERO=0` to turn the veto off
+
+## Release (2026-10-03)
+
+v7 (`free-space-veto/v7-space-preference(lambda=4.0)`) is now the released Watch-hero default.
+`VARIANT_RELEASED_DEFAULT = VARIANT_V7` in `web/backend/safety_veto_serving.py`.
+
+- **Evidence:**
+  - STRICT_PASS, from `apex-veto-v7-strict-20261002/run-v1` (receipt `86ee3679…`).
+  - SERVING_PASS, from `apex-veto-v7-serving-20261002/run-v1` (receipt `cf287fe7…`, audit `ab2bd395…`).
+- **Live check** on the released tree, with no environment set:
+  - `variant=v7`, `active=True`, `scope=watch_hero`.
+  - `strict_checkpoint_match=True`, `wrapper_sources_match=True`.
+  - `wrapper_source_sha256=56ff7009…`, `reason=None`.
+- **Tests:**
+  - Web and serving tests: 458 passed, exit code 0.
+  - Full suite before the flip: 4472 passed. The only 2 failures were the known ones in `tests/test_eval_controlled_parity.py`.
+- **Rollback (no code change):** restart with one of:
+  - `SNAKE_SERVE_VETO_VARIANT=v5`
+  - `SNAKE_SERVE_VETO_VARIANT=v2`
+  - `SNAKE_SERVE_VETO_WATCH_HERO=0` (veto off)
+- **Unchanged:** Play AI wrapping stays opt-in and v2-only.
