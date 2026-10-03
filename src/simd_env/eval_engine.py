@@ -30,7 +30,9 @@ instead serves vector61 checkpoints through
 :class:`~src.simd_env.vector61_policy.Vector61SimdPolicy`, which reproduces the
 live AISnake carry-forward/mask/argmax semantics and, with
 ``hero_safety_veto=True``, the v2 free-space veto on the hero (or, with
-``hero_safety_veto="v5"``, the opt-in v5 boost-aware veto).
+``hero_safety_veto="v5"``, the opt-in v5 boost-aware veto; with ``"v7"`` or
+``"v8"`` plus ``hero_safety_veto_lambda``, the live v7 space-preference or v8
+space-and-head hook on BatchSim row views).
 """
 
 from __future__ import annotations
@@ -68,7 +70,7 @@ from src.simd_env.vector61_policy import (
     Vector61Runtime,
     Vector61SimdPolicy,
     checkpoint_is_vector61,
-    resolve_safety_veto,
+    resolve_safety_veto_spec,
     vector61_provenance,
 )
 
@@ -607,6 +609,8 @@ def run_simd_eval(
     hero_safety_veto: bool | str = False,
     vector61_forward: str = "rowwise",
     vector61_trace: Callable[[Mapping[str, object]], None] | None = None,
+    hero_safety_veto_lambda: float | None = None,
+    hero_safety_veto_reference_lambda: float | None = None,
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -642,9 +646,15 @@ def run_simd_eval(
             carries the v5 descriptor, the provenance names the method, and the
             record gains a SIMD-only ``veto_diagnostics`` key (the live
             ``diagnostics_record()``, which live screens store beside the record).
+            ``"v7"`` / ``"v8"`` run the live ``SpacePreferenceVeto`` /
+            ``SpaceAndHeadVeto`` hook (one per env) on BatchSim row views; they
+            need ``hero_safety_veto_lambda`` and add ``veto_diagnostics`` too.
         vector61_forward: ``"rowwise"`` (bit-exact batch-1 forwards, default) or
             ``"batched"`` (one forward per policy per frame).
         vector61_trace: Optional diagnostic callable (see ``Vector61Runtime``).
+        hero_safety_veto_lambda: v7/v8 only (required there): the live ``lambda``.
+        hero_safety_veto_reference_lambda: v8 only (optional): the live
+            diagnostic-only ``reference_lambda`` (the v8 screens set it to 4.0).
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -695,11 +705,23 @@ def run_simd_eval(
         raise ValueError("world_runtime_spec requires an explicit evaluation profile")
     if vector61 and profile is None:
         raise ValueError("vector61 SIMD evaluation requires an explicit evaluation profile")
-    veto_variant = resolve_safety_veto(hero_safety_veto)
+    veto_spec = resolve_safety_veto_spec(
+        hero_safety_veto, hero_safety_veto_lambda, hero_safety_veto_reference_lambda
+    )
+    veto_variant = None if veto_spec is None else veto_spec.variant
     # Built (and the forward mode validated) up front; copied into each record.
-    vector61_record = vector61_provenance(vector61_forward, hero_safety_veto) if vector61 else None
+    vector61_record = (
+        vector61_provenance(
+            vector61_forward,
+            hero_safety_veto,
+            hero_safety_veto_lambda,
+            hero_safety_veto_reference_lambda,
+        )
+        if vector61
+        else None
+    )
     vector61_runtime = Vector61Runtime(trace=vector61_trace) if vector61 else None
-    vector61_cache: Dict[Tuple[str, str | None], Vector61SimdPolicy] = {}
+    vector61_cache: Dict[Tuple[str, object], Vector61SimdPolicy] = {}
     vector61_specs: Dict[str, bool] = {}
 
     def is_vector61(path: str) -> bool:
@@ -780,14 +802,17 @@ def run_simd_eval(
             if is_vector61(spec[1]):
                 # The hero's veto must never reach a same-checkpoint opponent,
                 # so a vetoed hero gets its own (row-disjoint) policy instance.
-                key = (spec[1], veto_variant if hero else None)
+                key = (spec[1], veto_spec if hero else None)
                 if key not in vector61_cache:
+                    hero_veto = key[1]
                     vector61_cache[key] = Vector61SimdPolicy(
                         spec[1],
                         vector61_runtime,
-                        veto_slots=(0,) if key[1] else (),
+                        veto_slots=(0,) if hero_veto else (),
                         forward=vector61_forward,
-                        veto_variant=key[1] or "v2",
+                        veto_variant=hero_veto.variant if hero_veto else "v2",
+                        veto_lambda=hero_veto.lam if hero_veto else None,
+                        veto_reference_lambda=(hero_veto.reference_lambda if hero_veto else None),
                     )
                 return vector61_cache[key]
         if spec[0] != "checkpoint":
@@ -981,7 +1006,7 @@ def run_simd_eval(
                 hero_policy = hero_policies[e]
                 assert isinstance(hero_policy, Vector61SimdPolicy)
                 record.setdefault("probes", {})["safety_veto"] = hero_policy.veto_record(int(e))
-                if veto_variant == "v5":
+                if veto_variant in ("v5", "v7", "v8"):
                     record["veto_diagnostics"] = hero_policy.veto_diagnostics(int(e))
             if vector61_record is not None:
                 record["vector61_policy"] = dict(vector61_record)

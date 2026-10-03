@@ -530,3 +530,69 @@ Status: SIMD+v5 has per-decision parity and H5000 record parity on this
 sample. It is still unreviewed WIP and is not merged. The same engine rules
 as for v2 apply: one engine per screen, and strict final evidence stays live
 until the governance tiers change.
+
+## v7 / v8 vetoes on the SIMD vector61 path (2026-10-03)
+
+Opt-in: `run_simd_eval(..., vector61=True, hero_safety_veto="v7"|"v8",
+hero_safety_veto_lambda=<lambda>, hero_safety_veto_reference_lambda=<v8 only, optional>)`.
+`True`/`"v2"`/`"v5"` are unchanged.
+
+Design: instead of re-implementing v7's re-rank and v8's head layer, each env gets the
+live hook object itself (`SpacePreferenceVeto(lam)` or
+`SpaceAndHeadVeto(lam, reference_lambda=...)`, exactly the screens' installers), and its
+`apply` is called with `SimRowSnake` views of the decision-time BatchSim rows in place of
+the live `Snake` objects. The view exposes only what the live veto code reads: head-first
+`segments` on the cell lattice (`segment_size=1`, so `Grid.to_cell` is the identity and
+`grid_for` gives the featurizer's `(gw, gh)`), `direction`, `length`, `boost_frames`,
+`is_alive`, `_logical_length()` and, for the hero, the decision-time v2 counts as
+`count / cap` features (the live `round(f * cap)` recovers every count, tested for all
+caps 32-160). The roster passed as `other_snakes` holds every slot with the hero view at its
+own index, as the live pre-move snapshots do. So tie-breaks, BFS caps and area rules,
+landing floods, the head-reach model and every counter are the live code's by
+construction. `check_live_rule_config` refuses a BatchSim whose `min_boost_length`,
+`boost_length_cost_frames`, `mechanics_version` or `arena_type` differs from the
+`GameConfig` the live helpers read. Records carry the hook's `record()` probe and its
+`diagnostics_record()` as `veto_diagnostics`; provenance names the live method string
+(with lambda) and, for v8 with a reference, `safety_veto_reference_lambda`.
+
+Cost: the veto itself costs what it costs live (the same Python floods, about 0.3 ms per
+area evaluation and ~1 ms per decision in the v8 screen's diagnostics); only the rest of
+the frame is accelerated, so the end-to-end speedup is below the v5 path's ~2x.
+
+Unit evidence (`tests/test_simd_vector61_v7v8_veto.py`, constructed states, no episodes):
+SIMD hook vs live hook on pocket, head-on (incl. hero-wins waiver, landing-then-head,
+head veto next to a pocket), boost landing, Q ties, boost-mode re-rank and `no_spacious`
+scenarios at lambda 0/1/4/8/16 for v7, v8 and v8 with `reference_lambda=4`, at mechanics
+v2 and v1; plus seeded fuzz over random and pocket-rich boards (several envs per call,
+decisions accumulated per env) with coverage floors (re-rank changes, head vetoes,
+landing vetoes, `no_spacious`). Every case compares action, probe record and
+timing-stripped diagnostics. Whole-rollout parity on the tiny world is in the same file,
+opt-in with `SNAKE_SIMD_ROLLOUT_PARITY=1` (it plays episodes).
+
+### Pending: H5000 record-level check (prepared, not run)
+
+Script: `research/simd_parity_v7v8_h5000_20261003/h5000_check.py` (comparison logic:
+`tests/test_simd_parity_v7v8_check.py`). Default targets: the v7 screen's arm B (v7,
+lambda 4) and the v8 screen's arm B (v8, lambda 8, reference lambda 4), world indices 0-3
+per mix, 24 SIMD episodes at H5000, compared with the saved live entries (read-only).
+Optional extra targets: `v8-screen-A`, `v7-sweep-L100`, `v7-sweep-L200`, `v8-sweep-H400`,
+`v8-sweep-H1600`.
+
+Order after the gate closes: first the opt-in tiny-world rollout parity (the only test
+that drives `run_simd_eval` end to end with v7/v8), then the dry run, then the check.
+
+```
+cd <worktree> && SNAKE_SIMD_ROLLOUT_PARITY=1 OMP_NUM_THREADS=1 ./venv/bin/python -m pytest -p no:xdist -q tests/test_simd_vector61_v7v8_veto.py
+cd <worktree> && ./venv/bin/python research/simd_parity_v7v8_h5000_20261003/h5000_check.py --dry-run
+cd <worktree> && OMP_NUM_THREADS=2 ./venv/bin/python research/simd_parity_v7v8_h5000_20261003/h5000_check.py
+```
+
+It refuses to start unless on AC power, the thermal guard is nominal and one CPU slot is
+free (pool 3 by default; `--slot-pool 2`), and writes create-only to
+`snake-dqn-artifacts/simd-v7v8-parity-20261003/run-v1/`. Pass criterion (exit 0,
+`TOTAL identical 24 different 0 compared 24/24 pass=True`): for every world, the SIMD
+record minus `world_runtime_spec`, `world_runtime_spec_digest`, `vector61_policy` and
+`veto_diagnostics` equals the live `record` (canonical JSON, type-strict), the SIMD
+`veto_diagnostics` equals the live entry's `veto_diagnostics` with every `*seconds*` key
+removed at any depth, the probe method equals the entry's `safety_veto_method`, and the
+provenance equals `vector61_provenance("rowwise", variant, lambda, reference_lambda)`.
