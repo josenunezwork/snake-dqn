@@ -528,3 +528,43 @@ def test_audit_rejects_paired_fields_smuggled_into_a_v1_receipt(tmp_path):
         if r["rule"] == "looks.replay"
     )
     assert any("paired band fields on a block_at_stop receipt" in row for row in rows)
+
+
+def test_runner_accepts_the_real_simulator_output_format(tmp_path, monkeypatch):
+    """Assemble a check output with simulate.py's own plan loader, scenario labels, rule name
+    and pre_registration_check (no resampling is run), exactly as its main() writes it."""
+    import importlib.util
+
+    module_spec = importlib.util.spec_from_file_location(
+        "paired_band_simulate", R.PAIRED_BAND_SIMULATOR
+    )
+    sim = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(sim)
+    monkeypatch.setattr(sim, "CONFIG", dict(sim.CONFIG))
+    spec = make_paired_spec(FakeWorld(effect=400.0), tmp_path)
+    document = tmp_path / "plan.json"
+    document.write_text(json.dumps(R.frozen_plan_document(plan_params(spec))))
+    sim.CONFIG.update(data=tmp_path / "screen_pool.json", delta_ni=5.8, thetas=THETAS)
+    sim.load_plan_params(document)
+    name = sim.rule_name(*sim.CONFIG["check_rule"])
+    results = {}
+    for pool in sim.sources(sim.load_data()):
+        for theta in THETAS:
+            for label, shifts in sim.scenarios().items():
+                if label in sim.GATE_SKIP:
+                    continue
+                row = {"p_pass": 0.5}
+                if sim.regressed_mix(shifts) is not None:
+                    row["p_regressed_band_and_qualify"] = 0.0451
+                    row["p_regressed_band_given_qualify"] = 0.047
+                results[f"{pool}|theta={theta:g}|{label}"] = {name: row}
+    out = {"reps": 20000, "delta_ni": 5.8, "results": results}
+    out["check"] = sim.pre_registration_check(results)
+    out["data_sha256"] = R.sha256_file(Path(sim.CONFIG["data"]))
+    out["config"] = {k: (str(v) if isinstance(v, Path) else v) for k, v in sim.CONFIG.items()}
+    out["cpu_seconds"] = 0.0
+    Path(spec.paired_band_check_path).write_text(json.dumps(out, indent=1, sort_keys=True))
+    assert out["check"]["passes"] is True
+    intent = R.read_json(prepare_paired(tmp_path, spec))
+    assert intent["paired_band_check"]["max_joint_rate"] == 0.0451
+    assert intent["paired_band_check"]["rows_judged"] == len(POOLS) * len(THETAS) * 3
