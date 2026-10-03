@@ -435,6 +435,7 @@ def make_runner(tmp, episodes, fake, budget=1.0, pol=None, **over):
             f"http://127.0.0.1:{fake.ports[pod_id]}", token, timeout=5
         ),
         spawn_watchdog=lambda rr: None,
+        preflight_fn=lambda: [],
         probe_workers=2,
     )
 
@@ -782,3 +783,188 @@ def test_deferred_signal_during_create_records_pod_first(tmp_path, fake):
     r = make_runner(tmp_path, [ep("A", seed=11)], fake)
     assert r.run() == 130
     assert "pod1" in r.pods and "pod1" in fake.deleted and fake.procs == {}
+
+
+# ---------------------------------------------------------------- TLS + watchdog survival
+
+
+def test_ssl_context_verifies_with_certifi():
+    import ssl
+
+    from research.runpod_fanout import tls
+
+    ctx = tls.ssl_context()
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname
+    assert tls.ca_file() is None or Path(tls.ca_file()).is_file()
+
+
+def test_tls_preflight_reports_cert_failure(monkeypatch):
+    import ssl
+    import urllib.error
+
+    from research.runpod_fanout import tls
+
+    def boom(req, timeout, context):
+        assert context.verify_mode == ssl.CERT_REQUIRED
+        raise urllib.error.URLError(ssl.SSLCertVerificationError("unable to get local issuer"))
+
+    monkeypatch.setattr(tls.urllib.request, "urlopen", boom)
+    problems = tls.preflight(["https://example.invalid/"])
+    assert problems and "local issuer" in problems[0]
+
+
+def test_run_aborts_before_any_pod_when_tls_preflight_fails(tmp_path, fake):
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake)
+    r.preflight_fn = lambda: ["https://rest.runpod.io: CERTIFICATE_VERIFY_FAILED"]
+    assert r.run() == 3
+    assert "TLS preflight" in r.stop_reason and fake.created == []
+
+
+def test_runner_delete_retries_with_backoff(tmp_path, fake):
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake)
+    pod = runner.Pod(
+        id="p1", name="rpf-unit-job--r1-1", vcpu=2, dc="X", rate=0.06, token="", created=r.clock()
+    )
+    calls = {"n": 0}
+
+    class FlakyRp:
+        def delete_pod(self, pod_id, confirm):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise RunPodError("rp.py exit 1: no Keychain access")
+            return {}
+
+        def get_pod(self, pod_id):
+            return {"id": pod_id}
+
+    r.rp = FlakyRp()
+    r.delete_pod(pod, "test")
+    assert calls["n"] == 3 and pod.deleted is not None
+
+
+def test_delete_everything_retries_tracked_pods_when_listing_fails(tmp_path, fake):
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake)
+    pod = runner.Pod(
+        id="p1", name="rpf-unit-job--r1-1", vcpu=2, dc="X", rate=0.06, token="", created=r.clock()
+    )
+    r.pods[pod.id] = pod
+    state = {"deletes": 0, "alive": True}
+
+    class Rp:
+        def delete_pod(self, pod_id, confirm):
+            state["deletes"] += 1
+            if state["deletes"] < 4:
+                raise RunPodError("rp.py exit 1")
+            state["alive"] = False
+            return {}
+
+        def get_pod(self, pod_id):
+            return {"id": pod_id} if state["alive"] else None
+
+        def list_pods(self):
+            raise RunPodError("rp.py exit 1 (GET /pods)")
+
+    r.rp = Rp()
+    left = r.delete_everything()
+    assert pod.deleted is not None and state["deletes"] >= 4
+    assert left  # listing never confirmed: reported as unconfirmed, not as clean
+
+
+def test_watchdog_deletes_registry_pods_even_if_listing_fails(tmp_path):
+    reg = tmp_path / "pods"
+    reg.mkdir()
+    (reg / "x.response.json").write_text(json.dumps({"id": "p9", "name": "rpf-unit-job--r1-1"}))
+    (reg / "y.response.json").write_text(json.dumps({"id": "p8", "name": "rpf-other--r1-1"}))
+    state = tmp_path / "rp.json"
+    state.write_text(
+        json.dumps(
+            {
+                "pods": [
+                    {"id": "p9", "name": "rpf-unit-job--r1-1"},
+                    {"id": "p8", "name": "rpf-other--r1-1"},
+                ],
+                "list_fails": True,
+            }
+        )
+    )
+    rp = watchdog.FileFakeRp(str(state))
+    t = {"now": 0.0}
+    watchdog.sweep(
+        rp,
+        "rpf-unit-job--r1-",
+        lambda s: t.__setitem__("now", t["now"] + s),
+        tmp_path,
+        clock=lambda: t["now"],
+        give_up_seconds=100,
+    )
+    data = json.loads(state.read_text())
+    assert data["deleted"] and set(data["deleted"]) == {"p9"}
+
+
+def test_watchdog_survives_killed_parent_and_hangup(tmp_path):
+    """A parent spawns the watchdog detached and is SIGKILLed; the watchdog gets SIGHUP
+    (terminal gone) and still deletes the run's pods at its deadline."""
+    import signal as sig
+
+    run_dir = tmp_path / "run"
+    (run_dir / "pods").mkdir(parents=True)
+    (run_dir / "pods" / "a.response.json").write_text(
+        json.dumps({"id": "pz", "name": "rpf-unit-job--run-1"})
+    )
+    state = tmp_path / "rp.json"
+    state.write_text(
+        json.dumps(
+            {
+                "pods": [
+                    {"id": "pz", "name": "rpf-unit-job--run-1"},
+                    {"id": "keep", "name": "someone-else"},
+                ]
+            }
+        )
+    )
+    repo = Path(runner.__file__).resolve().parents[2]
+    child_argv = [
+        sys.executable,
+        "-m",
+        "research.runpod_fanout.watchdog",
+        "--job-id",
+        "unit-job",
+        "--fire-epoch",
+        str(time.time() + 3),
+        "--run-dir",
+        str(run_dir),
+        "--runner-pid",
+        "0",
+        "--prefix",
+        "rpf-unit-job--run-",
+        "--resweep-seconds",
+        "0.5",
+        "--poll-seconds",
+        "0.5",
+    ]
+    parent_code = (
+        "import subprocess,sys,os,time,json\n"
+        f"p=subprocess.Popen({child_argv!r},cwd={str(repo)!r},stdin=subprocess.DEVNULL,"
+        f"stdout=open({str(run_dir / 'watchdog.log')!r},'ab'),stderr=subprocess.STDOUT,"
+        "start_new_session=True)\n"
+        "print(p.pid,flush=True)\ntime.sleep(60)\n"
+    )
+    env = dict(os.environ, **{watchdog.FAKE_RP_ENV: str(state)})
+    parent = subprocess.Popen(
+        [sys.executable, "-c", parent_code], stdout=subprocess.PIPE, env=env, text=True
+    )
+    wd_pid = int(parent.stdout.readline())
+    parent.kill()  # the runner dies (kill -9)
+    parent.wait()
+    for _ in range(100):  # let the watchdog install its handlers (it writes its pid file)
+        if (run_dir / "watchdog.pid").exists():
+            break
+        time.sleep(0.1)
+    os.kill(wd_pid, sig.SIGHUP)  # and its terminal goes away
+    deadline = time.time() + 60
+    while time.time() < deadline and not (run_dir / "watchdog.done").exists():
+        time.sleep(0.2)
+    data = json.loads(state.read_text())
+    assert data.get("deleted") == ["pz"]
+    assert [p["id"] for p in data["pods"]] == ["keep"]
+    assert json.loads((run_dir / "watchdog_result.json").read_text())["leftovers"] == []

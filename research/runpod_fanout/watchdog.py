@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Detached local watchdog for one fan-out run: deletes ``rpf-<job>--*`` pods when needed.
+"""Detached local watchdog for one fan-out run: deletes the run's pods when needed.
 
-Fires (deletes every pod whose name starts with ``--prefix``, i.e. this run's
-``rpf-<job_id>--<run>-``, retrying until GET /pods
-shows none) when ANY of:
+Fires when ANY of:
 
 * the hard time ``--fire-epoch`` (job max wall time + grace) has passed;
 * the runner process ``--runner-pid`` is gone and ``receipt.json`` has not appeared for
-  ``runner_dead_seconds`` (the runner crashed or was killed -9);
-* the runner finished (``receipt.json`` exists): one final sweep, then exit.
+  ``runner_dead_seconds`` (the runner crashed, was killed -9, or lost its terminal);
+* the runner finished (``receipt.json`` exists): sweep, re-sweep later, then exit.
 
-Started with ``start_new_session=True`` so it survives the runner's terminal and crashes.
-It never creates anything and only deletes pods with this job's prefix.
+On firing it deletes (a) every pod id in the run's on-disk registry
+(``<run>/pods/*.response.json``, written right after each create) and (b) every pod whose
+name starts with ``--prefix`` (this run's ``rpf-<job>--<run>-``). Registry deletes work even
+when ``GET /pods`` fails. It keeps retrying with backoff for up to ``--give-up-seconds``.
+
+Survival: on macOS it is started as a launchd job in the user's GUI domain (not a child of
+the runner's terminal/tmux, and keeps Keychain access for rp.py); elsewhere with setsid.
+It ignores SIGHUP/SIGINT, writes ``watchdog.pid``, and only ever deletes this run's pods.
 """
 
 from __future__ import annotations
@@ -19,11 +23,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, List
+from typing import Any, Callable, Dict, List, Set
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -31,6 +37,8 @@ if str(REPO) not in sys.path:
 
 from research.runpod_fanout import jobspec  # noqa: E402
 from research.runpod_fanout.rp_client import RpClient, RunPodError  # noqa: E402
+
+FAKE_RP_ENV = "RPF_TEST_FAKE_RP_STATE"  # tests only: a JSON file standing in for RunPod
 
 
 def log(msg: str) -> None:
@@ -47,26 +55,62 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
-def sweep(rp: Any, prefix: str, sleep: Callable[[float], None], attempts: int = 40) -> List[str]:
-    """Delete every pod named ``prefix*`` until none is listed; returns leftovers."""
-    left: List[str] = []
-    for _ in range(attempts):
+def registry_ids(run_dir: Path, prefix: str) -> Set[str]:
+    """Pod ids this run created, from ``pods/*.response.json`` (name must carry the prefix)."""
+    ids: Set[str] = set()
+    for path in sorted((Path(run_dir) / "pods").glob("*.response.json")):
         try:
-            pods = [p for p in rp.list_pods() if str(p.get("name", "")).startswith(prefix)]
-        except RunPodError as exc:
-            log(f"list failed: {exc}")
-            sleep(15)
+            row = json.loads(path.read_text())
+        except (OSError, ValueError):
             continue
-        left = [p["id"] for p in pods]
-        if not pods:
-            return []
-        for p in pods:
+        if row.get("id") and str(row.get("name", path.name)).startswith(prefix):
+            ids.add(str(row["id"]))
+    return ids
+
+
+def sweep(
+    rp: Any,
+    prefix: str,
+    sleep: Callable[[float], None],
+    run_dir: Path,
+    clock: Callable[[], float] = time.time,
+    give_up_seconds: float = 7200.0,
+) -> List[str]:
+    """Delete registry ids + prefix-listed pods until all are confirmed gone; leftovers."""
+    started = clock()
+    gone: Set[str] = set()
+    delay = 15.0
+    left: List[str] = ["unconfirmed"]
+    while clock() - started < give_up_seconds:
+        wanted = registry_ids(run_dir, prefix) - gone
+        listed: List[str] = []
+        list_ok = True
+        try:
+            listed = [p["id"] for p in rp.list_pods() if str(p.get("name", "")).startswith(prefix)]
+        except RunPodError as exc:
+            list_ok = False
+            log(f"list failed: {exc}")
+        targets = sorted(set(listed) | wanted)
+        if list_ok:
+            gone |= wanted - set(listed)  # not listed any more: deleted
+            if not listed:
+                return []
+        for pod_id in targets:
             try:
-                rp.delete_pod(p["id"], confirm=True)
-                log(f"deleted {p['id']} {p.get('name')}")
+                rp.delete_pod(pod_id, confirm=True)
+                log(f"deleted {pod_id}")
             except RunPodError as exc:
-                log(f"delete {p['id']} failed: {exc}")
-        sleep(15)
+                log(f"delete {pod_id} failed: {exc}")
+                continue
+            if not list_ok:
+                try:
+                    if rp.get_pod(pod_id) is None:
+                        gone.add(pod_id)
+                except RunPodError:
+                    pass
+        left = targets
+        sleep(delay)
+        delay = min(120.0, delay * 1.5)
     return left
 
 
@@ -82,6 +126,8 @@ def watch(
     alive: Callable[[int], bool] = pid_alive,
     poll: float = 30.0,
     prefix: str | None = None,
+    resweep_seconds: float = 180.0,
+    give_up_seconds: float = 7200.0,
 ) -> str:
     policy = jobspec.load_policy()
     job_prefix = f"{policy['pod_name_prefix']}{job_id}--"
@@ -107,16 +153,49 @@ def watch(
             dead_since, reason = None, None
         if reason:
             log(f"FIRING: {reason}")
-            left = sweep(rp, prefix, sleep)
+            left = sweep(rp, prefix, sleep, run_dir, clock, give_up_seconds)
             # A pod from a create still in flight can surface late: sweep again later.
-            sleep(180)
-            left = sweep(rp, prefix, sleep)
+            sleep(resweep_seconds)
+            left = sweep(rp, prefix, sleep, run_dir, clock, give_up_seconds)
             log(f"done; leftovers={left}")
             (Path(run_dir) / "watchdog_result.json").write_text(
                 json.dumps({"reason": reason, "leftovers": left, "utc": time.time()})
             )
             return reason
         sleep(poll)
+
+
+class FileFakeRp:
+    """Tests only: pods live in a JSON file ``{"pods": [...], "deleted": [...]}``."""
+
+    def __init__(self, path: str):
+        self.path = Path(path)
+
+    def _load(self) -> Dict[str, Any]:
+        return json.loads(self.path.read_text())
+
+    def list_pods(self):
+        data = self._load()
+        if data.get("list_fails"):
+            raise RunPodError("fake list failure")
+        return data["pods"]
+
+    def get_pod(self, pod_id):
+        return next((p for p in self._load()["pods"] if p["id"] == pod_id), None)
+
+    def delete_pod(self, pod_id, confirm):
+        assert confirm
+        data = self._load()
+        data["pods"] = [p for p in data["pods"] if p["id"] != pod_id]
+        data.setdefault("deleted", []).append(pod_id)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data))
+        os.replace(tmp, self.path)
+        return {}
+
+
+def launchd_label(job_id: str, run_name: str) -> str:
+    return f"com.snakedqn.rpf.{job_id}.{run_name}"
 
 
 def main(argv=None) -> int:
@@ -126,8 +205,33 @@ def main(argv=None) -> int:
     p.add_argument("--run-dir", required=True, type=Path)
     p.add_argument("--runner-pid", required=True, type=int)
     p.add_argument("--prefix", default=None, help="this run's pod-name prefix")
+    p.add_argument("--resweep-seconds", type=float, default=180.0)
+    p.add_argument("--poll-seconds", type=float, default=30.0)
+    p.add_argument("--launchd-label", default=None, help="unregister this launchd job at exit")
     a = p.parse_args(argv)
-    watch(a.job_id, a.fire_epoch, a.run_dir, a.runner_pid, prefix=a.prefix)
+    for sig in (signal.SIGHUP, signal.SIGINT):
+        signal.signal(sig, signal.SIG_IGN)  # survive the terminal / tmux going away
+    (a.run_dir / "watchdog.pid").write_text(str(os.getpid()))
+    fake = os.environ.get(FAKE_RP_ENV)
+    rp = FileFakeRp(fake) if fake else None
+    try:
+        watch(
+            a.job_id,
+            a.fire_epoch,
+            a.run_dir,
+            a.runner_pid,
+            rp=rp,
+            prefix=a.prefix,
+            resweep_seconds=a.resweep_seconds,
+            poll=a.poll_seconds,
+        )
+    finally:
+        (a.run_dir / "watchdog.done").write_text(str(time.time()))
+        if a.launchd_label:  # last act: remove our own launchd registration
+            subprocess.run(
+                ["launchctl", "bootout", f"gui/{os.getuid()}/{a.launchd_label}"],
+                capture_output=True,
+            )
     return 0
 
 

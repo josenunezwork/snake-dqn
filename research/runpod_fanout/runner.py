@@ -53,7 +53,8 @@ from research.runpod_fanout.rp_client import RpClient, RunPodError  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 AGENT_SOURCE = HERE / "pod_agent.py"
-USER_AGENT = "rpf-runner/1.0 (snake-dqn runpod fan-out)"
+from research.runpod_fanout.tls import USER_AGENT, preflight, ssl_context  # noqa: E402
+
 STOCKED = ("High", "Medium", "Low")
 RECEIPT_SCHEMA = "runpod-fanout-receipt/v1"
 NET_ERRORS = (urllib.error.URLError, OSError, ValueError, http.client.HTTPException)
@@ -124,7 +125,9 @@ class AgentClient:
         req.add_header("X-Fanout-Token", self._token)
         if ctype:
             req.add_header("Content-Type", ctype)
-        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
+        with urllib.request.urlopen(
+            req, timeout=timeout or self.timeout, context=ssl_context()
+        ) as resp:
             return resp.read()
 
     def get_json(self, path: str) -> Any:
@@ -271,6 +274,7 @@ class Runner:
         agent_factory: Optional[Callable[[str, str], Any]] = None,
         spawn_watchdog: Optional[Callable[["Runner"], Any]] = None,
         probe_workers: int = 8,
+        preflight_fn: Optional[Callable[[], List[str]]] = None,
     ):
         self.job = job
         self.policy = policy
@@ -288,6 +292,7 @@ class Runner:
         )
         self.spawn_watchdog = spawn_watchdog or spawn_watchdog_process
         self.probe_workers = probe_workers
+        self.preflight_fn = preflight_fn or preflight
         self.episodes = {jobspec.episode_key(ep): ep for ep in job["episodes"]}
         self.order = list(self.episodes)
         self.pending: List[str] = list(self.order)
@@ -575,19 +580,31 @@ class Runner:
                 self.delete_pod(pod, "untracked pod with this job's prefix")
 
     # ------------------------------------------------------------ pod lifecycle
-    def delete_pod(self, pod: Pod, why: str) -> None:
+    def delete_pod(self, pod: Pod, why: str, tries: int = 3) -> None:
+        """DELETE with backoff; a failure is logged loudly (stderr) and retried by callers."""
         if pod.deleted is not None:
             return
-        try:
-            self.rp.delete_pod(pod.id, confirm=True)
-        except RunPodError as exc:
+        for attempt in range(tries):
             try:
-                still = self.rp.get_pod(pod.id)
-            except RunPodError:
-                still = True
-            if still:
-                self.log("delete_failed", pod=pod.id, detail=str(exc.payload)[:200])
-                return
+                self.rp.delete_pod(pod.id, confirm=True)
+                break
+            except RunPodError as exc:
+                try:
+                    still = self.rp.get_pod(pod.id)
+                except RunPodError:
+                    still = True
+                if not still:
+                    break
+                self.log("delete_failed", pod=pod.id, attempt=attempt + 1, detail=str(exc)[:300])
+                print(
+                    f"!!! DELETE OF POD {pod.id} FAILED (attempt {attempt + 1}): {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                if attempt + 1 < tries:
+                    self.sleep(5 * 2**attempt)
+        else:
+            return
         pod.deleted = self.clock()
         if pod.state != "lost":
             pod.state = "deleted"
@@ -889,6 +906,9 @@ class Runner:
         left: List[Dict[str, Any]] = []
         empty_since: Optional[float] = None
         for i in range(attempts + 8):
+            for pod in self.pods.values():  # works even when GET /pods is failing
+                if pod.deleted is None:
+                    self.delete_pod(pod, "run exit (retry)", tries=1)
             try:
                 left = self.owned_live_pods()
             except RunPodError as exc:
@@ -910,8 +930,18 @@ class Runner:
                     self.rp.delete_pod(row["id"], confirm=True)
                     self.log("pod_deleted_by_sweep", pod=row["id"])
                 except RunPodError as exc:
-                    self.log("delete_failed", pod=row["id"], detail=str(exc.payload)[:200])
-            self.sleep(10)
+                    self.log("delete_failed", pod=row["id"], detail=str(exc)[:300])
+            self.sleep(min(60, 10 * (i + 1)))
+        undeleted = [p.id for p in self.pods.values() if p.deleted is None]
+        if left or undeleted:
+            msg = (
+                f"!!! PODS MAY STILL BE BILLING: tracked-undeleted={undeleted} listed={left}. "
+                "The watchdog keeps retrying; manual: runner.py cleanup --job-id "
+                f"{self.job['job_id']} --confirm"
+            )
+            print(msg, file=sys.stderr, flush=True)
+            self.log("cleanup_incomplete", undeleted=undeleted, listed=left)
+            return left or [{"id": i, "unconfirmed": True} for i in undeleted]
         return left
 
     # ------------------------------------------------------------ main loop
@@ -963,6 +993,7 @@ class Runner:
                 )
             reserve_ledger(self.policy, self.run_dir, self.job["job_id"], self.budget)
             self.log("project_ledger", **ledger)
+            self.tls_preflight()
             manifest = self.prepare_uploads(workdir)
             self.balance_start = self.rp.balance()
             if self.balance_start - self.budget < float(self.policy["global_floor_usd"]):
@@ -1018,13 +1049,20 @@ class Runner:
         delta = receipt.get("actual_cost_usd_balance_delta") or 0.0
         return max(float(delta), float(receipt.get("estimated_cost_usd") or 0.0))
 
+    def tls_preflight(self) -> None:
+        """Fail fast (before any pod exists) if verified HTTPS to RunPod/proxy does not work."""
+        problems = self.preflight_fn()
+        if problems:
+            raise Abort("TLS preflight failed (no pod created): " + "; ".join(problems))
+        self.log("tls_preflight_ok")
+
     def check_watchdog(self, startup: bool = False) -> None:
         """The detached watchdog must be alive while pods may exist."""
         wd = self.watchdog
         if wd is None:  # injected stub (tests)
             return
         if startup:
-            for _ in range(20):
+            for _ in range(60):
                 log = self.run_dir / "watchdog.log"
                 if log.exists() and b"armed" in log.read_bytes():
                     break
@@ -1257,32 +1295,116 @@ def restore_signal_handlers(old: Mapping[int, Any]) -> None:
         signal.signal(sig, handler)
 
 
-def spawn_watchdog_process(runner: Runner) -> subprocess.Popen:
-    """Detached watchdog: deletes this job's pods at the hard deadline or if we die."""
+class WatchdogHandle:
+    """A watchdog started detached (launchd job or setsid child), tracked via its pid file."""
+
+    def __init__(
+        self, run_dir: Path, popen: Optional[subprocess.Popen] = None, label: Optional[str] = None
+    ):
+        self.run_dir = Path(run_dir)
+        self.popen = popen
+        self.label = label
+        self.returncode: Optional[int] = None
+
+    @property
+    def pid(self) -> Optional[int]:
+        try:
+            return int((self.run_dir / "watchdog.pid").read_text())
+        except (OSError, ValueError):
+            return None
+
+    def poll(self) -> Optional[int]:
+        if self.popen is not None and self.popen.poll() is not None:
+            self.returncode = self.popen.returncode
+            return self.returncode
+        pid = self.pid
+        if pid is None:
+            return None  # not started yet (check_watchdog waits for "armed")
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            self.returncode = -1
+            return -1
+        except PermissionError:
+            pass
+        return None
+
+
+def watchdog_argv(runner: Runner, label: Optional[str]) -> List[str]:
+    argv = [
+        sys.executable,
+        "-m",
+        "research.runpod_fanout.watchdog",
+        "--job-id",
+        runner.job["job_id"],
+        "--fire-epoch",
+        str(runner.deadline + float(runner.policy["watchdog_grace_seconds"])),
+        "--run-dir",
+        str(runner.run_dir),
+        "--runner-pid",
+        str(os.getpid()),
+        "--prefix",
+        runner.run_prefix(),
+    ]
+    return argv + (["--launchd-label", label] if label else [])
+
+
+def spawn_watchdog_process(runner: Runner, use_launchd: Optional[bool] = None) -> WatchdogHandle:
+    """Start the watchdog fully detached from this process and its terminal.
+
+    macOS: a launchd job in the user's GUI domain (survives the runner, its terminal or
+    tmux server, and keeps Keychain access for rp.py). Elsewhere: setsid child with stdin
+    from /dev/null and output to ``watchdog.log``.
+    """
     if os.environ.get("PYTEST_CURRENT_TEST"):
         raise RuntimeError("refusing to spawn the real watchdog under pytest")
-    log = (runner.run_dir / "watchdog.log").open("ab")
-    return subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "research.runpod_fanout.watchdog",
-            "--job-id",
-            runner.job["job_id"],
-            "--fire-epoch",
-            str(runner.deadline + float(runner.policy["watchdog_grace_seconds"])),
-            "--run-dir",
-            str(runner.run_dir),
-            "--runner-pid",
-            str(os.getpid()),
-            "--prefix",
-            runner.run_prefix(),
-        ],
+    if use_launchd is None:
+        use_launchd = sys.platform == "darwin" and shutil.which("launchctl") is not None
+    log_path = runner.run_dir / "watchdog.log"
+    if use_launchd:
+        import plistlib
+
+        label = launchd_label_for(runner)
+        plist = {
+            "Label": label,
+            "ProgramArguments": watchdog_argv(runner, label),
+            "WorkingDirectory": str(REPO),
+            "StandardOutPath": str(log_path),
+            "StandardErrorPath": str(log_path),
+            "StandardInPath": "/dev/null",
+            "RunAtLoad": True,
+            "KeepAlive": False,
+            "AbandonProcessGroup": True,
+            "ProcessType": "Background",
+            "EnvironmentVariables": {
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PYTHONUNBUFFERED": "1",
+            },
+        }
+        path = runner.run_dir / "watchdog.plist"
+        path.write_bytes(plistlib.dumps(plist))
+        done = subprocess.run(
+            ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(path)],
+            capture_output=True,
+            text=True,
+        )
+        if done.returncode != 0:
+            raise Abort(f"launchctl bootstrap failed: {done.stderr.strip()[:200]}")
+        return WatchdogHandle(runner.run_dir, label=label)
+    log = log_path.open("ab")
+    popen = subprocess.Popen(
+        watchdog_argv(runner, None),
         cwd=str(REPO),
+        stdin=subprocess.DEVNULL,
         stdout=log,
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
+    return WatchdogHandle(runner.run_dir, popen=popen)
+
+
+def launchd_label_for(runner: Runner) -> str:
+    return f"com.snakedqn.rpf.{runner.job['job_id']}.{runner.run_dir.name}"
 
 
 # ---------------------------------------------------------------- local backend
@@ -1488,6 +1610,14 @@ def default_run_dir(policy: Mapping[str, Any], job: Mapping[str, Any], backend: 
 
 def cmd_plan(a, job, policy, allow) -> int:
     runner = Runner(job, policy, allow, Path(tempfile.mkdtemp()) / "plan", budget=a.budget or 0)
+    problems = preflight()
+    if problems:
+        print(
+            "TLS preflight FAILED (verified HTTPS to RunPod/proxy does not work from this "
+            "interpreter; no pod would get a channel):\n  " + "\n  ".join(problems),
+            file=sys.stderr,
+        )
+        return 2
     work = Path(tempfile.mkdtemp(prefix="rpf-plan-"))
     try:
         manifest = runner.prepare_uploads(work)
