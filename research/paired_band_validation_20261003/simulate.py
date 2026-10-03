@@ -346,7 +346,9 @@ def vector_gate(plan, mass: dict, n_reps: int, delta_ni: float):
         qualifies |= q_now
         stop_look[q_now] = k
         done |= q_now
-        if k < last:
+        # Under futility_policy "overridable" a run may continue past a futility stop; the
+        # conservative simulation then ignores futility (more chances to qualify).
+        if k < last and plan.futility_policy == "followed":
             fut_now = ((len(MIXES) - futile) < plan.required_successes) & ~done
             stop_look[fut_now] = k
             done |= fut_now

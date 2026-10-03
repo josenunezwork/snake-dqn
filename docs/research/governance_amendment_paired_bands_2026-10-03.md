@@ -171,7 +171,9 @@ the look-k prefix of n_k final worlds:
 
   `<plan.json>` is `{"plan_parameters": ..., "plan": ...}`, exactly as frozen in
   `intent.json`. The script rebuilds the plan, refuses to run unless it equals `plan`, and
-  then uses its looks, alphas, futility rule and band rule. The script simulates the three
+  then uses its looks, alphas, futility rule and band rule. Under
+  `futility_policy = "overridable"` it ignores futility stops, which is the conservative
+  bound, because overriding only adds chances to qualify. The script simulates the three
   mixes `frozen`, `scripted` and `mixed` only. `<pool.json>` has the format of
   `paired_survival_20261003.json`: one entry per pool, with `world_seeds` and, per mix, the
   lists `incumbent_survival`, `candidate_survival` and `mass_delta`. delta_NI is not known

@@ -30,7 +30,8 @@ frozen plan:
 - `--data` gives the pool, in the format of the data file below.
 - `--plan-params` gives an `intent.json`-style file `{"plan_parameters": ..., "plan": ...}`.
   The plan is rebuilt with `sequential_gate_plan` and must equal `plan`, or the script
-  exits; the plan's looks, alphas, futility rule and band rule are then used. Without it,
+  exits; the plan's looks, alphas, futility rule and band rule are then used. Under
+  `futility_policy = "overridable"`, futility stops are ignored (the conservative bound). Without it,
   use `--n-max`, `--mde` and `--check-rule M,alpha,bound`.
 - `--delta-ni` and `--thetas` set the remaining inputs.
 
