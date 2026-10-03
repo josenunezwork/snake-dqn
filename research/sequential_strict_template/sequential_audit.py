@@ -26,7 +26,13 @@ What it recomputes in its own code (amendment "Audit requirements"):
   (look 0: calibration and the passing skew check) -- create-only order, not wall clock.
 * **Reducer cross-check**: a plain mean and t over each prefix against the receipts.
 * **Outcome**: the expected outcome against ``producer-outcome.json``, ``decision.json``
-  and (post-hoc) ``closeout.json``.
+  and (post-hoc) ``closeout.json``; a ``dry_run`` intent may only yield ``DRY_RUN_*`` and
+  never a ``receipt.json``.
+* **Provenance**: unless the intent is ``dry_run``, FAIL if ``started.json`` records an
+  in-process executor, an injected skew or audit runner or ``allow_dirty``, or a segment's
+  supervision shows the in-process executor.  No resume markers may exist.
+* **Pre-registration documents**: protocol, OC simulation report and look-1 band-cost
+  report still have their frozen sha256.
 """
 
 from __future__ import annotations
@@ -52,6 +58,11 @@ SKEW_EFFICACY_FACTOR = 1.2
 SKEW_NI_LIMIT = 0.06
 TERMINAL = ("STOP_PASS", "STOP_FAIL_BANDS", "FINAL_PASS", "FINAL_FAIL")
 PASSING = ("STOP_PASS", "FINAL_PASS")
+DECIDED = ("STRICT_PASS", "STRICT_FAIL", "DRY_RUN_PASS", "DRY_RUN_FAIL")
+PRODUCTION_EXECUTOR = "subprocess"
+PRODUCTION_SKEW_RUNNER = "subprocess_skew_runner"
+PRODUCTION_AUDIT_RUNNER = "subprocess_audit_runner"
+PREREGISTRATION = ("protocol", "oc_report", "band_cost_report")
 GRID_POINTS = 401  # odd (Simpson)
 GRID_SD = 10.0
 _N = NormalDist()
@@ -863,7 +874,7 @@ def audit_segments(
             expected["prior_look_receipt_sha256"] = sha256_file(prior)
             if receipts[look - 1].get("action") != "continue":
                 rows.append(f"segment look {look} started after a stop at look {look - 1}")
-        for started in sorted(look_dir.glob("attempt-*/shard-*/started.json")):
+        for started in sorted(look_dir.glob("shard-*/started.json")):
             if load_json(started).get("gate") != expected:
                 rows.append(f"{started.relative_to(output)}: gate binding")
     for j, receipt in enumerate(receipts):
@@ -881,16 +892,18 @@ def audit_outcome(
     audit: Audit, intent: Mapping[str, Any], output: Path, skew: Optional[bool], final: Mapping
 ) -> Dict[str, Any]:
     receipt = final.get("receipt")
+    prefix = "DRY_RUN_" if intent.get("dry_run") is True else ""
     if skew is False:
-        expected = "SKEW_CHECK_FAILED"
+        expected = f"{prefix}SKEW_CHECK_FAILED"
     elif receipt is not None and receipt["action"] == "stop" and receipt["valid"]:
-        expected = "STRICT_PASS" if receipt["passes"] else "STRICT_FAIL"
+        verdict = "PASS" if receipt["passes"] else "FAIL"
+        expected = f"DRY_RUN_{verdict}" if prefix else f"STRICT_{verdict}"
     else:
         expected = None
+    decided = expected in DECIDED
     claim_path = output / "producer-outcome.json"
     if claim_path.is_file():
         claim = load_json(claim_path)
-        decided = expected in ("STRICT_PASS", "STRICT_FAIL")
         audit.add(
             "outcome.producer_claim",
             claim.get("outcome") == expected
@@ -907,6 +920,9 @@ def audit_outcome(
             and saved.get("decision") == receipt["decision"]
             and saved.get("passes") == receipt["passes"],
         )
+    receipt_file = output / "receipt.json"
+    if intent.get("dry_run") is True:
+        audit.add("outcome.dry_run_has_no_receipt", not receipt_file.exists())
     closeout = output / "closeout.json"
     if closeout.is_file():
         saved = load_json(closeout)
@@ -914,15 +930,15 @@ def audit_outcome(
         consistent = (
             outcome in ("INVALID_STOP", "INCOMPLETE", "STOP_INFEASIBLE") or outcome == expected
         )
-        if outcome in ("STRICT_PASS", "STRICT_FAIL", "SKEW_CHECK_FAILED"):
+        if outcome not in ("INVALID_STOP", "INCOMPLETE", "STOP_INFEASIBLE"):
             consistent = consistent and saved.get("audit_passed") is True
+        if intent.get("dry_run") is True:
+            consistent = consistent and not str(outcome).startswith("STRICT_")
         audit.add("outcome.closeout", consistent, {"closeout": outcome, "expected": expected})
-        receipt_file = output / "receipt.json"
         audit.add(
             "outcome.pass_receipt_only_on_pass",
             receipt_file.is_file() == (outcome == "STRICT_PASS"),
         )
-    decided = expected in ("STRICT_PASS", "STRICT_FAIL")
     return {
         "expected_outcome": expected,
         "stop_look": final["stop_look"] if decided else None,
@@ -930,25 +946,82 @@ def audit_outcome(
     }
 
 
+def provenance_problems(
+    intent: Mapping[str, Any],
+    started: Mapping[str, Any],
+    supervisions: Sequence[Mapping[str, Any]],
+    skew_receipt: Optional[Mapping[str, Any]],
+    audit_runner: Optional[Mapping[str, Any]],
+) -> List[str]:
+    """A non-dry-run intent must have run with the production executor and runners, a clean
+    source closure and the global slot lock root recorded in its intent."""
+    if intent.get("dry_run") is True:
+        return []
+    problems = []
+    prov = started.get("provenance") or {}
+    expected = {
+        "executor": PRODUCTION_EXECUTOR,
+        "skew_runner": PRODUCTION_SKEW_RUNNER,
+        "audit_runner": PRODUCTION_AUDIT_RUNNER,
+        "allow_dirty": False,
+        "dry_run": False,
+    }
+    for key, value in expected.items():
+        if prov.get(key) != value:
+            problems.append(f"started.json provenance {key}={prov.get(key)!r}")
+    if intent.get("allow_dirty") is not False or intent["source_closure"].get("dirty"):
+        problems.append("dirty source closure on a production intent")
+    for row in supervisions:
+        if row.get("executor") is not None or any(
+            "worker" not in child.get("command", []) for child in row.get("children", [])
+        ):
+            problems.append("a segment did not run through the subprocess executor")
+    if skew_receipt is not None and skew_receipt.get("skew_runner") != PRODUCTION_SKEW_RUNNER:
+        problems.append(f"skew runner {skew_receipt.get('skew_runner')!r}")
+    if audit_runner is not None and audit_runner.get("identity") != PRODUCTION_AUDIT_RUNNER:
+        problems.append(f"audit runner {audit_runner.get('identity')!r}")
+    return problems
+
+
 def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
     output = root / "output"
     sha = sha256_file(root / "intent.json")
-    markers = [output / "started.json", *sorted((output / "resumes").glob("resume-*.json"))]
-    ok = all(m.is_file() and load_json(m).get("intent_sha256") == sha for m in markers)
-    audit.add("intent.sha256_bound", ok)
+    started = output / "started.json"
+    audit.add(
+        "intent.sha256_bound",
+        started.is_file() and load_json(started).get("intent_sha256") == sha,
+    )
     audit.add(
         "intent.template",
         intent.get("template_version") == TEMPLATE_VERSION
         and intent["caps"]["retry_authorized"] is False
         and Path(intent["output_root"]).resolve() == root.resolve(),
     )
-    resumes = len(markers) - 1
     audit.add(
-        "intent.resume_policy",
-        resumes == 0
-        or (intent["resume"]["authorized"] is True and resumes <= intent["resume"]["max_resumes"]),
-        {"resumes": resumes},
+        "intent.no_resume",
+        intent["caps"].get("resume_authorized") is False and not (output / "resumes").exists(),
     )
+    rows = []
+    for name, row in sorted(intent["preregistration"].items()):
+        path = Path(row["path"])
+        if not path.is_file() or sha256_file(path) != row["sha256"]:
+            rows.append(name)
+    audit.add(
+        "intent.preregistration_documents",
+        not rows and set(intent["preregistration"]) == set(PREREGISTRATION),
+        rows,
+    )
+    supervisions = [load_json(p) for p in sorted(output.glob("*/segments/look-*/supervision.json"))]
+    skew = output / "skew_check.json"
+    runner = output / "audit" / "runner.json"
+    problems = provenance_problems(
+        intent,
+        load_json(started) if started.is_file() else {},
+        supervisions,
+        load_json(skew) if skew.is_file() else None,
+        load_json(runner) if runner.is_file() else None,
+    )
+    audit.add("provenance.production_or_dry_run", not problems, problems)
 
 
 def run_audit(root: Path) -> Dict[str, Any]:

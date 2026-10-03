@@ -6,38 +6,33 @@ A parameterized harness for the group-sequential strict gate of
 parts (arms, episode function, rosters, world namespaces, bands) are supplied by a
 :class:`StudySpec`; everything else is fixed here and mirrors the hardening of the fixed-N
 strict packages (``research/apex_veto_v{5,7}_strict_*``): monotonic-clock heartbeats, an
-AC-power guard, two-slot sharding under inherited CPU slot locks, stage caps plus a handoff
-reserve, create-only (write-once) outputs, intent hashing, a source-closure re-hash before
-every segment, an independent stdlib-only audit (``sequential_audit.py``) and a closeout that
-never relabels a failure.
+AC-power guard (also polled while children run), two-slot sharding under inherited CPU slot
+locks, stage caps plus a handoff reserve, create-only (write-once) outputs, intent hashing,
+a source-closure re-hash before every segment, an independent stdlib-only audit
+(``sequential_audit.py``) and a closeout that never relabels a failure.
 
-Flow of ``run`` (one intent, one closeout):
+Flow of ``run`` (one intent, one attempt, one closeout):
 
 1. **Calibration** (incumbent only, dev worlds, both shards): reference means, the absolute
    non-inferiority margin ``delta_NI`` and the behavioral bands -> ``calibration.json``.
 2. **Skew check** (required by the amendment, before the first final world): the frozen
    resampling probe (``skew_probe.py --part resample``) on the study's saved screen/pilot
    paired deltas, per mix, with the frozen ``N_max``, look fractions and ``delta_NI``
-   -> ``skew_check.json``.  A failure ends the run ``SKEW_CHECK_FAILED`` (the remedy ladder
-   is outside the run; nothing is retried with a different schedule).
+   -> ``skew_check.json``.  A failure ends the run ``SKEW_CHECK_FAILED``.
 3. **Final looks**: world-major round-robin units (``sequential_gate.round_robin_plan``);
    for look ``k`` every worker runs exactly its next ``worker_look_counts`` units and exits
    (the barrier).  The parent then checks that the records on disk are exactly the look's
    unit prefix, computes ``sequential_decision`` and writes ``looks/look-<k>.json``
    create-only.  A worker refuses to start look ``k + 1`` unless that receipt exists and
-   allows continuing, and it binds the receipt's sha256 into its own ``started.json``.
-   The run stops on ``STOP_PASS``, ``STOP_FAIL_BANDS``, ``STOP_FUTILE`` (unless the plan is
-   ``overridable`` and the intent pre-registered ``futility_action="continue"``) or the
-   last look.
+   says ``continue``, and it binds the receipt's sha256 into its own ``started.json``.
 4. **Audit**: the independent audit child, then ``closeout.json`` (and ``receipt.json`` on
    ``STRICT_PASS``).
 
-Resume (pre-registered, ``intent.resume``): only a parent that died without writing
-``closeout.json`` (power loss, SIGKILL) may be resumed.  Every receipt already written is
-recomputed from the records and must match; records of an unfinished segment are adopted
-after an envelope check; nothing beyond the next look's prefix can exist because workers
-never run past their segment.  Any failure the parent can see (a worker crash, a watchdog,
-SIGTERM, a drift) is closed out as ``INVALID_STOP`` and is never resumed or relabelled.
+There is no resume (as in the v7 package): a parent that dies without ``closeout.json``
+leaves the run permanently ``ABANDONED`` (see ``status``); ``prepare`` and ``run`` refuse
+it.  Any failure the parent sees (worker crash, watchdog, battery, SIGTERM/SIGHUP/SIGINT,
+drift) is closed out ``INVALID_STOP``.  A ``dry_run`` intent (in-process executor or
+injected runners, dirty sources, any lock root) can only end ``DRY_RUN_*`` or a failure.
 """
 
 from __future__ import annotations
@@ -83,6 +78,7 @@ TEMPLATE_README = HERE / "README.md"
 INDEPENDENT_AUDIT = HERE / "sequential_audit.py"
 SKEW_PROBE = REPO / "research" / "sequential_gate_validation_20261002" / "skew_probe.py"
 PYTHON = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
+# The global CPU slot lock root the v7 strict package uses (strict_run.SLOT_LOCK_ROOT).
 SLOT_LOCK_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909")
 DEFAULT_CLOSURE_ROOTS = (
     "src",
@@ -99,6 +95,9 @@ OUTCOMES = (
     "STRICT_PASS",
     "STRICT_FAIL",
     "SKEW_CHECK_FAILED",
+    "DRY_RUN_PASS",
+    "DRY_RUN_FAIL",
+    "DRY_RUN_SKEW_CHECK_FAILED",
     "STOP_INFEASIBLE",
     "INCOMPLETE",
     "INVALID_STOP",
@@ -128,11 +127,16 @@ N_MAX_CAP = 300
 RSS_BYTES = 8 * 1024**3
 AVAILABLE_BYTES = math.ceil(9.6 * 1024**3)
 POLL_SECONDS = 1.0
+POWER_POLL_SECONDS = 30.0
 TERM_GRACE_SECONDS = 10.0
 HEARTBEAT_STALE_SECONDS = 600.0
 SLOT_TIMEOUT_SECONDS = 180.0
 WORKER_STOP_MARGIN_SECONDS = 30.0
 MIN_EPISODE_BUDGET_SECONDS = 45.0
+PARENT_GONE_EXIT = 75
+PRODUCTION_EXECUTOR = "subprocess"
+PRODUCTION_SKEW_RUNNER = "subprocess_skew_runner"
+PRODUCTION_AUDIT_RUNNER = "subprocess_audit_runner"
 
 
 class StrictRunError(RuntimeError):
@@ -144,7 +148,7 @@ class DeadlineStop(Exception):
 
 
 class Interrupted(BaseException):
-    """SIGTERM/SIGHUP received by the run parent."""
+    """SIGTERM/SIGHUP/SIGINT received by the run parent."""
 
 
 def require(condition: bool, message: str) -> None:
@@ -243,10 +247,6 @@ def _no_problems(entry: Mapping[str, Any], row: Mapping[str, Any]) -> List[str]:
     return []
 
 
-def _no_exclusions() -> Dict[str, List[int]]:
-    return {}
-
-
 def survival_bands(
     mixes: Sequence[str], below: float = 0.02, above: float = 1.0
 ) -> Tuple[Dict[str, Any], ...]:
@@ -269,13 +269,14 @@ class StudySpec:
       recomputed before every segment; any difference stops the run.
     * ``episode_runner(episode, row, context)`` plays one hero episode and returns the
       rollout record (a mapping with finite ``primary_metric`` and every band metric).
-      ``episode`` has ``arm``, ``mix``, ``world_index``, ``world_seed``, ``phase``.
-    * ``worker_setup(intent)`` builds the per-worker ``context`` once (config, profile,
-      checkpoint lookup ...).
+    * ``worker_setup(intent)`` builds the per-worker ``context`` once.
     * ``build_row(phase, mix, world_index, world_seed)`` returns the roster row of a world
       (must keep those four keys); rows are frozen in ``rosters.json``.
     * ``validate_record(entry, row)`` returns record-shape problems (empty = valid).
-    * ``excluded_seeds()`` returns earlier namespaces whose seeds must be disjoint.
+    * ``excluded_seeds()`` returns every earlier namespace whose seeds must be disjoint.
+    * ``protocol_path``, ``oc_report_path`` (operating-characteristics simulation of the
+      frozen plan) and ``band_cost_report_path`` (look-1 early-stop band cost) are required
+      pre-registration documents; their sha256s are frozen in the intent.
     """
 
     study_id: str
@@ -283,6 +284,10 @@ class StudySpec:
     namespaces: Mapping[str, str]
     arm_identities: Callable[[], Mapping[str, Any]]
     episode_runner: Callable[[Mapping[str, Any], Mapping[str, Any], Any], Mapping[str, Any]]
+    excluded_seeds: Callable[[], Mapping[str, Sequence[int]]]
+    protocol_path: str
+    oc_report_path: str
+    band_cost_report_path: str
     mixes: Tuple[str, ...] = ("frozen", "scripted", "mixed")
     scripted_mix: str = "scripted"
     primary_metric: str = "mass_integral"
@@ -293,9 +298,7 @@ class StudySpec:
     worker_setup: Callable[[Mapping[str, Any]], Any] = _no_setup
     build_row: Callable[[str, str, int, int], Dict[str, Any]] = default_row
     validate_record: Callable[[Mapping[str, Any], Mapping[str, Any]], List[str]] = _no_problems
-    excluded_seeds: Callable[[], Mapping[str, Sequence[int]]] = _no_exclusions
     closure_roots: Tuple[str, ...] = DEFAULT_CLOSURE_ROOTS
-    protocol_path: Optional[str] = None
 
     def descriptor(self) -> Dict[str, Any]:
         return {
@@ -310,7 +313,12 @@ class StudySpec:
             "bands": [dict(band) for band in self.bands],
             "closure_roots": list(self.closure_roots),
             "protocol_path": self.protocol_path,
+            "oc_report_path": self.oc_report_path,
+            "band_cost_report_path": self.band_cost_report_path,
         }
+
+
+PREREGISTRATION_DOCS = ("protocol_path", "oc_report_path", "band_cost_report_path")
 
 
 def validate_spec(spec: StudySpec) -> None:
@@ -320,6 +328,9 @@ def validate_spec(spec: StudySpec) -> None:
     require(len(spec.mixes) >= 1 and len(set(spec.mixes)) == len(spec.mixes), "mixes")
     require(spec.scripted_mix in spec.mixes, "scripted mix is not a mix")
     require(0.0 < float(spec.ni_fraction) < 1.0, "ni_fraction must be in (0, 1)")
+    for name in PREREGISTRATION_DOCS:
+        value = getattr(spec, name)
+        require(isinstance(value, str) and bool(value.strip()), f"spec.{name} is required")
     for band in spec.bands:
         require(
             set(band) == {"metric", "mix", "lower_offset", "upper_offset"}
@@ -444,32 +455,8 @@ def prefix_episode_ids(intent: Mapping[str, Any], phase: str, look: int) -> List
     return ids
 
 
-def segment_root(output: Path, phase: str, look: int) -> Path:
+def segment_dir(output: Path, phase: str, look: int) -> Path:
     return Path(output) / phase / "segments" / f"look-{look}"
-
-
-def attempt_dirs(output: Path, phase: str, look: int) -> List[Path]:
-    root = segment_root(output, phase, look)
-    if not root.is_dir():
-        return []
-    found = sorted(
-        (int(p.name.split("-", 1)[1]), p)
-        for p in root.iterdir()
-        if p.is_dir() and p.name.startswith("attempt-")
-    )
-    return [p for _, p in found]
-
-
-def segment_complete(output: Path, phase: str, look: int, workers: int) -> bool:
-    """The latest attempt of the segment has a complete report from every shard."""
-    attempts = attempt_dirs(output, phase, look)
-    if not attempts:
-        return False
-    for shard in range(workers):
-        report = attempts[-1] / f"shard-{shard}" / "report.json"
-        if not report.is_file() or read_json(report).get("complete") is not True:
-            return False
-    return True
 
 
 # ---------------------------------------------------------------- plan and source closure
@@ -573,17 +560,12 @@ def load_skew_input(path: Path, mixes: Sequence[str]) -> Dict[str, List[float]]:
 def probe_compatible(plan: Mapping[str, Any]) -> bool:
     """``skew_probe.py`` builds its own plan with the default alphas and three mixes; the
     study's nominal levels must be the ones the probe uses or its rates mean nothing."""
-    probe = sequential_gate_plan(
-        plan["n_max"], mde=30.0, fractions=plan_fractions_nominal(plan)
-    ).as_dict()
+    fractions = [size / plan["n_max"] for size in plan["look_sizes"]]
+    probe = sequential_gate_plan(plan["n_max"], mde=30.0, fractions=fractions).as_dict()
     return all(
         probe[key] == plan[key]
         for key in ("look_sizes", "efficacy_nominal_p", "ni_nominal_p", "efficacy_alpha_per_mix")
     )
-
-
-def plan_fractions_nominal(plan: Mapping[str, Any]) -> List[float]:
-    return [size / plan["n_max"] for size in plan["look_sizes"]]
 
 
 def skew_limits(plan: Mapping[str, Any]) -> Dict[str, float]:
@@ -594,6 +576,27 @@ def skew_limits(plan: Mapping[str, Any]) -> Dict[str, float]:
 
 
 # ---------------------------------------------------------------- intent
+
+
+def validate_caps(caps: Mapping[str, Any]) -> None:
+    require(set(caps) == set(DEFAULT_CAPS), f"caps must cover exactly {sorted(DEFAULT_CAPS)}")
+    for name, value in caps.items():
+        require(
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and 0 < value <= DEFAULT_CAPS[name],
+            f"cap {name}={value!r} must be a positive integer <= {DEFAULT_CAPS[name]}",
+        )
+
+
+def preregistration_files(spec: StudySpec, repo: Path) -> Dict[str, Dict[str, str]]:
+    """Protocol, OC simulation report and look-1 band-cost report: path and sha256."""
+    out = {}
+    for name in PREREGISTRATION_DOCS:
+        path = (Path(repo) / getattr(spec, name)).resolve()
+        require(path.is_file(), f"{name} {path} does not exist")
+        out[name.replace("_path", "")] = {"path": str(path), "sha256": sha256_file(path)}
+    return out
 
 
 def build_intent(
@@ -620,13 +623,16 @@ def build_intent(
     caps: Optional[Mapping[str, int]] = None,
     workers: int = WORKERS,
     slot_lock_root: Optional[Path] = None,
-    resume_authorized: bool = True,
-    max_resumes: int = 2,
     python: Path = PYTHON,
+    dry_run: bool = False,
     allow_dirty: bool = False,
     repo: Path = REPO,
 ) -> Dict[str, Any]:
-    """Freeze everything the amendment requires before the first final world."""
+    """Freeze everything the amendment requires before the first final world.
+
+    A production intent (``dry_run=False``) must use the global slot lock root and a clean
+    source closure; ``dry_run=True`` relaxes both and can never yield a pass.
+    """
     validate_spec(spec)
     require(bool(authorization_quote.strip()), "authorization quote required")
     require(deadline.tzinfo is not None, "deadline needs a UTC offset")
@@ -639,7 +645,16 @@ def build_intent(
     require(isinstance(workers, int) and workers >= 1, "workers >= 1")
     require(isinstance(skew_reps, int) and skew_reps >= 1000, "skew_reps >= 1000")
     caps = dict(DEFAULT_CAPS if caps is None else caps)
-    require(set(caps) == set(DEFAULT_CAPS), f"caps must cover {sorted(DEFAULT_CAPS)}")
+    validate_caps(caps)
+    lock_root = Path(slot_lock_root or SLOT_LOCK_ROOT)
+    require(
+        dry_run or lock_root == SLOT_LOCK_ROOT,
+        f"a production intent must use the global slot lock root {SLOT_LOCK_ROOT}",
+    )
+    require(dry_run or not allow_dirty, "allow_dirty is only permitted on a dry_run intent")
+    out_root = Path(out_root).resolve()
+    status = run_status(out_root)
+    require(status["state"] == "NOT_STARTED", f"{out_root} is {status['state']}: never reused")
     params = plan_parameters(
         n_max=n_max,
         mde=mde,
@@ -670,17 +685,13 @@ def build_intent(
     skew_deltas = load_skew_input(skew_input, spec.mixes)
     closure = source_closure(spec.closure_roots, repo)
     require(allow_dirty or not closure["dirty"], f"source closure is dirty: {closure['dirty']}")
-    protocol = None
-    if spec.protocol_path is not None:
-        protocol_file = (repo / spec.protocol_path).resolve()
-        protocol = {"path": str(protocol_file), "sha256": sha256_file(protocol_file)}
-    out_root = Path(out_root).resolve()
     counts = worker_look_counts(plan["look_sizes"], len(spec.mixes), workers)
-    intent = {
+    return {
         "schema_version": spec.schema,
         "template_version": TEMPLATE_VERSION,
         "study_id": spec.study_id,
         "authority": "tier-2-strict-promotion-sequential",
+        "dry_run": bool(dry_run),
         "created_utc": now_utc().isoformat(),
         "authorization_quote": authorization_quote,
         "deadline_utc": deadline.astimezone(timezone.utc).isoformat(),
@@ -720,7 +731,13 @@ def build_intent(
             "remedy_on_fail": SKEW_REMEDY_ON_FAIL,
             "remedy_ladder": SKEW_REMEDY_LADDER,
             "timing": "after calibration (delta_NI frozen), before the first final world",
+            "deviations_from_amendment": [
+                "runs after calibration (delta_NI is a calibration output), result in "
+                "skew_check.json, not in intent.json",
+                "NI any-look rate judged on the scripted mix only; efficacy on every mix",
+            ],
         },
+        "preregistration": preregistration_files(spec, repo),
         "sizing": {"n_max": n_max, "n_max_cap": n_max_cap, "feasible": n_max <= n_max_cap},
         "caps": {
             "stage_seconds": caps,
@@ -728,20 +745,15 @@ def build_intent(
             "workers": workers,
             "threads_per_worker": THREADS_PER_WORKER,
             "retry_authorized": False,
-        },
-        "resume": {
-            "authorized": bool(resume_authorized),
-            "max_resumes": int(max_resumes),
-            "scope": "parent death without closeout.json only; never after a closeout",
+            "resume_authorized": False,
         },
         "source_closure": closure,
         "allow_dirty": bool(allow_dirty),
-        "protocol": protocol,
         "template_readme_sha256": sha256_file(TEMPLATE_README),
         "output_root": str(out_root),
         "repo": str(repo),
         "python": str(python),
-        "slot_lock_root": str(slot_lock_root or SLOT_LOCK_ROOT),
+        "slot_lock_root": str(lock_root),
         "audit": {
             "path": str(INDEPENDENT_AUDIT),
             "sha256": sha256_file(INDEPENDENT_AUDIT),
@@ -755,12 +767,13 @@ def build_intent(
             ],
         },
     }
-    return intent
 
 
 def prepare(intent: Mapping[str, Any]) -> Path:
-    """Write ``intent.json`` once (create-only)."""
+    """Write ``intent.json`` once (create-only); a started or abandoned root is refused."""
     out_root = Path(intent["output_root"])
+    status = run_status(out_root)
+    require(status["state"] == "NOT_STARTED", f"{out_root} is {status['state']}: never reused")
     out_root.mkdir(parents=True, exist_ok=True)
     path = out_root / "intent.json"
     write_once(path, intent)
@@ -775,6 +788,13 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
         intent["schema_version"] == spec.schema and intent["study_id"] == spec.study_id, "schema"
     )
     require(intent["method"] == SEQUENTIAL_GATE_METHOD, "method version")
+    require(isinstance(intent["dry_run"], bool), "dry_run flag")
+    if not intent["dry_run"]:
+        require(
+            Path(intent["slot_lock_root"]) == SLOT_LOCK_ROOT,
+            f"a production intent must use the global slot lock root {SLOT_LOCK_ROOT}",
+        )
+        require(intent["allow_dirty"] is False, "allow_dirty on a production intent")
     require(
         plan_from_parameters(intent["plan_parameters"]).as_dict() == intent["plan"],
         "frozen plan differs from its parameters",
@@ -793,7 +813,9 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
         "world banks differ from their namespaces",
     )
     require(intent["caps"]["retry_authorized"] is False, "retry must not be authorized")
-    require(set(intent["caps"]["stage_seconds"]) == set(DEFAULT_CAPS), "stage caps")
+    require(intent["caps"]["resume_authorized"] is False, "resume must not be authorized")
+    validate_caps(intent["caps"]["stage_seconds"])
+    require(intent["caps"]["handoff_seconds"] == HANDOFF_SECONDS, "handoff reserve")
     require(intent["futility_action"] in FUTILITY_ACTIONS, "futility action")
     require(
         intent["futility_action"] == "stop" or intent["plan"]["futility_policy"] == "overridable",
@@ -808,13 +830,17 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
         "skew input drift",
     )
     require(sha256_file(SKEW_PROBE) == intent["skew_check"]["probe_sha256"], "skew probe drift")
+    require(
+        set(intent["preregistration"]) == {n.replace("_path", "") for n in PREREGISTRATION_DOCS},
+        "pre-registration documents",
+    )
+    for name, row in intent["preregistration"].items():
+        require(
+            Path(row["path"]).is_file() and sha256_file(Path(row["path"])) == row["sha256"],
+            f"{name} drift",
+        )
     drift = closure_drift(intent["source_closure"])
     require(not drift, f"source closure drift: {drift}")
-    if intent["protocol"] is not None:
-        require(
-            sha256_file(Path(intent["protocol"]["path"])) == intent["protocol"]["sha256"],
-            "protocol drift",
-        )
     require(json_safe(dict(spec.arm_identities())) == intent["arms"], "arm identity drift")
     parse_utc(intent["deadline_utc"])
 
@@ -893,6 +919,53 @@ def assert_inherited_slot(fd: int, lock_root: Path, slot: int) -> None:
         raise StrictRunError(f"CPU slot {slot} is held by another process") from exc
 
 
+def _slots_held_elsewhere(lock_root: Path, workers: int) -> bool:
+    """True if any existing ``cpu-slot-k.lock`` is locked by some process (never creates)."""
+    for k in range(workers):
+        path = Path(lock_root) / f"cpu-slot-{k + 1}.lock"
+        if not path.is_file():
+            continue
+        with path.open("r") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    return False
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def run_status(out_root: Path) -> Dict[str, Any]:
+    """``NOT_STARTED``, ``IN_PROGRESS``, ``ABANDONED`` (started, no closeout, no live parent
+    holding the slots; permanent) or ``CLOSED`` (with its outcome)."""
+    output = Path(out_root) / "output"
+    closeout = output / "closeout.json"
+    if closeout.is_file():
+        return {"state": "CLOSED", "outcome": read_json(closeout)["outcome"]}
+    if not output.exists():
+        return {"state": "NOT_STARTED"}
+    started = output / "started.json"
+    if not started.is_file():
+        return {"state": "ABANDONED", "reason": "output exists without started.json"}
+    marker = read_json(started)
+    intent = read_json(Path(out_root) / "intent.json")
+    live = _pid_alive(marker["pid"]) and _slots_held_elsewhere(
+        Path(intent["slot_lock_root"]), intent["caps"]["workers"]
+    )
+    if live:
+        return {"state": "IN_PROGRESS", "pid": marker["pid"]}
+    return {"state": "ABANDONED", "reason": "parent gone without closeout.json; never resumed"}
+
+
 def _write_heartbeat(path: Path, value: Mapping[str, Any]) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
@@ -906,14 +979,6 @@ def _heartbeat_mono(path: Path, started: float) -> float:
     except (OSError, ValueError, AttributeError):
         return started
     return float(value) if isinstance(value, (int, float)) and math.isfinite(value) else started
-
-
-def parent_marker(output: Path) -> Dict[str, Any]:
-    """The live parent: ``started.json`` or the latest ``resumes/resume-<n>.json``."""
-    resumes = sorted(
-        (int(p.stem.split("-", 1)[1]), p) for p in (Path(output) / "resumes").glob("resume-*.json")
-    )
-    return read_json(resumes[-1][1] if resumes else Path(output) / "started.json")
 
 
 # ---------------------------------------------------------------- worker
@@ -953,7 +1018,6 @@ def envelope(
     intent: Mapping[str, Any],
     intent_sha: str,
     episode: Mapping[str, Any],
-    attempt: int,
     record: Mapping[str, Any],
     wall_seconds: float,
 ) -> Dict[str, Any]:
@@ -962,7 +1026,6 @@ def envelope(
         "study_id": intent["study_id"],
         "intent_sha256": intent_sha,
         **{k: episode[k] for k in sorted(episode)},
-        "attempt": attempt,
         "arm_identity_sha256": canonical_sha(intent["arms"][episode["arm"]]),
         "wall_seconds": wall_seconds,
         "record": json_safe(dict(record)),
@@ -994,19 +1057,28 @@ def envelope_problems(
     return problems
 
 
+def parent_alive(parent_pid: Optional[int]) -> bool:
+    """A child is re-parented when its parent dies, so ``getppid`` changes."""
+    return parent_pid is None or os.getppid() == parent_pid
+
+
 def worker_body(
     intent: Mapping[str, Any],
     intent_sha: str,
     spec: StudySpec,
     phase: str,
     look: int,
-    attempt: int,
     shard: int,
     stage_deadline: datetime,
+    parent_pid: Optional[int] = None,
 ) -> int:
-    """Run one shard of one segment (phase, look, attempt); adopt existing records on resume."""
+    """Run one shard of one segment; every record is new (create-only, no adoption).
+
+    ``parent_pid`` (subprocess workers) is checked before and after every episode; if the
+    parent died, the worker exits ``PARENT_GONE_EXIT`` without writing anything more.
+    """
     output = Path(intent["output_root"]) / "output"
-    shard_dir = segment_root(output, phase, look) / f"attempt-{attempt}" / f"shard-{shard}"
+    shard_dir = segment_dir(output, phase, look) / f"shard-{shard}"
     shard_dir.mkdir()
     gate = prior_gate(intent, output, phase, look)
     admitted = read_json(output / "admitted.json")
@@ -1018,12 +1090,13 @@ def worker_body(
         for unit in segment_units(intent, phase, look, shard)
         for episode in unit_episodes(phase, unit, look)
     ]
+    if not parent_alive(parent_pid):
+        return PARENT_GONE_EXIT
     write_once(
         shard_dir / "started.json",
         {
             "phase": phase,
             "look": look,
-            "attempt": attempt,
             "shard": shard,
             "gate": gate,
             "intent_sha256": intent_sha,
@@ -1037,18 +1110,13 @@ def worker_body(
     records_dir = output / phase / "records"
     records_dir.mkdir(exist_ok=True)
     done: Dict[str, str] = {}
-    adopted: List[str] = []
     spent: List[float] = []
     stopped = None
     for episode in planned:
+        if not parent_alive(parent_pid):
+            return PARENT_GONE_EXIT
         path = records_dir / f"{episode['episode_id']}.json"
-        if path.exists():  # an earlier attempt of this segment wrote it (resume)
-            entry = read_json(path)
-            problems = envelope_problems(intent, intent_sha, entry, episode)
-            require(not problems, f"adopted record invalid: {problems}")
-            done[episode["episode_id"]] = sha256_file(path)
-            adopted.append(episode["episode_id"])
-            continue
+        require(not path.exists(), f"record {path.name} already exists (create-only)")
         budget = max(MIN_EPISODE_BUDGET_SECONDS, 2 * sum(spent) / len(spent) if spent else 0)
         remaining = (stage_deadline - now_utc()).total_seconds()
         if remaining < budget:
@@ -1060,7 +1128,9 @@ def worker_body(
         record = spec.episode_runner(episode, row, context)
         elapsed = time.monotonic() - began
         spent.append(elapsed)
-        entry = envelope(intent, intent_sha, episode, attempt, record, elapsed)
+        if not parent_alive(parent_pid):
+            return PARENT_GONE_EXIT
+        entry = envelope(intent, intent_sha, episode, record, elapsed)
         problems = envelope_problems(intent, intent_sha, entry, episode)
         problems += list(spec.validate_record(entry, row))
         require(not problems, f"record shape: {problems}")
@@ -1073,12 +1143,10 @@ def worker_body(
         {
             "phase": phase,
             "look": look,
-            "attempt": attempt,
             "shard": shard,
             "slot": shard + 1,
             "planned_episode_ids": [e["episode_id"] for e in planned],
             "records_sha256": done,
-            "adopted_episode_ids": adopted,
             "complete": stopped is None and len(done) == len(planned),
             "stopped_reason": stopped,
             "wall_seconds_total": sum(spent),
@@ -1092,7 +1160,6 @@ def worker_main(
     intent_path: Path,
     phase: str,
     look: int,
-    attempt: int,
     shard: int,
     stage_deadline: datetime,
     slot_fd: int,
@@ -1101,14 +1168,17 @@ def worker_main(
     intent = read_json(intent_path)
     intent_sha = sha256_file(intent_path)
     output = Path(intent["output_root"]) / "output"
-    marker = parent_marker(output)
-    require(marker["pid"] == os.getppid(), "worker is not supervised by the run parent")
+    marker = read_json(output / "started.json")
+    parent_pid = os.getppid()
+    require(marker["pid"] == parent_pid, "worker is not supervised by the run parent")
     require(marker["intent_sha256"] == intent_sha, "intent drift at worker start")
     assert_inherited_slot(slot_fd, Path(intent["slot_lock_root"]), shard + 1)
     require(not closure_drift(intent["source_closure"]), "source drift at worker start")
     spec = resolve_spec(intent["spec_ref"])
     require(intent["spec"] == spec.descriptor(), "spec drift at worker start")
-    return worker_body(intent, intent_sha, spec, phase, look, attempt, shard, stage_deadline)
+    return worker_body(
+        intent, intent_sha, spec, phase, look, shard, stage_deadline, parent_pid=parent_pid
+    )
 
 
 # ---------------------------------------------------------------- supervision (parent side)
@@ -1175,16 +1245,22 @@ def supervise_children(
     heartbeat_stale_seconds: float = HEARTBEAT_STALE_SECONDS,
     clock: Callable[[], float] = time.monotonic,
     pass_fds: Optional[Sequence[Sequence[int]]] = None,
+    power_check: Optional[Callable[[], bool]] = None,
+    power_poll_seconds: float = POWER_POLL_SECONDS,
 ) -> Dict[str, Any]:
     """Run children concurrently, each in its own process group, under shared watchdogs.
 
     Causes (first wins, all children are then stopped): ``child_failed``, ``wall_timeout``,
     ``rss_limit``, ``available_memory_floor``, ``heartbeat_stale`` (monotonic clock),
-    ``watchdog_error``/``interrupted``.  ``None`` means every child exited on its own.
+    ``on_battery`` (``power_check`` polled every ``power_poll_seconds``; default
+    :func:`on_ac_power`), ``watchdog_error``/``interrupted``.  ``None`` means every child
+    exited on its own.  KeyboardInterrupt (SIGINT) is ``interrupted`` and is re-raised.
     """
     import psutil
 
+    power_check = power_check or on_ac_power
     started = clock()
+    last_power = started
     children: List[subprocess.Popen] = []
     streams = []
     cause = None
@@ -1224,9 +1300,15 @@ def supervise_children(
                 and clock() - _heartbeat_mono(Path(beat), started) > heartbeat_stale_seconds
                 and elapsed > heartbeat_stale_seconds
             ]
+            on_battery = False
+            if clock() - last_power >= power_poll_seconds:
+                last_power = clock()
+                on_battery = not power_check()
             failed = any(child.poll() not in (None, 0) for child in children)
             if failed and any(child.poll() is None for child in children):
                 cause = "child_failed"
+            elif on_battery:
+                cause = "on_battery"
             elif elapsed > wall_seconds:
                 cause = "wall_timeout"
             elif max(peaks) > rss_limit_bytes:
@@ -1238,8 +1320,8 @@ def supervise_children(
             if cause is not None:
                 break
             time.sleep(poll_seconds)
-    except Interrupted as exc:
-        cause, interrupt = f"interrupted: {exc}", exc
+    except (Interrupted, KeyboardInterrupt) as exc:
+        cause, interrupt = f"interrupted: {type(exc).__name__} {exc}", exc
     except BaseException as exc:  # noqa: BLE001 - children are still stopped below
         cause = f"watchdog_error: {type(exc).__name__}: {exc}"
     finally:
@@ -1286,6 +1368,8 @@ def clean_supervision(result: Mapping[str, Any]) -> bool:
 class SubprocessExecutor:
     """Production executor: one supervised ``worker`` child per shard, slot fd inherited."""
 
+    identity = PRODUCTION_EXECUTOR
+
     def __init__(self, slots: Sequence[Any]):
         self.slots = list(slots)
 
@@ -1300,12 +1384,11 @@ class SubprocessExecutor:
         ctx: "RunContext",
         phase: str,
         look: int,
-        attempt: int,
         wall_seconds: float,
         worker_deadline: datetime,
     ) -> Dict[str, Any]:
         workers = ctx.intent["caps"]["workers"]
-        seg = segment_root(ctx.output, phase, look) / f"attempt-{attempt}"
+        seg = segment_dir(ctx.output, phase, look)
         commands = [
             [
                 ctx.intent["python"],
@@ -1319,8 +1402,6 @@ class SubprocessExecutor:
                 phase,
                 "--look",
                 str(look),
-                "--attempt",
-                str(attempt),
                 "--shard",
                 str(k),
                 "--stage-deadline",
@@ -1344,21 +1425,23 @@ class SubprocessExecutor:
 
 
 class InProcessExecutor:
-    """Tests and plumbing only: run each shard's :func:`worker_body` in this process."""
+    """Dry runs and tests only: run each shard's :func:`worker_body` in this process."""
+
+    identity = "in-process"
 
     def preflight(self) -> None:
         return None
 
-    def run_segment(self, ctx, phase, look, attempt, wall_seconds, worker_deadline):
+    def run_segment(self, ctx, phase, look, wall_seconds, worker_deadline):
         began = time.monotonic()
         children = []
         for shard in range(ctx.intent["caps"]["workers"]):
             code = worker_body(
-                ctx.intent, ctx.intent_sha, ctx.spec, phase, look, attempt, shard, worker_deadline
+                ctx.intent, ctx.intent_sha, ctx.spec, phase, look, shard, worker_deadline
             )
             children.append(
                 {
-                    "command": ["in-process", phase, str(look), str(attempt), str(shard)],
+                    "command": ["in-process", phase, str(look), str(shard)],
                     "returncode": code,
                     "termination": "natural_exit",
                     "confirmed_exit": True,
@@ -1371,7 +1454,7 @@ class InProcessExecutor:
             "wall_seconds": wall_seconds,
             "children": children,
             "min_available_bytes": None,
-            "executor": "in-process",
+            "executor": self.identity,
         }
 
 
@@ -1433,6 +1516,16 @@ def subprocess_audit_runner(ctx: "RunContext", out_dir: Path, wall_seconds: floa
     }
 
 
+def runner_identity(function: Callable[..., Any]) -> str:
+    """``subprocess_skew_runner`` / ``subprocess_audit_runner`` or ``injected:<module.name>``."""
+    if function is subprocess_skew_runner:
+        return PRODUCTION_SKEW_RUNNER
+    if function is subprocess_audit_runner:
+        return PRODUCTION_AUDIT_RUNNER
+    module = getattr(function, "__module__", "?")
+    return f"injected:{module}.{getattr(function, '__qualname__', repr(function))}"
+
+
 # ---------------------------------------------------------------- run context and analysis
 
 
@@ -1446,6 +1539,7 @@ class RunContext:
     executor: Any
     skew_runner: Callable[..., Dict[str, Any]]
     audit_runner: Callable[..., Dict[str, Any]]
+    provenance: Dict[str, Any] = field(default_factory=dict)
     state: Dict[str, Any] = field(default_factory=dict)
     prior_tree: Dict[str, str] = field(default_factory=dict)
 
@@ -1458,12 +1552,14 @@ def _tree_hashes(directory: Path) -> Dict[str, str]:
     }
 
 
-def stage_spent(output: Path, phase: str) -> float:
-    """Wall seconds already spent by every supervised segment attempt of ``phase``."""
-    total = 0.0
-    for path in (Path(output) / phase / "segments").glob("look-*/attempt-*/supervision.json"):
-        total += float(read_json(path)["elapsed_seconds"])
-    return total
+def stage_elapsed(ctx: RunContext, phase: str) -> float:
+    """Seconds charged to ``phase`` since its first segment start marker (monotonic).
+
+    The clock starts when the parent writes the first ``segment.json`` of the phase and
+    keeps running through barriers and look analyses; the phase cap cannot be reset.
+    """
+    started = ctx.state.setdefault("stage_started_mono", {}).get(phase)
+    return 0.0 if started is None else time.monotonic() - started
 
 
 def required_seconds(intent: Mapping[str, Any], before: str, final_left: float) -> float:
@@ -1480,7 +1576,7 @@ def check_continuation(ctx: RunContext, before: str, final_left: float) -> None:
     remaining = (parse_utc(ctx.intent["deadline_utc"]) - now_utc()).total_seconds()
     if remaining < required_seconds(ctx.intent, before, final_left):
         raise DeadlineStop(f"{before}: {remaining:.0f}s left < remaining caps + handoff")
-    require(on_ac_power(), f"host on battery before {before}")
+    require(on_ac_power(), f"host on battery before {before}: no further segment is admitted")
     require(not closure_drift(ctx.intent["source_closure"]), f"source drift before {before}")
     require(
         json_safe(dict(ctx.spec.arm_identities())) == ctx.intent["arms"],
@@ -1491,33 +1587,31 @@ def check_continuation(ctx: RunContext, before: str, final_left: float) -> None:
 
 def run_segment(ctx: RunContext, phase: str, look: int) -> None:
     """Launch one segment (all shards), wait at the barrier, require a clean finish."""
-    caps = ctx.intent["caps"]["stage_seconds"]
-    if phase == "final":
-        wall = caps["final"] - stage_spent(ctx.output, "final")
-        if wall <= 0:
-            raise DeadlineStop("final stage cap exhausted")
-    else:
-        wall = caps["calibration"] - stage_spent(ctx.output, "calibration")
-        if wall <= 0:
-            raise DeadlineStop("calibration stage cap exhausted")
-    check_continuation(ctx, phase, wall if phase == "final" else caps["final"])
-    attempt = len(attempt_dirs(ctx.output, phase, look))
-    seg = segment_root(ctx.output, phase, look) / f"attempt-{attempt}"
-    seg.mkdir(parents=True)
+    cap = ctx.intent["caps"]["stage_seconds"][phase]
+    wall = cap - stage_elapsed(ctx, phase)
+    if wall <= WORKER_STOP_MARGIN_SECONDS:
+        raise DeadlineStop(f"{phase} stage cap exhausted")
+    final_left = wall if phase == "final" else ctx.intent["caps"]["stage_seconds"]["final"]
+    check_continuation(ctx, phase, final_left)
+    seg = segment_dir(ctx.output, phase, look)
+    seg.mkdir(parents=True)  # once per look: no attempt is ever repeated
+    ctx.state["stage_started_mono"].setdefault(phase, time.monotonic())
     worker_deadline = now_utc() + timedelta(seconds=wall - WORKER_STOP_MARGIN_SECONDS)
     write_once(
         seg / "segment.json",
         {
             "phase": phase,
             "look": look,
-            "attempt": attempt,
             "wall_seconds": wall,
+            "stage_cap_seconds": cap,
+            "stage_elapsed_seconds_at_start": stage_elapsed(ctx, phase),
             "worker_deadline_utc": worker_deadline.isoformat(),
             "gate": prior_gate(ctx.intent, ctx.output, phase, look),
+            "executor": ctx.provenance["executor"],
             "utc": now_utc().isoformat(),
         },
     )
-    result = ctx.executor.run_segment(ctx, phase, look, attempt, wall, worker_deadline)
+    result = ctx.executor.run_segment(ctx, phase, look, wall, worker_deadline)
     write_once(seg / "supervision.json", result)
     if result["cause"] == "wall_timeout":
         raise DeadlineStop(f"{phase} look {look}: wall cap reached")
@@ -1535,24 +1629,20 @@ def run_segment(ctx: RunContext, phase: str, look: int) -> None:
     ctx.prior_tree = _tree_hashes(ctx.output)
 
 
-def collect_prefix(
-    ctx: RunContext, phase: str, look: int, allow_next_segment: bool = False
-) -> Dict[str, Dict[str, Any]]:
+def collect_prefix(ctx: RunContext, phase: str, look: int) -> Dict[str, Dict[str, Any]]:
     """Records of the look's unit prefix; fail closed unless disk == prefix exactly.
 
-    The latest attempt of every segment ``0..look`` must have a complete report from every
-    shard whose planned episodes are that segment's; their union must be exactly the
-    prefix; the record files on disk must be exactly those (no record beyond the look) and
-    have the reported bytes.  ``allow_next_segment`` (resume replay of an old receipt only)
-    also tolerates records of segment ``look + 1``, which a crashed parent may have left.
+    Every segment ``0..look`` must have a complete report from every shard whose planned
+    episodes are that segment's; their union must be exactly the prefix; the record files
+    on disk must be exactly those (no record beyond the look, no tolerance) and have the
+    reported bytes.
     """
     workers = ctx.intent["caps"]["workers"]
     listed: Dict[str, str] = {}
     for j in range(look + 1):
-        attempts = attempt_dirs(ctx.output, phase, j)
-        require(bool(attempts), f"{phase} look {j}: no segment")
+        seg = segment_dir(ctx.output, phase, j)
         for shard in range(workers):
-            report = read_json(attempts[-1] / f"shard-{shard}" / "report.json")
+            report = read_json(seg / f"shard-{shard}" / "report.json")
             planned = [
                 e["episode_id"]
                 for unit in segment_units(ctx.intent, phase, j, shard)
@@ -1566,13 +1656,7 @@ def collect_prefix(
     require(set(listed) == set(expected), f"{phase} look {look}: reports differ from prefix")
     records_dir = ctx.output / phase / "records"
     on_disk = {p.stem for p in records_dir.glob("*.json")}
-    allowed = set(expected)
-    if allow_next_segment and look + 1 < len(phase_looks(ctx.intent, phase)):
-        allowed |= set(prefix_episode_ids(ctx.intent, phase, look + 1))
-    require(
-        set(expected) <= on_disk <= allowed,
-        f"{phase} look {look}: records on disk differ from prefix",
-    )
+    require(on_disk == set(expected), f"{phase} look {look}: records on disk differ from prefix")
     entries = {}
     for eid in expected:
         path = records_dir / f"{eid}.json"
@@ -1696,12 +1780,15 @@ def build_receipt(ctx: RunContext, look: int, entries: Mapping[str, Any]) -> Dic
     workers = ctx.intent["caps"]["workers"]
     reports = {}
     for j in range(look + 1):
-        latest = attempt_dirs(ctx.output, "final", j)[-1]
         for shard in range(workers):
-            path = latest / f"shard-{shard}" / "report.json"
+            path = segment_dir(ctx.output, "final", j) / f"shard-{shard}" / "report.json"
             reports[str(path.relative_to(ctx.output))] = sha256_file(path)
     prior = ctx.output / "looks" / f"look-{look - 1}.json"
     counts = ctx.intent["interleaving"]["worker_look_counts"][look]
+    records = {
+        eid: sha256_file(ctx.output / "final" / "records" / f"{eid}.json")
+        for eid in prefix_episode_ids(ctx.intent, "final", look)
+    }
     return {
         "schema_version": ctx.intent["schema_version"],
         "study_id": ctx.intent["study_id"],
@@ -1717,10 +1804,7 @@ def build_receipt(ctx: RunContext, look: int, entries: Mapping[str, Any]) -> Dic
         "skew_check_sha256": sha256_file(ctx.output / "skew_check.json"),
         "prior_look_receipt_sha256": sha256_file(prior) if look > 0 else None,
         "segment_reports_sha256": reports,
-        "records_sha256": {
-            eid: sha256_file(ctx.output / "final" / "records" / f"{eid}.json")
-            for eid in prefix_episode_ids(ctx.intent, "final", look)
-        },
+        "records_sha256": records,
         "deltas_digest": analysis["deltas_digest"],
         "bands_by_look": analysis["bands_by_look"],
         "bands_pass_by_look": analysis["bands_pass_by_look"],
@@ -1733,27 +1817,16 @@ def build_receipt(ctx: RunContext, look: int, entries: Mapping[str, Any]) -> Dic
     }
 
 
-def _receipt_core(receipt: Mapping[str, Any]) -> Dict[str, Any]:
-    """Receipt fields that must replay identically on resume."""
-    return {k: v for k, v in receipt.items() if k not in ("segment_reports_sha256",)}
-
-
 # ---------------------------------------------------------------- phases
 
 
 def run_calibration(ctx: RunContext) -> None:
-    path = ctx.output / "calibration.json"
-    if not segment_complete(ctx.output, "calibration", 0, ctx.intent["caps"]["workers"]):
-        require(not path.exists(), "calibration.json without a complete calibration segment")
-        run_segment(ctx, "calibration", 0)
+    run_segment(ctx, "calibration", 0)
     entries = collect_prefix(ctx, "calibration", 0)
     reference = json_safe(calibration_reference(ctx.intent, entries))
-    if path.exists():
-        require(read_json(path) == reference, "calibration.json does not replay")
-    else:
-        require(reference["absolute_delta_ni"] > 0, "non-positive delta_NI")
-        write_once(path, reference)
-        ctx.prior_tree = _tree_hashes(ctx.output)
+    require(reference["absolute_delta_ni"] > 0, "non-positive delta_NI")
+    write_once(ctx.output / "calibration.json", reference)
+    ctx.prior_tree = _tree_hashes(ctx.output)
     ctx.state["calibration"] = reference
     ctx.state["delta_ni"] = reference["absolute_delta_ni"]
 
@@ -1790,17 +1863,9 @@ def judge_skew(intent: Mapping[str, Any], outputs: Mapping[str, Any]) -> Dict[st
 
 def run_skew_check(ctx: RunContext) -> bool:
     """The amendment's resampling check, after calibration, before the first final world."""
-    path = ctx.output / "skew_check.json"
-    if path.exists():
-        receipt = read_json(path)
-        require(receipt["delta_ni"] == ctx.state["delta_ni"], "skew check used another delta_NI")
-        return bool(receipt["passes"])
     cap = ctx.intent["caps"]["stage_seconds"]["skew_check"]
     check_continuation(ctx, "skew_check", ctx.intent["caps"]["stage_seconds"]["final"])
-    root = ctx.output / "skew_check"
-    root.mkdir(exist_ok=True)
-    attempt = len([p for p in root.iterdir() if p.name.startswith("attempt-")])
-    work = root / f"attempt-{attempt}"
+    work = ctx.output / "skew_check"
     work.mkdir()
     saved = load_skew_input(Path(ctx.intent["skew_check"]["input_path"]), ctx.spec.mixes)
     require(
@@ -1839,13 +1904,14 @@ def run_skew_check(ctx: RunContext) -> bool:
         "fractions": ctx.intent["plan_parameters"]["fractions"],
         "reps": ctx.intent["skew_check"]["reps"],
         "limits": ctx.intent["skew_check"]["limits"],
+        "skew_runner": ctx.provenance["skew_runner"],
         "files": files,
         **judged,
         "remedy_on_fail": SKEW_REMEDY_ON_FAIL,
         "remedy_ladder": SKEW_REMEDY_LADDER,
         "utc": now_utc().isoformat(),
     }
-    write_once(path, receipt)
+    write_once(ctx.output / "skew_check.json", receipt)
     ctx.prior_tree = _tree_hashes(ctx.output)
     return bool(judged["passes"])
 
@@ -1853,37 +1919,29 @@ def run_skew_check(ctx: RunContext) -> bool:
 def run_final(ctx: RunContext) -> Dict[str, Any]:
     """The look loop; returns the stopping look's receipt."""
     looks_dir = ctx.output / "looks"
-    looks_dir.mkdir(exist_ok=True)
-    workers = ctx.intent["caps"]["workers"]
+    looks_dir.mkdir()
     receipt: Dict[str, Any] = {}
     for look in range(len(ctx.intent["plan"]["look_sizes"])):
-        path = looks_dir / f"look-{look}.json"
-        if path.exists():  # resume: the receipt must replay exactly from the records
-            entries = collect_prefix(ctx, "final", look, allow_next_segment=True)
-            saved = read_json(path)
-            replay = json_safe(build_receipt(ctx, look, entries))
-            require(_receipt_core(saved) == _receipt_core(replay), f"look {look} does not replay")
-            receipt = saved
-        else:
-            if not segment_complete(ctx.output, "final", look, workers):
-                run_segment(ctx, "final", look)
-            entries = collect_prefix(ctx, "final", look)
-            receipt = json_safe(build_receipt(ctx, look, entries))
-            write_once(path, receipt)
-            ctx.prior_tree = _tree_hashes(ctx.output)
+        run_segment(ctx, "final", look)
+        entries = collect_prefix(ctx, "final", look)
+        receipt = json_safe(build_receipt(ctx, look, entries))
+        write_once(looks_dir / f"look-{look}.json", receipt)
+        ctx.prior_tree = _tree_hashes(ctx.output)
         if receipt["action"] == "stop":
             break
     return receipt
 
 
-def producer_claim(state: Mapping[str, Any]) -> Dict[str, Any]:
+def producer_claim(intent: Mapping[str, Any], state: Mapping[str, Any]) -> Dict[str, Any]:
+    prefix = "DRY_RUN_" if intent["dry_run"] else ""
     if state.get("skew_failed"):
-        return {"outcome": "SKEW_CHECK_FAILED"}
+        return {"outcome": f"{prefix}SKEW_CHECK_FAILED"}
     receipt = state.get("stop_receipt")
     if not receipt or receipt["action"] != "stop" or not receipt["valid"]:
         return {"outcome": "INVALID_STOP", "stop_reason": "no valid stopping decision"}
+    verdict = "PASS" if receipt["passes"] else "FAIL"
     return {
-        "outcome": "STRICT_PASS" if receipt["passes"] else "STRICT_FAIL",
+        "outcome": f"DRY_RUN_{verdict}" if intent["dry_run"] else f"STRICT_{verdict}",
         "stop_look": receipt["look"],
         "decision": receipt["decision"],
     }
@@ -1893,23 +1951,19 @@ def run_audit(ctx: RunContext) -> None:
     """Producer claim, then the independent audit child (its report gates the outcome)."""
     caps = ctx.intent["caps"]["stage_seconds"]
     check_continuation(ctx, "audit", 0.0)
-    claim_path = ctx.output / "producer-outcome.json"
-    claim = producer_claim(ctx.state)
-    if claim_path.exists():
-        require(
-            {k: v for k, v in read_json(claim_path).items() if k != "role"} == claim,
-            "producer claim does not replay",
-        )
-    else:
-        write_once(claim_path, {**claim, "role": "producer claim before the independent audit"})
+    claim = producer_claim(ctx.intent, ctx.state)
+    write_once(
+        ctx.output / "producer-outcome.json",
+        {**claim, "role": "producer claim before the independent audit"},
+    )
     ctx.state["producer_claim"] = claim
-    root = ctx.output / "audit"
-    root.mkdir(exist_ok=True)
-    attempt = len([p for p in root.iterdir() if p.name.startswith("attempt-")])
-    out_dir = root / f"attempt-{attempt}"
+    out_dir = ctx.output / "audit"
     out_dir.mkdir()
     result = ctx.audit_runner(ctx, out_dir, caps["audit"])
-    write_once(out_dir / "runner.json", json_safe(result))
+    write_once(
+        out_dir / "runner.json",
+        json_safe({**result, "identity": runner_identity(ctx.audit_runner)}),
+    )
     if result["cause"] == "wall_timeout":
         raise DeadlineStop("independent audit: wall cap reached")
     report_path = out_dir / "audit.json"
@@ -1939,11 +1993,14 @@ def classify_outcome(intent: Mapping[str, Any], state: Mapping[str, Any]) -> str
         return "INCOMPLETE"
     if state.get("audit_passed") is not True or state.get("decisions_agree") is not True:
         return "INVALID_STOP"
-    return state["producer_claim"]["outcome"]
+    outcome = state["producer_claim"]["outcome"]
+    if intent["dry_run"]:
+        require(outcome.startswith("DRY_RUN_") or outcome == "INVALID_STOP", "dry run outcome")
+    return outcome
 
 
 def closeout(ctx: RunContext) -> Dict[str, Any]:
-    """Write ``closeout.json`` (and ``receipt.json`` on STRICT_PASS) exactly once."""
+    """Write ``closeout.json`` (and ``receipt.json`` on STRICT_PASS only) exactly once."""
     state = ctx.state
     outcome = classify_outcome(ctx.intent, state)
     remaining = (parse_utc(ctx.intent["deadline_utc"]) - now_utc()).total_seconds()
@@ -1955,6 +2012,8 @@ def closeout(ctx: RunContext) -> Dict[str, Any]:
         "intent_sha256": ctx.intent_sha,
         "plan_sha256": ctx.intent["plan_sha256"],
         "outcome": outcome,
+        "dry_run": ctx.intent["dry_run"],
+        "provenance": ctx.provenance,
         "precedence": "closeout.json takes precedence over every stage record",
         "failure": state.get("failure"),
         "deadline_stop": state.get("deadline_stop"),
@@ -1968,15 +2027,16 @@ def closeout(ctx: RunContext) -> Dict[str, Any]:
         "audit_report_sha256": state.get("audit_report_sha256"),
         "audit_failures": state.get("audit_failures"),
         "decisions_agree": state.get("decisions_agree"),
-        "resumes": state.get("resumes", 0),
         "remaining_seconds_at_closeout": remaining,
         "handoff_reserve_met": remaining >= ctx.intent["caps"]["handoff_seconds"],
         "naive_means_are_descriptive_only": True,
         "promotion_performed": False,
         "retry_authorized": False,
+        "resume_authorized": False,
         "utc": now_utc().isoformat(),
     }
     if outcome == "STRICT_PASS":
+        require(ctx.intent["dry_run"] is False, "a dry run never writes receipt.json")
         record["receipt_sha256"] = write_once(
             ctx.output / "receipt.json",
             {
@@ -2006,22 +2066,20 @@ def run_phases(ctx: RunContext) -> None:
     else:
         receipt = run_final(ctx)
         ctx.state["stop_receipt"] = receipt
-        decision_path = ctx.output / "decision.json"
-        decision = {
-            "stop_look": receipt["look"],
-            "decision": receipt["decision"],
-            "valid": receipt["valid"],
-            "passes": receipt["passes"],
-            "action": receipt["action"],
-            "look_receipt_sha256": sha256_file(
-                ctx.output / "looks" / f"look-{receipt['look']}.json"
-            ),
-        }
-        if decision_path.exists():
-            require(read_json(decision_path) == decision, "decision.json does not replay")
-        else:
-            write_once(decision_path, decision)
-            ctx.prior_tree = _tree_hashes(ctx.output)
+        write_once(
+            ctx.output / "decision.json",
+            {
+                "stop_look": receipt["look"],
+                "decision": receipt["decision"],
+                "valid": receipt["valid"],
+                "passes": receipt["passes"],
+                "action": receipt["action"],
+                "look_receipt_sha256": sha256_file(
+                    ctx.output / "looks" / f"look-{receipt['look']}.json"
+                ),
+            },
+        )
+        ctx.prior_tree = _tree_hashes(ctx.output)
     run_audit(ctx)
 
 
@@ -2029,7 +2087,7 @@ _AUDIT_MODULE: Dict[str, Any] = {}
 
 
 def in_process_audit_runner(ctx: RunContext, out_dir: Path, wall_seconds: float) -> Dict:
-    """Tests and plumbing only: call the audit's ``main`` in this process."""
+    """Dry runs and tests only: call the audit's ``main`` in this process."""
     module = _AUDIT_MODULE.get("module")
     if module is None:
         spec = importlib.util.spec_from_file_location("sequential_audit_inproc", INDEPENDENT_AUDIT)
@@ -2047,12 +2105,10 @@ def run(
     executor: Any = None,
     skew_runner: Optional[Callable[..., Dict[str, Any]]] = None,
     audit_runner: Optional[Callable[..., Dict[str, Any]]] = None,
-    resume: bool = False,
 ) -> Dict[str, Any]:
-    """Admit the intent and close out with exactly one outcome.
+    """Admit the intent once and close out with exactly one outcome.  Never resumes.
 
-    ``resume=True`` continues a run whose parent died before ``closeout.json`` (only if the
-    intent pre-registered it).  Injected executors/runners are for tests and dry-runs.
+    Injected executors/runners are refused unless the intent is a ``dry_run``.
     """
     intent_path = Path(intent_path).resolve()
     intent = read_json(intent_path)
@@ -2060,14 +2116,27 @@ def run(
     validate_intent(intent, spec)
     require(intent_path == Path(intent["output_root"]) / "intent.json", "intent location")
     output = Path(intent["output_root"]) / "output"
-    if resume:
-        require(intent["resume"]["authorized"] is True, "resume was not pre-registered")
-        require(output.is_dir(), "nothing to resume")
-        require(not (output / "closeout.json").exists(), "closed out: a closeout is final")
-        done = len(list((output / "resumes").glob("resume-*.json")))
-        require(done < intent["resume"]["max_resumes"], "resume limit reached")
-    else:
-        require(not output.exists(), f"{output} exists: create-only, never retried")
+    status = run_status(Path(intent["output_root"]))
+    require(
+        status["state"] == "NOT_STARTED",
+        f"{output} is {status['state']}: create-only, never resumed or retried",
+    )
+    skew_runner = skew_runner or subprocess_skew_runner
+    audit_runner = audit_runner or subprocess_audit_runner
+    provenance = {
+        "executor": PRODUCTION_EXECUTOR if executor is None else executor.identity,
+        "skew_runner": runner_identity(skew_runner),
+        "audit_runner": runner_identity(audit_runner),
+        "allow_dirty": intent["allow_dirty"],
+        "dry_run": intent["dry_run"],
+        "slot_lock_root": intent["slot_lock_root"],
+    }
+    production = (
+        provenance["executor"] == PRODUCTION_EXECUTOR
+        and provenance["skew_runner"] == PRODUCTION_SKEW_RUNNER
+        and provenance["audit_runner"] == PRODUCTION_AUDIT_RUNNER
+    )
+    require(intent["dry_run"] or production, f"non-production run needs dry_run: {provenance}")
     if intent["sizing"]["feasible"]:
         require(on_ac_power(), "host is on battery; plug in before a Tier-2 run")
     slots: List[Any] = []
@@ -2084,54 +2153,52 @@ def run(
             spec=spec,
             output=output,
             executor=executor,
-            skew_runner=skew_runner or subprocess_skew_runner,
-            audit_runner=audit_runner or subprocess_audit_runner,
+            skew_runner=skew_runner,
+            audit_runner=audit_runner,
+            provenance=provenance,
         )
-        return _admitted_run(ctx, slots, resume)
+        return _admitted_run(ctx, slots)
     finally:
         release_run_slots(slots)
 
 
-def _admitted_run(ctx: RunContext, slots: Sequence[Any], resume: bool) -> Dict[str, Any]:
-    """From ``started.json`` on, every visible stop is final (closeout is always written)."""
-    marker = {
-        "utc": now_utc().isoformat(),
-        "pid": os.getpid(),
-        "intent_sha256": ctx.intent_sha,
-        "cpu_slot_locks_held": [str(handle.name) for handle in slots],
-    }
-    if resume:
-        (ctx.output / "resumes").mkdir(exist_ok=True)
-        number = len(list((ctx.output / "resumes").glob("resume-*.json")))
-        require(read_json(ctx.output / "started.json")["intent_sha256"] == ctx.intent_sha, "intent")
-        write_once(ctx.output / "resumes" / f"resume-{number}.json", {**marker, "resume": number})
-        ctx.state["resumes"] = number + 1
-    else:
-        ctx.output.mkdir(parents=False)
-        write_once(ctx.output / "started.json", marker)
-        ctx.state["resumes"] = 0
-    ctx.prior_tree = _tree_hashes(ctx.output)
+def _admitted_run(ctx: RunContext, slots: Sequence[Any]) -> Dict[str, Any]:
+    """From ``started.json`` on, every stop the parent sees is final (closeout is written)."""
+    ctx.output.mkdir(parents=False)
+    write_once(
+        ctx.output / "started.json",
+        {
+            "utc": now_utc().isoformat(),
+            "pid": os.getpid(),
+            "intent_sha256": ctx.intent_sha,
+            "cpu_slot_locks_held": [str(handle.name) for handle in slots],
+            "provenance": ctx.provenance,
+        },
+    )
+    ctx.state["stage_started_mono"] = {}
 
     def interrupt(signum: int, frame: Any) -> None:
         raise Interrupted(signal.Signals(signum).name)
 
-    previous = {sig: signal.signal(sig, interrupt) for sig in (signal.SIGTERM, signal.SIGHUP)}
+    signals = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+    previous = {sig: signal.signal(sig, interrupt) for sig in signals}
     try:
-        if ctx.intent["sizing"]["feasible"]:
-            admit_rosters(ctx, resume)
-            run_phases(ctx)
-    except DeadlineStop as exc:
-        ctx.state["deadline_stop"] = str(exc)
-    except (Exception, Interrupted) as exc:  # noqa: BLE001 - recorded, never retried
-        ctx.state["failure"] = f"{type(exc).__name__}: {exc}"
+        try:
+            if ctx.intent["sizing"]["feasible"]:
+                admit_rosters(ctx)
+                run_phases(ctx)
+        except DeadlineStop as exc:
+            ctx.state["deadline_stop"] = str(exc)
+        except (Exception, Interrupted, KeyboardInterrupt) as exc:  # noqa: BLE001 - recorded
+            ctx.state["failure"] = f"{type(exc).__name__}: {exc}"
+        return closeout(ctx)
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
-    return closeout(ctx)
 
 
-def admit_rosters(ctx: RunContext, resume: bool) -> None:
-    """Freeze ``rosters.json`` and ``admitted.json`` once (re-verified on resume)."""
+def admit_rosters(ctx: RunContext) -> None:
+    """Freeze ``rosters.json`` and ``admitted.json`` once."""
     rosters = {}
     for phase in PHASES:
         rows = []
@@ -2145,20 +2212,11 @@ def admit_rosters(ctx: RunContext, resume: bool) -> None:
             )
             rows.append(json_safe(row))
         rosters[phase] = rows
-    path = ctx.output / "rosters.json"
-    if resume and path.exists():
-        require(read_json(path) == rosters, "rosters do not replay")
-        sha = sha256_file(path)
-    else:
-        sha = write_once(path, rosters)
-    admitted_path = ctx.output / "admitted.json"
-    if resume and admitted_path.exists():
-        require(read_json(admitted_path)["rosters_sha256"] == sha, "roster drift")
-    else:
-        write_once(
-            admitted_path,
-            {"utc": now_utc().isoformat(), "rosters_sha256": sha, "intent_sha256": ctx.intent_sha},
-        )
+    sha = write_once(ctx.output / "rosters.json", rosters)
+    write_once(
+        ctx.output / "admitted.json",
+        {"utc": now_utc().isoformat(), "rosters_sha256": sha, "intent_sha256": ctx.intent_sha},
+    )
     ctx.prior_tree = _tree_hashes(ctx.output)
 
 
@@ -2182,15 +2240,13 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     prep.add_argument("--futility-action", default="stop", choices=FUTILITY_ACTIONS)
     prep.add_argument("--band-margin-z", type=float, default=DEFAULT_BAND_MARGIN_Z)
     prep.add_argument("--skew-reps", type=int, default=DEFAULT_SKEW_REPS)
-    prep.add_argument("--slot-lock-root", type=Path, default=SLOT_LOCK_ROOT)
-    for name in ("run", "resume"):
+    for name in ("run", "status"):
         child = sub.add_parser(name)
         child.add_argument("--intent", type=Path, required=True)
     worker = sub.add_parser("worker")
     worker.add_argument("--intent", type=Path, required=True)
     worker.add_argument("--phase", choices=PHASES, required=True)
     worker.add_argument("--look", type=int, required=True)
-    worker.add_argument("--attempt", type=int, required=True)
     worker.add_argument("--shard", type=int, required=True)
     worker.add_argument("--stage-deadline", required=True)
     worker.add_argument("--slot-fd", type=int, required=True)
@@ -2216,20 +2272,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             futility_action=args.futility_action,
             band_margin_z=args.band_margin_z,
             skew_reps=args.skew_reps,
-            slot_lock_root=args.slot_lock_root,
         )
         path = prepare(intent)
         print(json.dumps({"intent": str(path), "sha256": sha256_file(path)}))
         return 0
-    if args.command in ("run", "resume"):
-        record = run(args.intent, resume=args.command == "resume")
+    if args.command == "status":
+        print(json.dumps(run_status(args.intent.resolve().parent)))
+        return 0
+    if args.command == "run":
+        record = run(args.intent)
         print(json.dumps({"outcome": record["outcome"]}))
         return 0
     return worker_main(
         args.intent.resolve(),
         args.phase,
         args.look,
-        args.attempt,
         args.shard,
         parse_utc(args.stage_deadline),
         args.slot_fd,

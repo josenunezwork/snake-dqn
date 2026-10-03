@@ -229,3 +229,27 @@ MDE, the futility threshold and the world order.
 - The Holm-type (graphical) sequential variant is not implemented.
 - Mixes run together until the overall stop. Dropping a mix that has already crossed or is
   futile would save more worlds, but it complicates NI and the bands and is not proposed.
+
+## Implementation notes
+
+The runner template `research/sequential_strict_template/` (branch `sequential-runner`)
+implements the look barrier, look receipts and independent audit listed above as not yet
+done. It deviates from the text above in two stated ways:
+
+- **Skew check after calibration, recorded in `skew_check.json`.** The pre-registration
+  list asks for the resampling check "with the frozen N_max and delta_NI" and for its
+  outputs in `intent.json`. delta_NI is computed by the calibration stage, after
+  `intent.json` is written. The template therefore freezes the check's input file, probe,
+  reps, thresholds and remedy in `intent.json`, runs the check after calibration and
+  before the first final world, and writes the result to the create-only
+  `skew_check.json`. Every final look-0 worker binds that file's sha256 before it writes
+  any record, and the audit checks the binding. A failed check ends the run
+  `SKEW_CHECK_FAILED` with no final world played.
+- **NI threshold judged on the scripted mix only.** The amendment says the script's
+  `passes` field applies both thresholds per mix. Non-inferiority is tested only on the
+  scripted mix, so the template judges the efficacy rate (<= 0.020) on every mix and the
+  NI rate (<= 0.06) on the scripted mix only. The probe's own `passes` field is recorded
+  but not used.
+
+There is no resume: a run whose parent dies without a closeout is permanently abandoned,
+as in the fixed-N packages.

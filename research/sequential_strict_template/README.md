@@ -9,19 +9,22 @@ lists as "not yet done". The decision functions are `src/evaluation/sequential_g
 
 | File | Role |
 |---|---|
-| `sequential_runner.py` | `prepare` (intent), `run` / `resume` (parent), `worker` (child) |
+| `sequential_runner.py` | `prepare` (intent), `run` (parent), `status`, `worker` (child) |
 | `sequential_audit.py` | independent audit, standard library only, imports nothing from the repo |
 | `example_spec.py` | instantiation template; its episode runner raises |
 
 ## How to instantiate for a candidate
 
 1. Copy `example_spec.py` into the study package (e.g. `research/apex_veto_v8_strict_<date>/spec.py`)
-   and fill in the four marked parts: `arm_identities` (computed from the files),
+   and fill in the six marked parts: `arm_identities` (computed from the files),
    `episode_runner` (installs the arm and calls `tournament_eval.rollout`), `build_row`
-   (rosters / world identity) and `validate_record`. Set fresh `namespaces`, the mixes,
-   `primary_metric`, `ni_fraction`, `bands`, `excluded_seeds` (every earlier namespace) and
-   `closure_roots` (add the study package). Put the study's `protocol.md` (copy the
-   section below) at `protocol_path`.
+   (rosters / world identity), `excluded_seeds` (every earlier namespace; the template's
+   raises until filled), `validate_record`, and the three required pre-registration
+   documents: `protocol_path` (copy the section below), `oc_report_path` (the
+   operating-characteristics simulation of the frozen plan) and `band_cost_report_path`
+   (the look-1 early-stop band cost). Their sha256s are frozen in the intent and re-checked
+   before the run and by the audit. Set fresh `namespaces`, the mixes, `primary_metric`,
+   `ni_fraction`, `bands` and `closure_roots` (add the study package).
 2. Save the study's screen or pilot paired deltas as `{"<mix>": [delta, ...]}` (at least
    20 per mix, Tier-0 data). This is the skew-check input.
 3. Size `N_max` from development variance only (fixed-N requirement inflated about 2% for
@@ -40,9 +43,18 @@ lists as "not yet done". The decision functions are `src/evaluation/sequential_g
     --intent <artifact root>/run-v1/intent.json
 ```
 
-`prepare` refuses a dirty source closure. Only a parent that died without
-`closeout.json` may be continued with `resume --intent ...` (pre-registered in the intent,
-at most `max_resumes` times).
+`prepare` refuses a dirty source closure and any slot lock root other than the global one
+the v7 package uses (`SLOT_LOCK_ROOT`). There is **no resume**, as in v7: a parent that dies
+without `closeout.json` leaves the run permanently `ABANDONED`
+(`sequential_runner.py status --intent ...`), and `prepare` and `run` refuse that root.
+
+**Dry runs.** `build_intent(..., dry_run=True)` permits the in-process executor, injected
+skew/audit runners, a dirty closure and any lock root (used by the tests and for plumbing
+checks). The executor and runner identities, `allow_dirty` and `dry_run` are recorded in
+`started.json` and `closeout.json`. A dry run can only end `DRY_RUN_PASS`,
+`DRY_RUN_FAIL`, `DRY_RUN_SKEW_CHECK_FAILED` or a failure, and it never writes
+`receipt.json`. A production intent refuses injected executors and runners, and the audit
+FAILs one that shows them.
 
 ## What the intent freezes (before any final world)
 
@@ -62,8 +74,9 @@ at most `max_resumes` times).
 - Skew check: input path and sha256, probe path and sha256, reps, thresholds
   (per-mix efficacy any-look rate <= 1.2 x alpha_per_mix, i.e. 0.020 at 0.05 / 3;
   scripted NI any-look rate <= 0.06), remedy `stop_and_escalate` with the ladder.
-- Caps (calibration, skew check, final, audit), 120 s handoff reserve, 2 workers, no
-  retry, resume policy, source closure, arm identities, protocol sha256, deadline.
+- Caps (calibration, skew check, final, audit; positive integers no larger than the
+  defaults), 120 s handoff reserve, 2 workers, no retry, no resume, source closure, arm
+  identities, protocol / OC report / band-cost report sha256, `dry_run`, deadline.
 
 ## Run order and stopping
 
@@ -103,20 +116,27 @@ Outcomes:
 - `STRICT_FAIL`: `STOP_FAIL_BANDS`, `STOP_FUTILE` or `FINAL_FAIL`, with audit PASS.
 - `SKEW_CHECK_FAILED`: as above, with audit PASS.
 - `INCOMPLETE`: a cap or the deadline was reached.
-- `INVALID_STOP`: any failure, drift, watchdog, signal, audit FAIL or disagreement.
+- `INVALID_STOP`: any failure, drift, watchdog, battery, signal (SIGTERM, SIGHUP,
+  SIGINT / KeyboardInterrupt), audit FAIL or disagreement.
+- `DRY_RUN_PASS`, `DRY_RUN_FAIL`, `DRY_RUN_SKEW_CHECK_FAILED`: the dry-run counterparts;
+  never a receipt.
 - `STOP_INFEASIBLE`: `N_max` above its cap.
 
-A failure is never relabelled, and a closed-out run is never resumed. A `STOP_FUTILE` means
+A failure is never relabelled, and no run is ever resumed or rerun. A `STOP_FUTILE` means
 the gate failed, not that there is no effect. After an early stop, per-mix means are naive
 and descriptive only.
 
 ## Hardening kept from the fixed-N packages
 
 - Monotonic-clock heartbeats, watched by the supervisor.
-- AC power required at admission and before every segment.
+- AC power required at admission and before every segment, and polled by the supervisor
+  while children run (`on_battery` stops them; the run closes out `INVALID_STOP`).
+- Workers check their parent (`getppid`) before and after every episode and exit without
+  writing anything more if it died.
 - Two CPU slot locks held by the parent and inherited by the workers, which assert them.
 - Stage caps, with remaining caps plus the handoff reserve checked before each segment.
-  Wall time is cumulative across final segments.
+  A stage's time is charged on the monotonic clock from its first segment start marker,
+  through every barrier and look analysis, so the cap cannot be reset between looks.
 - Create-only atomic writes everywhere. `write_once` hard-links a fsynced temporary file.
 - Intent sha256 bound into every marker, record and receipt.
 - Before every segment: source-closure re-hash, arm-identity recompute and output-tree
@@ -144,14 +164,35 @@ recomputes the following in its own stdlib code:
   record sits in its unit's segment, and each segment's `started.json` binds the receipt
   that allowed it.
 - **Outcome.** The expected outcome is checked against `producer-outcome.json`,
-  `decision.json` and `closeout.json`.
+  `decision.json` and `closeout.json`. A dry run may only end `DRY_RUN_*` and has no
+  `receipt.json`.
+- **Provenance.** Unless the intent is a dry run, the audit FAILs on an in-process
+  executor, an injected skew or audit runner, `allow_dirty` or a dirty closure. It also
+  FAILs on any resume marker, or on a pre-registration document whose sha256 changed.
+
+## Deviations from the amendment (explicit)
+
+1. **Skew-check timing and location.** The amendment lists the resampling check among the
+   items frozen in `intent.json` before the first final world, with the frozen delta_NI.
+   delta_NI is an output of the calibration stage. So the check runs after calibration and
+   before the first final world. Its result goes to the create-only `skew_check.json`, not
+   to `intent.json`. The intent freezes the check's inputs, thresholds and remedy. The
+   final look-0 workers bind the receipt's sha256 before any final record, and the audit
+   verifies that binding.
+2. **NI judged on the scripted mix only.** The probe reports an NI any-look rate for every
+   mix it is given, and its own `passes` field applies both thresholds. Non-inferiority is
+   tested only on the scripted mix, so the runner judges efficacy (<= 0.020) on every mix
+   and NI (<= 0.06) on the scripted mix only. The probe's `passes` field is recorded but
+   not used.
+
+The same two points are recorded in the amendment's "Implementation notes" and in the
+intent (`skew_check.deviations_from_amendment`).
 
 ## Limits (template)
 
 - No serving stage and no smoke mode. A study that needs them adds them in its own
   package.
 - The audit trusts the probe outputs' numbers, which are hash-bound but not recomputed.
-- Resume covers parent death only. A worker crash seen by the parent is `INVALID_STOP`.
 - Band metrics are assumed independent of the efficacy metric. The amendment's
   selection-calibration caveat applies: simulate the plan with resampled joint records
   if they are strongly tied.
@@ -172,5 +213,5 @@ Plan: N_max = ..., looks ... (sizes ...), MDE ..., futility CP 0.10, futility_po
 Sizing basis (development variance only) and operating characteristics (simulate.py): ...
 Early-stop band cost at look 1 (pilot SD of each band metric): ...
 Skew check input: <path>, sha256 ...; thresholds 0.020 / 0.06; remedy: stop and escalate.
-Caps, deadline, resume policy, outcomes: as in the template README.
+Caps, deadline, no resume, dry_run=false, outcomes: as in the template README.
 ```

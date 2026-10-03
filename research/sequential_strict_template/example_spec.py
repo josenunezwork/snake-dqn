@@ -2,12 +2,12 @@
 
 Nothing here plays a game: ``episode_runner`` raises until a study replaces it.  A study
 (for example the v8 veto challenge) copies this file into its own package, fills in the
-four marked parts and points ``prepare --spec <its.module>:SPEC`` at it.
+six marked parts and points ``prepare --spec <its.module>:SPEC`` at it.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Mapping, Sequence
 
 from research.sequential_strict_template.sequential_runner import (
     DEFAULT_CLOSURE_ROOTS,
@@ -44,6 +44,12 @@ def build_row(phase: str, mix: str, world_index: int, world_seed: int) -> Dict[s
     return default_row(phase, mix, world_index, world_seed)
 
 
+def excluded_seeds() -> Mapping[str, Sequence[int]]:
+    """(5) Every earlier namespace (screens, sweeps, strict banks, serving lanes, smokes)
+    whose seeds the new banks must avoid, e.g. the first 1000 seeds of each domain."""
+    raise NotImplementedError("example_spec: list every earlier namespace before prepare")
+
+
 def validate_record(entry: Mapping[str, Any], row: Mapping[str, Any]) -> List[str]:
     """(4) Record-shape rules (e.g. ``strict_promotion.validate_strict_world_record``)."""
     return []
@@ -65,6 +71,10 @@ SPEC = StudySpec(
     bands=survival_bands(MIXES),
     build_row=build_row,
     validate_record=validate_record,
+    excluded_seeds=excluded_seeds,
     closure_roots=DEFAULT_CLOSURE_ROOTS,
-    protocol_path=None,
+    # (6) Pre-registration documents, relative to the repo, frozen by sha256 in the intent:
+    protocol_path="research/REPLACE-ME/protocol.md",
+    oc_report_path="research/REPLACE-ME/operating_characteristics.json",
+    band_cost_report_path="research/REPLACE-ME/look1_band_cost.json",
 )
