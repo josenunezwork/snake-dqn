@@ -723,7 +723,8 @@ class Vector61SimdPolicy:
         self.veto_counters: Dict[int, object] = {}
         # Per-env v5 bookkeeping (safety_veto_v5.BoostAwareCounters); v5 only.
         self.boost_counters: Dict[int, object] = {}
-        # Per-env live v7/v8 hook objects (live_veto_hook); v7/v8 only.
+        # Per-env live v7/v8 hook objects (live_veto_hook); v7/v8 only. Keyed by env
+        # alone, like the v2/v5 counters: the engine vetoes one slot (the hero, slot 0).
         self.live_vetoes: Dict[int, object] = {}
         self.last_veto: Optional[Dict[str, np.ndarray]] = None
 
@@ -911,7 +912,9 @@ class Vector61SimdPolicy:
         argmax), on the env's own live hook object, so its probe counters and
         diagnostics accumulate exactly as the live hook's do over an episode.
         """
-        check_live_rule_config(sim)
+        if getattr(self, "_rule_config_checked", None) is not sim:
+            check_live_rule_config(sim)  # once per sim (its config never changes)
+            self._rule_config_checked = sim
         grid = (int(self.runtime.featurizer.gw), int(self.runtime.featurizer.gh))
         base = actions[pick].copy()
         final = base.copy()

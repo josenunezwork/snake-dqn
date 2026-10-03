@@ -90,7 +90,7 @@ _V8_SWEEP = tuple(
 TARGETS: Dict[str, Target] = {
     # v7 screen arm B: v7 lambda 4 (40 worlds per mix).
     "v7-screen-B": Target((_V7_SCREEN,), "B", "v7", 4.0),
-    # v8 screen arm B: v8 lambda 8 with the reference v7 at lambda 4 (20 worlds per mix).
+    # v8 screen arm B: v8 lambda 8, reference v7 at lambda 4 (60 worlds/mix over 3 shards).
     "v8-screen-B": Target(_V8_SCREEN, "B", "v8", 8.0, 4.0),
     # Optional extra coverage (other lambdas):
     "v8-screen-A": Target(_V8_SCREEN, "A", "v7", 4.0),
@@ -310,6 +310,9 @@ def load_target(name: str, worlds: int) -> Dict[str, Any]:
             problems = check_entry(entry, target)
             if problems:
                 raise SystemExit(f"{name}/{mix}/{entry.get('world_seed')}: {problems}")
+    # Verified here (also by --dry-run), before any output directory exists.
+    needed = [s for c in plan.values() for e in c for s in e["roster_member_sha256s"]]
+    verify_snapshots(snapshots, needed + [ds.CHAMPION[1]])
     return {"name": name, "target": target, "plan": plan, "snapshots": snapshots}
 
 
@@ -474,9 +477,7 @@ def _run(
     started_total = time.monotonic()
     for item in loaded:
         target: Target = item["target"]
-        lookup = ds.agent_lookup(item["snapshots"])
-        needed = [s for c in item["plan"].values() for e in c for s in e["roster_member_sha256s"]]
-        verify_snapshots(item["snapshots"], needed + [ds.CHAMPION[1]])
+        lookup = ds.agent_lookup(item["snapshots"])  # snapshots verified by load_target
         hero = lookup[ds.CHAMPION[1]]
         for mix, chosen in item["plan"].items():
             problems = thermal_problems()

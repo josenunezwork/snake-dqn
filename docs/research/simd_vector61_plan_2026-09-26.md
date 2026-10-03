@@ -578,7 +578,11 @@ per mix, 24 SIMD episodes at H5000, compared with the saved live entries (read-o
 Optional extra targets: `v8-screen-A`, `v7-sweep-L100`, `v7-sweep-L200`, `v8-sweep-H400`,
 `v8-sweep-H1600`.
 
+Order after the gate closes: first the opt-in tiny-world rollout parity (the only test
+that drives `run_simd_eval` end to end with v7/v8), then the dry run, then the check.
+
 ```
+cd <worktree> && SNAKE_SIMD_ROLLOUT_PARITY=1 OMP_NUM_THREADS=1 ./venv/bin/python -m pytest -p no:xdist -q tests/test_simd_vector61_v7v8_veto.py
 cd <worktree> && ./venv/bin/python research/simd_parity_v7v8_h5000_20261003/h5000_check.py --dry-run
 cd <worktree> && OMP_NUM_THREADS=2 ./venv/bin/python research/simd_parity_v7v8_h5000_20261003/h5000_check.py
 ```
