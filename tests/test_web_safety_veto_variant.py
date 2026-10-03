@@ -100,7 +100,7 @@ class TestVariantParsing:
     def test_released_default_is_v7(self):
         # v7 released 2026-10-03 (STRICT_PASS + SERVING_PASS); rollback is variant=v5 (or v2).
         assert serving.VARIANT_RELEASED_DEFAULT == "v7"
-        assert serving.VARIANTS == ("v2", "v5", "v7")
+        assert serving.VARIANTS == ("v2", "v5", "v7", "v8")
         assert ServingVetoFlags().variant == "v7"
         assert ServingVetoFlags.from_env({}).variant == "v7"
         assert ServingVetoFlags.from_env({ENV_VARIANT: "v5"}).variant == "v5"
@@ -303,7 +303,7 @@ class TestV5FailClosed:
         state = sess.safety_veto_state()
         assert state["wrapper"] == serving.wrapper_identity()
         assert state["reason"] == (
-            f"unknown serving veto variant {value!r} ({ENV_VARIANT} must be one of v2, v5, v7); "
+            f"unknown serving veto variant {value!r} ({ENV_VARIANT} must be one of v2, v5, v7, v8); "
             "fell back to the released default v2"
         )
 

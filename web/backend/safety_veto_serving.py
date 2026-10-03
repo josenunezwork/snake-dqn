@@ -39,15 +39,26 @@ stays the master switch; the variant chooses which wrapper the Watch hero gets:
   :data:`V5_STRICT_RECEIPT_SHA256`): the served checkpoint must hash to
   :data:`V5_STRICT_RECEIPT_CHECKPOINT_SHA256` and ``safety_veto_v5.py``,
   ``safety_veto.py`` and ``safety_veto_v3.py`` to :data:`V5_STRICT_RECEIPT_SOURCE_SHA256S`.
-* ``v7`` (the released default since 2026-10-03; rollback ``v5``):``free-space-veto/v7-space-preference(lambda=4.0)``
+* ``v7`` (the released default since 2026-10-03; rollback ``v5``):
+  ``free-space-veto/v7-space-preference(lambda=4.0)``
   (:func:`src.evaluation.safety_veto_v7.install_space_preference_veto` with
   :data:`V7_LAMBDA`), bound fail closed to the v7 STRICT_PASS receipt
   (``apex-veto-v7-strict-20261002/run-v1``, receipt sha256 :data:`V7_STRICT_RECEIPT_SHA256`):
   the served checkpoint must hash to :data:`V7_STRICT_RECEIPT_CHECKPOINT_SHA256`, the four
   veto sources (``safety_veto{,_v3,_v5,_v7}.py``) to :data:`V7_STRICT_RECEIPT_SOURCE_SHA256S`
   and the installed method to :data:`V7_STRICT_RECEIPT_METHOD` (the gated lambda).
+* ``v8`` (opt-in; NOT the released default): ``free-space-veto/v8-space-and-head(lambda=8.0)``
+  (:func:`src.evaluation.safety_veto_v8.install_space_and_head_veto` with :data:`V8_LAMBDA`,
+  head layer on, no diagnostic ``reference_lambda``: exactly the strict candidate's install),
+  bound fail closed to the v8 STRICT_PASS receipt (``apex-veto-v8-strict-20261003/run-v1``,
+  receipt sha256 :data:`V8_STRICT_RECEIPT_SHA256`): the served checkpoint must hash to
+  :data:`V8_STRICT_RECEIPT_CHECKPOINT_SHA256`, the seven veto sources
+  (``safety_veto{,_v3,_v4,_v5,_v6,_v7,_v8}.py``) to :data:`V8_STRICT_RECEIPT_SOURCE_SHA256S`,
+  the installed method to :data:`V8_STRICT_RECEIPT_METHOD` (the gated lambda), and the
+  installed veto must have the head layer on and no reference lambda.
 
-Unset or blank selects the default; ``v2``/``v5``/``v7`` (case-insensitive) select a variant.
+Unset or blank selects the default; ``v2``/``v5``/``v7``/``v8`` (case-insensitive) select a
+variant.
 Any other value falls back to :data:`VARIANT_RELEASED_DEFAULT`, like an unrecognized
 master-switch word falls back to the released default, so a typo cannot silently remove
 the released Watch-hero veto; the build's ``reason`` and log line name the bad value. The
@@ -73,7 +84,10 @@ from typing import Any, Dict, List, Mapping, Optional
 from src.evaluation import safety_veto as _veto_module
 from src.evaluation import safety_veto_v3 as _veto_v3_module
 from src.evaluation import safety_veto_v5 as _veto_v5_module
+from src.evaluation import safety_veto_v4 as _veto_v4_module
+from src.evaluation import safety_veto_v6 as _veto_v6_module
 from src.evaluation import safety_veto_v7 as _veto_v7_module
+from src.evaluation import safety_veto_v8 as _veto_v8_module
 from src.evaluation.safety_veto import (
     VETO_METHOD,
     FreeSpaceVeto,
@@ -85,6 +99,7 @@ from src.evaluation.safety_veto_v5 import (
     install_boost_aware_veto,
 )
 from src.evaluation.safety_veto_v7 import SpacePreferenceVeto, install_space_preference_veto
+from src.evaluation.safety_veto_v8 import SpaceAndHeadVeto, install_space_and_head_veto
 from src.model.obs_spec import VECTOR61
 
 ENV_WATCH_HERO = "SNAKE_SERVE_VETO_WATCH_HERO"
@@ -110,7 +125,8 @@ ENV_VARIANT = "SNAKE_SERVE_VETO_VARIANT"
 VARIANT_V2 = "v2"
 VARIANT_V5 = "v5"
 VARIANT_V7 = "v7"
-VARIANTS = (VARIANT_V2, VARIANT_V5, VARIANT_V7)
+VARIANT_V8 = "v8"
+VARIANTS = (VARIANT_V2, VARIANT_V5, VARIANT_V7, VARIANT_V8)
 # Released default variant when ENV_VARIANT is unset or blank.
 # v5 released 2026-10-02 (v5 STRICT_PASS + SERVING_PASS).
 # v7 released 2026-10-03 (v7 STRICT_PASS + SERVING_PASS); rollback: SNAKE_SERVE_VETO_VARIANT=v5
@@ -164,6 +180,45 @@ V7_STRICT_RECEIPT_SOURCE_SHA256S = {
     ),
 }
 V7_SOURCE_PATH = "src/evaluation/safety_veto_v7.py"
+
+# The v8 STRICT_PASS receipt (apex-veto-v8-strict-20261003/run-v1, group-sequential STOP_PASS
+# at look 2; candidate v8 lambda=8 vs incumbent released v7 lambda=4) and the candidate
+# identity its intent.json (arms.candidate) binds: champion bytes, the seven veto source
+# files and the gated method (lambda 8, head layer on; the screen's diagnostic
+# reference_lambda was never installed). Its strict package has no web serving stage; the
+# web lane is research/apex_veto_v8_serving_20261003.
+V8_STRICT_RECEIPT_SHA256 = "29b1f7f6f095cac1990e8f7eafccc806e498cd503bb964bd083b3436ef2b7507"
+V8_STRICT_INTENT_SHA256 = "ca4aa97074456fc14281d43e8c999198f39f9576946eee3f953aad7bd56e7e62"
+V8_STRICT_AUDIT_REPORT_SHA256 = "72410ec575301def146398c9acff33fdd1e20b45f84ed1e37e452851be8467c6"
+V8_STRICT_RECEIPT_CHECKPOINT_SHA256 = (
+    "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+)
+V8_LAMBDA = 8.0
+V8_STRICT_RECEIPT_METHOD = "free-space-veto/v8-space-and-head(lambda=8.0)"
+V8_STRICT_RECEIPT_SOURCE_SHA256S = {
+    "src/evaluation/safety_veto.py": (
+        "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428"
+    ),
+    "src/evaluation/safety_veto_v3.py": (
+        "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1"
+    ),
+    "src/evaluation/safety_veto_v4.py": (
+        "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578"
+    ),
+    "src/evaluation/safety_veto_v5.py": (
+        "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c"
+    ),
+    "src/evaluation/safety_veto_v6.py": (
+        "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5"
+    ),
+    "src/evaluation/safety_veto_v7.py": (
+        "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980"
+    ),
+    "src/evaluation/safety_veto_v8.py": (
+        "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05"
+    ),
+}
+V8_SOURCE_PATH = "src/evaluation/safety_veto_v8.py"
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -278,6 +333,43 @@ def _install_v7(snake: Any) -> SpacePreferenceVeto:
     return install_space_preference_veto(snake, V7_LAMBDA)
 
 
+def v8_source_sha256s() -> Dict[str, str]:
+    """sha256 of each source file the v8 receipt binds, keyed by repo-relative path."""
+    out = {}
+    for module in (
+        _veto_module,
+        _veto_v3_module,
+        _veto_v4_module,
+        _veto_v5_module,
+        _veto_v6_module,
+        _veto_v7_module,
+        _veto_v8_module,
+    ):
+        path = os.path.abspath(module.__file__)
+        out[os.path.relpath(path, REPO_ROOT)] = _sha256_file(path)
+    return dict(sorted(out.items()))
+
+
+def wrapper_identity_v8() -> Dict[str, Any]:
+    """Identity of the v8 wrapper (lambda :data:`V8_LAMBDA`, head layer on), in the v8 strict
+    intent's ``arms.candidate`` shape. ``source_path`` is repo-relative."""
+    sources = v8_source_sha256s()
+    veto = SpaceAndHeadVeto(V8_LAMBDA)
+    return {
+        "method": veto.method,
+        "descriptor": veto.descriptor(),
+        "source_path": V8_SOURCE_PATH,
+        "source_sha256": sources.get(V8_SOURCE_PATH),
+        "source_sha256s": sources,
+    }
+
+
+def _install_v8(snake: Any) -> SpaceAndHeadVeto:
+    # Exactly the v8 strict candidate's install (spec.install_candidate): head layer on
+    # (the default) and no diagnostic reference_lambda (the default).
+    return install_space_and_head_veto(snake, V8_LAMBDA)
+
+
 def wrapper_identity() -> Dict[str, Any]:
     """Method, static descriptor and source sha256 of the installed wrapper.
 
@@ -318,6 +410,7 @@ class ServingVetoState:
         pinned = {
             VARIANT_V5: V5_STRICT_RECEIPT_CHECKPOINT_SHA256,
             VARIANT_V7: V7_STRICT_RECEIPT_CHECKPOINT_SHA256,
+            VARIANT_V8: V8_STRICT_RECEIPT_CHECKPOINT_SHA256,
         }.get(self.variant, STRICT_RECEIPT_CHECKPOINT_SHA256)
         return self.checkpoint_sha256 == pinned
 
@@ -334,7 +427,7 @@ class ServingVetoState:
         return {sid: veto.counters.to_dict() for sid, veto in sorted(self.vetoes.items())}
 
     def diagnostics(self) -> Dict[int, Dict[str, Any]]:
-        """v5/v7 per-snake diagnostics (``diagnostics_record``); empty for the v2 wrapper."""
+        """v5/v7/v8 per-snake diagnostics (``diagnostics_record``); empty for the v2 wrapper."""
         return {
             sid: veto.diagnostics_record()
             for sid, veto in sorted(self.vetoes.items())
@@ -443,13 +536,16 @@ def _install_scoped(
             f"(sha256 {checkpoint_sha256 or 'none: untrained weights'})"
         )
         return
-    if state.variant in (VARIANT_V5, VARIANT_V7):
+    if state.variant in (VARIANT_V5, VARIANT_V7, VARIANT_V8):
         if state.variant == VARIANT_V5:
             identity, pins = wrapper_identity_v5(), V5_STRICT_RECEIPT_SOURCE_SHA256S
             install, method = install_boost_aware_veto, VETO_METHOD_V5
-        else:
+        elif state.variant == VARIANT_V7:
             identity, pins = wrapper_identity_v7(), V7_STRICT_RECEIPT_SOURCE_SHA256S
             install, method = _install_v7, V7_STRICT_RECEIPT_METHOD
+        else:
+            identity, pins = wrapper_identity_v8(), V8_STRICT_RECEIPT_SOURCE_SHA256S
+            install, method = _install_v8, V8_STRICT_RECEIPT_METHOD
         changed = sorted(
             path for path, sha in pins.items() if identity["source_sha256s"].get(path) != sha
         )
@@ -459,12 +555,16 @@ def _install_scoped(
                 f"{state.variant} wrapper source sha256 differs from the gated one: {changed}"
             )
             return
-        if identity["method"] != method:  # v7: the gated lambda is part of the identity
+        if identity["method"] != method:  # v7/v8: the gated lambda is part of the identity
             state.wrapper_sources_match = False
             state.reason = (
                 f"{state.variant} wrapper method {identity['method']!r} is not the gated "
                 f"{method!r}"
             )
+            return
+        if state.variant == VARIANT_V8 and identity["descriptor"].get("head_avoidance") is not True:
+            state.wrapper_sources_match = False
+            state.reason = "v8 wrapper head layer is off (the gated v8 has head_avoidance=True)"
             return
     else:
         identity = wrapper_identity()
@@ -490,7 +590,22 @@ def _install_scoped(
         return
     state.wrapper = identity
     for snake in targets:
-        state.vetoes[int(snake.id)] = install(snake)
+        veto = install(snake)
+        if state.variant == VARIANT_V8 and (
+            getattr(veto, "reference_lambda", None) is not None
+            or getattr(veto, "head_avoidance", None) is not True
+            or getattr(veto, "method", None) != V8_STRICT_RECEIPT_METHOD
+        ):
+            # Fail closed: the served v8 must be exactly the strict candidate.
+            for sid in list(state.vetoes):
+                state.vetoes.pop(sid)
+            for wrapped in targets:
+                wrapped.safety_veto = None
+            state.wrapper = None
+            state.wrapper_sources_match = False
+            state.reason = "installed v8 veto is not the gated strict candidate"
+            return
+        state.vetoes[int(snake.id)] = veto
 
 
 def _ensure_visible() -> None:
