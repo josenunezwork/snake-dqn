@@ -23,8 +23,10 @@ from __future__ import annotations
 import argparse
 import base64
 import concurrent.futures
+import fcntl
 import gzip
 import hashlib
+import http.client
 import json
 import math
 import os
@@ -54,10 +56,18 @@ AGENT_SOURCE = HERE / "pod_agent.py"
 USER_AGENT = "rpf-runner/1.0 (snake-dqn runpod fan-out)"
 STOCKED = ("High", "Medium", "Low")
 RECEIPT_SCHEMA = "runpod-fanout-receipt/v1"
+NET_ERRORS = (urllib.error.URLError, OSError, ValueError, http.client.HTTPException)
 
 
 class Abort(RuntimeError):
     """Stop the run now (divergent duplicate, budget breach, ...); pods are deleted."""
+
+
+def spec_sha256(ep: Mapping[str, Any]) -> str:
+    """The episode spec hash stamped by episode.py (``fanout.spec_sha256``)."""
+    return hashlib.sha256(
+        json.dumps(ep, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def utc_now() -> str:
@@ -177,6 +187,7 @@ def pod_body(
         "dataCenterIds": [dc],
         "imageName": policy["image"],
         "containerDiskInGb": int(policy["container_disk_gb"]),
+        "volumeInGb": 0,
         "ports": [f"{policy['agent_port']}/http"],
         "env": {
             "FANOUT_TOKEN_SHA256": token_sha,
@@ -184,7 +195,11 @@ def pod_body(
             "FANOUT_PROVIDER": f"runpod:{policy['flavor']}",
             "FANOUT_PIP_JSON": json.dumps(pip),
             "FANOUT_THREADS": str(policy["threads_per_episode"]),
-            "FANOUT_ISA_CAP": policy["isa_cap"],
+            "FANOUT_WORKERS": str(workers_for(policy, vcpu)),
+            "FANOUT_ISA_CAP": policy["isa_cap"] or "",
+            "FANOUT_SELF_DELETE_EPOCH": str(
+                int(deadline_epoch + float(policy["watchdog_grace_seconds"]) + 240)
+            ),
             "FANOUT_JOB": job_id,
         },
         "dockerStartCmd": agent_start_command(),
@@ -212,6 +227,9 @@ class Pod:
     unpulled: set = field(default_factory=set)  # done on the pod, record not yet pulled
     deleted: Optional[float] = None
     retire_pending: bool = False
+    boot_from: float = 0.0  # start of the current startup window (create or agent restart)
+    first_fail: Optional[float] = None
+    cpu_model: Optional[str] = None
     note: str = ""
 
     def public(self) -> Dict[str, Any]:
@@ -290,6 +308,10 @@ class Runner:
         self.ckpt_paths: Dict[str, Path] = {}
         self.pod_counter = 0
         self.stop_reason: Optional[str] = None
+        self.verified: set = set()  # (key, sha256 on a pod) already accepted
+        self.platform_ids: set = set()
+        self.watchdog: Any = None
+        self.cpu_model_pin: Optional[str] = None
 
     # ------------------------------------------------------------ logging
     def log(self, event: str, **fields: Any) -> None:
@@ -326,19 +348,20 @@ class Runner:
         return sum(p.cost_until(now) for p in self.pods.values())
 
     def committed_worst(self) -> float:
-        """Spend if every live pod ran until the hard end (watchdog firing)."""
+        """Spend if every live pod ran until the hard end (watchdog firing), plus slack.
+
+        Slack: 2% and one extra minute per pod (billing starts before our timestamp).
+        """
         total = 0.0
         for p in self.pods.values():
-            if p.deleted is not None:
-                total += p.cost_until(p.deleted)
-            else:
-                total += p.rate * max(0.0, self.hard_end - p.created) / 3600.0
-        return total
+            end = p.deleted if p.deleted is not None else self.hard_end
+            total += p.rate * (max(0.0, end - p.created) + 60.0) / 3600.0
+        return total * 1.02
 
     def launch_allowed(self, rate: float) -> Optional[str]:
         """None if a new pod at ``rate`` fits the job budget and the global floor."""
         now = self.clock()
-        extra = rate * max(0.0, self.hard_end - now) / 3600.0
+        extra = 1.02 * rate * (max(0.0, self.hard_end - now) + 60.0) / 3600.0
         worst = self.committed_worst() + extra
         if worst > self.budget + 1e-9:
             return f"job budget: worst case {worst:.4f} > budget {self.budget:.4f}"
@@ -400,6 +423,7 @@ class Runner:
         need = self.outstanding() - self.live_slots()
         if need <= 0 or self.stop_reason:
             return
+        self.sweep_orphans()
         cap = size_cap_for(self.policy, need)
         sizes = [v for v in self.policy["vcpu_sizes_desc"] if v <= cap]
         rows = self.probe(sizes)
@@ -449,9 +473,11 @@ class Runner:
             self.log(
                 "create_refused", vcpu=row["vcpu"], dc=row["dc"], detail=str(exc.payload)[:300]
             )
+            self.reap_by_name(name, row)
             return False
         if not isinstance(out, dict) or not out.get("id"):
             self.log("create_no_pod", detail=str(out)[:300])
+            self.reap_by_name(name, row)
             return False
         rate = float(out.get("costPerHr") or row["usd_per_hr"])
         pod = Pod(
@@ -463,6 +489,7 @@ class Runner:
             token=token,
             created=self.clock(),
         )
+        pod.boot_from = pod.created
         self.pods[pod.id] = pod
         self.agents[pod.id] = self.agent_factory(pod.id, token)
         (self.run_dir / "pods" / f"{name}.response.json").write_text(
@@ -480,6 +507,57 @@ class Runner:
         if self.committed_worst() > self.budget + 1e-6:
             raise Abort("committed worst case exceeds the budget after create")
         return True
+
+    def reap_by_name(self, name: str, row: Mapping[str, Any]) -> None:
+        """A failed/timed-out create may still have made a pod: find it by name, delete it."""
+        for attempt in range(3):
+            try:
+                found = [p for p in self.rp.list_pods() if p.get("name") == name]
+            except RunPodError:
+                found = None
+            if found:
+                for raw in found:
+                    pod = Pod(
+                        id=raw["id"],
+                        name=name,
+                        vcpu=int(row["vcpu"]),
+                        dc=row["dc"],
+                        rate=float(raw.get("costPerHr") or row["usd_per_hr"]),
+                        token="",
+                        created=self.clock() - 120,
+                        state="lost",
+                        note="orphan create",
+                    )
+                    self.pods[pod.id] = pod
+                    self.log("orphan_create_found", pod=pod.id, name=name)
+                    self.delete_pod(pod, "orphan of a failed create")
+                return
+            if found == [] and attempt >= 1:
+                return
+            self.sleep(10)
+
+    def sweep_orphans(self) -> None:
+        """Delete pods with this job's prefix that this runner does not track."""
+        try:
+            listed = self.owned_live_pods()
+        except RunPodError:
+            return
+        for raw in listed:
+            if raw["id"] not in self.pods:
+                pod = Pod(
+                    id=raw["id"],
+                    name=str(raw.get("name")),
+                    vcpu=0,
+                    dc="?",
+                    rate=float(raw.get("costPerHr") or 0.0),
+                    token="",
+                    created=self.clock() - 120,
+                    state="lost",
+                    note="untracked orphan",
+                )
+                self.pods[pod.id] = pod
+                self.log("orphan_found", pod=pod.id, name=pod.name)
+                self.delete_pod(pod, "untracked pod with this job's prefix")
 
     # ------------------------------------------------------------ pod lifecycle
     def delete_pod(self, pod: Pod, why: str) -> None:
@@ -542,26 +620,33 @@ class Runner:
         agent = self.agents[pod.id]
         try:
             health = agent.get_json("/health")
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except NET_ERRORS as exc:
             if pod.state == "booting":
-                if now - pod.created > float(self.policy["startup_deadline_seconds"]):
+                if now - pod.boot_from > float(self.policy["startup_deadline_seconds"]):
                     self.log("startup_deadline", pod=pod.id, detail=str(exc)[:120])
                     self.bad_slots[(pod.vcpu, pod.dc)] = now + 1800
                     pod.state = "lost"
                     self.delete_pod(pod, "no channel before the startup deadline")
-            elif now - pod.last_ok > float(self.policy["heartbeat_lost_seconds"]):
+                    self.requeue(pod, pod.inflight | pod.unpulled, "pod lost")
+                return
+            pod.first_fail = pod.first_fail or now
+            if now - pod.first_fail >= float(self.policy["heartbeat_lost_seconds"]):
                 self.log("pod_lost", pod=pod.id, detail=str(exc)[:120])
                 pod.state = "lost"
                 self.delete_pod(pod, "heartbeat lost")
                 self.requeue(pod, pod.inflight | pod.unpulled, "pod lost")
             return
         pod.last_ok = now
+        pod.first_fail = None
         if pod.boot_id and health.get("boot_id") != pod.boot_id:
             self.log("pod_rebooted", pod=pod.id)
             self.pull(pod)
             self.requeue(pod, set(pod.inflight), "agent restarted")
+            if health.get("setup") is None and pod.state in ("ready", "draining"):
+                pod.state = "booting"  # container restarted: set up again
+                pod.boot_from = now
         pod.boot_id = health.get("boot_id")
-        pod.slots = int(health.get("slots") or workers_for(self.policy, pod.vcpu))
+        pod.slots = min(int(health.get("slots") or 1), workers_for(self.policy, pod.vcpu))
         if pod.state == "booting":
             self.tick_booting(pod, agent, health, now)
             return
@@ -589,15 +674,28 @@ class Runner:
     def tick_booting(self, pod: Pod, agent: Any, health: Mapping[str, Any], now: float) -> None:
         if health.get("pip") == "failed":
             pod.state = "lost"
+            self.bad_slots[(pod.vcpu, pod.dc)] = now + 1800
             self.delete_pod(pod, "pip install failed")
+            return
+        pod.cpu_model = health.get("cpu_model")
+        pinned = self.pinned_cpu_model()
+        if pinned and pod.cpu_model != pinned:
+            # One run = one platform: refuse hosts with another CPU model (MKL code paths).
+            pod.state = "lost"
+            self.bad_slots[(pod.vcpu, pod.dc)] = now + 4 * 3600
+            self.log("cpu_model_mismatch", pod=pod.id, got=pod.cpu_model, pinned=pinned)
+            self.delete_pod(pod, "cpu model differs from the run's pinned model")
             return
         try:
             self.bring_up(pod, agent, health)
             if health.get("setup") is None:
                 health = agent.get_json("/health")
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except NET_ERRORS as exc:
             self.log("upload_retry", pod=pod.id, detail=str(exc)[:160])
         if health.get("pip") == "ok" and health.get("setup") is not None:
+            if not self.pinned_cpu_model():
+                self.cpu_model_pin = pod.cpu_model
+                self.log("cpu_model_pinned", cpu_model=pod.cpu_model)
             pod.state = "ready"
             self.log(
                 "pod_ready",
@@ -606,15 +704,20 @@ class Runner:
                 cores=health.get("cores"),
                 seconds_to_ready=round(now - pod.created, 1),
             )
-        elif now - pod.created > float(self.policy["startup_deadline_seconds"]) * 2:
+        elif now - pod.boot_from > float(self.policy["ready_deadline_seconds"]):
             pod.state = "lost"
-            self.delete_pod(pod, "not ready within 2x the startup deadline")
+            self.bad_slots[(pod.vcpu, pod.dc)] = now + 1800
+            self.delete_pod(pod, "not ready before the ready deadline")
+            self.requeue(pod, pod.inflight | pod.unpulled, "pod lost")
+
+    def pinned_cpu_model(self) -> Optional[str]:
+        return getattr(self, "cpu_model_pin", None)
 
     def pull(self, pod: Pod) -> None:
         agent = self.agents[pod.id]
         try:
             listing = agent.get_json("/records")
-        except (urllib.error.URLError, OSError, ValueError) as exc:
+        except NET_ERRORS as exc:
             self.log("pull_failed", pod=pod.id, detail=str(exc)[:120])
             return
         pod.last_pull = self.clock()
@@ -623,14 +726,19 @@ class Runner:
             key = row["key"]
             if key not in self.episodes:
                 raise Abort(f"pod {pod.id} produced an unknown record {key}")
-            if key in self.completed and self.completed[key] == row["sha256"]:
+            if (key, row["sha256"]) in self.verified:
                 pod.unpulled.discard(key)
                 continue
-            data = agent.get_bytes("/record/" + key)
+            try:
+                data = agent.get_bytes("/record/" + key)
+            except NET_ERRORS as exc:
+                self.log("pull_record_failed", pod=pod.id, key=key, detail=str(exc)[:120])
+                continue
             if hashlib.sha256(data).hexdigest() != row["sha256"]:
                 self.log("pull_sha_mismatch", pod=pod.id, key=key)
                 continue
             self.accept_record(key, data, source=pod.id)
+            self.verified.add((key, row["sha256"]))
             pod.unpulled.discard(key)
             pod.inflight.discard(key)
             got += 1
@@ -652,6 +760,14 @@ class Runner:
         for name in ("arm", "mix", "world_seed", "world_index", "roster_member_sha256s"):
             if entry.get(name) != ep[name]:
                 raise Abort(f"record {key} field {name} differs from the job")
+        if stamp.get("spec_sha256") != spec_sha256(ep):
+            raise Abort(f"record {key} from {source} was produced from a different spec")
+        platform_id = (entry.get("platform") or {}).get("platform_id")
+        if not platform_id:
+            raise Abort(f"record {key} from {source} has no platform stamp")
+        self.platform_ids.add(platform_id)
+        if len(self.platform_ids) > 1:
+            raise Abort(f"mixed platforms inside one run: {sorted(self.platform_ids)}")
         dest = self.run_dir / "records" / key
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
@@ -688,7 +804,7 @@ class Runner:
             }
             try:
                 out = self.agents[pod.id].post_json("/assign", body)
-            except (urllib.error.URLError, OSError, ValueError) as exc:
+            except NET_ERRORS as exc:
                 self.log("assign_failed", pod=pod.id, detail=str(exc)[:120])
                 continue
             for key in out.get("accepted", []):
@@ -731,7 +847,7 @@ class Runner:
                 if bigger_ready:
                     try:
                         self.agents[pod.id].post_json("/drain", {})
-                    except (urllib.error.URLError, OSError, ValueError):
+                    except NET_ERRORS:
                         pass
                     pod.state = "draining"
                     pod.retire_pending = False
@@ -748,15 +864,24 @@ class Runner:
             if pod.deleted is None:
                 self.delete_pod(pod, "run exit")
         left: List[Dict[str, Any]] = []
-        for i in range(attempts):
+        empty_since: Optional[float] = None
+        for i in range(attempts + 8):
             try:
                 left = self.owned_live_pods()
             except RunPodError as exc:
                 self.log("list_failed", detail=str(exc)[:120])
+                left = [{"unknown": "list failed"}]
                 self.sleep(10)
                 continue
             if not left:
-                return []
+                # A pod from a create that was in flight can surface late: require two empty
+                # listings at least 60 s apart.
+                if empty_since is not None and self.clock() - empty_since >= 60:
+                    return []
+                empty_since = empty_since if empty_since is not None else self.clock()
+                self.sleep(30)
+                continue
+            empty_since = None
             for row in left:
                 try:
                     self.rp.delete_pod(row["id"], confirm=True)
@@ -803,7 +928,17 @@ class Runner:
         leftovers: List[Dict[str, Any]] = [{"unknown": True}]
         old_handlers = install_signal_handlers()
         code = 1
+        lock = None
+        awake = None
         try:
+            lock = acquire_global_lock(self.policy)
+            ledger = project_ledger(self.policy, exclude=self.run_dir)
+            cap = float(self.policy["project_cap_usd"])
+            if ledger["total_usd"] + self.budget > cap:
+                raise Abort(
+                    f"project cap: spent {ledger['total_usd']:.4f} + budget {self.budget} > {cap}"
+                )
+            self.log("project_ledger", **ledger)
             manifest = self.prepare_uploads(workdir)
             self.balance_start = self.rp.balance()
             if self.balance_start - self.budget < float(self.policy["global_floor_usd"]):
@@ -816,10 +951,12 @@ class Runner:
             (self.run_dir / "plan.json").write_text(json.dumps(plan, indent=1, sort_keys=True))
             self.log("planned_cost", **plan["cost"])
             self.watchdog = self.spawn_watchdog(self)
+            self.check_watchdog(startup=True)
             self.log(
                 "watchdog_armed",
                 fires_at_epoch=self.deadline + float(self.policy["watchdog_grace_seconds"]),
             )
+            awake = keep_awake()
             self.loop()
             code = 0 if len(self.completed) == len(self.order) else 4
         except Abort as exc:
@@ -831,11 +968,34 @@ class Runner:
             self.log("interrupted")
             code = 130
         finally:
-            leftovers = self.delete_everything()
-            restore_signal_handlers(old_handlers)
-            shutil.rmtree(workdir, ignore_errors=True)
-            self.finish(leftovers, code)
+            ignore_signals()  # a second Ctrl-C must not cut the cleanup short
+            try:
+                leftovers = self.delete_everything()
+                shutil.rmtree(workdir, ignore_errors=True)
+                self.finish(leftovers, code)
+            finally:
+                if awake is not None:
+                    awake.terminate()
+                if lock is not None:
+                    lock.close()
+                restore_signal_handlers(old_handlers)
         return code if not leftovers else 5
+
+    def check_watchdog(self, startup: bool = False) -> None:
+        """The detached watchdog must be alive while pods may exist."""
+        wd = self.watchdog
+        if wd is None:  # injected stub (tests)
+            return
+        if startup:
+            for _ in range(20):
+                log = self.run_dir / "watchdog.log"
+                if log.exists() and b"armed" in log.read_bytes():
+                    break
+                self.sleep(0.5)
+            else:
+                raise Abort("watchdog did not arm")
+        if wd.poll() is not None:
+            raise Abort(f"watchdog exited early (rc {wd.returncode})")
 
     def loop(self) -> None:
         self.maybe_launch()
@@ -856,6 +1016,7 @@ class Runner:
                     if pod.deleted is None:
                         self.pull(pod)
                 return
+            self.check_watchdog()
             for pod in list(self.pods.values()):
                 if pod.deleted is None:
                     self.tick_pod(pod)
@@ -907,7 +1068,7 @@ class Runner:
     def finish(self, leftovers: List[Dict[str, Any]], code: int) -> None:
         balance_end = None
         try:
-            self.sleep(20)  # let per-second billing settle a little
+            self.sleep(60)  # let per-second billing settle
             balance_end = self.rp.balance()
         except RunPodError:
             pass
@@ -950,13 +1111,58 @@ class Runner:
 # ---------------------------------------------------------------- signals / watchdog
 
 
+def acquire_global_lock(policy: Mapping[str, Any]) -> Any:
+    """One live RunPod fan-out run per machine (shared balance, floor and cap checks)."""
+    root = Path(policy["artifacts_root"]) / "runpod-fanout"
+    root.mkdir(parents=True, exist_ok=True)
+    handle = (root / ".runpod-runner.lock").open("a")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        raise Abort("another RunPod fan-out run is live (global lock held)")
+    return handle
+
+
+def project_ledger(policy: Mapping[str, Any], exclude: Optional[Path] = None) -> Dict[str, Any]:
+    """Project spend: prior spend (policy) + every RunPod receipt under runpod-fanout/."""
+    root = Path(policy["artifacts_root"]) / "runpod-fanout"
+    runs = []
+    for receipt in sorted(root.glob("*/*/receipt.json")):
+        if exclude is not None and receipt.parent == Path(exclude):
+            continue
+        data = json.loads(receipt.read_text())
+        if data.get("backend") == "local":
+            continue
+        cost = data.get("actual_cost_usd_balance_delta")
+        est = data.get("estimated_cost_usd") or 0.0
+        runs.append(max(float(cost or 0.0), float(est)))
+    prior = float(policy.get("prior_spend_usd", 0.0))
+    return {"prior_usd": prior, "runs": len(runs), "total_usd": round(prior + sum(runs), 5)}
+
+
+def keep_awake() -> Optional[subprocess.Popen]:
+    """macOS: keep the Mac awake while this runner lives (the local guards need it)."""
+    if sys.platform != "darwin" or not shutil.which("caffeinate"):
+        return None
+    return subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
+
+
+def ignore_signals() -> None:
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, signal.SIG_IGN)
+        except ValueError:
+            pass
+
+
 def _raise_interrupt(signum, frame):  # noqa: ARG001
     raise KeyboardInterrupt(f"signal {signum}")
 
 
 def install_signal_handlers() -> Dict[int, Any]:
     old = {}
-    for sig in (signal.SIGTERM, signal.SIGHUP):
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         try:
             old[sig] = signal.signal(sig, _raise_interrupt)
         except ValueError:  # not the main thread (tests)
@@ -971,6 +1177,8 @@ def restore_signal_handlers(old: Mapping[int, Any]) -> None:
 
 def spawn_watchdog_process(runner: Runner) -> subprocess.Popen:
     """Detached watchdog: deletes this job's pods at the hard deadline or if we die."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        raise RuntimeError("refusing to spawn the real watchdog under pytest")
     log = (runner.run_dir / "watchdog.log").open("ab")
     return subprocess.Popen(
         [
@@ -1137,8 +1345,12 @@ def compare_runs(a: Path, b: Path) -> Dict[str, Any]:
     return {
         "a": str(a),
         "b": str(b),
-        "platforms_a": sorted({r["platform"]["platform_id"] for r in ra.values()}),
-        "platforms_b": sorted({r["platform"]["platform_id"] for r in rb.values()}),
+        "platforms_a": sorted(
+            {(r.get("platform") or {}).get("platform_id", "-") for r in ra.values()}
+        ),
+        "platforms_b": sorted(
+            {(r.get("platform") or {}).get("platform_id", "-") for r in rb.values()}
+        ),
         "only_a": sorted(set(ra) - set(rb)),
         "only_b": sorted(set(rb) - set(ra)),
         "compared": len(common),

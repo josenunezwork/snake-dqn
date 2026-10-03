@@ -37,6 +37,11 @@ SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 # Files every job's commit must contain (the pod imports them from the git archive).
 REQUIRED_REPO_FILES = ("research/runpod_fanout/episode.py", "research/runpod_fanout/wrappers.py")
+PINNED_RUNNER_FILES = (
+    "research/runpod_fanout/episode.py",
+    "research/runpod_fanout/wrappers.py",
+    "research/runpod_fanout/jobspec.py",
+)
 
 
 class JobError(ValueError):
@@ -232,6 +237,14 @@ def check_commit(repo: Path, job: Mapping[str, Any]) -> List[str]:
     for rel in paths:
         if git(repo, "cat-file", "-e", f"{commit}:{rel}").returncode != 0:
             problems.append(f"commit {commit[:12]} lacks {rel}")
+    # The pod runs the commit's copy of the guard/registry/executor: it must be byte-equal
+    # to the runner's own (validated) copy, so a job cannot point at a commit whose
+    # wrappers map an id to a strict gate or change the pins.
+    for rel in PINNED_RUNNER_FILES:
+        at_commit = git(repo, "rev-parse", f"{commit}:{rel}").stdout.strip()
+        local = git(repo, "hash-object", str(HERE / Path(rel).name)).stdout.strip()
+        if not at_commit or at_commit != local:
+            problems.append(f"{rel} at {commit[:12]} differs from the runner's copy")
     return problems
 
 

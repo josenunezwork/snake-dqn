@@ -42,7 +42,9 @@ PROVIDER = os.environ.get("FANOUT_PROVIDER", "runpod")
 PIP = json.loads(os.environ.get("FANOUT_PIP_JSON", "[]"))
 EXEC = json.loads(os.environ.get("FANOUT_EXEC_JSON", "null"))  # tests: replace the episode cmd
 THREADS = os.environ.get("FANOUT_THREADS", "2")
-ISA = os.environ.get("FANOUT_ISA_CAP", "AVX2")
+ISA = os.environ.get("FANOUT_ISA_CAP", "")
+SELF_DELETE = float(os.environ.get("FANOUT_SELF_DELETE_EPOCH", "0"))
+SETUP_LOCK = threading.Lock()
 BOOT = uuid.uuid4().hex[:12]
 LOCK = threading.Lock()
 STATE = {
@@ -142,12 +144,13 @@ def run_one(key, spec, timeout):
             "OMP_NUM_THREADS": THREADS,
             "MKL_NUM_THREADS": THREADS,
             "SNAKE_DQN_DEVICE": "cpu",
-            "ONEDNN_MAX_CPU_ISA": ISA,
-            "MKL_ENABLE_INSTRUCTIONS": ISA,
-            "MKL_CBWR": ISA,
             "PYTHONHASHSEED": "0",
         }
     )
+    if ISA:  # optional ISA cap (off by default: the validated x86 check ran without it)
+        env.update({"ONEDNN_MAX_CPU_ISA": ISA, "MKL_ENABLE_INSTRUCTIONS": ISA, "MKL_CBWR": ISA})
+    for k in ("RUNPOD_API_KEY",):
+        env.pop(k, None)
     left = DEADLINE - time.time() if DEADLINE else timeout
     started = time.time()
     proc = subprocess.Popen(
@@ -205,9 +208,42 @@ def worker():
                     STATE["failed"][key] = {"rc": "agent-error", "stderr_tail": repr(exc)}
 
 
+def cpu_model():
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return "unknown"
+
+
+def self_delete():
+    """Last resort if the runner and its watchdog are gone: the pod removes itself with the
+    pod-scoped credentials RunPod injects (RUNPOD_POD_ID / RUNPOD_API_KEY), if any."""
+    import urllib.request
+
+    pod, key = os.environ.get("RUNPOD_POD_ID"), os.environ.get("RUNPOD_API_KEY")
+    if not pod or not key:
+        log("self-delete: no pod-scoped credentials; waiting for the runner/watchdog")
+        return
+    req = urllib.request.Request(f"https://rest.runpod.io/v1/pods/{pod}", method="DELETE")
+    req.add_header("Authorization", "Bearer " + key)
+    req.add_header("User-Agent", "rpf-agent/1.0")
+    try:
+        urllib.request.urlopen(req, timeout=30).read()
+        log("self-delete requested")
+    except Exception as exc:  # noqa: BLE001
+        log(f"self-delete failed: {type(exc).__name__} {getattr(exc, 'code', '')}")
+
+
 def reaper():
+    tried = 0.0
     while True:
         time.sleep(5)
+        if SELF_DELETE and time.time() >= SELF_DELETE and time.time() - tried > 600:
+            tried = time.time()
+            self_delete()
         if DEADLINE and time.time() >= DEADLINE:
             with LOCK:
                 STATE["draining"] = True
@@ -232,6 +268,10 @@ def health():
             "draining": STATE["draining"],
             "slots": n,
             "cores": cores,
+            "cpu_model": cpu_model(),
+            "self_delete_capable": bool(
+                os.environ.get("RUNPOD_POD_ID") and os.environ.get("RUNPOD_API_KEY")
+            ),
             "queued": list(STATE["queued"]),
             "running": sorted(STATE["running"]),
             "done": dict(STATE["done"]),
@@ -330,6 +370,16 @@ class Handler(BaseHTTPRequestHandler):
         repo = IN / "repo.tar.gz"
         if not repo.is_file() or sha_file(repo) != body.get("repo_sha256"):
             return self._send(400, {"error": "repo archive missing or sha256 differs"})
+        if not SETUP_LOCK.acquire(blocking=False):
+            return self._send(409, {"error": "setup in progress"})
+        try:
+            self._do_setup(body)
+        finally:
+            SETUP_LOCK.release()
+        return self._send(200, {"setup": STATE["setup"]})
+
+    def _do_setup(self, body):
+        repo = IN / "repo.tar.gz"
         if STATE["setup"] is None:
             if REPO.exists():
                 shutil.rmtree(REPO)
@@ -342,15 +392,26 @@ class Handler(BaseHTTPRequestHandler):
                 "job_id": str(body.get("job_id")),
                 "ckpts": sorted(p.name[:-4] for p in CKPT.glob("*.pth")),
             }
+            try:
+                freeze = subprocess.run(
+                    [sys.executable, "-m", "pip", "freeze"], capture_output=True, text=True
+                ).stdout
+            except OSError:
+                freeze = ""
+            STATE["setup"]["pip_freeze_sha256"] = hashlib.sha256(freeze.encode()).hexdigest()
+            (ROOT / "pip_freeze.txt").write_text(freeze)
             log(f"setup {STATE['setup']}")
-        return self._send(200, {"setup": STATE["setup"]})
 
     def _assign(self, body):
+        code, out = self._enqueue(body)
+        return self._send(code, out)
+
+    def _enqueue(self, body):
         with LOCK:
             if STATE["setup"] is None or STATE["pip"] != "ok":
-                return self._send(409, {"error": "not ready"})
+                return 409, {"error": "not ready"}
             if STATE["draining"] or (DEADLINE and time.time() >= DEADLINE):
-                return self._send(409, {"error": "draining"})
+                return 409, {"error": "draining"}
             accepted = []
             busy = set(STATE["queued"]) | set(STATE["running"]) | set(STATE["done"])
             for item in body.get("episodes", []):
@@ -362,7 +423,7 @@ class Handler(BaseHTTPRequestHandler):
                 WORK.put((key, item["spec"], float(body.get("timeout_seconds", 3600))))
                 accepted.append(key)
                 busy.add(key)
-        return self._send(200, {"accepted": accepted})
+        return 200, {"accepted": accepted}
 
     def log_message(self, *args):
         pass

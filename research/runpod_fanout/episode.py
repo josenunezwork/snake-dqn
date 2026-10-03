@@ -89,10 +89,11 @@ def platform_stamp(provider: str) -> Dict[str, Any]:
     platform_id = "|".join(
         [
             f"{platform.system().lower()}-{platform.machine()}",
-            f"py{sys.version_info.major}.{sys.version_info.minor}",
+            f"py{platform.python_version()}",
             f"torch-{torch.__version__}",
             f"numpy-{numpy.__version__}",
             f"isa_cap-{os.environ.get('ONEDNN_MAX_CPU_ISA', 'none')}",
+            f"cpu-{cpu_model()}",
         ]
     )
     return {

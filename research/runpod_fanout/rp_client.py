@@ -8,6 +8,7 @@ prints or forwards it. Spending calls pass ``--confirm`` only when the caller pa
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -31,12 +32,17 @@ class RpClient:
         self.timeout = timeout
 
     def _call(self, *args: str) -> Any:
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            raise RuntimeError("refusing a real rp.py call under pytest")
         try:
+            # Own session: a terminal Ctrl-C must not kill a POST that is already in flight
+            # (the runner then knows the outcome and can track or delete the pod).
             done = subprocess.run(
                 ["python3", str(self.rp_path), *args],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
+                start_new_session=True,
             )
         except subprocess.TimeoutExpired as exc:
             raise RunPodError(f"rp.py {args[:2]} timed out") from exc

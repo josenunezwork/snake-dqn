@@ -103,6 +103,9 @@ def watch(
         if reason:
             log(f"FIRING: {reason}")
             left = sweep(rp, prefix, sleep)
+            # A pod from a create still in flight can surface late: sweep again later.
+            sleep(180)
+            left = sweep(rp, prefix, sleep)
             log(f"done; leftovers={left}")
             (Path(run_dir) / "watchdog_result.json").write_text(
                 json.dumps({"reason": reason, "leftovers": left, "utc": time.time()})

@@ -28,7 +28,7 @@ from research.runpod_fanout.wrappers import HERO_SHA256, SCRIPTED_SHA256
 OPP = "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195"
 GREEDY, RANDOM = sorted(SCRIPTED_SHA256, key=lambda s: SCRIPTED_SHA256[s])
 STUB = r"""
-import argparse, json, os, sys, time
+import argparse, hashlib, json, os, sys, time
 p = argparse.ArgumentParser()
 for k in ("--spec", "--out-root", "--ckpt-dir", "--provider", "--job-id", "--commit"):
     p.add_argument(k)
@@ -48,7 +48,9 @@ entry = {k: spec[k] for k in ("arm", "mix", "world_seed", "world_index", "roster
 entry.update({"wall_seconds": time.time(), "record": {"mass_integral": mass,
               "probes": {"x": {"apply_seconds_total": time.time()}}},
               "platform": {"platform_id": "stub"},
-              "fanout": {"job_id": a.job_id, "episode_key": key, "repo_commit": a.commit}})
+              "fanout": {"job_id": a.job_id, "episode_key": key, "repo_commit": a.commit,
+                         "spec_sha256": hashlib.sha256(json.dumps(
+                             spec, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}})
 dest = os.path.join(a.out_root, key)
 os.makedirs(os.path.dirname(dest), exist_ok=True)
 tmp = dest + ".tmp"
@@ -368,7 +370,8 @@ def make_repo(tmp):
     (repo / "research/apex_veto_v8_screen_20261002").mkdir(parents=True)
     for rel in jobspec.REQUIRED_REPO_FILES + ("research/apex_veto_v8_screen_20261002/screen.py",):
         (repo / rel).write_text("# stub\n")
-    (repo / "untracked_secret.txt")
+    for rel in jobspec.PINNED_RUNNER_FILES:  # the guard requires byte-equal runner files
+        shutil.copyfile(jobspec.HERE / Path(rel).name, repo / rel)
     env = dict(
         os.environ,
         GIT_AUTHOR_NAME="t",
@@ -679,3 +682,68 @@ def test_agent_rejects_bad_token_and_unlisted_uploads(tmp_path):
     finally:
         proc.kill()
         shutil.rmtree(tmp_path / "r", ignore_errors=True)
+
+
+def test_commit_with_different_runner_files_refused(tmp_path):
+    repo, commit = make_repo(tmp_path)
+    j = job(repo_commit=commit)
+    assert jobspec.check_commit(repo, j) == []
+    (repo / "research/runpod_fanout/wrappers.py").write_text("WRAPPERS = {}\n")
+    env = dict(
+        os.environ,
+        GIT_AUTHOR_NAME="t",
+        GIT_AUTHOR_EMAIL="t@t",
+        GIT_COMMITTER_NAME="t",
+        GIT_COMMITTER_EMAIL="t@t",
+    )
+    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "evil"], check=True, env=env)
+    head = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    problems = jobspec.check_commit(repo, job(repo_commit=head))
+    assert any("wrappers.py" in p for p in problems)
+
+
+def test_create_timeout_that_made_a_pod_is_found_and_deleted(tmp_path, fake):
+    real_create = fake.create_pod
+    calls = {"n": 0}
+
+    def flaky(body_path, max_hourly, confirm):
+        calls["n"] += 1
+        out = real_create(body_path, max_hourly, confirm)
+        if calls["n"] == 1:  # the server made the pod but the client timed out
+            raise RunPodError("rp.py timed out")
+        return out
+
+    fake.create_pod = flaky
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake)
+    assert r.run() == 0
+    assert "pod1" in fake.deleted and fake.procs == {}
+    events = (r.run_dir / "events.jsonl").read_text()
+    assert "orphan_create_found" in events
+
+
+def test_untracked_prefixed_pod_is_swept(tmp_path, fake):
+    fake.extra_pods.append({"id": "pod-stray", "name": "rpf-unit-job--old-1", "costPerHr": 0.06})
+    deleted = []
+    real_delete = fake.delete_pod
+
+    def delete(pod_id, confirm):
+        if pod_id == "pod-stray":
+            deleted.append(pod_id)
+            fake.extra_pods = [p for p in fake.extra_pods if p["id"] != pod_id]
+            return {}
+        return real_delete(pod_id, confirm)
+
+    fake.delete_pod = delete
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake)
+    assert r.run() == 0
+    assert deleted == ["pod-stray"]
+
+
+def test_rp_client_refuses_under_pytest(monkeypatch):
+    monkeypatch.undo()  # drop the fatal stub: the client's own guard must refuse
+    with pytest.raises(RuntimeError, match="pytest"):
+        RpClient().list_pods()
+    with pytest.raises(RuntimeError, match="pytest"):
+        runner.spawn_watchdog_process(None)
