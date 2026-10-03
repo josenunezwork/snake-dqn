@@ -42,12 +42,26 @@ Live call sequence reproduced (see ``docs/research/simd_vector61_plan_2026-09-26
   ``boost_aware_choice`` with the same lazy landing callback. The probe is
   v2-shaped with the v5 descriptor; the v5 counters are
   :meth:`Vector61SimdPolicy.veto_diagnostics`.
+* **v7 / v8 vetoes (opt-in, ``veto_variant="v7"``/``"v8"`` with a ``lambda``).**
+  The space-preference veto of :mod:`src.evaluation.safety_veto_v7` and the
+  space-and-head veto of :mod:`src.evaluation.safety_veto_v8` are run as the
+  live hook objects themselves (``SpacePreferenceVeto(lam)`` and
+  ``SpaceAndHeadVeto(lam, reference_lambda=...)``, one per env), called with
+  :class:`SimRowSnake` views of the decision-time BatchSim rows in place of the
+  live ``Snake`` objects. Every rule, tie-break, BFS cap/area rule, landing
+  flood, head-reach model and counter is therefore the live code's; the
+  adapter supplies only the snake geometry on the cell lattice
+  (``segment_size=1``, the lattice the live pixels sit on) and the decision-time
+  v2 flood counts as the free-space features (``count / cap``, which the live
+  ``round(feature * cap)`` recovers exactly). Probe and diagnostics are the live
+  ``record()`` and ``diagnostics_record()`` of that env's hook.
 """
 
 from __future__ import annotations
 
 import time
-from typing import Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -63,14 +77,19 @@ from src.simd_env.vector61_featurizer import (
 
 __all__ = [
     "FORWARD_MODES",
+    "LAMBDA_VETO_VARIANTS",
     "SAFETY_VETO_VARIANTS",
+    "SafetyVetoSpec",
+    "SimRowSnake",
     "Vector61Runtime",
     "Vector61SimdPolicy",
     "batched_veto_choice",
     "boost_landing_count",
     "checkpoint_is_vector61",
     "free_space_counts",
+    "live_veto_hook",
     "resolve_safety_veto",
+    "resolve_safety_veto_spec",
     "spacious_from_counts",
     "vector61_provenance",
     "veto_threshold",
@@ -87,17 +106,21 @@ _OUTCOME_LABELS = ("kept", "vetoed", "no_spacious")
 # "batched": one forward over all rows (faster; BLAS may change the last ulp).
 FORWARD_MODES = ("rowwise", "batched")
 # Hero veto variants: "v2" = safety_veto.FreeSpaceVeto (``hero_safety_veto=True``),
-# "v5" = safety_veto_v5.BoostAwareFreeSpaceVeto (opt-in, ``hero_safety_veto="v5"``).
-SAFETY_VETO_VARIANTS = ("v2", "v5")
+# "v5" = safety_veto_v5.BoostAwareFreeSpaceVeto (opt-in, ``hero_safety_veto="v5"``),
+# "v7" = safety_veto_v7.SpacePreferenceVeto(lambda) and "v8" =
+# safety_veto_v8.SpaceAndHeadVeto(lambda[, reference_lambda]) (opt-in, need a lambda).
+SAFETY_VETO_VARIANTS = ("v2", "v5", "v7", "v8")
+LAMBDA_VETO_VARIANTS = ("v7", "v8")
 # Relative action direction (0 left, 1 straight, 2 right) -> CARDINAL index delta.
 _TURN_DELTA = (-1, 0, 1)
 
 
 def resolve_safety_veto(value: object) -> Optional[str]:
-    """Normalize a ``hero_safety_veto`` argument to ``None`` (off), ``"v2"`` or ``"v5"``.
+    """Normalize a ``hero_safety_veto`` argument to ``None`` (off) or a variant name.
 
     ``False``/``None`` is off and ``True`` is v2 (the meaning it always had); the
-    strings ``"v2"`` and ``"v5"`` name a variant. Anything else raises.
+    strings in :data:`SAFETY_VETO_VARIANTS` name a variant. Anything else raises.
+    (``"v7"``/``"v8"`` also need a ``lambda``: see :func:`resolve_safety_veto_spec`.)
     """
     if value is None or isinstance(value, (bool, np.bool_)):
         return "v2" if value else None
@@ -108,28 +131,113 @@ def resolve_safety_veto(value: object) -> Optional[str]:
     )
 
 
-def vector61_provenance(forward: str, hero_safety_veto: object) -> Dict[str, object]:
+@dataclass(frozen=True)
+class SafetyVetoSpec:
+    """A resolved hero veto: its variant and (v7/v8 only) ``lambda`` parameters.
+
+    ``reference_lambda`` is v8's diagnostic-only reference v7 (``None`` = off),
+    exactly the live ``SpaceAndHeadVeto(reference_lambda=...)`` argument.
+    """
+
+    variant: str
+    lam: Optional[float] = None
+    reference_lambda: Optional[float] = None
+
+    @property
+    def method(self) -> str:
+        """The live probe ``method`` string of this veto."""
+        if self.variant == "v7":
+            from src.evaluation.safety_veto_v7 import method_for
+
+            return method_for(self.lam)
+        if self.variant == "v8":
+            from src.evaluation.safety_veto_v8 import method_for
+
+            return method_for(self.lam)
+        if self.variant == "v5":
+            from src.evaluation.safety_veto_v5 import VETO_METHOD_V5
+
+            return VETO_METHOD_V5
+        from src.evaluation.safety_veto import VETO_METHOD
+
+        return VETO_METHOD
+
+
+def resolve_safety_veto_spec(
+    value: object,
+    lam: Optional[float] = None,
+    reference_lambda: Optional[float] = None,
+) -> Optional[SafetyVetoSpec]:
+    """Resolve ``hero_safety_veto`` plus its parameters (``None`` = no veto).
+
+    ``"v7"`` and ``"v8"`` require ``lam`` (validated as the live
+    ``validate_lambda``: finite, ``>= 0``); ``reference_lambda`` is accepted for
+    ``"v8"`` only. Off, v2 and v5 take no parameters. Anything else raises.
+    """
+    variant = resolve_safety_veto(value)
+    if variant not in LAMBDA_VETO_VARIANTS:
+        if lam is not None or reference_lambda is not None:
+            raise ValueError(
+                f"a veto lambda applies only to {LAMBDA_VETO_VARIANTS}, got variant {variant!r}"
+            )
+        return None if variant is None else SafetyVetoSpec(variant)
+    from src.evaluation.safety_veto_v7 import validate_lambda
+
+    if lam is None:
+        raise ValueError(f"the {variant} veto requires a lambda")
+    if reference_lambda is not None and variant != "v8":
+        raise ValueError("reference_lambda applies only to the v8 veto")
+    return SafetyVetoSpec(
+        variant,
+        validate_lambda(lam),
+        None if reference_lambda is None else validate_lambda(reference_lambda),
+    )
+
+
+def live_veto_hook(spec: SafetyVetoSpec) -> Any:
+    """A fresh live v7/v8 hook object for ``spec`` (the screens' installer arguments)."""
+    if spec.variant == "v7":
+        from src.evaluation.safety_veto_v7 import SpacePreferenceVeto
+
+        return SpacePreferenceVeto(spec.lam)
+    if spec.variant == "v8":
+        from src.evaluation.safety_veto_v8 import SpaceAndHeadVeto
+
+        return SpaceAndHeadVeto(
+            spec.lam, head_avoidance=True, reference_lambda=spec.reference_lambda
+        )
+    raise ValueError(f"no live hook object for veto variant {spec.variant!r}")
+
+
+def vector61_provenance(
+    forward: str,
+    hero_safety_veto: object,
+    lam: Optional[float] = None,
+    reference_lambda: Optional[float] = None,
+) -> Dict[str, object]:
     """SIMD-only record provenance for a ``run_simd_eval(vector61=True)`` run.
 
     Live records never carry this key, so a saved record shows that the SIMD
     vector61 policy produced it and whether its forwards were the bit-exact
-    ``"rowwise"`` call shape (``"batched"`` is never gate evidence). With the v5
-    veto it also names the veto method (the v2 and no-veto dicts are unchanged).
+    ``"rowwise"`` call shape (``"batched"`` is never gate evidence). With the v5,
+    v7 or v8 veto it also names the veto method (v7/v8: the live ``method_for``
+    string, which carries ``lambda``; v8 adds ``safety_veto_reference_lambda``
+    when its reference diagnostic is on). The v2 and no-veto dicts are unchanged.
     """
     if forward not in FORWARD_MODES:
         raise ValueError(f"forward must be one of {FORWARD_MODES}, got {forward!r}")
-    variant = resolve_safety_veto(hero_safety_veto)
+    spec = resolve_safety_veto_spec(hero_safety_veto, lam, reference_lambda)
     out: Dict[str, object] = {
         "engine": "simd",
         "policy": "Vector61SimdPolicy",
         "forward": forward,
         "bit_exact_forward": forward == "rowwise",
-        "hero_safety_veto": variant is not None,
+        "hero_safety_veto": spec is not None,
     }
-    if variant == "v5":
-        from src.evaluation.safety_veto_v5 import VETO_METHOD_V5
-
-        out["safety_veto_method"] = VETO_METHOD_V5
+    if spec is not None and spec.variant != "v2":
+        out["safety_veto_method"] = spec.method
+    if spec is not None and spec.reference_lambda is not None:
+        out["safety_veto_reference_lambda"] = spec.reference_lambda
     return out
 
 
@@ -305,6 +413,110 @@ def boost_landing_count(
     return int(capped_component_sizes(free, [move.segments[0]], int(cap))[0])
 
 
+class SimRowSnake:
+    """Read-only live-``Snake`` view of one BatchSim row, for the live v7/v8 hooks.
+
+    Exposes exactly the attributes the live veto code reads
+    (``safety_veto_v3``/``_v5``/``_v6``/``_v7``/``_v8``): ``segments`` (head first,
+    cell coordinates), ``direction`` (``(dx, dy)`` of ``CARDINAL``), ``length``,
+    ``boost_frames``, ``is_alive``, ``segment_size`` (1: the cell lattice, so the
+    live ``Grid.to_cell`` is the identity and ``grid_for`` is the featurizer's
+    ``(gw, gh)``), ``game_width``/``game_height`` (``gw``/``gh``),
+    ``_logical_length()`` (``Snake._logical_length``) and, for the decision row,
+    ``_get_free_space_features`` returning the decision-time v2 counts as
+    ``count / cap`` (the live ``round(feature * cap)`` recovers each count).
+
+    Values are read when the view is built (the BatchSim is not mutated while a
+    decision runs); ``segments`` is materialized on first use.
+    """
+
+    segment_size = 1
+
+    def __init__(
+        self,
+        sim: BatchSim,
+        env: int,
+        slot: int,
+        grid_shape: Tuple[int, int],
+        free_space: Optional[Sequence[float]] = None,
+    ) -> None:
+        self._sim = sim
+        self.env, self.slot = int(env), int(slot)
+        self.id = self.slot
+        self.game_width, self.game_height = int(grid_shape[0]), int(grid_shape[1])
+        self.is_alive = bool(sim.alive[self.env, self.slot])
+        self.length = int(sim.length[self.env, self.slot])
+        self.boost_frames = int(sim.boost_frames[self.env, self.slot])
+        heading = int(sim.direction[self.env, self.slot])
+        self.direction = (int(CARDINAL[heading][0]), int(CARDINAL[heading][1]))
+        self._free_space = None if free_space is None else [float(f) for f in free_space]
+        self._segments: Optional[List[Tuple[int, int]]] = None
+
+    @property
+    def segments(self) -> List[Tuple[int, int]]:
+        if self._segments is None:
+            cells = _body_cells(self._sim, self.env, self.slot).tolist()
+            self._segments = [(int(x), int(y)) for x, y in cells]
+        return self._segments
+
+    def _logical_length(self) -> int:
+        return max(1, int(self.length))
+
+    def _get_free_space_features(self, other_snakes: Any = None) -> List[float]:
+        del other_snakes  # the counts were computed on the same decision-time world
+        if self._free_space is None:
+            raise RuntimeError("free-space features exist only for the decision row")
+        return list(self._free_space)
+
+
+def sim_row_roster(
+    sim: BatchSim,
+    env: int,
+    slot: int,
+    grid_shape: Tuple[int, int],
+    counts: Sequence[int],
+    cap: int,
+) -> Tuple[SimRowSnake, List[SimRowSnake]]:
+    """``(hero view, every slot's view)`` of one env, as the live ``other_snakes``.
+
+    The live hook receives the whole roster (pre-move snapshots, the hero itself at
+    its own index); the live helpers skip the hero by identity and dead snakes by
+    ``is_alive``, so the list holds every slot with the hero view at ``slot``.
+    """
+    features = [int(c) / int(cap) for c in counts]
+    hero = SimRowSnake(sim, env, slot, grid_shape, features)
+    roster = [
+        hero if other == int(slot) else SimRowSnake(sim, env, other, grid_shape)
+        for other in range(int(sim.S))
+    ]
+    return hero, roster
+
+
+def check_live_rule_config(sim: BatchSim) -> None:
+    """Raise unless the BatchSim knobs equal the ``GameConfig`` the live rules read.
+
+    The live v5/v6/v7/v8 helpers read ``GameConfig.MIN_BOOST_LENGTH``,
+    ``BOOST_LENGTH_COST_FRAMES``, ``MECHANICS_VERSION`` (head-on rule) and
+    ``ARENA_TYPE`` (grid bounds); a mismatch would silently decide on a different
+    game than the one simulated.
+    """
+    from src.core.game_config import GameConfig
+
+    pairs = (
+        ("min_boost_length", sim.cfg.min_boost_length, GameConfig.MIN_BOOST_LENGTH),
+        (
+            "boost_length_cost_frames",
+            sim.cfg.boost_length_cost_frames,
+            GameConfig.BOOST_LENGTH_COST_FRAMES,
+        ),
+        ("mechanics_version", sim.cfg.mechanics_version, GameConfig.MECHANICS_VERSION),
+        ("arena_type", sim.cfg.arena_type, GameConfig.ARENA_TYPE),
+    )
+    bad = [(name, a, b) for name, a, b in pairs if a != b]
+    if bad:
+        raise ValueError(f"BatchSim config differs from GameConfig for the live veto: {bad}")
+
+
 class Vector61Runtime:
     """Shared per-run featurization state for every vector61 policy of one batch.
 
@@ -449,8 +661,12 @@ class Vector61SimdPolicy:
             (the engine passes ``{0}`` for ``hero_safety_veto``; empty = off).
         forward: ``"rowwise"`` (default, bit-exact live call shape) or
             ``"batched"``.
-        veto_variant: ``"v2"`` (default, ``FreeSpaceVeto``) or ``"v5"``
-            (``BoostAwareFreeSpaceVeto``) for the ``veto_slots`` rows.
+        veto_variant: ``"v2"`` (default, ``FreeSpaceVeto``), ``"v5"``
+            (``BoostAwareFreeSpaceVeto``), ``"v7"`` (``SpacePreferenceVeto``) or
+            ``"v8"`` (``SpaceAndHeadVeto``) for the ``veto_slots`` rows.
+        veto_lambda: v7/v8 only (required there): the live ``lambda``.
+        veto_reference_lambda: v8 only (optional): the live diagnostic-only
+            ``reference_lambda``.
     """
 
     def __init__(
@@ -461,6 +677,8 @@ class Vector61SimdPolicy:
         veto_slots: Sequence[int] = (),
         forward: str = "rowwise",
         veto_variant: str = "v2",
+        veto_lambda: Optional[float] = None,
+        veto_reference_lambda: Optional[float] = None,
     ) -> None:
         import torch
 
@@ -468,10 +686,7 @@ class Vector61SimdPolicy:
 
         if forward not in FORWARD_MODES:
             raise ValueError(f"forward must be one of {FORWARD_MODES}, got {forward!r}")
-        if veto_variant not in SAFETY_VETO_VARIANTS:
-            raise ValueError(
-                f"veto_variant must be one of {SAFETY_VETO_VARIANTS}, got {veto_variant!r}"
-            )
+        self._configure_veto(veto_slots, veto_variant, veto_lambda, veto_reference_lambda)
         if not checkpoint_is_vector61(checkpoint_path):
             raise ValueError(f"{checkpoint_path!r} is not a vector61 checkpoint")
         policy = build_policy_from_checkpoint(checkpoint_path)
@@ -485,13 +700,31 @@ class Vector61SimdPolicy:
         self.device = next(policy.dqn.parameters()).device
         self.input_size = int(policy.input_size)
         self.runtime = runtime
-        self.veto_slots = frozenset(int(s) for s in veto_slots)
         self.forward = forward
+
+    def _configure_veto(
+        self,
+        veto_slots: Sequence[int],
+        veto_variant: str,
+        veto_lambda: Optional[float] = None,
+        veto_reference_lambda: Optional[float] = None,
+    ) -> None:
+        """Validate the veto arguments and reset all veto bookkeeping."""
+        if veto_variant not in SAFETY_VETO_VARIANTS:
+            raise ValueError(
+                f"veto_variant must be one of {SAFETY_VETO_VARIANTS}, got {veto_variant!r}"
+            )
+        spec = resolve_safety_veto_spec(veto_variant, veto_lambda, veto_reference_lambda)
+        assert spec is not None
+        self.veto_slots = frozenset(int(s) for s in veto_slots)
         self.veto_variant = veto_variant
+        self.veto_spec = spec
         # Per-env veto bookkeeping (src.evaluation.safety_veto.SafetyVetoCounters).
         self.veto_counters: Dict[int, object] = {}
         # Per-env v5 bookkeeping (safety_veto_v5.BoostAwareCounters); v5 only.
         self.boost_counters: Dict[int, object] = {}
+        # Per-env live v7/v8 hook objects (live_veto_hook); v7/v8 only.
+        self.live_vetoes: Dict[int, object] = {}
         self.last_veto: Optional[Dict[str, np.ndarray]] = None
 
     def q_values(self, states: np.ndarray):
@@ -552,6 +785,10 @@ class Vector61SimdPolicy:
         q_rows = masked_q.cpu().numpy()[pick]
         if self.veto_variant == "v5":
             return self._apply_veto_v5(
+                sim, rows, pick, counts, cap, need, spacious, q_rows, mask[pick], actions
+            )
+        if self.veto_variant in LAMBDA_VETO_VARIANTS:
+            return self._apply_veto_live_hook(
                 sim, rows, pick, counts, cap, need, spacious, q_rows, mask[pick], actions
             )
         vetoed, outcomes = batched_veto_choice(q_rows, mask[pick], spacious, actions[pick])
@@ -655,10 +892,55 @@ class Vector61SimdPolicy:
         out[pick] = final
         return out
 
+    def _apply_veto_live_hook(
+        self,
+        sim: BatchSim,
+        rows: np.ndarray,
+        pick: np.ndarray,
+        counts: np.ndarray,
+        cap: np.ndarray,
+        need: np.ndarray,
+        spacious: np.ndarray,
+        q_rows: np.ndarray,
+        mask_rows: np.ndarray,
+        actions: np.ndarray,
+    ) -> np.ndarray:
+        """v7/v8: the live hook's ``apply`` on :class:`SimRowSnake` views of each row.
+
+        Same call as ``AISnake.update`` makes (masked Q row, hard mask, masked
+        argmax), on the env's own live hook object, so its probe counters and
+        diagnostics accumulate exactly as the live hook's do over an episode.
+        """
+        check_live_rule_config(sim)
+        grid = (int(self.runtime.featurizer.gw), int(self.runtime.featurizer.gh))
+        base = actions[pick].copy()
+        final = base.copy()
+        for i, (env, slot) in enumerate(rows.tolist()):
+            hook = self.live_vetoes.get(int(env))
+            if hook is None:
+                hook = self.live_vetoes[int(env)] = live_veto_hook(self.veto_spec)
+            hero, roster = sim_row_roster(sim, env, slot, grid, counts[i], int(cap[i]))
+            final[i] = int(hook.apply(hero, roster, q_rows[i], mask_rows[i], int(base[i])))
+        self.last_veto = {
+            "rows": rows.copy(),
+            "frame": sim.frame[rows[:, 0]].copy(),
+            "counts": counts,
+            "need": need,
+            "spacious": spacious,
+            "base": base,
+            "final": final,
+        }
+        out = actions.copy()
+        out[pick] = final
+        return out
+
     def veto_record(self, env: int) -> Dict[str, object]:
         """Live-shaped ``probes["safety_veto"]`` record for one env."""
         from src.evaluation.safety_veto import FreeSpaceVeto, SafetyVetoCounters
 
+        if self.veto_variant in LAMBDA_VETO_VARIANTS:
+            hook = self.live_vetoes.get(int(env)) or live_veto_hook(self.veto_spec)
+            return hook.record()
         counters = self.veto_counters.get(int(env), SafetyVetoCounters())
         if self.veto_variant == "v5":
             from src.evaluation.safety_veto_v5 import BoostAwareFreeSpaceVeto
@@ -669,10 +951,17 @@ class Vector61SimdPolicy:
         return {**descriptor, "counters": counters.to_dict()}
 
     def veto_diagnostics(self, env: int) -> Dict[str, object]:
-        """v5 only: ``BoostAwareCounters.to_dict()`` for one env (the live
-        ``diagnostics_record``; ``apply_seconds_*`` time only the per-row rule)."""
+        """The live ``diagnostics_record()`` for one env (v5, v7 and v8 only).
+
+        v5: ``BoostAwareCounters.to_dict()`` (``apply_seconds_*`` time only the
+        per-row rule). v7/v8: the env's live hook's own ``diagnostics_record()``.
+        Wall-clock ``*_seconds_*`` fields are never comparable to live.
+        """
         from src.evaluation.safety_veto_v5 import BoostAwareCounters
 
+        if self.veto_variant in LAMBDA_VETO_VARIANTS:
+            hook = self.live_vetoes.get(int(env)) or live_veto_hook(self.veto_spec)
+            return hook.diagnostics_record()
         if self.veto_variant != "v5":
-            raise ValueError("veto diagnostics exist only for the v5 veto")
+            raise ValueError("veto diagnostics exist only for the v5 veto (and v7/v8)")
         return self.boost_counters.get(int(env), BoostAwareCounters()).to_dict()
