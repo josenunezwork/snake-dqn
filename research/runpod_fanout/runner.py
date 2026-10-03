@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import base64
 import concurrent.futures
+import fcntl
 import gzip
 import hashlib
 import http.client
@@ -149,6 +150,12 @@ def parallelism_plan(
         "budget_for_max_wall": need_for(max_wall_minutes),
         f"budget_for_{int(target_wall_minutes)}_min": need_for(target_wall_minutes),
     }
+
+
+def owned_name(prefix: str, name: Any) -> bool:
+    """``name`` is exactly ``prefix`` + a pod counter (so run ``a`` never matches ``a-2``)."""
+    name = str(name or "")
+    return name.startswith(prefix) and name[len(prefix) :].isdigit()
 
 
 def utc_now() -> str:
@@ -399,9 +406,14 @@ class Runner:
         self.stop_reason: Optional[str] = None
         self.verified: set = set()  # (key, sha256 on a pod) already accepted
         self.ledger = ledger or SharedLedger(policy, clock=clock)
-        self.run_id = str(self.run_dir)
+        self.run_id = f"{self.run_dir.resolve()}#{secrets.token_hex(4)}"
+        self.held: Dict[str, tuple] = {}  # failed-create reservations: name -> (rate, until, t0)
+        self.pending_creates: Dict[str, Dict[str, Any]] = {}  # name -> check state
+        self.free_redispatch: Dict[str, int] = {}
+        self.legacy_lock: Any = None
+        self.account_refusals = 0
+        self.last_reconcile = 0.0
         self._balance: Optional[tuple] = None
-        self.account_refused = False
         self.platform_ids: set = set()
         self.watchdog: Any = None
         self.cpu_model_pin: Optional[str] = None
@@ -451,6 +463,8 @@ class Runner:
         for p in self.pods.values():
             end = p.deleted if p.deleted is not None else (p.until or self.hard_end)
             total += p.rate * (max(0.0, end - p.created) + 60.0) / 3600.0
+        for rate, until, t0 in self.held.values():
+            total += rate * (max(0.0, until - t0) + 60.0) / 3600.0
         return total * 1.02
 
     def pod_until(self, now: float) -> float:
@@ -555,12 +569,27 @@ class Runner:
         name = (
             f"{pod_prefix(self.policy, self.job['job_id'])}{self.run_dir.name}-{self.pod_counter}"
         )
-        why = self.ledger.reserve_pod(
-            self.run_id, name, float(row["usd_per_hr"]), until, self.account_balance()
-        )
+        try:
+            balance = self.account_balance()
+        except RunPodError as exc:
+            self.log("launch_refused_account", row=row, reason=f"balance unavailable: {exc}")
+            return False
+        try:
+            why = self.ledger.reserve_pod(
+                self.run_id, name, float(row["usd_per_hr"]), until, balance
+            )
+        except (OSError, ValueError, KeyError) as exc:
+            self.log("launch_refused_account", row=row, reason=f"ledger error: {exc}")
+            return False
         if why:
             self.log("launch_refused_account", row=row, reason=why)
-            self.account_refused = True
+            self.account_refusals += 1
+            if self.account_refusals % 20 == 1:
+                print(
+                    f"note: account-level refusal ({why}); waiting for headroom",
+                    file=sys.stderr,
+                    flush=True,
+                )
             return False
         token = secrets.token_urlsafe(32)
         body = pod_body(
@@ -587,8 +616,11 @@ class Runner:
             self.log(
                 "create_refused", vcpu=row["vcpu"], dc=row["dc"], detail=str(exc.payload)[:300]
             )
-            self.reap_by_name(name, row)
-            self.release_if_untracked(name)
+            status = exc.payload.get("http_status") if isinstance(exc.payload, dict) else None
+            if isinstance(status, int) and 400 <= status < 500:
+                self.ledger_call("release_pod", self.run_id, name, 0.0)  # definite refusal
+            else:  # timeout / 5xx: a pod may exist; keep the reservation until proven absent
+                self.hold_unknown_create(name, row, until, now)
             self.raise_deferred()
             return False
         except BaseException:
@@ -597,8 +629,7 @@ class Runner:
         _DEFER["active"] = False
         if not isinstance(out, dict) or not out.get("id"):
             self.log("create_no_pod", detail=str(out)[:300])
-            self.reap_by_name(name, row)
-            self.release_if_untracked(name)
+            self.hold_unknown_create(name, row, until, now)
             self.raise_deferred()
             return False
         rate = float(out.get("costPerHr") or row["usd_per_hr"])
@@ -615,7 +646,7 @@ class Runner:
         pod.boot_from = pod.created
         self.pods[pod.id] = pod
         self.agents[pod.id] = self.agent_factory(pod.id, token)
-        self.ledger.bind_pod(self.run_id, name, pod.id, rate)
+        self.ledger_call("bind_pod", self.run_id, name, pod.id, rate)
         registry = {k: v for k, v in out.items() if k != "env"}
         registry.update({"name": name, "rpf_until_epoch": until})
         (self.run_dir / "pods" / f"{name}.response.json").write_text(json.dumps(registry, indent=1))
@@ -633,10 +664,63 @@ class Runner:
             raise Abort("committed worst case exceeds the budget after create")
         return True
 
-    def release_if_untracked(self, name: str) -> None:
-        """Release a failed create's reservation unless an orphan pod of that name lives."""
-        if not any(p.name == name and p.deleted is None for p in self.pods.values()):
-            self.ledger.release_pod(self.run_id, name, 0.0)
+    def ledger_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        """Ledger bookkeeping must never stop cleanup: errors are logged (unreleased
+        reservations only make the account check more conservative)."""
+        try:
+            return getattr(self.ledger, method)(*args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            self.log("ledger_error", method=method, detail=repr(exc)[:200])
+            return None
+
+    def hold_unknown_create(
+        self, name: str, row: Mapping[str, Any], until: float, now: float
+    ) -> None:
+        """A create that may have made a pod: keep its reservation (also in this run's
+        committed worst case) until two empty listings >= 60 s apart prove no pod exists;
+        a pod that does surface is adopted and deleted (see :meth:`check_pending_creates`)."""
+        self.held[name] = (float(row["usd_per_hr"]), until, now)
+        self.pending_creates[name] = {"row": dict(row), "empty_since": None, "since": now}
+
+    def check_pending_creates(self) -> None:
+        if not self.pending_creates:
+            return
+        try:
+            listed = {str(p.get("name")): p for p in self.rp.list_pods()}
+        except RunPodError as exc:
+            self.log("list_failed", detail=str(exc)[:120])
+            return
+        now = self.clock()
+        for name, st in list(self.pending_creates.items()):
+            raw = listed.get(name)
+            if raw is not None:
+                rate = float(raw.get("costPerHr") or st["row"]["usd_per_hr"])
+                pod = Pod(
+                    id=str(raw["id"]),
+                    name=name,
+                    vcpu=int(st["row"]["vcpu"]),
+                    dc=st["row"]["dc"],
+                    rate=rate,
+                    token="",
+                    created=st["since"],
+                    until=self.held[name][1],
+                    state="lost",
+                    note="orphan create",
+                )
+                self.pods[pod.id] = pod
+                self.ledger_call("bind_pod", self.run_id, name, pod.id, rate)
+                self.held.pop(name, None)
+                self.pending_creates.pop(name)
+                self.log("orphan_create_found", pod=pod.id, name=name)
+                self.delete_pod(pod, "orphan of a failed create")
+                continue
+            if st["empty_since"] is None:
+                st["empty_since"] = now
+            elif now - st["empty_since"] >= 60:
+                self.pending_creates.pop(name)
+                self.held.pop(name, None)
+                self.ledger_call("release_pod", self.run_id, name, 0.0)
+                self.log("failed_create_confirmed_absent", name=name)
 
     @staticmethod
     def raise_deferred() -> None:
@@ -722,7 +806,7 @@ class Runner:
         else:
             return
         pod.deleted = self.clock()
-        self.ledger.release_pod(self.run_id, pod.name, pod.cost_until(pod.deleted))
+        self.ledger_call("release_pod", self.run_id, pod.name, pod.cost_until(pod.deleted))
         if pod.state != "lost":
             pod.state = "deleted"
         self.log("pod_deleted", pod=pod.id, why=why, est_cost=round(pod.cost_until(pod.deleted), 5))
@@ -733,7 +817,9 @@ class Runner:
             pod.unpulled.discard(key)
             if key in self.completed or key in self.failed or key in self.pending:
                 continue
-            if not penalize:  # re-dispatch after a planned retirement: not a failure
+            if not penalize and self.free_redispatch.get(key, 0) < 1:
+                # one re-dispatch after a planned retirement is not a failure
+                self.free_redispatch[key] = self.free_redispatch.get(key, 0) + 1
                 self.pending.insert(0, key)
                 self.log("episode_redispatched", key=key, why=why)
                 continue
@@ -811,7 +897,12 @@ class Runner:
                 (self.run_dir / "failures").mkdir(exist_ok=True)
                 fname = key.replace("/", "__") + f".{pod.id}.{self.attempts[key]}.json"
                 (self.run_dir / "failures" / fname).write_text(json.dumps(info, indent=1))
-                self.requeue(pod, [key], f"episode error rc={info.get('rc')}")
+                self.requeue(
+                    pod,
+                    [key],
+                    f"episode error rc={info.get('rc')}",
+                    penalize=info.get("rc") != "deadline",
+                )
         done = set(health.get("done") or {}) & pod.inflight
         pod.inflight -= done
         pod.unpulled |= done
@@ -1042,8 +1133,8 @@ class Runner:
         return f"{pod_prefix(self.policy, self.job['job_id'])}{self.run_dir.name}-"
 
     def owned_live_pods(self) -> List[Dict[str, Any]]:
-        prefix = self.run_prefix()
-        return [p for p in self.rp.list_pods() if str(p.get("name", "")).startswith(prefix)]
+        """This run's pods only: names are exactly ``<run prefix><counter>``."""
+        return [p for p in self.rp.list_pods() if owned_name(self.run_prefix(), p.get("name"))]
 
     def delete_everything(self, attempts: int = 10) -> List[Dict[str, Any]]:
         """Delete every runner-owned pod of this job; return GET /pods leftovers (want [])."""
@@ -1076,6 +1167,7 @@ class Runner:
                 try:
                     self.rp.delete_pod(row["id"], confirm=True)
                     self.log("pod_deleted_by_sweep", pod=row["id"])
+                    self.ledger_call("release_pod", self.run_id, str(row.get("name")), 0.0)
                 except RunPodError as exc:
                     self.log("delete_failed", pod=row["id"], detail=str(exc)[:300])
             self.sleep(min(60, 10 * (i + 1)))
@@ -1123,6 +1215,17 @@ class Runner:
         self.hard_end = self.deadline + float(self.policy["watchdog_grace_seconds"]) + 300.0
         if self.run_dir.exists():
             raise jobspec.JobError(f"run dir {self.run_dir} already exists")
+        life = float(self.policy["pod_max_lifetime_seconds"])
+        too_long = [
+            k
+            for k, ep in self.episodes.items()
+            if 1.5 * episode_seconds(self.policy, ep) + 60 >= life
+        ]
+        if too_long:
+            raise jobspec.JobError(
+                f"{len(too_long)} episodes cannot fit the {life:.0f} s pod lifetime "
+                f"(e.g. {too_long[0]}); raise pod_max_lifetime_seconds"
+            )
         try:  # idempotency + account-level registration (no pod, no spend on refusal)
             totals = self.ledger.register_run(
                 self.run_id, self.job["job_id"], self.run_id, self.budget, os.getpid()
@@ -1135,6 +1238,7 @@ class Runner:
         (self.run_dir / "job.json").write_text(json.dumps(self.job, indent=1, sort_keys=True))
         self.events = (self.run_dir / "events.jsonl").open("x")
         self.log("account_ledger", **totals)
+        self.try_legacy_lock()
         workdir = Path(tempfile.mkdtemp(prefix="rpf-upload-"))
         leftovers: List[Dict[str, Any]] = [{"unknown": True}]
         old_handlers = install_signal_handlers()
@@ -1173,7 +1277,14 @@ class Runner:
                 leftovers = self.delete_everything() if self.pods else []
                 shutil.rmtree(workdir, ignore_errors=True)
                 self.finish(leftovers, code)
-                self.ledger.finish_run(self.run_id, success=(code == 0 and not leftovers))
+                self.ledger_call(
+                    "finish_run",
+                    self.run_id,
+                    success=(code == 0 and not leftovers),
+                    episodes_complete=len(self.completed) == len(self.order),
+                )
+                if self.legacy_lock is not None:
+                    self.legacy_lock.close()
             finally:
                 if awake is not None:
                     awake.terminate()
@@ -1195,6 +1306,21 @@ class Runner:
         if problems:
             raise Abort("TLS preflight failed (no pod created): " + "; ".join(problems))
         self.log("tls_preflight_ok")
+
+    def try_legacy_lock(self) -> None:
+        """Hold a SHARED lock on the old single-run lock file while live, so an old-format
+        runner (exclusive lock) cannot start beside v2 runs; if one is live, its ledger rows
+        already count here and we retry each tick."""
+        if self.legacy_lock is not None:
+            return
+        root = Path(self.policy["artifacts_root"]) / "runpod-fanout"
+        root.mkdir(parents=True, exist_ok=True)
+        handle = (root / ".runpod-runner.lock").open("a")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+            self.legacy_lock = handle
+        except BlockingIOError:
+            handle.close()
 
     def check_watchdog(self, startup: bool = False) -> None:
         """The detached watchdog must be alive while pods may exist."""
@@ -1232,6 +1358,16 @@ class Runner:
                         self.pull(pod)
                 return
             self.check_watchdog()
+            self.check_pending_creates()
+            self.try_legacy_lock()
+            if now - self.last_reconcile >= 300:
+                self.last_reconcile = now
+                try:
+                    out = self.ledger.reconcile(self.rp)
+                    if out["released"] or out["deleted_overdue_dead_run_pods"]:
+                        self.log("ledger_reconciled", **out)
+                except (RunPodError, OSError, ValueError, KeyError) as exc:
+                    self.log("ledger_reconcile_failed", detail=str(exc)[:160])
             for pod in list(self.pods.values()):
                 if pod.deleted is None and pod.id not in self.agents:
                     self.delete_pod(pod, "retry delete of an orphan")
@@ -1719,7 +1855,15 @@ def cmd_plan(a, job, policy, allow) -> int:
             **plan,
             "upload_manifest": manifest,
             "existing_runner_pods": live,
-            "account": SharedLedger(policy).snapshot(),
+            "account": {
+                **SharedLedger(policy).peek(),
+                "headroom_usd_balance_minus_floor_minus_reserved": round(
+                    balance
+                    - float(policy["global_floor_usd"])
+                    - SharedLedger(policy).peek()["reserved_usd"],
+                    3,
+                ),
+            },
         }
         if a.budget:
             par = plan["cost"]["parallelism"]
@@ -1756,6 +1900,12 @@ def cmd_cleanup(a, policy) -> int:
     prefix = pod_prefix(policy, a.job_id) if a.job_id else policy["pod_name_prefix"]
     if not a.job_id and not a.all_runner_pods:
         print("need --job-id ID or --all-runner-pods", file=sys.stderr)
+        return 2
+    live = SharedLedger(policy).peek()["live_runs"]
+    if a.job_id:
+        live = [r for r in live if f"/{a.job_id}/" in r]
+    if live and a.confirm and not a.force:
+        print(f"refusing: live runs would lose pods: {live} (use --force)", file=sys.stderr)
         return 2
     pods = [p for p in rp.list_pods() if str(p.get("name", "")).startswith(prefix)]
     print(
@@ -1795,6 +1945,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     cl.add_argument("--job-id")
     cl.add_argument("--all-runner-pods", action="store_true")
     cl.add_argument("--confirm", action="store_true")
+    cl.add_argument("--force", action="store_true", help="even while runs are live")
     cp = sub.add_parser("compare")
     cp.add_argument("a", type=Path)
     cp.add_argument("b", type=Path)

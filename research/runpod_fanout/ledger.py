@@ -38,16 +38,37 @@ class DuplicateRun(RuntimeError):
     """The job id already has a live or successfully completed run."""
 
 
-def pid_alive(pid: int) -> bool:
+def pid_start(pid: int) -> Optional[float]:
+    try:
+        import psutil
+
+        return float(psutil.Process(int(pid)).create_time())
+    except Exception:  # noqa: BLE001 - no psutil / no such process
+        return None
+
+
+def pid_alive(pid: int, started: Optional[float] = None) -> bool:
+    """Is ``pid`` alive (and, if ``started`` is known, the same process, not a reuse)?"""
     try:
         os.kill(int(pid), 0)
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        pass
     except (TypeError, ValueError):
         return False
+    if started is not None:
+        now_start = pid_start(pid)
+        if now_start is not None and abs(now_start - float(started)) > 1.0:
+            return False
     return True
+
+
+def _alive(alive: Callable[..., bool], run: Mapping[str, Any]) -> bool:
+    try:
+        return alive(run["pid"], run.get("pid_start"))
+    except TypeError:  # simple one-argument test doubles
+        return alive(run["pid"])
 
 
 class SharedLedger:
@@ -67,10 +88,10 @@ class SharedLedger:
 
     # ------------------------------------------------------------ storage
     @contextmanager
-    def locked(self) -> Iterator[Dict[str, Any]]:
+    def locked(self, write: bool = True) -> Iterator[Dict[str, Any]]:
         self.root.mkdir(parents=True, exist_ok=True)
         with self.lock_path.open("a") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX if write else fcntl.LOCK_SH)
             try:
                 state = (
                     json.loads(self.path.read_text())
@@ -78,18 +99,33 @@ class SharedLedger:
                     else {"schema": SCHEMA, "runs": {}}
                 )
                 yield state
-                tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
-                tmp.write_text(json.dumps(state, indent=1, sort_keys=True))
-                os.replace(tmp, self.path)
+                if write:
+                    tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
+                    with tmp.open("w") as fh:
+                        fh.write(json.dumps(state, indent=1, sort_keys=True))
+                        fh.flush()
+                        os.fsync(fh.fileno())
+                    os.replace(tmp, self.path)
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    def _mirror(self, row: Mapping[str, Any]) -> None:
+        """Mirror into the legacy ledger.jsonl (tagged v2) so an old-format runner counts
+        v2 runs: an unsettled v2 run is a full-budget reservation to it."""
+        with self.legacy_path.open("a") as fh:
+            fh.write(json.dumps({**row, "v2": True}, sort_keys=True) + "\n")
 
     def legacy(self) -> Dict[str, Any]:
         reserved: Dict[str, Dict[str, Any]] = {}
         settled: Dict[str, float] = {}
         if self.legacy_path.exists():
             for line in self.legacy_path.read_text().splitlines():
-                row = json.loads(line)
+                try:
+                    row = json.loads(line)
+                except ValueError:  # a legacy writer's partial last line
+                    continue
+                if row.get("v2"):
+                    continue
                 if row["kind"] == "reserve":
                     reserved[row["run"]] = row
                 elif row["kind"] == "settle":
@@ -134,12 +170,14 @@ class SharedLedger:
         self, run_id: str, job_id: str, run_dir: str, budget: float, pid: int
     ) -> Dict[str, Any]:
         with self.locked() as state:
+            if run_id in state["runs"]:
+                raise DuplicateRun(f"run id {run_id} is already registered")
             for rid, run in state["runs"].items():
                 if run["job_id"] != job_id:
                     continue
-                if run["status"] == "live" and self.alive(run["pid"]):
+                if run["status"] == "live" and _alive(self.alive, run):
                     raise DuplicateRun(f"job {job_id} already has a live run {rid}")
-                if run["status"] == "finished" and run.get("success"):
+                if run["status"] == "finished" and run.get("episodes_complete"):
                     raise DuplicateRun(f"job {job_id} already completed successfully ({rid})")
             for row in self.legacy()["open"].values():
                 if row.get("job_id") == job_id:
@@ -155,20 +193,40 @@ class SharedLedger:
                 "job_id": job_id,
                 "run_dir": run_dir,
                 "pid": pid,
+                "pid_start": pid_start(pid),
                 "budget": float(budget),
                 "status": "live",
                 "started": self.clock(),
                 "pods": {},
             }
+            self._mirror(
+                {
+                    "kind": "reserve",
+                    "run": run_id,
+                    "job_id": job_id,
+                    "budget_usd": float(budget),
+                    "utc": time.time(),
+                }
+            )
             return self.totals(state)
 
-    def finish_run(self, run_id: str, success: bool) -> None:
+    def finish_run(self, run_id: str, success: bool, episodes_complete: bool) -> None:
         with self.locked() as state:
             run = state["runs"].get(run_id)
             if run is not None:
                 run["status"] = "finished"
                 run["success"] = bool(success)
+                run["episodes_complete"] = bool(episodes_complete)
                 run["finished"] = self.clock()
+                cost = sum(self._pod_spent(p, self.clock()) for p in run["pods"].values())
+                self._mirror(
+                    {
+                        "kind": "settle",
+                        "run": run_id,
+                        "cost_usd": round(cost, 5),
+                        "utc": time.time(),
+                    }
+                )
 
     # ------------------------------------------------------------ pods
     def reserve_pod(
@@ -221,6 +279,54 @@ class SharedLedger:
             out["live_runs"] = sorted(
                 rid
                 for rid, r in state["runs"].items()
-                if r["status"] == "live" and self.alive(r["pid"])
+                if r["status"] == "live" and _alive(self.alive, r)
             )
             return out
+
+    def peek(self) -> Dict[str, Any]:
+        """Read-only snapshot (shared lock, never writes)."""
+        if not self.path.exists():
+            return {**self.totals({"runs": {}}), "live_runs": []}
+        with self.locked(write=False) as state:
+            out = self.totals(state)
+            out["live_runs"] = sorted(
+                rid
+                for rid, r in state["runs"].items()
+                if r["status"] == "live" and _alive(self.alive, r)
+            )
+            return out
+
+    # ------------------------------------------------------------ reconciliation
+    def reconcile(self, rp: Any, delete_dead: bool = True) -> Dict[str, Any]:
+        """Square the ledger with RunPod: pods no longer listed are released (spent to the
+        earlier of now and their horizon); pending reservations (failed creates) past their
+        horizon are released; a listed pod of a DEAD run past its horizon is deleted."""
+        listed = {str(p.get("id")): p for p in rp.list_pods()}
+        now = self.clock()
+        released, deleted = [], []
+        with self.locked() as state:
+            for rid, run in state["runs"].items():
+                live_run = run["status"] == "live" and _alive(self.alive, run)
+                for key, pod in run["pods"].items():
+                    if pod.get("deleted") is not None:
+                        continue
+                    pid = pod.get("pod_id")
+                    past = now > float(pod["until"]) + SLACK_SECONDS
+                    if pid is None:
+                        if past:
+                            pod["deleted"], pod["cost"] = now, 0.0
+                            released.append(key)
+                        continue
+                    if pid not in listed:
+                        end = min(now, float(pod["until"]))
+                        pod["deleted"] = now
+                        pod["cost"] = float(pod["rate"]) * max(0.0, end - pod["created"]) / 3600
+                        released.append(key)
+                    elif past and not live_run and delete_dead:
+                        deleted.append((rid, key, pid))
+        for rid, key, pid in deleted:
+            try:
+                rp.delete_pod(pid, confirm=True)
+            except Exception:  # noqa: BLE001 - next reconcile retries
+                continue
+        return {"released": released, "deleted_overdue_dead_run_pods": [d[2] for d in deleted]}

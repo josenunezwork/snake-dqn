@@ -55,6 +55,14 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def owned_name(prefix: str, name: Any) -> bool:
+    """Exactly ``prefix`` + a pod counter (job-wide prefixes end in ``--``: any run)."""
+    name = str(name or "")
+    if prefix.endswith("--"):
+        return name.startswith(prefix)
+    return name.startswith(prefix) and name[len(prefix) :].isdigit()
+
+
 def registry_ids(run_dir: Path, prefix: str) -> Set[str]:
     """Pod ids this run created, from ``pods/*.response.json`` (name must carry the prefix)."""
     ids: Set[str] = set()
@@ -63,7 +71,7 @@ def registry_ids(run_dir: Path, prefix: str) -> Set[str]:
             row = json.loads(path.read_text())
         except (OSError, ValueError):
             continue
-        if row.get("id") and str(row.get("name", path.name)).startswith(prefix):
+        if row.get("id") and owned_name(prefix, row.get("name")):
             ids.add(str(row["id"]))
     return ids
 
@@ -79,7 +87,7 @@ def overdue_registry_ids(run_dir: Path, prefix: str, now: float, grace: float = 
         until = row.get("rpf_until_epoch")
         if (
             row.get("id")
-            and str(row.get("name", "")).startswith(prefix)
+            and owned_name(prefix, row.get("name"))
             and until is not None
             and now > float(until) + grace
         ):
@@ -105,7 +113,7 @@ def sweep(
         listed: List[str] = []
         list_ok = True
         try:
-            listed = [p["id"] for p in rp.list_pods() if str(p.get("name", "")).startswith(prefix)]
+            listed = [p["id"] for p in rp.list_pods() if owned_name(prefix, p.get("name"))]
         except RunPodError as exc:
             list_ok = False
             log(f"list failed: {exc}")

@@ -1003,9 +1003,9 @@ def test_idempotency_refusal(tmp_path, fake):
     led.register_run("x", "job-x", "x", 1.0, os.getpid())
     with pytest.raises(ledger.DuplicateRun, match="live run"):
         led.register_run("y", "job-x", "y", 1.0, os.getpid())
-    led.finish_run("x", success=False)
+    led.finish_run("x", success=False, episodes_complete=False)
     led.register_run("y", "job-x", "y", 1.0, os.getpid())  # a failed run may be retried
-    led.finish_run("y", success=True)
+    led.finish_run("y", success=False, episodes_complete=True)  # leftover pods, work done
     with pytest.raises(ledger.DuplicateRun, match="completed"):
         led.register_run("z", "job-x", "z", 1.0, os.getpid())
     # a dead live run (crashed runner) does not block a retry
@@ -1177,3 +1177,68 @@ def test_parallelism_plan_reports_budget_limit():
         big["parallelism"]["expected_wall_minutes"] < small["parallelism"]["expected_wall_minutes"]
     )
     assert big["budget_for_120_min"]["wall_minutes"] <= 120
+
+
+def test_failed_create_reservation_kept_until_proven_absent(tmp_path, fake):
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake)
+    r.hard_end = r.clock() + 7200
+    r.deadline = r.hard_end - 600
+    r.ledger.register_run(r.run_id, r.job["job_id"], r.run_id, 1.0, os.getpid())
+    r.run_dir.mkdir(parents=True)
+
+    def server_error(body_path, max_hourly, confirm):
+        raise RunPodError("rp.py exit 1", {"http_status": 500})
+
+    fake.create_pod = server_error
+    row = {"vcpu": 8, "dc": "EU-RO-1", "usd_per_hr": 0.24, "stock": "High"}
+    assert r.create_pod(row) is False
+    name = next(iter(r.pending_creates))
+    assert r.committed_worst() > 0.3  # the held reservation still counts for this run
+    reserved = r.ledger.peek()["reserved_usd"]
+    assert reserved > 0.3
+    r.check_pending_creates()  # first empty listing
+    r.clock.t += 61
+    r.check_pending_creates()  # second, >= 60 s later: proven absent, released
+    assert name not in r.held and r.ledger.peek()["reserved_usd"] == 0
+
+    def refused(body_path, max_hourly, confirm):
+        raise RunPodError("rp.py exit 1", {"http_status": 400, "error": "no instances"})
+
+    fake.create_pod = refused
+    assert r.create_pod(row) is False
+    assert not r.pending_creates and r.ledger.peek()["reserved_usd"] == 0
+
+
+def test_owned_name_is_exact():
+    assert runner.owned_name("rpf-j--a-", "rpf-j--a-12")
+    assert not runner.owned_name("rpf-j--a-", "rpf-j--a-2-1")
+    assert not watchdog.owned_name("rpf-j--a-", "rpf-j--a-2-1")
+    assert watchdog.owned_name("rpf-j--", "rpf-j--anything-3")
+
+
+def test_ledger_reconcile_and_partial_legacy_line(tmp_path):
+    root = tmp_path / "runpod-fanout"
+    root.mkdir()
+    (root / "ledger.jsonl").write_text(
+        '{"kind": "reserve", "run": "x", "budget_usd": 1.0}\n{"kind"'
+    )
+    led = ledger.SharedLedger(ledger_policy(tmp_path), alive=lambda pid: False)
+    led.register_run("dead", "job-dead", "dead", 1.0, 999999)
+    now = time.time()
+    led.reserve_pod("dead", "p-gone", 0.24, now + 3600, 40.0)
+    led.bind_pod("dead", "p-gone", "gone1", 0.24)
+    led.reserve_pod("dead", "p-old", 0.24, now - 1000, 40.0)
+    led.bind_pod("dead", "p-old", "old1", 0.24)
+
+    class Rp:
+        deleted = []
+
+        def list_pods(self):
+            return [{"id": "old1", "name": "x"}]
+
+        def delete_pod(self, pod_id, confirm):
+            self.deleted.append(pod_id)
+
+    out = led.reconcile(Rp())
+    assert out["released"] == ["p-gone"] and Rp.deleted == ["old1"]
+    assert led.peek()["reserved_usd"] >= 1.0  # the legacy open reserve still counts
