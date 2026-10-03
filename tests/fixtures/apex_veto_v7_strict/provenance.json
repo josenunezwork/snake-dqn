@@ -1,0 +1,18 @@
+{
+  "copied_utc": "2026-10-02",
+  "note": "Unmodified copies, record-shape fixtures only (never analyzed). screen/: the complete frozen A/B pair at world index 0 of the closed v7 Tier-1 screen run-v1 (H5000, A = champion + v5, B = champion + v7 lambda=4.0; sha256 equal to the screen receipt's records). smoke/: the A/B pair of the v7 screen GO smoke (legacy 500-frame path, smoke domain apex-veto-v7-screen-smoke-v1, commit 900385f, lambda 4.0; sha256 equal to its receipt). strict_smoke/: the incumbent/candidate pair of this package's own plumbing smoke (strict_run.py prepare --smoke-frames 500 + run, smoke domain apex-veto-v7-strict-smoke-v1, SMOKE_NO_DECISION, both audits PASS).",
+  "screen_receipt_sha256": "b6596634fcdc13afc1aa5b06c2e12afd0d95f59d61152928040ae9848b67b9e3",
+  "sha256": {
+    "screen/A-frozen-2982303806.json": "c9a51e18d41ce000c063279be72698cd98736f3d67d5a69bcd21396d85b1d781",
+    "screen/B-frozen-2982303806.json": "2bcb6c77b55a1a6f9b1c277f551af9fd3aeb83f8e78cd39255646dad116f1625",
+    "smoke/A-scripted-1823945485.json": "819f418f80af6cd556f90ea9b009772de4b3ece64699474d988e86133ee93e0c",
+    "smoke/B-scripted-1823945485.json": "763b91e579374ff55cbbf77de66508aa759c88e2b88185f434cfa02706b86361",
+    "strict_smoke/final-candidate-scripted-807620295.json": "68920858a98c478dd064709d77720410f444abd75070988ba37a4bdcfd196ed6",
+    "strict_smoke/final-incumbent-scripted-807620295.json": "24897c35d9f0cb59ec6cc6ec78175a9cb7cc11d1462d27eb0747fb25033c5db1"
+  },
+  "sources": {
+    "screen": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v7-screen-20261002/run-v1/records",
+    "smoke": "/private/tmp/claude-501/-Users-josenunez-Projects-ml-snake-dqn/8b38327f-2897-4918-b079-74962b22441c/scratchpad/v7-screen-smoke-go/records",
+    "strict_smoke": "/private/tmp/claude-501/-Users-josenunez-Projects-ml-snake-dqn/8b38327f-2897-4918-b079-74962b22441c/scratchpad/v7strict-smoke/smoke-v1/output/final/records"
+  }
+}

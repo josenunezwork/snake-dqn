@@ -1,0 +1,80 @@
+{
+  "arm": "incumbent",
+  "episode_id": "final-incumbent-scripted-807620295",
+  "hero_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+  "mix": "scripted",
+  "record": {
+    "deaths": 0.0,
+    "kills": 0.0,
+    "mass_integral": 36.69,
+    "max_mass": 65.0,
+    "mean_mass_alive": 36.69,
+    "probes": {
+      "boost_frame_fraction": 0.044,
+      "death_cause": null,
+      "entrapment_event": false,
+      "food_eaten": 70,
+      "kill_opportunity_count": 8,
+      "peak_length": 65,
+      "safety_veto": {
+        "boost_approximation": "first-cell-and-two-cell-landing",
+        "counters": {
+          "decisions": 500,
+          "fallback_no_spacious": 0,
+          "kept_base": 500,
+          "vetoed_base_boost": 0,
+          "vetoes_applied": 0,
+          "vetoes_speed_switched": 0,
+          "vetoes_to_boost": 0
+        },
+        "free_space_bfs_cap": 160,
+        "free_space_min_cap": 32,
+        "landing_rule": "post-move-body-blocked-except-head/other-snakes-static/v2-cap-need",
+        "method": "free-space-veto/v5-boost-aware",
+        "replacement_rule": "landing-veto-same-direction-normal-speed-first/highest-q-eligible-same-speed-mode-then-other"
+      }
+    },
+    "seed": 807620295,
+    "survival_fraction": 1.0
+  },
+  "roster_member_sha256s": [
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+    "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+  ],
+  "safety_veto": true,
+  "schema_version": "apex-veto-v7-strict/v1",
+  "shard": 0,
+  "stage": "final",
+  "study_id": "apex-veto-v7-strict-20261002",
+  "veto_diagnostics": {
+    "action_differs_from_v2": 0,
+    "apply_seconds_max": 0.00028512487187981606,
+    "apply_seconds_total": 0.053264762507751584,
+    "base_landing_failed": 0,
+    "boost_base_decisions": 22,
+    "boost_landing_no_eligible": 0,
+    "boost_landing_v2_rule": 0,
+    "boost_landing_vetoes": 0,
+    "boost_to_normal_same_direction": 0,
+    "decisions": 500,
+    "kept": 500,
+    "landing_checks": 22,
+    "landing_failures": 0,
+    "mean_apply_seconds": 0.00010652952501550317,
+    "no_spacious": 0,
+    "vetoes_applied": 0
+  },
+  "wall_seconds": 2.0077753749210387,
+  "world_index": 0,
+  "world_seed": 807620295,
+  "wrapper": "free-space-veto/v5-boost-aware",
+  "wrapper_source_sha256": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+  "wrapper_source_sha256s": {
+    "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+    "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+    "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c"
+  }
+}
