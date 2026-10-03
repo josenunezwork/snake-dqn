@@ -1,0 +1,30 @@
+{
+  "schema": "runpod-fanout-checkpoint-allowlist/v1",
+  "note": "Only these checkpoints may be uploaded to RunPod. Paths are relative to the policy's checkpoint_root. Add entries only after the user approves the upload in chat.",
+  "checkpoints": [
+    {
+      "path": "saved_snakes/champion_a5_freespace_20260621.pth",
+      "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+      "role": "hero (champion A5, free-space 61-D)",
+      "approved": "user chat 2026-10-03"
+    },
+    {
+      "path": "saved_snakes/best_apex_fs.pth",
+      "sha256": "768306b182b98e9175e6d90de1470b26f6d99a6ccfb19ecdedffae29027ea195",
+      "role": "opponent pool (frozen/mixed mixes)",
+      "approved": "user chat 2026-10-03 (relayed by coordinator)"
+    },
+    {
+      "path": "saved_snakes/best_apex_stage1_fs.pth",
+      "sha256": "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+      "role": "opponent pool (frozen/mixed mixes)",
+      "approved": "user chat 2026-10-03 (relayed by coordinator)"
+    },
+    {
+      "path": "saved_snakes/best_apex_pre_fs.pth",
+      "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+      "role": "opponent pool (frozen/mixed mixes)",
+      "approved": "user chat 2026-10-03 (relayed by coordinator)"
+    }
+  ]
+}
