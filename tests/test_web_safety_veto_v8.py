@@ -91,11 +91,12 @@ V8_FLAGS = ServingVetoFlags(watch_hero=True, play_ai=False, variant="v8")
 
 
 class TestSelection:
-    def test_v8_is_opt_in_and_v7_stays_the_released_default(self):
+    def test_v8_is_the_released_default(self):
+        # Released 2026-10-03 (v8 STRICT_PASS + SERVING_PASS); rollback is variant=v7.
         assert serving.VARIANT_V8 == "v8" and "v8" in serving.VARIANTS
-        assert serving.VARIANT_RELEASED_DEFAULT == "v7"
-        assert ServingVetoFlags().variant == "v7"
-        assert ServingVetoFlags.from_env({}).variant == "v7"
+        assert serving.VARIANT_RELEASED_DEFAULT == "v8"
+        assert ServingVetoFlags().variant == "v8"
+        assert ServingVetoFlags.from_env({}).variant == "v8"
 
     @pytest.mark.parametrize("value", ["v8", " V8 ", "v8\n"])
     def test_env_selects_v8(self, value):
@@ -147,8 +148,16 @@ class TestSelection:
         assert vetoes(sess) == {}
 
 
-class TestReleasedDefaultStillV7:
-    def test_unset_env_serves_v7_not_v8(self, pinned):
+class TestReleasedDefaultV8:
+    def test_unset_env_serves_v8_on_the_watch_hero_only(self, pinned):
+        sess = GameSession(checkpoint=pinned)
+        assert type(sess.game.snakes[0].safety_veto) is SpaceAndHeadVeto
+        assert all(getattr(s, "safety_veto", None) is None for s in sess.game.snakes[1:])
+        state = sess.safety_veto_state()
+        assert state["variant"] == "v8" and state["active"] is True and state["reason"] is None
+
+    def test_rollback_to_v7_by_env(self, monkeypatch, pinned):
+        monkeypatch.setenv(ENV_VARIANT, "v7")
         sess = GameSession(checkpoint=pinned)
         assert type(sess.game.snakes[0].safety_veto) is SpacePreferenceVeto
         assert sess.safety_veto_state()["variant"] == "v7"
@@ -157,6 +166,7 @@ class TestReleasedDefaultStillV7:
         monkeypatch.setattr(serving, "V8_STRICT_RECEIPT_CHECKPOINT_SHA256", "0" * 64)
         monkeypatch.setattr(serving, "V8_STRICT_RECEIPT_SOURCE_SHA256S", {})
         monkeypatch.setattr(serving, "V8_STRICT_RECEIPT_METHOD", "nope")
+        monkeypatch.setenv(ENV_VARIANT, "v7")
         sess = GameSession(checkpoint=pinned)
         assert [type(v) for v in vetoes(sess).values()] == [SpacePreferenceVeto]
         assert sess.safety_veto_state()["reason"] is None

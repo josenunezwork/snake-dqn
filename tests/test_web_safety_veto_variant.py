@@ -97,18 +97,19 @@ def v2_default(monkeypatch):
 
 
 class TestVariantParsing:
-    def test_released_default_is_v7(self):
-        # v7 released 2026-10-03 (STRICT_PASS + SERVING_PASS); rollback is variant=v5 (or v2).
-        assert serving.VARIANT_RELEASED_DEFAULT == "v7"
+    def test_released_default_is_v8(self):
+        # v8 released 2026-10-03 (STRICT_PASS + SERVING_PASS); rollback is variant=v7 (or v5/v2).
+        assert serving.VARIANT_RELEASED_DEFAULT == "v8"
         assert serving.VARIANTS == ("v2", "v5", "v7", "v8")
-        assert ServingVetoFlags().variant == "v7"
-        assert ServingVetoFlags.from_env({}).variant == "v7"
+        assert ServingVetoFlags().variant == "v8"
+        assert ServingVetoFlags.from_env({}).variant == "v8"
+        assert ServingVetoFlags.from_env({ENV_VARIANT: "v7"}).variant == "v7"
         assert ServingVetoFlags.from_env({ENV_VARIANT: "v5"}).variant == "v5"
         assert ServingVetoFlags.from_env({ENV_VARIANT: "v2"}).variant == "v2"
 
     @pytest.mark.parametrize("value", ["", "   "])
     def test_blank_selects_the_default(self, value):
-        assert ServingVetoFlags.from_env({ENV_VARIANT: value}).variant == "v7"
+        assert ServingVetoFlags.from_env({ENV_VARIANT: value}).variant == "v8"
 
     @pytest.mark.parametrize("value,expected", [("v5", "v5"), (" V5 ", "v5"), ("v2", "v2")])
     def test_known_values(self, value, expected):

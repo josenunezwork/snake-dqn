@@ -89,12 +89,11 @@ V7_FLAGS = ServingVetoFlags(watch_hero=True, play_ai=False, variant="v7")
 
 
 class TestSelection:
-    def test_v7_is_the_released_default(self):
-        # Released 2026-10-03 (v7 STRICT_PASS + SERVING_PASS); rollback is variant=v5.
+    def test_v7_is_known_and_the_rollback_target(self):
+        # v7 was released 2026-10-03 and superseded by v8 the same day; v7 is v8's rollback.
         assert serving.VARIANT_V7 == "v7" and "v7" in serving.VARIANTS
-        assert serving.VARIANT_RELEASED_DEFAULT == "v7"
-        assert ServingVetoFlags().variant == "v7"
-        assert ServingVetoFlags.from_env({}).variant == "v7"
+        assert serving.VARIANT_RELEASED_DEFAULT == "v8"
+        assert ServingVetoFlags.from_env({ENV_VARIANT: "v7"}).variant == "v7"
 
     @pytest.mark.parametrize("value", ["v7", " V7 ", "v7\n"])
     def test_env_selects_v7(self, value):
@@ -143,7 +142,10 @@ class TestSelection:
 
 
 class TestReleasedDefaultV7:
-    def test_unset_env_serves_v7_on_the_watch_hero_only(self, pinned):
+    """The v7 release config, now reached by the rollback env SNAKE_SERVE_VETO_VARIANT=v7."""
+
+    def test_unset_env_serves_v7_on_the_watch_hero_only(self, monkeypatch, pinned):
+        monkeypatch.setenv(ENV_VARIANT, "v7")
         sess = GameSession(checkpoint=pinned)
         assert type(sess.game.snakes[0].safety_veto) is SpacePreferenceVeto
         assert all(getattr(s, "safety_veto", None) is None for s in sess.game.snakes[1:])

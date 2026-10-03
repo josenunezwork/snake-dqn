@@ -39,7 +39,7 @@ stays the master switch; the variant chooses which wrapper the Watch hero gets:
   :data:`V5_STRICT_RECEIPT_SHA256`): the served checkpoint must hash to
   :data:`V5_STRICT_RECEIPT_CHECKPOINT_SHA256` and ``safety_veto_v5.py``,
   ``safety_veto.py`` and ``safety_veto_v3.py`` to :data:`V5_STRICT_RECEIPT_SOURCE_SHA256S`.
-* ``v7`` (the released default since 2026-10-03; rollback ``v5``):
+* ``v7`` (released default 2026-10-03, superseded by v8 the same day; rollback target):
   ``free-space-veto/v7-space-preference(lambda=4.0)``
   (:func:`src.evaluation.safety_veto_v7.install_space_preference_veto` with
   :data:`V7_LAMBDA`), bound fail closed to the v7 STRICT_PASS receipt
@@ -47,7 +47,7 @@ stays the master switch; the variant chooses which wrapper the Watch hero gets:
   the served checkpoint must hash to :data:`V7_STRICT_RECEIPT_CHECKPOINT_SHA256`, the four
   veto sources (``safety_veto{,_v3,_v5,_v7}.py``) to :data:`V7_STRICT_RECEIPT_SOURCE_SHA256S`
   and the installed method to :data:`V7_STRICT_RECEIPT_METHOD` (the gated lambda).
-* ``v8`` (opt-in; NOT the released default): ``free-space-veto/v8-space-and-head(lambda=8.0)``
+* ``v8`` (the released default since 2026-10-03; rollback ``v7``): ``free-space-veto/v8-space-and-head(lambda=8.0)``
   (:func:`src.evaluation.safety_veto_v8.install_space_and_head_veto` with :data:`V8_LAMBDA`,
   head layer on, no diagnostic ``reference_lambda``: exactly the strict candidate's install),
   bound fail closed to the v8 STRICT_PASS receipt (``apex-veto-v8-strict-20261003/run-v1``,
@@ -131,7 +131,9 @@ VARIANTS = (VARIANT_V2, VARIANT_V5, VARIANT_V7, VARIANT_V8)
 # v5 released 2026-10-02 (v5 STRICT_PASS + SERVING_PASS).
 # v7 released 2026-10-03 (v7 STRICT_PASS + SERVING_PASS); rollback: SNAKE_SERVE_VETO_VARIANT=v5
 # (or v2).
-VARIANT_RELEASED_DEFAULT = VARIANT_V7
+# v8 released 2026-10-03 (v8 STRICT_PASS + SERVING_PASS); rollback: SNAKE_SERVE_VETO_VARIANT=v7
+# (or v5/v2).
+VARIANT_RELEASED_DEFAULT = VARIANT_V8
 
 # The v5 STRICT_PASS receipt (apex-veto-v5-strict-20261001/run-v1) and the candidate
 # identity its intent.json binds: champion bytes and the three veto source files.

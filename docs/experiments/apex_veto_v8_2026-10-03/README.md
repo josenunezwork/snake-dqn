@@ -161,3 +161,23 @@ changed: v8 is served only with `SNAKE_SERVE_VETO_VARIANT=v8`.
 - The served Watch hero respawns, while the strict gate measured a terminal hero. Play AI
   wrapping stays opt-in and v2-only. The SIMD engine path is not part of this
   qualification.
+
+## Release (2026-10-03)
+
+v8 (`free-space-veto/v8-space-and-head(lambda=8.0)`) is now the released Watch-hero default:
+`VARIANT_RELEASED_DEFAULT = VARIANT_V8` in `web/backend/safety_veto_serving.py`. It was released by the research loop owner under the user's standing release authority.
+
+- **Evidence:**
+  - STRICT_PASS, sequential gate: `apex-veto-v8-strict-20261003/run-v1`, receipt `29b1f7f6…`.
+  - SERVING_PASS: `apex-veto-v8-serving-20261003/run-v1`, receipt `5ac0836d…`, audit `bd7eec98…`.
+- **Live check** on the released tree, with no environment set:
+  - `variant=v8`, `active=True`, `scope=watch_hero`.
+  - `strict_checkpoint_match=True`, `wrapper_sources_match=True`.
+  - `wrapper_source_sha256=faf3695f…`, `reason=None`.
+- **Tests:**
+  - Web and serving tests: 587 passed, exit 0.
+  - Full suite before the flip: 5159 passed. The 3 failures were:
+    - the 2 known failures in `tests/test_eval_controlled_parity.py`;
+    - `test_apex_veto_v8_strict.py::test_cli_prepare_resolves_the_real_spec_when_the_runner_is_main`, which is out of date. The finished run used up its final-namespace ledger entry, and the runner correctly refuses to reuse it.
+- **Rollback:** no code change needed. Restart with `SNAKE_SERVE_VETO_VARIANT=v7` (or `v5`/`v2`), or with `SNAKE_SERVE_VETO_WATCH_HERO=0` to turn the veto off.
+- **Unchanged:** Play AI wrapping stays opt-in and v2-only.
