@@ -58,6 +58,15 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:  # the worker child runs with ``python -I``
     sys.path.insert(0, str(REPO))
+# Run as a script (``prepare`` / ``run`` / ``worker``), this module is ``__main__``.  A study
+# spec imports ``StudySpec`` from ``research.sequential_strict_template.sequential_runner``;
+# without this alias that import would load a second copy of this file, and
+# ``validate_spec``'s ``isinstance(spec, StudySpec)`` would refuse every spec (found by the v8
+# strict study: ``prepare`` and every worker child failed with "spec must be a StudySpec").
+if __name__ == "__main__":
+    sys.modules.setdefault(
+        "research.sequential_strict_template.sequential_runner", sys.modules[__name__]
+    )
 
 from src.evaluation.sequential_gate import (  # noqa: E402
     DEFAULT_BAND_MARGIN_Z,

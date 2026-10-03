@@ -1,0 +1,1860 @@
+{
+ "cpu_seconds_total": 49.1,
+ "expected_duration": {
+  "calibration_h": 0.25355519193004067,
+  "final_expected_h_at_screen_effects": 7.642119318079567,
+  "final_max_h_at_n_max": 8.341270179960755,
+  "per_look_h": [
+   2.110441852761155,
+   2.0769427757332,
+   2.0769427757332,
+   2.0769427757332
+  ]
+ },
+ "joint_bootstrap": {
+  "crosscheck_vs_run_sequential_gate": {
+   "mismatches": [],
+   "outcome_counts": {
+    "FINAL_FAIL": 147,
+    "FINAL_PASS": 56,
+    "STOP_FAIL_BANDS": 40,
+    "STOP_FUTILE": 21,
+    "STOP_PASS": 36
+   },
+   "replicates": 300,
+   "seed": 4242
+  },
+  "method": "resample screen world indices jointly across mixes (N_max per replicate), candidate survival from the same worlds, a 16-world calibration reference (incumbent survival) and delta_NI (0.03 x incumbent scripted mass) resampled per replicate; bands judged at the qualifying look with the band_check margin; futility followed",
+  "screen_observed_effects": {
+   "expected_worlds_per_mix": 228.12925,
+   "outcomes": {
+    "FINAL_FAIL": 0.531425,
+    "FINAL_PASS": 0.152325,
+    "STOP_FAIL_BANDS": 0.133725,
+    "STOP_FUTILE": 0.0565,
+    "STOP_PASS": 0.126025
+   },
+   "pass_probability": {
+    "high": 0.28276327363451187,
+    "k": 11134,
+    "low": 0.2739792952447035,
+    "n": 40000,
+    "rate": 0.27835
+   },
+   "pass_probability_efficacy_and_ni_only_planning_delta_ni": 0.5559,
+   "per_mix_crossing_by_stop": {
+    "frozen": 0.9897,
+    "mixed": 0.0277,
+    "scripted": 0.544025
+   },
+   "replicates": 40000,
+   "seed": 101,
+   "shifted_means": null,
+   "stop_look_distribution": [
+    0.0,
+    0.020375,
+    0.295875,
+    0.68375
+   ]
+  },
+  "screen_shape_at_mde_all_mixes": {
+   "expected_worlds_per_mix": 176.6708,
+   "outcomes": {
+    "FINAL_FAIL": 0.059,
+    "FINAL_PASS": 0.0559,
+    "STOP_FAIL_BANDS": 0.46935,
+    "STOP_FUTILE": 0.0001,
+    "STOP_PASS": 0.41565
+   },
+   "pass_probability": {
+    "high": 0.47847309375787356,
+    "k": 9431,
+    "low": 0.4646378330937188,
+    "n": 20000,
+    "rate": 0.47155
+   },
+   "pass_probability_efficacy_and_ni_only_planning_delta_ni": 0.9921,
+   "per_mix_crossing_by_stop": {
+    "frozen": 0.6796,
+    "mixed": 0.9916,
+    "scripted": 0.6862
+   },
+   "replicates": 20000,
+   "seed": 102,
+   "shifted_means": [
+    30.0,
+    30.0,
+    30.0
+   ],
+   "stop_look_distribution": [
+    0.0001,
+    0.2813,
+    0.6037,
+    0.1149
+   ]
+  },
+  "screen_shape_global_null": {
+   "expected_worlds_per_mix": 196.7061,
+   "outcomes": {
+    "FINAL_FAIL": 0.220275,
+    "FINAL_PASS": 0.0004,
+    "STOP_FAIL_BANDS": 2.5e-05,
+    "STOP_FUTILE": 0.77925,
+    "STOP_PASS": 5e-05
+   },
+   "pass_probability": {
+    "high": 0.0007112635826757163,
+    "k": 18,
+    "low": 0.0002846772412000675,
+    "n": 40000,
+    "rate": 0.00045
+   },
+   "pass_probability_efficacy_and_ni_only_planning_delta_ni": 0.00075,
+   "per_mix_crossing_by_stop": {
+    "frozen": 0.00805,
+    "mixed": 0.0117,
+    "scripted": 0.0091
+   },
+   "replicates": 40000,
+   "seed": 103,
+   "shifted_means": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "stop_look_distribution": [
+    0.0,
+    0.064125,
+    0.7152,
+    0.220675
+   ]
+  }
+ },
+ "normal_monte_carlo": {
+  "analytic_known_variance_per_mix": {
+   "0": {
+    "cross_probability": 0.016666666666666656,
+    "cumulative_by_look": [
+     1.941938163797698e-06,
+     0.0007279746481221695,
+     0.005736384209874948,
+     0.016666666666666656
+    ]
+   },
+   "130": {
+    "cross_probability": 1.0000000000000424,
+    "cumulative_by_look": [
+     0.9982923002407905,
+     0.9999999999999937,
+     1.0000000000000424,
+     1.0000000000000424
+    ]
+   },
+   "30": {
+    "cross_probability": 0.9045771530950848,
+    "cumulative_by_look": [
+     0.0020117463154130924,
+     0.23242907116685316,
+     0.6784963315023608,
+     0.9045771530950848
+    ]
+   },
+   "60": {
+    "cross_probability": 0.9999990413880588,
+    "cumulative_by_look": [
+     0.12816119312124144,
+     0.9574382319408905,
+     0.9997307400798623,
+     0.9999990413880588
+    ]
+   }
+  },
+  "boundary_precision": {
+   "cpu_seconds": 3.34,
+   "efficacy_any_look_at_zero": {
+    "high": 0.01694688193646812,
+    "k": 33536,
+    "low": 0.016590974375795254,
+    "n": 2000000,
+    "rate": 0.016768
+   },
+   "efficacy_target": 0.016666666666666666,
+   "ni_any_look_at_null": {
+    "high": 0.05046989166793037,
+    "k": 100333,
+    "low": 0.049864836345617,
+    "n": 2000000,
+    "rate": 0.0501665
+   },
+   "ni_target": 0.05,
+   "replicates": 2000000
+  },
+  "method": "simulate.py Replica/summarize/part_mc reused unchanged; normal deltas with the per-mix screen SDs; bands not simulated here",
+  "per_mix_sd": {
+   "frozen": 136.23776009595693,
+   "mixed": 81.55890919812347,
+   "scripted": 136.75586246532927
+  },
+  "scenarios": {
+   "delta_mde": {
+    "cpu_seconds": 0.34,
+    "honor_futility": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      30.0,
+      30.0,
+      30.0
+     ],
+     "expected_paired_worlds_total": 534.33504,
+     "expected_saving_vs_fixed": 0.28469204819277105,
+     "expected_worlds_per_mix": 178.11168,
+     "fixed_bonferroni_pass": {
+      "high": 0.9910457063006263,
+      "k": 49511,
+      "low": 0.9893189730884709,
+      "n": 50000,
+      "rate": 0.99022
+     },
+     "fixed_holm_pass": {
+      "high": 0.994790968252228,
+      "k": 49708,
+      "low": 0.9934531057694691,
+      "n": 50000,
+      "rate": 0.99416
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "outcomes": {
+      "final_fail": 0.01104,
+      "final_pass": 0.11922,
+      "stop_futile": 0.00026,
+      "stop_pass": 0.86948
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.90418,
+      0.9015,
+      0.99986
+     ],
+     "replicates": 50000,
+     "seed": 21,
+     "sequential_pass": {
+      "high": 0.9895896581435089,
+      "k": 49435,
+      "low": 0.9877352547883418,
+      "n": 50000,
+      "rate": 0.9887
+     },
+     "stop_look_distribution": [
+      2e-05,
+      0.27358,
+      0.59614,
+      0.13026
+     ]
+    }
+   },
+   "delta_mde_screen_corr": {
+    "cpu_seconds": 0.45,
+    "honor_futility": {
+     "between_mix_correlation": 0.0669500386882195,
+     "deltas": [
+      30.0,
+      30.0,
+      30.0
+     ],
+     "expected_paired_worlds_total": 534.07092,
+     "expected_saving_vs_fixed": 0.2850456224899598,
+     "expected_worlds_per_mix": 178.02364,
+     "fixed_bonferroni_pass": {
+      "high": 0.9886870034056592,
+      "k": 49388,
+      "low": 0.9867580539539467,
+      "n": 50000,
+      "rate": 0.98776
+     },
+     "fixed_holm_pass": {
+      "high": 0.993219320247454,
+      "k": 49625,
+      "low": 0.9917050088275132,
+      "n": 50000,
+      "rate": 0.9925
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "outcomes": {
+      "final_fail": 0.01306,
+      "final_pass": 0.1261,
+      "stop_futile": 0.00014,
+      "stop_pass": 0.8607
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.90358,
+      0.9006,
+      0.99984
+     ],
+     "replicates": 50000,
+     "seed": 22,
+     "sequential_pass": {
+      "high": 0.98776364194468,
+      "k": 49340,
+      "low": 0.9857615629156125,
+      "n": 50000,
+      "rate": 0.9868
+     },
+     "stop_look_distribution": [
+      2e-05,
+      0.2839,
+      0.57692,
+      0.13916
+     ]
+    }
+   },
+   "frozen_lb90_scripted_mean_mixed_mean": {
+    "cpu_seconds": 0.35,
+    "honor_futility": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      15.8,
+      19.55242333333333,
+      1.3630733333333305
+     ],
+     "expected_paired_worlds_total": 708.99648,
+     "expected_saving_vs_fixed": 0.05087485943775105,
+     "expected_worlds_per_mix": 236.33216,
+     "fixed_bonferroni_pass": {
+      "high": 0.2284801104408025,
+      "k": 11240,
+      "low": 0.2211621730892869,
+      "n": 50000,
+      "rate": 0.2248
+     },
+     "fixed_holm_pass": {
+      "high": 0.2967642330234703,
+      "k": 14638,
+      "low": 0.2887876086871972,
+      "n": 50000,
+      "rate": 0.29276
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "outcomes": {
+      "final_fail": 0.63122,
+      "final_pass": 0.16664,
+      "stop_futile": 0.15054,
+      "stop_pass": 0.0516
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.37532,
+      0.5419,
+      0.03072
+     ],
+     "replicates": 50000,
+     "seed": 27,
+     "sequential_pass": {
+      "high": 0.22188205832568358,
+      "k": 10912,
+      "low": 0.21464123312576255,
+      "n": 50000,
+      "rate": 0.21824
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.00218,
+      0.19996,
+      0.79786
+     ]
+    }
+   },
+   "frozen_mean_scripted_mde_mixed_zero": {
+    "cpu_seconds": 0.68,
+    "futility_overridden": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      38.61875666666666,
+      30.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 614.14392,
+     "expected_saving_vs_fixed": 0.17785285140562246,
+     "expected_worlds_per_mix": 204.71464,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.01804683375749359,
+      "k": 844,
+      "low": 0.015787395962916274,
+      "n": 50000,
+      "rate": 0.01688
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.902796562904037,
+      "k": 45010,
+      "low": 0.8975419477473373,
+      "n": 50000,
+      "rate": 0.9002
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.05174153902040343,
+      "k": 2490,
+      "low": 0.04792763265563672,
+      "n": 50000,
+      "rate": 0.0498
+     },
+     "fixed_holm_pass": {
+      "high": 0.9311395020169582,
+      "k": 46446,
+      "low": 0.9266345959055491,
+      "n": 50000,
+      "rate": 0.92892
+     },
+     "fixed_paired_worlds_total": 747,
+     "futility_stops_overridden": 0.00762,
+     "honor_futility": false,
+     "null_mixes": [
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.10496,
+      "final_pass": 0.28508,
+      "stop_futile": 0.0,
+      "stop_pass": 0.60996
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.98986,
+      0.90278,
+      0.017
+     ],
+     "replicates": 50000,
+     "seed": 26,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.018170759275844398,
+      "k": 850,
+      "low": 0.015903452006979672,
+      "n": 50000,
+      "rate": 0.017
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.010221642270706158,
+      "k": 467,
+      "low": 0.008533745944677814,
+      "n": 50000,
+      "rate": 0.00934
+     },
+     "sequential_pass": {
+      "high": 0.897696277957628,
+      "k": 44752,
+      "low": 0.8923230255099354,
+      "n": 50000,
+      "rate": 0.89504
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.10432,
+      0.50564,
+      0.39004
+     ]
+    },
+    "honor_futility": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      38.61875666666666,
+      30.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 612.71916,
+     "expected_saving_vs_fixed": 0.17976016064257028,
+     "expected_worlds_per_mix": 204.23972,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.01804683375749359,
+      "k": 844,
+      "low": 0.015787395962916274,
+      "n": 50000,
+      "rate": 0.01688
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.902796562904037,
+      "k": 45010,
+      "low": 0.8975419477473373,
+      "n": 50000,
+      "rate": 0.9002
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.05174153902040343,
+      "k": 2490,
+      "low": 0.04792763265563672,
+      "n": 50000,
+      "rate": 0.0498
+     },
+     "fixed_holm_pass": {
+      "high": 0.9311395020169582,
+      "k": 46446,
+      "low": 0.9266345959055491,
+      "n": 50000,
+      "rate": 0.92892
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "null_mixes": [
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.09766,
+      "final_pass": 0.28476,
+      "stop_futile": 0.00762,
+      "stop_pass": 0.60996
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.98986,
+      0.90278,
+      0.017
+     ],
+     "replicates": 50000,
+     "seed": 26,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.018170759275844398,
+      "k": 850,
+      "low": 0.015903452006979672,
+      "n": 50000,
+      "rate": 0.017
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.010221642270706158,
+      "k": 467,
+      "low": 0.008533745944677814,
+      "n": 50000,
+      "rate": 0.00934
+     },
+     "sequential_pass": {
+      "high": 0.89737991310956,
+      "k": 44736,
+      "low": 0.8919994395248988,
+      "n": 50000,
+      "rate": 0.89472
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.10436,
+      0.51322,
+      0.38242
+     ]
+    }
+   },
+   "frozen_mean_scripted_zero_mixed_zero": {
+    "cpu_seconds": 0.68,
+    "futility_overridden": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      38.61875666666666,
+      0.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 745.81704,
+     "expected_saving_vs_fixed": 0.0015836144578312839,
+     "expected_worlds_per_mix": 248.60568,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.03331294135663741,
+      "k": 1587,
+      "low": 0.030239005176064856,
+      "n": 50000,
+      "rate": 0.03174
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.02167643370155769,
+      "k": 1020,
+      "low": 0.0191972551830022,
+      "n": 50000,
+      "rate": 0.0204
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.04909384948626887,
+      "k": 2360,
+      "low": 0.04537572167079684,
+      "n": 50000,
+      "rate": 0.0472
+     },
+     "fixed_holm_pass": {
+      "high": 0.03190035519862226,
+      "k": 1518,
+      "low": 0.02889180336631665,
+      "n": 50000,
+      "rate": 0.03036
+     },
+     "fixed_paired_worlds_total": 747,
+     "futility_stops_overridden": 0.41956,
+     "honor_futility": false,
+     "null_mixes": [
+      "scripted",
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.97964,
+      "final_pass": 0.01422,
+      "stop_futile": 0.0,
+      "stop_pass": 0.00614
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.98932,
+      0.01598,
+      0.01626
+     ],
+     "replicates": 50000,
+     "seed": 25,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.03355852810974935,
+      "k": 1599,
+      "low": 0.030473381547781328,
+      "n": 50000,
+      "rate": 0.03198
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.03355852810974935,
+      "k": 1599,
+      "low": 0.030473381547781328,
+      "n": 50000,
+      "rate": 0.03198
+     },
+     "sequential_pass": {
+      "high": 0.02163524732135891,
+      "k": 1018,
+      "low": 0.019158447709062904,
+      "n": 50000,
+      "rate": 0.02036
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.00022,
+      0.00592,
+      0.99386
+     ]
+    },
+    "honor_futility": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      38.61875666666666,
+      0.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 667.2766799999999,
+     "expected_saving_vs_fixed": 0.10672465863453817,
+     "expected_worlds_per_mix": 222.42556,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.03331294135663741,
+      "k": 1587,
+      "low": 0.030239005176064856,
+      "n": 50000,
+      "rate": 0.03174
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.02167643370155769,
+      "k": 1020,
+      "low": 0.0191972551830022,
+      "n": 50000,
+      "rate": 0.0204
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.04909384948626887,
+      "k": 2360,
+      "low": 0.04537572167079684,
+      "n": 50000,
+      "rate": 0.0472
+     },
+     "fixed_holm_pass": {
+      "high": 0.03190035519862226,
+      "k": 1518,
+      "low": 0.02889180336631665,
+      "n": 50000,
+      "rate": 0.03036
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "null_mixes": [
+      "scripted",
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.56008,
+      "final_pass": 0.01422,
+      "stop_futile": 0.41956,
+      "stop_pass": 0.00614
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.98932,
+      0.01598,
+      0.01626
+     ],
+     "replicates": 50000,
+     "seed": 25,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.03355852810974935,
+      "k": 1599,
+      "low": 0.030473381547781328,
+      "n": 50000,
+      "rate": 0.03198
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.03353806343473506,
+      "k": 1598,
+      "low": 0.0304538492957266,
+      "n": 50000,
+      "rate": 0.03196
+     },
+     "sequential_pass": {
+      "high": 0.02163524732135891,
+      "k": 1018,
+      "low": 0.019158447709062904,
+      "n": 50000,
+      "rate": 0.02036
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.00292,
+      0.42278,
+      0.5743
+     ]
+    }
+   },
+   "lfc_one_effect_two_null": {
+    "cpu_seconds": 2.69,
+    "futility_overridden": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      130.0,
+      0.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 745.60128,
+     "expected_saving_vs_fixed": 0.0018724497991967626,
+     "expected_worlds_per_mix": 248.53376,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.033903165004899066,
+      "k": 6622,
+      "low": 0.03233477003770524,
+      "n": 200000,
+      "rate": 0.03311
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.022119561300944578,
+      "k": 4295,
+      "low": 0.020848820686808905,
+      "n": 200000,
+      "rate": 0.021475
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.049889164698759265,
+      "k": 9787,
+      "low": 0.047998162444662755,
+      "n": 200000,
+      "rate": 0.048935
+     },
+     "fixed_holm_pass": {
+      "high": 0.032289707623317766,
+      "k": 6303,
+      "low": 0.030758288689377904,
+      "n": 200000,
+      "rate": 0.031515
+     },
+     "fixed_paired_worlds_total": 747,
+     "futility_stops_overridden": 0.421015,
+     "honor_futility": false,
+     "null_mixes": [
+      "scripted",
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.978595,
+      "final_pass": 0.01464,
+      "stop_futile": 0.0,
+      "stop_pass": 0.006765
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      1.0,
+      0.017,
+      0.01666
+     ],
+     "replicates": 200000,
+     "seed": 13,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.03417118351826728,
+      "k": 6675,
+      "low": 0.032596741344666676,
+      "n": 200000,
+      "rate": 0.033375
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.03417118351826728,
+      "k": 6675,
+      "low": 0.032596741344666676,
+      "n": 200000,
+      "rate": 0.033375
+     },
+     "sequential_pass": {
+      "high": 0.022048549192634322,
+      "k": 4281,
+      "low": 0.020779835484088686,
+      "n": 200000,
+      "rate": 0.021405
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.000755,
+      0.00601,
+      0.993235
+     ]
+    },
+    "honor_futility": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      130.0,
+      0.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 666.75495,
+     "expected_saving_vs_fixed": 0.10742309236947789,
+     "expected_worlds_per_mix": 222.25165,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.033903165004899066,
+      "k": 6622,
+      "low": 0.03233477003770524,
+      "n": 200000,
+      "rate": 0.03311
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.022119561300944578,
+      "k": 4295,
+      "low": 0.020848820686808905,
+      "n": 200000,
+      "rate": 0.021475
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.049889164698759265,
+      "k": 9787,
+      "low": 0.047998162444662755,
+      "n": 200000,
+      "rate": 0.048935
+     },
+     "fixed_holm_pass": {
+      "high": 0.032289707623317766,
+      "k": 6303,
+      "low": 0.030758288689377904,
+      "n": 200000,
+      "rate": 0.031515
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "null_mixes": [
+      "scripted",
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.557595,
+      "final_pass": 0.014625,
+      "stop_futile": 0.421015,
+      "stop_pass": 0.006765
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      1.0,
+      0.017,
+      0.01666
+     ],
+     "replicates": 200000,
+     "seed": 13,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.03417118351826728,
+      "k": 6675,
+      "low": 0.032596741344666676,
+      "n": 200000,
+      "rate": 0.033375
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.034156013014915304,
+      "k": 6672,
+      "low": 0.03258191242422641,
+      "n": 200000,
+      "rate": 0.03336
+     },
+     "sequential_pass": {
+      "high": 0.02203333208225353,
+      "k": 4278,
+      "low": 0.02076505317067724,
+      "n": 200000,
+      "rate": 0.02139
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.003645,
+      0.424135,
+      0.57222
+     ]
+    }
+   },
+   "ni_null_scripted_at_margin": {
+    "cpu_seconds": 2.64,
+    "futility_overridden": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      130.0,
+      -9.4222456,
+      130.0
+     ],
+     "expected_paired_worlds_total": 741.42837,
+     "expected_saving_vs_fixed": 0.007458674698795242,
+     "expected_worlds_per_mix": 247.14279,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.000836718811974381,
+      "k": 142,
+      "low": 0.0006024608393822582,
+      "n": 200000,
+      "rate": 0.00071
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.05074185236821128,
+      "k": 9956,
+      "low": 0.048835442315507176,
+      "n": 200000,
+      "rate": 0.04978
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.0033377759084678798,
+      "k": 617,
+      "low": 0.0028513125099941055,
+      "n": 200000,
+      "rate": 0.003085
+     },
+     "fixed_holm_pass": {
+      "high": 0.05074185236821128,
+      "k": 9956,
+      "low": 0.048835442315507176,
+      "n": 200000,
+      "rate": 0.04978
+     },
+     "fixed_paired_worlds_total": 747,
+     "futility_stops_overridden": 0.0,
+     "honor_futility": false,
+     "null_mixes": [
+      "scripted"
+     ],
+     "outcomes": {
+      "final_fail": 0.949875,
+      "final_pass": 0.02609,
+      "stop_futile": 0.0,
+      "stop_pass": 0.024035
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      1.0,
+      0.000775,
+      1.0
+     ],
+     "replicates": 200000,
+     "seed": 14,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.0009069232480144553,
+      "k": 155,
+      "low": 0.0006622539064419092,
+      "n": 200000,
+      "rate": 0.000775
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.00014227093816314207,
+      "k": 18,
+      "low": 5.693252978073336e-05,
+      "n": 200000,
+      "rate": 9e-05
+     },
+     "sequential_pass": {
+      "high": 0.051089969156688855,
+      "k": 10025,
+      "low": 0.04917731227425122,
+      "n": 200000,
+      "rate": 0.050125
+     },
+     "stop_look_distribution": [
+      0.000105,
+      0.00571,
+      0.01822,
+      0.975965
+     ]
+    },
+    "honor_futility": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      130.0,
+      -9.4222456,
+      130.0
+     ],
+     "expected_paired_worlds_total": 741.42837,
+     "expected_saving_vs_fixed": 0.007458674698795242,
+     "expected_worlds_per_mix": 247.14279,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.000836718811974381,
+      "k": 142,
+      "low": 0.0006024608393822582,
+      "n": 200000,
+      "rate": 0.00071
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.05074185236821128,
+      "k": 9956,
+      "low": 0.048835442315507176,
+      "n": 200000,
+      "rate": 0.04978
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.0033377759084678798,
+      "k": 617,
+      "low": 0.0028513125099941055,
+      "n": 200000,
+      "rate": 0.003085
+     },
+     "fixed_holm_pass": {
+      "high": 0.05074185236821128,
+      "k": 9956,
+      "low": 0.048835442315507176,
+      "n": 200000,
+      "rate": 0.04978
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "null_mixes": [
+      "scripted"
+     ],
+     "outcomes": {
+      "final_fail": 0.949875,
+      "final_pass": 0.02609,
+      "stop_futile": 0.0,
+      "stop_pass": 0.024035
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      1.0,
+      0.000775,
+      1.0
+     ],
+     "replicates": 200000,
+     "seed": 14,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.0009069232480144553,
+      "k": 155,
+      "low": 0.0006622539064419092,
+      "n": 200000,
+      "rate": 0.000775
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.00014227093816314207,
+      "k": 18,
+      "low": 5.693252978073336e-05,
+      "n": 200000,
+      "rate": 9e-05
+     },
+     "sequential_pass": {
+      "high": 0.051089969156688855,
+      "k": 10025,
+      "low": 0.04917731227425122,
+      "n": 200000,
+      "rate": 0.050125
+     },
+     "stop_look_distribution": [
+      0.000105,
+      0.00571,
+      0.01822,
+      0.975965
+     ]
+    }
+   },
+   "null_indep": {
+    "cpu_seconds": 2.75,
+    "futility_overridden": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 746.98884,
+     "expected_saving_vs_fixed": 1.493975903610334e-05,
+     "expected_worlds_per_mix": 248.99628,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.05071158074593613,
+      "k": 9950,
+      "low": 0.04880571509019784,
+      "n": 200000,
+      "rate": 0.04975
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.0007662712643579666,
+      "k": 129,
+      "low": 0.0005429108838989474,
+      "n": 200000,
+      "rate": 0.000645
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.05071158074593613,
+      "k": 9950,
+      "low": 0.04880571509019784,
+      "n": 200000,
+      "rate": 0.04975
+     },
+     "fixed_holm_pass": {
+      "high": 0.001462478896805718,
+      "k": 259,
+      "low": 0.0011466782824484487,
+      "n": 200000,
+      "rate": 0.001295
+     },
+     "fixed_paired_worlds_total": 747,
+     "futility_stops_overridden": 0.79455,
+     "honor_futility": false,
+     "null_mixes": [
+      "frozen",
+      "scripted",
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.99937,
+      "final_pass": 0.00057,
+      "stop_futile": 0.0,
+      "stop_pass": 6e-05
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.016975,
+      0.016795,
+      0.016905
+     ],
+     "replicates": 200000,
+     "seed": 11,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.05083266666034571,
+      "k": 9974,
+      "low": 0.048924624566126215,
+      "n": 200000,
+      "rate": 0.04987
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.05083266666034571,
+      "k": 9974,
+      "low": 0.048924624566126215,
+      "n": 200000,
+      "rate": 0.04987
+     },
+     "sequential_pass": {
+      "high": 0.0007499758442523266,
+      "k": 126,
+      "low": 0.0005292068802123431,
+      "n": 200000,
+      "rate": 0.00063
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.0,
+      6e-05,
+      0.99994
+     ]
+    },
+    "honor_futility": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 586.1992799999999,
+     "expected_saving_vs_fixed": 0.21526200803212858,
+     "expected_worlds_per_mix": 195.39976,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.05071158074593613,
+      "k": 9950,
+      "low": 0.04880571509019784,
+      "n": 200000,
+      "rate": 0.04975
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.0007662712643579666,
+      "k": 129,
+      "low": 0.0005429108838989474,
+      "n": 200000,
+      "rate": 0.000645
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.05071158074593613,
+      "k": 9950,
+      "low": 0.04880571509019784,
+      "n": 200000,
+      "rate": 0.04975
+     },
+     "fixed_holm_pass": {
+      "high": 0.001462478896805718,
+      "k": 259,
+      "low": 0.0011466782824484487,
+      "n": 200000,
+      "rate": 0.001295
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "null_mixes": [
+      "frozen",
+      "scripted",
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.20482,
+      "final_pass": 0.00057,
+      "stop_futile": 0.79455,
+      "stop_pass": 6e-05
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.016975,
+      0.016795,
+      0.016905
+     ],
+     "replicates": 200000,
+     "seed": 11,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.05083266666034571,
+      "k": 9974,
+      "low": 0.048924624566126215,
+      "n": 200000,
+      "rate": 0.04987
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.0341054443628604,
+      "k": 6662,
+      "low": 0.03253248299697383,
+      "n": 200000,
+      "rate": 0.03331
+     },
+     "sequential_pass": {
+      "high": 0.0007499758442523266,
+      "k": 126,
+      "low": 0.0005292068802123431,
+      "n": 200000,
+      "rate": 0.00063
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.06991,
+      0.7247,
+      0.20539
+     ]
+    }
+   },
+   "null_screen_corr": {
+    "cpu_seconds": 3.58,
+    "futility_overridden": {
+     "between_mix_correlation": 0.0669500386882195,
+     "deltas": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 746.97954,
+     "expected_saving_vs_fixed": 2.7389558233004152e-05,
+     "expected_worlds_per_mix": 248.99318,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.05024740381043572,
+      "k": 9858,
+      "low": 0.04834990969606943,
+      "n": 200000,
+      "rate": 0.04929
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.0009984110872891358,
+      "k": 172,
+      "low": 0.0007407628019899464,
+      "n": 200000,
+      "rate": 0.00086
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.05024740381043572,
+      "k": 9858,
+      "low": 0.04834990969606943,
+      "n": 200000,
+      "rate": 0.04929
+     },
+     "fixed_holm_pass": {
+      "high": 0.0017744502945934554,
+      "k": 318,
+      "low": 0.0014246955525748489,
+      "n": 200000,
+      "rate": 0.00159
+     },
+     "fixed_paired_worlds_total": 747,
+     "futility_stops_overridden": 0.78266,
+     "honor_futility": false,
+     "null_mixes": [
+      "frozen",
+      "scripted",
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.99906,
+      "final_pass": 0.00083,
+      "stop_futile": 0.0,
+      "stop_pass": 0.00011
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.01661,
+      0.016975,
+      0.016975
+     ],
+     "replicates": 200000,
+     "seed": 12,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.05033822282557745,
+      "k": 9876,
+      "low": 0.048439087223681156,
+      "n": 200000,
+      "rate": 0.04938
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.05033822282557745,
+      "k": 9876,
+      "low": 0.048439087223681156,
+      "n": 200000,
+      "rate": 0.04938
+     },
+     "sequential_pass": {
+      "high": 0.0010842309371165816,
+      "k": 188,
+      "low": 0.00081493987905447,
+      "n": 200000,
+      "rate": 0.00094
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.0,
+      0.00011,
+      0.99989
+     ]
+    },
+    "honor_futility": {
+     "between_mix_correlation": 0.0669500386882195,
+     "deltas": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "expected_paired_worlds_total": 586.86423,
+     "expected_saving_vs_fixed": 0.21437184738955828,
+     "expected_worlds_per_mix": 195.62141,
+     "fixed_bonferroni_false_rejection_any_null_mix": {
+      "high": 0.05024740381043572,
+      "k": 9858,
+      "low": 0.04834990969606943,
+      "n": 200000,
+      "rate": 0.04929
+     },
+     "fixed_bonferroni_pass": {
+      "high": 0.0009984110872891358,
+      "k": 172,
+      "low": 0.0007407628019899464,
+      "n": 200000,
+      "rate": 0.00086
+     },
+     "fixed_holm_false_rejection_any_null_mix": {
+      "high": 0.05024740381043572,
+      "k": 9858,
+      "low": 0.04834990969606943,
+      "n": 200000,
+      "rate": 0.04929
+     },
+     "fixed_holm_pass": {
+      "high": 0.0017744502945934554,
+      "k": 318,
+      "low": 0.0014246955525748489,
+      "n": 200000,
+      "rate": 0.00159
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "null_mixes": [
+      "frozen",
+      "scripted",
+      "mixed"
+     ],
+     "outcomes": {
+      "final_fail": 0.2164,
+      "final_pass": 0.00083,
+      "stop_futile": 0.78266,
+      "stop_pass": 0.00011
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.01661,
+      0.016975,
+      0.016975
+     ],
+     "replicates": 200000,
+     "seed": 12,
+     "sequential_false_crossing_any_null_mix_all_looks": {
+      "high": 0.05033822282557745,
+      "k": 9876,
+      "low": 0.048439087223681156,
+      "n": 200000,
+      "rate": 0.04938
+     },
+     "sequential_false_rejection_any_null_mix": {
+      "high": 0.035440300953559496,
+      "k": 6926,
+      "low": 0.03383757569999223,
+      "n": 200000,
+      "rate": 0.03463
+     },
+     "sequential_pass": {
+      "high": 0.0010842309371165816,
+      "k": 188,
+      "low": 0.00081493987905447,
+      "n": 200000,
+      "rate": 0.00094
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.078175,
+      0.704595,
+      0.21723
+     ]
+    }
+   },
+   "screen_means": {
+    "cpu_seconds": 0.34,
+    "honor_futility": {
+     "between_mix_correlation": 0.0,
+     "deltas": [
+      38.61875666666666,
+      19.55242333333333,
+      1.3630733333333305
+     ],
+     "expected_paired_worlds_total": 685.70928,
+     "expected_saving_vs_fixed": 0.08204915662650603,
+     "expected_worlds_per_mix": 228.56976,
+     "fixed_bonferroni_pass": {
+      "high": 0.5553356905532786,
+      "k": 27549,
+      "low": 0.5466164765456897,
+      "n": 50000,
+      "rate": 0.55098
+     },
+     "fixed_holm_pass": {
+      "high": 0.626879159509895,
+      "k": 31132,
+      "low": 0.6183819972774227,
+      "n": 50000,
+      "rate": 0.62264
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "outcomes": {
+      "final_fail": 0.40274,
+      "final_pass": 0.29076,
+      "stop_futile": 0.05452,
+      "stop_pass": 0.25198
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.98816,
+      0.5368,
+      0.03012
+     ],
+     "replicates": 50000,
+     "seed": 23,
+     "sequential_pass": {
+      "high": 0.5471031219207318,
+      "k": 27137,
+      "low": 0.5383703112257943,
+      "n": 50000,
+      "rate": 0.54274
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.02302,
+      0.28348,
+      0.6935
+     ]
+    }
+   },
+   "screen_means_screen_corr": {
+    "cpu_seconds": 0.45,
+    "honor_futility": {
+     "between_mix_correlation": 0.0669500386882195,
+     "deltas": [
+      38.61875666666666,
+      19.55242333333333,
+      1.3630733333333305
+     ],
+     "expected_paired_worlds_total": 682.62168,
+     "expected_saving_vs_fixed": 0.08618248995983935,
+     "expected_worlds_per_mix": 227.54056,
+     "fixed_bonferroni_pass": {
+      "high": 0.5594515218775373,
+      "k": 27755,
+      "low": 0.550740012197652,
+      "n": 50000,
+      "rate": 0.5551
+     },
+     "fixed_holm_pass": {
+      "high": 0.6290142057316903,
+      "k": 31239,
+      "low": 0.620526622252014,
+      "n": 50000,
+      "rate": 0.62478
+     },
+     "fixed_paired_worlds_total": 747,
+     "honor_futility": true,
+     "outcomes": {
+      "final_fail": 0.39296,
+      "final_pass": 0.28866,
+      "stop_futile": 0.0608,
+      "stop_pass": 0.25758
+     },
+     "per_mix_crossing_all_looks_ignoring_stops": [
+      0.98924,
+      0.54058,
+      0.03116
+     ],
+     "replicates": 50000,
+     "seed": 24,
+     "sequential_pass": {
+      "high": 0.5506001127137935,
+      "k": 27312,
+      "low": 0.5418727826698134,
+      "n": 50000,
+      "rate": 0.54624
+     },
+     "stop_look_distribution": [
+      0.0,
+      0.02774,
+      0.29064,
+      0.68162
+     ]
+    }
+   }
+  }
+ },
+ "plan": {
+  "band_margin_z": 1.645,
+  "band_policy": "block_at_stop",
+  "efficacy_alpha_per_mix": 0.016666666666666666,
+  "efficacy_alpha_spent": [
+   1.941938163797698e-06,
+   0.0007279746481221695,
+   0.005736384209874948,
+   0.016666666666666656
+  ],
+  "efficacy_boundaries": [
+   4.617501629587915,
+   3.183610390453949,
+   2.5427330211992096,
+   2.1734446110356833
+  ],
+  "efficacy_nominal_p": [
+   1.941938163829704e-06,
+   0.0007272532031897816,
+   0.005499461712448694,
+   0.014873435162260584
+  ],
+  "family_alpha": 0.05,
+  "fractions": [
+   0.25301204819277107,
+   0.5020080321285141,
+   0.751004016064257,
+   1.0
+  ],
+  "futility": "non_binding_conditional_power_under_mde",
+  "futility_cp": 0.1,
+  "futility_policy": "followed",
+  "look_sizes": [
+   63,
+   125,
+   187,
+   249
+  ],
+  "mde": 30.0,
+  "method": "strict-sequential-obf-bonferroni-v1",
+  "mixes": [
+   "frozen",
+   "scripted",
+   "mixed"
+  ],
+  "multiplicity": "bonferroni_across_mixes",
+  "n_max": 249,
+  "ni_alpha": 0.05,
+  "ni_alpha_spent": [
+   9.758265631775836e-05,
+   0.0056703570387364585,
+   0.02371853245528877,
+   0.05000000000000007
+  ],
+  "ni_boundaries": [
+   3.7251936863437676,
+   2.5341382109394113,
+   2.0148365392517107,
+   1.720532158041129
+  ],
+  "ni_nominal_p": [
+   9.758265631776286e-05,
+   0.005636213070946361,
+   0.021960889558314323,
+   0.042667876685235195
+  ],
+  "required_successes": 2,
+  "scripted_mix": "scripted",
+  "spending": "lan_demets_obrien_fleming"
+ },
+ "planning_delta_ni": {
+  "rule": "0.03 x screen v7 (arm A) scripted mean mass_integral; the binding delta_NI is 0.03 x the calibration incumbent scripted mean",
+  "value": 9.4222456
+ },
+ "schema": "apex-veto-v8-strict-oc/v1",
+ "screen": {
+  "between_mix_delta_correlation": [
+   [
+    1.0,
+    -0.0092796481825758,
+    0.055781456395759633
+   ],
+   [
+    -0.0092796481825758,
+    1.0,
+    0.15434830785147466
+   ],
+   [
+    0.055781456395759633,
+    0.15434830785147466,
+    1.0
+   ]
+  ],
+  "between_mix_delta_correlation_mean": 0.0669500386882195,
+  "per_mix_deltas": {
+   "frozen": {
+    "mean": 38.61875666666666,
+    "n": 60,
+    "sd": 136.23776009595693,
+    "skewness": 0.8593528349669504,
+    "zeros": 31
+   },
+   "mixed": {
+    "mean": 1.3630733333333305,
+    "n": 60,
+    "sd": 81.55890919812347,
+    "skewness": -0.43075259220237366,
+    "zeros": 43
+   },
+   "scripted": {
+    "mean": 19.55242333333333,
+    "n": 60,
+    "sd": 136.75586246532927,
+    "skewness": 0.648380292493701,
+    "zeros": 34
+   }
+  },
+  "run": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-screen-20261002/run-v1",
+  "screen_deltas_path": "research/apex_veto_v8_strict_20261003/screen_deltas.json",
+  "screen_deltas_sha256": "dd74fd05c4d972394294ee3eb1482ad576c8fc42de4eae8ae8c0a76f2fc2c894",
+  "summary_sha256": "ecd205e6ec4e83c070dc67fe9c14bd9134a8464d737b9171d852c5c5c8f0c3c4"
+ },
+ "sizing": {
+  "binding_mix": "scripted",
+  "chosen": {
+   "mde": 30.0,
+   "n_fixed_90": 244,
+   "n_max": 249
+  },
+  "per_mix_alpha": 0.016666666666666666,
+  "per_mix_delta_sd": {
+   "frozen": 136.23776009595693,
+   "mixed": 81.55890919812347,
+   "scripted": 136.75586246532927
+  },
+  "power": 0.9,
+  "rule": "per-mix SD = sample SD of the v8 screen's 60 paired deltas; sd_max = max over mixes; n_fixed(MDE) = smallest n with n >= ((t_{1-0.05/3, n-1} + t_{0.90, n-1}) * sd_max / MDE)^2 (one-sided per-mix Bonferroni alpha, 90% per-mix power at the MDE in every mix); N_max(MDE) = ceil(1.02 * n_fixed) (amendment: four OBF looks); MDE = the smallest multiple of 5 with N_max <= 300 AND projected final-stage time per worker <= 70% of the worker budget (screen A/B mean episode seconds, 2 workers, x1.15 overhead). The screen's observed mean deltas are not used.",
+  "runtime_projection": {
+   "basis": "v8 screen A/B record wall_seconds (3 concurrent shard processes, 2 torch threads each; the screen's v8 arm also ran a diagnostic reference v7, which the strict candidate does not, so this is conservative)",
+   "fraction_of_worker_budget": 0.6677467789161378,
+   "max_fraction": 0.7,
+   "overhead_factor": 1.15,
+   "pair_seconds_per_world_triplet": 209.73335182719552,
+   "per_mix_episode_seconds": {
+    "frozen": {
+     "candidate_v8_mean_s": 46.43932627983546,
+     "incumbent_v7_mean_s": 41.326701161878496
+    },
+    "mixed": {
+     "candidate_v8_mean_s": 35.57789067017924,
+     "incumbent_v7_mean_s": 33.17751885425144
+    },
+    "scripted": {
+     "candidate_v8_mean_s": 28.498885861077966,
+     "incumbent_v7_mean_s": 24.713028999972934
+    }
+   },
+   "projected_seconds_per_worker_at_n_max": 30028.572647858717,
+   "within_limit": true,
+   "worker_budget_seconds": 44970.0,
+   "workers": 2
+  },
+  "screen_effects_used": false,
+  "sd_max": 136.75586246532927,
+  "sequential_inflation": 1.02,
+  "table": [
+   {
+    "feasible": false,
+    "mde": 5.0,
+    "n_fixed_90": 8699,
+    "n_max": 8873,
+    "runtime_fraction": 23.794848069569845
+   },
+   {
+    "feasible": false,
+    "mde": 10.0,
+    "n_fixed_90": 2177,
+    "n_max": 2221,
+    "runtime_fraction": 5.956086730814225
+   },
+   {
+    "feasible": false,
+    "mde": 15.0,
+    "n_fixed_90": 969,
+    "n_max": 989,
+    "runtime_fraction": 2.6522151178636957
+   },
+   {
+    "feasible": false,
+    "mde": 20.0,
+    "n_fixed_90": 546,
+    "n_max": 557,
+    "runtime_fraction": 1.4937146821537701
+   },
+   {
+    "feasible": false,
+    "mde": 25.0,
+    "n_fixed_90": 351,
+    "n_max": 359,
+    "runtime_fraction": 0.9627353157867207
+   },
+   {
+    "feasible": true,
+    "mde": 30.0,
+    "n_fixed_90": 244,
+    "n_max": 249,
+    "runtime_fraction": 0.6677467789161378
+   },
+   {
+    "feasible": true,
+    "mde": 35.0,
+    "n_fixed_90": 180,
+    "n_max": 184,
+    "runtime_fraction": 0.49343537076533883
+   },
+   {
+    "feasible": true,
+    "mde": 40.0,
+    "n_fixed_90": 139,
+    "n_max": 142,
+    "runtime_fraction": 0.38080338396020713
+   },
+   {
+    "feasible": true,
+    "mde": 45.0,
+    "n_fixed_90": 110,
+    "n_max": 113,
+    "runtime_fraction": 0.30303367878523524
+   }
+  ]
+ },
+ "skew_check_prerun": {
+  "delta_ni_used": 9.4222456,
+  "per_mix": {
+   "frozen": {
+    "cpu_seconds": 1.5,
+    "efficacy_null": {
+     "any_look": 0.012913333333333334,
+     "fixed_n": 0.013553333333333334,
+     "look_1": 0.0,
+     "look_1_nominal": 1.941938163829704e-06,
+     "reps": 300000,
+     "target": 0.016666666666666666
+    },
+    "limits": {
+     "efficacy_any_look": 0.02,
+     "ni_any_look": 0.06
+    },
+    "look_sizes": [
+     63,
+     125,
+     187,
+     249
+    ],
+    "n_saved": 60,
+    "ni_null": {
+     "any_look": 0.04218,
+     "fixed_n": 0.04380666666666667,
+     "look_1": 6.666666666666667e-06,
+     "look_1_nominal": 9.758265631776286e-05,
+     "reps": 300000,
+     "target": 0.05
+    },
+    "passes": true,
+    "sample_skewness": 0.8593528349669504
+   },
+   "mixed": {
+    "cpu_seconds": 1.5,
+    "efficacy_null": {
+     "any_look": 0.018356666666666667,
+     "fixed_n": 0.018016666666666667,
+     "look_1": 0.0,
+     "look_1_nominal": 1.941938163829704e-06,
+     "reps": 300000,
+     "target": 0.016666666666666666
+    },
+    "limits": {
+     "efficacy_any_look": 0.02,
+     "ni_any_look": 0.06
+    },
+    "look_sizes": [
+     63,
+     125,
+     187,
+     249
+    ],
+    "n_saved": 60,
+    "ni_null": {
+     "any_look": 0.054656666666666666,
+     "fixed_n": 0.05378,
+     "look_1": 0.0,
+     "look_1_nominal": 9.758265631776286e-05,
+     "reps": 300000,
+     "target": 0.05
+    },
+    "passes": true,
+    "sample_skewness": -0.43075259220237366
+   },
+   "scripted": {
+    "cpu_seconds": 1.5,
+    "efficacy_null": {
+     "any_look": 0.013663333333333333,
+     "fixed_n": 0.01429,
+     "look_1": 0.0,
+     "look_1_nominal": 1.941938163829704e-06,
+     "reps": 300000,
+     "target": 0.016666666666666666
+    },
+    "limits": {
+     "efficacy_any_look": 0.02,
+     "ni_any_look": 0.06
+    },
+    "look_sizes": [
+     63,
+     125,
+     187,
+     249
+    ],
+    "n_saved": 60,
+    "ni_null": {
+     "any_look": 0.04439333333333333,
+     "fixed_n": 0.04555,
+     "look_1": 0.0,
+     "look_1_nominal": 9.758265631776286e-05,
+     "reps": 300000,
+     "target": 0.05
+    },
+    "passes": true,
+    "sample_skewness": 0.648380292493701
+   }
+  },
+  "reps": 300000,
+  "status": "planning only, not the binding check (that runs in the strict run after calibration, with the calibrated delta_NI, through the frozen probe)",
+  "would_pass_per_template_rule": true
+ }
+}

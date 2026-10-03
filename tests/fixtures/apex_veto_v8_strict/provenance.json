@@ -1,0 +1,17 @@
+{
+ "files": {
+  "screen_A_scripted_w0.json": {
+   "arm": "A",
+   "sha256": "0f0d87ad4c57e11d6006ff6d9fefc7dbfec8c7535d44976687a843b8c8de0525",
+   "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-screen-20261002/run-v1/shard-0/records/A-scripted-131496057.json",
+   "world_seed": 131496057
+  },
+  "screen_B_scripted_w0.json": {
+   "arm": "B",
+   "sha256": "6e488beb16c8301c30b030e15afca495af643a1380bdd553b01376312faf0fc3",
+   "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-screen-20261002/run-v1/shard-0/records/B-scripted-131496057.json",
+   "world_seed": 131496057
+  }
+ },
+ "note": "v8 screen (apex-veto-v8-screen-20261002/run-v1, commit e260617) arm A (v7 lambda 4) and B (v8 lambda 8) records of scripted world 0; record-shape fixtures only"
+}
