@@ -23,8 +23,9 @@ of 130 mass per mix, the size the v7 screen observed (+135 to +154, a screen est
 evidence), passes a sequential gate at the first quarter of N_max in 99.8% of simulated runs. That is about 61 rather than 243 worlds per mix, saving roughly
 three quarters of the final-stage compute. A null candidate stops for futility at the half or
 three-quarter look in 89% of runs. At the MDE, the cost is about 2 points of power against
-fixed Holm (94.3% vs 96.3% at SD 140, delta 30). Type-I error stays at or below 0.05
-(validation README).
+fixed Holm (94.3% vs 96.3% at SD 140, delta 30). Type-I error stays at or below 0.05 with
+normal deltas (validation README). These figures assume the bands pass; item 5 gives the band
+cost at early stops, and item 9 the skew limit.
 
 ## The design (method `strict-sequential-obf-bonferroni-v1`)
 
@@ -45,7 +46,30 @@ fixed Holm (94.3% vs 96.3% at SD 140, delta 30). Type-I error stays at or below 
 4. **Scripted noninferiority.** Its own OBF spending at 0.05. NI is established at the first
    look where `mean - t_{n-1}(nominal_k) x se > -delta_NI` (strict `>`). NI is a conjunct of
    PASS, so it takes no multiplicity share.
-5. **Behavioral bands** are checked on all candidate records available at each look.
+5. **Behavioral bands (`band_policy = "block_at_stop"`).** Bands are judged once per run, at
+   the *qualifying look*: the first look where at least 2 mixes have crossed and NI is
+   established. They never delay a stop. If they fail there, the gate ends
+   `STOP_FAIL_BANDS`. Looks before the qualifying look do not judge bands. At an interim
+   qualifying look, every band must hold with a margin, through `band_check`. The margin is
+   `band_margin_z x sd x (1/sqrt(n_k) - 1/sqrt(N_max))`, with `band_margin_z` pre-registered
+   (default 1.645). At the last look the margin is 0, which is the fixed-N point rule.
+   - **Why.** A band is a point threshold on a mean, for example candidate survival_fraction
+     at or above the reference minus 0.02. Re-checking it at every look, as the first draft
+     did, gives a band-violating candidate up to four chances, with only 61 worlds per mix at
+     look 1. Simulation (validation README, `skew_probe.py --part bands`): for a candidate
+     whose violation the fixed-N gate catches 95% of the time (true mean 1.645 final-N
+     standard errors outside the band) and that stops at look 1, the old rule let the band
+     pass 26-27% of the time. Delaying instead of failing, even with the margin, gave 11-12%.
+     `block_at_stop` gave 5.0%, the same as fixed N (4.8-5.0%).
+   - **Guarantee.** With band data independent of the efficacy data, a candidate that the
+     fixed-N band catches with probability at least `Phi(band_margin_z)` (95% at the default)
+     is caught at an interim stop with at least that probability. For smaller violations,
+     the interim check is stricter than the fixed one.
+   - **Cost.** A good candidate that stops early can fail the band by chance, because the
+     margin is applied to only 61 worlds. With true survival 2 final-N standard errors
+     inside the band, the band passed 57-58% of the time at a look-1 stop, against 98% at
+     fixed N. The study's pilot survival SD sets how large this is in band units, so the
+     pre-registration reports it (below).
 6. **Futility (non-binding).** At interim looks, a mix that has not crossed is futile when its
    conditional power under the pre-registered MDE is below 0.10. CP uses the current B-value,
    drift `MDE x sqrt(N_max) / sd_hat`, and the final boundary. The gate stops for futility
@@ -53,15 +77,33 @@ fixed Holm (94.3% vs 96.3% at SD 140, delta 30). Type-I error stays at or below 
    computed ignoring futility, so following or overriding a futility stop cannot raise
    type-I error.
 7. **Decisions.**
-   - At an interim look: `STOP_PASS` (at least 2 mixes crossed, NI established and bands
-     pass), `STOP_FUTILE`, or `CONTINUE`.
-   - At the last look: `FINAL_PASS` or `FINAL_FAIL`.
-   - Outcome mapping: `STOP_PASS` and `FINAL_PASS` become `STRICT_PASS`, and `STOP_FUTILE` and
-     `FINAL_FAIL` become `STRICT_FAIL`. Both still need audit PASS, exactly as today.
+   - At an interim look: `STOP_PASS` (qualifying look, bands pass), `STOP_FAIL_BANDS`
+     (qualifying look, bands fail), `STOP_FUTILE`, or `CONTINUE`.
+   - At the last look: `FINAL_PASS` (qualifies and the bands pass) or `FINAL_FAIL`.
+   - Outcome mapping: `STOP_PASS` and `FINAL_PASS` become `STRICT_PASS`. `STOP_FAIL_BANDS`,
+     `STOP_FUTILE` and `FINAL_FAIL` become `STRICT_FAIL`. Both still need audit PASS, exactly
+     as today.
 8. **z/t approximation.** The boundaries are exact on the z scale (recursive integration). Each
    look's paired t statistic is compared with its own t distribution at the boundary's nominal
    level. The validation measured no detectable inflation at 61 or more worlds per look with
-   normal data. Skewed data are a disclosed limit (below).
+   normal data.
+9. **Skew sensitivity, shared with the fixed-N gate.** The paired t test is not robust to
+   strongly left-skewed deltas (a candidate that is occasionally much worse), and the early
+   looks add a little to that. Single-mix probe at the null, 300k replicates per row,
+   gamma-shaped deltas with SD 140 (`skew_probe.py --part gamma`):
+
+   | Skewness | Efficacy any-look (target 0.0167) | Fixed-N at 0.05/3 | Look-1 crossing (nominal 1.77e-6) | NI any-look (target 0.05) | Fixed-N NI |
+   |---|---|---|---|---|---|
+   | -2.83 | 0.0397 | 0.0323 | 1.26e-3 | 0.0877 | 0.0720 |
+   | -1.0 | 0.0232 | 0.0218 | 3.7e-5 | 0.0608 | 0.0573 |
+   | 0 (normal) | 0.0165 | 0.0166 | 3.3e-6 | 0.0498 | 0.0501 |
+   | +2.83 | 0.0067 | 0.0076 | 0 | 0.0291 | 0.0329 |
+
+   Right skew is conservative in both gates. At strong left skew, the fixed-N gate is already
+   about twice its nominal level, and the sequential gate adds about 0.007 (efficacy) and
+   0.016 (NI). A larger first look (fractions 0.5, 0.75, 1.0) did not help: 0.0401 and
+   0.0849. The check below is therefore required, and its remedy is a different statistic,
+   not a different look schedule.
 
 ## What must be pre-registered (in addition to the existing Tier-2 list)
 
@@ -70,12 +112,19 @@ All of the following are frozen in `intent.json` before any final-stage episode 
 - **Method version and plan.** The method version string and the full plan
   (`SequentialGatePlan.as_dict()`), with its sha256 over canonical JSON. That covers mixes,
   scripted mix, N_max, look sizes, fractions, family alpha, per-mix alpha, NI alpha, every
-  boundary and nominal level, required successes, MDE and the futility CP threshold.
+  boundary and nominal level, required successes, MDE, the futility CP threshold, the
+  futility policy, the band policy and the band margin z.
 - **Spending function.** The spending function by name (Lan-DeMets O'Brien-Fleming) and the
   multiplicity rule (Bonferroni across mixes).
-- **Futility rule and policy.** The futility rule, and whether futility stops are followed.
-  The default is followed. Overriding is allowed only if pre-registered, and every override
-  is disclosed.
+- **Futility rule and policy.** The futility rule, and whether futility stops are followed,
+  as the plan field `futility_policy` (`followed`, the default, or `overridable`). It is
+  part of the hashed plan. Overriding is allowed only under `overridable`, and every
+  override is disclosed. Under `followed`, `sequential_decision` marks any look evaluated
+  after a futility stop `valid = false` with `unregistered_futility_override = true`.
+- **Band policy.** `band_policy = "block_at_stop"` and `band_margin_z` (default 1.645), both
+  in the hashed plan, plus every band's metric, bounds and mix scope. Also report the
+  early-stop band cost: using the pilot candidate SD of each band metric, the probability
+  that a candidate equal to the reference fails the band at a look-1 stop.
 - **delta_NI.** It is computed by the calibration stage before the first final world, as today,
   and is frozen from then on.
 - **Interleaving plan.** The world-major round-robin order from `round_robin_plan`: unit
@@ -86,6 +135,23 @@ All of the following are frozen in `intent.json` before any final-stage episode 
   `research/sequential_gate_validation_20261002/simulate.py`, run with the pilot SD. It
   reports type-I error under the global null, the least-favorable configuration and the NI
   null, plus power and expected worlds at the MDE.
+- **Resampling operating-characteristics check (must pass before the first final world).**
+  Run `research/sequential_gate_validation_20261002/skew_probe.py --part resample` on the
+  study's own saved paired deltas (screen or pilot, Tier 0 data), once per mix, with the
+  frozen N_max and delta_NI. The script centres the deltas at the efficacy null (mean 0) and
+  at the NI null (mean -delta_NI), resamples with replacement, and reports the per-mix
+  any-look crossing rates. Acceptance thresholds, fixed by this amendment:
+  - per-mix efficacy any-look rate at most 1.2 x 0.05/3 = 0.020;
+  - scripted NI any-look rate at most 0.06.
+
+  The script's `passes` field applies both. Its outputs and their sha256 go into
+  `intent.json`. If the check fails, the study does not proceed under this method.
+  Moving the first look later does not fix strong skew (item 9). The pre-registered
+  remedy is to stop and choose one of two paths. Path one is a new method version with a
+  skew-robust interim and final statistic, such as a bootstrap-t or a skew-corrected t,
+  validated by its own Monte Carlo before use. Path two is a governance decision on the
+  fixed-N gate. That gate shares the sensitivity, so the same resampling check applies to
+  it. A study may not proceed on a failed check.
 - **Sizing.** N_max is sized from development-only variance. It equals the fixed-N requirement
   inflated for the looks (about 2% for four OBF looks), or is set directly by the
   simulation. The existing caps, kill criterion and 70% runtime rule apply to N_max.
@@ -122,7 +188,8 @@ MDE, the futility threshold and the world order.
   4.3326, 2.9631, 2.3590 and 2.0141. Its boundaries must match the intent's plan within 2e-4
   on the z scale.
 - **Recompute every look.** From raw records, the auditor recomputes every look up to the stop:
-  per-mix paired t and nominal-level comparisons, NI lower bounds, conditional power and the
+  per-mix paired t and nominal-level comparisons, NI lower bounds, conditional power, the
+  qualifying look, the bands at that look only (mean, SD and the `band_check` margin) and the
   decision sequence. It verifies that no earlier look should already have stopped (or that the
   override was pre-registered), and that the stop look's decision matches the look receipt.
 - **Check prefix integrity.** The auditor checks that every look used exactly the plan-prefix
@@ -146,8 +213,19 @@ MDE, the futility threshold and the world order.
 
 - No strict runner implements the look barrier, look receipts or the sequential audit yet. That
   is the next lane, as a new package that does not modify existing ones.
-- The validation used normal deltas. Before the first sequential Tier-2 run, repeat the type-I
-  check by bootstrapping saved screen deltas (Tier 0).
+- **Skew.** Type-I control is shown for normal deltas only. Strong left skew inflates both
+  gates (item 9). The resampling check in the pre-registration list is the safeguard, and it
+  has a pass criterion. No skew-robust statistic is implemented yet.
+- **Bands are not yet calibrated for selection.** The `block_at_stop` guarantee assumes band
+  data independent of the mass deltas. With per-world correlation 0.5 between survival and
+  mass delta, and a delta-30 candidate, the band-edge pass rate was 6.4% against 5.75% for
+  fixed N. Fixed N shows the same selection effect, but less of it. Band metrics with
+  stronger dependence on mass are not simulated. A study whose band metric is strongly
+  tied to the efficacy metric should simulate its plan with resampled joint records before
+  adopting it.
+- **Bands cost power at early stops** (item 5): a good candidate can fail a band on 61
+  worlds. This is a deliberate trade: the gate fails rather than letting a band violation
+  through.
 - The Holm-type (graphical) sequential variant is not implemented.
 - Mixes run together until the overall stop. Dropping a mix that has already crossed or is
   futile would save more worlds, but it complicates NI and the bands and is not proposed.

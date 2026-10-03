@@ -16,6 +16,18 @@ OMP_NUM_THREADS=1 ./venv/bin/python research/sequential_gate_validation_20261002
 OMP_NUM_THREADS=1 ./venv/bin/python research/sequential_gate_validation_20261002/simulate.py --part crosscheck --out <dir outside repo>
 ```
 
+Skew and band probes (single-threaded, fixed seeds; measured CPU 23.5 s and 2.6 s):
+
+```
+OMP_NUM_THREADS=1 ./venv/bin/python research/sequential_gate_validation_20261002/skew_probe.py --part gamma --out <file outside repo>
+OMP_NUM_THREADS=1 ./venv/bin/python research/sequential_gate_validation_20261002/skew_probe.py --part bands --reps 25000 --out <file outside repo>
+```
+
+The same script's `--part resample --deltas <saved deltas.json>` is the pre-registered
+resampling check of the amendment (thresholds 0.020 efficacy and 0.06 NI, per mix).
+Outputs for this README: `seqgate/skew.json` (sha256 `271ee905…cab9`) and
+`seqgate/bands.json` (sha256 `e49c533b…ed52`), in the session scratchpad, not the repo.
+
 The script pins every BLAS/OpenMP thread variable to 1 before it imports numpy. It uses numpy
 plus the repo's stdlib statistics and nothing else, and it has fixed seeds. Only the
 `cpu_seconds` fields change between runs. Measured CPU time: `mc` 17.0 s, `crosscheck` 43.7 s.
@@ -31,7 +43,7 @@ The outputs for this README were written to the session scratchpad (`seqgate/mc.
 | Scripted NI | own OBF spending at 0.05; z bounds 3.741, 2.534, 2.011, 1.721; nominal p 9.2e-5, 5.64e-3, 2.215e-2, 4.261e-2 |
 | Statistic | paired t per mix, compared with its own t distribution at the nominal p (tail matching) |
 | Futility | non-binding; a mix is futile if its conditional power under MDE 30 is below 0.10; stop when 2 or more mixes are futile |
-| PASS | at least 2 of 3 mixes crossed, NI established, bands pass. Bands are not simulated and are assumed to pass. |
+| PASS | at least 2 of 3 mixes crossed, NI established, bands pass at that qualifying look. In `simulate.py` the bands are assumed to pass; the band policy is simulated separately (below). |
 | Data | normal paired deltas, SD 140 per mix. Mixes are independent, or have between-mix correlation 0.5 (`corr50`), because the strict mixes share world seeds. |
 | delta_NI | 3.5. This is illustrative: the v5 strict margin was 3.17, and each study takes its real margin from calibration. |
 
@@ -109,11 +121,48 @@ t-distribution loss.
   corr-0.5 runs show the familywise rate falling (0.0438), while P(2 or more false) rises to
   0.0053. That is still far below 0.05.
 
+## Skew sensitivity (`skew_probe.py --part gamma`, 300k replicates per row, one mix)
+
+| Skewness | Efficacy any-look (target 0.0167) | Fixed-N | Look 1 (nominal 1.77e-6) | NI any-look (target 0.05) | Fixed-N NI |
+|---|---|---|---|---|---|
+| -2.83 | 0.0397 | 0.0323 | 1.26e-3 | 0.0877 | 0.0720 |
+| -1.0 | 0.0232 | 0.0218 | 3.7e-5 | 0.0608 | 0.0573 |
+| 0 | 0.0165 | 0.0166 | 3.3e-6 | 0.0498 | 0.0501 |
+| +2.83 | 0.0067 | 0.0076 | 0 | 0.0291 | 0.0329 |
+
+Left skew inflates both gates; the fixed-N gate is already about twice nominal at skewness
+-2.83, and the sequential looks add about 0.007 (efficacy) and 0.016 (NI). With a larger
+first look (fractions 0.5, 0.75, 1.0) the rates were 0.0401 and 0.0849, so a later first look
+is not a remedy. These numbers reproduce an independent reviewer probe (0.0395, 1.2e-3, 0.088).
+
+## Band policy (`skew_probe.py --part bands`, 25k replicates per row, one mix)
+
+The stop look is the mix's first efficacy crossing. Candidate survival per world is normal,
+correlated `rho` with the mass delta, with its true mean `D` final-N standard errors outside
+the band (`D < 0` is inside). The table gives P(band passes | efficacy qualified).
+
+| Delta, rho | D | `block_at_stop` (adopted) | Delay with margin | Re-check every look (first draft) | Fixed N |
+|---|---|---|---|---|---|
+| 130, 0 | -2 | 0.577 | 0.985 | 0.992 | 0.977 |
+| 130, 0 | 0 | 0.213 | 0.602 | 0.725 | 0.502 |
+| 130, 0 | 1.645 | 0.050 | 0.114 | 0.262 | 0.048 |
+| 130, 0 | 2.5 | 0.020 | 0.033 | 0.118 | 0.007 |
+| 130, 0.5 | 1.645 | 0.050 | 0.118 | 0.267 | 0.050 |
+| 30, 0 | 1.645 | 0.051 | 0.071 | 0.095 | 0.052 |
+| 30, 0.5 | 1.645 | 0.064 | 0.093 | 0.131 | 0.058 |
+| 30, 0.5 | -2 | 0.973 | 0.989 | 0.990 | 0.987 |
+
+The first-draft rule (bands re-checked at every look, point estimate) let a violation that
+fixed N catches 95% of the time pass 26% of the time for a look-1 stopper. `block_at_stop`
+matches fixed N at that point. At D = 2.5 it is looser than fixed N, but it stays below 0.05,
+as `band_check` predicts. Its cost is power: a good candidate (D = -2) that stops at look 1
+passes the band 58% of the time, against 98% at fixed N.
+
 ## Limits
 
-- The data are normal. Real paired mass-integral deltas are skewed and heavy-tailed. At the
-  first look (61 worlds), a skewed distribution could move the t-matched levels more than this
-  shows. Before the first sequential Tier-2 run, repeat the type-I check with a bootstrap from
-  saved screen deltas (Tier 0, saved data).
-- The behavioral bands are assumed to pass. Overrun and look-barrier timing are not simulated.
+- The main Monte Carlo uses normal data. Skewed deltas are covered by the probe above, and
+  each study must pass the resampling check on its own saved deltas before its first final
+  world.
+- The band simulation uses one mix, normal survival and correlation at most 0.5. Overrun and
+  look-barrier timing are not simulated.
 - delta_NI = 3.5 and MDE 30 are illustrative. Each study simulates its own plan.

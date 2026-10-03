@@ -9,6 +9,7 @@ import pytest
 
 from src.evaluation.sequential_gate import (
     SequentialGatePlan,
+    band_check,
     conditional_power,
     look_sizes_for,
     round_robin_plan,
@@ -102,6 +103,21 @@ def test_plan_rejects_bad_inputs():
         sequential_gate_plan(243, mde=30.0, family_alpha=0.6)
     with pytest.raises(ValueError):
         sequential_gate_plan(243, mde=30.0, required_successes=4)
+    with pytest.raises(ValueError):
+        sequential_gate_plan(243, mde=30.0, futility_policy="sometimes")
+    with pytest.raises(ValueError):
+        sequential_gate_plan(243, mde=30.0, band_policy="recheck_every_look")
+    with pytest.raises(ValueError):
+        sequential_gate_plan(243, mde=30.0, band_margin_z=-1.0)
+
+
+def test_policies_are_part_of_the_hashed_plan(plan):
+    frozen = plan.as_dict()
+    assert frozen["futility_policy"] == "followed"
+    assert frozen["band_policy"] == "block_at_stop"
+    assert frozen["band_margin_z"] == pytest.approx(1.645)
+    other = sequential_gate_plan(243, mde=30.0, futility_policy="overridable").as_dict()
+    assert json.dumps(other, sort_keys=True) != json.dumps(frozen, sort_keys=True)
 
 
 def test_single_look_reduces_to_fixed_bonferroni_and_fixed_ni():
@@ -151,13 +167,56 @@ def test_strong_effect_stops_for_efficacy_at_first_look(plan):
     assert out["ni_crossing_look"] == 0
 
 
-def test_band_failure_blocks_stop_and_crossings_persist(plan):
+def test_band_failure_at_qualifying_look_fails_and_does_not_delay(plan):
     deltas = _draw((300, 300, 300), 122, seed=1)
     first = sequential_decision(plan, 0, _prefix(deltas, 61), 3.5, [False])
-    assert first["decision"] == "CONTINUE" and not first["passes"]
+    assert first["decision"] == "STOP_FAIL_BANDS" and first["stopped"]
+    assert first["valid"] and not first["passes"]
+    assert first["history"][0]["bands_judged"]
     second = sequential_decision(plan, 1, deltas, 3.5, [False, True])
-    assert second["decision"] == "STOP_PASS" and second["valid"]
-    assert second["crossing_looks"] == {m: 0 for m in MIXES}
+    assert not second["valid"] and not second["passes"]
+    assert second["invalid_reason"] == "already_stopped_for_bands_at_look_0"
+    walked = run_sequential_gate(plan, deltas, 3.5, [False, True, True, True])
+    assert walked["decision"] == "STOP_FAIL_BANDS" and walked["look"] == 0
+
+
+def test_bands_are_ignored_before_the_qualifying_look(plan):
+    deltas = _draw((300, -300, 300), 122, seed=2)  # NI fails, so no look qualifies
+    out = sequential_decision(plan, 1, deltas, 3.5, [False, False])
+    assert out["decision"] == "CONTINUE" and out["valid"]
+    assert not any(h["bands_judged"] for h in out["history"])
+
+
+def test_band_check_margin_shrinks_to_point_rule_at_final_n():
+    rng = np.random.default_rng(3)
+    values = (0.8 + 0.1 * rng.standard_normal(243)).tolist()
+    final = band_check(values, 0.75, 1.8, n_final=243)
+    assert final["margin"] == 0.0 and final["passes"]
+    assert final["lower_effective"] == 0.75
+    early = band_check(values[:61], 0.75, 1.8, n_final=243)
+    sd = early["sample_std"]
+    expected = 1.645 * sd * (1 / math.sqrt(61) - 1 / math.sqrt(243))
+    assert early["margin"] == pytest.approx(expected)
+    assert early["lower_effective"] == pytest.approx(0.75 + expected)
+    edge = [0.75 + early["margin"] / 2 + v - early["mean"] for v in values[:61]]
+    assert not band_check(edge, 0.75, 1.8, n_final=243)["passes"]
+    assert band_check(edge, 0.75, 1.8, n_final=243, margin_z=0.0)["passes"]
+    with pytest.raises(ValueError):
+        band_check([0.5], 0.0, 1.0, n_final=243)
+    with pytest.raises(ValueError):
+        band_check([0.5, float("nan")], 0.0, 1.0, n_final=243)
+
+
+@pytest.mark.parametrize("d", [0.0, 0.5, 1.0, 1.645, 2.0, 3.0])
+@pytest.mark.parametrize("ratio", [61 / 243, 0.5, 0.75])
+def test_interim_band_never_looser_than_fixed_at_its_95_percent_catch_point(d, ratio):
+    # Interim pass probability at true violation D (final-N SE units), known sd.
+    z = 1.645
+    interim = N.cdf(-(d * math.sqrt(ratio) + z * (1 - math.sqrt(ratio))))
+    fixed = N.cdf(-d)
+    assert interim <= max(fixed, N.cdf(-z)) + 1e-12
+    if d <= z:
+        assert interim <= fixed + 1e-12
 
 
 def test_noninferiority_failure_continues_then_fails_at_final_look(plan):
@@ -182,7 +241,15 @@ def test_clear_loser_stops_for_futility(plan):
 def test_futility_is_non_binding_but_efficacy_stop_is_final(plan):
     losers = _draw((-100, -100, -100), 122, seed=4)
     overridden = sequential_decision(plan, 1, losers, 3.5, [True, True])
-    assert overridden["valid"] and overridden["futility_overrides"] == [0]
+    assert overridden["futility_overrides"] == [0]
+    assert not overridden["valid"] and overridden["unregistered_futility_override"]
+    assert (
+        overridden["invalid_reason"] == "futility_stop_at_look_0_overridden_under_policy_followed"
+    )
+    open_plan = sequential_gate_plan(243, mde=30.0, futility_policy="overridable")
+    allowed = sequential_decision(open_plan, 1, losers, 3.5, [True, True])
+    assert allowed["valid"] and allowed["futility_overrides"] == [0]
+    assert not allowed["unregistered_futility_override"]
     winners = _draw((300, 300, 300), 122, seed=1)
     late = sequential_decision(plan, 1, winners, 3.5, [True, True])
     assert not late["valid"] and not late["passes"]
@@ -235,6 +302,7 @@ def test_run_sequential_gate_walks_looks(plan):
     assert stop["decision"] == "STOP_FUTILE" and stop["look"] == 0
     full = run_sequential_gate(plan, losers, 3.5, honor_futility=False)
     assert full["decision"] == "FINAL_FAIL" and full["futility_overrides"] == [0, 1, 2]
+    assert not full["valid"] and full["unregistered_futility_override"]
     partial = run_sequential_gate(plan, _draw((0, 0, 0), 130, seed=6), 3.5, honor_futility=False)
     assert partial["look"] == 1
     with pytest.raises(ValueError):
@@ -283,3 +351,32 @@ def test_small_simulation_sanity(plan):
     null = [run_sequential_gate(plan, _draw((0, 0, 0), 243, seed=100 + s), 3.5) for s in range(20)]
     assert not any(r["passes"] for r in null)
     assert all(r["decision"] in ("STOP_FUTILE", "FINAL_FAIL") for r in null)
+
+
+def _skew_probe():
+    import importlib.util
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parents[1] / (
+        "research/sequential_gate_validation_20261002/skew_probe.py"
+    )
+    spec = importlib.util.spec_from_file_location("seq_skew_probe", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_skew_probe_rates_and_resample_check(plan, tmp_path):
+    probe = _skew_probe()
+    normal = probe.crossing_rates(
+        probe.gamma_sampler(0.0), plan, reps=20_000, seed=3, centre=0.0, ni=False
+    )
+    assert 0.010 < normal["any_look"] < 0.024 and normal["look_1"] < 1e-3
+    skewed = probe.crossing_rates(
+        probe.gamma_sampler(-2.83), plan, reps=20_000, seed=3, centre=0.0, ni=False
+    )
+    assert skewed["any_look"] > normal["any_look"]
+    saved = tmp_path / "deltas.json"
+    saved.write_text(json.dumps((np.random.default_rng(4).standard_normal(300) * 140).tolist()))
+    ok = probe.part_resample(str(saved), 20_000, 243, 3.5, (0.25, 0.5, 0.75, 1.0))
+    assert ok["passes"] and ok["look_sizes"] == [61, 122, 183, 243]

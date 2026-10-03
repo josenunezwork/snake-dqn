@@ -44,12 +44,22 @@ Design (all pre-registered in a :class:`SequentialGatePlan` before any final dat
   below ``futility_cp`` (default 0.10).  CP ignores the remaining interim boundaries,
   so it slightly understates the true chance (a mildly aggressive stop).  The efficacy
   boundaries are computed *ignoring* futility, so stopping or overriding a futility
-  stop can only lower the type-I error.
-* **Decision at look k.**  ``STOP_PASS`` if ``>= required_successes`` mixes have crossed
-  AND scripted NI is established AND the behavioral bands pass on the data so far;
-  ``STOP_FUTILE`` if so many uncrossed mixes are futile that ``required_successes``
-  can no longer be reached; else ``CONTINUE``.  At the last look: ``FINAL_PASS`` under
-  the same conjunction, otherwise ``FINAL_FAIL``.
+  stop can only lower the type-I error.  ``plan.futility_policy`` pre-registers whether
+  futility stops are ``"followed"`` (default) or ``"overridable"``; evaluating a look
+  after a futility stop under a ``"followed"`` plan gives ``valid=False``.
+* **Behavioral bands (``band_policy="block_at_stop"``).**  Bands are judged only at the
+  *qualifying* look, the first look where ``>= required_successes`` mixes have crossed
+  and scripted NI is established.  They never delay a stop: if they fail there, the
+  gate ends ``STOP_FAIL_BANDS`` (one band check per run, not one per look).  At an
+  interim look a band must hold with the margin of :func:`band_check`,
+  ``band_margin_z * sd * (1/sqrt(n_k) - 1/sqrt(n_final))``; at the last look the margin
+  is 0 (the fixed-N point rule).  For independent band data, a candidate whose band
+  violation the fixed-N gate catches with probability ``>= Phi(band_margin_z)`` is caught
+  at an interim stop with at least that probability.
+* **Decision at look k.**  At a qualifying interim look ``STOP_PASS`` if the bands pass,
+  else ``STOP_FAIL_BANDS``; otherwise ``STOP_FUTILE`` if so many uncrossed mixes are
+  futile that ``required_successes`` can no longer be reached; else ``CONTINUE``.  At
+  the last look: ``FINAL_PASS`` if it qualifies and the bands pass, else ``FINAL_FAIL``.
 
 Every function is pure and deterministic: a decision at look ``k`` replays looks
 ``0..k`` from prefixes of the supplied deltas, so an auditor needs only the plan, the
@@ -71,6 +81,7 @@ __all__ = [
     "DEFAULT_FRACTIONS",
     "SEQUENTIAL_GATE_METHOD",
     "SequentialGatePlan",
+    "band_check",
     "conditional_power",
     "look_sizes_for",
     "round_robin_plan",
@@ -84,6 +95,9 @@ SEQUENTIAL_GATE_METHOD = "strict-sequential-obf-bonferroni-v1"
 DEFAULT_FRACTIONS = (0.25, 0.5, 0.75, 1.0)
 DEFAULT_MIXES = ("frozen", "scripted", "mixed")
 DEFAULT_FUTILITY_CP = 0.10
+DEFAULT_BAND_MARGIN_Z = 1.645
+FUTILITY_POLICIES = ("followed", "overridable")
+BAND_POLICIES = ("block_at_stop",)
 _NORMAL = NormalDist()
 
 
@@ -132,6 +146,9 @@ class SequentialGatePlan:
     required_successes: int
     mde: float
     futility_cp: float
+    futility_policy: str = "followed"
+    band_policy: str = "block_at_stop"
+    band_margin_z: float = DEFAULT_BAND_MARGIN_Z
 
     @property
     def n_looks(self) -> int:
@@ -158,6 +175,9 @@ def sequential_gate_plan(
     ni_alpha: float = 0.05,
     futility_cp: float = DEFAULT_FUTILITY_CP,
     required_successes: int = 2,
+    futility_policy: str = "followed",
+    band_policy: str = "block_at_stop",
+    band_margin_z: float = DEFAULT_BAND_MARGIN_Z,
 ) -> SequentialGatePlan:
     """Compute and freeze the looks, boundaries and nominal levels of the gate."""
     names = tuple(str(m) for m in mixes)
@@ -174,6 +194,16 @@ def sequential_gate_plan(
     futility_cp = _probability(futility_cp, "futility_cp")
     if isinstance(mde, bool) or not isinstance(mde, (int, float)) or not 0.0 < mde < math.inf:
         raise ValueError("mde must be a positive finite number")
+    if futility_policy not in FUTILITY_POLICIES:
+        raise ValueError(f"futility_policy must be one of {FUTILITY_POLICIES}")
+    if band_policy not in BAND_POLICIES:
+        raise ValueError(f"band_policy must be one of {BAND_POLICIES}")
+    if (
+        isinstance(band_margin_z, bool)
+        or not isinstance(band_margin_z, (int, float))
+        or not 0.0 <= band_margin_z < math.inf
+    ):
+        raise ValueError("band_margin_z must be a finite number >= 0")
     sizes = look_sizes_for(n_max, fractions)
     per_mix = family_alpha / len(names)
     efficacy = futility_plan(sizes, alpha=per_mix, max_size=n_max)
@@ -196,7 +226,50 @@ def sequential_gate_plan(
         required_successes=required_successes,
         mde=float(mde),
         futility_cp=futility_cp,
+        futility_policy=futility_policy,
+        band_policy=band_policy,
+        band_margin_z=float(band_margin_z),
     )
+
+
+def band_check(
+    values: Sequence[float],
+    lower: float,
+    upper: float,
+    *,
+    n_final: int,
+    margin_z: float = DEFAULT_BAND_MARGIN_Z,
+) -> dict[str, Any]:
+    """One behavioral band on the candidate values available at a look.
+
+    Passes iff ``lower + m <= mean <= upper - m`` with the interim margin
+    ``m = margin_z * sd * (1/sqrt(n) - 1/sqrt(n_final))`` (``m = 0`` once ``n >= n_final``,
+    the fixed-N point rule).  If the true mean sits ``D`` final-N standard errors outside
+    a bound, the interim pass probability is ``Phi(-(D sqrt(n/n_final) + margin_z (1 -
+    sqrt(n/n_final))))``: at most the fixed-N ``Phi(-D)`` while ``D <= margin_z`` and below
+    ``Phi(-margin_z)`` beyond it.
+    """
+    data = [float(v) for v in values]
+    if len(data) < 2 or not all(math.isfinite(v) for v in data):
+        raise ValueError("band_check needs at least two finite values")
+    if isinstance(n_final, bool) or not isinstance(n_final, int) or n_final < 2:
+        raise ValueError("n_final must be an integer >= 2")
+    if not (math.isfinite(margin_z) and margin_z >= 0.0):
+        raise ValueError("margin_z must be a finite number >= 0")
+    n = len(data)
+    mean = math.fsum(data) / n
+    sd = math.sqrt(math.fsum((v - mean) ** 2 for v in data) / (n - 1))
+    margin = margin_z * sd * max(0.0, 1.0 / math.sqrt(n) - 1.0 / math.sqrt(n_final))
+    low, high = float(lower) + margin, float(upper) - margin
+    return {
+        "n": n,
+        "mean": mean,
+        "sample_std": sd,
+        "margin": margin,
+        "lower_effective": low,
+        "upper_effective": high,
+        "passes": bool(low <= mean <= high),
+    }
 
 
 def conditional_power(z: float, fraction: float, final_boundary: float, drift: float) -> float:
@@ -282,11 +355,11 @@ def _validated_deltas(
 def _decide(
     plan: SequentialGatePlan, look: int, successes: int, futile: int, ni: bool, bands: bool
 ) -> str:
-    qualifies = successes >= plan.required_successes and ni and bands
+    qualifies = successes >= plan.required_successes and ni
     if look == plan.n_looks - 1:
-        return "FINAL_PASS" if qualifies else "FINAL_FAIL"
-    if qualifies:
-        return "STOP_PASS"
+        return "FINAL_PASS" if qualifies and bands else "FINAL_FAIL"
+    if qualifies:  # band_policy "block_at_stop": bands judged once, never delay
+        return "STOP_PASS" if bands else "STOP_FAIL_BANDS"
     if len(plan.mixes) - futile < plan.required_successes:
         return "STOP_FUTILE"
     return "CONTINUE"
@@ -303,11 +376,14 @@ def sequential_decision(
 
     ``deltas_by_mix[m]`` holds exactly ``plan.look_sizes[look]`` candidate-minus-incumbent
     deltas of mix ``m`` in the pre-declared world order; earlier looks are its prefixes.
-    ``bands_pass[i]`` is the behavioral-band verdict on the data available at look ``i``
-    (one entry per look ``0..look``).  If an earlier look already reached ``STOP_PASS`` the
-    result is invalid (evaluating past an efficacy stop); an earlier ``STOP_FUTILE`` that
-    was overridden is allowed (futility is non-binding) and listed in
-    ``futility_overrides``.
+    ``bands_pass[i]`` is the behavioral-band verdict (every band through :func:`band_check`
+    with ``plan.band_margin_z`` and ``n_final = plan.n_max``) on the data available at look
+    ``i``, one entry per look ``0..look``; only the qualifying look's entry is used.  If an
+    earlier look already reached ``STOP_PASS`` or ``STOP_FAIL_BANDS`` the result is invalid.
+    An earlier ``STOP_FUTILE`` that was overridden is listed in ``futility_overrides``; it
+    is valid only under ``futility_policy="overridable"`` (futility is non-binding, so
+    type-I error is unaffected either way, but an unregistered override is a protocol
+    deviation and ``unregistered_futility_override`` is set).
     """
     if not isinstance(plan, SequentialGatePlan):
         raise TypeError("plan must be a SequentialGatePlan")
@@ -353,13 +429,16 @@ def sequential_decision(
                 "futile_mixes": futile,
                 "ni_established": ni_look is not None,
                 "bands_pass": bands[index],
+                "bands_judged": len(successes) >= plan.required_successes and ni_look is not None,
             }
         )
 
     earlier = history[:-1]
-    efficacy_stops = [h["look"] for h in earlier if h["decision"] == "STOP_PASS"]
+    final_stops = [h for h in earlier if h["decision"] in ("STOP_PASS", "STOP_FAIL_BANDS")]
+    overrides = [h["look"] for h in earlier if h["decision"] == "STOP_FUTILE"]
+    unregistered = bool(overrides) and plan.futility_policy != "overridable"
     current = history[-1]
-    valid = not efficacy_stops
+    valid = not final_stops and not unregistered
     result: dict[str, Any] = {
         "method": SEQUENTIAL_GATE_METHOD,
         "look": look,
@@ -379,12 +458,18 @@ def sequential_decision(
         "absolute_delta_ni": margin,
         "per_mix": per_mix,
         "scripted_noninferiority": ni_record,
-        "futility_overrides": [h["look"] for h in earlier if h["decision"] == "STOP_FUTILE"],
+        "futility_overrides": overrides,
+        "unregistered_futility_override": unregistered,
         "history": history,
         "plan": plan.as_dict(),
     }
-    if not valid:
-        result["invalid_reason"] = f"already_stopped_for_efficacy_at_look_{efficacy_stops[0]}"
+    if final_stops:
+        kind = "efficacy" if final_stops[0]["decision"] == "STOP_PASS" else "bands"
+        result["invalid_reason"] = f"already_stopped_for_{kind}_at_look_{final_stops[0]['look']}"
+    elif unregistered:
+        result["invalid_reason"] = (
+            f"futility_stop_at_look_{overrides[0]}_overridden_under_policy_followed"
+        )
     return result
 
 
@@ -399,7 +484,8 @@ def run_sequential_gate(
     """Walk the looks reachable with the supplied deltas and stop at the first stop.
 
     ``bands_pass_by_look`` defaults to all-pass.  With ``honor_futility=False`` futility
-    stops are recorded and overridden (the type-I-relevant, non-binding reading).
+    stops are recorded and overridden (the type-I-relevant, non-binding reading); under a
+    ``futility_policy="followed"`` plan the result is then marked invalid.
     """
     available = min(len(list(deltas_by_mix[m])) for m in plan.mixes)
     bands = [True] * plan.n_looks if bands_pass_by_look is None else list(bands_pass_by_look)
@@ -409,7 +495,7 @@ def run_sequential_gate(
             break
         prefixes = {m: list(deltas_by_mix[m])[:size] for m in plan.mixes}
         last = sequential_decision(plan, look, prefixes, absolute_delta_ni, bands[: look + 1])
-        if last["decision"] in ("STOP_PASS", "FINAL_PASS", "FINAL_FAIL"):
+        if last["decision"] in ("STOP_PASS", "STOP_FAIL_BANDS", "FINAL_PASS", "FINAL_FAIL"):
             break
         if last["decision"] == "STOP_FUTILE" and honor_futility:
             break
