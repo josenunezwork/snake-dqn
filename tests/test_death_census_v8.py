@@ -138,6 +138,10 @@ def snap0(**over):
     [
         ({}, "kept"),
         ({"no_spacious": 1, "head_risky_vetoes": 1}, "no_spacious"),
+        (
+            {"no_spacious": 1, "v5_base_landing_failed": 1, "v5_boost_landing_no_eligible": 1},
+            "landing_no_eligible",
+        ),
         ({"head_risky_vetoes": 1, "v7_rerank_changes": 1}, "head_veto"),
         ({"v7_rerank_changes": 1, "v5_vetoes_applied": 1}, "v7_rerank"),
         ({"v5_base_landing_failed": 1, "v5_boost_landing_no_eligible": 1}, "landing_no_eligible"),
@@ -400,26 +404,51 @@ def test_analyze_census_death_self_and_v8_view():
         "taken_escaped",
         "unresolved",
     )
-    assert out["trap_class"] in ("beyond_lookahead", "inside_lookahead", "no_count_pnr")
+    assert out["trap_class"] in (
+        "beyond_lookahead",
+        "inside_lookahead",
+        "no_count_pnr",
+        "beyond_window",
+        "unresolved",
+    )
     assert "evaluated_frames" not in out and out["deadline_hit"] is False
     assert base.EscapeSearch is not c.DeadlineEscapeSearch
 
 
 def test_trap_class():
-    assert c.trap_class({"count_pnr_v8": None}) == "no_count_pnr"
-    assert c.trap_class({"count_pnr_v8": {"taken_direction_spacious": True}}) == "beyond_lookahead"
-    assert c.trap_class({"count_pnr_v8": {"taken_direction_spacious": False}}) == "inside_lookahead"
+    def death(status="exact", taken=base.NO_ESCAPE, view=None):
+        walk = {"status": status, "taken_status": taken}
+        return {"sensitivity": {base.COUNT_ONLY: {"walk": walk}}, "count_pnr_v8": view}
+
+    spacious = {"taken_direction_spacious": True}
+    tight = {"taken_direction_spacious": False}
+    assert c.trap_class(death(view=spacious)) == "beyond_lookahead"
+    assert c.trap_class(death(view=tight)) == "inside_lookahead"
+    assert c.trap_class(death(view=None)) == "no_count_pnr"
+    assert c.trap_class(death("beyond_window")) == "beyond_window"
+    assert c.trap_class(death("unknown", view=spacious)) == "unresolved"
+    assert c.trap_class(death(taken=base.UNKNOWN, view=spacious)) == "unresolved"
+
+
+def test_analysis_errors_are_recorded_not_raised(tmp_path):
+    job = (str(tmp_path / "missing.npz"), str(tmp_path / "p.json"), META, "self", 5, 100, 1.0)
+    out = c.analyze_death_file(job)
+    assert "error" in out and "traceback" in out
+    ep = _episode("frozen", 1, True, "self", mass=7.0, death_t=6)
+    s = c.summarize_census([ep], [{"mix": "frozen", "world_seed": 1, **out}])
+    assert s["analysis"]["errors"][0]["world_seed"] == 1
+    assert s["headroom_by_mode"]["self:unanalyzed"]["episodes"] == 1
 
 
 # ---------------------------------------------------------------------------
 # Headroom and summary
 # ---------------------------------------------------------------------------
 def test_death_headroom_and_mode():
-    h = c.death_headroom(999, 100, 5000, 0.02)
+    h = c.death_headroom(1000, 100, 5000, 0.02)
     assert h["remaining_frames"] == 4000
     assert h["hold"] == pytest.approx(80.0)
     assert h["grow"] == pytest.approx(80.0 + 0.02 * 4000 * 4000 / 10000)
-    assert c.death_headroom(4999, 100, 5000, 1.0)["grow"] == 0.0
+    assert c.death_headroom(5000, 100, 5000, 1.0)["grow"] == 0.0
     ep = {"died": True, "death_cause": "head_on"}
     avoid = {"fatal": {"any_legal_alternative_avoids_with_escape": True}}
     assert c.death_mode(ep, avoid) == "head_on:avoidable"
@@ -498,8 +527,8 @@ def test_summarize_census():
     assert s["mass_integral"]["frozen"]["mean"] == pytest.approx(10.75)
     hr = s["headroom_by_mode"]["head_on:avoidable"]
     assert hr["episodes"] == 1
-    # death at index 6 of 10 frames, mass 15: hold = 15 * 3 / 10 over 3 episodes
-    assert hr["pooled_gain_hold"] == pytest.approx(15 * 3 / 10 / 3)
+    # death at index 6 of 10 frames (frames 6..9 dead), mass 15: hold = 15 * 4 / 10 / 3
+    assert hr["pooled_gain_hold"] == pytest.approx(15 * 4 / 10 / 3)
     assert s["fatal_frame_by_cause"]["head_on"]["any_legal_alternative_avoids_with_escape"] == 1
     assert s["decisions"]["by_reason"]["head_veto"] == 3
     assert s["veto_latency"]["over_16ms"] == 1
@@ -570,6 +599,10 @@ def _write_shard(root, k, episodes, deaths, intent_over=None):
         "profile": {"h": 10},
         "veto": {"v": 8},
         "engine": {"e": "simd"},
+        "search": {"depth": 40},
+        "capture": {"w": 120},
+        "config": {"sha256": "x"},
+        "hero": {"sha256": "h"},
     }
     intent.update(intent_over or {})
     (d / "intent.json").write_text(json.dumps(intent))
@@ -608,6 +641,10 @@ def test_merge(tmp_path):
     _write_shard(other, 1, [e1], [_jsonable(_death("frozen", 1))])
     _write_shard(other, 2, [e2], [], {"git": {"commit": "zzz", "dirty_paths": ""}})
     assert c.main(["merge", "--root", str(other), "--shards", "2", "--smoke"]) == 2
+    knob = tmp_path / "knob"
+    _write_shard(knob, 1, [e1], [_jsonable(_death("frozen", 1))])
+    _write_shard(knob, 2, [e2], [], {"search": {"depth": 10}})
+    assert c.main(["merge", "--root", str(knob), "--shards", "2", "--smoke"]) == 2
 
 
 # ---------------------------------------------------------------------------

@@ -63,7 +63,7 @@ import os
 os.environ.setdefault("SNAKE_DQN_DEVICE", "cpu")
 os.environ.setdefault("OMP_NUM_THREADS", "2")
 os.environ.setdefault("MKL_NUM_THREADS", "2")
-REQUIRED_ENV = {"SNAKE_DQN_DEVICE": "cpu", "OMP_NUM_THREADS": "2"}
+REQUIRED_ENV = {"SNAKE_DQN_DEVICE": "cpu", "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2"}
 
 import argparse  # noqa: E402
 import json  # noqa: E402
@@ -309,13 +309,17 @@ def hook_snapshot(hook: Any) -> Dict[str, float]:
 def reason_from_deltas(before: Mapping[str, float], after: Mapping[str, float]) -> Dict[str, Any]:
     """One decision's reason code, head flags and costs from two :func:`hook_snapshot`s.
 
-    Reason = the last layer that set the action: ``no_spacious``; else ``head_veto``; else
-    ``v7_rerank``; else v5's landing reasons; else v5's ``v2_rule`` veto; else ``kept``.
+    Reason = the last layer that set the action: v5's ``landing_no_eligible`` (a boost
+    whose landing failed with no eligible alternative, which can co-occur with
+    ``no_spacious``); else ``no_spacious``; else ``head_veto``; else ``v7_rerank``; else
+    v5's other landing reasons; else v5's ``v2_rule`` veto; else ``kept``.
     """
     d = {k: after[k] - before[k] for k in after}
     if d["decisions"] != 1:
         raise RuntimeError(f"expected exactly one v8 decision per env per call, got {d}")
-    if d["no_spacious"]:
+    if d["v5_base_landing_failed"] and d["v5_boost_landing_no_eligible"]:
+        reason = "landing_no_eligible"
+    elif d["no_spacious"]:
         reason = "no_spacious"
     elif d["head_risky_vetoes"]:
         reason = "head_veto"
@@ -611,7 +615,7 @@ def trajectory_metrics(tr: Mapping[str, np.ndarray], horizon: int) -> Dict[str, 
     died = bool((alive_pre & ~alive).any())
     death_t = int(np.flatnonzero(alive_pre & ~alive)[0]) if died else None
     live_mass = mass[alive]
-    start_mass = int(mass[0]) if alive[0] else 0
+    first_frame_mass = int(mass[0]) if alive[0] else 0
     final_mass = int(live_mass[-1]) if n_alive else 0
     deltas = np.diff(mass)
     both_alive = alive[1:] & alive[:-1]
@@ -628,7 +632,7 @@ def trajectory_metrics(tr: Mapping[str, np.ndarray], horizon: int) -> Dict[str, 
         "died": died,
         "death_frame_index": death_t,
         "mass_integral": float((mass * alive).sum()) / float(horizon),
-        "start_mass": start_mass,
+        "first_frame_mass": first_frame_mass,
         "final_alive_mass": final_mass,
         "peak_mass": int(live_mass.max()) if n_alive else 0,
         "mass_at": {
@@ -639,7 +643,7 @@ def trajectory_metrics(tr: Mapping[str, np.ndarray], horizon: int) -> Dict[str, 
         "food_eaten": eaten,
         "food_per_1000_alive": 1000.0 * eaten / n_alive if n_alive else None,
         "net_growth_per_1000_alive": (
-            1000.0 * (final_mass - start_mass) / n_alive if n_alive else None
+            1000.0 * (final_mass - first_frame_mass) / n_alive if n_alive else None
         ),
         "mass_lost_while_alive": shrink,
         "boost_frames": boost_frames,
@@ -827,8 +831,15 @@ def trap_class(death: Mapping[str, Any]) -> str:
     so the veto had no signal (enterable but doomed further out); ``inside_lookahead``:
     the taken direction was already below ``need`` there (v8 saw it, but no spacious
     alternative or the policy/v7 still chose it); ``no_count_pnr``: the count-only walk
-    found no PNR in the window (enclosed before the window or unknown).
+    found no PNR in the window; ``beyond_window``: every window frame was proven without a
+    count-only escape (enclosed before the window); ``unresolved``: the count-only walk
+    or the taken action's status there is unknown (never guessed).
     """
+    walk = death["sensitivity"][base.COUNT_ONLY]["walk"]
+    if walk["status"] == "beyond_window":
+        return "beyond_window"
+    if walk["status"] != "exact" or walk["taken_status"] != base.NO_ESCAPE:
+        return "unresolved"
     view = death.get("count_pnr_v8")
     if view is None:
         return "no_count_pnr"
@@ -840,12 +851,17 @@ def trap_class(death: Mapping[str, Any]) -> str:
 def analyze_death_file(args: Tuple[str, str, Mapping[str, Any], str, int, int, float]):
     """Pool worker: load one saved death (window npz + post JSON) and analyze it."""
     window_path, post_path, meta, cause, depth, budget, cpu_seconds = args
-    with np.load(window_path) as data:
-        packed = {k: data[k] for k in data.files}
-    post = json.loads(Path(post_path).read_text())
-    return analyze_census_death(
-        unpack_census_window(packed), post, meta, cause, depth, budget, cpu_seconds
-    )
+    try:
+        with np.load(window_path) as data:
+            packed = {k: data[k] for k in data.files}
+        post = json.loads(Path(post_path).read_text())
+        return analyze_census_death(
+            unpack_census_window(packed), post, meta, cause, depth, budget, cpu_seconds
+        )
+    except Exception as exc:  # recorded, never fatal: the simulation is already saved
+        import traceback
+
+        return {"error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
 
 
 # ---------------------------------------------------------------------------
@@ -861,7 +877,7 @@ def death_headroom(
     ``growth_per_frame`` (the mix's median late survivor growth), still without a later
     death (an upper-style estimate).
     """
-    remaining = max(0, int(horizon) - int(death_index) - 1)
+    remaining = max(0, int(horizon) - int(death_index))  # frames t..H-1 are dead
     hold = float(mass_at_death) * remaining / float(horizon)
     grow = hold + max(0.0, float(growth_per_frame)) * remaining * remaining / (2.0 * horizon)
     return {"hold": hold, "grow": grow, "remaining_frames": remaining}
@@ -872,9 +888,9 @@ def death_mode(episode: Mapping[str, Any], death: Optional[Mapping[str, Any]]) -
     cause = episode.get("death_cause")
     if not episode.get("died"):
         return "survived"
+    if death is None and cause in ("self", "head_on"):
+        return f"{cause}:unanalyzed"
     if cause == "self":
-        if death is None:
-            return "self:unanalyzed"
         return f"self:{death['category']}"
     if cause == "head_on" and death is not None:
         fatal = death["fatal"]
@@ -928,6 +944,8 @@ def summarize_census(
     """Outcomes, fatal-frame and PNR tables, near-death veto, trajectories and headroom."""
     horizon = int(episodes[0]["trajectory"]["horizon"]) if episodes else 0
     mixes = sorted({ep["mix"] for ep in episodes})
+    errors = [d for d in deaths if "error" in d]
+    deaths = [d for d in deaths if "error" not in d]
     by_key = {(d["mix"], int(d["world_seed"])): d for d in deaths}
     outcomes: Dict[str, Dict[str, int]] = {}
     for ep in episodes:
@@ -1093,6 +1111,10 @@ def summarize_census(
             ),
         },
         "analysis": {
+            "errors": [
+                {"mix": d["mix"], "world_seed": d["world_seed"], "error": d["error"]}
+                for d in errors
+            ],
             "deaths": len(deaths),
             "deadline_hit": sum(bool(d["deadline_hit"]) for d in deaths),
             "cpu_seconds": _stats([d["cpu_seconds"] for d in deaths]),
@@ -1302,8 +1324,20 @@ def run_refusal(args: argparse.Namespace) -> Optional[str]:
             or args.worlds_per_mix != WORLDS_PER_MIX
             or args.shards != SHARDS
             or args.mixes != "frozen,scripted,mixed"
+            or args.depth != DEPTH
+            or args.budget != NODE_BUDGET
+            or args.window != WINDOW
+            or args.death_cpu_seconds != DEATH_CPU_SECONDS
+            or args.batch_worlds != BATCH_WORLDS
         ):
-            return "--frames/--worlds-per-mix/--shards/--mixes overrides are smoke-only"
+            return (
+                "--frames/--worlds-per-mix/--shards/--mixes/--depth/--budget/--window/"
+                "--death-cpu-seconds/--batch-worlds overrides are smoke-only"
+            )
+        if int(args.workers) < 2:
+            return "real shards use --workers >= 2 (the slot's 2 threads)"
+        if base._git()["dirty_paths"]:
+            return "working tree is dirty (real shards run from a clean commit)"
     elif args.out is None:
         return "--smoke needs --out (scratch)"
     wrong = {k: os.environ.get(k) for k, v in REQUIRED_ENV.items() if os.environ.get(k) != v}
@@ -1560,6 +1594,8 @@ def _run_shard(args: argparse.Namespace, out: Path, argv: Sequence[str] | None, 
             log({"event": "batch_done", "mix": mix, "seeds": batch_seeds, "wall_seconds": wall})
     sim_seconds = time.monotonic() - started_total
 
+    write_new_json(out / "episodes.json", episodes)
+    write_new_json(out / "jobs.json", [{"job": list(job), "entry": entry} for job, entry in jobs])
     t_an = time.monotonic()
     results = _analyze(jobs, int(args.workers), monitor, admit, log)
     analysis_seconds = time.monotonic() - t_an
@@ -1569,7 +1605,6 @@ def _run_shard(args: argparse.Namespace, out: Path, argv: Sequence[str] | None, 
         row["window_file"] = Path(job[0]).name
         write_new_json(out / "deaths" / f"{entry['mix']}-{entry['world_seed']}.json", row)
         death_rows.append(row)
-    write_new_json(out / "episodes.json", episodes)
 
     latency = {k: np.concatenate(v) if v else np.zeros(0) for k, v in lat_parts.items()}
     summary = summarize_census(episodes, death_rows, latency)
@@ -1704,29 +1739,48 @@ def _analyze(
     results_by_index: Dict[int, Any] = {}
     pending: Dict[int, Any] = {}
     queue = list(enumerate(work))
-    stopped = False
-    with mp.get_context("spawn").Pool(int(workers)) as pool:
-        pids = [p.pid for p in pool._pool]  # type: ignore[attr-defined]
+    pool = mp.get_context("spawn").Pool(int(workers))
+    pids = [p.pid for p in pool._pool]  # type: ignore[attr-defined]
+
+    def signal_all(sig: int) -> None:
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+
+    def gate(stage: str) -> None:
+        """Workers are stopped while any wait (safety or thermal admission) runs."""
+        if monitor.safe and not pending:
+            admit(stage)
+            return
+        signal_all(signal.SIGSTOP)
+        log({"event": "analysis_sigstop", "stage": stage, **monitor.state})
+        try:
+            admit(stage)  # waits while unsafe or thermally not ok; raises on abort
+        finally:
+            signal_all(signal.SIGCONT)
+            log({"event": "analysis_sigcont", "stage": stage, **monitor.state})
+
+    try:
         while queue or pending:
-            if not monitor.safe and not stopped:
-                for pid in pids:
-                    os.kill(pid, signal.SIGSTOP)
-                stopped = True
-                log({"event": "analysis_sigstop", **monitor.state})
-            if stopped:
-                monitor.wait_if_unsafe()  # raises after max_pause
-                for pid in pids:
-                    os.kill(pid, signal.SIGCONT)
-                stopped = False
-                log({"event": "analysis_sigcont", **monitor.state})
+            if not monitor.safe:
+                gate("analysis-pause")
             while queue and len(pending) < int(workers):
-                admit("analysis")
+                gate("analysis")
                 index, job = queue.pop(0)
                 pending[index] = pool.apply_async(analyze_death_file, (job,))
             for index in list(pending):
                 if pending[index].ready():
                     results_by_index[index] = pending.pop(index).get()
             time.sleep(1.0)
+        pool.close()
+    except BaseException:
+        signal_all(signal.SIGCONT)
+        pool.terminate()
+        raise
+    finally:
+        pool.join()
     return [results_by_index[i] for i in range(len(work))]
 
 
@@ -1736,7 +1790,19 @@ def _analyze(
 def merge_refusal(intents: Sequence[Mapping[str, Any]], shards: int, smoke: bool) -> Optional[str]:
     if len(intents) != shards:
         return f"expected {shards} shard intents, found {len(intents)}"
-    keys = ("worlds.domain", "worlds.seeds", "git.commit", "profile", "veto", "engine")
+    keys = (
+        "worlds.domain",
+        "worlds.seeds",
+        "worlds.shared_by_mixes",
+        "git.commit",
+        "profile",
+        "veto",
+        "engine",
+        "search",
+        "capture",
+        "config",
+        "hero",
+    )
 
     def pick(intent: Mapping[str, Any], dotted: str) -> Any:
         value: Any = intent
