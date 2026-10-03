@@ -10,8 +10,11 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from research.runpod_fanout.tls import ca_file  # noqa: E402
 
 RP = Path.home() / ".claude/skills/runpod/scripts/rp.py"
 
@@ -27,9 +30,20 @@ class RunPodError(RuntimeError):
 class RpClient:
     """Calls ``python3 rp.py ...``; every method returns parsed JSON."""
 
-    def __init__(self, rp_path: Path = RP, timeout: float = 90.0):
+    def __init__(self, rp_path: Path = RP, timeout: float = 90.0, python: Optional[str] = None):
         self.rp_path = Path(rp_path)
         self.timeout = timeout
+        # The current interpreter (venv), never whatever "python3" PATH yields under launchd.
+        self.python = python or sys.executable
+
+    @staticmethod
+    def env() -> Dict[str, str]:
+        """rp.py's environment: verified TLS via certifi when the interpreter lacks CAs."""
+        env = dict(os.environ)
+        ca = ca_file()
+        if ca and not env.get("SSL_CERT_FILE"):
+            env["SSL_CERT_FILE"] = ca
+        return env
 
     def _call(self, *args: str) -> Any:
         if os.environ.get("PYTEST_CURRENT_TEST"):
@@ -38,11 +52,13 @@ class RpClient:
             # Own session: a terminal Ctrl-C must not kill a POST that is already in flight
             # (the runner then knows the outcome and can track or delete the pod).
             done = subprocess.run(
-                ["python3", str(self.rp_path), *args],
+                [self.python, str(self.rp_path), *args],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
                 start_new_session=True,
+                env=self.env(),
+                stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired as exc:
             raise RunPodError(f"rp.py {args[:2]} timed out") from exc
@@ -51,7 +67,10 @@ class RpClient:
         except json.JSONDecodeError:
             payload = done.stdout[-500:]
         if done.returncode != 0:
-            raise RunPodError(f"rp.py {args[:3]} exit {done.returncode}", payload)
+            # rp.py never prints the key; its stderr says why (no Keychain access, TLS, ...).
+            raise RunPodError(
+                f"rp.py {args[:3]} exit {done.returncode}: {done.stderr.strip()[-300:]}", payload
+            )
         return payload
 
     # reads
