@@ -37,6 +37,7 @@ from tests.test_sequential_strict_template import (  # noqa: F401 - guards is an
 RATIFIED = dict(R.RATIFIED_PAIRED_BAND)
 THETAS = (15.0, 20.0, 30.0, 45.0, 60.0)
 POOLS = ("screen_a", "screen_b")
+DEV_DELTA_NI = 5.8
 
 
 class PairedWorld(FakeWorld):
@@ -60,9 +61,19 @@ def plan_params(spec, paired_band=None, **overrides):
     return R.study_plan_parameters(spec, **kwargs)
 
 
-def write_check(tmp_path, params, *, rate=0.045, reps=20000, thetas=THETAS, name="check.json"):
+def write_check(
+    tmp_path,
+    params,
+    *,
+    rate=0.045,
+    reps=20000,
+    thetas=THETAS,
+    name="check.json",
+    data=None,
+    delta_ni=DEV_DELTA_NI,
+):
     """A ``simulate.py --part gate`` shaped output of the per-study check (no simulation)."""
-    data = tmp_path / "screen_pool.json"
+    data = Path(data) if data is not None else tmp_path / "screen_pool.json"
     if not data.exists():
         rng = random.Random(3)
         pool = {
@@ -89,7 +100,7 @@ def write_check(tmp_path, params, *, rate=0.045, reps=20000, thetas=THETAS, name
     threshold = 1.2 * alpha
     report = {
         "reps": reps,
-        "delta_ni": 5.8,
+        "delta_ni": delta_ni,
         "results": results,
         "check": {
             "rule": rule,
@@ -104,7 +115,7 @@ def write_check(tmp_path, params, *, rate=0.045, reps=20000, thetas=THETAS, name
             "plan_params": params,
             "check_rule": [margin, alpha, bound],
             "thetas": list(thetas),
-            "delta_ni": 5.8,
+            "delta_ni": delta_ni,
             "n_max": params["n_max"],
             "mde": params["mde"],
         },
@@ -123,6 +134,7 @@ def make_paired_spec(runner, tmp_path, *, paired_band=None, plan_overrides=None,
             "band_policy": "paired_ni_at_stop",
             "bands": R.paired_survival_bands(MIXES),
             "paired_band_check_path": str(tmp_path / "check.json"),
+            "paired_band_pool_path": str(tmp_path / "screen_pool.json"),
         }
     )
     params = plan_params(draft, paired_band, **(plan_overrides or {}))
@@ -131,7 +143,11 @@ def make_paired_spec(runner, tmp_path, *, paired_band=None, plan_overrides=None,
 
 
 def prepare_paired(tmp_path, spec, paired_band=None, **overrides):
-    kwargs = intent_kwargs(tmp_path, paired_band=RATIFIED if paired_band is None else paired_band)
+    kwargs = intent_kwargs(
+        tmp_path,
+        paired_band=RATIFIED if paired_band is None else paired_band,
+        development_delta_ni=DEV_DELTA_NI,
+    )
     kwargs.update(overrides)
     return R.prepare(R.build_intent(spec, **kwargs))
 
@@ -152,7 +168,9 @@ def test_paired_band_pass_records_band_results_and_audits(tmp_path):
         "oc_report",
         "band_cost_report",
         "paired_band_check",
+        "paired_band_pool",
     }
+    assert intent["paired_band_check"]["development_delta_ni"] == DEV_DELTA_NI
     assert intent["paired_band_check"]["passes"] is True
     assert intent["paired_band_check"]["rows_judged"] == len(POOLS) * len(THETAS) * 3
     closeout = execute(intent_path, spec)
@@ -277,8 +295,15 @@ def test_audit_catches_an_edited_paired_check_and_floor_in_plan(tmp_path):
     check.write_text(json.dumps(report))
     intent = json.loads(intent_path.read_text())
     intent["plan"]["band_floor"] = 0.0
+    intent["spec"]["bands"] = intent["spec"]["bands"][:1]
     intent_path.write_text(json.dumps(intent))
-    failed = {row["rule"] for row in A.run_audit(intent_path.parent)["failures"]}
+    report = A.run_audit(intent_path.parent)
+    failed = {row["rule"] for row in report["failures"]}
+    detail = next(
+        r["detail"] for r in report["failures"] if r["rule"] == "preregistration.paired_band_check"
+    )
+    assert any("one survival_fraction band per mix" in row for row in detail["problems"])
+    assert any("band_rule" in row for row in detail["problems"])
     assert {
         "preregistration.paired_band_check",
         "intent.preregistration_documents",
@@ -352,6 +377,27 @@ def test_paired_check_is_required_and_judged_before_prepare(tmp_path):
         prepare_paired(tmp_path, spec)
 
 
+def test_paired_check_must_use_the_study_pool_and_its_delta_ni(tmp_path):
+    spec = make_paired_spec(FakeWorld(), tmp_path)
+    with pytest.raises(R.StrictRunError, match="development delta_NI"):
+        prepare_paired(tmp_path, spec, development_delta_ni=5.0)
+    with pytest.raises(R.StrictRunError, match="development delta_NI"):
+        prepare_paired(tmp_path, spec, development_delta_ni=None)
+    write_check(tmp_path, plan_params(spec), delta_ni=5.78794575)  # simulate.py's v7 default
+    with pytest.raises(R.StrictRunError, match="development delta_NI"):
+        prepare_paired(tmp_path, spec)
+    other = tmp_path / "other_pool.json"
+    other.write_text((tmp_path / "screen_pool.json").read_text())
+    write_check(tmp_path, plan_params(spec), data=other)
+    with pytest.raises(R.StrictRunError, match="not the spec's pool"):
+        prepare_paired(tmp_path, spec)
+    stock = R.PAIRED_BAND_STOCK_POOL
+    stock_spec = R.StudySpec(**{**spec.__dict__, "paired_band_pool_path": str(stock)})
+    write_check(tmp_path, plan_params(stock_spec), data=stock)
+    with pytest.raises(R.StrictRunError, match="stock"):
+        prepare_paired(tmp_path, stock_spec)
+
+
 def test_paired_check_drift_after_prepare_is_refused(tmp_path):
     spec = make_paired_spec(FakeWorld(), tmp_path)
     intent = R.read_json(prepare_paired(tmp_path, spec))
@@ -371,6 +417,10 @@ def test_paired_spec_shape_is_enforced(tmp_path):
                 **{**spec.__dict__, "bands": ({"metric": "mass_integral", "mix": "frozen"},)}
             )
         )
+    with pytest.raises(R.StrictRunError, match="one band per mix"):
+        R.validate_spec(
+            R.StudySpec(**{**spec.__dict__, "bands": R.paired_survival_bands(("frozen",))})
+        )
     with pytest.raises(R.StrictRunError, match="two paired bands"):
         R.validate_spec(
             R.StudySpec(**{**spec.__dict__, "bands": R.paired_survival_bands(("frozen", "frozen"))})
@@ -382,6 +432,8 @@ def test_paired_spec_shape_is_enforced(tmp_path):
         R.validate_spec(R.StudySpec(**{**legacy.__dict__, "paired_band_check_path": "x.json"}))
     with pytest.raises(R.StrictRunError, match="band_policy paired"):
         R.build_intent(legacy, **intent_kwargs(tmp_path, paired_band=RATIFIED))
+    with pytest.raises(R.StrictRunError, match="development_delta_ni"):
+        R.build_intent(legacy, **intent_kwargs(tmp_path, development_delta_ni=5.8))
 
 
 def test_cli_plan_document_is_the_simulator_input(tmp_path, monkeypatch):
@@ -544,7 +596,7 @@ def test_runner_accepts_the_real_simulator_output_format(tmp_path, monkeypatch):
     spec = make_paired_spec(FakeWorld(effect=400.0), tmp_path)
     document = tmp_path / "plan.json"
     document.write_text(json.dumps(R.frozen_plan_document(plan_params(spec))))
-    sim.CONFIG.update(data=tmp_path / "screen_pool.json", delta_ni=5.8, thetas=THETAS)
+    sim.CONFIG.update(data=tmp_path / "screen_pool.json", delta_ni=DEV_DELTA_NI, thetas=THETAS)
     sim.load_plan_params(document)
     name = sim.rule_name(*sim.CONFIG["check_rule"])
     results = {}
@@ -558,7 +610,7 @@ def test_runner_accepts_the_real_simulator_output_format(tmp_path, monkeypatch):
                     row["p_regressed_band_and_qualify"] = 0.0451
                     row["p_regressed_band_given_qualify"] = 0.047
                 results[f"{pool}|theta={theta:g}|{label}"] = {name: row}
-    out = {"reps": 20000, "delta_ni": 5.8, "results": results}
+    out = {"reps": 20000, "delta_ni": DEV_DELTA_NI, "results": results}
     out["check"] = sim.pre_registration_check(results)
     out["data_sha256"] = R.sha256_file(Path(sim.CONFIG["data"]))
     out["config"] = {k: (str(v) if isinstance(v, Path) else v) for k, v in sim.CONFIG.items()}

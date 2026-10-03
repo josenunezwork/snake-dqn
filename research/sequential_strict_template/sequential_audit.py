@@ -85,7 +85,8 @@ PRODUCTION_EXECUTOR = "subprocess"
 PRODUCTION_SKEW_RUNNER = "subprocess_skew_runner"
 PRODUCTION_AUDIT_RUNNER = "subprocess_audit_runner"
 PREREGISTRATION = ("protocol", "oc_report", "band_cost_report")
-PREREGISTRATION_PAIRED = PREREGISTRATION + ("paired_band_check",)
+PREREGISTRATION_PAIRED = PREREGISTRATION + ("paired_band_check", "paired_band_pool")
+STOCK_POOL = "research/paired_band_validation_20261003/paired_survival_20261003.json"
 # The audit's own copies of the production constants (not imported from the runner).
 SLOT_LOCK_ROOT = "/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909"
 LEDGER_PATH = SLOT_LOCK_ROOT + "/sequential-strict-ledger.jsonl"
@@ -1214,10 +1215,48 @@ def audit_paired_check(audit: Audit, intent: Mapping[str, Any]) -> None:
         problems.append("check output sha256")
     report = load_json(path)
     data = Path(str(frozen.get("data_path", "")))
+    pool_doc = intent["preregistration"].get("paired_band_pool") or {}
     if not data.is_file() or sha256_file(data) != frozen.get("data_sha256"):
         problems.append("pool data sha256")
     elif report.get("data_sha256") != frozen.get("data_sha256"):
         problems.append("check was run on other pool data")
+    if (pool_doc.get("path"), pool_doc.get("sha256")) != (
+        frozen.get("data_path"),
+        frozen.get("data_sha256"),
+    ):
+        problems.append("pool data is not the spec's pre-registered pool")
+    configured = Path(str((report.get("config") or {}).get("data", "")))
+    if not configured.is_absolute():
+        configured = Path(intent["repo"]) / configured
+    if str(configured.resolve()) != frozen.get("data_path"):
+        problems.append("check read another pool file than the frozen one")
+    stock = Path(intent["repo"]) / STOCK_POOL
+    if str(data.resolve()) == str(stock.resolve()) or (
+        stock.is_file() and data.is_file() and sha256_file(stock) == sha256_file(data)
+    ):
+        problems.append("check used the validation package's stock pools, not the study's")
+    mixes = intent["spec"]["mixes"]
+    bands = intent["spec"]["bands"]
+    if sorted(b.get("mix") for b in bands) != sorted(mixes) or any(
+        set(b) != {"metric", "mix"} or b.get("metric") != "survival_fraction" for b in bands
+    ):
+        problems.append("paired bands must be one survival_fraction band per mix")
+    development = frozen.get("development_delta_ni")
+    used = (report.get("config") or {}).get("delta_ni")
+    if not (
+        isinstance(development, float)
+        and development > 0
+        and isinstance(used, (int, float))
+        and math.isclose(used, development, rel_tol=1e-12)
+    ):
+        problems.append(f"check delta_ni {used!r} != pre-registered {development!r}")
+    rule_text = intent.get("band_rule") or {}
+    if (
+        rule_text.get("policy") != PAIRED
+        or rule_text.get("all_bands_must_pass") is not True
+        or any(rule_text.get(k) != plan.get(k) for k in PAIRED_PARAM_FIELDS)
+    ):
+        problems.append("intent band_rule differs from the plan")
     pools = []
     if data.is_file():
         raw = load_json(data)

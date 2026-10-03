@@ -245,10 +245,18 @@ no reference bound.
 
 **Steps.**
 
-1. In the study's `spec.py`, set `band_policy="paired_ni_at_stop"`,
-   `bands=paired_survival_bands(MIXES)` and `paired_band_check_path` (for example
-   `research/<study>/paired_band_check.json`). v2 requires the mixes `frozen`, `scripted`,
-   `mixed` and survival_fraction bands, one per mix, because the check simulates only those.
+1. In the study's `spec.py`, set:
+   - `band_policy="paired_ni_at_stop"`;
+   - `bands=paired_survival_bands(MIXES)`;
+   - `paired_band_check_path`, for example `research/<study>/paired_band_check.json`;
+   - `paired_band_pool_path`: the study's own saved paired screen or pilot records (Tier 0
+     data), in the format of
+     `research/paired_band_validation_20261003/paired_survival_20261003.json`. That stock
+     v7/v8 file itself is refused.
+
+   v2 requires the mixes `frozen`, `scripted` and `mixed`, with exactly one survival_fraction
+   band per mix, because the check simulates only those. Both files are pre-registration
+   documents, and their sha256s are frozen in the intent.
 2. Write the frozen plan document. It holds the exact `plan_parameters` and `plan` that
    `intent.json` will freeze:
 
@@ -258,27 +266,29 @@ no reference bound.
        --n-max <N_max> --mde <MDE> --paired-band 0.05,0.05,pointwise,0.30
    ```
 
-3. Run the per-study check on the study's own saved paired screen or pilot records (Tier 0
-   data, in the format of `research/paired_band_validation_20261003/paired_survival_20261003.json`).
-   Use at least 20,000 replicates and mass effects of 0.5, ~0.67, 1, 1.5 and 2 x MDE, plus
-   the screen estimate:
+3. Run the per-study check on that pool, from the repo root. Give `--data` as the same path
+   as `paired_band_pool_path`; a relative path is resolved from the repo. Use at least
+   20,000 replicates, mass effects of 0.5, ~0.67, 1, 1.5 and 2 x MDE plus the screen
+   estimate, and an explicit `--delta-ni` (the development estimate). Without that flag,
+   `simulate.py` silently uses the v7 value, and `prepare` refuses the check.
 
    ```
    OMP_NUM_THREADS=1 ./venv/bin/python research/paired_band_validation_20261003/simulate.py \
-       --part gate --data <pool.json> --plan-params <scratch>/plan.json \
+       --part gate --data research/<study>/paired_pool.json --plan-params <scratch>/plan.json \
        --delta-ni <development delta_NI> --reps 20000 \
        --thetas <0.5 MDE>,<0.67 MDE>,<MDE>,<1.5 MDE>,<2 MDE>,<screen estimate> \
        --out research/<study>/paired_band_check.json
    ```
 
    Also run `--part bands` and report its no-regression pass rates in `protocol.md`.
-4. Commit the check output beside the other pre-registration documents. Then run `prepare`
-   with the same `--paired-band` value. The settings must be stated explicitly; there is no
-   default.
+4. Commit the check output and the pool beside the other pre-registration documents. Then
+   run `prepare` with the same `--paired-band` value and `--development-delta-ni <the
+   --delta-ni value>`. The settings must be stated explicitly; there is no default.
 
 **What `prepare` checks.** It refuses unless the check output passes, judged again by the runner:
 
-- it was run with `--plan-params` equal to this intent's plan parameters;
+- it was run with `--plan-params` equal to this intent's plan parameters, `--delta-ni` equal
+  to `--development-delta-ni`, and `--data` equal to the spec's pool;
 - it used at least 20,000 replicates and covered the thetas above;
 - it has a joint rate (P(qualify and the band regressed by exactly M passes)) for every
   pool x theta x band mix;
@@ -287,8 +297,9 @@ no reference bound.
 - the pool data still has the sha256 recorded in the output, and its pools are exactly the
   pools in the output.
 
-The output and the pool data are hash-bound in `intent.preregistration.paired_band_check`
-and `intent.paired_band_check`. `run` checks them again before any child starts. If the check
+The output and the pool are hash-bound in `intent.preregistration` (`paired_band_check`,
+`paired_band_pool`) and summarized, with the development delta_NI, in
+`intent.paired_band_check`. `run` checks them again before any child starts. If the check
 fails, use `band_bound = "rci_obf"` (and re-run the check) or do not adopt this policy.
 
 **Look receipts (v2).** `bands_by_look` holds, for each look and band: n, df, mean delta, SD,
@@ -307,7 +318,11 @@ list.
   checks the judged look and `band_results`. It reports a mismatch under
   `looks.paired_bands`.
 - **Check output.** It judges the per-study check output again under
-  `preregistration.paired_band_check`.
+  `preregistration.paired_band_check`. It also checks:
+  - the pool and delta_NI bindings;
+  - that the stock pool was not used;
+  - that there is exactly one survival band per mix;
+  - the intent's `band_rule` text against the plan.
 - **Report schema.** The audit report is `sequential-strict-audit/v2` for v2 runs and stays
   `/v1` for v1 runs.
 

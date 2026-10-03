@@ -96,6 +96,10 @@ TEMPLATE_README = HERE / "README.md"
 INDEPENDENT_AUDIT = HERE / "sequential_audit.py"
 SKEW_PROBE = REPO / "research" / "sequential_gate_validation_20261002" / "skew_probe.py"
 PAIRED_BAND_SIMULATOR = REPO / "research" / "paired_band_validation_20261003" / "simulate.py"
+# The validation package's own v7/v8 pools: evidence for the amendment, never a study's check.
+PAIRED_BAND_STOCK_POOL = (
+    REPO / "research" / "paired_band_validation_20261003" / "paired_survival_20261003.json"
+)
 PYTHON = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
 # The global CPU slot lock root the v7 strict package uses (strict_run.SLOT_LOCK_ROOT).
 SLOT_LOCK_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909")
@@ -331,7 +335,9 @@ class StudySpec:
       offsets, see :func:`survival_bands`) or ``"paired_ni_at_stop"`` (template v2, paired
       survival bands, see :func:`paired_survival_bands`).  v2 also needs
       ``paired_band_check_path``: the ``simulate.py --part gate`` output of the per-study
-      paired-band check on the study's screen pool with the frozen plan.
+      paired-band check on the study's screen pool with the frozen plan, and
+      ``paired_band_pool_path``: that pool (the study's own saved paired screen/pilot records,
+      ``simulate.py --data`` format; the validation package's stock pool is refused).
     """
 
     study_id: str
@@ -356,6 +362,7 @@ class StudySpec:
     closure_roots: Tuple[str, ...] = DEFAULT_CLOSURE_ROOTS
     band_policy: str = "block_at_stop"
     paired_band_check_path: str = ""
+    paired_band_pool_path: str = ""
 
     @property
     def template_version(self) -> str:
@@ -367,7 +374,7 @@ class StudySpec:
 
     def preregistration_docs(self) -> Tuple[str, ...]:
         if self.paired:
-            return PREREGISTRATION_DOCS + ("paired_band_check_path",)
+            return PREREGISTRATION_DOCS + PAIRED_PREREGISTRATION_DOCS
         return PREREGISTRATION_DOCS
 
     def descriptor(self) -> Dict[str, Any]:
@@ -376,6 +383,7 @@ class StudySpec:
             out["template_version"] = TEMPLATE_VERSION_PAIRED
             out["band_policy"] = self.band_policy
             out["paired_band_check_path"] = self.paired_band_check_path
+            out["paired_band_pool_path"] = self.paired_band_pool_path
         return out
 
     def _descriptor_v1(self) -> Dict[str, Any]:
@@ -397,6 +405,7 @@ class StudySpec:
 
 
 PREREGISTRATION_DOCS = ("protocol_path", "oc_report_path", "band_cost_report_path")
+PAIRED_PREREGISTRATION_DOCS = ("paired_band_check_path", "paired_band_pool_path")
 
 
 def validate_spec(spec: StudySpec) -> None:
@@ -417,8 +426,9 @@ def validate_spec(spec: StudySpec) -> None:
         validate_paired_bands(spec)
         return
     require(
-        spec.paired_band_check_path == "",
-        "paired_band_check_path is only used under band_policy paired_ni_at_stop",
+        spec.paired_band_check_path == "" and spec.paired_band_pool_path == "",
+        "paired_band_check_path / paired_band_pool_path are only used under band_policy "
+        "paired_ni_at_stop",
     )
     for band in spec.bands:
         require(
@@ -446,6 +456,7 @@ def validate_paired_bands(spec: StudySpec) -> None:
         )
         require(band["mix"] not in seen, f"two paired bands for mix {band['mix']}")
         seen.add(band["mix"])
+    require(seen == set(spec.mixes), f"paired_ni_at_stop needs one band per mix {spec.mixes}")
     require(
         tuple(spec.mixes) == ("frozen", "scripted", "mixed"),
         "the paired-band check (simulate.py) only simulates the mixes frozen, scripted, mixed",
@@ -739,10 +750,12 @@ def judge_paired_check(
     report: Mapping[str, Any],
     params: Mapping[str, Any],
     bands: Sequence[Mapping[str, Any]],
+    development_delta_ni: Any,
 ) -> Dict[str, Any]:
     """Re-judge a ``simulate.py --part gate`` output against the frozen plan (fail closed).
 
-    It must have been run with ``--plan-params`` equal to this intent's plan parameters, at
+    It must have been run with ``--plan-params`` equal to this intent's plan parameters and
+    ``--delta-ni`` equal to the pre-registered development delta_NI, at
     least :data:`PAIRED_CHECK_MIN_REPS` replicates, mass effects covering 0.5, ~0.67, 1, 1.5
     and 2 x MDE, and its joint rates (P(qualify and the band regressed by exactly M passes))
     must cover every pool x theta x band mix and all be <= 1.2 x band_alpha.  The runner
@@ -776,8 +789,17 @@ def judge_paired_check(
     low, high = PAIRED_CHECK_TWO_THIRDS
     if not any(low * mde <= t <= high * mde for t in thetas):
         problems.append("check lacks a theta near 0.67 x MDE")
-    if not _real(config.get("delta_ni")) or not config.get("delta_ni") > 0:
-        problems.append("check delta_ni must be a positive number (development estimate)")
+    used = config.get("delta_ni")
+    if not (
+        _real(development_delta_ni)
+        and development_delta_ni > 0
+        and _real(used)
+        and math.isclose(used, development_delta_ni, rel_tol=1e-12)
+    ):
+        problems.append(
+            f"check delta_ni {used!r} is not the pre-registered development delta_NI "
+            f"{development_delta_ni!r} (simulate.py defaults to the v7 value without --delta-ni)"
+        )
     pools = sorted({key.split("|", 1)[0] for key in results})
     joint = check.get("joint_rates") if isinstance(check.get("joint_rates"), Mapping) else {}
     expected = {
@@ -818,19 +840,40 @@ def judge_paired_check(
     }
 
 
-def paired_check_record(spec: StudySpec, params: Mapping[str, Any], repo: Path) -> Dict[str, Any]:
+def check_pool_path(report: Mapping[str, Any], repo: Path) -> Path:
+    """The pool the check read (``config.data``; a relative path is taken from the repo)."""
+    data = Path(str((report.get("config") or {}).get("data", "")))
+    return (data if data.is_absolute() else Path(repo) / data).resolve()
+
+
+def paired_check_record(
+    spec: StudySpec, params: Mapping[str, Any], repo: Path, development_delta_ni: Any
+) -> Dict[str, Any]:
     """Hash-bind the per-study check output and its pool data; require that it passes."""
     path = (Path(repo) / spec.paired_band_check_path).resolve()
     require(path.is_file(), f"paired band check {path} does not exist")
     report = read_json(path)
-    data_path = Path(str((report.get("config") or {}).get("data", "")))
+    data_path = check_pool_path(report, repo)
+    pool_path = (Path(repo) / spec.paired_band_pool_path).resolve()
+    require(
+        data_path == pool_path,
+        f"paired band check read {data_path}, not the spec's pool {pool_path}",
+    )
     require(data_path.is_file(), f"paired band check pool data {data_path} does not exist")
     data_sha = sha256_file(data_path)
+    require(
+        data_path != PAIRED_BAND_STOCK_POOL.resolve()
+        and (
+            not PAIRED_BAND_STOCK_POOL.is_file() or data_sha != sha256_file(PAIRED_BAND_STOCK_POOL)
+        ),
+        "the paired band check must use the study's own screen pool, not the validation "
+        "package's stock v7/v8 pools",
+    )
     require(
         report.get("data_sha256") == data_sha,
         "paired band check pool data changed since the check was run",
     )
-    judged = judge_paired_check(report, params, spec.bands)
+    judged = judge_paired_check(report, params, spec.bands, development_delta_ni)
     require(judged["passes"], f"paired band check fails: {judged['problems']}")
     data = read_json(data_path)
     pools = sorted(k for k, v in data.items() if isinstance(v, dict) and "world_seeds" in v)
@@ -838,8 +881,9 @@ def paired_check_record(spec: StudySpec, params: Mapping[str, Any], repo: Path) 
     return {
         "path": str(path),
         "sha256": sha256_file(path),
-        "data_path": str(data_path.resolve()),
+        "data_path": str(data_path),
         "data_sha256": data_sha,
+        "development_delta_ni": float(development_delta_ni),
         "simulator_path": str(PAIRED_BAND_SIMULATOR),
         "acceptance": f"every joint rate <= {PAIRED_CHECK_FACTOR} x band_alpha",
         "remedy_on_fail": "band_bound rci_obf, or do not adopt paired_ni_at_stop",
@@ -892,6 +936,7 @@ def build_intent(
     futility_action: str = "stop",
     band_margin_z: float = DEFAULT_BAND_MARGIN_Z,
     paired_band: Optional[Mapping[str, Any]] = None,
+    development_delta_ni: Optional[float] = None,
     skew_reps: int = DEFAULT_SKEW_REPS,
     n_max_cap: int = N_MAX_CAP,
     caps: Optional[Mapping[str, int]] = None,
@@ -908,9 +953,14 @@ def build_intent(
     A production intent (``dry_run=False``) must use the global slot lock root and a clean
     source closure; ``dry_run=True`` relaxes both and can never yield a pass.  The band policy
     comes from the spec; under ``paired_ni_at_stop`` (template v2) ``paired_band`` states the
-    four band settings and the spec's paired-band check must pass for this exact plan.
+    four band settings, ``development_delta_ni`` the delta_NI estimate the per-study check
+    was run with (``simulate.py --delta-ni``), and that check must pass for this exact plan.
     """
     validate_spec(spec)
+    require(
+        spec.paired or development_delta_ni is None,
+        "development_delta_ni is only used under band_policy paired_ni_at_stop",
+    )
     require(bool(authorization_quote.strip()), "authorization quote required")
     require(deadline.tzinfo is not None, "deadline needs a UTC offset")
     require(futility_action in FUTILITY_ACTIONS, f"futility_action in {FUTILITY_ACTIONS}")
@@ -1056,7 +1106,7 @@ def build_intent(
         },
     }
     if spec.paired:  # template v2 only: v1 intents keep exactly their v1 keys
-        intent["paired_band_check"] = paired_check_record(spec, params, repo)
+        intent["paired_band_check"] = paired_check_record(spec, params, repo, development_delta_ni)
         intent["band_rule"] = paired_band_rule(params)
     return intent
 
@@ -1177,14 +1227,19 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
     if spec.paired:
         frozen = intent["paired_band_check"]
         require(intent["band_rule"] == paired_band_rule(intent["plan_parameters"]), "band rule")
+        docs = intent["preregistration"]
         require(
-            frozen["path"] == intent["preregistration"]["paired_band_check"]["path"]
-            and Path(frozen["data_path"]).is_file()
-            and sha256_file(Path(frozen["data_path"])) == frozen["data_sha256"],
-            "paired band check pool data drift",
+            frozen["path"] == docs["paired_band_check"]["path"]
+            and frozen["sha256"] == docs["paired_band_check"]["sha256"]
+            and frozen["data_path"] == docs["paired_band_pool"]["path"]
+            and frozen["data_sha256"] == docs["paired_band_pool"]["sha256"],
+            "paired band check binding differs from the pre-registration documents",
         )
         again = judge_paired_check(
-            read_json(Path(frozen["path"])), intent["plan_parameters"], spec.bands
+            read_json(Path(frozen["path"])),
+            intent["plan_parameters"],
+            spec.bands,
+            frozen["development_delta_ni"],
         )
         require(again["passes"], f"paired band check no longer passes: {again['problems']}")
     else:
@@ -2767,6 +2822,12 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     prep.add_argument("--futility-action", default="stop", choices=FUTILITY_ACTIONS)
     prep.add_argument("--band-margin-z", type=float, default=DEFAULT_BAND_MARGIN_Z)
     prep.add_argument("--paired-band", default=None, help=PAIRED_BAND_HELP)
+    prep.add_argument(
+        "--development-delta-ni",
+        type=float,
+        default=None,
+        help="template v2 only: the delta_NI the paired-band check was run with",
+    )
     prep.add_argument("--skew-reps", type=int, default=DEFAULT_SKEW_REPS)
     frozen = sub.add_parser(
         "plan",
@@ -2814,6 +2875,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             futility_action=args.futility_action,
             band_margin_z=args.band_margin_z,
             paired_band=parse_paired_band(args.paired_band),
+            development_delta_ni=args.development_delta_ni,
             skew_reps=args.skew_reps,
         )
         path = prepare(intent)
