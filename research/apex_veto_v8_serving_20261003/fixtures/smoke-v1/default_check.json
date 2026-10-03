@@ -1,0 +1,136 @@
+{
+  "builds": {
+    "empty_env": {
+      "env": {},
+      "modes": {
+        "play": {
+          "active": false,
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": true,
+          "hero_id": 0,
+          "method": "free-space-veto/v7-space-preference(lambda=4.0)",
+          "mode": "watch",
+          "snakes_with_veto": [
+            0
+          ],
+          "variant": "v7"
+        }
+      }
+    },
+    "variant_v2": {
+      "env": {
+        "SNAKE_SERVE_VETO_VARIANT": "v2"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": true,
+          "hero_id": 0,
+          "method": "free-space-veto/v2-speed-preserving",
+          "mode": "watch",
+          "snakes_with_veto": [
+            0
+          ],
+          "variant": "v2"
+        }
+      }
+    },
+    "variant_v5": {
+      "env": {
+        "SNAKE_SERVE_VETO_VARIANT": "v5"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": true,
+          "hero_id": 0,
+          "method": "free-space-veto/v5-boost-aware",
+          "mode": "watch",
+          "snakes_with_veto": [
+            0
+          ],
+          "variant": "v5"
+        }
+      }
+    },
+    "variant_v7": {
+      "env": {
+        "SNAKE_SERVE_VETO_VARIANT": "v7"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": true,
+          "hero_id": 0,
+          "method": "free-space-veto/v7-space-preference(lambda=4.0)",
+          "mode": "watch",
+          "snakes_with_veto": [
+            0
+          ],
+          "variant": "v7"
+        }
+      }
+    },
+    "watch_off_variant_v8": {
+      "env": {
+        "SNAKE_SERVE_VETO_VARIANT": "v8",
+        "SNAKE_SERVE_VETO_WATCH_HERO": "0"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": false,
+          "hero_id": 0,
+          "method": null,
+          "mode": "watch",
+          "snakes_with_veto": [],
+          "variant": null
+        }
+      }
+    }
+  },
+  "default_checkpoint_basename": "champion_a5_freespace_20260621.pth",
+  "flags_from_empty_env": {
+    "play_ai": false,
+    "watch_hero": true
+  },
+  "intent_sha256": "3c71bd999906c772e42482063eb2d97ca871c299daa8344c9254853865499aea",
+  "pass": true,
+  "served_config_basename": "mechanics_v2.yaml",
+  "served_config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+  "variant_from_empty_env": "v7"
+}

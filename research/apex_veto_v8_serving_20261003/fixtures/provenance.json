@@ -1,0 +1,13 @@
+{
+  "smoke-v1": {
+    "source": "serving_run.py --smoke (2026-10-03): 1 watch + 1 play x 500 frames, 1 parity probe x 200 frames, out under the session scratchpad",
+    "writer": "serving_run.main",
+    "audit": "serving_audit.py on the original directory: SERVING_PASS (serving_path_qualified=False, smoke)",
+    "note": "captured from the real producer path before protocol.md was pinned; the audit's positive tests run on this directory unmodified"
+  },
+  "v8_strict_final_record.json": {
+    "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-strict-20261003/run-v1/output/final/records/final-candidate-frozen-w00130.json",
+    "sha256": "fba809c966a3d90e7a8aa0e0da18a5db43242fa96d5049547b3ba0474a29eac9",
+    "writer": "v8 strict spec.episode_runner around tournament_eval.rollout(..., hero_safety_veto=True) under dev_screen.hero_veto_installer(install_candidate) (install_space_and_head_veto(hero, 8.0)); probes.safety_veto from SpaceAndHeadVeto.record(), veto_diagnostics from diagnostics_record()"
+  }
+}
