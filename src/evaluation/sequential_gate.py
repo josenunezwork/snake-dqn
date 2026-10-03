@@ -179,6 +179,16 @@ class SequentialGatePlan:
     band_nominal_p: tuple[float, ...] | None = None
     band_floor: float | None = None
 
+    def __post_init__(self) -> None:
+        # Build plans with sequential_gate_plan; this only guards direct construction
+        # against band fields that as_dict would silently drop or that cannot be used.
+        paired = (self.band_ni_margin, self.band_alpha, self.band_bound, self.band_nominal_p)
+        if self.band_policy != "paired_ni_at_stop":
+            if any(v is not None for v in paired + (self.band_floor,)):
+                raise ValueError(f"paired band fields set under band_policy {self.band_policy!r}")
+        elif any(v is None for v in paired) or len(self.band_nominal_p) != len(self.look_sizes):
+            raise ValueError("paired_ni_at_stop needs margin, alpha, bound and per-look levels")
+
     @property
     def n_looks(self) -> int:
         return len(self.look_sizes)
@@ -346,8 +356,10 @@ def paired_band_check(
     if not (math.isfinite(margin) and margin > 0.0):
         raise ValueError("margin must be a positive finite number")
     nominal_p = _probability(nominal_p, "nominal_p", 0.5)
-    if floor is not None and not math.isfinite(float(floor)):
-        raise ValueError("floor must be None or finite")
+    if floor is not None and (
+        isinstance(floor, bool) or not isinstance(floor, (int, float)) or not math.isfinite(floor)
+    ):
+        raise ValueError("floor must be None or a finite number")
     n = len(cand)
     deltas = [c - i for c, i in zip(cand, inc)]
     mean = math.fsum(deltas) / n

@@ -534,6 +534,23 @@ def test_paired_band_check_validation():
         paired_band_check([0.5, 0.6], [0.5, 0.5], margin=0.05, nominal_p=0.5)
     with pytest.raises(ValueError):
         paired_band_check([0.5, 0.6], [0.5, 0.5], margin=0.05, nominal_p=0.05, floor=math.inf)
+    for bad_floor in (True, "0.3"):
+        with pytest.raises(ValueError):
+            paired_band_check([0.5, 0.6], [0.5, 0.5], margin=0.05, nominal_p=0.05, floor=bad_floor)
+
+
+def test_direct_plan_construction_rejects_inconsistent_band_fields():
+    import dataclasses
+
+    legacy = sequential_gate_plan(249, mde=30.0)
+    with pytest.raises(ValueError):
+        dataclasses.replace(legacy, band_ni_margin=0.05)
+    paired = _paired_plan()
+    with pytest.raises(ValueError):
+        dataclasses.replace(paired, band_nominal_p=(0.05,))
+    with pytest.raises(ValueError):
+        dataclasses.replace(paired, band_alpha=None)
+    assert dataclasses.replace(paired, band_floor=0.3).band_floor == 0.3
 
 
 def test_plan_paired_band_check_uses_the_look_level_and_prefix():

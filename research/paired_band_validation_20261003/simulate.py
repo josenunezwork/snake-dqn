@@ -70,7 +70,12 @@ SCENARIOS = {
     "one_mix_-0.05": (-0.05, 0.0, 0.0),
     "all_mixes_-0.02": (-0.02, -0.02, -0.02),
     "all_mixes_-0.05": (-0.05, -0.05, -0.05),
+    "one_mix_-0.05@scripted": (0.0, -0.05, 0.0),
+    "one_mix_-0.05@mixed": (0.0, 0.0, -0.05),
 }
+# Scenarios the gate part skips (all-mix regressions are less adversarial than one-mix ones).
+GATE_SKIP = ("one_mix_-0.02", "all_mixes_-0.02", "all_mixes_-0.05")
+PAIRED_FIELDS = ("band_ni_margin", "band_alpha", "band_bound", "band_floor")
 # Run-time settings; the defaults reproduce the README.  ``main`` overrides them from the
 # command line for a study's own pre-registration check (see the amendment).
 CONFIG = {
@@ -78,8 +83,10 @@ CONFIG = {
     "n_max": N_MAX,
     "mde": MDE,
     "delta_ni": V7_DELTA_NI,
-    "thetas": (30.0, 60.0, 130.0),
+    # 0.5, 0.67, 1, 1.5 and 2 x MDE, and the v7 strict look-1-sized effect.
+    "thetas": (15.0, 20.0, 30.0, 45.0, 60.0, 130.0),
     "check_rule": None,  # (margin, alpha, bound) of the study's frozen plan
+    "plan_params": None,  # sequential_gate_plan kwargs of the study's frozen plan
 }
 NEW_RULES = tuple(
     (margin, alpha, bound)
@@ -157,21 +164,30 @@ def load_data() -> dict:
 
 
 def sources(data: dict) -> list:
-    """Pools in the data file: every top-level entry with ``world_seeds`` and all mixes."""
-    return [
-        key
-        for key in sorted(data)
-        if isinstance(data[key], dict)
-        and "world_seeds" in data[key]
-        and all(m in data[key] for m in MIXES)
-    ]
+    """Pools in the data file: every top-level entry with ``world_seeds`` (fails closed)."""
+    keys = [k for k in sorted(data) if isinstance(data[k], dict) and "world_seeds" in data[k]]
+    for key in keys:
+        missing = [m for m in MIXES if m not in data[key]]
+        if missing:
+            raise SystemExit(f"pool {key!r} lacks mixes {missing}; this script needs {MIXES}")
+    if not keys:
+        raise SystemExit("no pool with world_seeds in the data file")
+    return keys
 
 
 def scenarios() -> dict:
     out = dict(SCENARIOS)
     if CONFIG["check_rule"] is not None:
-        out["one_mix_at_margin"] = (-CONFIG["check_rule"][0], 0.0, 0.0)
+        margin = CONFIG["check_rule"][0]
+        for i, mix in enumerate(MIXES):
+            out[f"one_mix_at_margin@{mix}"] = tuple(-margin if j == i else 0.0 for j in range(3))
     return out
+
+
+def regressed_mix(shifts) -> str | None:
+    """The single regressed mix of a one-mix scenario, else None."""
+    negative = [m for m, d in zip(MIXES, shifts) if d < 0]
+    return negative[0] if len(negative) == 1 and all(d <= 0 for d in shifts) else None
 
 
 def rules() -> tuple:
@@ -212,12 +228,20 @@ def new_rule(d_mean, d_sd, n, margin, p):
     return d_mean - t_crit(p, n) * d_sd / math.sqrt(n) > -margin
 
 
+def base_kwargs() -> dict:
+    """Efficacy/NI/futility/look settings: the study's frozen plan, else the defaults."""
+    params = CONFIG["plan_params"]
+    if params is None:
+        return {"n_max": CONFIG["n_max"], "mde": CONFIG["mde"]}
+    return {k: v for k, v in params.items() if k not in PAIRED_FIELDS + ("band_policy",)}
+
+
 def plans():
-    base = sequential_gate_plan(CONFIG["n_max"], mde=CONFIG["mde"])
+    kwargs = base_kwargs()
+    base = sequential_gate_plan(**kwargs)
     new = {
         rule_name(*r): sequential_gate_plan(
-            CONFIG["n_max"],
-            mde=CONFIG["mde"],
+            **kwargs,
             band_policy="paired_ni_at_stop",
             band_ni_margin=r[0],
             band_alpha=r[1],
@@ -332,10 +356,10 @@ def vector_gate(plan, mass: dict, n_reps: int, delta_ni: float):
 def gate_bands_at(plan_new, k_arr, surv: dict, inc: dict, ref: dict, looks, name):
     """Band verdicts per replicate at look k_arr[r] for one rule (old or a new plan).
 
-    Returns (all bands pass, frozen-mix band passes); the one-mix regressions shift frozen.
+    Returns (all bands pass, {mix: that band passes}).
     """
     ok = np.ones(len(k_arr), bool)
-    frozen = np.ones(len(k_arr), bool)
+    per_mix = {m: np.ones(len(k_arr), bool) for m in MIXES}
     for k, n in enumerate(looks):
         rows = k_arr == k
         if not rows.any():
@@ -355,9 +379,8 @@ def gate_bands_at(plan_new, k_arr, surv: dict, inc: dict, ref: dict, looks, name
                     plan_new.band_nominal_p[k],
                 )
             ok[rows] &= verdict
-            if mix == "frozen":
-                frozen[rows] = verdict
-    return ok, frozen
+            per_mix[mix][rows] = verdict
+    return ok, per_mix
 
 
 def draw_gate(pools, rng, n_reps, n_worlds, theta, shifts):
@@ -384,8 +407,8 @@ def part_gate(reps: int, seed: int) -> dict:
         n_worlds = len(data[source]["world_seeds"])
         for t_index, theta in enumerate(CONFIG["thetas"]):
             for d_index, (label, shifts) in enumerate(scenarios().items()):
-                if label.startswith("all_mixes"):
-                    continue  # the one-mix regressions are the adversarial cases here
+                if label in GATE_SKIP:
+                    continue
                 rng = np.random.default_rng([seed, s_index, t_index, d_index])
                 mass, surv, inc, ref = draw_gate(pools, rng, reps, n_worlds, theta, shifts)
                 stop, qual = vector_gate(base, mass, reps, delta_ni)
@@ -398,16 +421,25 @@ def part_gate(reps: int, seed: int) -> dict:
                 }
                 for name in rule_names:
                     plan = None if name.startswith("old") else new_plans[name]
-                    ok, frozen = gate_bands_at(plan, stop, surv, inc, ref, base.look_sizes, name)
+                    ok, per_mix = gate_bands_at(plan, stop, surv, inc, ref, base.look_sizes, name)
                     k, q = int((ok & qual).sum()), int(qual.sum())
-                    kf = int((frozen & qual).sum())
                     row[name] = {
                         "p_band_given_qualify": round(k / q, 4) if q else None,
                         "ci": wilson(k, q),
-                        "p_frozen_band_given_qualify": round(kf / q, 4) if q else None,
-                        "ci_frozen": wilson(kf, q),
                         "p_pass": round(k / reps, 4),
                     }
+                    bad = regressed_mix(shifts)
+                    if bad is not None:
+                        # Joint: P(qualify and the regressed band passes), an upper bound on
+                        # P(gate PASS | regression).  Conditional: given that the run qualified.
+                        kb = int((per_mix[bad] & qual).sum())
+                        row[name].update(
+                            regressed_mix=bad,
+                            p_regressed_band_and_qualify=round(kb / reps, 4),
+                            ci_joint=wilson(kb, reps),
+                            p_regressed_band_given_qualify=round(kb / q, 4) if q else None,
+                            ci_conditional=wilson(kb, q),
+                        )
                 out["results"][f"{source}|theta={theta:g}|{label}"] = row
     if CONFIG["check_rule"] is not None:
         out["check"] = pre_registration_check(out["results"])
@@ -415,26 +447,28 @@ def part_gate(reps: int, seed: int) -> dict:
 
 
 def pre_registration_check(results: dict) -> dict:
-    """Amendment acceptance: regressed-band rate at the qualifying look <= 1.2 x band_alpha.
+    """Amendment acceptance: joint regressed-band error <= 1.2 x band_alpha.
 
-    Scenario ``one_mix_at_margin`` (the frozen mix regresses by exactly the margin M), every
-    pool and every theta; the rate is P(frozen band passes | qualified).
+    Scenarios ``one_mix_at_margin@<mix>`` (one mix regresses by exactly the margin M), every
+    pool and every theta.  The judged rate is the joint P(run qualifies and the regressed band
+    passes), which bounds P(gate PASS with that regression).  The conditional rate given
+    qualification is reported but not judged: it inflates where qualifying is rare.
     """
     margin, alpha, bound = CONFIG["check_rule"]
     name = rule_name(margin, alpha, bound)
-    rows = {
-        key: row[name]["p_frozen_band_given_qualify"]
-        for key, row in results.items()
-        if key.endswith("|one_mix_at_margin")
-    }
+    joint, conditional = {}, {}
+    for key, row in results.items():
+        if "|one_mix_at_margin@" in key:
+            joint[key] = row[name]["p_regressed_band_and_qualify"]
+            conditional[key] = row[name]["p_regressed_band_given_qualify"]
     threshold = 1.2 * alpha
-    rates = [r for r in rows.values() if r is not None]
     return {
         "rule": name,
         "threshold": threshold,
-        "rates": rows,
-        "max_rate": max(rates) if rates else None,
-        "passes": bool(rates) and max(rates) <= threshold,
+        "joint_rates": joint,
+        "conditional_rates_reported_only": conditional,
+        "max_joint_rate": max(joint.values()) if joint else None,
+        "passes": bool(joint) and max(joint.values()) <= threshold,
     }
 
 
@@ -449,7 +483,12 @@ def part_crosscheck(reps: int, seed: int) -> dict:
     pools = arrays(data, "v7_strict")
     n_worlds = len(data["v7_strict"]["world_seeds"])
     mismatches, checked = [], 0
-    cases = ((30.0, "one_mix_-0.05"), (60.0, "no_regression"), (30.0, "no_regression"))
+    cases = (
+        (30.0, "one_mix_-0.05"),
+        (60.0, "no_regression"),
+        (30.0, "no_regression"),
+        (15.0, "one_mix_-0.05@scripted"),
+    )
     for s_index, (theta, label) in enumerate(cases):
         rng = np.random.default_rng([seed, 99, s_index])
         mass, surv, inc, ref = draw_gate(pools, rng, reps, n_worlds, theta, SCENARIOS[label])
@@ -511,6 +550,21 @@ def part_crosscheck(reps: int, seed: int) -> dict:
     }
 
 
+def load_plan_params(path: Path) -> None:
+    """Freeze CONFIG to the study's plan; fail closed on any mismatch."""
+    with open(path) as handle:
+        raw = json.load(handle)
+    params = dict(raw.get("plan_parameters", raw))
+    plan = sequential_gate_plan(**params)
+    if "plan" in raw and plan.as_dict() != raw["plan"]:
+        raise SystemExit("rebuilt plan does not equal the frozen plan in --plan-params")
+    if tuple(plan.mixes) != MIXES:
+        raise SystemExit(f"this script simulates the mixes {MIXES}; plan has {plan.mixes}")
+    CONFIG.update(plan_params=params, n_max=plan.n_max, mde=plan.mde)
+    if plan.band_policy == "paired_ni_at_stop":
+        CONFIG["check_rule"] = (plan.band_ni_margin, plan.band_alpha, plan.band_bound)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--part", choices=("extract", "bands", "gate", "crosscheck"), required=True)
@@ -521,11 +575,21 @@ def main() -> None:
     parser.add_argument("--n-max", type=int, default=N_MAX)
     parser.add_argument("--mde", type=float, default=MDE)
     parser.add_argument("--delta-ni", type=float, default=V7_DELTA_NI)
-    parser.add_argument("--thetas", default="30,60,130", help="mass effects for --part gate")
+    parser.add_argument(
+        "--thetas", default="15,20,30,45,60,130", help="mass effects for --part gate"
+    )
     parser.add_argument(
         "--check-rule",
         default=None,
         help="margin,alpha,bound of the study's frozen plan, e.g. 0.05,0.05,pointwise",
+    )
+    parser.add_argument(
+        "--plan-params",
+        type=Path,
+        default=None,
+        help="JSON: sequential_gate_plan kwargs, or {'plan_parameters': ..., 'plan': ...} "
+        "(intent.json style; the rebuilt plan must equal 'plan'). Overrides --n-max/--mde "
+        "and, under band_policy paired_ni_at_stop, --check-rule.",
     )
     args = parser.parse_args()
     CONFIG.update(
@@ -538,6 +602,8 @@ def main() -> None:
     if args.check_rule:
         margin, alpha, bound = args.check_rule.split(",")
         CONFIG["check_rule"] = (float(margin), float(alpha), bound)
+    if args.plan_params:
+        load_plan_params(args.plan_params)
     start = time.process_time()
     if args.part == "extract":
         result = extract()
@@ -547,7 +613,7 @@ def main() -> None:
         digest = hashlib.sha256(DATA.read_bytes()).hexdigest()
         print(json.dumps({"wrote": str(DATA), "sha256": digest}))
         return
-    reps = args.reps or {"bands": 20000, "gate": 20000, "crosscheck": 100}[args.part]
+    reps = args.reps or {"bands": 20000, "gate": 10000, "crosscheck": 75}[args.part]
     result = {"bands": part_bands, "gate": part_gate, "crosscheck": part_crosscheck}[args.part](
         reps, args.seed
     )

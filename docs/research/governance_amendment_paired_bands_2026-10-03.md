@@ -47,9 +47,13 @@ README):
 | True regression 0.02: that band passes | 0.36-0.37 | 0.43 | 0.47 | 0.48-0.50 |
 
 The guardrail removes most good candidates and still lets a 0.05 regression through about
-30% of the time. In the full sequential gate at a mass effect of 30, the band alone cuts the
-PASS probability from 0.96 to about 0.20 (0.957 x 0.214). This matches the v8 strict
-design's report that the bands roughly halved gate power.
+30% of the time.
+
+In the full sequential gate, take a candidate with a mass effect of 30 (the MDE) and no
+survival change. Efficacy and NI qualify it 96% of the time, but the band then cuts PASS to
+about 0.20 (0.957 x 0.210). The v8 strict design reported a smaller loss under its own
+assumptions: full-gate power about 28%, against 55% without the band. Both analyses find that
+the band, not efficacy or NI, dominates the gate's power.
 
 ## The rule (`band_policy = "paired_ni_at_stop"`)
 
@@ -99,21 +103,29 @@ the look-k prefix of n_k final worlds:
   | True regression 0.05: that band passes | 0.036-0.045 | 0.040-0.046 | 0.042-0.048 | 0.042-0.049 |
 
 - **Pointwise rather than RCI.** The RCI's guarantee holds under any stopping rule, but it
-  passes essentially nothing at look 1: 0.000 of no-regression candidates and 0.23-0.32 of
-  candidates that improve by 0.05. A pointwise bound judged at a data-dependent look could in
-  principle be anti-conservative, because early stops select runs with high mass deltas and
-  mass correlates about 0.98 with survival per world. Joint resampling through the full gate
-  measured this. With a 0.05 regression in one mix and mass effects of 30, 60 and 130, the
-  regressed band passed 0.040-0.048 of the time at the qualifying look, with Wilson upper
-  bounds of at most 0.051, against nominal 0.05. No inflation was detected. The per-study
-  check below keeps that true for each study's own data.
+  passes very little at look 1. At alpha 0.10 (RCI-OBF), it passes 0.000 of no-regression
+  candidates and 0.23-0.32 of candidates that improve by 0.05.
+- **What the guarantee is.** The guarantee is on the **joint** error: P(the run qualifies and
+  a band with a true regression of M passes). That bounds P(gate PASS with that regression).
+  - **Why measure it.** A pointwise bound judged at a data-dependent look can be
+    anti-conservative: early or rare qualification selects runs with high mass noise, and
+    mass correlates about 0.98 with survival per world.
+  - **Joint error, measured.** Joint resampling through the full gate covered a 0.05
+    regression in each mix in turn and mass effects of 0.5, 0.67, 1, 1.5 and 2 x MDE and
+    130, in 36 cells. The joint error was 0.020-0.053. The maximum, 0.053 (Wilson
+    0.049-0.058), came from the small, low-variance v8 `mixed` pool. The old rule's joint
+    error was 0.07-0.32.
+  - **Conditional rate.** The rate given qualification is inflated below the MDE (0.09-0.12
+    at 0.5 x MDE), where qualifying is rare. Those runs seldom pass at all, so the joint
+    error stays below 0.05. At and above the MDE, no inflation was detected.
+  - The per-study check below re-measures the joint error on each study's own data.
 - **The known weak spot is look 1.** A candidate whose survival is truly unchanged passes all
   three bands only 15-21% of the time at n = 63 (the old rule as run: 9-11%). The one saved
   run with a look-1-sized mass gain (v7 strict, +119 to +130 mass per mix) also gained
   0.18-0.21 survival, with a per-world mass/survival correlation of 0.98. A flat-survival
-  look-1 stop is therefore the less likely case, but it is not ruled out. A study that expects an early stop with flat survival may
-  pre-register alpha = 0.10 instead. That gives 32-40% at look 1, at a 10% cap on a 0.05
-  regression.
+  look-1 stop is therefore the less likely case, but it is not ruled out. A study that
+  expects an early stop with flat survival may pre-register alpha = 0.10 instead. That gives
+  32-40% at look 1, at about a 10% joint cap on a 0.05 regression.
 
 ## How it plugs into the sequential plan
 
@@ -150,25 +162,30 @@ the look-k prefix of n_k final worlds:
   `band_floor`, all in the hashed plan, plus each band's metric and mix scope.
 - **Resampling check on the study's own data.** Run
   `research/paired_band_validation_20261003/simulate.py` on the study's own saved paired
-  screen or pilot records (Tier 0 data), with the frozen plan values:
+  screen or pilot records (Tier 0 data), with the frozen plan:
 
-      simulate.py --part bands --data <pool.json> --n-max <N_max> --mde <MDE> \
-          --check-rule <M>,<alpha>,<bound>
-      simulate.py --part gate  --data <pool.json> --n-max <N_max> --mde <MDE> \
-          --delta-ni <dev delta_NI> --thetas <MDE>,<2 x MDE>,<screen estimate> \
-          --check-rule <M>,<alpha>,<bound>
+      simulate.py --part bands --data <pool.json> --plan-params <plan.json>
+      simulate.py --part gate  --data <pool.json> --plan-params <plan.json> \
+          --delta-ni <dev delta_NI> --reps 20000 \
+          --thetas <0.5 MDE>,<0.67 MDE>,<MDE>,<1.5 MDE>,<2 MDE>,<screen estimate>
 
-  Use the default 20,000 replicates. `<pool.json>` has the format of
+  `<plan.json>` is `{"plan_parameters": ..., "plan": ...}`, exactly as frozen in
+  `intent.json`. The script rebuilds the plan, refuses to run unless it equals `plan`, and
+  then uses its looks, alphas, futility rule and band rule. The script simulates the three
+  mixes `frozen`, `scripted` and `mixed` only. `<pool.json>` has the format of
   `paired_survival_20261003.json`: one entry per pool, with `world_seeds` and, per mix, the
   lists `incumbent_survival`, `candidate_survival` and `mass_delta`. delta_NI is not known
   before calibration, so use the development estimate; the check depends on it only through
   the NI conjunct. Report:
   - P(all bands pass) for no regression at each look size;
-  - the regressed-band pass rate at the qualifying look for a one-mix regression equal to M,
-    at mass effects equal to the MDE, 2 x MDE and the screen's estimate.
+  - for a regression of exactly M in each mix in turn, at every listed mass effect: the
+    joint rate P(qualify and the regressed band passes), and, for information only, the
+    rate given qualification.
 
-  **Acceptance:** the regressed-band rate is at most 1.2 x `band_alpha` (0.06 at the
-  recommended value) in every row. The `gate` output's `check.passes` field applies this.
+  **Acceptance:** the joint rate is at most 1.2 x `band_alpha` (0.06 at the recommended
+  value) in every row. The `gate` output's `check.passes` field applies this. The output
+  sha256 identifies the run, not a reproducible byte string: the output embeds
+  `cpu_seconds`.
   If the check fails, use `band_bound = "rci_obf"`, or do
   not adopt this policy. The outputs and their sha256 go into the pre-registration, as for
   the skew check.
@@ -182,8 +199,8 @@ the look-k prefix of n_k final worlds:
 - The selection check shifts mass and survival independently. That is adversarial for
   selection, but the real joint shape may differ for other candidate families. The per-study
   check covers this.
-- Survival_fraction is bounded in [0, 1]. A candidate close to 1 has a compressed delta
-  distribution. The paired t bound is then conservative for improvements and unaffected
-  otherwise; it was not simulated separately.
+- Survival_fraction is bounded in [0, 1], and the additive shift model ignores the bounds.
+  A candidate close to 1 has a compressed, skewed delta distribution. Its effect on the t
+  bound was not simulated.
 - The fixed-N strict gate could use the same rule at a single look with p = alpha. That is
   not proposed here.
