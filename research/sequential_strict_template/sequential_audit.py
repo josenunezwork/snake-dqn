@@ -4,7 +4,9 @@
 Standard library only: it imports nothing from the repo (in particular not
 ``src.evaluation.sequential_gate`` or ``screen_stats``), so
 ``python -I sequential_audit.py --root <run-root> --out <dir>`` works from any directory.
-Exit 0 = PASS, 1 = FAIL (``<out>/audit.json`` is written create-only either way).
+Exit 0 = PASS, 1 = FAIL or UNCLOSED (``<out>/audit.json`` is written create-only either
+way).  A root without ``closeout.json`` is ``UNCLOSED`` unless ``--pre-closeout`` (the
+runner's own call between ``producer-outcome.json`` and ``closeout.json``).
 
 What it recomputes in its own code (amendment "Audit requirements"):
 
@@ -63,6 +65,9 @@ PRODUCTION_EXECUTOR = "subprocess"
 PRODUCTION_SKEW_RUNNER = "subprocess_skew_runner"
 PRODUCTION_AUDIT_RUNNER = "subprocess_audit_runner"
 PREREGISTRATION = ("protocol", "oc_report", "band_cost_report")
+# The audit's own copies of the production constants (not imported from the runner).
+SLOT_LOCK_ROOT = "/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909"
+LEDGER_PATH = SLOT_LOCK_ROOT + "/sequential-strict-ledger.jsonl"
 GRID_POINTS = 401  # odd (Simpson)
 GRID_SD = 10.0
 _N = NormalDist()
@@ -971,6 +976,10 @@ def provenance_problems(
             problems.append(f"started.json provenance {key}={prov.get(key)!r}")
     if intent.get("allow_dirty") is not False or intent["source_closure"].get("dirty"):
         problems.append("dirty source closure on a production intent")
+    if str(Path(intent.get("slot_lock_root", ""))) != SLOT_LOCK_ROOT:
+        problems.append(f"slot lock root {intent.get('slot_lock_root')!r} is not the global one")
+    if str(Path(intent.get("ledger_path", ""))) != LEDGER_PATH:
+        problems.append(f"ledger {intent.get('ledger_path')!r} is not the global one")
     for row in supervisions:
         if row.get("executor") is not None or any(
             "worker" not in child.get("command", []) for child in row.get("children", [])
@@ -1024,7 +1033,10 @@ def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) ->
     audit.add("provenance.production_or_dry_run", not problems, problems)
 
 
-def run_audit(root: Path) -> Dict[str, Any]:
+def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
+    """Audit a run root.  Without ``pre_closeout`` a root lacking ``closeout.json`` is
+    ``UNCLOSED`` (never PASS); the runner's own pre-closeout call needs the producer claim
+    and no closeout yet."""
     root = Path(root).resolve()
     output = root / "output"
     audit = Audit()
@@ -1043,10 +1055,24 @@ def run_audit(root: Path) -> Dict[str, Any]:
     except (AuditError, KeyError, TypeError, ValueError, IndexError, OSError) as exc:
         error = f"{type(exc).__name__}: {exc}"
         audit.add("audit.evidence_readable", False, error)
+    closed = (output / "closeout.json").is_file()
+    if pre_closeout:
+        audit.add(
+            "mode.pre_closeout",
+            not closed and (output / "producer-outcome.json").is_file(),
+            "pre-closeout mode needs the producer claim and no closeout yet",
+        )
+    if audit.failures or error is not None:
+        status = "FAIL"
+    elif not pre_closeout and not closed:
+        status = "UNCLOSED"  # started (or abandoned) without a closeout: never PASS
+    else:
+        status = "PASS"
     return {
         "schema_version": AUDIT_SCHEMA,
         "root": str(root),
-        "status": "PASS" if not audit.failures and error is None else "FAIL",
+        "mode": "pre-closeout" if pre_closeout else "post-hoc",
+        "status": status,
         "checks": audit.checks,
         "failures": audit.failures,
         "error": error,
@@ -1076,8 +1102,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--pre-closeout",
+        action="store_true",
+        help="the runner's own call, after producer-outcome.json and before closeout.json",
+    )
     args = parser.parse_args(argv)
-    report = run_audit(args.root)
+    report = run_audit(args.root, pre_closeout=args.pre_closeout)
     args.out.mkdir(parents=True, exist_ok=True)
     write_create_only(args.out / "audit.json", report)
     return 0 if report["status"] == "PASS" else 1

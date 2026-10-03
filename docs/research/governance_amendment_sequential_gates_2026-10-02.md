@@ -251,5 +251,7 @@ done. It deviates from the text above in two stated ways:
   NI rate (<= 0.06) on the scripted mix only. The probe's own `passes` field is recorded
   but not used.
 
+Ratified 2026-10-03 by the research loop owner.
+
 There is no resume: a run whose parent dies without a closeout is permanently abandoned,
 as in the fixed-N packages.

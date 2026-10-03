@@ -80,6 +80,9 @@ SKEW_PROBE = REPO / "research" / "sequential_gate_validation_20261002" / "skew_p
 PYTHON = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
 # The global CPU slot lock root the v7 strict package uses (strict_run.SLOT_LOCK_ROOT).
 SLOT_LOCK_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909")
+# Append-only ledger of started sequential strict runs, beside the global slot locks and
+# outside every output root.  A final namespace may start at most one production run.
+LEDGER_PATH = SLOT_LOCK_ROOT / "sequential-strict-ledger.jsonl"
 DEFAULT_CLOSURE_ROOTS = (
     "src",
     "research/sequential_strict_template",
@@ -623,6 +626,7 @@ def build_intent(
     caps: Optional[Mapping[str, int]] = None,
     workers: int = WORKERS,
     slot_lock_root: Optional[Path] = None,
+    ledger_path: Optional[Path] = None,
     python: Path = PYTHON,
     dry_run: bool = False,
     allow_dirty: bool = False,
@@ -652,6 +656,16 @@ def build_intent(
         f"a production intent must use the global slot lock root {SLOT_LOCK_ROOT}",
     )
     require(dry_run or not allow_dirty, "allow_dirty is only permitted on a dry_run intent")
+    require(
+        not dry_run or lock_root != SLOT_LOCK_ROOT,
+        "a dry run may not take the global CPU slots; give it its own slot_lock_root",
+    )
+    ledger = Path(ledger_path or LEDGER_PATH)
+    require(
+        (ledger == LEDGER_PATH) != bool(dry_run),
+        "a production intent uses the global ledger; a dry run must use its own ledger path",
+    )
+    require_namespace_unused(ledger, spec.namespaces["final"])
     out_root = Path(out_root).resolve()
     status = run_status(out_root)
     require(status["state"] == "NOT_STARTED", f"{out_root} is {status['state']}: never reused")
@@ -754,6 +768,7 @@ def build_intent(
         "repo": str(repo),
         "python": str(python),
         "slot_lock_root": str(lock_root),
+        "ledger_path": str(ledger),
         "audit": {
             "path": str(INDEPENDENT_AUDIT),
             "sha256": sha256_file(INDEPENDENT_AUDIT),
@@ -795,6 +810,13 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
             f"a production intent must use the global slot lock root {SLOT_LOCK_ROOT}",
         )
         require(intent["allow_dirty"] is False, "allow_dirty on a production intent")
+        require(Path(intent["ledger_path"]) == LEDGER_PATH, "production ledger path")
+    else:
+        require(Path(intent["ledger_path"]) != LEDGER_PATH, "a dry run may not use the ledger")
+        require(
+            Path(intent["slot_lock_root"]) != SLOT_LOCK_ROOT,
+            "a dry run may not take the global CPU slots",
+        )
     require(
         plan_from_parameters(intent["plan_parameters"]).as_dict() == intent["plan"],
         "frozen plan differs from its parameters",
@@ -942,6 +964,48 @@ def _pid_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def read_ledger(ledger: Path) -> List[Dict[str, Any]]:
+    """Every started-run line of the append-only ledger (missing file = no runs)."""
+    if not Path(ledger).is_file():
+        return []
+    return [json.loads(line) for line in Path(ledger).read_text().splitlines() if line.strip()]
+
+
+def require_namespace_unused(ledger: Path, final_namespace: str) -> None:
+    used = [e for e in read_ledger(ledger) if e["final_namespace"] == final_namespace]
+    require(
+        not used,
+        f"final namespace {final_namespace} already started a run "
+        f"({used[0]['output_root'] if used else ''}); a namespace is never reused",
+    )
+
+
+def append_ledger(ledger: Path, entry: Mapping[str, Any]) -> None:
+    """Under an exclusive lock: re-check the namespace, then append one fsynced line."""
+    ledger = Path(ledger)
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(ledger, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        require_namespace_unused(ledger, entry["final_namespace"])
+        os.write(descriptor, (canonical_json(dict(entry)) + "\n").encode("utf-8"))
+        os.fsync(descriptor)
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def ledger_status(ledger: Path) -> List[Dict[str, Any]]:
+    """Each ledger entry with its run state; started without closeout = ``ABANDONED``."""
+    rows = []
+    for entry in read_ledger(ledger):
+        state = run_status(Path(entry["output_root"]))
+        if state["state"] == "NOT_STARTED":  # in the ledger but no output: never closed
+            state = {"state": "ABANDONED", "reason": "ledger entry without output"}
+        rows.append({**entry, **state})
+    return rows
 
 
 def run_status(out_root: Path) -> Dict[str, Any]:
@@ -1497,7 +1561,7 @@ def subprocess_skew_runner(
 
 def subprocess_audit_runner(ctx: "RunContext", out_dir: Path, wall_seconds: float) -> Dict:
     """Production audit: the stdlib-only ``sequential_audit.py`` as a supervised child."""
-    command = [*ctx.intent["audit"]["command"], "--out", str(out_dir)]
+    command = [*ctx.intent["audit"]["command"], "--pre-closeout", "--out", str(out_dir)]
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
     result = supervise_children(
         [command],
@@ -2094,7 +2158,9 @@ def in_process_audit_runner(ctx: RunContext, out_dir: Path, wall_seconds: float)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         _AUDIT_MODULE["module"] = module
-    code = module.main(["--root", str(ctx.intent["output_root"]), "--out", str(out_dir)])
+    code = module.main(
+        ["--root", str(ctx.intent["output_root"]), "--pre-closeout", "--out", str(out_dir)]
+    )
     return {"cause": None, "returncode": code, "clean": True}
 
 
@@ -2123,6 +2189,17 @@ def run(
     )
     skew_runner = skew_runner or subprocess_skew_runner
     audit_runner = audit_runner or subprocess_audit_runner
+    if intent["dry_run"]:
+        require(
+            isinstance(executor, InProcessExecutor),
+            "a dry run must use the in-process executor (never real workers or slots)",
+        )
+    else:
+        require(
+            executor is None or type(executor) is SubprocessExecutor,
+            "a production run uses SubprocessExecutor only",
+        )
+        require_namespace_unused(Path(intent["ledger_path"]), intent["spec"]["namespaces"]["final"])
     provenance = {
         "executor": PRODUCTION_EXECUTOR if executor is None else executor.identity,
         "skew_runner": runner_identity(skew_runner),
@@ -2146,6 +2223,18 @@ def run(
         executor = executor if executor is not None else SubprocessExecutor(slots)
         if intent["sizing"]["feasible"]:
             executor.preflight()
+        append_ledger(
+            Path(intent["ledger_path"]),
+            {
+                "study_id": intent["study_id"],
+                "final_namespace": intent["spec"]["namespaces"]["final"],
+                "intent_sha256": sha256_file(intent_path),
+                "output_root": intent["output_root"],
+                "dry_run": intent["dry_run"],
+                "pid": os.getpid(),
+                "utc": now_utc().isoformat(),
+            },
+        )
         ctx = RunContext(
             intent=intent,
             intent_path=intent_path,
@@ -2183,18 +2272,17 @@ def _admitted_run(ctx: RunContext, slots: Sequence[Any]) -> Dict[str, Any]:
     signals = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
     previous = {sig: signal.signal(sig, interrupt) for sig in signals}
     try:
-        try:
-            if ctx.intent["sizing"]["feasible"]:
-                admit_rosters(ctx)
-                run_phases(ctx)
-        except DeadlineStop as exc:
-            ctx.state["deadline_stop"] = str(exc)
-        except (Exception, Interrupted, KeyboardInterrupt) as exc:  # noqa: BLE001 - recorded
-            ctx.state["failure"] = f"{type(exc).__name__}: {exc}"
-        return closeout(ctx)
-    finally:
+        if ctx.intent["sizing"]["feasible"]:
+            admit_rosters(ctx)
+            run_phases(ctx)
+    except DeadlineStop as exc:
+        ctx.state["deadline_stop"] = str(exc)
+    except (Exception, Interrupted, KeyboardInterrupt) as exc:  # noqa: BLE001 - recorded
+        ctx.state["failure"] = f"{type(exc).__name__}: {exc}"
+    finally:  # default handlers are back before the closeout is written
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+    return closeout(ctx)
 
 
 def admit_rosters(ctx: RunContext) -> None:
@@ -2240,9 +2328,11 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     prep.add_argument("--futility-action", default="stop", choices=FUTILITY_ACTIONS)
     prep.add_argument("--band-margin-z", type=float, default=DEFAULT_BAND_MARGIN_Z)
     prep.add_argument("--skew-reps", type=int, default=DEFAULT_SKEW_REPS)
-    for name in ("run", "status"):
-        child = sub.add_parser(name)
-        child.add_argument("--intent", type=Path, required=True)
+    child = sub.add_parser("run")
+    child.add_argument("--intent", type=Path, required=True)
+    status = sub.add_parser("status", help="one run's state and every ledger entry's state")
+    status.add_argument("--intent", type=Path, default=None)
+    status.add_argument("--ledger", type=Path, default=LEDGER_PATH)
     worker = sub.add_parser("worker")
     worker.add_argument("--intent", type=Path, required=True)
     worker.add_argument("--phase", choices=PHASES, required=True)
@@ -2277,7 +2367,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps({"intent": str(path), "sha256": sha256_file(path)}))
         return 0
     if args.command == "status":
-        print(json.dumps(run_status(args.intent.resolve().parent)))
+        report: Dict[str, Any] = {"ledger": ledger_status(args.ledger)}
+        if args.intent is not None:
+            report["run"] = run_status(args.intent.resolve().parent)
+        print(json.dumps(report, indent=1))
         return 0
     if args.command == "run":
         record = run(args.intent)

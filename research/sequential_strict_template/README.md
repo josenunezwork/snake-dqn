@@ -48,9 +48,18 @@ the v7 package uses (`SLOT_LOCK_ROOT`). There is **no resume**, as in v7: a pare
 without `closeout.json` leaves the run permanently `ABANDONED`
 (`sequential_runner.py status --intent ...`), and `prepare` and `run` refuse that root.
 
-**Dry runs.** `build_intent(..., dry_run=True)` permits the in-process executor, injected
-skew/audit runners, a dirty closure and any lock root (used by the tests and for plumbing
-checks). The executor and runner identities, `allow_dirty` and `dry_run` are recorded in
+**Ledger.** Every started run appends one fsynced line to the append-only
+`sequential-strict-ledger.jsonl` beside the global slot locks (`LEDGER_PATH`, outside every
+output root): study id, final namespace, intent sha256, output root. The line is written
+under an exclusive lock after the slots are held and before `output/` exists. `prepare` and
+`run` refuse any run whose final namespace is already in the ledger, so a namespace starts
+at most one production run. `status` lists every ledger entry with its state, and an entry
+without a closeout is `ABANDONED`.
+
+**Dry runs.** `build_intent(..., dry_run=True)` must use the in-process executor (it never
+spawns workers), its own slot lock root (never the global one) and its own ledger path. It
+may use injected skew/audit runners and a dirty closure. It is used by the tests and for
+plumbing checks. The executor and runner identities, `allow_dirty` and `dry_run` are recorded in
 `started.json` and `closeout.json`. A dry run can only end `DRY_RUN_PASS`,
 `DRY_RUN_FAIL`, `DRY_RUN_SKEW_CHECK_FAILED` or a failure, and it never writes
 `receipt.json`. A production intent refuses injected executors and runners, and the audit
@@ -163,11 +172,15 @@ recomputes the following in its own stdlib code:
 - **Prefix integrity.** No record lies beyond the stopping look's per-worker counts. Each
   record sits in its unit's segment, and each segment's `started.json` binds the receipt
   that allowed it.
+- **Closeout.** A root without `closeout.json` is `UNCLOSED` (exit 1), never PASS. The runner
+  calls the audit itself with `--pre-closeout`, between `producer-outcome.json` and
+  `closeout.json`.
 - **Outcome.** The expected outcome is checked against `producer-outcome.json`,
   `decision.json` and `closeout.json`. A dry run may only end `DRY_RUN_*` and has no
   `receipt.json`.
 - **Provenance.** Unless the intent is a dry run, the audit FAILs on an in-process
-  executor, an injected skew or audit runner, `allow_dirty` or a dirty closure. It also
+  executor, an injected skew or audit runner, `allow_dirty`, a dirty closure, or a slot
+  lock root or ledger other than its own copies of the global constants. It also
   FAILs on any resume marker, or on a pre-registration document whose sha256 changed.
 
 ## Deviations from the amendment (explicit)

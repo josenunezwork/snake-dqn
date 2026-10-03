@@ -33,6 +33,7 @@ from src.scripts.eval_stats import student_t_isf, student_t_sf
 MIXES = ("frozen", "scripted", "mixed")
 N_MAX = 40  # looks of 10, 20, 30, 40 worlds per mix
 REAL_SUPERVISE = R.supervise_children
+REAL_SLOT_LOCK_ROOT = R.SLOT_LOCK_ROOT  # captured before the guard fixture patches it
 
 
 def _fatal(*args, **kwargs):
@@ -51,6 +52,7 @@ def guards(monkeypatch, tmp_path):
     monkeypatch.setattr(R.SubprocessExecutor, "run_segment", _fatal)
     monkeypatch.setattr(R, "on_ac_power", lambda: True)
     monkeypatch.setattr(R, "SLOT_LOCK_ROOT", tmp_path / "global-locks-must-not-be-used")
+    monkeypatch.setattr(R, "LEDGER_PATH", tmp_path / "global-ledger-must-not-be-used.jsonl")
 
 
 class SimulatedCrash(BaseException):
@@ -161,6 +163,7 @@ def intent_kwargs(tmp_path, **overrides):
         authorization_quote="test only",
         skew_reps=1000,
         slot_lock_root=tmp_path / "locks",
+        ledger_path=tmp_path / "ledger.jsonl",
         dry_run=True,
         allow_dirty=True,
     )
@@ -312,8 +315,11 @@ def test_crashed_run_is_abandoned_and_can_never_be_resumed(tmp_path):
     assert R.main(["status", "--intent", str(intent_path)]) == 0
     with pytest.raises(R.StrictRunError, match="ABANDONED"):
         execute(intent_path, make_spec(FakeWorld(effect=0.0), tmp_path))
-    with pytest.raises(R.StrictRunError, match="ABANDONED"):
+    with pytest.raises(R.StrictRunError, match="already started a run"):
         R.build_intent(spec, **intent_kwargs(tmp_path, mde=2000.0))
+    assert A.run_audit(intent_path.parent)["status"] == "UNCLOSED"
+    [entry] = R.ledger_status(tmp_path / "ledger.jsonl")
+    assert entry["state"] == "ABANDONED" and entry["final_namespace"] == "test-seq-final-v1"
     with pytest.raises(FileExistsError):
         R.write_once(output / "looks" / "look-0.json", {"tampered": True})
     assert not hasattr(R, "resume") and "resume" not in R.parse_args.__code__.co_consts
@@ -471,17 +477,31 @@ def test_production_intent_requires_global_lock_root_and_clean_sources(tmp_path)
 def test_production_intent_refuses_injected_executor_and_runners(tmp_path):
     spec = make_spec(FakeWorld(), tmp_path)
     intent = R.build_intent(spec, **intent_kwargs(tmp_path))
-    intent.update(dry_run=False, allow_dirty=False, slot_lock_root=str(R.SLOT_LOCK_ROOT))
+    intent.update(
+        dry_run=False,
+        allow_dirty=False,
+        slot_lock_root=str(R.SLOT_LOCK_ROOT),
+        ledger_path=str(R.LEDGER_PATH),
+    )
     with pytest.raises(R.StrictRunError, match="global slot lock root"):
         R.validate_intent(dict(intent, slot_lock_root=str(tmp_path / "locks")), spec)
     intent_path = R.prepare(intent)
-    with pytest.raises(R.StrictRunError, match="non-production run needs dry_run"):
+    with pytest.raises(R.StrictRunError, match="SubprocessExecutor only"):
         execute(intent_path, spec)
+    with pytest.raises(R.StrictRunError, match="non-production run needs dry_run"):
+        R.run(intent_path, spec=spec, skew_runner=fake_skew())
     assert not output_of(intent_path).exists()
+    assert not R.LEDGER_PATH.exists()
 
 
 def test_audit_fails_non_dry_run_provenance():
-    production = {"dry_run": False, "allow_dirty": False, "source_closure": {"dirty": []}}
+    production = {
+        "dry_run": False,
+        "allow_dirty": False,
+        "source_closure": {"dirty": []},
+        "slot_lock_root": A.SLOT_LOCK_ROOT,
+        "ledger_path": A.LEDGER_PATH,
+    }
     in_process = {
         "provenance": {
             "executor": "in-process",
@@ -685,3 +705,75 @@ def test_example_spec_never_plays_a_game_and_needs_excluded_seeds():
         spec.episode_runner({}, {}, None)
     with pytest.raises(NotImplementedError):
         spec.excluded_seeds()
+
+
+def test_dry_run_must_use_the_in_process_executor_and_its_own_slots(tmp_path):
+    spec = make_spec(FakeWorld(), tmp_path)
+    intent_path = prepare_run(tmp_path, spec)
+    for executor in (None, R.SubprocessExecutor([])):
+        with pytest.raises(R.StrictRunError, match="in-process executor"):
+            R.run(
+                intent_path,
+                spec=spec,
+                executor=executor,
+                skew_runner=fake_skew(),
+                audit_runner=R.in_process_audit_runner,
+            )
+    assert not output_of(intent_path).exists()
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(R.StrictRunError, match="global CPU slots"):
+        prepare_run(other, spec, slot_lock_root=R.SLOT_LOCK_ROOT)
+    with pytest.raises(R.StrictRunError, match="own ledger"):
+        prepare_run(other, spec, ledger_path=R.LEDGER_PATH)
+
+
+def test_ledger_refuses_a_second_run_of_a_final_namespace(tmp_path):
+    spec = make_spec(FakeWorld(effect=400.0), tmp_path)
+    intent_path = prepare_run(tmp_path, spec)
+    execute(intent_path, spec)
+    ledger = tmp_path / "ledger.jsonl"
+    [entry] = R.read_ledger(ledger)
+    assert entry["study_id"] == "test-sequential-strict"
+    assert entry["intent_sha256"] == R.sha256_file(intent_path)
+    assert R.ledger_status(ledger)[0]["state"] == "CLOSED"
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(R.StrictRunError, match="already started a run"):
+        R.build_intent(
+            spec, **dict(intent_kwargs(other), ledger_path=ledger, out_root=other / "run-v2")
+        )
+
+
+def test_audit_never_passes_an_unclosed_root(tmp_path):
+    spec = make_spec(FakeWorld(effect=400.0), tmp_path)
+    intent_path = prepare_run(tmp_path, spec)
+    execute(intent_path, spec)
+    assert A.run_audit(intent_path.parent)["status"] == "PASS"
+    (output_of(intent_path) / "closeout.json").unlink()
+    assert A.run_audit(intent_path.parent)["status"] == "UNCLOSED"
+    assert A.main(["--root", str(intent_path.parent), "--out", str(tmp_path / "audit")]) == 1
+
+
+def test_audit_requires_the_global_slot_root_and_ledger_for_production():
+    production = {
+        "dry_run": False,
+        "allow_dirty": False,
+        "source_closure": {"dirty": []},
+        "slot_lock_root": "/tmp/elsewhere",
+        "ledger_path": "/tmp/elsewhere/ledger.jsonl",
+    }
+    clean = {
+        "provenance": {
+            "executor": "subprocess",
+            "skew_runner": "subprocess_skew_runner",
+            "audit_runner": "subprocess_audit_runner",
+            "allow_dirty": False,
+            "dry_run": False,
+        }
+    }
+    problems = A.provenance_problems(production, clean, [], None, None)
+    assert any("slot lock root" in p for p in problems) and any("ledger" in p for p in problems)
+    production.update(slot_lock_root=A.SLOT_LOCK_ROOT, ledger_path=A.LEDGER_PATH)
+    assert A.provenance_problems(production, clean, [], None, None) == []
+    assert A.SLOT_LOCK_ROOT == str(REAL_SLOT_LOCK_ROOT)
