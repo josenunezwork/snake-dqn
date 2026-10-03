@@ -1,0 +1,95 @@
+{
+ "band_margin_z": 1.645,
+ "definition": "amendment: probability that a candidate whose true mean survival_fraction equals the reference fails the band [ref - 0.02, ref + 1] at a look-1 stop, with band_check's margin 1.645 * sd * (1/sqrt(n1) - 1/sqrt(N_max)) and sd = the pilot (screen v8 arm) per-episode SD of survival_fraction; normal approx.",
+ "look_sizes": [
+  63,
+  125,
+  187,
+  249
+ ],
+ "note": "The reference is the 16-world calibration incumbent mean (v7 strict rule, kept), so its own sampling SD (incumbent SD / 4, about 0.05-0.08) is larger than the 0.02 band; the 'with_calibration_noise' rows include it. These costs are large; they are a property of the v7 band rule applied at n1 worlds and are disclosed, not changed.",
+ "per_mix": {
+  "frozen": {
+   "calibration_worlds": 16,
+   "final": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.09151406111532279,
+    "fail_if_equal_ref_known": 0.06900894409791597,
+    "fail_if_equal_with_calibration_noise": 0.3805754432127403,
+    "margin": 0.0,
+    "n": 249
+   },
+   "look_1": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.1731712497100042,
+    "fail_if_equal_ref_known": 0.5284998871040516,
+    "fail_if_equal_with_calibration_noise": 0.5109605257364861,
+    "margin": 0.021916721068738824,
+    "n": 63
+   },
+   "look_2": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.12126165561707075,
+    "fail_if_equal_ref_known": 0.2838582522409083,
+    "fail_if_equal_with_calibration_noise": 0.43567547442390564,
+    "margin": 0.009125108641820864,
+    "n": 125
+   },
+   "pilot_candidate_sd": 0.21277774986158254,
+   "pilot_incumbent_sd": 0.257597815791526,
+   "screen_survival_difference_v8_minus_v7": 0.06760666666666681
+  },
+  "mixed": {
+   "calibration_worlds": 16,
+   "final": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.3085490495303407,
+    "fail_if_equal_ref_known": 0.06066721727408575,
+    "fail_if_equal_with_calibration_noise": 0.3574953318930589,
+    "margin": 0.0,
+    "n": 249
+   },
+   "look_1": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.45687580842539083,
+    "fail_if_equal_ref_known": 0.5152794878700881,
+    "fail_if_equal_with_calibration_noise": 0.5066377446849838,
+    "margin": 0.02098323600319826,
+    "n": 63
+   },
+   "look_2": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.3701541245369503,
+    "fail_if_equal_ref_known": 0.2682319567147574,
+    "fail_if_equal_with_calibration_noise": 0.42065907650333384,
+    "margin": 0.008736448649668804,
+    "n": 125
+   },
+   "pilot_candidate_sd": 0.20371504147778036,
+   "pilot_incumbent_sd": 0.21290802287229532,
+   "screen_survival_difference_v8_minus_v7": 0.007383333333333408
+  },
+  "scripted": {
+   "calibration_worlds": 16,
+   "final": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.19675159479170307,
+    "fail_if_equal_ref_known": 0.1120024370645264,
+    "fail_if_equal_with_calibration_noise": 0.40001355306567254,
+    "margin": 0.0,
+    "n": 249
+   },
+   "look_1": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.31399057328225,
+    "fail_if_equal_ref_known": 0.5815790307078047,
+    "fail_if_equal_with_calibration_noise": 0.5320010016567134,
+    "margin": 0.02673401385934876,
+    "n": 63
+   },
+   "look_2": {
+    "fail_at_screen_survival_difference_with_calibration_noise": 0.24276119843541488,
+    "fail_if_equal_ref_known": 0.35121079047260184,
+    "fail_if_equal_with_calibration_noise": 0.4562082760198444,
+    "margin": 0.011130806480284326,
+    "n": 125
+   },
+   "pilot_candidate_sd": 0.259546275007091,
+   "pilot_incumbent_sd": 0.3088869429872726,
+   "screen_survival_difference_v8_minus_v7": 0.047370000000000134
+  }
+ },
+ "schema": "apex-veto-v8-strict-band-cost/v1"
+}

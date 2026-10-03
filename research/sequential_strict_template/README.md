@@ -213,6 +213,16 @@ recomputes the following in its own stdlib code:
 The same two points are recorded in the amendment's "Implementation notes" and in the
 intent (`skew_check.deviations_from_amendment`).
 
+## Changes after v1 was merged
+
+- 2026-10-03 (v8 strict study, first production use): run as a script, the runner is
+  `__main__`, so a study spec's `from research.sequential_strict_template.sequential_runner
+  import StudySpec` loaded a second copy of the module and `validate_spec` refused every spec
+  ("spec must be a StudySpec") in `prepare` and in every worker child. The tests import the
+  module, so they never saw it. The runner now aliases itself in `sys.modules` when it is
+  `__main__`; `tests/test_apex_veto_v8_strict.py` drives `prepare` as a script. No gate,
+  plan, audit or outcome logic changed.
+
 ## Limits (template)
 
 - No serving stage and no smoke mode. A study that needs them adds them in its own
