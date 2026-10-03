@@ -39,8 +39,15 @@ stays the master switch; the variant chooses which wrapper the Watch hero gets:
   :data:`V5_STRICT_RECEIPT_SHA256`): the served checkpoint must hash to
   :data:`V5_STRICT_RECEIPT_CHECKPOINT_SHA256` and ``safety_veto_v5.py``,
   ``safety_veto.py`` and ``safety_veto_v3.py`` to :data:`V5_STRICT_RECEIPT_SOURCE_SHA256S`.
+* ``v7`` (opt-in; not the released default): ``free-space-veto/v7-space-preference(lambda=4.0)``
+  (:func:`src.evaluation.safety_veto_v7.install_space_preference_veto` with
+  :data:`V7_LAMBDA`), bound fail closed to the v7 STRICT_PASS receipt
+  (``apex-veto-v7-strict-20261002/run-v1``, receipt sha256 :data:`V7_STRICT_RECEIPT_SHA256`):
+  the served checkpoint must hash to :data:`V7_STRICT_RECEIPT_CHECKPOINT_SHA256`, the four
+  veto sources (``safety_veto{,_v3,_v5,_v7}.py``) to :data:`V7_STRICT_RECEIPT_SOURCE_SHA256S`
+  and the installed method to :data:`V7_STRICT_RECEIPT_METHOD` (the gated lambda).
 
-Unset or blank selects the default; ``v2``/``v5`` (case-insensitive) select a variant.
+Unset or blank selects the default; ``v2``/``v5``/``v7`` (case-insensitive) select a variant.
 Any other value falls back to :data:`VARIANT_RELEASED_DEFAULT`, like an unrecognized
 master-switch word falls back to the released default, so a typo cannot silently remove
 the released Watch-hero veto; the build's ``reason`` and log line name the bad value. The
@@ -66,6 +73,7 @@ from typing import Any, Dict, List, Mapping, Optional
 from src.evaluation import safety_veto as _veto_module
 from src.evaluation import safety_veto_v3 as _veto_v3_module
 from src.evaluation import safety_veto_v5 as _veto_v5_module
+from src.evaluation import safety_veto_v7 as _veto_v7_module
 from src.evaluation.safety_veto import (
     VETO_METHOD,
     FreeSpaceVeto,
@@ -76,6 +84,7 @@ from src.evaluation.safety_veto_v5 import (
     BoostAwareFreeSpaceVeto,
     install_boost_aware_veto,
 )
+from src.evaluation.safety_veto_v7 import SpacePreferenceVeto, install_space_preference_veto
 from src.model.obs_spec import VECTOR61
 
 ENV_WATCH_HERO = "SNAKE_SERVE_VETO_WATCH_HERO"
@@ -100,7 +109,8 @@ STRICT_RECEIPT_WRAPPER_SOURCE_SHA256 = (
 ENV_VARIANT = "SNAKE_SERVE_VETO_VARIANT"
 VARIANT_V2 = "v2"
 VARIANT_V5 = "v5"
-VARIANTS = (VARIANT_V2, VARIANT_V5)
+VARIANT_V7 = "v7"
+VARIANTS = (VARIANT_V2, VARIANT_V5, VARIANT_V7)
 # Released default variant when ENV_VARIANT is unset or blank (the v5 release flips this).
 # Released 2026-10-02 (v5 STRICT_PASS + SERVING_PASS); rollback: SNAKE_SERVE_VETO_VARIANT=v2.
 VARIANT_RELEASED_DEFAULT = VARIANT_V5
@@ -123,6 +133,35 @@ V5_STRICT_RECEIPT_SOURCE_SHA256S = {
     ),
 }
 V5_SOURCE_PATH = "src/evaluation/safety_veto_v5.py"
+
+# The v7 STRICT_PASS receipt (apex-veto-v7-strict-20261002/run-v1, candidate v7 lambda=4 vs
+# incumbent v5) and the candidate identity its intent.json binds: champion bytes, the four
+# veto source files and the gated lambda. Its strict serving stage was the rollout harness,
+# not this web path (closeout serving_path_qualified=False); the web lane is
+# research/apex_veto_v7_serving_20261002.
+V7_STRICT_RECEIPT_SHA256 = "86ee36791e33ecad06bd525e8190d97f1c012ac6e3ede33ba05abe544f750422"
+V7_STRICT_INTENT_SHA256 = "3e39e0699ac1ba27880ba35cac8d2d5e4a74fa58305aa63477dac4735a153b33"
+V7_STRICT_AUDIT_REPORT_SHA256 = "9cfc7dbb7eaa6d33cd9b5d6e602cc412a68886128076fa96d9196887c7e86183"
+V7_STRICT_RECEIPT_CHECKPOINT_SHA256 = (
+    "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+)
+V7_LAMBDA = 4.0
+V7_STRICT_RECEIPT_METHOD = "free-space-veto/v7-space-preference(lambda=4.0)"
+V7_STRICT_RECEIPT_SOURCE_SHA256S = {
+    "src/evaluation/safety_veto.py": (
+        "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428"
+    ),
+    "src/evaluation/safety_veto_v3.py": (
+        "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1"
+    ),
+    "src/evaluation/safety_veto_v5.py": (
+        "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c"
+    ),
+    "src/evaluation/safety_veto_v7.py": (
+        "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980"
+    ),
+}
+V7_SOURCE_PATH = "src/evaluation/safety_veto_v7.py"
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -209,6 +248,34 @@ def wrapper_identity_v5() -> Dict[str, Any]:
     }
 
 
+def v7_source_sha256s() -> Dict[str, str]:
+    """sha256 of each source file the v7 receipt binds, keyed by repo-relative path."""
+    out = {}
+    for module in (_veto_module, _veto_v3_module, _veto_v5_module, _veto_v7_module):
+        path = os.path.abspath(module.__file__)
+        out[os.path.relpath(path, REPO_ROOT)] = _sha256_file(path)
+    return dict(sorted(out.items()))
+
+
+def wrapper_identity_v7() -> Dict[str, Any]:
+    """Identity of the v7 wrapper (lambda :data:`V7_LAMBDA`), in the v7 strict intent's
+    ``wrapper_identity`` shape. ``source_path`` is repo-relative (the intent's is absolute).
+    """
+    sources = v7_source_sha256s()
+    veto = SpacePreferenceVeto(V7_LAMBDA)
+    return {
+        "method": veto.method,
+        "descriptor": veto.descriptor(),
+        "source_path": V7_SOURCE_PATH,
+        "source_sha256": sources.get(V7_SOURCE_PATH),
+        "source_sha256s": sources,
+    }
+
+
+def _install_v7(snake: Any) -> SpacePreferenceVeto:
+    return install_space_preference_veto(snake, V7_LAMBDA)
+
+
 def wrapper_identity() -> Dict[str, Any]:
     """Method, static descriptor and source sha256 of the installed wrapper.
 
@@ -246,11 +313,10 @@ class ServingVetoState:
     @property
     def checkpoint_match(self) -> bool:
         """The served checkpoint is the one the variant's strict receipt binds."""
-        pinned = (
-            V5_STRICT_RECEIPT_CHECKPOINT_SHA256
-            if self.variant == VARIANT_V5
-            else STRICT_RECEIPT_CHECKPOINT_SHA256
-        )
+        pinned = {
+            VARIANT_V5: V5_STRICT_RECEIPT_CHECKPOINT_SHA256,
+            VARIANT_V7: V7_STRICT_RECEIPT_CHECKPOINT_SHA256,
+        }.get(self.variant, STRICT_RECEIPT_CHECKPOINT_SHA256)
         return self.checkpoint_sha256 == pinned
 
     @property
@@ -266,7 +332,7 @@ class ServingVetoState:
         return {sid: veto.counters.to_dict() for sid, veto in sorted(self.vetoes.items())}
 
     def diagnostics(self) -> Dict[int, Dict[str, Any]]:
-        """v5 per-snake diagnostics (``diagnostics_record``); empty for the v2 wrapper."""
+        """v5/v7 per-snake diagnostics (``diagnostics_record``); empty for the v2 wrapper."""
         return {
             sid: veto.diagnostics_record()
             for sid, veto in sorted(self.vetoes.items())
@@ -368,24 +434,36 @@ def _install_scoped(
         state.reason = "the safety veto applies only to a vector61 Apex policy"
         return
     if not state.checkpoint_match:
-        under = " under variant v5" if state.variant == VARIANT_V5 else ""  # v2 text unchanged
+        # v2 text unchanged; source-bound variants name themselves.
+        under = f" under variant {state.variant}" if state.variant != VARIANT_V2 else ""
         state.reason = (
             f"no strict-gate evidence for this checkpoint{under} "
             f"(sha256 {checkpoint_sha256 or 'none: untrained weights'})"
         )
         return
-    if state.variant == VARIANT_V5:
-        identity = wrapper_identity_v5()
+    if state.variant in (VARIANT_V5, VARIANT_V7):
+        if state.variant == VARIANT_V5:
+            identity, pins = wrapper_identity_v5(), V5_STRICT_RECEIPT_SOURCE_SHA256S
+            install, method = install_boost_aware_veto, VETO_METHOD_V5
+        else:
+            identity, pins = wrapper_identity_v7(), V7_STRICT_RECEIPT_SOURCE_SHA256S
+            install, method = _install_v7, V7_STRICT_RECEIPT_METHOD
         changed = sorted(
-            path
-            for path, sha in V5_STRICT_RECEIPT_SOURCE_SHA256S.items()
-            if identity["source_sha256s"].get(path) != sha
+            path for path, sha in pins.items() if identity["source_sha256s"].get(path) != sha
         )
         state.wrapper_sources_match = not changed
         if changed:
-            state.reason = f"v5 wrapper source sha256 differs from the gated one: {changed}"
+            state.reason = (
+                f"{state.variant} wrapper source sha256 differs from the gated one: {changed}"
+            )
             return
-        install = install_boost_aware_veto
+        if identity["method"] != method:  # v7: the gated lambda is part of the identity
+            state.wrapper_sources_match = False
+            state.reason = (
+                f"{state.variant} wrapper method {identity['method']!r} is not the gated "
+                f"{method!r}"
+            )
+            return
     else:
         identity = wrapper_identity()
         state.wrapper_sources_match = (
