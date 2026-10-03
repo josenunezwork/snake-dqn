@@ -11,10 +11,18 @@ locks, stage caps plus a handoff reserve, create-only (write-once) outputs, inte
 a source-closure re-hash before every segment, an independent stdlib-only audit
 (``sequential_audit.py``) and a closeout that never relabels a failure.
 
+Template versions: ``sequential-strict-template/v1`` (spec ``band_policy="block_at_stop"``,
+calibration-reference bands) and ``sequential-strict-template/v2`` (``"paired_ni_at_stop"``,
+the paired survival bands of ``docs/research/governance_amendment_paired_bands_2026-10-03.md``:
+judged once at the qualifying look on candidate-minus-incumbent per-world deltas, with the
+per-study paired-band check as a hash-bound pre-registration artifact).  v1 intents, plan
+dicts, spec descriptors and look receipts keep exactly their v1 content.
+
 Flow of ``run`` (one intent, one attempt, one closeout):
 
 1. **Calibration** (incumbent only, dev worlds, both shards): reference means, the absolute
-   non-inferiority margin ``delta_NI`` and the behavioral bands -> ``calibration.json``.
+   non-inferiority margin ``delta_NI`` and the behavioral bands (v2: descriptive band-metric
+   means only) -> ``calibration.json``.
 2. **Skew check** (required by the amendment, before the first final world): the frozen
    resampling probe (``skew_probe.py --part resample``) on the study's saved screen/pilot
    paired deltas, per mix, with the frozen ``N_max``, look fractions and ``delta_NI``
@@ -66,6 +74,7 @@ from src.evaluation.sequential_gate import (  # noqa: E402
     SEQUENTIAL_GATE_METHOD,
     SequentialGatePlan,
     band_check,
+    plan_paired_band_check,
     round_robin_plan,
     sequential_decision,
     sequential_gate_plan,
@@ -73,10 +82,20 @@ from src.evaluation.sequential_gate import (  # noqa: E402
 )
 
 TEMPLATE_VERSION = "sequential-strict-template/v1"
+# Template v2 adds band_policy "paired_ni_at_stop" (governance amendment paired bands,
+# 2026-10-03).  An intent declares its version: v1 iff the spec's band policy is the legacy
+# "block_at_stop" (v1 intents, plan dicts and spec descriptors are unchanged), v2 iff it is
+# "paired_ni_at_stop".
+TEMPLATE_VERSION_PAIRED = "sequential-strict-template/v2"
+TEMPLATE_VERSIONS = {
+    "block_at_stop": TEMPLATE_VERSION,
+    "paired_ni_at_stop": TEMPLATE_VERSION_PAIRED,
+}
 HERE = Path(__file__).resolve().parent
 TEMPLATE_README = HERE / "README.md"
 INDEPENDENT_AUDIT = HERE / "sequential_audit.py"
 SKEW_PROBE = REPO / "research" / "sequential_gate_validation_20261002" / "skew_probe.py"
+PAIRED_BAND_SIMULATOR = REPO / "research" / "paired_band_validation_20261003" / "simulate.py"
 PYTHON = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
 # The global CPU slot lock root the v7 strict package uses (strict_run.SLOT_LOCK_ROOT).
 SLOT_LOCK_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909")
@@ -121,6 +140,29 @@ SKEW_REMEDY_LADDER = [
     "not a remedy: moving the first look later (amendment item 9)",
 ]
 DEFAULT_SKEW_REPS = 300_000
+# Paired survival bands (template v2).  Ratified 2026-10-03: M 0.05, alpha 0.05, pointwise at
+# the qualifying look, absolute floor 0.30.  An intent always states its values explicitly.
+RATIFIED_PAIRED_BAND = {
+    "band_ni_margin": 0.05,
+    "band_alpha": 0.05,
+    "band_bound": "pointwise",
+    "band_floor": 0.30,
+}
+PAIRED_BAND_KEYS = tuple(RATIFIED_PAIRED_BAND)
+PAIRED_BAND_METRIC = "survival_fraction"
+# Per-study pre-registration check (amendment "Resampling check on the study's own data"):
+# simulate.py --part gate on the study's screen pool with the frozen plan; acceptance is a
+# joint error of an exactly-M one-mix regression <= 1.2 x band_alpha in every row.
+PAIRED_CHECK_FACTOR = 1.2
+PAIRED_CHECK_MIN_REPS = 20_000
+# Mass effects the check must cover, as multiples of the MDE (0.67 is matched to 0.6-0.7).
+PAIRED_CHECK_THETA_MULTIPLES = (0.5, 1.0, 1.5, 2.0)
+PAIRED_CHECK_TWO_THIRDS = (0.6, 0.7)
+CALIBRATION_BAND_RULES = {
+    "block_at_stop": "reference = calibration incumbent mean of the band metric in the band mix",
+    "paired_ni_at_stop": "none: paired bands have no reference; calibration band-metric "
+    "means are descriptive only",
+}
 
 DEFAULT_CAPS = {"calibration": 1800, "skew_check": 900, "final": 45000, "audit": 900}
 HANDOFF_SECONDS = 120
@@ -260,6 +302,11 @@ def survival_bands(
     )
 
 
+def paired_survival_bands(mixes: Sequence[str]) -> Tuple[Dict[str, Any], ...]:
+    """Template v2 bands: paired survival_fraction noninferiority, one band per mix."""
+    return tuple({"metric": PAIRED_BAND_METRIC, "mix": mix} for mix in mixes)
+
+
 @dataclass(frozen=True)
 class StudySpec:
     """The study-specific (pluggable) part of a sequential strict run.
@@ -280,6 +327,11 @@ class StudySpec:
     * ``protocol_path``, ``oc_report_path`` (operating-characteristics simulation of the
       frozen plan) and ``band_cost_report_path`` (look-1 early-stop band cost) are required
       pre-registration documents; their sha256s are frozen in the intent.
+    * ``band_policy`` is ``"block_at_stop"`` (template v1, calibration-reference bands with
+      offsets, see :func:`survival_bands`) or ``"paired_ni_at_stop"`` (template v2, paired
+      survival bands, see :func:`paired_survival_bands`).  v2 also needs
+      ``paired_band_check_path``: the ``simulate.py --part gate`` output of the per-study
+      paired-band check on the study's screen pool with the frozen plan.
     """
 
     study_id: str
@@ -302,8 +354,31 @@ class StudySpec:
     build_row: Callable[[str, str, int, int], Dict[str, Any]] = default_row
     validate_record: Callable[[Mapping[str, Any], Mapping[str, Any]], List[str]] = _no_problems
     closure_roots: Tuple[str, ...] = DEFAULT_CLOSURE_ROOTS
+    band_policy: str = "block_at_stop"
+    paired_band_check_path: str = ""
+
+    @property
+    def template_version(self) -> str:
+        return TEMPLATE_VERSIONS[self.band_policy]
+
+    @property
+    def paired(self) -> bool:
+        return self.band_policy == "paired_ni_at_stop"
+
+    def preregistration_docs(self) -> Tuple[str, ...]:
+        if self.paired:
+            return PREREGISTRATION_DOCS + ("paired_band_check_path",)
+        return PREREGISTRATION_DOCS
 
     def descriptor(self) -> Dict[str, Any]:
+        out = self._descriptor_v1()
+        if self.paired:  # v1 descriptors stay byte-identical
+            out["template_version"] = TEMPLATE_VERSION_PAIRED
+            out["band_policy"] = self.band_policy
+            out["paired_band_check_path"] = self.paired_band_check_path
+        return out
+
+    def _descriptor_v1(self) -> Dict[str, Any]:
         return {
             "template_version": TEMPLATE_VERSION,
             "study_id": self.study_id,
@@ -331,9 +406,20 @@ def validate_spec(spec: StudySpec) -> None:
     require(len(spec.mixes) >= 1 and len(set(spec.mixes)) == len(spec.mixes), "mixes")
     require(spec.scripted_mix in spec.mixes, "scripted mix is not a mix")
     require(0.0 < float(spec.ni_fraction) < 1.0, "ni_fraction must be in (0, 1)")
-    for name in PREREGISTRATION_DOCS:
+    require(
+        spec.band_policy in TEMPLATE_VERSIONS,
+        f"band_policy must be one of {sorted(TEMPLATE_VERSIONS)}",
+    )
+    for name in spec.preregistration_docs():
         value = getattr(spec, name)
         require(isinstance(value, str) and bool(value.strip()), f"spec.{name} is required")
+    if spec.paired:
+        validate_paired_bands(spec)
+        return
+    require(
+        spec.paired_band_check_path == "",
+        "paired_band_check_path is only used under band_policy paired_ni_at_stop",
+    )
     for band in spec.bands:
         require(
             set(band) == {"metric", "mix", "lower_offset", "upper_offset"}
@@ -341,6 +427,29 @@ def validate_spec(spec: StudySpec) -> None:
             and float(band["lower_offset"]) <= float(band["upper_offset"]),
             f"malformed band {band}",
         )
+
+
+def validate_paired_bands(spec: StudySpec) -> None:
+    """Template v2 bands: ``{"metric": "survival_fraction", "mix": m}``, one per mix.
+
+    The per-study check (``simulate.py``) validates survival bands over the mixes frozen,
+    scripted and mixed only, so v2 requires exactly that metric and mix set.
+    """
+    require(len(spec.bands) >= 1, "paired_ni_at_stop needs at least one band")
+    seen = set()
+    for band in spec.bands:
+        require(
+            set(band) == {"metric", "mix"}
+            and band["metric"] == PAIRED_BAND_METRIC
+            and band["mix"] in spec.mixes,
+            f"malformed paired band {band} (needs exactly metric {PAIRED_BAND_METRIC} and a mix)",
+        )
+        require(band["mix"] not in seen, f"two paired bands for mix {band['mix']}")
+        seen.add(band["mix"])
+    require(
+        tuple(spec.mixes) == ("frozen", "scripted", "mixed"),
+        "the paired-band check (simulate.py) only simulates the mixes frozen, scripted, mixed",
+    )
 
 
 def resolve_spec(reference: str) -> StudySpec:
@@ -479,8 +588,11 @@ def plan_parameters(
     futility_policy: str = "followed",
     band_policy: str = "block_at_stop",
     band_margin_z: float = DEFAULT_BAND_MARGIN_Z,
+    paired_band: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
-    return {
+    """Keyword arguments of ``sequential_gate_plan``.  The paired band fields are present
+    only under ``band_policy="paired_ni_at_stop"`` (legacy dicts are byte-identical)."""
+    out = {
         "n_max": int(n_max),
         "mde": float(mde),
         "mixes": list(mixes),
@@ -493,6 +605,37 @@ def plan_parameters(
         "futility_policy": futility_policy,
         "band_policy": band_policy,
         "band_margin_z": float(band_margin_z),
+    }
+    if band_policy == "paired_ni_at_stop":
+        out.update(normalize_paired_band(paired_band))
+    else:
+        require(paired_band is None, f"paired band settings under band_policy {band_policy}")
+    return out
+
+
+def _real(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def normalize_paired_band(paired_band: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """The four pre-registered paired band settings, stated explicitly (no defaults)."""
+    require(
+        isinstance(paired_band, Mapping) and set(paired_band) == set(PAIRED_BAND_KEYS),
+        f"paired_ni_at_stop needs explicit {list(PAIRED_BAND_KEYS)} "
+        f"(ratified 2026-10-03: {RATIFIED_PAIRED_BAND})",
+    )
+    floor = paired_band["band_floor"]
+    require(
+        _real(paired_band["band_ni_margin"])
+        and _real(paired_band["band_alpha"])
+        and (floor is None or _real(floor)),
+        "paired band margin, alpha and floor must be real numbers (floor may be None)",
+    )
+    return {
+        "band_ni_margin": float(paired_band["band_ni_margin"]),
+        "band_alpha": float(paired_band["band_alpha"]),
+        "band_bound": str(paired_band["band_bound"]),
+        "band_floor": None if floor is None else float(floor),
     }
 
 
@@ -578,6 +721,132 @@ def skew_limits(plan: Mapping[str, Any]) -> Dict[str, float]:
     }
 
 
+# ---------------------------------------------------------------- paired-band check input
+
+
+def paired_rule_name(margin: float, alpha: float, bound: str) -> str:
+    """``simulate.py``'s rule label (``rule_name``), e.g. ``paired_M0.05_a0.05_pointwise``."""
+    return f"paired_M{margin:g}_a{alpha:g}_{bound}"
+
+
+def frozen_plan_document(params: Mapping[str, Any]) -> Dict[str, Any]:
+    """``{"plan_parameters", "plan"}`` exactly as ``intent.json`` will freeze them: the
+    ``--plan-params`` input of ``simulate.py`` for the per-study paired-band check."""
+    return {"plan_parameters": dict(params), "plan": plan_from_parameters(params).as_dict()}
+
+
+def judge_paired_check(
+    report: Mapping[str, Any],
+    params: Mapping[str, Any],
+    bands: Sequence[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """Re-judge a ``simulate.py --part gate`` output against the frozen plan (fail closed).
+
+    It must have been run with ``--plan-params`` equal to this intent's plan parameters, at
+    least :data:`PAIRED_CHECK_MIN_REPS` replicates, mass effects covering 0.5, ~0.67, 1, 1.5
+    and 2 x MDE, and its joint rates (P(qualify and the band regressed by exactly M passes))
+    must cover every pool x theta x band mix and all be <= 1.2 x band_alpha.  The runner
+    applies the threshold itself; the report's own ``check.passes`` must agree.
+    """
+    problems: List[str] = []
+    config = report.get("config") if isinstance(report, Mapping) else None
+    check = report.get("check") if isinstance(report, Mapping) else None
+    results = report.get("results") if isinstance(report, Mapping) else None
+    if not (isinstance(config, Mapping) and isinstance(check, Mapping)):
+        return {"passes": False, "problems": ["not a simulate.py --part gate check output"]}
+    if not isinstance(results, Mapping):
+        results = {}
+    margin, alpha, bound = params["band_ni_margin"], params["band_alpha"], params["band_bound"]
+    rule = paired_rule_name(margin, alpha, bound)
+    threshold = PAIRED_CHECK_FACTOR * alpha
+    if config.get("plan_params") != dict(params):
+        problems.append("check was not run with this intent's frozen plan parameters")
+    if list(config.get("check_rule") or []) != [margin, alpha, bound]:
+        problems.append(f"check rule {config.get('check_rule')} is not the plan's band rule")
+    if check.get("rule") != rule:
+        problems.append(f"check judged rule {check.get('rule')!r}, not {rule!r}")
+    reps = report.get("reps")
+    if not (isinstance(reps, int) and reps >= PAIRED_CHECK_MIN_REPS):
+        problems.append(f"check reps {reps!r} < {PAIRED_CHECK_MIN_REPS}")
+    thetas = [float(t) for t in config.get("thetas") or []]
+    mde = float(params["mde"])
+    for multiple in PAIRED_CHECK_THETA_MULTIPLES:
+        if not any(math.isclose(t, multiple * mde, rel_tol=1e-9) for t in thetas):
+            problems.append(f"check lacks theta {multiple:g} x MDE")
+    low, high = PAIRED_CHECK_TWO_THIRDS
+    if not any(low * mde <= t <= high * mde for t in thetas):
+        problems.append("check lacks a theta near 0.67 x MDE")
+    if not _real(config.get("delta_ni")) or not config.get("delta_ni") > 0:
+        problems.append("check delta_ni must be a positive number (development estimate)")
+    pools = sorted({key.split("|", 1)[0] for key in results})
+    joint = check.get("joint_rates") if isinstance(check.get("joint_rates"), Mapping) else {}
+    expected = {
+        f"{pool}|theta={theta:g}|one_mix_at_margin@{band['mix']}"
+        for pool in pools
+        for theta in thetas
+        for band in bands
+    }
+    if not pools:
+        problems.append("check has no pools")
+    missing = sorted(expected - set(joint))
+    if missing:
+        problems.append(f"check lacks joint rates {missing[:5]}")
+    rates = {k: joint[k] for k in sorted(joint) if k in expected}
+    bad = sorted(k for k, v in rates.items() if not (_real(v) and 0.0 <= v <= threshold))
+    if bad:
+        problems.append(f"joint rate above {threshold:g} (or not a rate): {bad[:5]}")
+    for key in rates:
+        row = results.get(key, {}).get(rule, {}) if isinstance(results.get(key), Mapping) else {}
+        if row.get("p_regressed_band_and_qualify") != rates[key]:
+            problems.append(f"joint rate {key} differs from its results row")
+    worst = max((v for v in rates.values() if _real(v)), default=None)
+    passes = not problems
+    if check.get("passes") is not passes:
+        problems.append(f"check.passes {check.get('passes')!r} != runner verdict {passes}")
+        passes = False
+    return {
+        "rule": rule,
+        "threshold": threshold,
+        "reps": reps,
+        "thetas": thetas,
+        "pools": pools,
+        "rows_judged": len(rates),
+        "max_joint_rate": worst,
+        "delta_ni_used": config.get("delta_ni"),
+        "problems": problems,
+        "passes": passes,
+    }
+
+
+def paired_check_record(spec: StudySpec, params: Mapping[str, Any], repo: Path) -> Dict[str, Any]:
+    """Hash-bind the per-study check output and its pool data; require that it passes."""
+    path = (Path(repo) / spec.paired_band_check_path).resolve()
+    require(path.is_file(), f"paired band check {path} does not exist")
+    report = read_json(path)
+    data_path = Path(str((report.get("config") or {}).get("data", "")))
+    require(data_path.is_file(), f"paired band check pool data {data_path} does not exist")
+    data_sha = sha256_file(data_path)
+    require(
+        report.get("data_sha256") == data_sha,
+        "paired band check pool data changed since the check was run",
+    )
+    judged = judge_paired_check(report, params, spec.bands)
+    require(judged["passes"], f"paired band check fails: {judged['problems']}")
+    data = read_json(data_path)
+    pools = sorted(k for k, v in data.items() if isinstance(v, dict) and "world_seeds" in v)
+    require(pools == judged["pools"], f"check pools {judged['pools']} != data pools {pools}")
+    return {
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "data_path": str(data_path.resolve()),
+        "data_sha256": data_sha,
+        "simulator_path": str(PAIRED_BAND_SIMULATOR),
+        "acceptance": f"every joint rate <= {PAIRED_CHECK_FACTOR} x band_alpha",
+        "remedy_on_fail": "band_bound rci_obf, or do not adopt paired_ni_at_stop",
+        **judged,
+    }
+
+
 # ---------------------------------------------------------------- intent
 
 
@@ -593,9 +862,10 @@ def validate_caps(caps: Mapping[str, Any]) -> None:
 
 
 def preregistration_files(spec: StudySpec, repo: Path) -> Dict[str, Dict[str, str]]:
-    """Protocol, OC simulation report and look-1 band-cost report: path and sha256."""
+    """Protocol, OC simulation report and look-1 band-cost report (template v2 also the
+    paired-band check output): path and sha256."""
     out = {}
-    for name in PREREGISTRATION_DOCS:
+    for name in spec.preregistration_docs():
         path = (Path(repo) / getattr(spec, name)).resolve()
         require(path.is_file(), f"{name} {path} does not exist")
         out[name.replace("_path", "")] = {"path": str(path), "sha256": sha256_file(path)}
@@ -621,6 +891,7 @@ def build_intent(
     futility_policy: str = "followed",
     futility_action: str = "stop",
     band_margin_z: float = DEFAULT_BAND_MARGIN_Z,
+    paired_band: Optional[Mapping[str, Any]] = None,
     skew_reps: int = DEFAULT_SKEW_REPS,
     n_max_cap: int = N_MAX_CAP,
     caps: Optional[Mapping[str, int]] = None,
@@ -635,7 +906,9 @@ def build_intent(
     """Freeze everything the amendment requires before the first final world.
 
     A production intent (``dry_run=False``) must use the global slot lock root and a clean
-    source closure; ``dry_run=True`` relaxes both and can never yield a pass.
+    source closure; ``dry_run=True`` relaxes both and can never yield a pass.  The band policy
+    comes from the spec; under ``paired_ni_at_stop`` (template v2) ``paired_band`` states the
+    four band settings and the spec's paired-band check must pass for this exact plan.
     """
     validate_spec(spec)
     require(bool(authorization_quote.strip()), "authorization quote required")
@@ -669,11 +942,10 @@ def build_intent(
     out_root = Path(out_root).resolve()
     status = run_status(out_root)
     require(status["state"] == "NOT_STARTED", f"{out_root} is {status['state']}: never reused")
-    params = plan_parameters(
+    params = study_plan_parameters(
+        spec,
         n_max=n_max,
         mde=mde,
-        mixes=spec.mixes,
-        scripted_mix=spec.scripted_mix,
         fractions=fractions,
         family_alpha=family_alpha,
         ni_alpha=ni_alpha,
@@ -681,6 +953,7 @@ def build_intent(
         required_successes=required_successes,
         futility_policy=futility_policy,
         band_margin_z=band_margin_z,
+        paired_band=paired_band,
     )
     plan = plan_from_parameters(params).as_dict()
     require(
@@ -700,9 +973,9 @@ def build_intent(
     closure = source_closure(spec.closure_roots, repo)
     require(allow_dirty or not closure["dirty"], f"source closure is dirty: {closure['dirty']}")
     counts = worker_look_counts(plan["look_sizes"], len(spec.mixes), workers)
-    return {
+    intent = {
         "schema_version": spec.schema,
-        "template_version": TEMPLATE_VERSION,
+        "template_version": spec.template_version,
         "study_id": spec.study_id,
         "authority": "tier-2-strict-promotion-sequential",
         "dry_run": bool(dry_run),
@@ -730,7 +1003,7 @@ def build_intent(
             "phase": "incumbent only, calibration bank, every mix",
             "ni": f"{spec.ni_fraction} x calibration incumbent mean {spec.primary_metric} "
             f"of mix {spec.scripted_mix}",
-            "bands": "reference = calibration incumbent mean of the band metric in the band mix",
+            "bands": CALIBRATION_BAND_RULES[spec.band_policy],
         },
         "skew_check": {
             "input_path": str(skew_input),
@@ -782,6 +1055,45 @@ def build_intent(
             ],
         },
     }
+    if spec.paired:  # template v2 only: v1 intents keep exactly their v1 keys
+        intent["paired_band_check"] = paired_check_record(spec, params, repo)
+        intent["band_rule"] = paired_band_rule(params)
+    return intent
+
+
+def paired_band_rule(params: Mapping[str, Any]) -> Dict[str, Any]:
+    """Human-readable statement of the frozen paired band rule (also in the plan dict)."""
+    return {
+        "policy": "paired_ni_at_stop",
+        "judged": "once, at the qualifying look, on the look-k prefix of both arms; never "
+        "delays a stop (STOP_FAIL_BANDS at an interim look, FINAL_FAIL at the last)",
+        "per_band": "d_i = candidate_i - incumbent_i (same final world); pass iff "
+        "mean(d) - t_{n-1}(band_nominal_p[k]) * sd(d) / sqrt(n) > -band_ni_margin and "
+        "(if band_floor) mean(candidate) >= band_floor",
+        "all_bands_must_pass": True,
+        "band_ni_margin": params["band_ni_margin"],
+        "band_alpha": params["band_alpha"],
+        "band_bound": params["band_bound"],
+        "band_floor": params["band_floor"],
+        "source": "docs/research/governance_amendment_paired_bands_2026-10-03.md",
+    }
+
+
+def study_plan_parameters(spec: StudySpec, **kwargs: Any) -> Dict[str, Any]:
+    """:func:`plan_parameters` with the spec's mixes and band policy."""
+    paired_band = kwargs.pop("paired_band", None)
+    return plan_parameters(
+        mixes=spec.mixes,
+        scripted_mix=spec.scripted_mix,
+        band_policy=spec.band_policy,
+        paired_band=paired_band if spec.paired else _none_or_refuse(paired_band),
+        **kwargs,
+    )
+
+
+def _none_or_refuse(paired_band: Any) -> None:
+    require(paired_band is None, "paired_band settings need a spec with band_policy paired")
+    return None
 
 
 def prepare(intent: Mapping[str, Any]) -> Path:
@@ -797,7 +1109,7 @@ def prepare(intent: Mapping[str, Any]) -> Path:
 
 def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
     """Reject a malformed, drifted or out-of-envelope intent before any child starts."""
-    require(intent["template_version"] == TEMPLATE_VERSION, "template version")
+    require(intent["template_version"] == spec.template_version, "template version")
     require(intent["spec"] == spec.descriptor(), "spec descriptor drift")
     require(
         intent["schema_version"] == spec.schema and intent["study_id"] == spec.study_id, "schema"
@@ -853,9 +1165,33 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
     )
     require(sha256_file(SKEW_PROBE) == intent["skew_check"]["probe_sha256"], "skew probe drift")
     require(
-        set(intent["preregistration"]) == {n.replace("_path", "") for n in PREREGISTRATION_DOCS},
+        set(intent["preregistration"])
+        == {n.replace("_path", "") for n in spec.preregistration_docs()},
         "pre-registration documents",
     )
+    require(
+        intent["plan"]["band_policy"] == spec.band_policy
+        and intent["calibration_rule"]["bands"] == CALIBRATION_BAND_RULES[spec.band_policy],
+        "band policy differs between the spec and the frozen plan",
+    )
+    if spec.paired:
+        frozen = intent["paired_band_check"]
+        require(intent["band_rule"] == paired_band_rule(intent["plan_parameters"]), "band rule")
+        require(
+            frozen["path"] == intent["preregistration"]["paired_band_check"]["path"]
+            and Path(frozen["data_path"]).is_file()
+            and sha256_file(Path(frozen["data_path"])) == frozen["data_sha256"],
+            "paired band check pool data drift",
+        )
+        again = judge_paired_check(
+            read_json(Path(frozen["path"])), intent["plan_parameters"], spec.bands
+        )
+        require(again["passes"], f"paired band check no longer passes: {again['problems']}")
+    else:
+        require(
+            "paired_band_check" not in intent and "band_rule" not in intent,
+            "paired band fields on a block_at_stop intent",
+        )
     for name, row in intent["preregistration"].items():
         require(
             Path(row["path"]).is_file() and sha256_file(Path(row["path"])) == row["sha256"],
@@ -1749,7 +2085,17 @@ def calibration_reference(
     scripted_mean = per_mix[spec["scripted_mix"]][f"mean_{spec['primary_metric']}"]
     delta_ni = spec["ni_fraction"] * scripted_mean
     bands = []
+    paired = intent["plan"]["band_policy"] == "paired_ni_at_stop"
     for band in spec["bands"]:
+        if paired:  # no calibration reference: the means are descriptive only
+            bands.append(
+                {
+                    **band,
+                    "incumbent_calibration_mean": per_mix[band["mix"]][f"mean_{band['metric']}"],
+                    "role": "descriptive only (paired_ni_at_stop has no reference bound)",
+                }
+            )
+            continue
         reference = per_mix[band["mix"]][f"mean_{band['metric']}"]
         bands.append(
             {
@@ -1770,22 +2116,46 @@ def calibration_reference(
 def look_inputs(
     intent: Mapping[str, Any], entries: Mapping[str, Mapping[str, Any]], look: int
 ) -> Dict[str, Any]:
-    """Per-mix paired deltas (world order) and candidate band values for the look prefix."""
+    """Per-mix paired deltas (world order) and candidate band values for the look prefix.
+
+    Under ``paired_ni_at_stop`` the incumbent's band values of the same worlds are returned
+    too (``incumbent_band_values``), after checking that each pair is one world's record pair.
+    """
     spec = intent["spec"]
     size = intent["plan"]["look_sizes"][look]
+    paired = intent["plan"]["band_policy"] == "paired_ni_at_stop"
     deltas: Dict[str, List[float]] = {}
     band_values: Dict[str, Dict[str, List[float]]] = {}
+    incumbent_values: Dict[str, Dict[str, List[float]]] = {}
     for mix in spec["mixes"]:
         deltas[mix] = []
         band_values[mix] = {}
+        incumbent_values[mix] = {}
         for world in range(size):
-            inc = entries[episode_id("final", "incumbent", mix, world)]["record"]
-            cand = entries[episode_id("final", "candidate", mix, world)]["record"]
+            inc_entry = entries[episode_id("final", "incumbent", mix, world)]
+            cand_entry = entries[episode_id("final", "candidate", mix, world)]
+            inc, cand = inc_entry["record"], cand_entry["record"]
             deltas[mix].append(cand[spec["primary_metric"]] - inc[spec["primary_metric"]])
+            if paired:
+                require(
+                    all(
+                        inc_entry[k] == cand_entry[k]
+                        for k in ("mix", "world_index", "world_seed", "unit")
+                    )
+                    and (inc_entry["arm"], cand_entry["arm"]) == ARMS,
+                    f"paired band: {mix} world {world} is not one world's record pair",
+                )
             for band in spec["bands"]:
                 if band["mix"] == mix:
                     band_values[mix].setdefault(band["metric"], []).append(cand[band["metric"]])
-    return {"deltas_by_mix": deltas, "band_values": band_values}
+                    if paired:
+                        incumbent_values[mix].setdefault(band["metric"], []).append(
+                            inc[band["metric"]]
+                        )
+    out: Dict[str, Any] = {"deltas_by_mix": deltas, "band_values": band_values}
+    if paired:
+        out["incumbent_band_values"] = incumbent_values
+    return out
 
 
 def look_analysis(
@@ -1801,6 +2171,9 @@ def look_analysis(
     for j in range(look + 1):
         size = plan.look_sizes[j]
         checks = []
+        if plan.band_policy == "paired_ni_at_stop":
+            bands_by_look.append(paired_band_checks(plan, j, intent["spec"]["bands"], inputs))
+            continue
         for band in calibration["bands"]:
             values = inputs["band_values"][band["mix"]][band["metric"]][:size]
             check = band_check(
@@ -1827,6 +2200,32 @@ def look_analysis(
         "bands_pass_by_look": bands_pass,
         "sequential_decision": json_safe(decision),
     }
+
+
+def paired_band_checks(
+    plan: SequentialGatePlan,
+    look: int,
+    bands: Sequence[Mapping[str, Any]],
+    inputs: Mapping[str, Any],
+) -> List[Dict[str, Any]]:
+    """Every paired band at ``look`` on the look's prefix of both arms (same world order)."""
+    size = plan.look_sizes[look]
+    checks = []
+    for band in bands:
+        candidate = inputs["band_values"][band["mix"]][band["metric"]][:size]
+        incumbent = inputs["incumbent_band_values"][band["mix"]][band["metric"]][:size]
+        check = plan_paired_band_check(plan, look, candidate, incumbent)
+        checks.append(
+            {
+                "metric": band["metric"],
+                "mix": band["mix"],
+                "policy": "paired_ni_at_stop",
+                "df": check["n"] - 1,
+                "pairs_digest": canonical_sha({"candidate": candidate, "incumbent": incumbent}),
+                **check,
+            }
+        )
+    return checks
 
 
 def look_action(intent: Mapping[str, Any], decision: str) -> str:
@@ -1870,6 +2269,7 @@ def build_receipt(ctx: RunContext, look: int, entries: Mapping[str, Any]) -> Dic
         "segment_reports_sha256": reports,
         "records_sha256": records,
         "deltas_digest": analysis["deltas_digest"],
+        **paired_receipt_fields(ctx.intent, analysis, decision),
         "bands_by_look": analysis["bands_by_look"],
         "bands_pass_by_look": analysis["bands_pass_by_look"],
         "decision": decision["decision"],
@@ -1878,6 +2278,25 @@ def build_receipt(ctx: RunContext, look: int, entries: Mapping[str, Any]) -> Dic
         "action": look_action(ctx.intent, decision["decision"]),
         "futility_action": ctx.intent["futility_action"],
         "sequential_decision": decision,
+    }
+
+
+def paired_receipt_fields(
+    intent: Mapping[str, Any], analysis: Mapping[str, Any], decision: Mapping[str, Any]
+) -> Dict[str, Any]:
+    """Template v2 receipt fields (none under block_at_stop, so v1 receipts are unchanged).
+
+    ``band_judged_look`` is the qualifying look whose band verdict decides the run (``None``
+    if the run has not qualified): its per-mix results are copied to ``band_results``.
+    """
+    if intent["plan"]["band_policy"] != "paired_ni_at_stop":
+        return {}
+    judged = [h["look"] for h in decision["history"] if h["bands_judged"]]
+    look = judged[0] if judged else None
+    return {
+        "band_policy": "paired_ni_at_stop",
+        "band_judged_look": look,
+        "band_results": analysis["bands_by_look"][look] if look is not None else None,
     }
 
 
@@ -2311,6 +2730,26 @@ def admit_rosters(ctx: RunContext) -> None:
 # ---------------------------------------------------------------- CLI
 
 
+PAIRED_BAND_HELP = (
+    "template v2 only: band_ni_margin,band_alpha,band_bound,band_floor "
+    "(floor 'none' for no floor), e.g. 0.05,0.05,pointwise,0.30 (ratified 2026-10-03)"
+)
+
+
+def parse_paired_band(text: Optional[str]) -> Optional[Dict[str, Any]]:
+    """``M,alpha,bound,floor`` -> the four paired band settings (``None`` if not given)."""
+    if text is None:
+        return None
+    parts = [part.strip() for part in text.split(",")]
+    require(len(parts) == 4, f"--paired-band needs M,alpha,bound,floor; got {text!r}")
+    return {
+        "band_ni_margin": float(parts[0]),
+        "band_alpha": float(parts[1]),
+        "band_bound": parts[2],
+        "band_floor": None if parts[3].lower() == "none" else float(parts[3]),
+    }
+
+
 def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -2327,7 +2766,20 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     prep.add_argument("--futility-policy", default="followed")
     prep.add_argument("--futility-action", default="stop", choices=FUTILITY_ACTIONS)
     prep.add_argument("--band-margin-z", type=float, default=DEFAULT_BAND_MARGIN_Z)
+    prep.add_argument("--paired-band", default=None, help=PAIRED_BAND_HELP)
     prep.add_argument("--skew-reps", type=int, default=DEFAULT_SKEW_REPS)
+    frozen = sub.add_parser(
+        "plan",
+        help="write the frozen {plan_parameters, plan} (simulate.py --plan-params input)",
+    )
+    frozen.add_argument("--spec", required=True, help="module:ATTRIBUTE of a StudySpec")
+    frozen.add_argument("--out", type=Path, required=True)
+    frozen.add_argument("--n-max", type=int, required=True)
+    frozen.add_argument("--mde", type=float, required=True)
+    frozen.add_argument("--fractions", default=",".join(str(f) for f in DEFAULT_FRACTIONS))
+    frozen.add_argument("--futility-policy", default="followed")
+    frozen.add_argument("--band-margin-z", type=float, default=DEFAULT_BAND_MARGIN_Z)
+    frozen.add_argument("--paired-band", default=None, help=PAIRED_BAND_HELP)
     child = sub.add_parser("run")
     child.add_argument("--intent", type=Path, required=True)
     status = sub.add_parser("status", help="one run's state and every ledger entry's state")
@@ -2361,10 +2813,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             futility_policy=args.futility_policy,
             futility_action=args.futility_action,
             band_margin_z=args.band_margin_z,
+            paired_band=parse_paired_band(args.paired_band),
             skew_reps=args.skew_reps,
         )
         path = prepare(intent)
         print(json.dumps({"intent": str(path), "sha256": sha256_file(path)}))
+        return 0
+    if args.command == "plan":
+        spec = resolve_spec(args.spec)
+        params = study_plan_parameters(
+            spec,
+            n_max=args.n_max,
+            mde=args.mde,
+            fractions=[float(f) for f in args.fractions.split(",")],
+            futility_policy=args.futility_policy,
+            band_margin_z=args.band_margin_z,
+            paired_band=parse_paired_band(args.paired_band),
+        )
+        sha = write_once(args.out, frozen_plan_document(params))
+        print(json.dumps({"plan_document": str(args.out), "sha256": sha}))
         return 0
     if args.command == "status":
         report: Dict[str, Any] = {"ledger": ledger_status(args.ledger)}

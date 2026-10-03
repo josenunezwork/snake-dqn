@@ -1,4 +1,16 @@
-# Sequential strict runner template (`sequential-strict-template/v1`)
+# Sequential strict runner template (`sequential-strict-template/v1` and `/v2`)
+
+Two template versions share this code. An intent declares which one it uses in
+`template_version`, and the spec's `band_policy` decides it:
+
+| Version | `band_policy` | Bands |
+|---|---|---|
+| `sequential-strict-template/v1` | `block_at_stop` (default) | candidate mean vs calibration reference + offsets (`survival_bands`) |
+| `sequential-strict-template/v2` | `paired_ni_at_stop` | paired survival noninferiority, judged at the qualifying look (`paired_survival_bands`); see [Adopting paired survival bands](#adopting-paired-survival-bands-template-v2) |
+
+v1 intents keep exactly their v1 content: the same intent keys, plan parameters, plan dict and
+sha256, spec descriptor, calibration and look-receipt fields. Golden hashes in
+`tests/test_sequential_strict_template_paired.py` pin this.
 
 Status: **template, code and unit tests only.** Nothing in this folder has played a game.
 It implements the runner, look barrier, look receipts and independent audit that
@@ -212,17 +224,113 @@ intent (`skew_check.deviations_from_amendment`).
 - `N_max` feasibility here is only `N_max <= 300`. A study adds its own runtime
   projection (the 70% rule) in `prepare`.
 
+## Adopting paired survival bands (template v2)
+
+The rule is from
+[`governance_amendment_paired_bands_2026-10-03.md`](../../docs/research/governance_amendment_paired_bands_2026-10-03.md),
+ratified 2026-10-03 for new strict pre-registrations: `paired_ni_at_stop`, M = 0.05,
+alpha = 0.05 `pointwise`, absolute floor 0.30. It never applies to a gate that
+pre-registered `block_at_stop`, including the running v8 strict gate.
+
+**Rule.** At the qualifying look k, for each band (survival_fraction, one per mix), take the
+look-k prefix of both arms on the same final worlds. With `d_i = candidate_i - incumbent_i`:
+
+    pass iff mean(d) - t_{n_k-1}(band_nominal_p[k]) * sd(d) / sqrt(n_k) > -M
+         and (if a floor is set) mean(candidate) >= floor
+
+Every band must pass. Bands are judged once, at the qualifying look, and never delay a stop:
+a failure is `STOP_FAIL_BANDS` at an interim look and `FINAL_FAIL` at the last. Calibration
+still sets delta_NI. Its band-metric means are only descriptive, because the paired rule has
+no reference bound.
+
+**Steps.**
+
+1. In the study's `spec.py`, set `band_policy="paired_ni_at_stop"`,
+   `bands=paired_survival_bands(MIXES)` and `paired_band_check_path` (for example
+   `research/<study>/paired_band_check.json`). v2 requires the mixes `frozen`, `scripted`,
+   `mixed` and survival_fraction bands, one per mix, because the check simulates only those.
+2. Write the frozen plan document. It holds the exact `plan_parameters` and `plan` that
+   `intent.json` will freeze:
+
+   ```
+   ./venv/bin/python research/sequential_strict_template/sequential_runner.py plan \
+       --spec research.<study>.spec:SPEC --out <scratch>/plan.json \
+       --n-max <N_max> --mde <MDE> --paired-band 0.05,0.05,pointwise,0.30
+   ```
+
+3. Run the per-study check on the study's own saved paired screen or pilot records (Tier 0
+   data, in the format of `research/paired_band_validation_20261003/paired_survival_20261003.json`).
+   Use at least 20,000 replicates and mass effects of 0.5, ~0.67, 1, 1.5 and 2 x MDE, plus
+   the screen estimate:
+
+   ```
+   OMP_NUM_THREADS=1 ./venv/bin/python research/paired_band_validation_20261003/simulate.py \
+       --part gate --data <pool.json> --plan-params <scratch>/plan.json \
+       --delta-ni <development delta_NI> --reps 20000 \
+       --thetas <0.5 MDE>,<0.67 MDE>,<MDE>,<1.5 MDE>,<2 MDE>,<screen estimate> \
+       --out research/<study>/paired_band_check.json
+   ```
+
+   Also run `--part bands` and report its no-regression pass rates in `protocol.md`.
+4. Commit the check output beside the other pre-registration documents. Then run `prepare`
+   with the same `--paired-band` value. The settings must be stated explicitly; there is no
+   default.
+
+**What `prepare` checks.** It refuses unless the check output passes, judged again by the runner:
+
+- it was run with `--plan-params` equal to this intent's plan parameters;
+- it used at least 20,000 replicates and covered the thetas above;
+- it has a joint rate (P(qualify and the band regressed by exactly M passes)) for every
+  pool x theta x band mix;
+- every joint rate is at most 1.2 x `band_alpha`;
+- its own `check.passes` agrees;
+- the pool data still has the sha256 recorded in the output, and its pools are exactly the
+  pools in the output.
+
+The output and the pool data are hash-bound in `intent.preregistration.paired_band_check`
+and `intent.paired_band_check`. `run` checks them again before any child starts. If the check
+fails, use `band_bound = "rci_obf"` (and re-run the check) or do not adopt this policy.
+
+**Look receipts (v2).** `bands_by_look` holds, for each look and band: n, df, mean delta, SD,
+SE, `nominal_p`, t critical value, lower bound, margin, candidate and incumbent means, floor,
+`passes_ni`, `passes_floor`, `passes` and a digest of the pairs. `band_judged_look` is the
+qualifying look, or `null` if the run has not qualified. `band_results` is that look's band
+list.
+
+**Audit (v2).** The audit uses only its own stdlib code and imports nothing from the repo.
+
+- **Plan.** It checks the plan's band fields. It recomputes `band_nominal_p`: `band_alpha` at
+  every look for `pointwise`, or its own OBF boundaries for `rci_obf`.
+- **Bands.** It recomputes every band at every look from the raw record pairs, with its own
+  mean, SD, SE and t quantile, and checks that both values of each pair come from the same
+  world (mix, index, seed, unit). It compares each recomputed band with its receipt, and also
+  checks the judged look and `band_results`. It reports a mismatch under
+  `looks.paired_bands`.
+- **Check output.** It judges the per-study check output again under
+  `preregistration.paired_band_check`.
+- **Report schema.** The audit report is `sequential-strict-audit/v2` for v2 runs and stays
+  `/v1` for v1 runs.
+
+**Limits.**
+
+- The check validates survival bands over the three standard mixes only.
+- `simulate.py` does not simulate `band_floor`, which is a tripwire.
+- The audit judges the check output's numbers again but does not re-run the resampling,
+  which needs numpy. The output is hash-bound.
+
 ## Protocol template (copy into the study's `protocol.md`)
 
 ```
 # <Candidate> vs <incumbent>: Tier-2 group-sequential strict challenge (pre-registration)
-Method strict-sequential-obf-bonferroni-v1, runner sequential-strict-template/v1.
+Method strict-sequential-obf-bonferroni-v1, runner sequential-strict-template/v1 (or /v2).
 Question and decision it informs: ...
 Arms and identities: ... (arm_identities output, module sha256s)
 Mixes, rosters, world namespaces (calibration, final; excluded earlier namespaces): ...
 Calibration: N_cal worlds/mix; delta_NI = <ni_fraction> x scripted incumbent mean; bands: ...
 Plan: N_max = ..., looks ... (sizes ...), MDE ..., futility CP 0.10, futility_policy ...,
   futility_action ..., band_margin_z 1.645; boundaries (efficacy / NI): ...
+Bands (v2 only): paired_ni_at_stop, M ..., alpha ..., bound ..., floor ...; per-study check
+  output <path> (sha256 ...), pool <path> (sha256 ...), max joint rate ... <= 1.2 x alpha.
 Sizing basis (development variance only) and operating characteristics (simulate.py): ...
 Early-stop band cost at look 1 (pilot SD of each band metric): ...
 Skew check input: <path>, sha256 ...; thresholds 0.020 / 0.06; remedy: stop and escalate.
