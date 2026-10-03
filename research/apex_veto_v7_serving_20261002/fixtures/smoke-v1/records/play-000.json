@@ -1,0 +1,133 @@
+{
+  "authority": "serving-qualification (non-promoting)",
+  "checkpoint": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+    "session_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+    "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+  },
+  "decision_frames": {
+    "per_snake": {},
+    "total": 0
+  },
+  "ended_by": "horizon",
+  "env": {
+    "SNAKE_SERVE_VETO_PLAY_AI": null,
+    "SNAKE_SERVE_VETO_VARIANT": "v7",
+    "SNAKE_SERVE_VETO_WATCH_HERO": null
+  },
+  "episode": {
+    "game_frame": 500,
+    "human_id": 0,
+    "inputs_sent": 50,
+    "last_run": null,
+    "run_frames": 500,
+    "run_over": false
+  },
+  "episode_id": "play-000",
+  "episode_index": 0,
+  "error": null,
+  "frames_stepped": 500,
+  "horizon_frames": 500,
+  "intent_sha256": "c13bb4a276dab5336c8ffa75d4062e9376a2a64a18ecec3745100ea12f4b135d",
+  "kind": "play",
+  "schema_version": "apex-veto-v7-web-serving/v1",
+  "served": {
+    "config_basename": "mechanics_v2.yaml",
+    "config_path": "/Users/josenunez/Projects/ml/snake-dqn/configs/mechanics_v2.yaml",
+    "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+    "epsilon": 0.0,
+    "hero_id": 0,
+    "human_id": 0,
+    "mode": "play",
+    "num_snakes": 6,
+    "obs_spec": "vector61",
+    "policy_class": "ApexPolicy",
+    "policy_training": false,
+    "protocol_version": 2,
+    "snake_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "veto_flags": {
+      "play_ai": false,
+      "watch_hero": true
+    },
+    "world": {
+      "height": 830,
+      "initial_food": 250,
+      "input_size": 61,
+      "max_food": 300,
+      "mechanics_version": 2,
+      "width": 1450
+    }
+  },
+  "snakes_with_veto": [],
+  "status": "complete",
+  "study_id": "apex-veto-v7-serving-20261002",
+  "veto": {
+    "active": false,
+    "diagnostics_per_snake": {},
+    "diagnostics_timing": {},
+    "diagnostics_total": {
+      "area_cap_hits": 0,
+      "area_cap_max": 0,
+      "area_evaluations": 0,
+      "decisions": 0,
+      "extra_landing_checks": 0,
+      "kept": 0,
+      "no_spacious": 0,
+      "rerank_changes": 0,
+      "rerank_changes_boost_mode": 0,
+      "rerank_changes_of_v5_kept": 0,
+      "rerank_changes_tail_release_driven": 0,
+      "rerank_decisions": 0,
+      "rerank_pruned": 0,
+      "rerank_scored": 0,
+      "static_area_evaluations": 0,
+      "v5": {
+        "action_differs_from_v2": 0,
+        "base_landing_failed": 0,
+        "boost_base_decisions": 0,
+        "boost_landing_no_eligible": 0,
+        "boost_landing_v2_rule": 0,
+        "boost_landing_vetoes": 0,
+        "boost_to_normal_same_direction": 0,
+        "decisions": 0,
+        "kept": 0,
+        "landing_checks": 0,
+        "landing_failures": 0,
+        "no_spacious": 0,
+        "vetoes_applied": 0
+      },
+      "vetoes_applied": 0
+    },
+    "flags": {
+      "play_ai": false,
+      "watch_hero": true
+    },
+    "per_snake": {},
+    "reason": "no serving veto flag applies to play mode",
+    "scope": null,
+    "strict_receipt_checkpoint_match": true,
+    "strict_receipt_wrapper_match": null,
+    "total": {
+      "decisions": 0,
+      "fallback_no_spacious": 0,
+      "kept_base": 0,
+      "vetoed_base_boost": 0,
+      "vetoes_applied": 0,
+      "vetoes_speed_switched": 0,
+      "vetoes_to_boost": 0
+    },
+    "variant": null,
+    "variant_requested": "v7",
+    "wrapped_snake_ids": []
+  },
+  "wall_seconds": 2.4074053750373423,
+  "world_seed": 1748155539,
+  "wrapper": null
+}

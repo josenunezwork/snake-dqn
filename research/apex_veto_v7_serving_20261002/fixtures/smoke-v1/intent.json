@@ -1,0 +1,243 @@
+{
+  "authority": "serving-qualification (non-promoting)",
+  "checkpoint": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+    "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+  },
+  "counts": {
+    "parity": 1,
+    "play": 1,
+    "watch": 1
+  },
+  "criteria": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6"
+  ],
+  "expected": {
+    "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+    "parity_config_sha256": "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa5",
+    "served_config_basename": "mechanics_v2.yaml",
+    "served_config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+    "v7_lambda": 4.0,
+    "v7_method": "free-space-veto/v7-space-preference(lambda=4.0)",
+    "v7_source_sha256s": {
+      "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+      "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+      "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+      "src/evaluation/safety_veto_v7.py": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980"
+    },
+    "v7_strict_audit_report_sha256": "9cfc7dbb7eaa6d33cd9b5d6e602cc412a68886128076fa96d9196887c7e86183",
+    "v7_strict_intent_sha256": "3e39e0699ac1ba27880ba35cac8d2d5e4a74fa58305aa63477dac4735a153b33",
+    "v7_strict_receipt_sha256": "86ee36791e33ecad06bd525e8190d97f1c012ac6e3ede33ba05abe544f750422"
+  },
+  "git": {
+    "commit": "d51ba2e33cc27a98ad16e452ef1f89f4f7db9dc6",
+    "dirty": true
+  },
+  "harness_sources": {
+    "research/apex_veto_serving_20261001/schema.py": "7981db7243ba87e1f2011331fe585fac3b71a868d2bbbbed50f72a21a0abf141",
+    "research/apex_veto_serving_20261001/serving_audit.py": "7e303728dad8d48523ba4c4b1c143ce11129d802b240e7f7cea7d72772c87391",
+    "research/apex_veto_serving_20261001/serving_run.py": "fd229bdba600ecd278c64bb5170418bae9b002f0485afe73aff1a30e9058117c",
+    "research/apex_veto_v5_serving_20261001/schema.py": "4c04dc35023944737cf3763b4e821e64b95f43fb4810c4fe44594e00f36558b9",
+    "research/apex_veto_v5_serving_20261001/serving_audit.py": "6402c7c90f1a14811b1058de51837116ec8153df010bb501ff0eb89d3304b660",
+    "research/apex_veto_v5_serving_20261001/serving_run.py": "6167abacb315c59bd65d0f15bf13bf5b93b96b60326f2b2437db1025a5f8e217",
+    "research/apex_veto_v7_serving_20261002/schema.py": "0c67a30ddca465a79a190065de09e43dd7a2097d70a0d98e8e1f965e20faba25",
+    "research/apex_veto_v7_serving_20261002/serving_audit.py": "08a2b3cb5d540c904c23435b428e15055a1e39344a7d7af78e9fa1d5e5df6a8c",
+    "research/apex_veto_v7_serving_20261002/serving_run.py": "1d994d41b03124c1a1f9b01a386b93cbcf65b4c34589d243ac5fd6026dcafed2"
+  },
+  "horizon_frames": 500,
+  "parity_horizon_frames": 200,
+  "protocol_sha256": "6028193ecda233cd84be7d63a0896362690e5e54f02fafc4198d27500124a6da",
+  "release_env": {
+    "SNAKE_SERVE_VETO_PLAY_AI": null,
+    "SNAKE_SERVE_VETO_VARIANT": "v7",
+    "SNAKE_SERVE_VETO_WATCH_HERO": null
+  },
+  "schema_version": "apex-veto-v7-web-serving/v1",
+  "seed_recipe": {
+    "domain": "apex-veto-v7-web-serving-smoke-v1",
+    "rule": "uint32 big-endian of sha256(f'{domain}|{purpose}|{i}')[:4]"
+  },
+  "seed_report": {
+    "checked_against": [
+      "apex-veto-strict dev/final/serving v1-v3",
+      "apex-safety-screen-v1[:1000]",
+      "task-aligned-challenger-20260924 namespaces",
+      "apex-veto-v3-screen-v1/worlds[:1000] (+ smoke)",
+      "apex-safety-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-web-serving-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-web-serving-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v4-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v4-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "trap-horizon-dev-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "trap-horizon-dev-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-strict-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-strict-dev-v1/worlds[:1000]",
+      "apex-veto-v5-strict-final-v1/worlds[:1000]",
+      "apex-veto-v5-strict-serving-v1/worlds[:1000]",
+      "apex-veto-v5-strict-smoke-v1/worlds[:1000]",
+      "small integer seeds 0..999",
+      "apex-safety-screen-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v2[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-dev-v3[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v2[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-final-v3[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v2[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-serving-v3[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-strict-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-web-serving-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-web-serving-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-v2[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v3-screen-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v4-screen-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v4-screen-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-screen-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-screen-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-strict-dev-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-strict-final-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-strict-serving-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-strict-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-web-serving-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v5-web-serving-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v6-screen-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v6-screen-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v7-dev-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v7-dev-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v7-screen-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v7-screen-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "trap-horizon-dev-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "trap-horizon-dev-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "trap-horizon-v5-dev-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "trap-horizon-v5-dev-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v7-strict-smoke-v1[:1000] (v7 strict EARLIER_DOMAINS)",
+      "apex-veto-v7-strict-dev-v1/worlds[:1000]",
+      "apex-veto-v7-strict-final-v1/worlds[:1000]",
+      "apex-veto-v7-strict-serving-v1/worlds[:1000]",
+      "apex-veto-v7-strict-smoke-v1/worlds[:1000]",
+      "apex-veto-v8-dev-v1/worlds[:1000] (in-flight v8)",
+      "apex-veto-v8-dev-smoke-v1/worlds[:1000] (in-flight v8)",
+      "apex-veto-v8-screen-v1/worlds[:1000] (in-flight v8)",
+      "apex-veto-v8-screen-smoke-v1/worlds[:1000] (in-flight v8)",
+      "small integer seeds 0..999"
+    ],
+    "disjoint": true,
+    "registry_checked": false,
+    "registry_note": "governance namespace registry not implemented; in-code check only",
+    "unique": true,
+    "v5_serving_report": {
+      "checked_against": [
+        "apex-veto-strict dev/final/serving v1-v3",
+        "apex-safety-screen-v1[:1000]",
+        "task-aligned-challenger-20260924 namespaces",
+        "apex-veto-v3-screen-v1/worlds[:1000] (+ smoke)",
+        "apex-safety-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-dev-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-dev-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-dev-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-final-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-final-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-final-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-serving-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-serving-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-serving-v3[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-strict-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-web-serving-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-web-serving-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v3-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v3-screen-v2[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v3-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v4-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v4-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v5-screen-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v5-screen-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "trap-horizon-dev-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "trap-horizon-dev-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v5-strict-smoke-v1[:1000] (v5 strict EARLIER_DOMAINS)",
+        "apex-veto-v5-strict-dev-v1/worlds[:1000]",
+        "apex-veto-v5-strict-final-v1/worlds[:1000]",
+        "apex-veto-v5-strict-serving-v1/worlds[:1000]",
+        "apex-veto-v5-strict-smoke-v1/worlds[:1000]",
+        "small integer seeds 0..999"
+      ],
+      "disjoint": true,
+      "registry_checked": false,
+      "registry_note": "governance namespace registry not implemented; in-code check only",
+      "unique": true,
+      "v2_serving_report": {
+        "checked_against": [
+          "apex-veto-strict dev/final/serving v1-v3",
+          "apex-safety-screen-v1[:1000]",
+          "task-aligned-challenger-20260924 namespaces",
+          "apex-veto-v3-screen-v1/worlds[:1000] (+ smoke)"
+        ],
+        "disjoint": true,
+        "registry_checked": false,
+        "registry_note": "governance namespace registry not implemented; in-code check only",
+        "strict_and_screen_overlap": [],
+        "unique": true
+      },
+      "v5_earlier_overlap": []
+    },
+    "v7_earlier_overlap": []
+  },
+  "seeds": {
+    "parity": [
+      565672820
+    ],
+    "play": [
+      1748155539
+    ],
+    "watch": [
+      1505748872
+    ]
+  },
+  "smoke": true,
+  "study_id": "apex-veto-v7-serving-20261002",
+  "wrapper_identity": {
+    "descriptor": {
+      "area_cap_rule": "min(max(32, 2*length), 4096, in-bounds cells not covered by other live snakes)",
+      "area_rule": "tail-aware-bfs-from-post-move-head/own-body-released-by-steps/slack-1/other-snakes-static",
+      "boost_approximation": "first-cell-and-two-cell-landing",
+      "free_space_bfs_cap": 160,
+      "free_space_min_cap": 32,
+      "landing_rule": "post-move-body-blocked-except-head/other-snakes-static/v2-cap-need",
+      "method": "free-space-veto/v7-space-preference(lambda=4.0)",
+      "replacement_rule": "landing-veto-same-direction-normal-speed-first/highest-q-eligible-same-speed-mode-then-other",
+      "space_preference_lambda": 4.0,
+      "space_preference_rule": "C = v5-eligible actions in the speed mode of v5's choice; argmax score over C; ties -> v5's choice, then lowest index; unchanged when no_spacious, lambda == 0 or a landing veto's same-direction normal-speed replacement",
+      "space_score_rule": "(q-max_C q)/max(|max_C q-min_C q|,1e-6) + lambda*min(area,cap)/cap"
+    },
+    "method": "free-space-veto/v7-space-preference(lambda=4.0)",
+    "source_path": "src/evaluation/safety_veto_v7.py",
+    "source_sha256": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+    "source_sha256s": {
+      "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+      "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+      "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+      "src/evaluation/safety_veto_v7.py": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980"
+    }
+  }
+}
