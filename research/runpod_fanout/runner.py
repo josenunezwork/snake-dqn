@@ -3,9 +3,11 @@
 
 Commands (run from the repo with the project venv)::
 
-    runner.py plan    JOB.json [--budget USD]            # dry run: capacity probe (read-only),
-                                                         #   cost estimate, upload manifest
-    runner.py run     JOB.json --budget USD --confirm    # real RunPod run (spends money)
+    runner.py plan    JOB.json [--budget USD]            # dry run (serverless default; read-only):
+                                                         #   sizing / speed-cost table, seed state
+    runner.py run     JOB.json --budget USD --confirm    # real RunPod run (spends money); default
+                                                         #   backend serverless (serverless.py)
+    runner.py run     JOB.json --backend pods ...        # CPU pods (explicit fallback)
     runner.py run     JOB.json --backend local           # same episodes on this Mac, 1 slot
     runner.py status  [RUN_DIR]                          # run state + live runner pods
     runner.py cleanup --job-id ID [--confirm]            # delete ONLY rpf-<ID>-- pods
@@ -58,6 +60,7 @@ from research.runpod_fanout.tls import USER_AGENT, preflight, ssl_context  # noq
 
 STOCKED = ("High", "Medium", "Low")
 RECEIPT_SCHEMA = "runpod-fanout-receipt/v1"
+BACKENDS = ("serverless", "pods", "local", "runpod")  # runpod = pods (old name)
 EXIT_DUPLICATE = 6  # job already has a live or successful run: refused, nothing spent
 NET_ERRORS = (urllib.error.URLError, OSError, ValueError, http.client.HTTPException)
 
@@ -592,16 +595,7 @@ class Runner:
                 )
             return False
         token = secrets.token_urlsafe(32)
-        body = pod_body(
-            self.policy,
-            name,
-            row["vcpu"],
-            row["dc"],
-            hashlib.sha256(token.encode()).hexdigest(),
-            min(self.deadline, now + float(self.policy["pod_max_lifetime_seconds"])),
-            self.job["job_id"],
-            until_epoch=until,
-        )
+        body = self.pod_body_for(name, row, hashlib.sha256(token.encode()).hexdigest(), now, until)
         body_path = self.run_dir / "pods" / f"{name}.request.json"
         body_path.parent.mkdir(exist_ok=True)
         body_path.write_text(json.dumps(body, indent=1))
@@ -663,6 +657,21 @@ class Runner:
         if self.committed_worst() > self.budget + 1e-6:
             raise Abort("committed worst case exceeds the budget after create")
         return True
+
+    def pod_body_for(
+        self, name: str, row: Mapping[str, Any], token_sha: str, now: float, until: float
+    ) -> Dict[str, Any]:
+        """The create body (subclasses, e.g. the serverless seeder, override this)."""
+        return pod_body(
+            self.policy,
+            name,
+            row["vcpu"],
+            row["dc"],
+            token_sha,
+            min(self.deadline, now + float(self.policy["pod_max_lifetime_seconds"])),
+            self.job["job_id"],
+            until_epoch=until,
+        )
 
     def ledger_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
         """Ledger bookkeeping must never stop cleanup: errors are logged (unreleased
@@ -1553,6 +1562,8 @@ def watchdog_argv(runner: Runner, label: Optional[str]) -> List[str]:
         "--prefix",
         runner.run_prefix(),
     ]
+    if hasattr(runner, "endpoint_prefix"):  # serverless run: also tear down its endpoints
+        argv += ["--endpoint-prefix", runner.endpoint_prefix()]
     return argv + (["--launchd-label", label] if label else [])
 
 
@@ -1932,13 +1943,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     pl = sub.add_parser("plan")
     pl.add_argument("job", type=Path)
     pl.add_argument("--budget", type=float, default=None)
+    pl.add_argument("--backend", choices=BACKENDS[:3], default="serverless")
     r = sub.add_parser("run")
     r.add_argument("job", type=Path)
-    r.add_argument("--backend", choices=("runpod", "local"), default="runpod")
+    r.add_argument(
+        "--backend",
+        choices=BACKENDS,
+        default="serverless",
+        help="serverless (default for Tier-1 CPU jobs), pods (alias: runpod) or local",
+    )
     r.add_argument("--budget", type=float, default=None)
     r.add_argument("--confirm", action="store_true")
     r.add_argument("--run-dir", type=Path, default=None)
     r.add_argument("--slot-timeout", type=float, default=3600.0)
+    for sp_ in (pl, r):  # serverless sizing overrides (default: plan's recommendation)
+        sp_.add_argument("--flavor", choices=("cpu5c", "cpu3c"), default=None)
+        sp_.add_argument("--target-minutes", type=float, default=None)
+        sp_.add_argument("--workers", type=int, default=None)
+        sp_.add_argument("--vcpu-per-worker", type=int, default=None)
     st = sub.add_parser("status")
     st.add_argument("run_dir", nargs="?", type=Path)
     cl = sub.add_parser("cleanup")
@@ -1967,20 +1989,43 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     allow = jobspec.load_allowlist()
     job = jobspec.validate_job(json.loads(a.job.read_text()), policy, allow)
+    backend = "pods" if a.backend == "runpod" else a.backend
     if a.cmd == "plan":
+        if backend == "serverless":
+            from research.runpod_fanout import serverless
+
+            out = serverless.plan_serverless(
+                job,
+                policy,
+                serverless.load_sls_policy(),
+                allow,
+                float(a.budget or 0),
+                flavor=a.flavor,
+                target_minutes=a.target_minutes,
+                workers=a.workers,
+                vcpu=a.vcpu_per_worker,
+            )
+            print(json.dumps(out, indent=1, sort_keys=True))
+            return 0
         return cmd_plan(a, job, policy, allow)
-    run_dir = a.run_dir or default_run_dir(policy, job, a.backend)
-    if a.backend == "local":
+    run_dir = a.run_dir or default_run_dir(
+        policy, job, {"serverless": "sls", "pods": "runpod"}.get(backend, backend)
+    )
+    if backend == "local":
         return run_local(job, policy, allow, run_dir, a.slot_timeout)
     if not a.confirm or a.budget is None:
         print(
-            "run --backend runpod needs --budget USD and --confirm (dry run: use plan)",
+            f"run --backend {backend} needs --budget USD and --confirm (dry run: use plan)",
             file=sys.stderr,
         )
         return 2
     if not 0 < a.budget <= float(policy["project_cap_usd"]):
         print("--budget must be in (0, project cap]", file=sys.stderr)
         return 2
+    if backend == "serverless":
+        from research.runpod_fanout import serverless
+
+        return serverless.run_serverless(a, job, policy, allow, run_dir)
     runner = Runner(job, policy, allow, run_dir, budget=a.budget, confirm=True)
     return runner.run()
 

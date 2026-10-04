@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Detached local watchdog for one fan-out run: deletes the run's pods when needed.
+"""Detached local watchdog for one fan-out run: deletes the run's pods (and, for a
+serverless run, scales its endpoints to 0 and deletes them) when needed.
 
 Fires when ANY of:
 
@@ -155,12 +156,19 @@ def watch(
     prefix: str | None = None,
     resweep_seconds: float = 180.0,
     give_up_seconds: float = 7200.0,
+    endpoint_prefix: str | None = None,
 ) -> str:
     policy = jobspec.load_policy()
     job_prefix = f"{policy['pod_name_prefix']}{job_id}--"
     prefix = prefix or job_prefix
     if not prefix.startswith(job_prefix):
         raise SystemExit("watchdog prefix must lie inside the job's rpf-<job>-- namespace")
+    if endpoint_prefix is not None:
+        from research.runpod_fanout.serverless import load_sls_policy
+
+        ep_job = f"{load_sls_policy()['endpoint_prefix']}{job_id}--"
+        if not endpoint_prefix.startswith(ep_job):
+            raise SystemExit("watchdog endpoint prefix must lie inside rpf-sls-<job>--")
     rp = rp or RpClient()
     dead_since = None
     retired: Set[str] = set()
@@ -196,18 +204,48 @@ def watch(
                     except RunPodError:
                         pass
                     log(f"delete overdue {pod_id} failed: {exc}")
+        if endpoint_prefix is not None and not reason:
+            # Per-endpoint horizon: scale to 0 / delete endpoints past rpf_until_epoch.
+            from research.runpod_fanout.serverless import endpoint_registry, sweep_endpoints
+
+            overdue_eps = [
+                i
+                for i, r in endpoint_registry(run_dir, endpoint_prefix).items()
+                if float(r.get("rpf_until_epoch") or 0) + 120 < now and i not in retired
+            ]
+            if overdue_eps:
+                log(f"endpoints past their horizon: {overdue_eps}")
+                left_eps = sweep_endpoints(
+                    rp, endpoint_prefix, run_dir, log, sleep, clock, 600, only_overdue_before=now
+                )
+                retired.update(i for i in overdue_eps if i not in left_eps)
         if reason:
             log(f"FIRING: {reason}")
             left = sweep(rp, prefix, sleep, run_dir, clock, give_up_seconds)
-            # A pod from a create still in flight can surface late: sweep again later.
+            eps_left = sweep_run_endpoints(
+                rp, endpoint_prefix, run_dir, sleep, clock, give_up_seconds
+            )
+            # A pod/endpoint from a create still in flight can surface late: sweep again.
             sleep(resweep_seconds)
             left = sweep(rp, prefix, sleep, run_dir, clock, give_up_seconds)
+            eps_left = sweep_run_endpoints(
+                rp, endpoint_prefix, run_dir, sleep, clock, give_up_seconds
+            )
+            left = list(left) + [f"endpoint:{e}" for e in eps_left]
             log(f"done; leftovers={left}")
             (Path(run_dir) / "watchdog_result.json").write_text(
                 json.dumps({"reason": reason, "leftovers": left, "utc": time.time()})
             )
             return reason
         sleep(poll)
+
+
+def sweep_run_endpoints(rp, endpoint_prefix, run_dir, sleep, clock, give_up_seconds):
+    if endpoint_prefix is None:
+        return []
+    from research.runpod_fanout.serverless import sweep_endpoints
+
+    return sweep_endpoints(rp, endpoint_prefix, run_dir, log, sleep, clock, give_up_seconds)
 
 
 class FileFakeRp:
@@ -228,14 +266,46 @@ class FileFakeRp:
     def get_pod(self, pod_id):
         return next((p for p in self._load()["pods"] if p["id"] == pod_id), None)
 
+    def _save(self, data):
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data))
+        os.replace(tmp, self.path)
+
     def delete_pod(self, pod_id, confirm):
         assert confirm
         data = self._load()
         data["pods"] = [p for p in data["pods"] if p["id"] != pod_id]
         data.setdefault("deleted", []).append(pod_id)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data))
-        os.replace(tmp, self.path)
+        self._save(data)
+        return {}
+
+    # serverless endpoints: {"endpoints": [{"id", "name", "workersMax"}]}
+    def list_endpoints(self):
+        return self._load().get("endpoints", [])
+
+    def get_endpoint(self, endpoint_id, workers=False):
+        return next((e for e in self.list_endpoints() if e["id"] == endpoint_id), None)
+
+    def update_endpoint(self, endpoint_id, body, confirm):
+        assert confirm
+        data = self._load()
+        for e in data.get("endpoints", []):
+            if e["id"] == endpoint_id:
+                e.update(body)
+        data.setdefault("scaled", []).append(endpoint_id)
+        self._save(data)
+        return {}
+
+    def sls(self, endpoint_id, op, job_id=None, body=None, confirm=False):
+        assert confirm or op in ("status", "health")
+        return {}
+
+    def delete_endpoint(self, endpoint_id, confirm):
+        assert confirm
+        data = self._load()
+        data["endpoints"] = [e for e in data.get("endpoints", []) if e["id"] != endpoint_id]
+        data.setdefault("deleted_endpoints", []).append(endpoint_id)
+        self._save(data)
         return {}
 
 
@@ -253,6 +323,7 @@ def main(argv=None) -> int:
     p.add_argument("--resweep-seconds", type=float, default=180.0)
     p.add_argument("--poll-seconds", type=float, default=30.0)
     p.add_argument("--launchd-label", default=None, help="unregister this launchd job at exit")
+    p.add_argument("--endpoint-prefix", default=None, help="this run's serverless endpoints")
     a = p.parse_args(argv)
     for sig in (signal.SIGHUP, signal.SIGINT):
         signal.signal(sig, signal.SIG_IGN)  # survive the terminal / tmux going away
@@ -269,6 +340,7 @@ def main(argv=None) -> int:
             prefix=a.prefix,
             resweep_seconds=a.resweep_seconds,
             poll=a.poll_seconds,
+            endpoint_prefix=a.endpoint_prefix,
         )
     finally:
         (a.run_dir / "watchdog.done").write_text(str(time.time()))

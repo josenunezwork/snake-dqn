@@ -117,3 +117,93 @@ class RpClient:
 
     def delete_pod(self, pod_id: str, confirm: bool) -> Any:
         return self._call("rest", "DELETE", f"/pods/{pod_id}", *(["--confirm"] if confirm else []))
+
+    # ------------------------------------------------------------ serverless / storage
+    # Reads are plain; anything that creates, changes, deletes or runs is a dry run unless
+    # ``confirm=True`` (rp.py prints the request it would send).
+    def _list(self, path: str, *query: str) -> List[Dict[str, Any]]:
+        args = ["rest", "GET", path]
+        for q in query:
+            args += ["-q", q]
+        out = self._call(*args)
+        if not isinstance(out, list):  # empty/odd output is an error, never "nothing"
+            raise RunPodError(f"GET {path} returned {type(out).__name__}, not a list", out)
+        return out
+
+    def _get_or_none(self, path: str, *query: str) -> Optional[Dict[str, Any]]:
+        args = ["rest", "GET", path]
+        for q in query:
+            args += ["-q", q]
+        try:
+            return self._call(*args)
+        except RunPodError as exc:
+            if isinstance(exc.payload, dict) and exc.payload.get("http_status") == 404:
+                return None
+            raise
+
+    def _write(self, method: str, path: str, body: Any, confirm: bool) -> Any:
+        args = ["rest", method, path]
+        if body is not None:
+            args += ["-d", body if isinstance(body, str) else json.dumps(body)]
+        return self._call(*args, *(["--confirm"] if confirm else []))
+
+    def list_endpoints(self) -> List[Dict[str, Any]]:
+        return self._list("/endpoints")
+
+    def get_endpoint(self, endpoint_id: str, workers: bool = False) -> Optional[Dict[str, Any]]:
+        query = ("includeWorkers=true",) if workers else ()
+        return self._get_or_none(f"/endpoints/{endpoint_id}", *query)
+
+    def create_endpoint(self, body_path: Path, confirm: bool) -> Any:
+        return self._write("POST", "/endpoints", f"@{body_path}", confirm)
+
+    def update_endpoint(self, endpoint_id: str, body: Dict[str, Any], confirm: bool) -> Any:
+        return self._write("PATCH", f"/endpoints/{endpoint_id}", body, confirm)
+
+    def delete_endpoint(self, endpoint_id: str, confirm: bool) -> Any:
+        return self._write("DELETE", f"/endpoints/{endpoint_id}", None, confirm)
+
+    def sls(
+        self,
+        endpoint_id: str,
+        op: str,
+        job_id: Optional[str] = None,
+        body: Optional[Dict[str, Any]] = None,
+        confirm: bool = False,
+    ) -> Any:
+        """``rp.py sls``: run/cancel/retry/purge-queue need ``confirm``; health/status read."""
+        args = ["sls", endpoint_id, op] + ([job_id] if job_id else [])
+        if body is not None:
+            args += ["-d", json.dumps(body, separators=(",", ":"))]
+        return self._call(*args, *(["--confirm"] if confirm else []))
+
+    def endpoint_billing(self, endpoint_id: str, start_iso: str, end_iso: str) -> float:
+        rows = self._list(
+            "/billing/endpoints",
+            f"endpointId={endpoint_id}",
+            "bucketSize=hour",
+            f"startTime={start_iso}",
+            f"endTime={end_iso}",
+        )
+        return float(sum(float(r.get("amount") or 0.0) for r in rows))
+
+    def list_volumes(self) -> List[Dict[str, Any]]:
+        return self._list("/networkvolumes")
+
+    def get_volume(self, volume_id: str) -> Optional[Dict[str, Any]]:
+        return self._get_or_none(f"/networkvolumes/{volume_id}")
+
+    def create_volume(self, body: Dict[str, Any], confirm: bool) -> Any:
+        return self._write("POST", "/networkvolumes", body, confirm)
+
+    def delete_volume(self, volume_id: str, confirm: bool) -> Any:
+        return self._write("DELETE", f"/networkvolumes/{volume_id}", None, confirm)
+
+    def list_templates(self) -> List[Dict[str, Any]]:
+        return self._list("/templates")
+
+    def create_template(self, body_path: Path, confirm: bool) -> Any:
+        return self._write("POST", "/templates", f"@{body_path}", confirm)
+
+    def delete_template(self, template_id: str, confirm: bool) -> Any:
+        return self._write("DELETE", f"/templates/{template_id}", None, confirm)

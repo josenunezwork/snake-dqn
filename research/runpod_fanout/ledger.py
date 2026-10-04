@@ -230,9 +230,21 @@ class SharedLedger:
 
     # ------------------------------------------------------------ pods
     def reserve_pod(
-        self, run_id: str, key: str, rate: float, until: float, balance: float
+        self,
+        run_id: str,
+        key: str,
+        rate: float,
+        until: float,
+        balance: float,
+        kind: Optional[str] = None,
     ) -> Optional[str]:
-        """Atomically reserve a pod's worst case; returns a refusal reason or None."""
+        """Atomically reserve a pod's worst case; returns a refusal reason or None.
+
+        ``kind="serverless"``: a serverless endpoint's worst case (rate = workersMax x
+        vCPU/worker x $/vCPU-hr x margin), stored pod-shaped with ``pod_id`` None so every
+        ledger reader (including older runners still running) counts it as a live
+        reservation until it is released; older reconcilers only drop it past its horizon.
+        """
         now = self.clock()
         with self.locked() as state:
             totals = self.totals(state)
@@ -251,14 +263,25 @@ class SharedLedger:
                     f"project cap: reserved {totals['reserved_usd']:.3f} + new {new:.3f} > "
                     f"cap {cap} - spent {totals['spent_usd']:.3f}"
                 )
-            state["runs"][run_id]["pods"][key] = {
+            row = {
                 "pod_id": None,
                 "rate": float(rate),
                 "created": now,
                 "until": float(until),
                 "deleted": None,
             }
+            if kind is not None:
+                row["kind"] = str(kind)
+            state["runs"][run_id]["pods"][key] = row
             return None
+
+    def annotate(self, run_id: str, key: str, **fields: Any) -> None:
+        """Extra fields on a reservation (e.g. ``endpoint_id``); never ``pod_id``."""
+        assert "pod_id" not in fields
+        with self.locked() as state:
+            row = state["runs"].get(run_id, {}).get("pods", {}).get(key)
+            if row is not None:
+                row.update(fields)
 
     def bind_pod(self, run_id: str, key: str, pod_id: str, rate: float) -> None:
         with self.locked() as state:
@@ -325,6 +348,15 @@ class SharedLedger:
                 live_run = run["status"] == "live" and _alive(self.alive, run)
                 for key, pod in run["pods"].items():
                     if pod.get("deleted") is not None:
+                        continue
+                    if pod.get("kind") == "serverless":
+                        # Not a pod: never matched against GET /pods. A dead run's endpoint
+                        # reservation is released past its horizon at its full worst case
+                        # (its watchdog tears the endpoint down by then).
+                        if not live_run and now > float(pod["until"]) + SLACK_SECONDS:
+                            pod["deleted"] = now
+                            pod["cost"] = self._pod_spent(dict(pod, deleted=None), now)
+                            released.append(key)
                         continue
                     if float(pod.get("created") or now) >= t_list - 300:
                         continue
