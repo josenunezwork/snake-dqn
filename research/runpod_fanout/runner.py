@@ -12,7 +12,7 @@ Commands (run from the repo with the project venv)::
     runner.py status  [RUN_DIR]                          # run state + live runner pods
     runner.py cleanup --job-id ID [--confirm]            # delete ONLY rpf-<ID>-- pods
     runner.py compare RUN_DIR_A RUN_DIR_B                # per-episode deterministic equality
-    runner.py merge   RUN_DIR... --out DIR               # one records tree; mixed platforms refused
+    runner.py merge   RUN_DIR... --out DIR               # one records tree, per-world platform rule
 
 A run writes create-only to ``<artifacts>/runpod-fanout/<job_id>/<run-name>/``:
 ``job.json``, ``plan.json``, ``events.jsonl``, ``state.json`` (rewritten), ``receipt.json``
@@ -434,7 +434,6 @@ class Runner:
         self._balance: Optional[tuple] = None
         self.platform_ids: set = set()
         self.watchdog: Any = None
-        self.cpu_model_pin: Optional[str] = None  # serverless probe only (not a run pin)
         # Per-world units: every arm of one (wrapper, mix, world_seed) runs on ONE worker.
         self.units: Dict[str, List[str]] = platform_rule.group_units(self.order)
         self.unit_src: Dict[str, Optional[str]] = {}  # unit -> source of its current attempt
@@ -1043,30 +1042,30 @@ class Runner:
     def retry_on_pod(self, pod: Pod, key: str, info: Mapping[str, Any]) -> None:
         """An episode failed on a healthy pod: retry it on the SAME pod (same CPU model, the
         unit stays whole); out of attempts or unreachable -> the unit restarts elsewhere."""
-        unit = platform_rule.unit_of_key(key)
         if info.get("rc") == "deadline":
             self.requeue(pod, [key], "pod deadline", penalize=False)
             return
-        self.attempts[key] = self.attempts.get(key, 0) + 1
-        if self.attempts[key] >= int(self.policy["max_attempts_per_episode"]):
-            self.fail_unit(unit, f"episode error rc={info.get('rc')}")
-            for k in self.units.get(unit, []):
-                pod.inflight.discard(k)
-            return
-        try:
-            out = self.agents[pod.id].post_json(
-                "/assign",
-                {
-                    "episodes": [{"key": key, "spec": self.episodes[key]}],
-                    "timeout_seconds": 4 * episode_seconds(self.policy, self.episodes[key]) + 300,
-                },
-            )
-        except NET_ERRORS as exc:
-            out = {"error": str(exc)[:120]}
-        if key in (out.get("accepted") or []):
-            self.log("episode_retry_same_pod", pod=pod.id, key=key)
-        else:
-            self.requeue(pod, [key], f"episode error rc={info.get('rc')} (retry refused)")
+        why = f"episode error rc={info.get('rc')}"
+        if self.attempts.get(key, 0) == 0:  # first failure: one retry on the same pod
+            try:
+                out = self.agents[pod.id].post_json(
+                    "/assign",
+                    {
+                        "episodes": [{"key": key, "spec": self.episodes[key]}],
+                        "timeout_seconds": 4 * episode_seconds(self.policy, self.episodes[key])
+                        + 300,
+                    },
+                )
+            except NET_ERRORS as exc:
+                out = {"error": str(exc)[:120]}
+            if key in (out.get("accepted") or []):
+                self.attempts[key] = 1
+                self.log("episode_retry_same_pod", pod=pod.id, key=key)
+                return
+            why += " (same-pod retry refused)"
+        # again (or the pod refused): the whole unit restarts on any pod; it fails only
+        # when the unit's attempts are exhausted (a pod-local fault does not kill worlds)
+        self.requeue(pod, [key], why)
 
     def life_left(self, pod: Pod, now: float) -> float:
         return pod.created + float(self.policy["pod_max_lifetime_seconds"]) - now
@@ -1197,6 +1196,7 @@ class Runner:
         if not platform_id:
             raise Abort(f"record {key} from {source} has no platform stamp")
         platform_rule.stamp_worker(entry, worker or self.workers_info.get(source))
+        entry["platform"]["numerics_env"] = dict(self.numerics)
         self.platform_ids.add(platform_id)
         prior = self.seen.get(key)
         dest = self.run_dir / "records" / key
@@ -1210,6 +1210,9 @@ class Runner:
             dup.write_bytes(data)
             raise Abort(f"DIVERGENT duplicate for {key} from {source}")
         self.seen.setdefault(key, entry)
+        if key in self.failed:
+            self.log("record_of_failed_unit", key=key, source=source)
+            return
         if key in self.completed or dest.exists():
             self.log("duplicate_verified", key=key, source=source)
             return
@@ -1891,6 +1894,8 @@ def run_local(
             }
             events.write(json.dumps({"event": "start", **meta}) + "\n")
             for key in runner.order:
+                if key in runner.failed:
+                    continue  # its world already failed: no partial worlds
                 spec_path = work / "spec.json"
                 spec_path.write_text(json.dumps(runner.episodes[key]))
                 t0 = time.time()
@@ -1925,6 +1930,7 @@ def run_local(
                 }
                 if done.returncode != 0:
                     row["stderr_tail"] = done.stderr[-1500:]
+                    runner.fail_unit(platform_rule.unit_of_key(key), f"rc={done.returncode}")
                 else:
                     runner.accept_record(key, (out_root / key).read_bytes(), source="local")
                 events.write(json.dumps(row) + "\n")
@@ -2152,11 +2158,14 @@ def cmd_status(a, policy) -> int:
     from research.runpod_fanout.serverless import load_sls_policy
 
     eprefix = load_sls_policy()["endpoint_prefix"]
-    out["live_runner_endpoints"] = [
-        {k: e.get(k) for k in ("id", "name", "workersMin", "workersMax")}
-        for e in RpClient().list_endpoints()
-        if str(e.get("name", "")).startswith(eprefix)
-    ]
+    try:
+        out["live_runner_endpoints"] = [
+            {k: e.get(k) for k in ("id", "name", "workersMin", "workersMax")}
+            for e in RpClient().list_endpoints()
+            if str(e.get("name", "")).startswith(eprefix)
+        ]
+    except RunPodError as exc:
+        out["live_runner_endpoints"] = f"listing failed: {str(exc)[:160]}"
     print(json.dumps(out, indent=1, sort_keys=True, default=str))
     return 0
 

@@ -21,10 +21,11 @@ run owns its queue (cancel/purge/scale-to-0/delete never touch another run's job
 ledger reservation is exactly its own ``workersMax x vCPU`` worst case, and its watchdog may
 delete it without coordination. The cost is one cold start per run (~2-3 min).
 
-Determinism: one CPU flavor per endpoint (cpu5c first, cpu3c only if no cpu5c worker starts
-before any record exists); a probe job pins the CPU model and every episode job carries it,
-so a worker on another model refuses without running (and is recycled); records must share
-one platform id (as on pods) and compare exactly with local references.
+Determinism (per WORLD, see platform_rule.py): one serverless job = one world unit (every
+arm of one wrapper/mix/world_seed) on ONE worker, so paired comparisons never cross CPU
+models; different worlds may land on different models (the endpoint rents cpu5c, then
+cpu3c). A probe job verifies the runtime first. Workers run with fixed threads and
+MKL_CBWR=COMPATIBLE; duplicates must be byte-identical (deterministic) or the run aborts.
 """
 
 from __future__ import annotations
@@ -63,6 +64,7 @@ HANDLER_SOURCE = HERE / "sls_handler.py"
 SEED_AGENT_SOURCE = HERE / "seed_agent.py"
 REGISTRY_SCHEMA = "runpod-fanout-serverless-registry/v1"
 LEDGER_SAFETY = 1.02
+MAX_UNIT_EPISODES = 64  # sls_handler accepts at most 64 episodes per job
 Abort = rmod.Abort
 
 
@@ -255,13 +257,15 @@ def seeder_pod_body(
     token_sha: str,
     until_epoch: float,
     job_id: str,
+    flavor: Optional[str] = None,
+    vcpu: Optional[int] = None,
 ) -> Dict[str, Any]:
     s = sp["seeder"]
     return {
         "name": name,
         "computeType": "CPU",
-        "cpuFlavorIds": [s["flavor"]],
-        "vcpuCount": int(s["vcpu"]),
+        "cpuFlavorIds": [flavor or s["flavors"][0]],
+        "vcpuCount": int(vcpu or s["vcpu"][0]),
         "cloudType": "SECURE",
         "dataCenterIds": [volume["dataCenterId"]],
         "imageName": sp["image"],  # the same image the workers run (venv base python)
@@ -539,7 +543,8 @@ def sweep_endpoints(
                 log(f"endpoint {eid} deleted")
         left = [t for t in targets if t not in gone]
         if not left and list_ok:
-            continue  # confirm with one more listing
+            sleep(10)  # then confirm with one more listing
+            continue
         sleep(delay)
         delay = min(120.0, delay * 1.5)
     return left
@@ -635,6 +640,12 @@ class ServerlessRunner(rmod.Runner):
         self.probe_job: Optional[str] = None
         self.probe_worker: Dict[str, Any] = {}
         self.last_billing_check = 0.0
+        big = [u for u, keys in self.units.items() if len(keys) > MAX_UNIT_EPISODES]
+        if big:
+            raise jobspec.JobError(
+                f"{len(big)} world units exceed {MAX_UNIT_EPISODES} episodes (one serverless "
+                f"job each), e.g. {big[0]}"
+            )
 
     # ------------------------------------------------------------ naming
     def endpoint_prefix(self) -> str:
@@ -766,8 +777,11 @@ class ServerlessRunner(rmod.Runner):
         if not isinstance(out, dict) or not out.get("id"):
             out = self.find_endpoint_by_name(name) or {}
             if not out.get("id"):
+                ep.deleted = self.clock()  # proven absent (two empty listings >= 60 s apart)
+                self.ledger_call("release_pod", self.run_id, key, 0.0)
+                ep.released = True
                 self.raise_deferred()
-                raise Abort("endpoint create returned no id (the teardown sweeps by name)")
+                raise Abort("endpoint create returned no id and no endpoint exists")
         ep.id = str(out["id"])
         (self.run_dir / "endpoints" / f"{name}.response.json").write_text(
             json.dumps(
@@ -942,6 +956,7 @@ class ServerlessRunner(rmod.Runner):
             if exc is not None:
                 j.errors += 1
                 if _status(exc) == 404 or j.errors >= 20:
+                    self.cancel_quietly(j)
                     self.drop_job(j)
                     self.save_failure(j, {"status_error": str(exc)[:500]})
                     self.on_lost(j, "status unavailable")
@@ -1046,6 +1061,8 @@ class ServerlessRunner(rmod.Runner):
         for unit in self.pending_units():
             if len([j for j in self.jobs.values() if j.op == "episodes"]) >= cap:
                 return
+            if not self.unit_keys(unit):
+                continue
             if not self.submit(ep, "episodes", unit):
                 return
 
@@ -1376,8 +1393,8 @@ class SeedRunner(rmod.Runner):
         s = sp["seeder"]
         seed_policy = dict(
             fp,
-            flavor=s["flavor"],
-            vcpu_sizes_desc=[int(s["vcpu"])],
+            flavor=s["flavors"][0],
+            vcpu_sizes_desc=sorted((int(v) for v in s["vcpu"]), reverse=True),
             max_hourly_per_pod_usd=float(s["max_hourly_usd"]),
             pod_max_lifetime_seconds=60 * float(s["max_wall_minutes"]) + 600,
         )
@@ -1400,23 +1417,35 @@ class SeedRunner(rmod.Runner):
 
     def pod_body_for(self, name, row, token_sha, now, until):  # hook used by create_pod
         return seeder_pod_body(
-            self.fp, self.sp, name, self.volume, token_sha, until, self.job["job_id"]
+            self.fp,
+            self.sp,
+            name,
+            self.volume,
+            token_sha,
+            until,
+            self.job["job_id"],
+            flavor=row.get("flavor"),
+            vcpu=row.get("vcpu"),
         )
 
     def probe(self, sizes=None):
-        """Only the volume's data center can mount the volume."""
-        v, dc = int(self.sp["seeder"]["vcpu"]), self.volume["dataCenterId"]
-        s = self.rp.stock(self.policy["flavor"], v, rmod.ram_gb(self.policy, v), dc)
-        if s.get("stockStatus") in rmod.STOCKED and s.get("securePrice"):
-            return [
-                {
-                    "vcpu": v,
-                    "dc": dc,
-                    "stock": s["stockStatus"],
-                    "usd_per_hr": float(s["securePrice"]),
-                }
-            ]
-        return []
+        """Only the volume's data center can mount the volume; cheapest stocked first (the
+        seeder's CPU does not matter: it only copies files and installs wheels)."""
+        dc, rows = self.volume["dataCenterId"], []
+        for flavor in self.sp["seeder"]["flavors"]:
+            for v in sorted(int(x) for x in self.sp["seeder"]["vcpu"]):
+                s = self.rp.stock(flavor, v, rmod.ram_gb(self.policy, v), dc)
+                if s.get("stockStatus") in rmod.STOCKED and s.get("securePrice"):
+                    rows.append(
+                        {
+                            "flavor": flavor,
+                            "vcpu": v,
+                            "dc": dc,
+                            "stock": s["stockStatus"],
+                            "usd_per_hr": float(s["securePrice"]),
+                        }
+                    )
+        return sorted(rows, key=lambda r: r["usd_per_hr"])
 
     def prepare_uploads(self, workdir: Path) -> Dict[str, Any]:
         commit = self.job["repo_commit"]
@@ -1702,10 +1731,14 @@ def run_serverless(a, job, fp, allow, run_dir: Path) -> int:
     rp = RpClient()
     acct = account_headroom(rp, fp)
     flavors = [a.flavor] if a.flavor else list(sp["flavors_pref"])
+    episodes = job["episodes"]
+    if a.resume_from:  # size for the units still to run, not the whole job
+        probe = rmod.Runner(job, fp, allow, run_dir, rp=rmod._NoRunPod(), resume_from=a.resume_from)
+        episodes = [probe.episodes[k] for k in probe.order] or episodes
     plan = sizing_plan(
         fp,
         sp,
-        job["episodes"],
+        episodes,
         a.budget,
         float(job["max_wall_minutes"]),
         flavors,
@@ -1835,6 +1868,8 @@ def cmd_seed(a, fp, sp) -> int:
             "<sha256 of a fresh token>",
             time.time() + life_h * 3600,
             probe.job["job_id"],
+            flavor=rows[0]["flavor"] if rows else None,
+            vcpu=rows[0]["vcpu"] if rows else None,
         )
         body["dockerStartCmd"] = [
             "bash",
@@ -1854,6 +1889,9 @@ def cmd_seed(a, fp, sp) -> int:
                         "usd_per_hr": rate,
                         "expected_usd": None if rate is None else round(rate * 0.33, 4),
                         "worst_case_usd": None if rate is None else round(1.02 * rate * life_h, 4),
+                        "worst_case_cap_usd": round(
+                            1.02 * float(sp["seeder"]["max_hourly_usd"]) * life_h, 4
+                        ),
                         "note": "expected ~20 min (venv build); worst = pod lifetime cap",
                     },
                     "budget_needed": (

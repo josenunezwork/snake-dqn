@@ -623,7 +623,7 @@ def test_template_endpoint_and_seeder_bodies_have_no_secrets(tmp_path):
         fp, sp, "rpf-seed-x--y-1", {"id": "v", "dataCenterId": "EU-RO-1"}, "ab" * 32, 123, "seed-x"
     )
     assert s["networkVolumeId"] == "v" and s["volumeMountPath"] == "/runpod-volume"
-    assert s["imageName"] == t["imageName"] and s["cpuFlavorIds"] == ["cpu5c"]
+    assert s["imageName"] == t["imageName"] and s["cpuFlavorIds"] == ["cpu3c"]
     assert s["vcpuCount"] == 2 and s["cloudType"] == "SECURE"
     for body in (t, e, s):
         text = json.dumps(body.get("env", {})).upper()
@@ -926,8 +926,10 @@ class SeedFakeRp:
         return 40.0
 
     def stock(self, flavor, vcpu, ram, dc):
-        assert (flavor, vcpu, ram, dc) == ("cpu5c", 2, 4, "EU-RO-1")
-        return {"stockStatus": "High", "securePrice": 0.07}
+        assert flavor in ("cpu3c", "cpu5c") and ram == 2 * vcpu and dc == "EU-RO-1"
+        if (flavor, vcpu) == ("cpu5c", 2):
+            return {"stockStatus": "High", "securePrice": 0.07}
+        return {"stockStatus": None, "securePrice": 0.06}  # cpu3c out of stock here
 
     def create_pod(self, body_path, max_hourly, confirm):
         assert confirm is True
@@ -1018,6 +1020,7 @@ def test_seed_runner_seeds_registers_and_deletes_the_pod(tmp_path):
         assert fake.deleted == ["pod1"] and fake.procs == {}
         body = fake.created[0]
         assert body["name"].startswith("rpf-seed-") and body["vcpuCount"] == 2
+        assert body["cpuFlavorIds"] == ["cpu5c"]  # the stocked one
         reg = serverless.Registry(fp).read()
         rid = serverless.runtime_id(fp, sp)
         assert reg["commits"][commit]["repo_sha256"] == jobspec.git_archive(
@@ -1079,6 +1082,7 @@ def test_pods_dispatch_whole_worlds_with_numerics_env(tmp_path):
         fake.close()
     body = fake.created[0]
     assert json.loads(body["env"]["FANOUT_NUMERICS_JSON"]) == {
+        "ATEN_CPU_CAPABILITY": "avx2",
         "MKL_CBWR": "COMPATIBLE",
         "MKL_NUM_THREADS": "2",
         "OMP_NUM_THREADS": "2",
@@ -1088,6 +1092,7 @@ def test_pods_dispatch_whole_worlds_with_numerics_env(tmp_path):
     for e in recs.values():
         assert e["record"]["env"] == {"MKL_CBWR": "COMPATIBLE", "OMP": "2", "MKL": "2"}
         assert e["platform"]["backend"] == "pods" and "isa_flags" in e["platform"]
+        assert e["platform"]["numerics_env"]["MKL_CBWR"] == "COMPATIBLE"
     for unit, keys in platform_rule.group_units(recs).items():
         assert len({recs[k]["platform"]["worker_id"] for k in keys}) == 1
     events = [json.loads(x) for x in (r.run_dir / "events.jsonl").read_text().splitlines()]
@@ -1155,6 +1160,7 @@ def test_numerics_env_and_isa_cap_override(tmp_path):
         "OMP_NUM_THREADS": "2",
         "MKL_NUM_THREADS": "2",
         "MKL_CBWR": "COMPATIBLE",
+        "ATEN_CPU_CAPABILITY": "avx2",
     }
     capped = runner.numerics_env(dict(fp, isa_cap="AVX2"))
     assert capped["MKL_CBWR"] == "AVX2" and capped["ONEDNN_MAX_CPU_ISA"] == "AVX2"
@@ -1330,3 +1336,68 @@ def test_seed_job_id_depends_on_volume_and_checkpoints_and_one_seeder_at_a_time(
             confirm=True,
         )
         assert r.run() == 2
+
+
+def test_isa_flag_lists_are_identical_everywhere():
+    import ast
+
+    def const(path, name):
+        tree = ast.parse(Path(path).read_text())
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == name for t in node.targets
+            ):
+                return ast.literal_eval(node.value)
+        raise AssertionError(f"{name} not in {path}")
+
+    want = platform_rule.ISA_FLAGS
+    assert const(runner.AGENT_SOURCE, "ISA_FLAGS") == want
+    assert const(serverless.HANDLER_SOURCE, "ISA_FLAGS") == want
+
+
+def test_pod_episode_error_retries_same_pod_once_then_restarts_unit_anywhere(tmp_path):
+    fake = tfo.FakeRp(tmp_path, stub_env={})
+    r = tfo.make_runner(tmp_path, [ep("A", seed=41), ep("B", seed=41)], fake)
+    fake.close()
+    ka, kb = list(r.episodes)
+    unit = platform_rule.unit_of_key(ka)
+    pod = runner.Pod(id="pX", name="n", vcpu=8, dc="X", rate=0.1, token="", created=0)
+    r.pods["pX"] = pod
+
+    class Agent:
+        accept = True
+        posts = 0
+
+        def post_json(self, path, body):
+            Agent.posts += 1
+            return {"accepted": [e["key"] for e in body["episodes"]] if Agent.accept else []}
+
+    r.agents["pX"] = Agent()
+    r.take_unit(unit, "pX")
+    pod.inflight.update([ka, kb])
+    r.retry_on_pod(pod, ka, {"rc": 1})  # first failure: same pod
+    assert r.attempts[ka] == 1 and Agent.posts == 1 and r.pending == []
+    r.retry_on_pod(pod, ka, {"rc": 1})  # second failure: the whole world, any pod
+    assert r.pending == [ka, kb] and r.unit_attempts[unit] == 1 and not r.failed
+    assert r.attempts[ka] == 2 and r.attempts[kb] == 1  # no double count
+    r.take_unit(unit, "pX")
+    pod.inflight.update([ka, kb])
+    r.retry_on_pod(pod, ka, {"rc": 1})  # attempts exhausted (max 2): the world fails
+    assert set(r.failed) == {ka, kb} and r.pending == []
+    r.run_dir.mkdir(parents=True)
+    e = r.episodes[kb]
+    late = {k: e[k] for k in ("arm", "mix", "world_seed", "world_index", "roster_member_sha256s")}
+    late.update(
+        {
+            "record": {},
+            "platform": {"platform_id": "stub"},
+            "fanout": {
+                "job_id": r.job["job_id"],
+                "episode_key": kb,
+                "repo_commit": r.job["repo_commit"],
+                "spec_sha256": runner.spec_sha256(e),
+            },
+        }
+    )
+    r.accept_record(kb, json.dumps(late).encode(), "pX")  # a failed world is never published
+    assert not (r.run_dir / "records").exists()

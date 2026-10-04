@@ -77,7 +77,7 @@ def group_units(keys: Iterable[str]) -> Dict[str, List[str]]:
 
 def platform_signature(entry: Mapping[str, Any]) -> str:
     """What must be equal within a unit: platform id (OS/py/torch/numpy/isa cap/CPU model),
-    the worker's ISA flags, MKL_CBWR and torch threads."""
+    the worker's ISA flags, MKL_CBWR, torch threads and the runner's numerics env."""
     p = entry.get("platform") if isinstance(entry.get("platform"), Mapping) else {}
     return json.dumps(
         [
@@ -85,8 +85,10 @@ def platform_signature(entry: Mapping[str, Any]) -> str:
             list(p.get("isa_flags") or []),
             p.get("mkl_cbwr"),
             p.get("torch_threads"),
+            p.get("numerics_env") or {},
         ],
         separators=(",", ":"),
+        sort_keys=True,
     )
 
 

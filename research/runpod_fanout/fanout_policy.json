@@ -13,7 +13,7 @@
   "torch_index_url": "https://download.pytorch.org/whl/cpu",
   "threads_per_episode": 2,
   "isa_cap": null,
-  "numerics_env": {"MKL_CBWR": "COMPATIBLE"},
+  "numerics_env": {"MKL_CBWR": "COMPATIBLE", "ATEN_CPU_CAPABILITY": "avx2"},
   "project_cap_usd": 50.0,
   "global_floor_usd": 5.0,
   "prior_spend_usd": 0.11,
