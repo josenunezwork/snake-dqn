@@ -10,7 +10,7 @@
   "mount": "/runpod-volume",
   "root_dir": "rpf",
   "volume_name": "rpf-sls-eu-ro-1",
-  "volume_size_gb": 5,
+  "volume_size_gb": 10,
   "volume_usd_per_gb_month": 0.07,
   "container_disk_gb": 10,
   "vcpu_sizes": [32, 16, 8, 4, 2],
