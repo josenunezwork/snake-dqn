@@ -10,6 +10,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -524,11 +525,10 @@ OLD_POD_STAMP = {  # what the pod runner wrote before per-world units (no ISA/nu
 }
 
 
-def test_resume_from_an_old_pod_runner_dir(world, monkeypatch):
-    """An old-runner run dir (per-episode dispatch, one CPU model per run, old platform
-    stamp) resumes: its complete worlds are skipped; its PARTIAL world re-runs in full on one
-    worker (the old partial record only serves as a duplicate reference) and never mixes into
-    that world in the merge."""
+def old_pod_run(world, monkeypatch, old_partial_mass_delta=0.0):
+    """An old-runner run dir: worlds 11, 12 complete, world 13 PARTIAL (A only), all on the
+    old platform stamp; ``old_partial_mass_delta`` makes the old A-13 differ from a re-run
+    (what a cross-CPU / numerics divergence would look like)."""
     monkeypatch.setenv("STUB_FAIL_ONCE", K + "B-scripted-13.json")
     fp1 = dict(world["fp"], max_attempts_per_episode=1)
     r1 = make_sls_runner(world, eps6(), FakeSls(), fp=fp1, name="sls-r1")
@@ -543,15 +543,32 @@ def test_resume_from_an_old_pod_runner_dir(world, monkeypatch):
     for src in (r1.run_dir, aux.run_dir):
         for key, e in records_of(src).items():
             e["platform"] = dict(OLD_POD_STAMP)
+            if key == K + "A-scripted-13.json":
+                e["record"]["mass_integral"] += old_partial_mass_delta
             dest = old / "records" / key
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(json.dumps(e, sort_keys=True, indent=2))
     assert len(records_of(old)) == 5
+    return old
+
+
+def test_resume_from_an_old_pod_runner_dir(world, monkeypatch):
+    """An old-runner run dir (per-episode dispatch, one CPU model per run, old platform
+    stamp) resumes: its complete worlds are skipped; its PARTIAL world re-runs in full on one
+    worker (the old partial record is only compared with the re-run) and never mixes into
+    that world in the merge."""
+    old = old_pod_run(world, monkeypatch)
     fake2 = FakeSls(models=[OTHER])
     r2 = make_sls_runner(world, eps6(), fake2, name="sls-r2", resume_from=[old])
     assert r2.resume_info["units_already_complete"] == 2
+    assert r2.resume_info["prior_partial_units_rerun_whole"] == 1
+    assert r2.resume_info["prior_partial_records"] == 1
     assert r2.order == [K + "A-scripted-13.json", K + "B-scripted-13.json"]  # whole world
     assert r2.run() == 0
+    assert r2.resume_info["prior_partial_checks"] == {
+        "verified": [K + "A-scripted-13.json"],
+        "divergent": [],
+    }
     sub = [j["input"] for j in fake2.jobs.values() if j["input"]["op"] == "episodes"]
     assert len(sub) == 1 and len(sub[0]["episodes"]) == 2
     out = runner.merge_runs([old, r2.run_dir], world["tmp"] / "merged")
@@ -562,6 +579,71 @@ def test_resume_from_an_old_pod_runner_dir(world, monkeypatch):
         p = merged[K + f"{arm}-scripted-13.json"]["platform"]
         assert p["platform_id"] != OLD_POD_STAMP["platform_id"] and p["backend"] == "serverless"
     assert merged[K + "A-scripted-11.json"]["platform"] == OLD_POD_STAMP
+
+
+def test_resume_partial_world_that_diverges_is_a_finding_not_an_abort(world, monkeypatch):
+    """The old run's PARTIAL world differs from its re-run (another CPU / numerics env):
+    the resumed run completes (no DIVERGENT abort), records the finding, and merge / a
+    later re-resume use the whole re-run world and report the superseded old record."""
+    old = old_pod_run(world, monkeypatch, old_partial_mass_delta=100.0)
+    key = K + "A-scripted-13.json"
+    fake2 = FakeSls(models=[OTHER])
+    r2 = make_sls_runner(world, eps6(), fake2, name="sls-r2", resume_from=[old])
+    assert r2.run() == 0
+    checks = r2.resume_info["prior_partial_checks"]
+    assert checks["verified"] == [] and [d["key"] for d in checks["divergent"]] == [key]
+    assert checks["divergent"][0]["prior"] == str(old)
+    assert not (r2.run_dir / "divergent").exists()
+    receipt = json.loads((r2.run_dir / "receipt.json").read_text())
+    assert receipt["exit_code"] == 0
+    assert [d["key"] for d in receipt["resume"]["prior_partial_checks"]["divergent"]] == [key]
+    events = (r2.run_dir / "events.jsonl").read_text()
+    assert '"prior_partial_divergent"' in events
+    out = runner.merge_runs([old, r2.run_dir], world["tmp"] / "merged")
+    assert out["records"] == 6 and out["units"] == 3
+    assert out["superseded_divergent"] == [{"key": key, "runs": [[str(old), str(r2.run_dir)]]}]
+    merged = runner.load_records(world["tmp"] / "merged")
+    assert merged[key]["platform"]["backend"] == "serverless"
+    assert platform_rule.check_per_world(merged) == []
+    # a later resume from both dirs: nothing to run, the old partial copy is a finding only
+    fake3 = FakeSls()
+    r3 = make_sls_runner(world, eps6(), fake3, name="sls-r3", resume_from=[old, r2.run_dir])
+    assert r3.order == [] and r3.resume_info["units_already_complete"] == 3
+    assert [d["key"] for d in r3.resume_info["prior_runs_divergent"]] == [key]
+
+
+def test_resume_partial_world_same_platform_difference_still_aborts(world, monkeypatch):
+    """Only a prior partial copy on ANOTHER platform is superseded: a re-run record that
+    differs from it on the SAME platform signature is nondeterminism and aborts."""
+    old = old_pod_run(world, monkeypatch)
+    key = K + "A-scripted-13.json"
+    r2 = make_sls_runner(world, eps6(), FakeSls(models=[OTHER]), name="sls-r2", resume_from=[old])
+    r2.run_dir.mkdir(parents=True)
+    prior = json.loads((old / "records" / key).read_text())
+    other_platform = dict(prior, record=dict(prior["record"], mass_integral=-1.0))
+    other_platform["platform"] = dict(OLD_POD_STAMP, platform_id="another-cpu")
+    r2.check_prior_partial(key, other_platform, "sls:x")  # finding
+    assert [d["key"] for d in r2.resume_info["prior_partial_checks"]["divergent"]] == [key]
+    r3 = make_sls_runner(world, eps6(), FakeSls(models=[OTHER]), name="sls-r3", resume_from=[old])
+    r3.run_dir.mkdir(parents=True)
+    same_platform = dict(prior, record=dict(prior["record"], mass_integral=-1.0))
+    with pytest.raises(runner.Abort, match="DIVERGENT.*same platform"):
+        r3.check_prior_partial(key, same_platform, "sls:y")
+    assert (r3.run_dir / "divergent").is_dir()
+    # disagreeing COMPLETE copies in two prior runs still refuse the resume
+    twin = world["tmp"] / "runs" / "runpod-twin"
+    shutil.copytree(old, twin)
+    k11 = twin / "records" / (K + "A-scripted-11.json")
+    e11 = json.loads(k11.read_text())
+    e11["record"]["mass_integral"] += 5
+    e11["platform"] = dict(OLD_POD_STAMP, platform_id="another-cpu")
+    k11.write_text(json.dumps(e11))
+    k11b = twin / "records" / (K + "B-scripted-11.json")
+    e11b = json.loads(k11b.read_text())
+    e11b["platform"] = dict(OLD_POD_STAMP, platform_id="another-cpu")
+    k11b.write_text(json.dumps(e11b))
+    with pytest.raises(jobspec.JobError, match="disagree"):
+        make_sls_runner(world, eps6(), FakeSls(), name="sls-r4", resume_from=[old, twin])
 
 
 def test_plan_serverless_sizes_only_the_units_a_resume_runs(world, monkeypatch):

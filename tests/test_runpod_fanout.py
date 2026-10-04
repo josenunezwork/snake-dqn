@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from research.runpod_fanout import episode as episode_mod
-from research.runpod_fanout import jobspec, ledger, runner, watchdog
+from research.runpod_fanout import jobspec, ledger, platform_rule, runner, watchdog
 from research.runpod_fanout.rp_client import RpClient, RunPodError
 from research.runpod_fanout.wrappers import HERO_SHA256, SCRIPTED_SHA256
 
@@ -645,12 +645,67 @@ def test_merge_is_per_world_and_compare(tmp_path):
     )
     with pytest.raises(runner.Abort, match="span platforms"):
         runner.merge_runs([tmp_path / "mac", tmp_path / "split"], tmp_path / "m2")
-    # a key that differs between runs is refused
+    # a key that differs between runs ON ONE PLATFORM is refused
     write(
-        "bad", "g/A-scripted-1.json", {"r": 9, "wall_seconds": 1, "platform": {"platform_id": "m"}}
+        "bad", "g/A-scripted-1.json", {"r": 9, "wall_seconds": 1, "platform": {"platform_id": "x"}}
     )
     with pytest.raises(runner.Abort, match="differs"):
         runner.merge_runs([tmp_path / "pod", tmp_path / "bad"], tmp_path / "m3")
+    # ... and so is one between two COMPLETE copies of a world on different platforms
+    write(
+        "full", "g/A-scripted-1.json", {"r": 9, "wall_seconds": 1, "platform": {"platform_id": "m"}}
+    )
+    write(
+        "full", "g/B-scripted-1.json", {"r": 2, "wall_seconds": 1, "platform": {"platform_id": "m"}}
+    )
+    with pytest.raises(runner.Abort, match="differs"):
+        runner.merge_runs([tmp_path / "pod", tmp_path / "full"], tmp_path / "m4")
+    # a PARTIAL copy (old run stopped mid-world) differing on another platform is superseded:
+    # reported, never merged, whichever order the runs come in
+    write(
+        "old", "g/A-scripted-1.json", {"r": 9, "wall_seconds": 1, "platform": {"platform_id": "m"}}
+    )
+    for i, order in enumerate((["old", "pod"], ["pod", "old"])):
+        out = runner.merge_runs([tmp_path / r for r in order], tmp_path / f"m5{i}")
+        assert out["records"] == 2 and out["platform_ids"] == ["x"]
+        assert out["superseded_divergent"] == [
+            {"key": "g/A-scripted-1.json", "runs": [[str(tmp_path / r) for r in order]]}
+        ]
+        got = json.loads((tmp_path / f"m5{i}/records/g/A-scripted-1.json").read_text())
+        assert got["r"] == 1 and got["platform"]["platform_id"] == "x"
+
+
+def test_reconcile_runs_findings_vs_conflicts():
+    canon = jobspec.deterministic_bytes
+
+    def e(r, pid):
+        return {"r": r, "platform": {"platform_id": pid}}
+
+    full = {"g/A-s-1.json": e(1, "x"), "g/B-s-1.json": e(2, "x")}
+    part = {"g/A-s-1.json": e(9, "m")}
+    out = platform_rule.reconcile_runs([("old", part), ("new", full)], canon)
+    assert out["source"] == {"g|s|1": "new"} and out["conflicts"] == []
+    assert out["complete"] == {("new", "g|s|1")}
+    assert out["superseded_divergent"] == [{"key": "g/A-s-1.json", "runs": [["old", "new"]]}]
+    # a complete copy wins over a later partial one with as many records
+    exp = {"g|s|1": ["g/A-s-1.json", "g/B-s-1.json", "g/C-s-1.json"]}
+    two = {"g/A-s-1.json": e(1, "x"), "g/B-s-1.json": e(2, "x")}
+    split = {"g/A-s-1.json": e(1, "x"), "g/B-s-1.json": e(2, "m")}  # spans 2 platforms
+    out = platform_rule.reconcile_runs([("a", two), ("b", split)], canon, exp)
+    assert out["complete"] == set() and out["source"] == {"g|s|1": "b"}
+    out = platform_rule.reconcile_runs(
+        [("a", dict(two, **{"g/C-s-1.json": e(3, "x")})), ("b", split)], canon, exp
+    )
+    assert out["source"] == {"g|s|1": "a"}
+    # same platform, or both copies complete: conflicts
+    same = {"g/A-s-1.json": e(9, "x")}
+    assert platform_rule.reconcile_runs([("o", same), ("n", full)], canon)["conflicts"] == [
+        "g/A-s-1.json"
+    ]
+    other_full = {"g/A-s-1.json": e(9, "m"), "g/B-s-1.json": e(2, "m")}
+    assert platform_rule.reconcile_runs([("o", other_full), ("n", full)], canon)["conflicts"] == [
+        "g/A-s-1.json"
+    ]
 
 
 def test_cli_run_refuses_without_budget(tmp_path, monkeypatch, capsys):

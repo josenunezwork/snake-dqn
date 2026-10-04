@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 # ISA features that change which BLAS/oneDNN kernels run (recorded in the platform stamp).
 ISA_FLAGS = (
@@ -126,6 +126,80 @@ def stamp_worker(entry: Dict[str, Any], worker: Optional[Mapping[str, Any]]) -> 
     if worker.get("backend"):
         p["backend"] = str(worker["backend"])
     return entry
+
+
+def reconcile_runs(
+    runs: Sequence[Tuple[str, Mapping[str, Mapping[str, Any]]]],
+    canon: Callable[[Mapping[str, Any]], bytes],
+    expected: Optional[Mapping[str, Sequence[str]]] = None,
+) -> Dict[str, Any]:
+    """Per-world view of several runs of one job (resume, merge, study intake).
+
+    A run's COPY of a unit is its records of that unit. The copy is *complete* when it has
+    every key of ``expected[unit]`` (default: every key any run has for the unit) on ONE
+    platform signature, else *partial* (e.g. an old pod-runner run that stopped mid-world).
+
+    Returns ``{"source", "complete", "conflicts", "superseded_divergent"}``:
+
+    * ``source``: unit -> label of the copy a merge uses (complete before partial, then most
+      records, ties to the later run);
+    * ``complete``: the ``(label, unit)`` copies that are complete;
+    * a key whose copies in two runs differ (``canon`` bytes) is a FINDING in
+      ``superseded_divergent`` when the two copies are on different platform signatures and
+      at least one is part of a partial copy: the per-world rule never uses a partial copy
+      beside a whole-unit re-run, and bit-equality across CPU models / numerics env is
+      evidence, not a guarantee. Otherwise (same platform, or two complete copies) the key
+      is a ``conflict`` the caller must refuse.
+    """
+    keys_by_unit: Dict[str, set] = {}
+    for _label, recs in runs:
+        for key in recs:
+            keys_by_unit.setdefault(unit_of_key(key), set()).add(key)
+    want = {
+        u: set(expected[u]) if expected is not None and u in expected else ks
+        for u, ks in keys_by_unit.items()
+    }
+    complete: set = set()
+    rank: Dict[str, Tuple[Tuple[bool, int, int], str]] = {}
+    for order, (label, recs) in enumerate(runs):
+        for u, ks in group_units(recs).items():
+            ok = want[u] <= set(ks) and len({platform_signature(recs[k]) for k in ks}) == 1
+            if ok:
+                complete.add((label, u))
+            r = (ok, len(ks), order)
+            if u not in rank or r >= rank[u][0]:
+                rank[u] = (r, label)
+    copies: Dict[str, List[Tuple[str, Mapping[str, Any], bytes]]] = {}
+    for label, recs in runs:
+        for key, entry in recs.items():
+            copies.setdefault(key, []).append((label, entry, canon(entry)))
+    conflicts: List[str] = []
+    findings: List[Dict[str, Any]] = []
+    for key, cs in sorted(copies.items()):
+        if len({c[2] for c in cs}) < 2:
+            continue
+        unit = unit_of_key(key)
+        pairs, fatal = [], False
+        for i, (la, ea, ba) in enumerate(cs):
+            for lb, eb, bb in cs[i + 1 :]:
+                if ba == bb:
+                    continue
+                cross = platform_signature(ea) != platform_signature(eb)
+                partial = (la, unit) not in complete or (lb, unit) not in complete
+                if cross and partial:
+                    pairs.append([la, lb])
+                else:
+                    fatal = True
+        if fatal:
+            conflicts.append(key)
+        else:
+            findings.append({"key": key, "runs": pairs})
+    return {
+        "source": {u: v[1] for u, v in rank.items()},
+        "complete": complete,
+        "conflicts": conflicts,
+        "superseded_divergent": findings,
+    }
 
 
 def choose_unit_sources(

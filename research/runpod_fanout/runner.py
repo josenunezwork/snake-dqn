@@ -439,6 +439,8 @@ class Runner:
         self.unit_src: Dict[str, Optional[str]] = {}  # unit -> source of its current attempt
         self.staged: Dict[str, Dict[str, Dict[str, Any]]] = {}  # unit -> key -> entry
         self.seen: Dict[str, Dict[str, Any]] = {}  # key -> first entry seen (duplicate checks)
+        # key -> [(prior run dir, entry)] of units a prior run left partial (not references)
+        self.prior_partial: Dict[str, List[tuple]] = {}
         self.record_cache: Dict[tuple, bytes] = {}  # (key, sha) of unpublished units
         self.unit_attempts: Dict[str, int] = {}
         self.unit_free: Dict[str, int] = {}
@@ -920,10 +922,15 @@ class Runner:
         self.log("unit_failed", unit=unit, why=why)
 
     def apply_resume(self, prior_dirs: Sequence[Path]) -> None:
-        """Skip units a prior run of THIS job completed on one platform; prior partial
-        records stay as duplicate references (a re-run must be byte-identical or abort)."""
+        """Skip units a prior run of THIS job completed on one platform; their records are
+        duplicate references (a re-delivered record must be byte-identical or the run
+        aborts). A unit a prior run left PARTIAL re-runs whole on one worker, and its old
+        records are NOT references: a re-run record that differs from one on another
+        platform signature is a logged finding (``prior_partial_divergent``), never an
+        abort, because the per-world rule never uses the partial copy; on the SAME
+        signature a difference still aborts (see :meth:`check_prior_partial`)."""
         want = json.dumps(self.job, sort_keys=True)
-        complete: Dict[str, str] = {}
+        runs: List[tuple] = []
         for d in prior_dirs:
             prior_job = json.loads((d / "job.json").read_text())
             if json.dumps(prior_job, sort_keys=True) != want:
@@ -932,18 +939,24 @@ class Runner:
             unknown = sorted(set(recs) - set(self.episodes))
             if unknown:
                 raise jobspec.JobError(f"{d} has records outside the job: {unknown[:3]}")
+            runs.append((str(d), recs))
+        rec = platform_rule.reconcile_runs(runs, jobspec.deterministic_bytes, self.units)
+        if rec["conflicts"]:
+            raise jobspec.JobError(f"prior runs disagree on {rec['conflicts'][0]}; resume refused")
+        complete: Dict[str, str] = {}
+        for label, _recs in runs:
+            for unit in self.units:
+                if unit not in complete and (label, unit) in rec["complete"]:
+                    complete[unit] = label
+        partial_units = set()
+        for label, recs in runs:
             for k, e in recs.items():
-                prev = self.seen.get(k)
-                if prev is not None and jobspec.deterministic_bytes(
-                    prev
-                ) != jobspec.deterministic_bytes(e):
-                    raise jobspec.JobError(f"prior runs disagree on {k}; resume refused")
-                self.seen.setdefault(k, e)
-            for unit, keys in self.units.items():
-                if unit in complete or not all(k in recs for k in keys):
-                    continue
-                if len({platform_rule.platform_signature(recs[k]) for k in keys}) == 1:
-                    complete[unit] = str(d)
+                unit = platform_rule.unit_of_key(k)
+                if complete.get(unit) == label:
+                    self.seen.setdefault(k, e)
+                elif unit not in complete:
+                    self.prior_partial.setdefault(k, []).append((label, e))
+                    partial_units.add(unit)
         skip = {k for u in complete for k in self.units[u]}
         self.order = [k for k in self.order if k not in skip]
         self.pending = list(self.order)
@@ -954,7 +967,32 @@ class Runner:
             "keys_skipped": len(skip),
             "units_to_run": len(self.units),
             "keys_to_run": len(self.order),
+            "prior_partial_units_rerun_whole": len(partial_units),
+            "prior_partial_records": sum(len(v) for v in self.prior_partial.values()),
+            "prior_runs_divergent": rec["superseded_divergent"],
+            "prior_partial_checks": {"verified": [], "divergent": []},
         }
+
+    def check_prior_partial(self, key: str, entry: Mapping[str, Any], source: str) -> None:
+        """Compare a re-run record with a prior run's PARTIAL-unit copy (once per key)."""
+        olds = self.prior_partial.pop(key, None)
+        if not olds or self.resume_info is None:
+            return
+        checks = self.resume_info["prior_partial_checks"]
+        new = jobspec.deterministic_bytes(entry)
+        for label, old in olds:
+            if jobspec.deterministic_bytes(old) == new:
+                checks["verified"].append(key)
+                continue
+            if platform_rule.platform_signature(old) == platform_rule.platform_signature(entry):
+                dup = self.run_dir / "divergent" / (key.replace("/", "__") + f".{source}.json")
+                dup.parent.mkdir(exist_ok=True)
+                dup.write_bytes(json.dumps(entry, sort_keys=True).encode())
+                raise Abort(
+                    f"DIVERGENT duplicate for {key} from {source} (prior {label}, same platform)"
+                )
+            checks["divergent"].append({"key": key, "prior": label, "source": source})
+            self.log("prior_partial_divergent", key=key, prior=label, source=source)
 
     def bring_up(self, pod: Pod, agent: Any, health: Mapping[str, Any]) -> None:
         """Upload the repo archive and checkpoints, then setup (idempotent)."""
@@ -1178,7 +1216,8 @@ class Runner:
         self, key: str, data: bytes, source: str, worker: Optional[Mapping[str, Any]] = None
     ) -> None:
         """Validate a record; duplicates must match deterministically (any source, any
-        platform) or the run aborts; a record counts only for its unit's current attempt,
+        platform) or the run aborts (a prior run's PARTIAL-unit copy is only compared, see
+        :meth:`check_prior_partial`); a record counts only for its unit's current attempt,
         and a unit is published (write-once) only when complete on that one worker."""
         entry = json.loads(data)
         stamp = entry.get("fanout") or {}
@@ -1209,6 +1248,7 @@ class Runner:
             dup.parent.mkdir(exist_ok=True)
             dup.write_bytes(data)
             raise Abort(f"DIVERGENT duplicate for {key} from {source}")
+        self.check_prior_partial(key, entry, source)
         self.seen.setdefault(key, entry)
         if key in self.failed:
             self.log("record_of_failed_unit", key=key, source=source)
@@ -2009,8 +2049,11 @@ def platform_check(records: Mapping[str, Mapping[str, Any]]) -> List[str]:
 
 def merge_runs(run_dirs: Sequence[Path], out: Path) -> Dict[str, Any]:
     """One records tree from several runs under the PER-WORLD rule: each unit (all arms of
-    one wrapper/mix/world) comes from one run on one platform; any key present in several
-    runs must agree deterministically; different units may come from different platforms."""
+    one wrapper/mix/world) comes from one run on one platform (a complete copy before a
+    partial one, then most records, ties to the later run); a key present in several runs
+    must agree deterministically, except that a PARTIAL copy of a unit (e.g. an old run
+    that stopped mid-world) differing from a copy on ANOTHER platform is only reported
+    (``superseded_divergent``): it is never merged next to the whole-unit re-run."""
     runs: List[tuple] = []
     for d in run_dirs:
         root = Path(d) / "records"
@@ -2021,17 +2064,12 @@ def merge_runs(run_dirs: Sequence[Path], out: Path) -> Dict[str, Any]:
             data = p.read_bytes()
             recs[str(p.relative_to(root))] = (data, json.loads(data))
         runs.append((str(d), recs))
-    first: Dict[str, Dict[str, Any]] = {}
-    for label, recs in runs:
-        for key, (_, entry) in recs.items():
-            if key in first and jobspec.deterministic_bytes(
-                first[key]
-            ) != jobspec.deterministic_bytes(entry):
-                raise Abort(f"merge: {key} differs between runs")
-            first.setdefault(key, entry)
-    source = platform_rule.choose_unit_sources(
-        [(lb, {k: v[1] for k, v in r.items()}) for lb, r in runs]
+    rec = platform_rule.reconcile_runs(
+        [(lb, {k: v[1] for k, v in r.items()}) for lb, r in runs], jobspec.deterministic_bytes
     )
+    if rec["conflicts"]:
+        raise Abort(f"merge: {rec['conflicts'][0]} differs between runs")
+    source = rec["source"]
     merged: Dict[str, tuple] = {}
     for label, recs in runs:
         for key, val in recs.items():
@@ -2065,6 +2103,7 @@ def merge_runs(run_dirs: Sequence[Path], out: Path) -> Dict[str, Any]:
         "units": len({platform_rule.unit_of_key(k) for k in merged}),
         "platform_ids": pids,
         "rule": "per-world: one platform per (wrapper, mix, world_seed) unit",
+        "superseded_divergent": rec["superseded_divergent"],
         "out": str(out),
     }
 
@@ -2274,7 +2313,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps(out, indent=1))
         return 0 if out["compared"] and not out["different"] else 1
     if a.cmd == "merge":
-        print(json.dumps(merge_runs(a.runs, a.out), indent=1))
+        out = merge_runs(a.runs, a.out)
+        print(json.dumps(out, indent=1))
+        if out["superseded_divergent"]:
+            print(
+                f"WARNING: {len(out['superseded_divergent'])} record(s) of partial worlds "
+                "differ from the whole-world copy on another platform (not merged; listed "
+                "under superseded_divergent)",
+                file=sys.stderr,
+            )
         return 0
     allow = jobspec.load_allowlist()
     job = jobspec.validate_job(json.loads(a.job.read_text()), policy, allow)
