@@ -55,6 +55,14 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def owned_name(prefix: str, name: Any) -> bool:
+    """Exactly ``prefix`` + a pod counter (job-wide prefixes end in ``--``: any run)."""
+    name = str(name or "")
+    if prefix.endswith("--"):
+        return name.startswith(prefix)
+    return name.startswith(prefix) and name[len(prefix) :].isdigit()
+
+
 def registry_ids(run_dir: Path, prefix: str) -> Set[str]:
     """Pod ids this run created, from ``pods/*.response.json`` (name must carry the prefix)."""
     ids: Set[str] = set()
@@ -63,7 +71,26 @@ def registry_ids(run_dir: Path, prefix: str) -> Set[str]:
             row = json.loads(path.read_text())
         except (OSError, ValueError):
             continue
-        if row.get("id") and str(row.get("name", path.name)).startswith(prefix):
+        if row.get("id") and owned_name(prefix, row.get("name")):
+            ids.add(str(row["id"]))
+    return ids
+
+
+def overdue_registry_ids(run_dir: Path, prefix: str, now: float, grace: float = 120.0) -> Set[str]:
+    """Registry pods whose ``rpf_until_epoch`` (+grace) has passed."""
+    ids: Set[str] = set()
+    for path in sorted((Path(run_dir) / "pods").glob("*.response.json")):
+        try:
+            row = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        until = row.get("rpf_until_epoch")
+        if (
+            row.get("id")
+            and owned_name(prefix, row.get("name"))
+            and until is not None
+            and now > float(until) + grace
+        ):
             ids.add(str(row["id"]))
     return ids
 
@@ -86,7 +113,7 @@ def sweep(
         listed: List[str] = []
         list_ok = True
         try:
-            listed = [p["id"] for p in rp.list_pods() if str(p.get("name", "")).startswith(prefix)]
+            listed = [p["id"] for p in rp.list_pods() if owned_name(prefix, p.get("name"))]
         except RunPodError as exc:
             list_ok = False
             log(f"list failed: {exc}")
@@ -136,6 +163,7 @@ def watch(
         raise SystemExit("watchdog prefix must lie inside the job's rpf-<job>-- namespace")
     rp = rp or RpClient()
     dead_since = None
+    retired: Set[str] = set()
     log(f"armed prefix={prefix} fire_epoch={fire_epoch:.0f} runner_pid={runner_pid}")
     while True:
         now = clock()
@@ -151,6 +179,23 @@ def watch(
             )
         else:
             dead_since, reason = None, None
+        overdue = overdue_registry_ids(run_dir, prefix, now) - retired
+        if overdue and not reason:
+            # Per-pod max lifetime: the runner should already have retired these pods.
+            log(f"pods past their reservation horizon: {sorted(overdue)}")
+            for pod_id in sorted(overdue):
+                try:
+                    rp.delete_pod(pod_id, confirm=True)
+                    log(f"deleted overdue {pod_id}")
+                    retired.add(pod_id)
+                except RunPodError as exc:
+                    try:
+                        if rp.get_pod(pod_id) is None:
+                            retired.add(pod_id)
+                            continue
+                    except RunPodError:
+                        pass
+                    log(f"delete overdue {pod_id} failed: {exc}")
         if reason:
             log(f"FIRING: {reason}")
             left = sweep(rp, prefix, sleep, run_dir, clock, give_up_seconds)

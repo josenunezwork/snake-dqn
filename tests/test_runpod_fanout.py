@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from research.runpod_fanout import episode as episode_mod
-from research.runpod_fanout import jobspec, runner, watchdog
+from research.runpod_fanout import jobspec, ledger, runner, watchdog
 from research.runpod_fanout.rp_client import RpClient, RunPodError
 from research.runpod_fanout.wrappers import HERO_SHA256, SCRIPTED_SHA256
 
@@ -401,7 +401,7 @@ class Clock:
         time.sleep(0.15)  # let the local agents work
 
 
-def make_runner(tmp, episodes, fake, budget=1.0, pol=None, **over):
+def make_runner(tmp, episodes, fake, budget=1.0, pol=None, artifacts=None, **over):
     repo, commit = make_repo(tmp)
     ck = Path(tmp) / "ck"
     ck.mkdir()
@@ -413,11 +413,12 @@ def make_runner(tmp, episodes, fake, budget=1.0, pol=None, **over):
     for e in j["episodes"]:
         e["roster_member_sha256s"] = [hero, RANDOM, GREEDY, RANDOM, GREEDY]
     (Path(tmp) / "stub.py").write_text(STUB)
+    (Path(fake.tmp) / "stub.py").write_text(STUB)
     p = pol or policy(
         checkpoint_root=str(ck),
         heartbeat_seconds=1,
         pull_every_seconds=3,
-        artifacts_root=str(Path(tmp) / "artifacts"),
+        artifacts_root=str(artifacts or Path(tmp) / "artifacts"),
     )
     clock = Clock()
     return runner.Runner(
@@ -524,10 +525,7 @@ def test_budget_and_floor_block_launch(tmp_path, fake):
     assert fake.created == []
     r2 = runner.Runner(r.job, r.policy, r.allowlist, tmp_path / "x", rp=fake, budget=1.0)
     r2.hard_end = time.time() + 3600
-    r2.balance_start = 5.5
-    assert "floor" in r2.launch_allowed(0.96)
-    r2.balance_start = 40
-    assert r2.launch_allowed(0.96) is None
+    assert r2.launch_allowed(0.24) is None
     assert "budget" in r2.launch_allowed(2.0) or "max_hourly" in r2.launch_allowed(2.0)
 
 
@@ -755,22 +753,6 @@ def test_rp_client_refuses_under_pytest(monkeypatch):
         runner.spawn_watchdog_process(None)
 
 
-def test_ledger_counts_unsettled_budgets(tmp_path):
-    p = policy(artifacts_root=str(tmp_path), prior_spend_usd=0.11)
-    assert runner.project_ledger(p)["total_usd"] == 0.11
-    runner.reserve_ledger(p, tmp_path / "a", "j", 2.0)
-    assert runner.project_ledger(p)["total_usd"] == 2.11  # crashed run counts at full budget
-    runner.settle_ledger(p, tmp_path / "a", 0.25, True)
-    assert runner.project_ledger(p)["total_usd"] == 0.36
-
-
-def test_project_cap_blocks_run(tmp_path, fake):
-    r = make_runner(tmp_path, [ep("A", seed=11)], fake, budget=1.0)
-    runner.reserve_ledger(r.policy, tmp_path / "other", "j", 49.5)
-    assert r.run() == 3 and "project cap" in r.stop_reason
-    assert fake.created == []
-
-
 def test_deferred_signal_during_create_records_pod_first(tmp_path, fake):
     real_create = fake.create_pod
 
@@ -968,3 +950,327 @@ def test_watchdog_survives_killed_parent_and_hangup(tmp_path):
     assert data.get("deleted") == ["pz"]
     assert [p["id"] for p in data["pods"]] == ["keep"]
     assert json.loads((run_dir / "watchdog_result.json").read_text())["leftovers"] == []
+
+
+# ---------------------------------------------------------------- shared ledger / parallel runs
+
+
+def ledger_policy(tmp, **over):
+    return policy(artifacts_root=str(tmp), prior_spend_usd=0.0, **over)
+
+
+def test_ledger_refuses_when_combined_worst_case_breaches_floor(tmp_path):
+    led = ledger.SharedLedger(ledger_policy(tmp_path))
+    now = time.time()
+    led.register_run("runA", "job-a", "runA", 5.0, os.getpid())
+    led.register_run("runB", "job-b", "runB", 5.0, os.getpid())
+    # one 32-vCPU pod for 95 min reserves ~1.02*0.96*(95+5)/60 = 1.63
+    assert led.reserve_pod("runA", "a1", 0.96, now + 95 * 60, balance=7.0) is None
+    why = led.reserve_pod("runB", "b1", 0.96, now + 95 * 60, balance=7.0)
+    assert why and "floor" in why  # 3.26 > 7 - 5
+    led.release_pod("runA", "a1", 0.1)
+    assert led.reserve_pod("runB", "b1", 0.96, now + 95 * 60, balance=7.0) is None
+
+
+def test_ledger_project_cap_and_legacy_rows(tmp_path):
+    pol = ledger_policy(tmp_path, project_cap_usd=3.0)
+    (tmp_path / "runpod-fanout").mkdir()
+    (tmp_path / "runpod-fanout" / "ledger.jsonl").write_text(
+        json.dumps({"kind": "reserve", "run": "old", "job_id": "old-job", "budget_usd": 2.0}) + "\n"
+    )
+    led = ledger.SharedLedger(pol)
+    led.register_run("r", "job-r", "r", 5.0, os.getpid())
+    why = led.reserve_pod("r", "p", 0.96, time.time() + 3600, balance=40.0)
+    assert why and "project cap" in why  # legacy open budget 2.0 counts as reserved
+    with pytest.raises(ledger.DuplicateRun):
+        led.register_run("r2", "old-job", "r2", 1.0, os.getpid())
+
+
+def test_ledger_max_live_pods_across_runs(tmp_path):
+    led = ledger.SharedLedger(ledger_policy(tmp_path, max_live_pods=2))
+    until = time.time() + 600
+    led.register_run("A", "job-a", "A", 5.0, os.getpid())
+    led.register_run("B", "job-b", "B", 5.0, os.getpid())
+    assert led.reserve_pod("A", "a1", 0.06, until, 40.0) is None
+    assert led.reserve_pod("A", "a2", 0.06, until, 40.0) is None
+    assert "max_live_pods" in led.reserve_pod("B", "b1", 0.06, until, 40.0)
+    led.release_pod("A", "a2", 0.0)
+    assert led.reserve_pod("B", "b1", 0.06, until, 40.0) is None
+
+
+def test_idempotency_refusal(tmp_path, fake):
+    led = ledger.SharedLedger(ledger_policy(tmp_path))
+    led.register_run("x", "job-x", "x", 1.0, os.getpid())
+    with pytest.raises(ledger.DuplicateRun, match="live run"):
+        led.register_run("y", "job-x", "y", 1.0, os.getpid())
+    led.finish_run("x", success=False, episodes_complete=False)
+    led.register_run("y", "job-x", "y", 1.0, os.getpid())  # a failed run may be retried
+    led.finish_run("y", success=False, episodes_complete=True)  # leftover pods, work done
+    with pytest.raises(ledger.DuplicateRun, match="completed"):
+        led.register_run("z", "job-x", "z", 1.0, os.getpid())
+    # a dead live run (crashed runner) does not block a retry
+    led.register_run("d", "job-d", "d", 1.0, 999999)
+    led.register_run("d2", "job-d", "d2", 1.0, os.getpid())
+
+    r = make_runner(tmp_path / "w", [ep("A", seed=11)], fake, artifacts=tmp_path / "art")
+    assert r.run() == 0
+    r2 = make_runner(tmp_path / "w2", [ep("A", seed=11)], fake, artifacts=tmp_path / "art")
+    assert r2.run() == runner.EXIT_DUPLICATE
+    assert not r2.run_dir.exists()
+
+
+def test_two_runs_in_parallel_share_the_ledger(tmp_path):
+    import threading
+
+    art = tmp_path / "art"
+    results, runs, fakes = {}, {}, {}
+    for name, seeds in (("one", range(30, 36)), ("two", range(40, 46))):
+        base = tmp_path / name
+        base.mkdir()
+        st = base / "stubstate"
+        st.mkdir()
+        fakes[name] = FakeRp(base, stub_env={"STUB_STATE": str(st), "STUB_SLEEP": "0.3"})
+        runs[name] = make_runner(
+            base,
+            [ep("A", seed=s, index=i) for i, s in enumerate(seeds)],
+            fakes[name],
+            artifacts=art,
+            job_id=f"par-{name}",
+        )
+    spans = {}
+
+    def go(name):
+        results[name] = runs[name].run()
+
+    threads = [threading.Thread(target=go, args=(n,)) for n in runs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=240)
+    for f in fakes.values():
+        f.close()
+    assert results == {"one": 0, "two": 0}
+    state = json.loads((art / "runpod-fanout" / "ledger-v2.json").read_text())
+    for rid, run in state["runs"].items():
+        assert run["status"] == "finished" and run["success"]
+        pods = [p for p in run["pods"].values() if p["pod_id"]]
+        spans[rid] = (min(p["created"] for p in pods), max(p["deleted"] for p in pods))
+    a, b = spans.values()
+    assert a[0] < b[1] and b[0] < a[1]  # the two runs' pods were live at the same time
+
+
+def test_pod_lifetime_retire_redispatches_without_penalty(tmp_path, fake):
+    pol = policy(
+        checkpoint_root=str(tmp_path / "ck"),
+        heartbeat_seconds=1,
+        pull_every_seconds=3,
+        artifacts_root=str(tmp_path / "art"),
+        pod_max_lifetime_seconds=120,
+        pod_seconds_per_episode={
+            "live_fixed": 1.0,
+            "live_per_frame": 0.0,
+            "simd_fixed": 1.0,
+            "simd_per_frame": 0.0,
+        },
+    )
+    fake.stub_env["STUB_SLEEP"] = "0.4"
+    fake.stock_rows = {(2, "US-NC-1"): ("High", 0.06)}
+    eps = [ep("A", seed=s, index=i) for i, s in enumerate(range(100, 130))]
+    r = make_runner(tmp_path, eps, fake, pol=pol)
+    assert r.run() == 0
+    events = (r.run_dir / "events.jsonl").read_text()
+    assert "lifetime" in events and len(fake.created) >= 2
+    assert all(v == 0 for v in r.attempts.values())  # retirement never counts as failure
+    for p in r.pods.values():
+        assert p.until <= p.created + 120 + 300 + 1e-6
+
+
+def test_retire_requeues_inflight(tmp_path, fake):
+    r = make_runner(tmp_path, [ep("A", seed=1), ep("B", seed=1)], fake)
+    r.hard_end = r.clock() + 10_000
+    r.ledger.register_run(r.run_id, r.job["job_id"], r.run_id, 1.0, os.getpid())
+    pod = runner.Pod(
+        id="pX",
+        name="rpf-unit-job--r1-1",
+        vcpu=2,
+        dc="X",
+        rate=0.06,
+        token="",
+        created=r.clock() - 6000,
+        state="ready",
+    )
+    keys = list(r.episodes)
+    r.pending = []
+    pod.inflight = set(keys)
+    r.pods[pod.id] = pod
+
+    class Agent:
+        def get_json(self, path):
+            return []
+
+    class Rp:
+        def delete_pod(self, pod_id, confirm):
+            return {}
+
+    r.agents[pod.id] = Agent()
+    r.rp = Rp()
+    assert r.retire_if_old(pod, r.clock()) is True
+    assert sorted(r.pending) == sorted(keys) and pod.deleted is not None
+    assert all(r.attempts[k] == 0 for k in keys)
+
+
+def test_watchdog_deletes_overdue_registry_pods(tmp_path):
+    reg = tmp_path / "pods"
+    reg.mkdir()
+    (reg / "a.response.json").write_text(
+        json.dumps({"id": "old", "name": "rpf-unit-job--r1-1", "rpf_until_epoch": 50})
+    )
+    (reg / "b.response.json").write_text(
+        json.dumps({"id": "young", "name": "rpf-unit-job--r1-2", "rpf_until_epoch": 10_000})
+    )
+    state = tmp_path / "rp.json"
+    state.write_text(
+        json.dumps(
+            {
+                "pods": [
+                    {"id": "old", "name": "rpf-unit-job--r1-1"},
+                    {"id": "young", "name": "rpf-unit-job--r1-2"},
+                ]
+            }
+        )
+    )
+    rp = watchdog.FileFakeRp(str(state))
+    t = {"now": 1000.0}
+
+    def sleep(s):
+        t["now"] += s
+        if t["now"] > 1100:
+            (tmp_path / "receipt.json").write_text("{}")  # then the run finishes
+
+    watchdog.watch(
+        "unit-job",
+        1e12,
+        tmp_path,
+        1,
+        rp=rp,
+        clock=lambda: t["now"],
+        sleep=sleep,
+        alive=lambda pid: True,
+        poll=30,
+        prefix="rpf-unit-job--r1-",
+        resweep_seconds=1,
+    )
+    data = json.loads(state.read_text())
+    assert data["deleted"][0] == "old"  # overdue pod deleted before the run ended
+
+
+def test_parallelism_plan_reports_budget_limit():
+    pol = policy()
+    eps = [ep("A", seed=s, horizon=5000) for s in range(300)]
+    small = runner.parallelism_plan(pol, eps, 2.0, 240, None)
+    big = runner.parallelism_plan(pol, eps, 20.0, 240, None)
+    assert (
+        small["parallelism"]["vcpu_allowed_by_budget"]
+        < big["parallelism"]["vcpu_allowed_by_budget"]
+    )
+    assert (
+        big["parallelism"]["expected_wall_minutes"] < small["parallelism"]["expected_wall_minutes"]
+    )
+    assert big["budget_for_120_min"]["wall_minutes"] <= 120
+
+
+def test_failed_create_reservation_kept_until_proven_absent(tmp_path, fake):
+    r = make_runner(tmp_path, [ep("A", seed=11)], fake)
+    r.hard_end = r.clock() + 7200
+    r.deadline = r.hard_end - 600
+    r.ledger.register_run(r.run_id, r.job["job_id"], r.run_id, 1.0, os.getpid())
+    r.run_dir.mkdir(parents=True)
+
+    def server_error(body_path, max_hourly, confirm):
+        raise RunPodError("rp.py exit 1", {"http_status": 500})
+
+    fake.create_pod = server_error
+    row = {"vcpu": 8, "dc": "EU-RO-1", "usd_per_hr": 0.24, "stock": "High"}
+    assert r.create_pod(row) is False
+    name = next(iter(r.pending_creates))
+    assert r.committed_worst() > 0.3  # the held reservation still counts for this run
+    reserved = r.ledger.peek()["reserved_usd"]
+    assert reserved > 0.3
+    r.check_pending_creates()  # first empty listing
+    r.clock.t += 61
+    r.check_pending_creates()  # second, >= 60 s later: proven absent, released
+    assert name not in r.held and r.ledger.peek()["reserved_usd"] == 0
+
+    def refused(body_path, max_hourly, confirm):
+        raise RunPodError("rp.py exit 1", {"http_status": 400, "error": "no instances"})
+
+    fake.create_pod = refused
+    assert r.create_pod(row) is False
+    assert not r.pending_creates and r.ledger.peek()["reserved_usd"] == 0
+
+
+def test_owned_name_is_exact():
+    assert runner.owned_name("rpf-j--a-", "rpf-j--a-12")
+    assert not runner.owned_name("rpf-j--a-", "rpf-j--a-2-1")
+    assert not watchdog.owned_name("rpf-j--a-", "rpf-j--a-2-1")
+    assert watchdog.owned_name("rpf-j--", "rpf-j--anything-3")
+
+
+def test_ledger_reconcile_and_partial_legacy_line(tmp_path):
+    root = tmp_path / "runpod-fanout"
+    root.mkdir()
+    (root / "ledger.jsonl").write_text(
+        '{"kind": "reserve", "run": "x", "budget_usd": 1.0}\n{"kind"'
+    )
+    t = {"now": 10_000.0}
+    led = ledger.SharedLedger(
+        ledger_policy(tmp_path), clock=lambda: t["now"], alive=lambda pid: False
+    )
+    led.register_run("dead", "job-dead", "dead", 1.0, 999999)
+    led.reserve_pod("dead", "p-gone", 0.24, t["now"] + 3600, 40.0)
+    led.bind_pod("dead", "p-gone", "gone1", 0.24)
+    led.reserve_pod("dead", "p-old", 0.24, t["now"] + 400, 40.0)
+    led.bind_pod("dead", "p-old", "old1", 0.24)
+    led.reserve_pod("dead", "rpf-x--r-3", 0.24, t["now"] + 400, 40.0)  # unresolved create
+    t["now"] += 200
+    led.reserve_pod("dead", "p-fresh", 0.24, t["now"] + 3600, 40.0)
+    led.bind_pod("dead", "p-fresh", "fresh1", 0.24)
+
+    class Rp:
+        deleted = []
+        pods = [{"id": "old1", "name": "p-old"}, {"id": "orph", "name": "rpf-x--r-3"}]
+
+        def list_pods(self):
+            return list(self.pods)
+
+        def delete_pod(self, pod_id, confirm):
+            self.deleted.append(pod_id)
+
+    t["now"] += 1000  # old/pending horizons passed; p-fresh is 1000 s old
+    out = led.reconcile(Rp())
+    assert out["released"] == []  # first absence of gone1/fresh1 only marks them
+    assert sorted(Rp.deleted) == ["old1", "orph"]  # dead run, past horizon, still listed
+    t["now"] += 61
+    out = led.reconcile(Rp())
+    assert sorted(out["released"]) == ["p-fresh", "p-gone"]
+    assert led.peek()["reserved_usd"] >= 1.0  # the legacy open reserve still counts
+
+
+def test_reconcile_never_releases_a_just_created_pod(tmp_path):
+    t = {"now": 50_000.0}
+    led = ledger.SharedLedger(ledger_policy(tmp_path), clock=lambda: t["now"])
+    led.register_run("A", "job-a", "A", 1.0, os.getpid())
+
+    class Rp:
+        def list_pods(self):
+            return []  # RunPod has not listed the brand-new pod yet
+
+        def delete_pod(self, pod_id, confirm):
+            raise AssertionError("must not delete")
+
+    led.reserve_pod("A", "new", 0.96, t["now"] + 5400, 40.0)
+    led.bind_pod("A", "new", "newpod", 0.96)
+    for _ in range(3):
+        t["now"] += 100
+        assert led.reconcile(Rp())["released"] == []
+    assert led.peek()["reserved_usd"] > 1.0

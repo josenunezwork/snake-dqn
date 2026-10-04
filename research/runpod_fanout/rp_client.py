@@ -80,7 +80,9 @@ class RpClient:
 
     def list_pods(self) -> List[Dict[str, Any]]:
         out = self._call("rest", "GET", "/pods")
-        return list(out or [])
+        if not isinstance(out, list):  # empty/odd output is an error, never "no pods"
+            raise RunPodError(f"GET /pods returned {type(out).__name__}, not a list", out)
+        return out
 
     def get_pod(self, pod_id: str) -> Optional[Dict[str, Any]]:
         try:
