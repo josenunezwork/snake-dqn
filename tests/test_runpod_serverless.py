@@ -514,6 +514,81 @@ def test_resume_refuses_another_job(world):
         make_sls_runner(world, eps6(), FakeSls(), name="sls-r2", resume_from=[r1.run_dir])
 
 
+OLD_POD_STAMP = {  # what the pod runner wrote before per-world units (no ISA/numerics/worker)
+    "platform_id": "linux-x86_64|py3.12.15|torch-2.9.1+cpu|numpy-1.26.4|isa_cap-none"
+    "|cpu-AMD EPYC 9355 32-Core Processor",
+    "cpu_model": "AMD EPYC 9355 32-Core Processor",
+    "mkl_cbwr": None,
+    "provider": "runpod:cpu3c",
+    "torch_threads": 2,
+}
+
+
+def test_resume_from_an_old_pod_runner_dir(world, monkeypatch):
+    """An old-runner run dir (per-episode dispatch, one CPU model per run, old platform
+    stamp) resumes: its complete worlds are skipped; its PARTIAL world re-runs in full on one
+    worker (the old partial record only serves as a duplicate reference) and never mixes into
+    that world in the merge."""
+    monkeypatch.setenv("STUB_FAIL_ONCE", K + "B-scripted-13.json")
+    fp1 = dict(world["fp"], max_attempts_per_episode=1)
+    r1 = make_sls_runner(world, eps6(), FakeSls(), fp=fp1, name="sls-r1")
+    assert r1.run() == 4  # worlds 11, 12 complete
+    # A-13 alone (another ledger, same job id/spec): the old run's partial world 13.
+    aux_fp = dict(world["fp"], artifacts_root=str(world["tmp"] / "aux-artifacts"))
+    aux = make_sls_runner(world, [eps6()[2]], FakeSls(), fp=aux_fp, name="aux")
+    assert aux.run() == 0
+    old = world["tmp"] / "runs" / "runpod-old"
+    (old / "records").mkdir(parents=True)
+    (old / "job.json").write_text((r1.run_dir / "job.json").read_text())
+    for src in (r1.run_dir, aux.run_dir):
+        for key, e in records_of(src).items():
+            e["platform"] = dict(OLD_POD_STAMP)
+            dest = old / "records" / key
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(json.dumps(e, sort_keys=True, indent=2))
+    assert len(records_of(old)) == 5
+    fake2 = FakeSls(models=[OTHER])
+    r2 = make_sls_runner(world, eps6(), fake2, name="sls-r2", resume_from=[old])
+    assert r2.resume_info["units_already_complete"] == 2
+    assert r2.order == [K + "A-scripted-13.json", K + "B-scripted-13.json"]  # whole world
+    assert r2.run() == 0
+    sub = [j["input"] for j in fake2.jobs.values() if j["input"]["op"] == "episodes"]
+    assert len(sub) == 1 and len(sub[0]["episodes"]) == 2
+    out = runner.merge_runs([old, r2.run_dir], world["tmp"] / "merged")
+    assert out["records"] == 6 and out["units"] == 3 and len(out["platform_ids"]) == 2
+    merged = runner.load_records(world["tmp"] / "merged")
+    assert platform_rule.check_per_world(merged) == []
+    for arm in "AB":  # world 13 entirely from the new worker, none of the old partial
+        p = merged[K + f"{arm}-scripted-13.json"]["platform"]
+        assert p["platform_id"] != OLD_POD_STAMP["platform_id"] and p["backend"] == "serverless"
+    assert merged[K + "A-scripted-11.json"]["platform"] == OLD_POD_STAMP
+
+
+def test_plan_serverless_sizes_only_the_units_a_resume_runs(world, monkeypatch):
+    monkeypatch.setenv("STUB_FAIL_ONCE", K + "B-scripted-13.json")
+    fp1 = dict(world["fp"], max_attempts_per_episode=1)
+    r1 = make_sls_runner(world, eps6(), FakeSls(), fp=fp1, name="sls-r1")
+    assert r1.run() == 4
+    j = json.loads((r1.run_dir / "job.json").read_text())
+    full = serverless.plan_serverless(
+        j, world["fp"], world["sp"], world["allow"], 2.0, rp=FakeSls(), repo=world["repo"]
+    )
+    assert full["resume"] is None and full["sizing"]["world_units"] == 3
+    out = serverless.plan_serverless(
+        j,
+        world["fp"],
+        world["sp"],
+        world["allow"],
+        2.0,
+        rp=FakeSls(),
+        repo=world["repo"],
+        resume_from=[r1.run_dir],
+    )
+    assert out["resume"]["units_already_complete"] == 2 and out["resume"]["keys_to_run"] == 2
+    assert out["sizing"]["episodes"] == 2 and out["sizing"]["world_units"] == 1
+    assert out["to_run"]["episodes"] == 2
+
+
 # ---------------------------------------------------------------- handler
 
 

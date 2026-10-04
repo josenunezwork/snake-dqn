@@ -2218,6 +2218,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     pl.add_argument("job", type=Path)
     pl.add_argument("--budget", type=float, default=None)
     pl.add_argument("--backend", choices=BACKENDS, default="serverless")
+    pl.add_argument(
+        "--resume-from",
+        type=Path,
+        action="append",
+        default=[],
+        help="size for the units these earlier run dirs of the SAME job did not complete "
+        "(serverless; what run --resume-from dispatches)",
+    )
     r = sub.add_parser("run")
     r.add_argument("job", type=Path)
     r.add_argument(
@@ -2285,9 +2293,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 target_minutes=a.target_minutes,
                 workers=a.workers,
                 vcpu=a.vcpu_per_worker,
+                resume_from=a.resume_from,
             )
             print(json.dumps(out, indent=1, sort_keys=True))
             return 0
+        if a.resume_from:
+            print("plan --resume-from: serverless backend only", file=sys.stderr)
+            return 2
         return cmd_plan(a, job, policy, allow)
     run_dir = a.run_dir or default_run_dir(
         policy, job, {"serverless": "sls", "pods": "runpod"}.get(backend, backend)

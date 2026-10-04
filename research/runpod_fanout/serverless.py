@@ -1641,6 +1641,29 @@ def account_headroom(rp: Any, fp: Mapping[str, Any]) -> Dict[str, Any]:
     return {"balance_usd": balance, "ledger": peek, "headroom_usd": round(head, 3)}
 
 
+def resume_episodes(
+    job: Mapping[str, Any],
+    fp: Mapping[str, Any],
+    allow: Mapping[str, Any],
+    resume_from: Sequence[Path],
+    run_dir: Optional[Path] = None,
+) -> tuple:
+    """(episodes a run with ``--resume-from`` dispatches, resume summary): the units no
+    earlier run of this job completed on one platform (the whole job when nothing remains
+    or without ``resume_from``; the summary is then None or says 0 to run)."""
+    if not resume_from:
+        return list(job["episodes"]), None
+    probe = rmod.Runner(
+        job,
+        fp,
+        allow,
+        Path(run_dir or Path(tempfile.gettempdir()) / "rpf-resume-probe"),
+        rp=rmod._NoRunPod(),
+        resume_from=[Path(d) for d in resume_from],
+    )
+    return [probe.episodes[k] for k in probe.order] or list(job["episodes"]), probe.resume_info
+
+
 def plan_serverless(
     job: Mapping[str, Any],
     fp: Mapping[str, Any],
@@ -1653,8 +1676,10 @@ def plan_serverless(
     workers: Optional[int] = None,
     vcpu: Optional[int] = None,
     repo: Path = REPO,
+    resume_from: Sequence[Path] = (),
 ) -> Dict[str, Any]:
     rp = rp or RpClient()
+    episodes, resume = resume_episodes(job, fp, allow, resume_from)
     problems = jobspec.check_commit(repo, job)
     work = Path(tempfile.mkdtemp(prefix="rpf-sls-plan-"))
     try:
@@ -1670,7 +1695,7 @@ def plan_serverless(
     sizing = sizing_plan(
         fp,
         sp,
-        job["episodes"],
+        episodes,
         budget,
         float(job["max_wall_minutes"]),
         flavors,
@@ -1691,7 +1716,7 @@ def plan_serverless(
         flavors,
         choice["workers"],
         choice["vcpu_per_worker"],
-        4 * max(unit_times(fp, job["episodes"], slots)) + 300,
+        4 * max(unit_times(fp, episodes, slots)) + 300,
     )
     gb = int((reg.get("volume") or {}).get("size") or sp["volume_size_gb"])
     endpoints = []
@@ -1707,6 +1732,8 @@ def plan_serverless(
         "dry_run": True,
         "backend": "serverless",
         "job": jobspec.summarize_job(job),
+        "resume": resume,
+        "to_run": jobspec.summarize_job({"episodes": episodes}) if resume else None,
         "commit_problems": problems,
         "seeding": {
             "runtime_id": rid,
@@ -1732,10 +1759,7 @@ def run_serverless(a, job, fp, allow, run_dir: Path) -> int:
     rp = RpClient()
     acct = account_headroom(rp, fp)
     flavors = [a.flavor] if a.flavor else list(sp["flavors_pref"])
-    episodes = job["episodes"]
-    if a.resume_from:  # size for the units still to run, not the whole job
-        probe = rmod.Runner(job, fp, allow, run_dir, rp=rmod._NoRunPod(), resume_from=a.resume_from)
-        episodes = [probe.episodes[k] for k in probe.order] or episodes
+    episodes, _resume = resume_episodes(job, fp, allow, a.resume_from, run_dir)
     plan = sizing_plan(
         fp,
         sp,
