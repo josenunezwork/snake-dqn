@@ -286,7 +286,7 @@ class SharedLedger:
     def peek(self) -> Dict[str, Any]:
         """Read-only snapshot (shared lock, never writes)."""
         if not self.path.exists():
-            return {**self.totals({"runs": {}}), "live_runs": []}
+            return {**self.totals({"runs": {}}), "live_runs": [], "live_jobs": []}
         with self.locked(write=False) as state:
             out = self.totals(state)
             out["live_runs"] = sorted(
@@ -294,36 +294,63 @@ class SharedLedger:
                 for rid, r in state["runs"].items()
                 if r["status"] == "live" and _alive(self.alive, r)
             )
+            out["live_jobs"] = sorted(
+                {
+                    r["job_id"]
+                    for r in state["runs"].values()
+                    if r["status"] == "live" and _alive(self.alive, r)
+                }
+            )
             return out
 
     # ------------------------------------------------------------ reconciliation
     def reconcile(self, rp: Any, delete_dead: bool = True) -> Dict[str, Any]:
-        """Square the ledger with RunPod: pods no longer listed are released (spent to the
-        earlier of now and their horizon); pending reservations (failed creates) past their
-        horizon are released; a listed pod of a DEAD run past its horizon is deleted."""
-        listed = {str(p.get("id")): p for p in rp.list_pods()}
-        now = self.clock()
+        """Square the ledger with RunPod (race-safe across concurrent runs).
+
+        * Pods created within 300 s of the listing are skipped (a fresh pod may be missing
+          from GET /pods, or be created between the listing and the lock).
+        * A bound pod is released only after it is absent from two listings >= 60 s apart.
+        * A pending reservation (unresolved failed create) is matched by NAME: if listed it is
+          bound and treated as a pod; it is released only when absent and past its horizon.
+        * A listed pod of a DEAD run past its horizon is deleted.
+        """
+        t_list = self.clock()
+        rows = rp.list_pods()
+        by_id = {str(p.get("id")): p for p in rows}
+        by_name = {str(p.get("name")): p for p in rows}
         released, deleted = [], []
         with self.locked() as state:
+            now = self.clock()
             for rid, run in state["runs"].items():
                 live_run = run["status"] == "live" and _alive(self.alive, run)
                 for key, pod in run["pods"].items():
                     if pod.get("deleted") is not None:
                         continue
-                    pid = pod.get("pod_id")
-                    past = now > float(pod["until"]) + SLACK_SECONDS
-                    if pid is None:
-                        if past:
-                            pod["deleted"], pod["cost"] = now, 0.0
-                            released.append(key)
+                    if float(pod.get("created") or now) >= t_list - 300:
                         continue
-                    if pid not in listed:
-                        end = min(now, float(pod["until"]))
+                    past = now > float(pod["until"]) + SLACK_SECONDS
+                    if pod.get("pod_id") is None:
+                        if key in by_name:
+                            pod["pod_id"] = str(by_name[key]["id"])
+                        else:
+                            if past:
+                                pod["deleted"], pod["cost"] = now, 0.0
+                                released.append(key)
+                            continue
+                    pid = pod["pod_id"]
+                    if pid in by_id:
+                        pod.pop("missing_since", None)
+                        if past and not live_run and delete_dead:
+                            deleted.append((rid, key, pid))
+                        continue
+                    first = pod.get("missing_since")
+                    if first is None:
+                        pod["missing_since"] = t_list
+                    elif t_list - float(first) >= 60:
+                        end = min(float(first), float(pod["until"]))
                         pod["deleted"] = now
                         pod["cost"] = float(pod["rate"]) * max(0.0, end - pod["created"]) / 3600
                         released.append(key)
-                    elif past and not live_run and delete_dead:
-                        deleted.append((rid, key, pid))
         for rid, key, pid in deleted:
             try:
                 rp.delete_pod(pid, confirm=True)

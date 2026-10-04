@@ -1222,23 +1222,55 @@ def test_ledger_reconcile_and_partial_legacy_line(tmp_path):
     (root / "ledger.jsonl").write_text(
         '{"kind": "reserve", "run": "x", "budget_usd": 1.0}\n{"kind"'
     )
-    led = ledger.SharedLedger(ledger_policy(tmp_path), alive=lambda pid: False)
+    t = {"now": 10_000.0}
+    led = ledger.SharedLedger(
+        ledger_policy(tmp_path), clock=lambda: t["now"], alive=lambda pid: False
+    )
     led.register_run("dead", "job-dead", "dead", 1.0, 999999)
-    now = time.time()
-    led.reserve_pod("dead", "p-gone", 0.24, now + 3600, 40.0)
+    led.reserve_pod("dead", "p-gone", 0.24, t["now"] + 3600, 40.0)
     led.bind_pod("dead", "p-gone", "gone1", 0.24)
-    led.reserve_pod("dead", "p-old", 0.24, now - 1000, 40.0)
+    led.reserve_pod("dead", "p-old", 0.24, t["now"] + 400, 40.0)
     led.bind_pod("dead", "p-old", "old1", 0.24)
+    led.reserve_pod("dead", "rpf-x--r-3", 0.24, t["now"] + 400, 40.0)  # unresolved create
+    t["now"] += 200
+    led.reserve_pod("dead", "p-fresh", 0.24, t["now"] + 3600, 40.0)
+    led.bind_pod("dead", "p-fresh", "fresh1", 0.24)
 
     class Rp:
         deleted = []
+        pods = [{"id": "old1", "name": "p-old"}, {"id": "orph", "name": "rpf-x--r-3"}]
 
         def list_pods(self):
-            return [{"id": "old1", "name": "x"}]
+            return list(self.pods)
 
         def delete_pod(self, pod_id, confirm):
             self.deleted.append(pod_id)
 
+    t["now"] += 1000  # old/pending horizons passed; p-fresh is 1000 s old
     out = led.reconcile(Rp())
-    assert out["released"] == ["p-gone"] and Rp.deleted == ["old1"]
+    assert out["released"] == []  # first absence of gone1/fresh1 only marks them
+    assert sorted(Rp.deleted) == ["old1", "orph"]  # dead run, past horizon, still listed
+    t["now"] += 61
+    out = led.reconcile(Rp())
+    assert sorted(out["released"]) == ["p-fresh", "p-gone"]
     assert led.peek()["reserved_usd"] >= 1.0  # the legacy open reserve still counts
+
+
+def test_reconcile_never_releases_a_just_created_pod(tmp_path):
+    t = {"now": 50_000.0}
+    led = ledger.SharedLedger(ledger_policy(tmp_path), clock=lambda: t["now"])
+    led.register_run("A", "job-a", "A", 1.0, os.getpid())
+
+    class Rp:
+        def list_pods(self):
+            return []  # RunPod has not listed the brand-new pod yet
+
+        def delete_pod(self, pod_id, confirm):
+            raise AssertionError("must not delete")
+
+    led.reserve_pod("A", "new", 0.96, t["now"] + 5400, 40.0)
+    led.bind_pod("A", "new", "newpod", 0.96)
+    for _ in range(3):
+        t["now"] += 100
+        assert led.reconcile(Rp())["released"] == []
+    assert led.peek()["reserved_usd"] > 1.0

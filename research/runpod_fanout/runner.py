@@ -1226,6 +1226,7 @@ class Runner:
                 f"{len(too_long)} episodes cannot fit the {life:.0f} s pod lifetime "
                 f"(e.g. {too_long[0]}); raise pod_max_lifetime_seconds"
             )
+        self.try_legacy_lock()  # before registering: an old-format runner cannot start now
         try:  # idempotency + account-level registration (no pod, no spend on refusal)
             totals = self.ledger.register_run(
                 self.run_id, self.job["job_id"], self.run_id, self.budget, os.getpid()
@@ -1901,9 +1902,8 @@ def cmd_cleanup(a, policy) -> int:
     if not a.job_id and not a.all_runner_pods:
         print("need --job-id ID or --all-runner-pods", file=sys.stderr)
         return 2
-    live = SharedLedger(policy).peek()["live_runs"]
-    if a.job_id:
-        live = [r for r in live if f"/{a.job_id}/" in r]
+    peek = SharedLedger(policy).peek()
+    live = peek["live_jobs"] if not a.job_id else [j for j in peek["live_jobs"] if j == a.job_id]
     if live and a.confirm and not a.force:
         print(f"refusing: live runs would lose pods: {live} (use --force)", file=sys.stderr)
         return 2
