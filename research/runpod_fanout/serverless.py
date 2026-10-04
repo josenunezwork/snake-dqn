@@ -22,11 +22,27 @@ run owns its queue (cancel/purge/scale-to-0/delete never touch another run's job
 ledger reservation is exactly its own ``workersMax x vCPU`` worst case, and its watchdog may
 delete it without coordination. The cost is one cold start per run (~2-3 min).
 
-Determinism (per WORLD, see platform_rule.py): one serverless job = one world unit (every
-arm of one wrapper/mix/world_seed) on ONE worker, so paired comparisons never cross CPU
-models; different worlds may land on different models (the endpoint rents cpu5c, then
+Determinism (per WORLD, see platform_rule.py): a world unit (every arm of one
+wrapper/mix/world_seed) always runs whole on ONE worker, so paired comparisons never cross
+CPU models; different worlds may land on different models (the endpoint rents cpu5c, then
 cpu3c). A probe job verifies the runtime first. Workers run with fixed threads and
 MKL_CBWR=COMPATIBLE; duplicates must be byte-identical (deterministic) or the run aborts.
+
+Batches (``--units-per-job``, default ``auto``): the account's serverless quota caps the
+WORKER count across all endpoints (10), not vCPUs, so one job may carry a batch of K whole
+world units that one worker runs concurrently in its ``vCPU/2`` slots (10 workers x 32 vCPU
+= 160 episodes at once instead of ~10 units). The handler is unchanged (it runs a flat
+episode list, <= 64 episodes, <= 16 slots), so batches run on the already-seeded runtime.
+Auto mode packs whole units into ONE wave (<= slots episodes) and at most
+ceil(pending units / workers) units per job (the tail spreads over all workers); a fixed K
+allows several waves; K=1 is exactly the one-unit-per-job behaviour. Each unit's records
+publish only when that unit is complete: a batch whose episodes partly fail publishes its
+complete units and re-dispatches the others whole; a lost/timed-out batch re-dispatches every
+unit whole, alone (K=1) from then on. Per-episode timeouts keep a batch inside its
+executionTimeout (wave bound: ceil(episodes/slots) x per-episode cap), so a hung episode
+costs only its own unit. Before creating its endpoint a run reads every endpoint's
+workersMax and takes min(requested, account_worker_quota - others) workers, waiting (up to
+quota_wait_seconds) or refusing with a clear message when the quota is full.
 """
 
 from __future__ import annotations
@@ -48,7 +64,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence
+from typing import (
+    Any,
+    Callable,
+    Container,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -65,8 +92,17 @@ HANDLER_SOURCE = HERE / "sls_handler.py"
 SEED_AGENT_SOURCE = HERE / "seed_agent.py"
 REGISTRY_SCHEMA = "runpod-fanout-serverless-registry/v1"
 LEDGER_SAFETY = 1.02
-MAX_UNIT_EPISODES = 64  # sls_handler accepts at most 64 episodes per job
+MAX_JOB_EPISODES = 64  # sls_handler accepts at most 64 episodes per job ...
+MAX_JOB_SLOTS = 16  # ... and at most 16 parallel slots
+MAX_UNIT_EPISODES = MAX_JOB_EPISODES  # (old name) a unit must fit one job
+OUTPUT_OVERHEAD = 1.3  # a record travels as a JSON string inside the job output (escaping)
+OUTPUT_FIXED_BYTES = 65536  # worker info + per-result fields
+QUOTA_CREATE_RETRIES = 3  # a create refused for the worker quota (a race) re-checks the quota
 Abort = rmod.Abort
+
+
+class QuotaRefused(RuntimeError):
+    """RunPod refused the endpoint create for the account worker quota (nothing created)."""
 
 
 # ---------------------------------------------------------------- policy / runtime
@@ -330,17 +366,151 @@ def seeder_pod_body(
     }
 
 
-# ---------------------------------------------------------------- sizing
+# ---------------------------------------------------------------- sizing / batches
+
+
+def parse_units_per_job(value: Any) -> Optional[int]:
+    """``--units-per-job``: ``auto`` (None) or a fixed K >= 1 (1 = one unit per job)."""
+    if value is None or str(value).strip().lower() == "auto":
+        return None
+    try:
+        k = int(value)
+    except (TypeError, ValueError) as exc:
+        raise jobspec.JobError(
+            f"--units-per-job must be auto or an int >= 1, not {value!r}"
+        ) from exc
+    if k < 1:
+        raise jobspec.JobError("--units-per-job must be auto or an int >= 1")
+    return k
+
+
+def units_cap(pending_units: int, workers: int, fixed: Optional[int]) -> int:
+    """Units per job: at most ceil(pending units / workers), so every worker still gets a
+    job and the tail spreads out; a fixed K caps it (K=1: one unit per job, as before)."""
+    spread = max(1, math.ceil(int(pending_units) / max(1, int(workers))))
+    return spread if fixed is None else max(1, min(int(fixed), spread))
+
+
+def job_episode_cap(
+    sp: Mapping[str, Any], slots: int, fixed: Optional[int], record_bytes: float = 0.0
+) -> int:
+    """Episodes one batch may hold: ONE wave (= slots: every episode starts at once) in auto
+    mode, the handler's 64 with a fixed K; never more than the job-output budget allows (the
+    records travel inside the /run result, which RunPod caps at 10 MB): ``max_job_output_mb``
+    over max(``record_bytes_est``, the largest record seen) x the escaping overhead."""
+    cap = int(slots) if fixed is None else MAX_JOB_EPISODES
+    per = max(float(record_bytes), float(sp.get("record_bytes_est") or 0), 1.0)
+    budget = float(sp.get("max_job_output_mb") or 6) * 2**20 - OUTPUT_FIXED_BYTES
+    return max(1, min(cap, MAX_JOB_EPISODES, int(budget // (per * OUTPUT_OVERHEAD))))
+
+
+def pack_batch(
+    units: Sequence[Tuple[str, int]],
+    max_units: int,
+    cap_episodes: int,
+    solo: Container[str] = (),
+) -> List[str]:
+    """The next job's units from ``(unit, open episodes)`` in dispatch order: the first unit
+    always (a unit bigger than the cap runs alone, in several waves, exactly as before
+    batching), then first fit within ``max_units`` units and ``cap_episodes`` episodes. A
+    ``solo`` unit (it was in a lost batch) only ever runs alone. Units are never split."""
+    if not units:
+        return []
+    first, n = units[0]
+    batch = [first]
+    if first in solo:
+        return batch
+    for unit, size in units[1:]:
+        if len(batch) >= max_units or n >= cap_episodes:
+            break
+        if unit in solo or n + size > cap_episodes:
+            continue
+        batch.append(unit)
+        n += size
+    return batch
+
+
+def batch_seconds(secs: Sequence[float], slots: int) -> float:
+    """Wall bound of one job on one worker with ``slots`` parallel episodes: ceil(episodes /
+    slots) x the longest (holds for any start order: while episodes wait, every slot frees
+    at least once per 'longest' seconds). For one unit this is the pre-batching estimate."""
+    return math.ceil(len(secs) / max(1, int(slots))) * max(secs)
+
+
+def _unit_seconds(fp: Mapping[str, Any], episodes: Sequence[Mapping[str, Any]]):
+    by: Dict[str, List[float]] = {}
+    for e in episodes:
+        by.setdefault(platform_rule.unit_of_episode(e), []).append(rmod.episode_seconds(fp, e))
+    return by
 
 
 def unit_times(
     fp: Mapping[str, Any], episodes: Sequence[Mapping[str, Any]], slots: int
 ) -> List[float]:
     """Per world unit: wall on ONE worker with ``slots`` parallel episodes."""
-    by: Dict[str, List[float]] = {}
-    for e in episodes:
-        by.setdefault(platform_rule.unit_of_episode(e), []).append(rmod.episode_seconds(fp, e))
-    return [math.ceil(len(v) / max(1, slots)) * max(v) for v in by.values()]
+    return [batch_seconds(v, slots) for v in _unit_seconds(fp, episodes).values()]
+
+
+def plan_batches(
+    fp: Mapping[str, Any],
+    sp: Mapping[str, Any],
+    episodes: Sequence[Mapping[str, Any]],
+    slots: int,
+    workers: int,
+    fixed: Optional[int],
+) -> List[Tuple[List[str], List[float]]]:
+    """The jobs a run forms for ``episodes`` with no losses (the packing of
+    :meth:`ServerlessRunner.next_batch`): per job, its whole units and their episode-second
+    estimates. ``fixed`` = 1 gives one job per unit."""
+    by = _unit_seconds(fp, episodes)
+    if fixed == 1:
+        return [([u], v) for u, v in by.items()]
+    cap = job_episode_cap(sp, slots, fixed)
+    pending = [(u, len(v)) for u, v in by.items()]
+    out: List[Tuple[List[str], List[float]]] = []
+    while pending:
+        batch = pack_batch(pending, units_cap(len(pending), workers, fixed), cap)
+        taken = set(batch)
+        pending = [p for p in pending if p[0] not in taken]
+        out.append((batch, [s for u in batch for s in by[u]]))
+    return out
+
+
+def endpoint_exec_timeout(
+    fp: Mapping[str, Any],
+    sp: Mapping[str, Any],
+    episodes: Sequence[Mapping[str, Any]],
+    slots: int,
+    fixed: Optional[int],
+    record_bytes: float = 0.0,
+) -> float:
+    """The endpoint's executionTimeout: the longest any job may get (4 x critical path +
+    300 s) - a unit alone, or (batching) the biggest batch the packing allows."""
+    base = 4 * max(unit_times(fp, episodes, slots)) + 300
+    if fixed == 1:
+        return base
+    longest = max(rmod.episode_seconds(fp, e) for e in episodes)
+    cap = job_episode_cap(sp, slots, fixed, record_bytes)
+    return max(base, 4 * batch_seconds([longest] * cap, slots) + 300)
+
+
+def quota_status(rows: Sequence[Mapping[str, Any]], sp: Mapping[str, Any]) -> Dict[str, Any]:
+    """Account worker quota vs the workersMax every endpoint holds (read-only)."""
+    quota = int(sp.get("account_worker_quota") or 0)
+    held = {
+        str(e.get("name") or e.get("id")): int(e.get("workersMax") or 0)
+        for e in rows
+        if int(e.get("workersMax") or 0) > 0
+    }
+    return {
+        "account_worker_quota": quota or None,
+        "workers_max_held_by_endpoints": held,
+        "workers_in_use": sum(held.values()),
+        "free_now": (quota - sum(held.values())) if quota else None,
+        "rule": "a run takes min(its workersMax, quota - all endpoints' workersMax) when it "
+        f"creates its endpoint; with none free it waits up to {sp.get('quota_wait_seconds')} "
+        "s, then refuses (nothing created)",
+    }
 
 
 def sizing_plan(
@@ -354,11 +524,17 @@ def sizing_plan(
     target_minutes: Optional[float] = None,
     workers: Optional[int] = None,
     vcpu: Optional[int] = None,
+    units_per_job: Any = "auto",
 ) -> Dict[str, Any]:
-    """Pick workersMax x vCPU/worker: the cheapest config finishing within the target wall
-    (default 30 min, else <= 60 min, else the fastest that fits). One serverless job = one
-    world unit (all its arms on one worker). Every option's worst case (= what the ledger
-    reserves) must fit the budget, the account headroom and the hourly cap."""
+    """Pick workersMax x vCPU/worker, and so K units per job: the cheapest config finishing
+    within the target wall (default 30 min, else <= 60 min, else the fastest that fits).
+    A worker runs a batch of whole world units concurrently in its vCPU/2 slots (see
+    :func:`plan_batches`; ``units_per_job`` 1 = one unit per job). workersMax is capped
+    by ``account_worker_quota`` (RunPod counts workersMax across ALL endpoints; the run
+    takes what is free when it creates its endpoint). Every option's worst case (= what the
+    ledger reserves: workers x vCPU x max price x margin) must fit the budget, the account
+    headroom and the hourly cap."""
+    fixed = parse_units_per_job(units_per_job)
     secs = [rmod.episode_seconds(fp, e) for e in episodes]
     price = max(float(sp["usd_per_vcpu_hr"][f]) for f in flavors)
     margin = float(sp["price_margin"])
@@ -366,13 +542,17 @@ def sizing_plan(
     horizon_s = 60 * max_wall_minutes + float(fp["watchdog_grace_seconds"]) + 300 + SLACK_SECONDS
     cold, idle = float(sp["cold_start_seconds_est"]), float(sp["idle_timeout_seconds"])
     target = float(target_minutes or sp["target_wall_minutes"])
+    quota = int(sp.get("account_worker_quota") or 0)
     rows = []
     n_units = len({platform_rule.unit_of_episode(e) for e in episodes})
     for w in sp["vcpu_sizes"]:
-        slots = max(1, int(w) // threads)
-        times = unit_times(fp, episodes, slots)
-        mean_t, max_t = sum(times) / len(times), max(times)
+        slots = max(1, min(MAX_JOB_SLOTS, int(w) // threads))
         for n in range(1, int(sp["max_workers"]) + 1):
+            jobs = plan_batches(fp, sp, episodes, slots, n, fixed)
+            times = [batch_seconds(b, slots) for _, b in jobs]
+            mean_t, max_t = sum(times) / len(times), max(times)
+            per_job = [len(b) for _, b in jobs]
+            ks = [len(u) for u, _ in jobs]
             wall = cold + max(max_t, math.ceil(len(times) / n) * mean_t)
             rate = n * int(w) * price
             worst = LEDGER_SAFETY * margin * rate * horizon_s / 3600
@@ -385,12 +565,20 @@ def sizing_plan(
                 why.append("hourly cap")
             if wall > 60 * max_wall_minutes:
                 why.append("max wall")
+            if quota and n > quota:
+                why.append("account worker quota")
             rows.append(
                 {
                     "workers": n,
                     "vcpu_per_worker": int(w),
                     "slots_per_worker": slots,
-                    "parallel_units": n,
+                    "units_per_job": "auto" if fixed is None else fixed,
+                    "units_per_job_max": max(ks),
+                    "units_per_job_mean": round(sum(ks) / len(ks), 2),
+                    "jobs": len(jobs),
+                    "episodes_per_job_max": max(per_job),
+                    "parallel_units": n * max(ks),
+                    "parallel_episodes": n * min(slots, max(per_job)),
                     "vcpu_total": n * int(w),
                     "wall_minutes": round(wall / 60, 1),
                     "expected_usd": round(rate * (wall + idle) / 3600, 3),
@@ -434,6 +622,8 @@ def sizing_plan(
         "price_margin_reserved": margin,
         "episodes": len(secs),
         "world_units": n_units,
+        "units_per_job_mode": "auto" if fixed is None else fixed,
+        "account_worker_quota": quota or None,
         "episode_seconds_total_est": round(sum(secs), 1),
         "longest_episode_seconds_est": round(max(secs), 1),
         "target_wall_minutes": target,
@@ -441,9 +631,11 @@ def sizing_plan(
         "choice": choice,
         "choice_ok": bool(choice and not choice["refused"]),
         "speed_cost_tradeoff": list(front.values())[:10],
-        "note": "one job = one world unit; expected = all workers billed for the whole wall "
-        "(+idle timeout); worst = workersMax x vCPU x max flavor price x margin to the run's "
-        "hard end (what the ledger reserves)",
+        "note": "a job = a batch of whole world units on one worker (K = units_per_job; auto: "
+        "one wave of <= slots episodes, <= ceil(units/workers) units per job); expected = all "
+        "workers billed for the whole wall (+idle timeout); worst = workersMax x vCPU x max "
+        "flavor price x margin to the run's hard end (what the ledger reserves); workersMax "
+        "<= account_worker_quota minus the other endpoints' workersMax at create time",
     }
 
 
@@ -603,13 +795,14 @@ class SlsJob:
     id: str
     endpoint: str  # endpoint name
     op: str
-    unit: Optional[str]
+    unit: Optional[str]  # the unit of a one-unit job (None for a probe or a batch)
     keys: List[str]
     submitted: float
     timeout_s: float
     status: str = "IN_QUEUE"
     started: Optional[float] = None
     errors: int = 0
+    units: List[str] = field(default_factory=list)  # every whole unit the job carries
 
 
 @dataclass
@@ -653,7 +846,9 @@ def iso(t: float) -> str:
 
 class ServerlessRunner(rmod.Runner):
     """Same job files, records, ledger, receipts and watchdog as pods; work goes to a
-    per-run serverless endpoint, one world unit per job (see the module docstring)."""
+    per-run serverless endpoint, a batch of whole world units per job (``sizing``
+    ``units_per_job``: ``"auto"`` or a fixed K; absent = 1, one unit per job; see the
+    module docstring)."""
 
     def __init__(
         self,
@@ -672,7 +867,11 @@ class ServerlessRunner(rmod.Runner):
         self.sp = sls_policy
         self.workers = int(sizing["workers"])
         self.vcpu = int(sizing["vcpu_per_worker"])
-        self.slots = max(1, self.vcpu // int(policy["threads_per_episode"]))
+        self.slots = max(1, min(MAX_JOB_SLOTS, self.vcpu // int(policy["threads_per_episode"])))
+        self.fixed_units = parse_units_per_job(sizing.get("units_per_job", 1))
+        self.solo: set = set()  # units of a lost batch: from then on they run alone
+        self.record_bytes_seen = 0  # largest record returned so far (job-output budget)
+        self.batch_sizes: Dict[int, int] = {}  # units per submitted job -> jobs
         self.flavors = list(flavors)
         self.registry = registry or Registry(policy)
         self.rid = runtime_id(policy, sls_policy)
@@ -688,8 +887,8 @@ class ServerlessRunner(rmod.Runner):
         big = [u for u, keys in self.units.items() if len(keys) > MAX_UNIT_EPISODES]
         if big:
             raise jobspec.JobError(
-                f"{len(big)} world units exceed {MAX_UNIT_EPISODES} episodes (one serverless "
-                f"job each), e.g. {big[0]}"
+                f"{len(big)} world units exceed {MAX_UNIT_EPISODES} episodes (a unit runs "
+                f"whole in one serverless job), e.g. {big[0]}"
             )
 
     # ------------------------------------------------------------ naming
@@ -735,12 +934,103 @@ class ServerlessRunner(rmod.Runner):
 
     # ------------------------------------------------------------ endpoint
     def exec_timeout(self, keys: Sequence[str]) -> float:
+        """A job's executionTimeout: 4 x its critical path (ceil(episodes / slots) x the
+        longest episode, see :func:`batch_seconds`) + 300 s; one unit: as before batching."""
         return 4 * self.unit_seconds(keys, self.slots) + 300
 
     def max_exec_timeout(self) -> float:
-        return max(self.exec_timeout(keys) for keys in self.units.values())
+        """The endpoint's executionTimeout: the longest any job of this run may get (a unit
+        alone, or the biggest batch the packing allows)."""
+        base = max(self.exec_timeout(keys) for keys in self.units.values())
+        if self.fixed_units == 1 or not self.order:
+            return base
+        eps = [self.episodes[k] for k in self.order]
+        return max(
+            base,
+            endpoint_exec_timeout(
+                self.policy, self.sp, eps, self.slots, self.fixed_units, self.record_bytes_seen
+            ),
+        )
+
+    # ------------------------------------------------------------ worker quota
+    def quota_free_workers(self) -> int:
+        """Workers this run may take now: min(requested, account_worker_quota - the
+        workersMax of every endpoint on the account). RunPod refuses an endpoint create
+        whose workersMax would exceed the account quota (10) summed over ALL endpoints, so a
+        full quota waits (up to quota_wait_seconds, never past the run deadline) and then
+        refuses cleanly. Read-only (lists endpoints); nothing is reserved while waiting."""
+        quota = int(self.sp.get("account_worker_quota") or 0)
+        if quota <= 0:
+            return self.workers
+        poll = float(self.sp.get("quota_poll_seconds") or 60)
+        give_up = min(
+            self.clock() + float(self.sp.get("quota_wait_seconds") or 0),
+            self.deadline - float(self.sp.get("startup_deadline_seconds") or 0),
+        )
+        announced = False
+        while True:
+            rows: Optional[List[Dict[str, Any]]] = None
+            err: Optional[Exception] = None
+            for attempt in range(3):
+                try:
+                    rows = list(self.rp.list_endpoints())
+                    break
+                except RunPodError as exc:
+                    err = exc
+                    self.sleep(10 * (attempt + 1))
+            if rows is None:
+                raise Abort(
+                    f"cannot list the account's endpoints to check the serverless worker "
+                    f"quota ({quota}): {str(err)[:160]}; nothing was created"
+                )
+            held = {
+                str(e.get("name") or e.get("id")): int(e.get("workersMax") or 0)
+                for e in rows
+                if int(e.get("workersMax") or 0) > 0
+            }
+            free = quota - sum(held.values())
+            if free >= 1:
+                got = min(self.workers, free)
+                if got < self.workers:
+                    self.log(
+                        "workers_capped_by_quota",
+                        wanted=self.workers,
+                        got=got,
+                        quota=quota,
+                        held_by_other_endpoints=held,
+                    )
+                return got
+            msg = (
+                f"serverless worker quota full: other endpoints hold {sum(held.values())} of "
+                f"the account's {quota} workers ({held})"
+            )
+            if not announced:
+                announced = True
+                self.log("worker_quota_full", quota=quota, held=held, wait_until=give_up)
+                print(f"waiting: {msg}", file=sys.stderr, flush=True)
+            if self.clock() + poll > give_up:
+                raise Abort(
+                    f"{msg}; waited {int(self.sp.get('quota_wait_seconds') or 0)} s; nothing "
+                    "was created (rerun when they finish, or lower their workersMax)"
+                )
+            self.check_watchdog()
+            self.sleep(poll)
 
     def open_endpoint(self) -> Endpoint:
+        """Quota guard, then the ledger reservation and the create. A create RunPod refuses
+        for the worker quota (another run took workers in between) re-checks the quota."""
+        for attempt in range(QUOTA_CREATE_RETRIES + 1):
+            want = self.quota_free_workers()
+            try:
+                return self._open_endpoint(want)
+            except QuotaRefused as exc:
+                if attempt >= QUOTA_CREATE_RETRIES:
+                    raise Abort(f"endpoint create refused for the worker quota: {exc}") from exc
+                self.log("endpoint_quota_retry", attempt=attempt + 1, detail=str(exc)[:200])
+                self.sleep(float(self.sp.get("quota_poll_seconds") or 60))
+        raise Abort("unreachable")  # pragma: no cover
+
+    def _open_endpoint(self, want: int) -> Endpoint:
         now = self.clock()
         until = self.hard_end
         price = max(float(self.sp["usd_per_vcpu_hr"][f]) for f in self.flavors)
@@ -753,7 +1043,7 @@ class ServerlessRunner(rmod.Runner):
         except RunPodError as exc:
             raise Abort(f"balance unavailable: {exc}") from exc
         why: Optional[str] = "no worker count fits"
-        workers = self.workers
+        workers = min(self.workers, int(want))
         while workers >= 1:
             rate = workers * self.vcpu * price * margin
             worst = LEDGER_SAFETY * rate * (max(0.0, until - now) + 60) / 3600
@@ -768,8 +1058,10 @@ class ServerlessRunner(rmod.Runner):
             workers -= 1
         if workers < 1:
             raise Abort(f"no serverless reservation fits: {why}")
-        if workers != self.workers:
-            self.log("workers_reduced", wanted=self.workers, got=workers, reason=why)
+        if workers != min(self.workers, int(want)):
+            self.log(
+                "workers_reduced", wanted=min(self.workers, int(want)), got=workers, reason=why
+            )
         ep = Endpoint(
             name,
             key,
@@ -807,6 +1099,8 @@ class ServerlessRunner(rmod.Runner):
                 self.ledger_call("release_pod", self.run_id, key, 0.0)
                 ep.released = True
                 self.raise_deferred()
+                if "quota" in str(exc.payload).lower() or "quota" in str(exc).lower():
+                    raise QuotaRefused(f"({status}): {str(exc.payload)[:200]}")
                 raise Abort(f"endpoint create refused ({status}): {str(exc.payload)[:200]}")
             out = self.find_endpoint_by_name(name)
             if out is None:
@@ -930,13 +1224,28 @@ class ServerlessRunner(rmod.Runner):
             "checkpoints": sorted(self.job["checkpoints"]),
         }
 
-    def submit(self, ep: Endpoint, op: str, unit: Optional[str] = None) -> bool:
+    def submit(
+        self,
+        ep: Endpoint,
+        op: str,
+        unit: Optional[str] = None,
+        units: Optional[Sequence[str]] = None,
+    ) -> bool:
+        """Submit a probe, or one job carrying ``units`` (whole world units; ``unit`` = a
+        one-unit job, exactly the pre-batching input). A batch's per-episode timeout is
+        (executionTimeout - 60 s) / waves, so ceil(episodes / slots) waves of capped
+        episodes end inside the job's executionTimeout: a hung episode costs its own unit,
+        never the batch."""
         now = self.clock()
-        keys = self.unit_keys(unit) if unit else []
+        units = list(units) if units else ([unit] if unit else [])
+        keys = [k for u in units for k in self.unit_keys(u)]
         timeout = self.exec_timeout(keys) if keys else 600.0
         timeout = min(timeout, self.hard_end - now - 60)
-        if timeout < 30 or (unit and not keys):
+        if timeout < 30 or any(not self.unit_keys(u) for u in units):
             return False
+        per_episode = max(30.0, timeout - 60)  # inside RunPod's limit
+        if len(units) > 1:
+            per_episode = max(30.0, (timeout - 60) / math.ceil(len(keys) / self.slots))
         inp = self.base_input(op)
         if op == "episodes":
             inp.update(
@@ -944,7 +1253,7 @@ class ServerlessRunner(rmod.Runner):
                     "job_id": self.job["job_id"],
                     "provider": f"runpod-serverless:{'/'.join(ep.flavors)}",
                     "slots": self.slots,
-                    "timeout_seconds": max(30.0, timeout - 60),  # inside RunPod's limit
+                    "timeout_seconds": per_episode,
                     "deadline_epoch": self.deadline,
                     "require_cpu_model": None,  # per-world: any model, one worker per unit
                     "numerics_env": dict(self.numerics),
@@ -967,13 +1276,19 @@ class ServerlessRunner(rmod.Runner):
             self.log("submit_no_id", detail=str(out)[:200])
             return False
         jid = str(out["id"])
-        if unit:
-            self.take_unit(unit, f"sls:{jid}")
-        self.jobs[jid] = SlsJob(jid, ep.name, op, unit, list(keys), now, timeout)
+        for u in units:
+            self.take_unit(u, f"sls:{jid}")
+        one = units[0] if len(units) == 1 else None
+        self.jobs[jid] = SlsJob(jid, ep.name, op, one, list(keys), now, timeout, units=units)
         if op == "probe":
             self.probe_job = jid
+        if units:
+            self.batch_sizes[len(units)] = self.batch_sizes.get(len(units), 0) + 1
         self.persist_jobs()
-        self.log("submitted", job=jid, op=op, unit=unit, keys=len(keys))
+        if len(units) > 1:
+            self.log("submitted", job=jid, op=op, units=units, keys=len(keys))
+        else:
+            self.log("submitted", job=jid, op=op, unit=one, keys=len(keys))
         return True
 
     def save_failure(self, job: SlsJob, info: Any) -> None:
@@ -1016,8 +1331,14 @@ class ServerlessRunner(rmod.Runner):
             self.probe_job = None
 
     def on_lost(self, j: SlsJob, why: str) -> None:
-        if j.unit:
-            self.requeue_unit(j.unit, why)  # the whole world restarts on one worker
+        """Nothing of the job came back: every unit it carried restarts whole on one worker
+        (an attempt for each). The units of a lost BATCH then run alone, so a unit that
+        kills its worker cannot keep costing other units their attempts."""
+        for unit in j.units:
+            self.requeue_unit(unit, why)  # the whole world restarts on one worker
+        if len(j.units) > 1:
+            self.solo.update(j.units)
+            self.log("batch_lost", job=j.id, units=j.units, why=why)
 
     def on_status(self, j: SlsJob, st: Mapping[str, Any]) -> None:
         status = str(st.get("status") or "")
@@ -1062,24 +1383,35 @@ class ServerlessRunner(rmod.Runner):
         unknown = set(results) - set(j.keys)
         if unknown:
             raise Abort(f"job {j.id} returned unknown records {sorted(unknown)[:3]}")
-        bad = []
-        for key in j.keys:
-            r = results.get(key)
-            if not r or not r.get("ok"):
-                bad.append(key)
-                continue
-            data = str(r["record"]).encode("utf-8")
-            if hashlib.sha256(data).hexdigest() != r.get("sha256"):
-                bad.append(key)
-                continue
-            self.accept_record(key, data, source=f"sls:{j.id}", worker=winfo)
+        bad: List[str] = []
+        requeued: List[str] = []
+        for unit in j.units:  # each unit publishes only when all its records are good
+            unit_bad = []
+            for key in [k for k in j.keys if platform_rule.unit_of_key(k) == unit]:
+                r = results.get(key)
+                if not r or not r.get("ok"):
+                    unit_bad.append(key)
+                    continue
+                data = str(r["record"]).encode("utf-8")
+                if hashlib.sha256(data).hexdigest() != r.get("sha256"):
+                    unit_bad.append(key)
+                    continue
+                self.record_bytes_seen = max(self.record_bytes_seen, len(data))
+                self.accept_record(key, data, source=f"sls:{j.id}", worker=winfo)
+            if unit_bad:
+                bad += unit_bad
+                requeued.append(unit)
         if bad:
             self.save_failure(j, {"bad": bad, "results": [results.get(k) for k in bad]})
-            self.requeue_unit(j.unit, "episode error on worker")
+            for unit in requeued:
+                self.requeue_unit(unit, "episode error on worker")
+        fields: Dict[str, Any] = {"unit": j.unit}
+        if len(j.units) > 1:
+            fields = {"units": len(j.units), "units_requeued": requeued}
         self.log(
             "collected",
             job=j.id,
-            unit=j.unit,
+            **fields,
             ok=len(j.keys) - len(bad),
             bad=len(bad),
             completed=len(self.completed),
@@ -1101,14 +1433,26 @@ class ServerlessRunner(rmod.Runner):
         except RunPodError:
             pass
 
+    def next_batch(self, ep: Endpoint) -> List[str]:
+        """The next job's whole units in dispatch order (requeued units first): K =
+        units_cap(pending units, workers, fixed K); auto packs one wave (<= slots episodes);
+        never over the handler's 64 episodes or the job-output budget; a unit of a lost
+        batch runs alone. K=1: the next pending unit, as before batching."""
+        units = [(u, len(self.unit_keys(u))) for u in self.pending_units()]
+        units = [(u, n) for u, n in units if n]
+        if not units:
+            return []
+        if self.fixed_units == 1:
+            return [units[0][0]]
+        k = units_cap(len(units), ep.workers, self.fixed_units)
+        cap = job_episode_cap(self.sp, self.slots, self.fixed_units, self.record_bytes_seen)
+        return pack_batch(units, k, cap, self.solo)
+
     def fill(self, ep: Endpoint) -> None:
         cap = max(1, math.ceil(ep.workers * float(self.sp["inflight_jobs_per_worker"])))
-        for unit in self.pending_units():
-            if len([j for j in self.jobs.values() if j.op == "episodes"]) >= cap:
-                return
-            if not self.unit_keys(unit):
-                continue
-            if not self.submit(ep, "episodes", unit):
+        while len([j for j in self.jobs.values() if j.op == "episodes"]) < cap:
+            batch = self.next_batch(ep)
+            if not batch or not self.submit(ep, "episodes", units=batch):
                 return
 
     def billing_guard(self, ep: Endpoint) -> None:
@@ -1242,6 +1586,7 @@ class ServerlessRunner(rmod.Runner):
             "pending": len(self.pending),
             "failed": self.failed,
             "jobs_open": len(self.jobs),
+            "batching": self.batching_summary(),
             "endpoints": [self.ep_public(e) for e in self.endpoints.values()],
             "estimated_cost_usd": round(self.estimated_cost(), 4),
             "committed_worst_usd": round(self.committed_worst(), 4),
@@ -1252,6 +1597,15 @@ class ServerlessRunner(rmod.Runner):
         tmp = self.run_dir / ".state.json.tmp"
         tmp.write_text(json.dumps(state, indent=2, sort_keys=True))
         os.replace(tmp, self.run_dir / "state.json")
+
+    def batching_summary(self) -> Dict[str, Any]:
+        return {
+            "units_per_job": "auto" if self.fixed_units is None else self.fixed_units,
+            "slots_per_worker": self.slots,
+            "jobs_by_units_per_job": {str(k): v for k, v in sorted(self.batch_sizes.items())},
+            "solo_units_after_lost_batch": len(self.solo),
+            "largest_record_bytes": self.record_bytes_seen,
+        }
 
     def ep_public(self, e: Endpoint) -> Dict[str, Any]:
         return {
@@ -1379,6 +1733,7 @@ class ServerlessRunner(rmod.Runner):
             **self.unit_summary(),
             "probe_worker": self.probe_worker,
             "runtime_id": self.rid,
+            "batching": self.batching_summary(),
             "endpoints": [self.ep_public(e) for e in self.endpoints.values()],
             "estimated_cost_usd": round(self.estimated_cost(), 5),
             "billing_usd": round(sum(e.billing_usd or 0 for e in self.endpoints.values()), 5),
@@ -1723,8 +2078,10 @@ def plan_serverless(
     vcpu: Optional[int] = None,
     repo: Path = REPO,
     resume_from: Sequence[Path] = (),
+    units_per_job: Any = "auto",
 ) -> Dict[str, Any]:
     rp = rp or RpClient()
+    fixed = parse_units_per_job(units_per_job)
     episodes, resume = resume_episodes(job, fp, allow, resume_from)
     problems = jobspec.check_commit(repo, job)
     work = Path(tempfile.mkdtemp(prefix="rpf-sls-plan-"))
@@ -1749,11 +2106,14 @@ def plan_serverless(
         target_minutes,
         workers,
         vcpu,
+        units_per_job=units_per_job,
     )
     choice = sizing["choice"] or {"workers": 1, "vcpu_per_worker": 2}
     vol = reg.get("volume") or {"id": "<volume id>", "dataCenterId": sp["data_center"]}
     tmpl = ((reg.get("runtimes") or {}).get(rid) or {}).get("template_id") or "<template id>"
-    slots = max(1, int(choice["vcpu_per_worker"]) // int(fp["threads_per_episode"]))
+    slots = max(
+        1, min(MAX_JOB_SLOTS, int(choice["vcpu_per_worker"]) // int(fp["threads_per_episode"]))
+    )
     body = endpoint_body(
         sp,
         f"{sp['endpoint_prefix']}{job['job_id']}--sls-<stamp>-1",
@@ -1762,18 +2122,29 @@ def plan_serverless(
         flavors,
         choice["workers"],
         choice["vcpu_per_worker"],
-        4 * max(unit_times(fp, episodes, slots)) + 300,
+        endpoint_exec_timeout(fp, sp, episodes, slots, fixed),
     )
     gb = int((reg.get("volume") or {}).get("size") or sp["volume_size_gb"])
-    endpoints = []
+    endpoints: List[Dict[str, Any]] = []
+    quota: Dict[str, Any] = {}
     try:
+        rows = list(rp.list_endpoints())
         endpoints = [
             {"id": e.get("id"), "name": e.get("name"), "workersMax": e.get("workersMax")}
-            for e in rp.list_endpoints()
+            for e in rows
             if str(e.get("name", "")).startswith(sp["endpoint_prefix"])
         ]
+        quota = quota_status(rows, sp)
+        free = quota.get("free_now")
+        if free is not None:
+            quota["a_run_started_now"] = (
+                f"gets {min(int(choice['workers']), free)} of {choice['workers']} workers"
+                if free >= 1
+                else "waits for the quota (none free)"
+            )
     except RunPodError as exc:
         endpoints = [{"error": str(exc)[:120]}]
+        quota = {"error": str(exc)[:120]}
     return {
         "dry_run": True,
         "backend": "serverless",
@@ -1793,6 +2164,7 @@ def plan_serverless(
         "account": acct,
         "storage": {"volume_gb": gb, "usd_per_month": round(gb * sp["volume_usd_per_gb_month"], 3)},
         "existing_runner_endpoints": endpoints,
+        "worker_quota": quota,
         "budget_usd": budget,
     }
 
@@ -1817,6 +2189,7 @@ def run_serverless(a, job, fp, allow, run_dir: Path) -> int:
         a.target_minutes,
         a.workers,
         a.vcpu_per_worker,
+        units_per_job=getattr(a, "units_per_job", "auto"),
     )
     if not plan["choice_ok"]:
         print(

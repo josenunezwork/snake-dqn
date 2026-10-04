@@ -2289,6 +2289,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sp_.add_argument("--target-minutes", type=float, default=None)
         sp_.add_argument("--workers", type=int, default=None)
         sp_.add_argument("--vcpu-per-worker", type=int, default=None)
+        sp_.add_argument(
+            "--units-per-job",
+            default="auto",
+            help="serverless: whole world units per job (one worker runs them concurrently "
+            "in its vCPU/2 slots); auto (default) = one wave of <= slots episodes and at most "
+            "ceil(units/workers) units per job; 1 = one unit per job (pre-batching behaviour)",
+        )
     st = sub.add_parser("status")
     st.add_argument("run_dir", nargs="?", type=Path)
     cl = sub.add_parser("cleanup")
@@ -2326,6 +2333,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     allow = jobspec.load_allowlist()
     job = jobspec.validate_job(json.loads(a.job.read_text()), policy, allow)
     backend = "pods" if a.backend == "runpod" else a.backend
+    if backend == "serverless":
+        from research.runpod_fanout import serverless
+
+        try:
+            serverless.parse_units_per_job(a.units_per_job)
+        except jobspec.JobError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if a.cmd == "plan":
         if backend == "serverless":
             from research.runpod_fanout import serverless
@@ -2341,6 +2356,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 workers=a.workers,
                 vcpu=a.vcpu_per_worker,
                 resume_from=a.resume_from,
+                units_per_job=a.units_per_job,
             )
             print(json.dumps(out, indent=1, sort_keys=True))
             return 0
