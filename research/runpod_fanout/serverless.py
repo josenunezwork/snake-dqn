@@ -14,6 +14,7 @@ dry runs unless ``--confirm``)::
     runner.py run  JOB.json --budget USD --confirm           # per-run endpoint, then delete
     serverless.py endpoint-cleanup --job-id ID [--confirm]   # manual teardown
     serverless.py volume-cleanup  [--confirm]                # delete the volume
+    serverless.py settle                                     # ledger: upper bound -> billing
     serverless.py status
 
 Per-run endpoints (``rpf-sls-<job>--<run>-<n>``), not one shared endpoint per commit: each
@@ -2019,6 +2020,14 @@ def cmd_volume_cleanup(a, fp, sp) -> int:
     return 0
 
 
+def cmd_settle(a, fp, sp) -> int:
+    """Lower released serverless ledger rows to final billing (reads billing, writes only
+    the local ledger; runs also do this in their periodic reconcile)."""
+    done = SharedLedger(fp).settle_serverless(RpClient(), min_age_seconds=a.min_age_seconds)
+    print(json.dumps({"settled": done}))
+    return 0
+
+
 def cmd_status(a, fp, sp) -> int:
     rp = RpClient()
     out = {"registry": Registry(fp).read(), "runtime_id_current": runtime_id(fp, sp)}
@@ -2064,6 +2073,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     vd.add_argument("--volume-id")
     vd.add_argument("--confirm", action="store_true")
     sub.add_parser("status")
+    st = sub.add_parser("settle")
+    st.add_argument("--min-age-seconds", type=float, default=7200.0)
     a = p.parse_args(argv)
     fp, sp = jobspec.load_policy(), load_sls_policy()
     return {
@@ -2072,6 +2083,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "template-create": cmd_template_create,
         "endpoint-cleanup": cmd_endpoint_cleanup,
         "volume-cleanup": cmd_volume_cleanup,
+        "settle": cmd_settle,
         "status": cmd_status,
     }[a.cmd](a, fp, sp)
 
