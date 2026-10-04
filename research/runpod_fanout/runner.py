@@ -2293,8 +2293,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "--units-per-job",
             default="auto",
             help="serverless: whole world units per job (one worker runs them concurrently "
-            "in its vCPU/2 slots); auto (default) = one wave of <= slots episodes and at most "
-            "ceil(units/workers) units per job; 1 = one unit per job (pre-batching behaviour)",
+            "in its vCPU/2 slots); auto (default) = filled to one wave of <= slots episodes "
+            "(the fewest jobs); K = at most K units (several waves, spread over the workers); "
+            "1 = one unit per job (pre-batching behaviour)",
         )
         sp_.add_argument(
             "--max-wall-minutes",
