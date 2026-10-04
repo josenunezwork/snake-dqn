@@ -225,10 +225,15 @@ def make_runner(v, name, units_per_job, fake):
     )
 
 
-def test_k3_batch_run_equals_k1_run_runner_level(real_volume):
+def test_k3_batch_run_equals_k1_run_runner_level(real_volume, monkeypatch):
     """The whole runner (dispatch, collect, per-unit publish) on real episodes: one job of
     three units (auto, one 32-vCPU worker) vs three one-unit jobs (K=1)."""
     v = real_volume
+    # 373c301 pins main's wrappers.py; study branches extend wrappers.py, so the runner's
+    # byte-equality pin (tested in test_runpod_fanout) would refuse this old commit there.
+    # The episodes still run the commit's own code from its archive; batching is under test.
+    if jobspec.check_commit(runner.REPO, {"repo_commit": E2E_COMMIT, "episodes": e2e_episodes()}):
+        monkeypatch.setattr(jobspec, "check_commit", lambda repo, job: [])
     out = {}
     for name, k in (("batch", "auto"), ("k1", 1)):
         fake = tsl.FakeSls(models=[tsl.MODEL])
