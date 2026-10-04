@@ -44,6 +44,24 @@ EXEC = json.loads(os.environ.get("FANOUT_EXEC_JSON", "null"))  # tests: replace 
 THREADS = os.environ.get("FANOUT_THREADS", "2")
 ISA = os.environ.get("FANOUT_ISA_CAP", "")
 SELF_DELETE = float(os.environ.get("FANOUT_SELF_DELETE_EPOCH", "0"))
+NUMERICS = json.loads(os.environ.get("FANOUT_NUMERICS_JSON", "{}"))  # MKL_CBWR, threads
+ISA_FLAGS = (
+    "sse4_2",
+    "avx",
+    "avx2",
+    "fma",
+    "f16c",
+    "avx512f",
+    "avx512dq",
+    "avx512bw",
+    "avx512vl",
+    "avx512_vnni",
+    "avx512_bf16",
+    "avx512_fp16",
+    "amx_tile",
+    "amx_bf16",
+    "amx_int8",
+)  # same list as platform_rule.ISA_FLAGS
 SETUP_LOCK = threading.Lock()
 BOOT = uuid.uuid4().hex[:12]
 LOCK = threading.Lock()
@@ -147,6 +165,7 @@ def run_one(key, spec, timeout):
             "PYTHONHASHSEED": "0",
         }
     )
+    env.update({str(k): str(v) for k, v in NUMERICS.items()})
     if ISA:  # optional ISA cap (off by default: the validated x86 check ran without it)
         env.update({"ONEDNN_MAX_CPU_ISA": ISA, "MKL_ENABLE_INSTRUCTIONS": ISA, "MKL_CBWR": ISA})
     for k in ("RUNPOD_API_KEY",):
@@ -218,6 +237,17 @@ def cpu_model():
     return "unknown"
 
 
+def isa_flags():
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("flags"):
+                have = set(line.split(":", 1)[1].split())
+                return [f for f in ISA_FLAGS if f in have]
+    except OSError:
+        pass
+    return []
+
+
 def self_delete():
     """Last resort if the runner and its watchdog are gone: the pod removes itself with the
     pod-scoped credentials RunPod injects (RUNPOD_POD_ID / RUNPOD_API_KEY), if any."""
@@ -269,6 +299,8 @@ def health():
             "slots": n,
             "cores": cores,
             "cpu_model": cpu_model(),
+            "isa_flags": isa_flags(),
+            "numerics": NUMERICS,
             "self_delete_capable": bool(
                 os.environ.get("RUNPOD_POD_ID") and os.environ.get("RUNPOD_API_KEY")
             ),

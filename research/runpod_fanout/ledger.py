@@ -27,7 +27,7 @@ import os
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, Mapping, Optional
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional
 
 SCHEMA = "runpod-fanout-ledger/v2"
 SLACK_SECONDS = 300.0  # balance lags billing; every live reservation carries 5 min extra
@@ -142,6 +142,10 @@ class SharedLedger:
 
     def _pod_spent(self, pod: Mapping[str, Any], now: float) -> float:
         if pod.get("deleted") is not None:
+            if pod.get("kind") == "serverless" and not pod.get("settled"):
+                # released by an older reconciler (it records $0): charge the worst case
+                end = min(float(pod["deleted"]), float(pod["until"]))
+                return float(pod["rate"]) * max(0.0, end - float(pod["created"])) / 3600.0
             return float(pod.get("cost") or 0.0)
         created = pod.get("created") or now
         return float(pod["rate"]) * max(0.0, min(now, float(pod["until"])) - created) / 3600.0
@@ -292,9 +296,51 @@ class SharedLedger:
     def release_pod(self, run_id: str, key: str, cost: float) -> None:
         with self.locked() as state:
             pod = state["runs"].get(run_id, {}).get("pods", {}).get(key)
-            if pod is not None and pod.get("deleted") is None:
+            if pod is None:
+                return
+            if pod.get("kind") == "serverless" and not pod.get("settled"):
+                # the runner's cost wins over an older reconciler's $0 release
+                pod["deleted"] = pod.get("deleted") or self.clock()
+                pod["cost"] = max(float(pod.get("cost") or 0.0), float(cost))
+                pod["settled"] = "runner"
+            elif pod.get("deleted") is None:
                 pod["deleted"] = self.clock()
                 pod["cost"] = float(cost)
+
+    def settle_serverless(self, rp: Any, min_age_seconds: float = 7200.0) -> List[str]:
+        """Lower released serverless rows from their upper bound to the final billed amount
+        (``/billing/endpoints``) once the hour buckets are closed. Never below the estimate;
+        a zero/failed billing read keeps the upper bound."""
+        now = self.clock()
+        todo = []
+        with self.locked(write=False) as state:
+            for rid, run in state["runs"].items():
+                for key, pod in run["pods"].items():
+                    st = pod.get("settle") or {}
+                    if (
+                        pod.get("kind") == "serverless"
+                        and pod.get("settled") == "runner"
+                        and st.get("endpoint_id")
+                        and now - float(st.get("end") or now) >= min_age_seconds
+                    ):
+                        todo.append((rid, key, st))
+        done = []
+        for rid, key, st in todo:
+            try:
+                start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st["start"] - 3600))
+                end = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st["end"] + 3600))
+                billed = float(rp.endpoint_billing(st["endpoint_id"], start, end))
+            except Exception:  # noqa: BLE001 - keep the upper bound, retry next time
+                continue
+            if billed <= 0:
+                continue
+            with self.locked() as state:
+                pod = state["runs"][rid]["pods"][key]
+                pod["cost"] = max(billed, float(st.get("estimate") or 0.0))
+                pod["settled"] = "billing"
+                pod["settle"]["billing_final"] = billed
+            done.append(key)
+        return done
 
     def snapshot(self) -> Dict[str, Any]:
         with self.locked() as state:
@@ -356,6 +402,7 @@ class SharedLedger:
                         if not live_run and now > float(pod["until"]) + SLACK_SECONDS:
                             pod["deleted"] = now
                             pod["cost"] = self._pod_spent(dict(pod, deleted=None), now)
+                            pod["settled"] = "reconcile-worst"
                             released.append(key)
                         continue
                     if float(pod.get("created") or now) >= t_list - 300:
@@ -388,4 +435,9 @@ class SharedLedger:
                 rp.delete_pod(pid, confirm=True)
             except Exception:  # noqa: BLE001 - next reconcile retries
                 continue
-        return {"released": released, "deleted_overdue_dead_run_pods": [d[2] for d in deleted]}
+        settled = self.settle_serverless(rp) if hasattr(rp, "endpoint_billing") else []
+        return {
+            "released": released,
+            "deleted_overdue_dead_run_pods": [d[2] for d in deleted],
+            "serverless_settled": settled,
+        }

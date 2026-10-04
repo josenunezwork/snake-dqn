@@ -19,11 +19,29 @@ from pathlib import Path
 
 import pytest
 
-from research.runpod_fanout import jobspec, ledger, runner, serverless, sls_handler, watchdog
+from research.runpod_fanout import (
+    jobspec,
+    ledger,
+    platform_rule,
+    runner,
+    serverless,
+    sls_handler,
+    watchdog,
+)
 from research.runpod_fanout.rp_client import RpClient, RunPodError
+from tests import test_runpod_fanout as tfo
 from tests.test_runpod_fanout import GREEDY, RANDOM, STUB, Clock, ep, free_port, job, make_repo
 
 MODEL = "AMD EPYC 9655 96-Core Processor"
+OTHER = "Intel Xeon Gold 6338"
+# STUB plus the numerics env the episode process saw (recorded inside "record").
+ENV_STUB = STUB.replace(
+    '"probes": {"x": {"apply_seconds_total": time.time()}}},',
+    '"probes": {"x": {"apply_seconds_total": time.time()}}, "env": {'
+    '"MKL_CBWR": os.environ.get("MKL_CBWR"), "OMP": os.environ.get("OMP_NUM_THREADS"), '
+    '"MKL": os.environ.get("MKL_NUM_THREADS")}},',
+)
+assert ENV_STUB != STUB
 
 
 @pytest.fixture(autouse=True)
@@ -56,16 +74,33 @@ def spol(**over):
 # ---------------------------------------------------------------- fake endpoint
 
 
-class FakeSls:
-    """Fake RunPod for serverless: jobs run ``sls_handler.handle`` when first polled."""
+ISA = {MODEL: ["avx2", "avx512f"], OTHER: ["avx2"]}
 
-    def __init__(self, models=(MODEL,), never_start=(), bad_output_key=None):
+
+class FakeSls:
+    """Fake RunPod for serverless: a job runs ``sls_handler.handle`` once polled enough."""
+
+    def __init__(
+        self,
+        models=(MODEL,),
+        never_start=False,
+        bad_output_key=None,
+        fail_unit_once=(),
+        delete_failures=0,
+        create_mode="ok",
+        running_polls=0,
+    ):
         self.endpoints, self.jobs = {}, {}
         self.created, self.deleted, self.scaled, self.cancelled, self.purged = [], [], [], [], []
         self.models = list(models)
-        self.never_start = set(never_start)
+        self.never_start = never_start
         self.bad_output_key = bad_output_key
+        self.fail_unit_once = set(fail_unit_once)
+        self.delete_failures = delete_failures
+        self.create_mode = create_mode
+        self.running_polls = running_polls
         self.balance_value = 40.0
+        self.billed = 0.001
         self.lock = threading.Lock()
         self.n = 0
         self.executed = 0
@@ -89,8 +124,12 @@ class FakeSls:
         body = json.loads(Path(body_path).read_text())
         self.n += 1
         eid = f"ep{self.n}"
-        self.endpoints[eid] = dict(body, id=eid)
         self.created.append(body)
+        if self.create_mode == "5xx-absent":
+            raise RunPodError("gateway", {"http_status": 502})
+        self.endpoints[eid] = dict(body, id=eid)
+        if self.create_mode == "5xx-created":
+            raise RunPodError("gateway", {"http_status": 502})
         return {"id": eid, "name": body["name"]}
 
     def update_endpoint(self, eid, body, confirm):
@@ -110,12 +149,15 @@ class FakeSls:
         if eid not in self.endpoints:
             raise RunPodError("nf", {"http_status": 404})
         assert self.endpoints[eid]["workersMax"] == 0, "delete before scale-to-0"
+        if self.delete_failures > 0:
+            self.delete_failures -= 1
+            raise RunPodError("busy", {"http_status": 500})
         self.endpoints.pop(eid)
         self.deleted.append(eid)
         return {}
 
     def endpoint_billing(self, eid, start, end):
-        return 0.001
+        return self.billed
 
     def sls(self, eid, op, job_id=None, body=None, confirm=False):
         if op == "run":
@@ -123,7 +165,7 @@ class FakeSls:
             assert set(body) == {"input", "policy"}
             self.n += 1
             jid = f"job{self.n}"
-            self.jobs[jid] = {"endpoint": eid, "input": body["input"], "done": None}
+            self.jobs[jid] = {"endpoint": eid, "input": body["input"], "done": None, "polls": 0}
             return {"id": jid, "status": "IN_QUEUE"}
         if op in ("cancel", "purge-queue"):
             assert confirm is True
@@ -133,18 +175,29 @@ class FakeSls:
         j = self.jobs.get(job_id)
         if j is None:
             raise RunPodError("nf", {"http_status": 404})
-        if self.endpoints.get(eid, {}).get("cpuFlavorIds", [""])[0] in self.never_start:
+        if self.never_start:
             return {"id": job_id, "status": "IN_QUEUE"}
+        j["polls"] += 1
+        if j["done"] is None and j["polls"] <= self.running_polls:
+            return {"id": job_id, "status": "IN_PROGRESS"}
         if j["done"] is None:
             with self.lock:
-                model = self.models[min(self.executed, len(self.models) - 1)]
+                model = self.models[self.executed % len(self.models)]
                 self.executed += 1
-                orig = sls_handler.cpu_model
+                keys = [e["key"] for e in j["input"].get("episodes", [])]
+                unit = platform_rule.unit_of_key(keys[0]) if keys else None
+                if unit in self.fail_unit_once:
+                    self.fail_unit_once.discard(unit)
+                    j["done"] = {"id": job_id, "status": "FAILED", "error": "worker died"}
+                    return j["done"]
+                orig_cpu, orig_isa = sls_handler.cpu_model, sls_handler.isa_flags
                 sls_handler.cpu_model = lambda: model
+                sls_handler.isa_flags = lambda: list(ISA.get(model, []))
                 try:
                     out = sls_handler.handle(j["input"])
                 finally:
-                    sls_handler.cpu_model = orig
+                    sls_handler.cpu_model, sls_handler.isa_flags = orig_cpu, orig_isa
+                out.setdefault("worker", {})["worker_id"] = f"w{self.executed}-{model[:5]}"
                 if self.bad_output_key and out.get("results"):
                     out["results"][0]["key"] = self.bad_output_key
                 j["done"] = {
@@ -152,7 +205,7 @@ class FakeSls:
                     "status": "COMPLETED",
                     "output": out,
                     "executionTime": 1500,
-                    "workerId": f"w-{model[:4]}",
+                    "workerId": f"w{self.executed}",
                 }
         return j["done"]
 
@@ -197,7 +250,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(sls_handler, "RUNTIME_DIR", rdir)
     monkeypatch.setattr(sls_handler, "LOCAL", tmp_path / "worker-local")
     sls_handler._VERIFIED.clear()
-    (tmp_path / "stub.py").write_text(STUB)
+    (tmp_path / "stub.py").write_text(ENV_STUB)
     state = tmp_path / "stubstate"
     state.mkdir()
     monkeypatch.setenv(
@@ -226,16 +279,27 @@ def world(tmp_path, monkeypatch):
     }
 
 
-def make_sls_runner(w, episodes, fake, budget=3.0, workers=2, vcpu=4, flavors=("cpu5c",)):
+def make_sls_runner(
+    w,
+    episodes,
+    fake,
+    budget=3.0,
+    workers=2,
+    vcpu=4,
+    flavors=("cpu5c", "cpu3c"),
+    name="sls-r1",
+    fp=None,
+    **kw,
+):
     j = job(episodes, repo_commit=w["commit"], checkpoints=[w["hero"]])
     for e in j["episodes"]:
         e["roster_member_sha256s"] = [w["hero"], RANDOM, GREEDY, RANDOM, GREEDY]
     clock = Clock()
     return serverless.ServerlessRunner(
         j,
-        w["fp"],
+        fp or w["fp"],
         w["allow"],
-        w["tmp"] / "runs" / "sls-r1",
+        w["tmp"] / "runs" / name,
         sls_policy=w["sp"],
         sizing={"workers": workers, "vcpu_per_worker": vcpu},
         flavors=list(flavors),
@@ -249,81 +313,119 @@ def make_sls_runner(w, episodes, fake, budget=3.0, workers=2, vcpu=4, flavors=("
         spawn_watchdog=lambda r: None,
         preflight_fn=lambda: [],
         probe_workers=2,
+        **kw,
     )
 
 
 def eps6():
+    """Three worlds x arms A, B: three units of two episodes each."""
     return [ep(a, seed=s, index=i) for a in "AB" for i, s in enumerate((11, 12, 13))]
+
+
+def records_of(run_dir):
+    return runner.load_records(run_dir)
+
+
+def ledger_rows(w):
+    state = json.loads(
+        (Path(w["fp"]["artifacts_root"]) / "runpod-fanout/ledger-v2.json").read_text()
+    )
+    return [p for run in state["runs"].values() for p in run["pods"].values()]
+
+
+K = "apex-veto-v8-screen-v1__h1000__live/"
 
 
 # ---------------------------------------------------------------- end to end (fake)
 
 
-def test_serverless_end_to_end(world):
-    fake = FakeSls()
+def test_serverless_end_to_end_one_world_per_job(world):
+    fake = FakeSls(running_polls=1)
     r = make_sls_runner(world, eps6(), fake)
     assert r.run() == 0
-    recs = sorted((r.run_dir / "records").rglob("*.json"))
+    recs = records_of(r.run_dir)
     assert len(recs) == 6
-    one = json.loads(next((r.run_dir / "records").rglob("A-scripted-11.json")).read_text())
+    one = recs[K + "A-scripted-11.json"]
     assert one["fanout"]["job_id"] == "unit-job" and one["platform"]["platform_id"] == "stub"
+    assert one["platform"]["isa_flags"] == ["avx2", "avx512f"]
+    assert one["platform"]["backend"] == "serverless" and one["platform"]["worker_id"]
+    # numerics reached the episode process: fixed threads + MKL_CBWR=COMPATIBLE
+    assert one["record"]["env"] == {"MKL_CBWR": "COMPATIBLE", "OMP": "2", "MKL": "2"}
     body = fake.created[0]
     assert body["workersMin"] == 0 and body["workersMax"] == 2 and body["vcpuCount"] == 4
-    assert body["cpuFlavorIds"] == ["cpu5c"] and body["dataCenterIds"] == ["EU-RO-1"]
+    assert body["cpuFlavorIds"] == ["cpu5c", "cpu3c"] and body["dataCenterIds"] == ["EU-RO-1"]
     assert body["networkVolumeId"] == "vol1" and body["templateId"] == "tpl1"
     assert body["name"].startswith("rpf-sls-unit-job--sls-r1-")
+    # one job = one world: both arms of a world, never two worlds
+    sub = [j["input"] for j in fake.jobs.values() if j["input"]["op"] == "episodes"]
+    assert len(sub) == 3
+    for i in sub:
+        units = {platform_rule.unit_of_key(e["key"]) for e in i["episodes"]}
+        assert len(units) == 1 and len(i["episodes"]) == 2
+        assert i["require_cpu_model"] is None and i["numerics_env"]["MKL_CBWR"] == "COMPATIBLE"
     # torn down: scaled to 0 (asserted by the fake) then deleted; nobody else touched
     assert fake.deleted == ["ep1"] and fake.endpoints == {}
     assert ("ep1", {"workersMin": 0, "workersMax": 0}) in fake.scaled
     receipt = json.loads((r.run_dir / "receipt.json").read_text())
     assert receipt["backend"] == "serverless" and receipt["exit_code"] == 0
     assert receipt["final_endpoints_runner_owned"] == [] and receipt["completed"] == 6
-    assert receipt["cpu_model_pin"] == MODEL
-    # the episode jobs carried the pin, the provider and <= slots episodes each
-    sub = [j["input"] for j in fake.jobs.values() if j["input"]["op"] == "episodes"]
-    assert all(i["require_cpu_model"] == MODEL for i in sub)
-    assert all(i["provider"] == "runpod-serverless:cpu5c" and len(i["episodes"]) <= 2 for i in sub)
-    # ledger: one serverless reservation, released with a positive cost
-    state = json.loads(
-        (Path(world["fp"]["artifacts_root"]) / "runpod-fanout/ledger-v2.json").read_text()
-    )
-    rows = [p for run in state["runs"].values() for p in run["pods"].values()]
-    assert len(rows) == 1 and rows[0]["kind"] == "serverless" and rows[0]["pod_id"] is None
-    assert rows[0]["deleted"] is not None and rows[0]["cost"] > 0
-    assert rows[0]["endpoint_id"] == "ep1"
+    assert receipt["per_world_problems"] == [] and receipt["units_published"] == 3
+    assert json.loads((r.run_dir / "endpoints" / "jobs.json").read_text()) == {}
+    # ledger: one serverless reservation, released at the upper bound (>= estimate)
+    (row,) = ledger_rows(world)
+    assert row["kind"] == "serverless" and row["pod_id"] is None and row["settled"] == "runner"
+    assert row["cost"] >= row["settle"]["estimate"] > 0 and row["endpoint_id"] == "ep1"
+    assert row["cost"] == pytest.approx(row["settle"]["upper"])
+    assert row["cost"] >= receipt["ledger_cost_usd_upper_bound"] - 1e-6
 
 
-def test_failed_episode_retried_once(world, monkeypatch):
-    monkeypatch.setenv("STUB_FAIL_ONCE", "apex-veto-v8-screen-v1__h1000__live/A-scripted-12.json")
+def test_worlds_may_differ_in_cpu_model_but_each_world_is_one_worker(world):
+    fake = FakeSls(models=[MODEL, OTHER])  # probe, then alternating models per job
+    r = make_sls_runner(world, eps6(), fake)
+    assert r.run() == 0
+    recs = records_of(r.run_dir)
+    sigs = platform_rule.unit_signatures(recs)
+    assert all(len(v) == 1 for v in sigs.values())
+    assert len({s for v in sigs.values() for s in v}) == 2  # two models across worlds
+    assert platform_rule.check_per_world(recs) == []
+    for unit, keys in platform_rule.group_units(recs).items():
+        assert len({recs[k]["platform"]["worker_id"] for k in keys}) == 1
+
+
+def test_lost_worker_restarts_the_whole_world_on_one_worker(world):
+    unit = "apex-veto-v8-screen-v1|scripted|12"
+    fake = FakeSls(fail_unit_once={unit})
+    r = make_sls_runner(world, eps6(), fake)
+    assert r.run() == 0
+    recs = records_of(r.run_dir)
+    keys = platform_rule.group_units(recs)[unit]
+    assert len(keys) == 2 and len({recs[k]["platform"]["worker_id"] for k in keys}) == 1
+    assert all(r.attempts[k] == 1 for k in keys)
+
+
+def test_failed_episode_restarts_its_world_and_duplicates_must_match(world, monkeypatch):
+    monkeypatch.setenv("STUB_FAIL_ONCE", K + "A-scripted-12.json")
     fake = FakeSls()
     r = make_sls_runner(world, eps6(), fake)
     assert r.run() == 0
-    assert r.attempts["apex-veto-v8-screen-v1__h1000__live/A-scripted-12.json"] == 1
+    recs = records_of(r.run_dir)
+    a, b = recs[K + "A-scripted-12.json"], recs[K + "B-scripted-12.json"]
+    assert a["platform"]["worker_id"] == b["platform"]["worker_id"]  # both from the re-run
+    assert r.attempts[K + "A-scripted-12.json"] == 1
     assert list((r.run_dir / "failures").glob("*.json"))
+    assert "stale_record" not in (r.run_dir / "events.jsonl").read_text()
 
 
-def test_cpu_model_mismatch_is_refused_and_requeued_free(world):
-    fake = FakeSls(models=[MODEL, "Intel Xeon Other", MODEL])
-    r = make_sls_runner(world, eps6(), fake)
-    assert r.run() == 0
-    assert r.refusals == 1 and all(v == 0 for v in r.attempts.values())
-    platforms = {
-        json.loads(p.read_text())["platform"]["platform_id"]
-        for p in (r.run_dir / "records").rglob("*.json")
-    }
-    assert platforms == {"stub"}
-
-
-def test_falls_back_to_cpu3c_when_no_cpu5c_worker_starts(world):
-    fake = FakeSls(never_start={"cpu5c"})
-    r = make_sls_runner(world, eps6()[:2], fake, flavors=("cpu5c", "cpu3c"))
-    assert r.run() == 0
-    assert [b["cpuFlavorIds"] for b in fake.created] == [["cpu5c"], ["cpu3c"]]
-    assert len(fake.deleted) == 2 and fake.endpoints == {}
+def test_no_worker_starts_stops_early_and_tears_down(world):
+    fake = FakeSls(never_start=True)
+    r = make_sls_runner(world, eps6()[:2], fake)
+    assert r.run() == 4
+    assert "no serverless worker" in r.stop_reason
+    assert fake.endpoints == {} and fake.deleted == ["ep1"]
 
 
 def test_unknown_record_aborts_and_tears_down(world):
-    fake = FakeSls(bad_output_key="apex-veto-v8-screen-v1__h1000__live/Z-x-1.json")
+    fake = FakeSls(bad_output_key=K + "Z-x-1.json")
     r = make_sls_runner(world, eps6()[:2], fake)
     assert r.run() == 3
     assert fake.endpoints == {} and fake.deleted
@@ -344,6 +446,72 @@ def test_not_seeded_refuses_before_any_endpoint(world):
     with pytest.raises(jobspec.JobError, match="not seeded"):
         r.run()
     assert fake.created == []
+
+
+def test_delete_failures_are_retried_and_swept(world):
+    fake = FakeSls(delete_failures=5)  # close_endpoint gives up after 4, the sweep finishes
+    r = make_sls_runner(world, eps6()[:2], fake)
+    assert r.run() == 0
+    assert fake.endpoints == {} and fake.deleted == ["ep1"]
+    (row,) = ledger_rows(world)
+    assert row["deleted"] is not None and row["settled"] == "runner"
+
+
+def test_create_with_unknown_outcome_is_adopted(world):
+    fake = FakeSls(create_mode="5xx-created")
+    r = make_sls_runner(world, eps6()[:2], fake)
+    assert r.run() == 0
+    assert fake.endpoints == {} and fake.deleted == ["ep1"]
+
+
+def test_create_with_unknown_outcome_absent_releases_the_reservation(world):
+    fake = FakeSls(create_mode="5xx-absent")
+    r = make_sls_runner(world, eps6()[:2], fake)
+    assert r.run() == 3
+    (row,) = ledger_rows(world)
+    assert row["deleted"] is not None and row["cost"] == 0.0
+
+
+def test_billing_guard_aborts_when_billing_exceeds_the_reservation(world):
+    fake = FakeSls(running_polls=10**6)  # jobs never finish
+    fake.billed = 50.0
+    r = make_sls_runner(world, eps6()[:2], fake)
+    assert r.run() == 3
+    assert "billing" in r.stop_reason and fake.endpoints == {}
+
+
+def test_resume_runs_only_missing_worlds_and_merges_per_world(world, monkeypatch):
+    monkeypatch.setenv("STUB_FAIL_ONCE", K + "B-scripted-13.json")
+    fp1 = dict(world["fp"], max_attempts_per_episode=1)  # the first run gives up on world 13
+    r1 = make_sls_runner(world, eps6(), FakeSls(), fp=fp1, name="sls-r1")
+    assert r1.run() == 4
+    assert len(records_of(r1.run_dir)) == 4
+    fake2 = FakeSls(models=[OTHER])
+    r2 = make_sls_runner(world, eps6(), fake2, name="sls-r2", resume_from=[r1.run_dir])
+    assert r2.resume_info["units_already_complete"] == 2 and r2.order == [
+        K + "A-scripted-13.json",
+        K + "B-scripted-13.json",
+    ]
+    assert r2.run() == 0  # an incomplete earlier run does not block (idempotency rc 6)
+    sub = [j["input"] for j in fake2.jobs.values() if j["input"]["op"] == "episodes"]
+    assert len(sub) == 1
+    out = runner.merge_runs([r1.run_dir, r2.run_dir], world["tmp"] / "merged")
+    assert out["records"] == 6 and out["units"] == 3
+    merged = runner.load_records(world["tmp"] / "merged")
+    assert platform_rule.check_per_world(merged) == []
+    receipt = json.loads((r2.run_dir / "receipt.json").read_text())
+    assert receipt["resume"]["keys_skipped"] == 4
+    # the job is now complete: another run is refused (rc 6) and creates nothing
+    fake3 = FakeSls()
+    r3 = make_sls_runner(world, eps6(), fake3, name="sls-r3", resume_from=[r1.run_dir, r2.run_dir])
+    assert r3.order == [] and r3.run() == runner.EXIT_DUPLICATE and fake3.created == []
+
+
+def test_resume_refuses_another_job(world):
+    r1 = make_sls_runner(world, eps6()[:2], FakeSls(), name="sls-r1")
+    assert r1.run() == 0
+    with pytest.raises(jobspec.JobError, match="different job"):
+        make_sls_runner(world, eps6(), FakeSls(), name="sls-r2", resume_from=[r1.run_dir])
 
 
 # ---------------------------------------------------------------- handler
@@ -392,7 +560,7 @@ def test_handler_runs_episode_and_strips_secrets(world, monkeypatch, tmp_path):
         ({"runtime_id": "0" * 16}, "runtime"),
         ({"repo_sha256": "1" * 64}, "sha256"),
         ({"require_cpu_model": "Other CPU"}, "cpu_model"),
-        ({"require_cpu_model": None}, "cpu_model"),
+        ({"numerics_env": {"LD_PRELOAD": "/x.so"}}, "not allowed"),
         ({"job_id": "Bad Id"}, "job id"),
         ({"slots": 99}, "range"),
     ],
@@ -440,13 +608,17 @@ def test_template_endpoint_and_seeder_bodies_have_no_secrets(tmp_path):
     assert "@sha256:" in t["imageName"]
     assert f"/runpod-volume/rpf/runtime/{rid}/sls_handler.py" in t["dockerStartCmd"][2]
     e = serverless.endpoint_body(
-        sp, "rpf-sls-x--y-1", "tpl", {"id": "v", "dataCenterId": "EU-RO-1"}, "cpu5c", 3, 8, 600
+        sp,
+        "rpf-sls-x--y-1",
+        "tpl",
+        {"id": "v", "dataCenterId": "EU-RO-1"},
+        ["cpu5c", "cpu3c"],
+        3,
+        8,
+        600,
     )
-    assert (
-        e["workersMin"] == 0
-        and e["cpuFlavorIds"] == ["cpu5c"]
-        and e["executionTimeoutMs"] == 600000
-    )
+    assert e["workersMin"] == 0 and e["cpuFlavorIds"] == ["cpu5c", "cpu3c"]
+    assert e["executionTimeoutMs"] == 600000
     s = serverless.seeder_pod_body(
         fp, sp, "rpf-seed-x--y-1", {"id": "v", "dataCenterId": "EU-RO-1"}, "ab" * 32, 123, "seed-x"
     )
@@ -482,10 +654,11 @@ def test_policy_guards(tmp_path):
 
 def test_sizing_prefers_cheapest_within_target_and_respects_limits(tmp_path):
     fp, sp = fpol(tmp_path), spol()
-    eps = [dict(ep("A", seed=s), horizon=5000) for s in range(400)]
+    eps = [dict(ep(a, seed=s), horizon=5000) for s in range(200) for a in "AB"]
     plan = serverless.sizing_plan(
-        fp, sp, eps, budget=20.0, max_wall_minutes=90, flavor="cpu5c", headroom=30.0
+        fp, sp, eps, budget=20.0, max_wall_minutes=90, flavors=["cpu5c", "cpu3c"], headroom=30.0
     )
+    assert plan["world_units"] == 200 and plan["usd_per_vcpu_hr_reserved"] == 0.042
     c = plan["choice"]
     assert plan["choice_ok"] and c["wall_minutes"] <= 30 and not c["refused"]
     assert c["worst_case_usd"] <= 20.0
@@ -493,11 +666,11 @@ def test_sizing_prefers_cheapest_within_target_and_respects_limits(tmp_path):
     assert walls == sorted(walls)
     costs = [r["expected_usd"] for r in plan["speed_cost_tradeoff"]]
     assert costs == sorted(costs, reverse=True)
-    tiny = serverless.sizing_plan(fp, sp, eps, budget=0.05, max_wall_minutes=90, flavor="cpu5c")
+    tiny = serverless.sizing_plan(fp, sp, eps, budget=0.05, max_wall_minutes=90, flavors=["cpu5c"])
     assert not tiny["choice_ok"]
-    forced = serverless.sizing_plan(fp, sp, eps, 20.0, 90, "cpu5c", workers=3, vcpu=8)
+    forced = serverless.sizing_plan(fp, sp, eps, 20.0, 90, ["cpu5c"], workers=3, vcpu=8)
     assert (forced["choice"]["workers"], forced["choice"]["vcpu_per_worker"]) == (3, 8)
-    capped = serverless.sizing_plan(fp, sp, eps, 1000.0, 90, "cpu5c", headroom=1.0)
+    capped = serverless.sizing_plan(fp, sp, eps, 1000.0, 90, ["cpu5c"], headroom=1.0)
     assert all(r["worst_case_usd"] <= 1.0 for r in capped["speed_cost_tradeoff"])
 
 
@@ -844,7 +1017,7 @@ def test_seed_runner_seeds_registers_and_deletes_the_pod(tmp_path):
         assert r.run() == 0, (r.run_dir / "events.jsonl").read_text()[-1500:]
         assert fake.deleted == ["pod1"] and fake.procs == {}
         body = fake.created[0]
-        assert body["name"].startswith(f"rpf-seed-{commit[:8]}-") and body["vcpuCount"] == 2
+        assert body["name"].startswith("rpf-seed-") and body["vcpuCount"] == 2
         reg = serverless.Registry(fp).read()
         rid = serverless.runtime_id(fp, sp)
         assert reg["commits"][commit]["repo_sha256"] == jobspec.git_archive(
@@ -882,8 +1055,278 @@ def test_plan_serverless_reports_seed_state_and_sizing(world):
         j, world["fp"], world["sp"], world["allow"], 2.0, rp=PlanRp(), repo=world["repo"]
     )
     assert out["seeding"]["ready"] is True and out["commit_problems"] == []
-    assert out["sizing"]["cpu5c"]["choice_ok"] and out["flavors_in_order"] == ["cpu5c", "cpu3c"]
+    assert out["sizing"]["choice_ok"] and out["flavors_in_order"] == ["cpu5c", "cpu3c"]
     body = out["endpoint_body_dry_run"]
     assert body["workersMin"] == 0 and body["templateId"] == "tpl1"
     assert out["storage"]["usd_per_month"] == pytest.approx(0.35)
     assert [e["name"] for e in out["existing_runner_endpoints"]] == []
+
+
+# ---------------------------------------------------------------- pods backend: per-world
+
+
+def test_pods_dispatch_whole_worlds_with_numerics_env(tmp_path):
+    state = tmp_path / "stubstate"
+    state.mkdir()
+    fake = tfo.FakeRp(tmp_path, stub_env={"STUB_STATE": str(state)})
+    try:
+        eps = [ep(a, seed=s, index=i) for a in "AB" for i, s in enumerate((21, 22, 23))]
+        r = tfo.make_runner(tmp_path, eps, fake)
+        (tmp_path / "stub.py").write_text(ENV_STUB)
+        (Path(fake.tmp) / "stub.py").write_text(ENV_STUB)
+        assert r.run() == 0
+    finally:
+        fake.close()
+    body = fake.created[0]
+    assert json.loads(body["env"]["FANOUT_NUMERICS_JSON"]) == {
+        "MKL_CBWR": "COMPATIBLE",
+        "MKL_NUM_THREADS": "2",
+        "OMP_NUM_THREADS": "2",
+    }
+    recs = records_of(r.run_dir)
+    assert len(recs) == 6
+    for e in recs.values():
+        assert e["record"]["env"] == {"MKL_CBWR": "COMPATIBLE", "OMP": "2", "MKL": "2"}
+        assert e["platform"]["backend"] == "pods" and "isa_flags" in e["platform"]
+    for unit, keys in platform_rule.group_units(recs).items():
+        assert len({recs[k]["platform"]["worker_id"] for k in keys}) == 1
+    events = [json.loads(x) for x in (r.run_dir / "events.jsonl").read_text().splitlines()]
+    assigned = [u for e in events if e["event"] == "assigned" for u in e["units"]]
+    assert sorted(assigned) == sorted(platform_rule.group_units(recs))
+    receipt = json.loads((r.run_dir / "receipt.json").read_text())
+    assert receipt["per_world_problems"] == [] and receipt["units_published"] == 3
+
+
+def test_pods_lost_worker_restarts_whole_world_and_late_records_are_only_checked(tmp_path):
+    state = tmp_path / "stubstate"
+    state.mkdir()
+    fake = tfo.FakeRp(tmp_path, stub_env={"STUB_STATE": str(state)})
+    eps = [ep("A", seed=31), ep("B", seed=31)]
+    r = tfo.make_runner(tmp_path, eps, fake)
+    fake.close()
+    r.run_dir.mkdir(parents=True)
+    ka, kb = (jobspec.episode_key(e) for e in r.job["episodes"])
+    unit = platform_rule.unit_of_key(ka)
+
+    def rec(key, mass=1.0):
+        e = r.episodes[key]
+        entry = {
+            k: e[k] for k in ("arm", "mix", "world_seed", "world_index", "roster_member_sha256s")
+        }
+        entry.update(
+            {
+                "record": {"mass_integral": mass},
+                "platform": {"platform_id": "stub"},
+                "fanout": {
+                    "job_id": r.job["job_id"],
+                    "episode_key": key,
+                    "repo_commit": r.job["repo_commit"],
+                    "spec_sha256": runner.spec_sha256(e),
+                },
+            }
+        )
+        return json.dumps(entry).encode()
+
+    pod_x = runner.Pod(id="pX", name="n", vcpu=8, dc="X", rate=0.1, token="", created=0)
+    r.pods["pX"] = pod_x
+    r.workers_info["pX"] = {"isa_flags": ["avx2"], "worker_id": "pX", "backend": "pods"}
+    r.workers_info["pY"] = {"isa_flags": ["avx2", "avx512f"], "worker_id": "pY", "backend": "pods"}
+    assert r.take_unit(unit, "pX") == [ka, kb]
+    pod_x.inflight.update([ka, kb])
+    r.accept_record(ka, rec(ka), "pX")  # A done on pX, then pX is lost
+    assert not (r.run_dir / "records").exists()
+    r.requeue(pod_x, [ka, kb], "pod lost")
+    assert r.pending == [ka, kb] and unit not in r.staged and r.attempts[ka] == 1
+    r.take_unit(unit, "pY")
+    r.accept_record(ka, rec(ka), "pX")  # a late copy from the lost worker: checked, ignored
+    r.accept_record(ka, rec(ka), "pY")
+    assert not (r.run_dir / "records").exists()  # the unit waits for B from pY
+    r.accept_record(kb, rec(kb, 2.0), "pY")
+    recs = records_of(r.run_dir)
+    assert {e["platform"]["worker_id"] for e in recs.values()} == {"pY"}
+    assert platform_rule.check_per_world(recs) == []
+    with pytest.raises(runner.Abort, match="DIVERGENT"):  # any differing duplicate aborts
+        r.accept_record(ka, rec(ka, 9.0), "pX")
+
+
+def test_numerics_env_and_isa_cap_override(tmp_path):
+    fp = fpol(tmp_path)
+    assert runner.numerics_env(fp) == {
+        "OMP_NUM_THREADS": "2",
+        "MKL_NUM_THREADS": "2",
+        "MKL_CBWR": "COMPATIBLE",
+    }
+    capped = runner.numerics_env(dict(fp, isa_cap="AVX2"))
+    assert capped["MKL_CBWR"] == "AVX2" and capped["ONEDNN_MAX_CPU_ISA"] == "AVX2"
+
+
+def test_platform_rule_units_and_signatures():
+    assert platform_rule.unit_of_key("w__h1000__live/K12S-mixed-7.json") == "w|mixed|7"
+    recs = {
+        "w__h1000__live/A-mixed-7.json": {"platform": {"platform_id": "p", "isa_flags": ["avx2"]}},
+        "w__h1000__live/B-mixed-7.json": {
+            "platform": {"platform_id": "p", "isa_flags": ["avx2", "avx512f"]}
+        },
+        "w__h1000__live/A-mixed-8.json": {"platform": {"platform_id": "q"}},
+    }
+    probs = platform_rule.check_per_world(recs)
+    assert len(probs) == 1 and "w|mixed|7" in probs[0]
+    flags = platform_rule.isa_flags_from_cpuinfo("flags\t: fpu sse4_2 avx avx2 avx512f amx_tile\n")
+    assert flags == ["sse4_2", "avx", "avx2", "avx512f", "amx_tile"]
+
+
+# ---------------------------------------------------------------- ledger settle
+
+
+def test_old_zero_release_is_overridden_and_unsettled_rows_count_worst(tmp_path):
+    fp = fpol(tmp_path)
+    t = [1000.0]
+    new = ledger.SharedLedger(fp, clock=lambda: t[0], alive=lambda *a: True)
+    new.register_run("r", "j", "d", 5.0, os.getpid())
+    new.reserve_pod("r", "sls:e", 3.6, 1000 + 3600, 40.0, kind="serverless")
+    old = old_ledger_module().SharedLedger(fp, clock=lambda: t[0], alive=lambda *a: False)
+    t[0] += 3600 + 400  # past horizon + slack: the old reconcile records it at $0
+    assert old.reconcile(ListPods())["released"] == ["sls:e"]
+    row = json.loads(new.path.read_text())["runs"]["r"]["pods"]["sls:e"]
+    assert row["cost"] == 0.0 and "settled" not in row
+    # new readers charge the worst case for such a row ...
+    spent0 = float(fp.get("prior_spend_usd", 0.0))
+    assert new.peek()["spent_usd"] == pytest.approx(spent0 + 3.6, rel=1e-6)
+    # ... and the runner's later release still lands (max with the $0)
+    new.release_pod("r", "sls:e", 1.25)
+    row = json.loads(new.path.read_text())["runs"]["r"]["pods"]["sls:e"]
+    assert row["cost"] == 1.25 and row["settled"] == "runner"
+
+
+def test_settle_serverless_lowers_to_final_billing(tmp_path):
+    fp = fpol(tmp_path)
+    t = [1000.0]
+    lg = ledger.SharedLedger(fp, clock=lambda: t[0], alive=lambda *a: True)
+    lg.register_run("r", "j", "d", 5.0, os.getpid())
+    lg.reserve_pod("r", "sls:e", 3.6, 1000 + 3600, 40.0, kind="serverless")
+    lg.release_pod("r", "sls:e", 2.0)
+    lg.annotate(
+        "r",
+        "sls:e",
+        settle={"endpoint_id": "ep1", "start": 1000, "end": 1500, "estimate": 0.3, "upper": 2.0},
+    )
+
+    class Billing:
+        amount = 0.0
+
+        def endpoint_billing(self, eid, start, end):
+            assert eid == "ep1"
+            return self.amount
+
+    b = Billing()
+    assert lg.settle_serverless(b) == []  # too early: hour buckets not final
+    t[0] += 3 * 3600
+    assert lg.settle_serverless(b) == []  # zero billing keeps the upper bound
+    b.amount = 0.42
+    assert lg.settle_serverless(b) == ["sls:e"]
+    row = json.loads(lg.path.read_text())["runs"]["r"]["pods"]["sls:e"]
+    assert row["cost"] == 0.42 and row["settled"] == "billing"
+    assert lg.settle_serverless(b) == []
+
+
+# ---------------------------------------------------------------- cleanup / watchdog / seed
+
+
+def test_endpoint_cleanup_all_runner_endpoints_matches(monkeypatch, tmp_path, capsys):
+    assert serverless.owned_endpoint("rpf-sls-", "rpf-sls-myjob--sls-x-1")
+    assert serverless.owned_endpoint("rpf-sls-myjob--", "rpf-sls-myjob--sls-x-1 -fb")
+    assert not serverless.owned_endpoint("rpf-sls-myjob--sls-x-", "rpf-sls-myjob--sls-x-10a")
+    assert not serverless.owned_endpoint("rpf-sls-", "someone-else")
+    fake = FakeSls()
+    fake.endpoints["e9"] = {"id": "e9", "name": "rpf-sls-myjob--sls-x-1", "workersMax": 2}
+    monkeypatch.setattr(serverless, "RpClient", lambda: fake)
+    fp, sp = fpol(tmp_path), spol()
+    a = type(
+        "A", (), {"job_id": None, "all_runner_endpoints": True, "confirm": True, "force": False}
+    )()
+    assert serverless.cmd_endpoint_cleanup(a, fp, sp) == 0
+    assert fake.deleted == ["e9"] and "otherep" not in fake.deleted
+
+
+def test_watchdog_runner_dead_cancels_persisted_jobs(tmp_path):
+    run_dir = tmp_path / "run"
+    (run_dir / "endpoints").mkdir(parents=True)
+    mine = "rpf-sls-unit-job--sls-r1-"
+    (run_dir / "endpoints" / f"{mine}1.response.json").write_text(
+        json.dumps({"id": "e1", "name": f"{mine}1", "rpf_until_epoch": time.time() + 9999})
+    )
+    (run_dir / "endpoints" / "jobs.json").write_text(json.dumps({"e1": ["j1", "j2"]}))
+    state = tmp_path / "fake.json"
+    state.write_text(
+        json.dumps({"pods": [], "endpoints": [{"id": "e1", "name": f"{mine}1", "workersMax": 4}]})
+    )
+
+    class Rp(watchdog.FileFakeRp):
+        cancelled = []
+
+        def sls(self, endpoint_id, op, job_id=None, body=None, confirm=False):
+            assert confirm
+            self.cancelled.append((op, job_id))
+            return {}
+
+    rp = Rp(str(state))
+    t = [time.time()]
+
+    def sleep(s):
+        t[0] += s
+
+    reason = watchdog.watch(
+        "unit-job",
+        t[0] + 99999,
+        run_dir,
+        999999,
+        rp=rp,
+        sleep=sleep,
+        clock=lambda: t[0],
+        alive=lambda pid: False,
+        prefix="rpf-unit-job--sls-r1-",
+        endpoint_prefix=mine,
+        resweep_seconds=0,
+    )
+    assert reason == "runner dead"
+    assert ("cancel", "j1") in rp.cancelled and ("cancel", "j2") in rp.cancelled
+    assert json.loads(state.read_text())["deleted_endpoints"] == ["e1"]
+
+
+def test_seed_job_id_depends_on_volume_and_checkpoints_and_one_seeder_at_a_time(tmp_path):
+    import fcntl
+
+    fp, sp = fpol(tmp_path), spol()
+    c = "a" * 40
+
+    def jid(vol, ck):
+        return serverless.SeedRunner(
+            fp,
+            sp,
+            {},
+            tmp_path / "x",
+            commit=c,
+            volume={"id": vol, "dataCenterId": "EU-RO-1"},
+            ckpts=ck,
+            rp=FakeSls(),
+        ).job["job_id"]
+
+    assert jid("v1", ["1" * 64]) == jid("v1", ["1" * 64])
+    assert jid("v1", ["1" * 64]) != jid("v2", ["1" * 64]) != jid("v1", ["1" * 64, "2" * 64])
+    assert len(jid("v1", [])) <= 24
+    reg = serverless.Registry(fp)
+    reg.root.mkdir(parents=True)
+    with (reg.root / "seed.lock").open("a") as h:
+        fcntl.flock(h.fileno(), fcntl.LOCK_EX)
+        r = serverless.SeedRunner(
+            fp,
+            sp,
+            {},
+            tmp_path / "x",
+            commit=c,
+            volume={"id": "v1", "dataCenterId": "EU-RO-1"},
+            ckpts=[],
+            rp=FakeSls(),
+            confirm=True,
+        )
+        assert r.run() == 2

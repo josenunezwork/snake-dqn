@@ -34,7 +34,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, List, Mapping, Optional
 
 HANDLER_SCHEMA = "rpf-sls-handler/v1"
 ROOT = Path(os.environ.get("RPF_VOLUME_ROOT", "/runpod-volume/rpf"))
@@ -45,6 +45,31 @@ COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 JOB_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,23}$")
 KEY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.json$")
 SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "WEBHOOK", "AWS_")
+# Numerics knobs a job may set for its episodes (nothing else from the input reaches env).
+NUMERICS_KEYS = (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "MKL_CBWR",
+    "MKL_ENABLE_INSTRUCTIONS",
+    "ONEDNN_MAX_CPU_ISA",
+)
+ISA_FLAGS = (
+    "sse4_2",
+    "avx",
+    "avx2",
+    "fma",
+    "f16c",
+    "avx512f",
+    "avx512dq",
+    "avx512bw",
+    "avx512vl",
+    "avx512_vnni",
+    "avx512_bf16",
+    "avx512_fp16",
+    "amx_tile",
+    "amx_bf16",
+    "amx_int8",
+)  # same list as platform_rule.ISA_FLAGS
 _LOCK = threading.Lock()
 _VERIFIED: Dict[str, str] = {}  # path -> sha256 already verified in this worker
 
@@ -71,6 +96,17 @@ def cpu_model() -> str:
     return "unknown"
 
 
+def isa_flags() -> List[str]:
+    try:
+        for line in Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("flags"):
+                have = set(line.split(":", 1)[1].split())
+                return [f for f in ISA_FLAGS if f in have]
+    except OSError:
+        pass
+    return []
+
+
 def runtime_manifest() -> Dict[str, Any]:
     try:
         return json.loads((RUNTIME_DIR / "READY.json").read_text())
@@ -87,6 +123,7 @@ def worker_info() -> Dict[str, Any]:
     return {
         "handler": HANDLER_SCHEMA,
         "cpu_model": cpu_model(),
+        "isa_flags": isa_flags(),
         "cores": cores,
         "runtime_id": ready.get("runtime_id"),
         "handler_sha256": sha_file(Path(__file__)),
@@ -170,20 +207,24 @@ def episode_key(spec: Mapping[str, Any]) -> str:
     return f"{group}/{spec['arm']}-{spec['mix']}-{int(spec['world_seed'])}.json"
 
 
-def clean_env(threads: str = "2") -> Dict[str, str]:
+def clean_env(numerics: Optional[Mapping[str, Any]] = None) -> Dict[str, str]:
     env = {
         k: v
         for k, v in os.environ.items()
-        if not any(m in k.upper() for m in SECRET_MARKERS) and not k.startswith("RPF_")
+        if not any(m in k.upper() for m in SECRET_MARKERS) and not k.startswith(("RPF_", "RUNPOD_"))
     }
     env.update(
         {
-            "OMP_NUM_THREADS": threads,
-            "MKL_NUM_THREADS": threads,
+            "OMP_NUM_THREADS": "2",
+            "MKL_NUM_THREADS": "2",
             "SNAKE_DQN_DEVICE": "cpu",
             "PYTHONHASHSEED": "0",
         }
     )
+    for k, v in (numerics or {}).items():
+        if k not in NUMERICS_KEYS:
+            raise Refused(f"numerics_env key {k!r} not allowed")
+        env[k] = str(v)
     return env
 
 
@@ -218,7 +259,7 @@ def run_episode(
         done = subprocess.run(
             cmd,
             cwd=str(repo),
-            env=clean_env(),
+            env=clean_env(inp.get("numerics_env")),
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -277,9 +318,10 @@ def handle(inp: Mapping[str, Any]) -> Dict[str, Any]:
             return {"refused": f"unknown op {op!r}", "worker": info}
         check_common(inp)
         want = inp.get("require_cpu_model")
-        if not want or info["cpu_model"] != want:
-            # One run = one CPU model: leave without running; the worker is recycled.
+        if want and info["cpu_model"] != want:
+            # Optional pin: leave without running; the worker is recycled.
             return {"refused": "cpu_model", "worker": info, "refresh_worker": True}
+        clean_env(inp.get("numerics_env"))  # validate before running anything
         if time.time() >= float(inp["deadline_epoch"]):
             return {"refused": "deadline", "worker": info}
         if not JOB_ID_RE.match(str(inp.get("job_id"))):

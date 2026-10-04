@@ -52,7 +52,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from research.runpod_fanout import jobspec  # noqa: E402
+from research.runpod_fanout import jobspec, platform_rule  # noqa: E402
 from research.runpod_fanout import runner as rmod  # noqa: E402
 from research.runpod_fanout.ledger import SLACK_SECONDS, DuplicateRun, SharedLedger  # noqa: E402
 from research.runpod_fanout.rp_client import RpClient, RunPodError  # noqa: E402
@@ -214,7 +214,7 @@ def endpoint_body(
     name: str,
     template_id: str,
     volume: Mapping[str, Any],
-    flavor: str,
+    flavors: Sequence[str],
     workers: int,
     vcpu: int,
     execution_timeout_s: float,
@@ -223,7 +223,8 @@ def endpoint_body(
         "name": name,
         "templateId": template_id,
         "computeType": "CPU",
-        "cpuFlavorIds": [flavor],  # ONE flavor per endpoint: never mix CPU generations
+        # rent order = preference (cpu5c first); mixed models are fine: one unit per worker
+        "cpuFlavorIds": list(flavors),
         "vcpuCount": int(vcpu),
         "dataCenterIds": [volume["dataCenterId"]],
         "networkVolumeId": volume["id"],
@@ -283,36 +284,47 @@ def seeder_pod_body(
 # ---------------------------------------------------------------- sizing
 
 
+def unit_times(
+    fp: Mapping[str, Any], episodes: Sequence[Mapping[str, Any]], slots: int
+) -> List[float]:
+    """Per world unit: wall on ONE worker with ``slots`` parallel episodes."""
+    by: Dict[str, List[float]] = {}
+    for e in episodes:
+        by.setdefault(platform_rule.unit_of_episode(e), []).append(rmod.episode_seconds(fp, e))
+    return [math.ceil(len(v) / max(1, slots)) * max(v) for v in by.values()]
+
+
 def sizing_plan(
     fp: Mapping[str, Any],
     sp: Mapping[str, Any],
     episodes: Sequence[Mapping[str, Any]],
     budget: float,
     max_wall_minutes: float,
-    flavor: str,
+    flavors: Sequence[str],
     headroom: Optional[float] = None,
     target_minutes: Optional[float] = None,
     workers: Optional[int] = None,
     vcpu: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Pick workersMax x vCPU/worker: the cheapest config finishing within the target wall
-    (default 30 min, else <= 60 min, else the fastest that fits), every option's worst case
-    (= what the ledger reserves) inside budget, account headroom and the hourly cap."""
+    (default 30 min, else <= 60 min, else the fastest that fits). One serverless job = one
+    world unit (all its arms on one worker). Every option's worst case (= what the ledger
+    reserves) must fit the budget, the account headroom and the hourly cap."""
     secs = [rmod.episode_seconds(fp, e) for e in episodes]
-    n_eps, total, longest = len(secs), sum(secs), max(secs)
-    mean = total / n_eps
-    price = float(sp["usd_per_vcpu_hr"][flavor])
+    price = max(float(sp["usd_per_vcpu_hr"][f]) for f in flavors)
     margin = float(sp["price_margin"])
     threads = int(fp["threads_per_episode"])
     horizon_s = 60 * max_wall_minutes + float(fp["watchdog_grace_seconds"]) + 300 + SLACK_SECONDS
     cold, idle = float(sp["cold_start_seconds_est"]), float(sp["idle_timeout_seconds"])
     target = float(target_minutes or sp["target_wall_minutes"])
     rows = []
+    n_units = len({platform_rule.unit_of_episode(e) for e in episodes})
     for w in sp["vcpu_sizes"]:
         slots = max(1, int(w) // threads)
+        times = unit_times(fp, episodes, slots)
+        mean_t, max_t = sum(times) / len(times), max(times)
         for n in range(1, int(sp["max_workers"]) + 1):
-            waves = math.ceil(n_eps / (n * slots))
-            wall = cold + max(longest, waves * mean)
+            wall = cold + max(max_t, math.ceil(len(times) / n) * mean_t)
             rate = n * int(w) * price
             worst = LEDGER_SAFETY * margin * rate * horizon_s / 3600
             why = []
@@ -329,7 +341,7 @@ def sizing_plan(
                     "workers": n,
                     "vcpu_per_worker": int(w),
                     "slots_per_worker": slots,
-                    "parallel_episodes": n * slots,
+                    "parallel_units": n,
                     "vcpu_total": n * int(w),
                     "wall_minutes": round(wall / 60, 1),
                     "expected_usd": round(rate * (wall + idle) / 3600, 3),
@@ -368,19 +380,21 @@ def sizing_plan(
         if all(r["expected_usd"] < f["expected_usd"] for f in front.values()):
             front[r["wall_minutes"]] = r
     return {
-        "flavor": flavor,
-        "usd_per_vcpu_hr": price,
+        "flavors": list(flavors),
+        "usd_per_vcpu_hr_reserved": price,
         "price_margin_reserved": margin,
-        "episodes": n_eps,
-        "episode_seconds_total_est": round(total, 1),
-        "longest_episode_seconds_est": round(longest, 1),
+        "episodes": len(secs),
+        "world_units": n_units,
+        "episode_seconds_total_est": round(sum(secs), 1),
+        "longest_episode_seconds_est": round(max(secs), 1),
         "target_wall_minutes": target,
         "reservation_horizon_minutes": round(horizon_s / 60, 1),
         "choice": choice,
         "choice_ok": bool(choice and not choice["refused"]),
         "speed_cost_tradeoff": list(front.values())[:10],
-        "note": "expected = all workers billed for the whole wall (+idle timeout); worst = "
-        "workersMax x vCPU x price x margin to the run's hard end (what the ledger reserves)",
+        "note": "one job = one world unit; expected = all workers billed for the whole wall "
+        "(+idle timeout); worst = workersMax x vCPU x max flavor price x margin to the run's "
+        "hard end (what the ledger reserves)",
     }
 
 
@@ -388,15 +402,23 @@ def sizing_plan(
 
 
 def owned_endpoint(prefix: str, name: Any) -> bool:
-    """``prefix`` + counter (RunPod may append a suffix after a space, e.g. ' -fb')."""
+    """``prefix`` + counter (RunPod may append a suffix after a space, e.g. ' -fb'). A
+    prefix ending in ``--`` (a job) or equal to the bare policy prefix matches any run."""
     head = str(name or "").split(" ")[0]
-    if prefix.endswith("--"):
+    if prefix.endswith("--") or "--" not in prefix:
         return head.startswith(prefix)
     return head.startswith(prefix) and head[len(prefix) :].isdigit()
 
 
 def _status(exc: RunPodError) -> Optional[int]:
     return exc.payload.get("http_status") if isinstance(exc.payload, dict) else None
+
+
+def _gone(rp: Any, endpoint_id: str) -> bool:
+    try:
+        return rp.get_endpoint(endpoint_id) is None
+    except RunPodError:
+        return False
 
 
 def teardown_endpoint(
@@ -413,7 +435,7 @@ def teardown_endpoint(
     try:
         rp.update_endpoint(endpoint_id, {"workersMin": 0, "workersMax": 0}, confirm=True)
     except RunPodError as exc:
-        if _status(exc) == 404:
+        if _status(exc) == 404 or _gone(rp, endpoint_id):
             return True
         log(f"scale-to-0 {endpoint_id} failed: {str(exc)[:160]}")
     for op, jid in [("purge-queue", None)] + [("cancel", j) for j in job_ids]:
@@ -436,17 +458,14 @@ def teardown_endpoint(
         try:
             rp.delete_endpoint(endpoint_id, confirm=True)
         except RunPodError as exc:
-            if _status(exc) == 404:
+            if _status(exc) == 404 or _gone(rp, endpoint_id):
                 return True
             log(f"delete {endpoint_id} failed (attempt {attempt + 1}): {str(exc)[:160]}")
             sleep(10 * (attempt + 1))
             continue
         for _ in range(3):
-            try:
-                if rp.get_endpoint(endpoint_id) is None:
-                    return True
-            except RunPodError:
-                pass
+            if _gone(rp, endpoint_id):
+                return True
             sleep(10)
     return False
 
@@ -464,6 +483,17 @@ def endpoint_registry(run_dir: Path, prefix: str) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def open_jobs(run_dir: Optional[Path]) -> Dict[str, List[str]]:
+    """endpoint id -> job ids the runner had in flight (``<run>/endpoints/jobs.json``)."""
+    if run_dir is None:
+        return {}
+    try:
+        data = json.loads((Path(run_dir) / "endpoints" / "jobs.json").read_text())
+        return {str(k): [str(j) for j in v] for k, v in data.items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
 def sweep_endpoints(
     rp: Any,
     prefix: str,
@@ -474,7 +504,8 @@ def sweep_endpoints(
     give_up_seconds: float = 3600.0,
     only_overdue_before: Optional[float] = None,
 ) -> List[str]:
-    """Tear down this prefix's endpoints (registry ids even if listing fails); leftovers."""
+    """Tear down this prefix's endpoints (registry ids even if listing fails), cancelling
+    the jobs the runner persisted; returns leftovers ([] = confirmed none left)."""
     started, gone = clock(), set()
     delay, left = 15.0, ["unconfirmed"]
     while clock() - started < give_up_seconds:
@@ -501,8 +532,9 @@ def sweep_endpoints(
             gone |= wanted - set(listed)
             if not listed:
                 return []
+        jobs = open_jobs(run_dir)
         for eid in targets:
-            if teardown_endpoint(rp, eid, (), log, sleep, clock):
+            if teardown_endpoint(rp, eid, jobs.get(eid, ()), log, sleep, clock):
                 gone.add(eid)
                 log(f"endpoint {eid} deleted")
         left = [t for t in targets if t not in gone]
@@ -521,6 +553,7 @@ class SlsJob:
     id: str
     endpoint: str  # endpoint name
     op: str
+    unit: Optional[str]
     keys: List[str]
     submitted: float
     timeout_s: float
@@ -533,11 +566,11 @@ class SlsJob:
 class Endpoint:
     name: str
     key: str
-    flavor: str
+    flavors: List[str]
     workers: int
     vcpu: int
-    rate: float  # reserved $/hr (margin included)
-    price_rate: float  # list $/hr for all workers (no margin)
+    rate: float  # reserved $/hr for all workers (max flavor price x margin)
+    price_rate: float  # list $/hr for all workers (max flavor price, no margin)
     created: float
     until: float
     id: Optional[str] = None
@@ -548,19 +581,29 @@ class Endpoint:
     released: bool = False
 
     def estimate(self, sp: Mapping[str, Any]) -> float:
+        """Best guess (job execution + one cold start/idle per worker seen); NOT a bound."""
         boot = len(self.workers_seen) * (
             float(sp["cold_start_seconds_est"]) + float(sp["idle_timeout_seconds"])
         )
         return self.price_rate / max(1, self.workers) * (self.exec_seconds + boot) / 3600
+
+    def upper_bound(self, now: float) -> float:
+        """Every worker billed for the endpoint's whole life at the reserved rate (+60 s)."""
+        end = self.deleted if self.deleted is not None else now
+        return self.rate * (max(0.0, end - self.created) + 60) / 3600
 
     def worst(self, now: float) -> float:
         end = self.deleted if self.deleted is not None else self.until
         return LEDGER_SAFETY * self.rate * (max(0.0, end - self.created) + 60) / 3600
 
 
+def iso(t: float) -> str:
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class ServerlessRunner(rmod.Runner):
     """Same job files, records, ledger, receipts and watchdog as pods; work goes to a
-    per-run serverless endpoint instead (see the module docstring)."""
+    per-run serverless endpoint, one world unit per job (see the module docstring)."""
 
     def __init__(
         self,
@@ -586,19 +629,16 @@ class ServerlessRunner(rmod.Runner):
         self.endpoints: Dict[str, Endpoint] = {}
         self.jobs: Dict[str, SlsJob] = {}
         self.ep_counter = 0
-        self.refusals = 0
         self.volume: Dict[str, Any] = {}
         self.template_id: Optional[str] = None
         self.probe_ok = False
-        self.done_at: Optional[float] = None
+        self.probe_job: Optional[str] = None
+        self.probe_worker: Dict[str, Any] = {}
+        self.last_billing_check = 0.0
 
     # ------------------------------------------------------------ naming
     def endpoint_prefix(self) -> str:
         return f"{self.sp['endpoint_prefix']}{self.job['job_id']}--{self.run_dir.name}-"
-
-    def current(self) -> Optional[Endpoint]:
-        live = [e for e in self.endpoints.values() if e.deleted is None and e.id]
-        return live[-1] if live else None
 
     # ------------------------------------------------------------ money
     def estimated_cost(self) -> float:
@@ -639,16 +679,15 @@ class ServerlessRunner(rmod.Runner):
 
     # ------------------------------------------------------------ endpoint
     def exec_timeout(self, keys: Sequence[str]) -> float:
-        longest = max(rmod.episode_seconds(self.policy, self.episodes[k]) for k in keys)
-        return 4 * longest + 300
+        return 4 * self.unit_seconds(keys, self.slots) + 300
 
     def max_exec_timeout(self) -> float:
-        return max(self.exec_timeout([k]) for k in self.order)
+        return max(self.exec_timeout(keys) for keys in self.units.values())
 
-    def open_endpoint(self, flavor: str) -> Endpoint:
+    def open_endpoint(self) -> Endpoint:
         now = self.clock()
         until = self.hard_end
-        price = float(self.sp["usd_per_vcpu_hr"][flavor])
+        price = max(float(self.sp["usd_per_vcpu_hr"][f]) for f in self.flavors)
         margin = float(self.sp["price_margin"])
         self.ep_counter += 1
         name = f"{self.endpoint_prefix()}{self.ep_counter}"
@@ -657,7 +696,7 @@ class ServerlessRunner(rmod.Runner):
             balance = self.account_balance()
         except RunPodError as exc:
             raise Abort(f"balance unavailable: {exc}") from exc
-        why = "no worker count fits"
+        why: Optional[str] = "no worker count fits"
         workers = self.workers
         while workers >= 1:
             rate = workers * self.vcpu * price * margin
@@ -678,7 +717,7 @@ class ServerlessRunner(rmod.Runner):
         ep = Endpoint(
             name,
             key,
-            flavor,
+            list(self.flavors),
             workers,
             self.vcpu,
             workers * self.vcpu * price * margin,
@@ -692,7 +731,7 @@ class ServerlessRunner(rmod.Runner):
             name,
             self.template_id,
             self.volume,
-            flavor,
+            self.flavors,
             workers,
             self.vcpu,
             min(self.max_exec_timeout(), until - now),
@@ -715,17 +754,20 @@ class ServerlessRunner(rmod.Runner):
                 raise Abort(f"endpoint create refused ({status}): {str(exc.payload)[:200]}")
             out = self.find_endpoint_by_name(name)
             if out is None:
+                ep.deleted = self.clock()  # proven absent (two empty listings >= 60 s apart)
+                self.ledger_call("release_pod", self.run_id, key, 0.0)
+                ep.released = True
                 self.raise_deferred()
-                raise Abort("endpoint create failed with an unknown outcome (teardown sweeps)")
+                raise Abort("endpoint create failed (no endpoint exists)")
         except BaseException:
             rmod._DEFER["active"] = False
             raise
         rmod._DEFER["active"] = False
         if not isinstance(out, dict) or not out.get("id"):
-            out = self.find_endpoint_by_name(name)
-            if out is None:
+            out = self.find_endpoint_by_name(name) or {}
+            if not out.get("id"):
                 self.raise_deferred()
-                raise Abort("endpoint create returned no id (teardown sweeps by name)")
+                raise Abort("endpoint create returned no id (the teardown sweeps by name)")
         ep.id = str(out["id"])
         (self.run_dir / "endpoints" / f"{name}.response.json").write_text(
             json.dumps(
@@ -733,7 +775,7 @@ class ServerlessRunner(rmod.Runner):
                     "id": ep.id,
                     "name": name,
                     "rpf_until_epoch": until,
-                    "flavor": flavor,
+                    "flavors": self.flavors,
                     "workersMax": workers,
                     "vcpuCount": self.vcpu,
                 },
@@ -745,7 +787,7 @@ class ServerlessRunner(rmod.Runner):
             "endpoint_created",
             endpoint=ep.id,
             name=name,
-            flavor=flavor,
+            flavors=self.flavors,
             workers=workers,
             vcpu=self.vcpu,
             reserved_usd_per_hr=round(ep.rate, 4),
@@ -755,15 +797,36 @@ class ServerlessRunner(rmod.Runner):
         return ep
 
     def find_endpoint_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        for _ in range(3):
+        """A create with an unknown outcome: found, or absent in two listings >= 60 s apart."""
+        empty_since: Optional[float] = None
+        for _ in range(30):
             try:
-                for e in self.rp.list_endpoints():
-                    if str(e.get("name", "")).split(" ")[0] == name:
-                        return e
-                return None
+                rows = self.rp.list_endpoints()
             except RunPodError:
                 self.sleep(10)
-        return None
+                continue
+            for e in rows:
+                if str(e.get("name", "")).split(" ")[0] == name:
+                    return e
+            now = self.clock()
+            if empty_since is not None and now - empty_since >= 60:
+                return None
+            empty_since = empty_since if empty_since is not None else now
+            self.sleep(30)
+        raise Abort(f"cannot tell whether endpoint {name} exists (listing keeps failing)")
+
+    def persist_jobs(self) -> None:
+        """Open job ids per endpoint, so the watchdog can cancel them if this process dies."""
+        out: Dict[str, List[str]] = {}
+        for j in self.jobs.values():
+            ep = self.endpoints[j.endpoint]
+            if ep.id:
+                out.setdefault(ep.id, []).append(j.id)
+        d = self.run_dir / "endpoints"
+        d.mkdir(exist_ok=True)
+        tmp = d / ".jobs.json.tmp"
+        tmp.write_text(json.dumps(out, sort_keys=True))
+        os.replace(tmp, d / "jobs.json")
 
     def close_endpoint(self, ep: Endpoint, why: str) -> bool:
         if ep.deleted is not None:
@@ -784,6 +847,9 @@ class ServerlessRunner(rmod.Runner):
             self.log(
                 "endpoint_deleted", endpoint=ep.id, why=why, est_cost=round(ep.estimate(self.sp), 5)
             )
+            for jid in open_ids:
+                self.jobs.pop(jid, None)
+            self.persist_jobs()
         else:
             print(
                 f"!!! ENDPOINT {ep.id} NOT CONFIRMED DELETED; the watchdog keeps trying; "
@@ -793,8 +859,6 @@ class ServerlessRunner(rmod.Runner):
                 flush=True,
             )
             self.log("endpoint_delete_unconfirmed", endpoint=ep.id)
-        for jid in open_ids:
-            self.jobs.pop(jid, None)
         return ok
 
     # ------------------------------------------------------------ jobs
@@ -807,22 +871,24 @@ class ServerlessRunner(rmod.Runner):
             "checkpoints": sorted(self.job["checkpoints"]),
         }
 
-    def submit(self, ep: Endpoint, op: str, keys: List[str]) -> bool:
+    def submit(self, ep: Endpoint, op: str, unit: Optional[str] = None) -> bool:
         now = self.clock()
+        keys = self.unit_keys(unit) if unit else []
         timeout = self.exec_timeout(keys) if keys else 600.0
         timeout = min(timeout, self.hard_end - now - 60)
-        if timeout < 30:
+        if timeout < 30 or (unit and not keys):
             return False
         inp = self.base_input(op)
         if op == "episodes":
             inp.update(
                 {
                     "job_id": self.job["job_id"],
-                    "provider": f"runpod-serverless:{ep.flavor}",
+                    "provider": f"runpod-serverless:{'/'.join(ep.flavors)}",
                     "slots": self.slots,
-                    "timeout_seconds": timeout,
+                    "timeout_seconds": max(30.0, timeout - 60),  # inside RunPod's limit
                     "deadline_epoch": self.deadline,
-                    "require_cpu_model": self.cpu_model_pin,
+                    "require_cpu_model": None,  # per-world: any model, one worker per unit
+                    "numerics_env": dict(self.numerics),
                     "episodes": [{"key": k, "spec": self.episodes[k]} for k in keys],
                 }
             )
@@ -841,24 +907,15 @@ class ServerlessRunner(rmod.Runner):
         if not isinstance(out, dict) or not out.get("id"):
             self.log("submit_no_id", detail=str(out)[:200])
             return False
-        self.jobs[str(out["id"])] = SlsJob(str(out["id"]), ep.name, op, list(keys), now, timeout)
-        self.log("submitted", job=out["id"], op=op, keys=list(keys))
+        jid = str(out["id"])
+        if unit:
+            self.take_unit(unit, f"sls:{jid}")
+        self.jobs[jid] = SlsJob(jid, ep.name, op, unit, list(keys), now, timeout)
+        if op == "probe":
+            self.probe_job = jid
+        self.persist_jobs()
+        self.log("submitted", job=jid, op=op, unit=unit, keys=len(keys))
         return True
-
-    def requeue_keys(self, keys: Sequence[str], why: str, penalize: bool = True) -> None:
-        for key in sorted(keys):
-            if key in self.completed or key in self.failed or key in self.pending:
-                continue
-            if not penalize:
-                self.pending.insert(0, key)
-                continue
-            self.attempts[key] += 1
-            if self.attempts[key] >= int(self.policy["max_attempts_per_episode"]):
-                self.failed[key] = {"why": why, "attempts": self.attempts[key]}
-                self.log("episode_failed", key=key, why=why)
-            else:
-                self.pending.insert(0, key)
-                self.log("episode_requeued", key=key, why=why)
 
     def save_failure(self, job: SlsJob, info: Any) -> None:
         d = self.run_dir / "failures"
@@ -884,20 +941,23 @@ class ServerlessRunner(rmod.Runner):
                 continue
             if exc is not None:
                 j.errors += 1
-                gone = _status(exc) == 404
-                if gone or j.errors >= 20:
-                    self.jobs.pop(j.id)
+                if _status(exc) == 404 or j.errors >= 20:
+                    self.drop_job(j)
                     self.save_failure(j, {"status_error": str(exc)[:500]})
                     self.on_lost(j, "status unavailable")
                 continue
             j.errors = 0
             self.on_status(j, st if isinstance(st, dict) else {})
+        self.persist_jobs()
+
+    def drop_job(self, j: SlsJob) -> None:
+        self.jobs.pop(j.id, None)
+        if self.probe_job == j.id:
+            self.probe_job = None
 
     def on_lost(self, j: SlsJob, why: str) -> None:
-        if j.op == "probe":
-            self.probe_job = None
-        else:
-            self.requeue_keys(j.keys, why)
+        if j.unit:
+            self.requeue_unit(j.unit, why)  # the whole world restarts on one worker
 
     def on_status(self, j: SlsJob, st: Mapping[str, Any]) -> None:
         status = str(st.get("status") or "")
@@ -907,50 +967,37 @@ class ServerlessRunner(rmod.Runner):
             j.started = now
         if status in ("IN_QUEUE", "IN_PROGRESS", ""):
             if j.started and now - j.started > j.timeout_s + 600:  # should have timed out
-                self.jobs.pop(j.id)
+                self.drop_job(j)
                 self.cancel_quietly(j)
                 self.on_lost(j, "job overran its execution timeout")
             return
-        self.jobs.pop(j.id)
+        self.drop_job(j)
         ep = self.endpoints[j.endpoint]
         ep.exec_seconds += float(st.get("executionTime") or 0) / 1000.0
         if st.get("workerId"):
             ep.workers_seen.add(str(st["workerId"]))
-        if status != "COMPLETED":
+        out = st.get("output")
+        if status != "COMPLETED" or not isinstance(out, dict):
             self.save_failure(j, dict(st))
             if j.op == "probe":
                 raise Abort(f"probe job {status}: {str(st.get('error'))[:300]}")
-            self.requeue_keys(j.keys, f"job {status}")
+            self.on_lost(j, f"job {status or 'without output'}")
             return
-        out = st.get("output")
-        if not isinstance(out, dict):
-            self.save_failure(j, dict(st))
-            if j.op == "probe":
-                raise Abort("probe returned no output")
-            self.requeue_keys(j.keys, "job output missing")
-            return
-        worker = out.get("worker") or {}
+        worker = dict(out.get("worker") or {})
         if out.get("refused"):
-            if out["refused"] == "cpu_model":
-                self.refusals += 1
-                self.log(
-                    "cpu_model_refusal",
-                    worker=worker.get("worker_id"),
-                    got=worker.get("cpu_model"),
-                    pinned=self.cpu_model_pin,
-                )
-                if self.refusals > int(self.sp["max_cpu_model_refusals"]):
-                    raise Abort("too many workers on another CPU model")
-                self.requeue_keys(j.keys, "cpu model", penalize=False)
-                return
             self.save_failure(j, dict(st))
             if j.op == "probe":
                 raise Abort(f"probe refused: {out['refused']}")
-            self.requeue_keys(j.keys, f"refused: {str(out['refused'])[:80]}")
+            self.on_lost(j, f"refused: {str(out['refused'])[:80]}")
             return
         if j.op == "probe":
             self.on_probe(worker)
             return
+        winfo = {
+            "isa_flags": list(worker.get("isa_flags") or []),
+            "worker_id": worker.get("worker_id") or st.get("workerId"),
+            "backend": "serverless",
+        }
         results = {r.get("key"): r for r in out.get("results") or [] if isinstance(r, dict)}
         unknown = set(results) - set(j.keys)
         if unknown:
@@ -965,13 +1012,14 @@ class ServerlessRunner(rmod.Runner):
             if hashlib.sha256(data).hexdigest() != r.get("sha256"):
                 bad.append(key)
                 continue
-            self.accept_record(key, data, source=f"sls:{worker.get('worker_id')}")
+            self.accept_record(key, data, source=f"sls:{j.id}", worker=winfo)
         if bad:
             self.save_failure(j, {"bad": bad, "results": [results.get(k) for k in bad]})
-            self.requeue_keys(bad, "episode error on worker")
+            self.requeue_unit(j.unit, "episode error on worker")
         self.log(
             "collected",
             job=j.id,
+            unit=j.unit,
             ok=len(j.keys) - len(bad),
             bad=len(bad),
             completed=len(self.completed),
@@ -979,17 +1027,13 @@ class ServerlessRunner(rmod.Runner):
         )
 
     def on_probe(self, worker: Mapping[str, Any]) -> None:
-        self.probe_job = None
         if worker.get("runtime_id") != self.rid:
             raise Abort(f"worker runtime {worker.get('runtime_id')} != {self.rid}")
         if worker.get("handler_sha256") != handler_sha256():
             raise Abort("worker handler bytes differ from this runner's sls_handler.py")
-        model = worker.get("cpu_model")
-        if not model or model == "unknown":
-            raise Abort("probe could not read the worker CPU model")
-        self.cpu_model_pin = model
         self.probe_ok = True
-        self.log("cpu_model_pinned", cpu_model=model, worker=worker)
+        self.probe_worker = dict(worker)
+        self.log("probe_ok", worker=worker)
 
     def cancel_quietly(self, j: SlsJob) -> None:
         try:
@@ -999,21 +1043,38 @@ class ServerlessRunner(rmod.Runner):
 
     def fill(self, ep: Endpoint) -> None:
         cap = max(1, math.ceil(ep.workers * float(self.sp["inflight_jobs_per_worker"])))
-        while self.pending and len([j for j in self.jobs.values() if j.op == "episodes"]) < cap:
-            batch = [k for k in self.pending if k not in self.completed][: self.slots]
-            if not batch:
+        for unit in self.pending_units():
+            if len([j for j in self.jobs.values() if j.op == "episodes"]) >= cap:
                 return
-            for k in batch:
-                self.pending.remove(k)
-            if not self.submit(ep, "episodes", batch):
-                self.pending[:0] = batch
+            if not self.submit(ep, "episodes", unit):
                 return
+
+    def billing_guard(self, ep: Endpoint) -> None:
+        """Every 10 min: what RunPod billed this endpoint must stay inside its reserved rate
+        (the policy prices are not readable from the API)."""
+        now = self.clock()
+        if now - self.last_billing_check < 600 or not ep.id:
+            return
+        self.last_billing_check = now
+        try:
+            billed = self.rp.endpoint_billing(ep.id, iso(ep.created - 3600), iso(now + 3600))
+        except (RunPodError, ValueError, TypeError) as exc:
+            self.log("billing_check_failed", detail=str(exc)[:120])
+            return
+        allowed = ep.rate * (now - ep.created + 120) / 3600
+        self.log("billing_check", billed=billed, allowed=round(allowed, 4))
+        if billed > allowed + 0.01:
+            raise Abort(
+                f"billing {billed:.4f} exceeds the reserved rate ({allowed:.4f}): the serverless "
+                "prices in serverless_policy.json are too low"
+            )
 
     # ------------------------------------------------------------ main loop
     def loop(self) -> None:
-        ep = self.open_endpoint(self.flavors[0])
-        flavors_left = list(self.flavors[1:])
-        self.probe_job: Optional[str] = None
+        if not self.order:
+            self.stop_reason = "nothing to run (every unit already complete)"
+            return
+        ep = self.open_endpoint()
         poll_s = float(self.sp["poll_seconds"])
         while True:
             now = self.clock()
@@ -1034,24 +1095,17 @@ class ServerlessRunner(rmod.Runner):
                 except (RunPodError, OSError, ValueError, KeyError) as exc:
                     self.log("ledger_reconcile_failed", detail=str(exc)[:160])
             self.poll()
+            self.billing_guard(ep)
             if not self.probe_ok:
-                if self.probe_job is None:
-                    if self.submit(ep, "probe", []):
-                        self.probe_job = list(self.jobs)[-1]
-                elif (
-                    self.jobs.get(self.probe_job) is not None
-                    and self.jobs[self.probe_job].status == "IN_QUEUE"
-                    and now - ep.created > float(self.sp["startup_deadline_seconds"])
+                probe = self.jobs.get(self.probe_job) if self.probe_job else None
+                if probe is None:
+                    self.submit(ep, "probe")
+                elif probe.status == "IN_QUEUE" and now - ep.created > float(
+                    self.sp["startup_deadline_seconds"]
                 ):
-                    # No worker of this flavor started: try the next flavor (nothing accepted yet).
-                    self.log("no_worker_started", flavor=ep.flavor)
-                    if not flavors_left:
-                        self.stop_reason = "no serverless worker started (capacity)"
-                        return
-                    self.close_endpoint(ep, "no worker before the startup deadline")
-                    self.release(ep)
-                    self.probe_job = None
-                    ep = self.open_endpoint(flavors_left.pop(0))
+                    self.stop_reason = "no serverless worker started (capacity)"
+                    self.log("no_worker_started", flavors=ep.flavors)
+                    return
             else:
                 self.fill(ep)
             if self.committed_worst() > self.budget + 1e-6:
@@ -1060,17 +1114,32 @@ class ServerlessRunner(rmod.Runner):
             self.sleep(poll_s)
 
     def release(self, ep: Endpoint, billing: Optional[float] = None) -> None:
+        """Ledger cost = an upper bound (every worker for the endpoint's whole life at the
+        reserved rate); ``SharedLedger.settle_serverless`` lowers it from final billing."""
         if ep.released or ep.deleted is None:
             return  # an unconfirmed endpoint keeps its full reservation until its horizon
-        cost = max(ep.estimate(self.sp), float(billing or 0.0))
-        self.ledger_call("release_pod", self.run_id, ep.key, cost)
+        upper = max(ep.upper_bound(ep.deleted), ep.estimate(self.sp))
+        self.ledger_call("release_pod", self.run_id, ep.key, upper)
+        self.ledger_call(
+            "annotate",
+            self.run_id,
+            ep.key,
+            settle={
+                "endpoint_id": ep.id,
+                "start": ep.created,
+                "end": ep.deleted,
+                "estimate": round(ep.estimate(self.sp), 6),
+                "upper": upper,
+                "billing_at_finish": billing,
+            },
+        )
         ep.released = True
 
     def teardown_all(self) -> List[Dict[str, Any]]:
         for ep in list(self.endpoints.values()):
             if ep.deleted is None and ep.id:
                 self.close_endpoint(ep, "run exit")
-        # a create with an unknown outcome may have made one: sweep this run's prefix
+        # a create with an unknown outcome or a failed DELETE: sweep this run's prefix
         try:
             left = sweep_endpoints(
                 self.rp,
@@ -1083,12 +1152,17 @@ class ServerlessRunner(rmod.Runner):
             )
         except Exception as exc:  # noqa: BLE001 - the watchdog retries
             left = [f"sweep error: {exc!r}"[:200]]
-        for ep in self.endpoints.values():
-            if ep.id is None and ep.deleted is None and not left:
-                ep.deleted = self.clock()
-        undeleted = [e.id for e in self.endpoints.values() if e.deleted is None]
-        out = [{"id": i} for i in left] + [
-            {"id": i, "unconfirmed": True} for i in undeleted if i not in left
+        if not left:  # confirmed: no endpoint of this run exists any more
+            for ep in self.endpoints.values():
+                if ep.deleted is None:
+                    ep.deleted = self.clock()
+            self.jobs.clear()
+            self.persist_jobs()
+        out = [{"id": i} for i in left]
+        out += [
+            {"id": e.id, "unconfirmed": True}
+            for e in self.endpoints.values()
+            if e.deleted is None and e.id not in left
         ]
         if out:
             self.log("cleanup_incomplete", leftovers=out)
@@ -1101,11 +1175,11 @@ class ServerlessRunner(rmod.Runner):
             "updated_utc": rmod.utc_now(),
             "deadline_epoch": self.deadline,
             "episodes": len(self.order),
+            "units": len(self.units),
             "completed": len(self.completed),
             "pending": len(self.pending),
             "failed": self.failed,
             "jobs_open": len(self.jobs),
-            "cpu_model_pin": self.cpu_model_pin,
             "endpoints": [self.ep_public(e) for e in self.endpoints.values()],
             "estimated_cost_usd": round(self.estimated_cost(), 4),
             "committed_worst_usd": round(self.committed_worst(), 4),
@@ -1121,7 +1195,7 @@ class ServerlessRunner(rmod.Runner):
         return {
             "id": e.id,
             "name": e.name,
-            "flavor": e.flavor,
+            "flavors": e.flavors,
             "workers_max": e.workers,
             "vcpu_per_worker": e.vcpu,
             "reserved_usd_per_hr": round(e.rate, 4),
@@ -1130,6 +1204,7 @@ class ServerlessRunner(rmod.Runner):
             "exec_seconds": round(e.exec_seconds, 1),
             "workers_seen": len(e.workers_seen),
             "est_cost_usd": round(e.estimate(self.sp), 5),
+            "upper_bound_usd": round(e.upper_bound(e.deleted or self.clock()), 5),
             "billing_usd": e.billing_usd,
         }
 
@@ -1239,14 +1314,14 @@ class ServerlessRunner(rmod.Runner):
             "episodes": len(self.order),
             "completed": len(self.completed),
             "failed": self.failed,
-            "cpu_model_pin": self.cpu_model_pin,
+            **self.unit_summary(),
+            "probe_worker": self.probe_worker,
             "runtime_id": self.rid,
             "endpoints": [self.ep_public(e) for e in self.endpoints.values()],
             "estimated_cost_usd": round(self.estimated_cost(), 5),
             "billing_usd": round(sum(e.billing_usd or 0 for e in self.endpoints.values()), 5),
-            "settled_cost_usd": round(
-                sum(max(e.estimate(self.sp), e.billing_usd or 0) for e in self.endpoints.values()),
-                5,
+            "ledger_cost_usd_upper_bound": round(
+                sum(e.upper_bound(e.deleted or self.clock()) for e in self.endpoints.values()), 5
             ),
             "balance_start": self.balance_start,
             "balance_end": balance_end,
@@ -1255,8 +1330,9 @@ class ServerlessRunner(rmod.Runner):
                 if balance_end is None or self.balance_start is None
                 else round(self.balance_start - balance_end, 5)
             ),
-            "cost_note": "settled = max(estimate, /billing/endpoints); billing lags (hour "
-            "buckets) and the balance delta is account-wide (concurrent runs)",
+            "cost_note": "the ledger records the upper bound (all workers x endpoint life x "
+            "reserved rate) and lowers it from /billing/endpoints once hour buckets are final "
+            "(SharedLedger.settle_serverless); the balance delta is account-wide",
             "final_endpoints_runner_owned": leftovers,
             "final_get_pods_runner_owned": [],
             "finished_utc": rmod.utc_now(),
@@ -1305,8 +1381,11 @@ class SeedRunner(rmod.Runner):
             max_hourly_per_pod_usd=float(s["max_hourly_usd"]),
             pod_max_lifetime_seconds=60 * float(s["max_wall_minutes"]) + 600,
         )
+        ident = json.dumps([commit, self.rid, str(volume.get("id")), sorted(ckpts)])
         job = {
-            "job_id": f"seed-{commit[:8]}-{self.rid[:6]}",
+            # one id per (commit, runtime, volume, checkpoint set): a re-created volume or a
+            # new allow-listed checkpoint gets a new seed, an identical one is idempotent
+            "job_id": "seed-" + hashlib.sha256(ident.encode()).hexdigest()[:16],
             "repo_commit": commit,
             "episodes": [],
             "checkpoints": list(ckpts),
@@ -1437,6 +1516,8 @@ class SeedRunner(rmod.Runner):
                 raise Abort("volume verification failed: " + "; ".join(problems))
             utc = rmod.utc_now()
             with self.registry.locked() as reg:
+                if reg.get("volume") and reg["volume"].get("id") != self.volume["id"]:
+                    raise Abort("seeded a volume other than the registered one")
                 reg["volume"] = reg.get("volume") or dict(self.volume)
                 reg["commits"][commit] = {"repo_sha256": self.repo_sha, "seeded_utc": utc}
                 for sha in self.ckpt_paths:
@@ -1487,6 +1568,9 @@ class SeedRunner(rmod.Runner):
             if not self.seed_done:
                 self.sleep(10)
 
+    def unit_summary(self) -> Dict[str, Any]:
+        return {"seed": {"runtime_id": self.rid, "stage": self.stage}}
+
     def cost_plan(self, sizes_rows=None) -> Dict[str, Any]:
         return {
             "cost": {
@@ -1498,9 +1582,20 @@ class SeedRunner(rmod.Runner):
 
     def run(self) -> int:
         """Runner.run's skeleton: register, watchdog, loop, always delete the pod. The one
-        "episode" is the seeding itself, so an aborted seed is not 'complete' in the ledger."""
-        self.episodes, self.order, self.pending = {}, ["seed"], []
-        return super().run()
+        "episode" is the seeding itself, so an aborted seed is not 'complete' in the ledger.
+        One seeder at a time (a local lock): two would race on a shared runtime build."""
+        self.episodes, self.order, self.pending, self.units = {}, ["seed"], [], {}
+        self.registry.root.mkdir(parents=True, exist_ok=True)
+        with (self.registry.root / "seed.lock").open("a") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                print("refusing: another seeder is running", file=sys.stderr)
+                return 2
+            try:
+                return super().run()
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 # ---------------------------------------------------------------- planning / CLI
@@ -1542,35 +1637,31 @@ def plan_serverless(
     seeded = seed_problems(reg, job["repo_commit"], repo_sha, job["checkpoints"], rid)
     acct = account_headroom(rp, fp)
     flavors = [flavor] if flavor else list(sp["flavors_pref"])
-    sizing = {
-        f: sizing_plan(
-            fp,
-            sp,
-            job["episodes"],
-            budget,
-            float(job["max_wall_minutes"]),
-            f,
-            acct["headroom_usd"],
-            target_minutes,
-            workers,
-            vcpu,
-        )
-        for f in flavors
-    }
-    first = sizing[flavors[0]]
-    choice = first["choice"] or {"workers": 1, "vcpu_per_worker": 2}
+    sizing = sizing_plan(
+        fp,
+        sp,
+        job["episodes"],
+        budget,
+        float(job["max_wall_minutes"]),
+        flavors,
+        acct["headroom_usd"],
+        target_minutes,
+        workers,
+        vcpu,
+    )
+    choice = sizing["choice"] or {"workers": 1, "vcpu_per_worker": 2}
     vol = reg.get("volume") or {"id": "<volume id>", "dataCenterId": sp["data_center"]}
     tmpl = ((reg.get("runtimes") or {}).get(rid) or {}).get("template_id") or "<template id>"
-    longest = max(rmod.episode_seconds(fp, e) for e in job["episodes"])
+    slots = max(1, int(choice["vcpu_per_worker"]) // int(fp["threads_per_episode"]))
     body = endpoint_body(
         sp,
         f"{sp['endpoint_prefix']}{job['job_id']}--sls-<stamp>-1",
         tmpl,
         vol,
-        flavors[0],
+        flavors,
         choice["workers"],
         choice["vcpu_per_worker"],
-        4 * longest + 300,
+        4 * max(unit_times(fp, job["episodes"], slots)) + 300,
     )
     gb = int((reg.get("volume") or {}).get("size") or sp["volume_size_gb"])
     endpoints = []
@@ -1617,7 +1708,7 @@ def run_serverless(a, job, fp, allow, run_dir: Path) -> int:
         job["episodes"],
         a.budget,
         float(job["max_wall_minutes"]),
-        flavors[0],
+        flavors,
         acct["headroom_usd"],
         a.target_minutes,
         a.workers,
@@ -1642,6 +1733,7 @@ def run_serverless(a, job, fp, allow, run_dir: Path) -> int:
         budget=a.budget,
         confirm=True,
         preflight_fn=lambda: rmod.preflight(SLS_PREFLIGHT_URLS),
+        resume_from=a.resume_from,
     )
     return r.run()
 
@@ -1699,11 +1791,19 @@ def cmd_seed(a, fp, sp) -> int:
     allow = jobspec.load_allowlist()
     rp = RpClient()
     reg = Registry(fp).read()
-    vol_id = a.volume_id or (reg.get("volume") or {}).get("id")
-    if not vol_id:
+    registered = (reg.get("volume") or {}).get("id")
+    if a.volume_id and registered and a.volume_id != registered:
+        print(f"refusing: volume {registered} is registered, not {a.volume_id}", file=sys.stderr)
+        return 2
+    vol_id = a.volume_id or registered
+    if not vol_id and a.confirm:
         print("no volume (serverless.py volume-create first, or --volume-id)", file=sys.stderr)
         return 2
-    volume = _volume_from_api(rp, vol_id, sp)
+    volume = (
+        _volume_from_api(rp, vol_id, sp)
+        if vol_id
+        else {"id": "<volume id>", "dataCenterId": sp["data_center"]}
+    )
     commit = jobspec.git(REPO, "rev-parse", a.commit).stdout.strip()
     ckpts = sorted(allow)  # the 4 allow-listed checkpoints, nothing else
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -1711,7 +1811,7 @@ def cmd_seed(a, fp, sp) -> int:
         fp,
         sp,
         allow,
-        Path(tempfile.mkdtemp()) / "plan",
+        Path(tempfile.gettempdir()) / "rpf-seed-plan-unused",
         commit=commit,
         volume=volume,
         ckpts=ckpts,
@@ -1785,8 +1885,13 @@ def cmd_template_create(a, fp, sp) -> int:
     rid = runtime_id(fp, sp)
     rt = (reg.read().get("runtimes") or {}).get(rid) or {}
     if not rt.get("ready"):
-        print(f"refusing: runtime {rid} is not seeded yet (serverless.py seed)", file=sys.stderr)
-        return 2
+        print(
+            f"runtime {rid} is not seeded yet (serverless.py seed): --confirm is refused "
+            "until then; the body would be:",
+            file=sys.stderr,
+        )
+        print(json.dumps(template_body(sp, rid), indent=1))
+        return 2 if a.confirm else 0
     if rt.get("template_id"):
         print(f"template already exists: {rt['template_id']}")
         return 0

@@ -612,7 +612,7 @@ def test_watchdog_deletes_only_job_pods(tmp_path):
     assert reason == "runner dead" and rp2.deleted == ["a"]
 
 
-def test_merge_refuses_mixed_platforms_and_compare(tmp_path):
+def test_merge_is_per_world_and_compare(tmp_path):
     def write(run, key, entry):
         p = tmp_path / run / "records" / key
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -627,12 +627,30 @@ def test_merge_refuses_mixed_platforms_and_compare(tmp_path):
     write(
         "pod", "g/B-scripted-1.json", {"r": 2, "wall_seconds": 2, "platform": {"platform_id": "x"}}
     )
-    with pytest.raises(runner.Abort, match="mixed"):
-        runner.merge_runs([tmp_path / "mac", tmp_path / "pod"], tmp_path / "m")
+    write(
+        "mac", "g/A-scripted-2.json", {"r": 3, "wall_seconds": 1, "platform": {"platform_id": "m"}}
+    )
     out = runner.compare_runs(tmp_path / "mac", tmp_path / "pod")
     assert out["compared"] == 1 and out["identical"] == 1 and out["only_b"]
-    merged = runner.merge_runs([tmp_path / "pod"], tmp_path / "m2")
-    assert merged["records"] == 2 and merged["platform_id"] == "x"
+    # world 1 comes whole from "pod" (x), world 2 from "mac" (m): different worlds may differ
+    merged = runner.merge_runs([tmp_path / "mac", tmp_path / "pod"], tmp_path / "m")
+    assert merged["records"] == 3 and merged["platform_ids"] == ["m", "x"]
+    got = json.loads((tmp_path / "m/records/g/A-scripted-1.json").read_text())
+    assert got["platform"]["platform_id"] == "x"
+    # one world split across platforms is refused
+    write(
+        "split",
+        "g/B-scripted-2.json",
+        {"r": 4, "wall_seconds": 1, "platform": {"platform_id": "x"}},
+    )
+    with pytest.raises(runner.Abort, match="span platforms"):
+        runner.merge_runs([tmp_path / "mac", tmp_path / "split"], tmp_path / "m2")
+    # a key that differs between runs is refused
+    write(
+        "bad", "g/A-scripted-1.json", {"r": 9, "wall_seconds": 1, "platform": {"platform_id": "m"}}
+    )
+    with pytest.raises(runner.Abort, match="differs"):
+        runner.merge_runs([tmp_path / "pod", tmp_path / "bad"], tmp_path / "m3")
 
 
 def test_cli_run_refuses_without_budget(tmp_path, monkeypatch, capsys):

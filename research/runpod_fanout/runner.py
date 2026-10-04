@@ -50,7 +50,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from research.runpod_fanout import jobspec  # noqa: E402
+from research.runpod_fanout import jobspec, platform_rule  # noqa: E402
 from research.runpod_fanout.rp_client import RpClient, RunPodError  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -175,6 +175,19 @@ def episode_seconds(policy: Mapping[str, Any], ep: Mapping[str, Any]) -> float:
     return float(t[f"{eng}_fixed"]) + float(t[f"{eng}_per_frame"]) * int(ep["horizon"])
 
 
+def numerics_env(policy: Mapping[str, Any]) -> Dict[str, str]:
+    """Worker numerics for every backend: fixed OMP/MKL threads plus the policy's
+    ``numerics_env`` (MKL_CBWR=COMPATIBLE: the same MKL code path on AVX2 and AVX-512
+    hosts); an ``isa_cap`` overrides MKL_CBWR and caps oneDNN as before."""
+    threads = str(policy["threads_per_episode"])
+    env = {"OMP_NUM_THREADS": threads, "MKL_NUM_THREADS": threads}
+    env.update({str(k): str(v) for k, v in (policy.get("numerics_env") or {}).items()})
+    isa = policy.get("isa_cap")
+    if isa:
+        env.update({"ONEDNN_MAX_CPU_ISA": isa, "MKL_ENABLE_INSTRUCTIONS": isa, "MKL_CBWR": isa})
+    return env
+
+
 def ram_gb(policy: Mapping[str, Any], vcpu: int) -> int:
     return int(vcpu) * int(policy["ram_gb_per_vcpu"])
 
@@ -296,6 +309,7 @@ def pod_body(
             "FANOUT_ISA_CAP": policy["isa_cap"] or "",
             "FANOUT_SELF_DELETE_EPOCH": str(int(until_epoch)),
             "FANOUT_JOB": job_id,
+            "FANOUT_NUMERICS_JSON": json.dumps(numerics_env(policy), sort_keys=True),
         },
         "dockerStartCmd": agent_start_command(),
     }
@@ -369,6 +383,7 @@ class Runner:
         probe_workers: int = 8,
         preflight_fn: Optional[Callable[[], List[str]]] = None,
         ledger: Optional[SharedLedger] = None,
+        resume_from: Sequence[Path] = (),
     ):
         self.job = job
         self.policy = policy
@@ -419,7 +434,20 @@ class Runner:
         self._balance: Optional[tuple] = None
         self.platform_ids: set = set()
         self.watchdog: Any = None
-        self.cpu_model_pin: Optional[str] = None
+        self.cpu_model_pin: Optional[str] = None  # serverless probe only (not a run pin)
+        # Per-world units: every arm of one (wrapper, mix, world_seed) runs on ONE worker.
+        self.units: Dict[str, List[str]] = platform_rule.group_units(self.order)
+        self.unit_src: Dict[str, Optional[str]] = {}  # unit -> source of its current attempt
+        self.staged: Dict[str, Dict[str, Dict[str, Any]]] = {}  # unit -> key -> entry
+        self.seen: Dict[str, Dict[str, Any]] = {}  # key -> first entry seen (duplicate checks)
+        self.record_cache: Dict[tuple, bytes] = {}  # (key, sha) of unpublished units
+        self.unit_attempts: Dict[str, int] = {}
+        self.unit_free: Dict[str, int] = {}
+        self.workers_info: Dict[str, Dict[str, Any]] = {}  # source -> isa flags / id
+        self.numerics = numerics_env(policy)
+        self.resume_info: Optional[Dict[str, Any]] = None
+        if resume_from:
+            self.apply_resume([Path(d) for d in resume_from])
 
     # ------------------------------------------------------------ logging
     def log(self, event: str, **fields: Any) -> None:
@@ -821,24 +849,113 @@ class Runner:
         self.log("pod_deleted", pod=pod.id, why=why, est_cost=round(pod.cost_until(pod.deleted), 5))
 
     def requeue(self, pod: Pod, keys: Iterable[str], why: str, penalize: bool = True) -> None:
-        for key in sorted(keys):
+        """A worker lost/retired/restarted: every unit it held restarts IN FULL elsewhere."""
+        units = set()
+        for key in keys:
             pod.inflight.discard(key)
             pod.unpulled.discard(key)
-            if key in self.completed or key in self.failed or key in self.pending:
-                continue
-            if not penalize and self.free_redispatch.get(key, 0) < 1:
-                # one re-dispatch after a planned retirement is not a failure
-                self.free_redispatch[key] = self.free_redispatch.get(key, 0) + 1
-                self.pending.insert(0, key)
-                self.log("episode_redispatched", key=key, why=why)
-                continue
-            self.attempts[key] += 1
-            if self.attempts[key] >= int(self.policy["max_attempts_per_episode"]):
-                self.failed[key] = {"why": why, "attempts": self.attempts[key]}
-                self.log("episode_failed", key=key, why=why)
-            else:
-                self.pending.insert(0, key)
-                self.log("episode_requeued", key=key, why=why)
+            units.add(platform_rule.unit_of_key(key))
+        for unit in sorted(units):
+            if self.unit_src.get(unit) in (pod.id, None):  # never strand a unit's keys
+                self.requeue_unit(unit, why, penalize)
+
+    # ------------------------------------------------------------ units
+    def unit_keys(self, unit: str) -> List[str]:
+        return [
+            k for k in self.units.get(unit, []) if k not in self.completed and k not in self.failed
+        ]
+
+    def unit_seconds(self, keys: Sequence[str], slots: int) -> float:
+        """Wall estimate for a unit on one worker with ``slots`` parallel episodes."""
+        longest = max(episode_seconds(self.policy, self.episodes[k]) for k in keys)
+        return math.ceil(len(keys) / max(1, slots)) * longest
+
+    def pending_units(self) -> List[str]:
+        out: List[str] = []
+        for key in self.pending:
+            u = platform_rule.unit_of_key(key)
+            if u not in out:
+                out.append(u)
+        return out
+
+    def take_unit(self, unit: str, source: str) -> List[str]:
+        """Dispatch ``unit`` (all its open keys) to ``source``: a fresh attempt."""
+        keys = self.unit_keys(unit)
+        for k in keys:
+            if k in self.pending:
+                self.pending.remove(k)
+        self.unit_src[unit] = source
+        self.staged[unit] = {}
+        return keys
+
+    def requeue_unit(self, unit: str, why: str, penalize: bool = True) -> None:
+        keys = self.unit_keys(unit)
+        for pod in self.pods.values():
+            pod.inflight.difference_update(keys)
+            pod.unpulled.difference_update(keys)
+        self.staged.pop(unit, None)  # partial results never mix with another worker's
+        self.unit_src[unit] = None
+        if not keys:
+            return
+        if not penalize and self.unit_free.get(unit, 0) < 1:
+            self.unit_free[unit] = self.unit_free.get(unit, 0) + 1
+            self.pending[:0] = [k for k in keys if k not in self.pending]
+            self.log("unit_redispatched", unit=unit, keys=len(keys), why=why)
+            return
+        self.unit_attempts[unit] = self.unit_attempts.get(unit, 0) + 1
+        for k in keys:
+            self.attempts[k] = self.attempts.get(k, 0) + 1
+        if self.unit_attempts[unit] >= int(self.policy["max_attempts_per_episode"]):
+            self.fail_unit(unit, why)
+        else:
+            self.pending[:0] = [k for k in keys if k not in self.pending]
+            self.log("unit_requeued", unit=unit, keys=len(keys), why=why)
+
+    def fail_unit(self, unit: str, why: str) -> None:
+        for k in self.unit_keys(unit):
+            if k in self.pending:
+                self.pending.remove(k)
+            self.failed[k] = {"why": why, "attempts": self.attempts.get(k, 0), "unit": unit}
+        self.staged.pop(unit, None)
+        self.unit_src[unit] = None
+        self.log("unit_failed", unit=unit, why=why)
+
+    def apply_resume(self, prior_dirs: Sequence[Path]) -> None:
+        """Skip units a prior run of THIS job completed on one platform; prior partial
+        records stay as duplicate references (a re-run must be byte-identical or abort)."""
+        want = json.dumps(self.job, sort_keys=True)
+        complete: Dict[str, str] = {}
+        for d in prior_dirs:
+            prior_job = json.loads((d / "job.json").read_text())
+            if json.dumps(prior_job, sort_keys=True) != want:
+                raise jobspec.JobError(f"{d} ran a different job file; resume refused")
+            recs = load_records(d)
+            unknown = sorted(set(recs) - set(self.episodes))
+            if unknown:
+                raise jobspec.JobError(f"{d} has records outside the job: {unknown[:3]}")
+            for k, e in recs.items():
+                prev = self.seen.get(k)
+                if prev is not None and jobspec.deterministic_bytes(
+                    prev
+                ) != jobspec.deterministic_bytes(e):
+                    raise jobspec.JobError(f"prior runs disagree on {k}; resume refused")
+                self.seen.setdefault(k, e)
+            for unit, keys in self.units.items():
+                if unit in complete or not all(k in recs for k in keys):
+                    continue
+                if len({platform_rule.platform_signature(recs[k]) for k in keys}) == 1:
+                    complete[unit] = str(d)
+        skip = {k for u in complete for k in self.units[u]}
+        self.order = [k for k in self.order if k not in skip]
+        self.pending = list(self.order)
+        self.units = platform_rule.group_units(self.order)
+        self.resume_info = {
+            "from": [str(d) for d in prior_dirs],
+            "units_already_complete": len(complete),
+            "keys_skipped": len(skip),
+            "units_to_run": len(self.units),
+            "keys_to_run": len(self.order),
+        }
 
     def bring_up(self, pod: Pod, agent: Any, health: Mapping[str, Any]) -> None:
         """Upload the repo archive and checkpoints, then setup (idempotent)."""
@@ -900,22 +1017,19 @@ class Runner:
             return
         if self.retire_if_old(pod, now):
             return
+        retried = set()
         for key, info in (health.get("failed") or {}).items():
             if key in pod.inflight:
                 self.log("episode_error", pod=pod.id, key=key, info=info)
                 (self.run_dir / "failures").mkdir(exist_ok=True)
                 fname = key.replace("/", "__") + f".{pod.id}.{self.attempts[key]}.json"
                 (self.run_dir / "failures" / fname).write_text(json.dumps(info, indent=1))
-                self.requeue(
-                    pod,
-                    [key],
-                    f"episode error rc={info.get('rc')}",
-                    penalize=info.get("rc") != "deadline",
-                )
+                self.retry_on_pod(pod, key, info)
+                retried.add(key)
         done = set(health.get("done") or {}) & pod.inflight
         pod.inflight -= done
         pod.unpulled |= done
-        known = set(health.get("queued") or []) | set(health.get("running") or [])
+        known = set(health.get("queued") or []) | set(health.get("running") or []) | retried
         orphans = pod.inflight - known
         if orphans:  # the agent no longer knows this work (should not happen)
             self.requeue(pod, orphans, "agent lost the episode")
@@ -926,6 +1040,34 @@ class Runner:
         if pod.state == "draining" and not pod.inflight and not pod.unpulled:
             self.delete_pod(pod, "retired (drained)")
 
+    def retry_on_pod(self, pod: Pod, key: str, info: Mapping[str, Any]) -> None:
+        """An episode failed on a healthy pod: retry it on the SAME pod (same CPU model, the
+        unit stays whole); out of attempts or unreachable -> the unit restarts elsewhere."""
+        unit = platform_rule.unit_of_key(key)
+        if info.get("rc") == "deadline":
+            self.requeue(pod, [key], "pod deadline", penalize=False)
+            return
+        self.attempts[key] = self.attempts.get(key, 0) + 1
+        if self.attempts[key] >= int(self.policy["max_attempts_per_episode"]):
+            self.fail_unit(unit, f"episode error rc={info.get('rc')}")
+            for k in self.units.get(unit, []):
+                pod.inflight.discard(k)
+            return
+        try:
+            out = self.agents[pod.id].post_json(
+                "/assign",
+                {
+                    "episodes": [{"key": key, "spec": self.episodes[key]}],
+                    "timeout_seconds": 4 * episode_seconds(self.policy, self.episodes[key]) + 300,
+                },
+            )
+        except NET_ERRORS as exc:
+            out = {"error": str(exc)[:120]}
+        if key in (out.get("accepted") or []):
+            self.log("episode_retry_same_pod", pod=pod.id, key=key)
+        else:
+            self.requeue(pod, [key], f"episode error rc={info.get('rc')} (retry refused)")
+
     def life_left(self, pod: Pod, now: float) -> float:
         return pod.created + float(self.policy["pod_max_lifetime_seconds"]) - now
 
@@ -933,8 +1075,10 @@ class Runner:
         """Max pod lifetime: pull, re-dispatch unfinished work (no penalty), delete."""
         left = self.life_left(pod, now)
         idle = not pod.inflight and not pod.unpulled
+        slots = pod.slots or workers_for(self.policy, pod.vcpu)
         shortest = min(
-            (episode_seconds(self.policy, self.episodes[k]) for k in self.pending), default=0
+            (self.unit_seconds(self.unit_keys(u), slots) for u in self.pending_units()),
+            default=0,
         )
         too_short = left < 1.5 * shortest + 60 if self.pending else False
         if left > 0 and not (idle and too_short and pod.state == "ready"):
@@ -951,14 +1095,12 @@ class Runner:
             self.delete_pod(pod, "pip install failed")
             return
         pod.cpu_model = health.get("cpu_model")
-        pinned = self.pinned_cpu_model()
-        if pinned and pod.cpu_model != pinned:
-            # One run = one platform: refuse hosts with another CPU model (MKL code paths).
-            pod.state = "lost"
-            self.bad_slots[(pod.vcpu, pod.dc)] = now + 4 * 3600
-            self.log("cpu_model_mismatch", pod=pod.id, got=pod.cpu_model, pinned=pinned)
-            self.delete_pod(pod, "cpu model differs from the run's pinned model")
-            return
+        # No run-level CPU pin: units (worlds) are pinned to one pod, so any model is usable.
+        self.workers_info[pod.id] = {
+            "isa_flags": list(health.get("isa_flags") or []),
+            "worker_id": pod.id,
+            "backend": "pods",
+        }
         try:
             self.bring_up(pod, agent, health)
             if health.get("setup") is None:
@@ -966,9 +1108,6 @@ class Runner:
         except NET_ERRORS as exc:
             self.log("upload_retry", pod=pod.id, detail=str(exc)[:160])
         if health.get("pip") == "ok" and health.get("setup") is not None:
-            if not self.pinned_cpu_model():
-                self.cpu_model_pin = pod.cpu_model
-                self.log("cpu_model_pinned", cpu_model=pod.cpu_model)
             pod.state = "ready"
             self.log(
                 "pod_ready",
@@ -976,6 +1115,7 @@ class Runner:
                 slots=pod.slots,
                 cores=health.get("cores"),
                 cpu_model=health.get("cpu_model"),
+                isa_flags=health.get("isa_flags"),
                 self_delete_capable=health.get("self_delete_capable"),
                 seconds_to_ready=round(now - pod.created, 1),
             )
@@ -984,9 +1124,6 @@ class Runner:
             self.bad_slots[(pod.vcpu, pod.dc)] = now + 1800
             self.delete_pod(pod, "not ready before the ready deadline")
             self.requeue(pod, pod.inflight | pod.unpulled, "pod lost")
-
-    def pinned_cpu_model(self) -> Optional[str]:
-        return getattr(self, "cpu_model_pin", None)
 
     def pull(self, pod: Pod) -> None:
         agent = self.agents.get(pod.id)
@@ -1003,19 +1140,32 @@ class Runner:
             key = row["key"]
             if key not in self.episodes:
                 raise Abort(f"pod {pod.id} produced an unknown record {key}")
-            if (key, row["sha256"]) in self.verified:
+            ck = (key, row["sha256"])
+            unit = platform_rule.unit_of_key(key)
+            mine = self.unit_src.get(unit) == pod.id
+            if ck in self.verified and (key in self.completed or not mine):
                 pod.unpulled.discard(key)
+                if not mine:
+                    pod.inflight.discard(key)
                 continue
-            try:
-                data = agent.get_bytes("/record/" + key)
-            except NET_ERRORS as exc:
-                self.log("pull_record_failed", pod=pod.id, key=key, detail=str(exc)[:120])
+            if mine and key in self.staged.get(unit, {}):
+                pod.unpulled.discard(key)
+                pod.inflight.discard(key)
                 continue
-            if hashlib.sha256(data).hexdigest() != row["sha256"]:
-                self.log("pull_sha_mismatch", pod=pod.id, key=key)
-                continue
+            data = self.record_cache.get(ck)
+            if data is None:
+                try:
+                    data = agent.get_bytes("/record/" + key)
+                except NET_ERRORS as exc:
+                    self.log("pull_record_failed", pod=pod.id, key=key, detail=str(exc)[:120])
+                    continue
+                if hashlib.sha256(data).hexdigest() != row["sha256"]:
+                    self.log("pull_sha_mismatch", pod=pod.id, key=key)
+                    continue
+            if key not in self.completed:
+                self.record_cache[ck] = data
             self.accept_record(key, data, source=pod.id)
-            self.verified.add((key, row["sha256"]))
+            self.verified.add(ck)
             pod.unpulled.discard(key)
             pod.inflight.discard(key)
             got += 1
@@ -1025,8 +1175,12 @@ class Runner:
             )
             self.write_state()
 
-    def accept_record(self, key: str, data: bytes, source: str) -> None:
-        """Validate and write-once a record; a duplicate must match deterministically."""
+    def accept_record(
+        self, key: str, data: bytes, source: str, worker: Optional[Mapping[str, Any]] = None
+    ) -> None:
+        """Validate a record; duplicates must match deterministically (any source, any
+        platform) or the run aborts; a record counts only for its unit's current attempt,
+        and a unit is published (write-once) only when complete on that one worker."""
         entry = json.loads(data)
         stamp = entry.get("fanout") or {}
         ep = self.episodes[key]
@@ -1042,29 +1196,53 @@ class Runner:
         platform_id = (entry.get("platform") or {}).get("platform_id")
         if not platform_id:
             raise Abort(f"record {key} from {source} has no platform stamp")
+        platform_rule.stamp_worker(entry, worker or self.workers_info.get(source))
         self.platform_ids.add(platform_id)
-        if len(self.platform_ids) > 1:
-            raise Abort(f"mixed platforms inside one run: {sorted(self.platform_ids)}")
+        prior = self.seen.get(key)
         dest = self.run_dir / "records" / key
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.exists():
-            old = json.loads(dest.read_bytes())
-            if jobspec.deterministic_bytes(old) != jobspec.deterministic_bytes(entry):
-                dup = self.run_dir / "divergent" / (key.replace("/", "__") + f".{source}.json")
-                dup.parent.mkdir(exist_ok=True)
-                dup.write_bytes(data)
-                raise Abort(f"DIVERGENT duplicate for {key} from {source}")
+        if prior is None and dest.exists():
+            prior = json.loads(dest.read_bytes())
+        if prior is not None and jobspec.deterministic_bytes(prior) != jobspec.deterministic_bytes(
+            entry
+        ):
+            dup = self.run_dir / "divergent" / (key.replace("/", "__") + f".{source}.json")
+            dup.parent.mkdir(exist_ok=True)
+            dup.write_bytes(data)
+            raise Abort(f"DIVERGENT duplicate for {key} from {source}")
+        self.seen.setdefault(key, entry)
+        if key in self.completed or dest.exists():
             self.log("duplicate_verified", key=key, source=source)
-        else:
+            return
+        unit = platform_rule.unit_of_key(key)
+        if self.unit_src.get(unit) != source:
+            self.log("stale_record", key=key, source=source, unit_source=self.unit_src.get(unit))
+            return
+        self.staged.setdefault(unit, {})[key] = entry
+        if all(k in self.staged[unit] for k in self.unit_keys(unit)):
+            self.publish_unit(unit, source)
+
+    def publish_unit(self, unit: str, source: str) -> None:
+        entries = self.staged.pop(unit)
+        sigs = {platform_rule.platform_signature(e) for e in entries.values()}
+        if len(sigs) > 1:
+            raise Abort(f"unit {unit} from {source} spans platforms {sorted(sigs)}")
+        for key, entry in sorted(entries.items()):
+            dest = self.run_dir / "records" / key
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            data = (json.dumps(entry, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()
             tmp = dest.with_name(f".{dest.name}.tmp")
             tmp.write_bytes(data)
-            os.link(tmp, dest)
+            os.link(tmp, dest)  # write-once
             tmp.unlink()
-        self.completed[key] = hashlib.sha256(dest.read_bytes()).hexdigest()
-        if key in self.pending:
-            self.pending.remove(key)
+            self.completed[key] = hashlib.sha256(data).hexdigest()
+            if key in self.pending:
+                self.pending.remove(key)
+        for ck in [ck for ck in self.record_cache if ck[0] in entries]:
+            self.record_cache.pop(ck, None)
+        self.log("unit_published", unit=unit, source=source, records=len(entries))
 
     def assign(self) -> None:
+        """Whole units (all arms of one world) to one pod each, while it has free slots."""
         for pod in self.pods.values():
             if pod.state != "ready" or not self.pending:
                 continue
@@ -1072,14 +1250,18 @@ class Runner:
             if free <= 0:
                 continue
             left = self.life_left(pod, self.clock())
-            batch = [
-                k
-                for k in self.pending
-                if k not in self.completed
-                and 1.5 * episode_seconds(self.policy, self.episodes[k]) + 60 <= left
-            ][:free]
-            if not batch:
+            chosen = []
+            for unit in self.pending_units():
+                keys = self.unit_keys(unit)
+                if not keys or 1.5 * self.unit_seconds(keys, pod.slots) + 60 > left:
+                    continue
+                chosen.append((unit, keys))
+                free -= len(keys)
+                if free <= 0:
+                    break
+            if not chosen:
                 continue
+            batch = [k for _, keys in chosen for k in keys]
             longest = max(episode_seconds(self.policy, self.episodes[k]) for k in batch)
             body = {
                 "episodes": [{"key": k, "spec": self.episodes[k]} for k in batch],
@@ -1090,11 +1272,15 @@ class Runner:
             except NET_ERRORS as exc:
                 self.log("assign_failed", pod=pod.id, detail=str(exc)[:120])
                 continue
-            for key in out.get("accepted", []):
-                if key in self.pending:
-                    self.pending.remove(key)
-                pod.inflight.add(key)
-            self.log("assigned", pod=pod.id, keys=out.get("accepted", []))
+            for unit, keys in chosen:
+                self.take_unit(unit, pod.id)
+                pod.inflight.update(keys)  # accepted now, or already queued/done there
+            self.log(
+                "assigned",
+                pod=pod.id,
+                units=[u for u, _ in chosen],
+                keys=out.get("accepted", []),
+            )
 
     def retire_smaller(self) -> None:
         """Every capacity_recheck_seconds: launch a bigger size, drain the smallest pods."""
@@ -1225,14 +1411,13 @@ class Runner:
         if self.run_dir.exists():
             raise jobspec.JobError(f"run dir {self.run_dir} already exists")
         life = float(self.policy["pod_max_lifetime_seconds"])
+        big = workers_for(self.policy, max(self.policy["vcpu_sizes_desc"]))
         too_long = [
-            k
-            for k, ep in self.episodes.items()
-            if 1.5 * episode_seconds(self.policy, ep) + 60 >= life
+            u for u, keys in self.units.items() if 1.5 * self.unit_seconds(keys, big) + 60 >= life
         ]
         if too_long:
             raise jobspec.JobError(
-                f"{len(too_long)} episodes cannot fit the {life:.0f} s pod lifetime "
+                f"{len(too_long)} world units cannot fit the {life:.0f} s pod lifetime "
                 f"(e.g. {too_long[0]}); raise pod_max_lifetime_seconds"
             )
         self.try_legacy_lock()  # before registering: an old-format runner cannot start now
@@ -1300,6 +1485,19 @@ class Runner:
                     awake.terminate()
                 restore_signal_handlers(old_handlers)
         return code if not leftovers else 5
+
+    def unit_summary(self) -> Dict[str, Any]:
+        recs = load_records(self.run_dir) if (self.run_dir / "records").is_dir() else {}
+        sigs = platform_rule.unit_signatures(recs)
+        return {
+            "units": len(self.units),
+            "units_published": len({platform_rule.unit_of_key(k) for k in self.completed}),
+            "units_failed": len({platform_rule.unit_of_key(k) for k in self.failed}),
+            "platforms_by_unit": {u: sorted(v) for u, v in sorted(sigs.items())},
+            "per_world_problems": platform_rule.check_per_world(recs),
+            "numerics_env": self.numerics,
+            "resume": self.resume_info,
+        }
 
     def settled_cost(self) -> float:
         """What this run spent: the larger of the balance delta and the pod estimate."""
@@ -1428,9 +1626,11 @@ class Runner:
             pass
         receipt = {
             "schema": RECEIPT_SCHEMA,
+            "backend": "pods",
             "job_id": self.job["job_id"],
             "run_dir": str(self.run_dir),
             "exit_code": code,
+            **self.unit_summary(),
             "stop_reason": self.stop_reason,
             "episodes": len(self.order),
             "completed": len(self.completed),
@@ -1634,6 +1834,7 @@ def run_local(
     allowlist: Mapping[str, Mapping[str, str]],
     run_dir: Path,
     slot_timeout: float = 3600.0,
+    resume_from: Sequence[Path] = (),
 ) -> int:
     """Play the job's episodes serially on this Mac in ONE shared slot (pool 3 order)."""
     from research.apex_safety_20260926 import dev_screen as ds
@@ -1663,14 +1864,24 @@ def run_local(
             for sha, path in ckpts.items():
                 shutil.copyfile(path, cdir / f"{sha}.pth")
             out_root = work / "out"
-            runner = Runner(job, policy, allowlist, run_dir, rp=_NoRunPod(), confirm=False)
-            env = dict(
-                os.environ,
-                OMP_NUM_THREADS="2",
-                MKL_NUM_THREADS="2",
-                SNAKE_DQN_DEVICE="cpu",
-                PYTHONHASHSEED="0",
+            runner = Runner(
+                job,
+                policy,
+                allowlist,
+                run_dir,
+                rp=_NoRunPod(),
+                confirm=False,
+                resume_from=resume_from,
             )
+            for unit in runner.units:  # one worker (this Mac) holds every unit
+                runner.unit_src[unit] = "local"
+            runner.workers_info["local"] = {
+                "isa_flags": platform_rule.local_isa_flags(),
+                "worker_id": "local",
+                "backend": "local",
+            }
+            env = dict(os.environ, SNAKE_DQN_DEVICE="cpu", PYTHONHASHSEED="0")
+            env.update(runner.numerics)
             events = (run_dir / "events.jsonl").open("x")
             meta = {
                 "backend": "local",
@@ -1729,6 +1940,7 @@ def run_local(
                         "completed": len(runner.completed),
                         "episodes": len(runner.order),
                         "finished_utc": utc_now(),
+                        **runner.unit_summary(),
                         **meta,
                     },
                     indent=1,
@@ -1790,31 +2002,65 @@ def platform_check(records: Mapping[str, Mapping[str, Any]]) -> List[str]:
 
 
 def merge_runs(run_dirs: Sequence[Path], out: Path) -> Dict[str, Any]:
-    merged: Dict[str, bytes] = {}
-    platforms = set()
+    """One records tree from several runs under the PER-WORLD rule: each unit (all arms of
+    one wrapper/mix/world) comes from one run on one platform; any key present in several
+    runs must agree deterministically; different units may come from different platforms."""
+    runs: List[tuple] = []
     for d in run_dirs:
         root = Path(d) / "records"
+        recs = {}
         for p in sorted(root.rglob("*.json")):
             if p.name.startswith("."):
                 continue
-            key = str(p.relative_to(root))
             data = p.read_bytes()
-            entry = json.loads(data)
-            platforms.add((entry.get("platform") or {}).get("platform_id", "MISSING"))
-            if key in merged and jobspec.deterministic_bytes(
-                json.loads(merged[key])
+            recs[str(p.relative_to(root))] = (data, json.loads(data))
+        runs.append((str(d), recs))
+    first: Dict[str, Dict[str, Any]] = {}
+    for label, recs in runs:
+        for key, (_, entry) in recs.items():
+            if key in first and jobspec.deterministic_bytes(
+                first[key]
             ) != jobspec.deterministic_bytes(entry):
                 raise Abort(f"merge: {key} differs between runs")
-            merged.setdefault(key, data)
-    if len(platforms) != 1 or "MISSING" in platforms:
-        raise Abort(f"merge refuses mixed or missing platforms: {sorted(platforms)}")
+            first.setdefault(key, entry)
+    source = platform_rule.choose_unit_sources(
+        [(lb, {k: v[1] for k, v in r.items()}) for lb, r in runs]
+    )
+    merged: Dict[str, tuple] = {}
+    for label, recs in runs:
+        for key, val in recs.items():
+            if source[platform_rule.unit_of_key(key)] == label:
+                merged[key] = val
+    for label, recs in runs:  # keys of a unit only another run has: same platform only
+        for key, val in recs.items():
+            if key in merged:
+                continue
+            unit = platform_rule.unit_of_key(key)
+            sig = {
+                platform_rule.platform_signature(v[1])
+                for k, v in merged.items()
+                if platform_rule.unit_of_key(k) == unit
+            }
+            if sig != {platform_rule.platform_signature(val[1])}:
+                raise Abort(f"merge: unit {unit} would span platforms (re-run the whole unit)")
+            merged[key] = val
+    problems = platform_rule.check_per_world({k: v[1] for k, v in merged.items()})
+    if problems:
+        raise Abort("merge refuses: " + "; ".join(problems[:5]))
     Path(out).mkdir(parents=True)
-    for key, data in merged.items():
+    for key, (data, _) in merged.items():
         dest = Path(out) / "records" / key
         dest.parent.mkdir(parents=True, exist_ok=True)
         with dest.open("xb") as fh:
             fh.write(data)
-    return {"records": len(merged), "platform_id": platforms.pop(), "out": str(out)}
+    pids = sorted({(v[1].get("platform") or {}).get("platform_id") for v in merged.values()})
+    return {
+        "records": len(merged),
+        "units": len({platform_rule.unit_of_key(k) for k in merged}),
+        "platform_ids": pids,
+        "rule": "per-world: one platform per (wrapper, mix, world_seed) unit",
+        "out": str(out),
+    }
 
 
 # ---------------------------------------------------------------- CLI
@@ -1903,6 +2149,14 @@ def cmd_status(a, policy) -> int:
         for p in RpClient().list_pods()
         if str(p.get("name", "")).startswith(policy["pod_name_prefix"])
     ]
+    from research.runpod_fanout.serverless import load_sls_policy
+
+    eprefix = load_sls_policy()["endpoint_prefix"]
+    out["live_runner_endpoints"] = [
+        {k: e.get(k) for k in ("id", "name", "workersMin", "workersMax")}
+        for e in RpClient().list_endpoints()
+        if str(e.get("name", "")).startswith(eprefix)
+    ]
     print(json.dumps(out, indent=1, sort_keys=True, default=str))
     return 0
 
@@ -1930,10 +2184,21 @@ def cmd_cleanup(a, policy) -> int:
     )
     for p in pods:
         rp.delete_pod(p["id"], confirm=a.confirm)
+    # serverless runs of the same job(s): their endpoints too (scale to 0, then delete)
+    from research.runpod_fanout import serverless
+
+    eprefix = serverless.load_sls_policy()["endpoint_prefix"] + (
+        f"{a.job_id}--" if a.job_id else ""
+    )
+    eps = [
+        e for e in rp.list_endpoints() if str(e.get("name", "")).split(" ")[0].startswith(eprefix)
+    ]
+    print(json.dumps({"endpoint_prefix": eprefix, "endpoints": [e["id"] for e in eps]}))
     if a.confirm:
+        bad = [e["id"] for e in eps if not serverless.teardown_endpoint(rp, e["id"])]
         left = [p for p in rp.list_pods() if str(p.get("name", "")).startswith(prefix)]
-        print(json.dumps({"left": [p["id"] for p in left]}))
-        return 0 if not left else 5
+        print(json.dumps({"left": [p["id"] for p in left], "endpoints_left": bad}))
+        return 0 if not left and not bad else 5
     return 0
 
 
@@ -1943,7 +2208,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     pl = sub.add_parser("plan")
     pl.add_argument("job", type=Path)
     pl.add_argument("--budget", type=float, default=None)
-    pl.add_argument("--backend", choices=BACKENDS[:3], default="serverless")
+    pl.add_argument("--backend", choices=BACKENDS, default="serverless")
     r = sub.add_parser("run")
     r.add_argument("job", type=Path)
     r.add_argument(
@@ -1956,6 +2221,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     r.add_argument("--confirm", action="store_true")
     r.add_argument("--run-dir", type=Path, default=None)
     r.add_argument("--slot-timeout", type=float, default=3600.0)
+    r.add_argument(
+        "--resume-from",
+        type=Path,
+        action="append",
+        default=[],
+        help="earlier run dir(s) of the SAME job: only units they did not complete run",
+    )
     for sp_ in (pl, r):  # serverless sizing overrides (default: plan's recommendation)
         sp_.add_argument("--flavor", choices=("cpu5c", "cpu3c"), default=None)
         sp_.add_argument("--target-minutes", type=float, default=None)
@@ -2012,7 +2284,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         policy, job, {"serverless": "sls", "pods": "runpod"}.get(backend, backend)
     )
     if backend == "local":
-        return run_local(job, policy, allow, run_dir, a.slot_timeout)
+        return run_local(job, policy, allow, run_dir, a.slot_timeout, a.resume_from)
     if not a.confirm or a.budget is None:
         print(
             f"run --backend {backend} needs --budget USD and --confirm (dry run: use plan)",
@@ -2026,7 +2298,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         from research.runpod_fanout import serverless
 
         return serverless.run_serverless(a, job, policy, allow, run_dir)
-    runner = Runner(job, policy, allow, run_dir, budget=a.budget, confirm=True)
+    runner = Runner(
+        job, policy, allow, run_dir, budget=a.budget, confirm=True, resume_from=a.resume_from
+    )
     return runner.run()
 
 

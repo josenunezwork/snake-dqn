@@ -221,16 +221,21 @@ def watch(
                 retired.update(i for i in overdue_eps if i not in left_eps)
         if reason:
             log(f"FIRING: {reason}")
-            left = sweep(rp, prefix, sleep, run_dir, clock, give_up_seconds)
+            # Endpoints first (they can bill the most); a serverless run has no pods, so its
+            # pod sweep gives up quickly if GET /pods keeps failing.
+            pod_give_up = give_up_seconds
+            if endpoint_prefix is not None and not registry_ids(run_dir, prefix):
+                pod_give_up = min(give_up_seconds, 600.0)
             eps_left = sweep_run_endpoints(
                 rp, endpoint_prefix, run_dir, sleep, clock, give_up_seconds
             )
+            left = sweep(rp, prefix, sleep, run_dir, clock, pod_give_up)
             # A pod/endpoint from a create still in flight can surface late: sweep again.
             sleep(resweep_seconds)
-            left = sweep(rp, prefix, sleep, run_dir, clock, give_up_seconds)
             eps_left = sweep_run_endpoints(
                 rp, endpoint_prefix, run_dir, sleep, clock, give_up_seconds
             )
+            left = sweep(rp, prefix, sleep, run_dir, clock, pod_give_up)
             left = list(left) + [f"endpoint:{e}" for e in eps_left]
             log(f"done; leftovers={left}")
             (Path(run_dir) / "watchdog_result.json").write_text(
