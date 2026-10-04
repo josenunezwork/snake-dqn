@@ -397,8 +397,11 @@ def test_batched_sizing_is_quota_capped_and_shows_k(tmp_path):
 
 
 class QuotaSls(RecordingSls):
-    def __init__(self, held, free_after_lists=None, list_fails=False, quota_refusals=0, **kw):
+    def __init__(
+        self, held, free_after_lists=None, list_fails=False, quota_refusals=0, status=400, **kw
+    ):
         super().__init__(**kw)
+        self.status = status
         self.other = {"id": "otherep", "name": "someone-else", "workersMax": held}
         self.lists = 0
         self.free_after_lists = free_after_lists
@@ -418,12 +421,17 @@ class QuotaSls(RecordingSls):
             self.quota_refusals -= 1
             body = json.loads(open(body_path).read())
             self.created.append(body)
-            raise RunPodError(
-                "rest POST /endpoints -> 400",
+            raise RunPodError(  # the live 2026-10-04 refusal came back as HTTP 500
+                f"rest POST /endpoints -> {self.status}",
                 {
-                    "http_status": 400,
-                    "error": "Max workers across all endpoints must not exceed your workers "
-                    "quota (10)",
+                    "http_status": self.status,
+                    "error": {
+                        "error": "create endpoint: create endpoint: graphql: Max workers "
+                        "across all endpoints must not exceed your workers quota (10). Reduce "
+                        "the max workers for other endpoints or lower the max worker count "
+                        "for this endpoint to at most 0.",
+                        "status": self.status,
+                    },
                 },
             )
         return super().create_endpoint(body_path, confirm)
@@ -469,8 +477,9 @@ def test_quota_frees_while_waiting_then_the_run_proceeds(world):
     assert any(e["event"] == "worker_quota_full" for e in events(r))
 
 
-def test_create_refused_for_quota_rechecks_and_retries(world):
-    fake = QuotaSls(held=0, quota_refusals=1)
+@pytest.mark.parametrize("status", [400, 500])
+def test_create_refused_for_quota_rechecks_and_retries(world, status):
+    fake = QuotaSls(held=0, quota_refusals=1, status=status)
     r = make(world, eps12(), fake, workers=2)
     assert r.run() == 0
     assert len(fake.created) == 2 and len(fake.deleted) == 1

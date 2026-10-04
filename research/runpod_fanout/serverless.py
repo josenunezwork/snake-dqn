@@ -107,6 +107,13 @@ class QuotaRefused(RuntimeError):
     """RunPod refused the endpoint create for the account worker quota (nothing created)."""
 
 
+def quota_refusal(exc: Exception) -> bool:
+    """RunPod's create error for the account worker quota. Seen live (2026-10-04) as HTTP
+    500: 'Max workers across all endpoints must not exceed your workers quota (10)'."""
+    text = f"{exc} {getattr(exc, 'payload', '')}".lower()
+    return "workers quota" in text or ("quota" in text and "max workers" in text)
+
+
 # ---------------------------------------------------------------- policy / runtime
 
 
@@ -1118,7 +1125,7 @@ class ServerlessRunner(rmod.Runner):
                 self.ledger_call("release_pod", self.run_id, key, 0.0)
                 ep.released = True
                 self.raise_deferred()
-                if "quota" in str(exc.payload).lower() or "quota" in str(exc).lower():
+                if quota_refusal(exc):
                     raise QuotaRefused(f"({status}): {str(exc.payload)[:200]}")
                 raise Abort(f"endpoint create refused ({status}): {str(exc.payload)[:200]}")
             out = self.find_endpoint_by_name(name)
@@ -1127,6 +1134,8 @@ class ServerlessRunner(rmod.Runner):
                 self.ledger_call("release_pod", self.run_id, key, 0.0)
                 ep.released = True
                 self.raise_deferred()
+                if quota_refusal(exc):  # RunPod sends this one as HTTP 500 (live 2026-10-04)
+                    raise QuotaRefused(f"({status}): {str(exc.payload)[:200]}")
                 raise Abort("endpoint create failed (no endpoint exists)")
         except BaseException:
             rmod._DEFER["active"] = False
