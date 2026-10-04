@@ -1,8 +1,14 @@
 {
   "schema": "runpod-fanout-serverless-policy/v1",
   "approved": "user chat 2026-10-03: serverless CPU workers via a PRIVATE network volume (git archive + allow-listed checkpoints only, public base image), cpu5c preferred then cpu3c; serverless is the default backend for Tier-1 CPU jobs (pods = --backend pods). Per-world affinity (coordinator 2026-10-03, from the live pod runs): one world unit per worker, different worlds may run on different CPU models, so one endpoint rents cpu5c then cpu3c",
-  "flavors_pref": ["cpu5c", "cpu3c"],
-  "usd_per_vcpu_hr": {"cpu5c": 0.042, "cpu3c": 0.036},
+  "flavors_pref": [
+    "cpu5c",
+    "cpu3c"
+  ],
+  "usd_per_vcpu_hr": {
+    "cpu5c": 0.042,
+    "cpu3c": 0.036
+  },
   "price_source": "coordinator-relayed console figures 2026-10-03 (not readable via the API; RunPod docs/pricing page list no serverless CPU rates); the run's billing guard aborts if /billing/endpoints exceeds the reserved rate",
   "price_margin": 1.25,
   "data_center": "EU-RO-1",
@@ -13,7 +19,13 @@
   "volume_size_gb": 10,
   "volume_usd_per_gb_month": 0.07,
   "container_disk_gb": 10,
-  "vcpu_sizes": [32, 16, 8, 4, 2],
+  "vcpu_sizes": [
+    32,
+    16,
+    8,
+    4,
+    2
+  ],
   "max_workers": 30,
   "max_endpoint_hourly_usd": 15.0,
   "idle_timeout_seconds": 5,
@@ -27,7 +39,27 @@
   "max_target_wall_minutes": 60,
   "endpoint_prefix": "rpf-sls-",
   "template_prefix": "rpf-sls-rt-",
-  "handler_pip": [["install", "-q", "--no-cache-dir", "runpod==1.12.0"]],
+  "handler_pip": [
+    [
+      "install",
+      "-q",
+      "--no-cache-dir",
+      "runpod==1.12.0"
+    ]
+  ],
   "handler_import": "runpod",
-  "seeder": {"flavors": ["cpu3c", "cpu5c"], "vcpu": [2, 4], "max_hourly_usd": 0.2, "max_wall_minutes": 45}
+  "seeder": {
+    "flavors": [
+      "cpu3c",
+      "cpu5c"
+    ],
+    "vcpu": [
+      2,
+      4
+    ],
+    "max_hourly_usd": 0.8,
+    "max_wall_minutes": 45,
+    "gpu_fallback": true,
+    "gpu_max_hourly_usd": 0.8
+  }
 }

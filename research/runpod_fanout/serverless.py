@@ -250,6 +250,38 @@ def start_command(source: Path, dest: str) -> List[str]:
     ]
 
 
+GPU_SEEDER_PREFIX = "gpu:"
+
+
+def gpu_seeder_rows(rp: Any, sp: Mapping[str, Any], dc: str) -> List[Dict[str, Any]]:
+    """Stocked secure GPU pods in ``dc`` usable as a seeder when no CPU pod is stocked there,
+    capped by seeder.gpu_max_hourly_usd; cheapest first. Read-only."""
+    s = sp["seeder"]
+    cap = float(s.get("gpu_max_hourly_usd") or 0)
+    if not s.get("gpu_fallback") or cap <= 0:
+        return []
+    q = (
+        "query($dc:String){ gpuTypes { id lowestPrice(input:{gpuCount:1, dataCenterId:$dc,"
+        " secureCloud:true}) { stockStatus uninterruptablePrice minVcpu } } }"
+    )
+    out = rp.gql(q, {"dc": dc}) or {}
+    rows = []
+    for g in out.get("gpuTypes") or []:
+        lp = g.get("lowestPrice") or {}
+        price = lp.get("uninterruptablePrice")
+        if lp.get("stockStatus") in rmod.STOCKED and price and float(price) <= cap:
+            rows.append(
+                {
+                    "flavor": GPU_SEEDER_PREFIX + g["id"],
+                    "vcpu": int(lp.get("minVcpu") or 0),
+                    "dc": dc,
+                    "stock": lp["stockStatus"],
+                    "usd_per_hr": float(price),
+                }
+            )
+    return sorted(rows, key=lambda r: r["usd_per_hr"])
+
+
 def seeder_pod_body(
     fp: Mapping[str, Any],
     sp: Mapping[str, Any],
@@ -262,11 +294,23 @@ def seeder_pod_body(
     vcpu: Optional[int] = None,
 ) -> Dict[str, Any]:
     s = sp["seeder"]
+    if flavor and flavor.startswith(GPU_SEEDER_PREFIX):
+        # GPU-pod fallback: only used when no CPU pod is stocked in the volume's DC. The GPU
+        # sits idle; the seeder just copies files and builds venvs on the mounted volume.
+        compute = {
+            "computeType": "GPU",
+            "gpuTypeIds": [flavor[len(GPU_SEEDER_PREFIX):]],
+            "gpuCount": 1,
+        }
+    else:
+        compute = {
+            "computeType": "CPU",
+            "cpuFlavorIds": [flavor or s["flavors"][0]],
+            "vcpuCount": int(vcpu or s["vcpu"][0]),
+        }
     return {
         "name": name,
-        "computeType": "CPU",
-        "cpuFlavorIds": [flavor or s["flavors"][0]],
-        "vcpuCount": int(vcpu or s["vcpu"][0]),
+        **compute,
         "cloudType": "SECURE",
         "dataCenterIds": [volume["dataCenterId"]],
         "imageName": sp["image"],  # the same image the workers run (venv base python)
@@ -1446,6 +1490,8 @@ class SeedRunner(rmod.Runner):
                             "usd_per_hr": float(s["securePrice"]),
                         }
                     )
+        if not rows:
+            rows = gpu_seeder_rows(self.rp, self.sp, dc)
         return sorted(rows, key=lambda r: r["usd_per_hr"])
 
     def prepare_uploads(self, workdir: Path) -> Dict[str, Any]:

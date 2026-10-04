@@ -1558,3 +1558,23 @@ def test_pod_episode_error_retries_same_pod_once_then_restarts_unit_anywhere(tmp
     )
     r.accept_record(kb, json.dumps(late).encode(), "pX")  # a failed world is never published
     assert not (r.run_dir / "records").exists()
+
+
+def test_gpu_seeder_fallback_rows_and_body():
+    from research.runpod_fanout import serverless as S
+
+    class FakeRp:
+        def gql(self, q, v):
+            assert v == {"dc": "EU-RO-1"}
+            return {"gpuTypes": [
+                {"id": "NVIDIA A", "lowestPrice": {"stockStatus": "High", "uninterruptablePrice": 0.72, "minVcpu": 8}},
+                {"id": "NVIDIA B", "lowestPrice": {"stockStatus": "Low", "uninterruptablePrice": 0.24, "minVcpu": 6}},
+                {"id": "NVIDIA C", "lowestPrice": {"stockStatus": "High", "uninterruptablePrice": 2.0, "minVcpu": 16}},
+                {"id": "NVIDIA D", "lowestPrice": {"stockStatus": None, "uninterruptablePrice": 0.1, "minVcpu": 4}},
+            ]}
+
+    sp = {"seeder": {"gpu_fallback": True, "gpu_max_hourly_usd": 0.8, "flavors": ["cpu3c"], "vcpu": [2]}}
+    rows = S.gpu_seeder_rows(FakeRp(), sp, "EU-RO-1")
+    assert [r["flavor"] for r in rows] == ["gpu:NVIDIA B", "gpu:NVIDIA A"]  # capped, stocked, cheapest first
+    sp_off = {"seeder": {"gpu_fallback": False, "gpu_max_hourly_usd": 0.8}}
+    assert S.gpu_seeder_rows(FakeRp(), sp_off, "EU-RO-1") == []
