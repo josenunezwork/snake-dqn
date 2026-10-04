@@ -2296,6 +2296,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "in its vCPU/2 slots); auto (default) = one wave of <= slots episodes and at most "
             "ceil(units/workers) units per job; 1 = one unit per job (pre-batching behaviour)",
         )
+        sp_.add_argument(
+            "--max-wall-minutes",
+            type=float,
+            default=None,
+            help="serverless: a SHORTER run wall than the job's max_wall_minutes (>= 5): the "
+            "deadline, watchdog and ledger horizon (worst case) shrink with it; the job file "
+            "and resume are unchanged",
+        )
     st = sub.add_parser("status")
     st.add_argument("run_dir", nargs="?", type=Path)
     cl = sub.add_parser("cleanup")
@@ -2338,9 +2346,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
         try:
             serverless.parse_units_per_job(a.units_per_job)
+            serverless.run_wall_minutes(job, a.max_wall_minutes)
         except jobspec.JobError as exc:
             print(str(exc), file=sys.stderr)
             return 2
+    elif a.max_wall_minutes is not None or str(a.units_per_job) != "auto":
+        print("--units-per-job / --max-wall-minutes: serverless backend only", file=sys.stderr)
+        return 2
     if a.cmd == "plan":
         if backend == "serverless":
             from research.runpod_fanout import serverless
@@ -2357,6 +2369,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 vcpu=a.vcpu_per_worker,
                 resume_from=a.resume_from,
                 units_per_job=a.units_per_job,
+                max_wall_minutes=a.max_wall_minutes,
             )
             print(json.dumps(out, indent=1, sort_keys=True))
             return 0

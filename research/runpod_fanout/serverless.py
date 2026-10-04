@@ -384,6 +384,21 @@ def parse_units_per_job(value: Any) -> Optional[int]:
     return k
 
 
+def run_wall_minutes(job: Mapping[str, Any], override: Optional[float] = None) -> float:
+    """The run's max wall: the job's ``max_wall_minutes``, or a SHORTER ``--max-wall-minutes``
+    (>= 5). It sets the run deadline, the watchdog's fire time and the ledger horizon (worst
+    case = workers x vCPU x price x margin x wall), so a batched run that needs 15 minutes
+    need not reserve the job's 240. The job file (and so resume) is unchanged."""
+    wall = float(job["max_wall_minutes"])
+    if override is None:
+        return wall
+    if not 5 <= float(override) <= wall:
+        raise jobspec.JobError(
+            f"--max-wall-minutes must be in [5, the job's max_wall_minutes {wall:g}]"
+        )
+    return float(override)
+
+
 def units_cap(pending_units: int, workers: int, fixed: Optional[int]) -> int:
     """Units per job: at most ceil(pending units / workers), so every worker still gets a
     job and the tail spreads out; a fixed K caps it (K=1: one unit per job, as before)."""
@@ -861,10 +876,12 @@ class ServerlessRunner(rmod.Runner):
         sizing: Mapping[str, Any],
         flavors: Sequence[str],
         registry: Optional[Registry] = None,
+        max_wall_minutes: Optional[float] = None,
         **kw: Any,
     ):
         super().__init__(job, policy, allowlist, run_dir, **kw)
         self.sp = sls_policy
+        self.wall_minutes = run_wall_minutes(job, max_wall_minutes)
         self.workers = int(sizing["workers"])
         self.vcpu = int(sizing["vcpu_per_worker"])
         self.slots = max(1, min(MAX_JOB_SLOTS, self.vcpu // int(policy["threads_per_episode"])))
@@ -1628,7 +1645,7 @@ class ServerlessRunner(rmod.Runner):
         if not self.confirm:
             raise jobspec.JobError("run needs --confirm")
         self.start = self.clock()
-        self.deadline = self.start + 60.0 * float(self.job["max_wall_minutes"])
+        self.deadline = self.start + 60.0 * self.wall_minutes
         self.hard_end = self.deadline + float(self.policy["watchdog_grace_seconds"]) + 300.0
         if self.run_dir.exists():
             raise jobspec.JobError(f"run dir {self.run_dir} already exists")
@@ -1660,6 +1677,8 @@ class ServerlessRunner(rmod.Runner):
                 "seeded": manifest,
                 "workers": self.workers,
                 "vcpu_per_worker": self.vcpu,
+                "units_per_job": "auto" if self.fixed_units is None else self.fixed_units,
+                "max_wall_minutes": self.wall_minutes,
                 "flavors": self.flavors,
                 "balance_start": self.balance_start,
                 "budget_usd_hard_cap": self.budget,
@@ -2079,9 +2098,11 @@ def plan_serverless(
     repo: Path = REPO,
     resume_from: Sequence[Path] = (),
     units_per_job: Any = "auto",
+    max_wall_minutes: Optional[float] = None,
 ) -> Dict[str, Any]:
     rp = rp or RpClient()
     fixed = parse_units_per_job(units_per_job)
+    wall = run_wall_minutes(job, max_wall_minutes)
     episodes, resume = resume_episodes(job, fp, allow, resume_from)
     problems = jobspec.check_commit(repo, job)
     work = Path(tempfile.mkdtemp(prefix="rpf-sls-plan-"))
@@ -2100,7 +2121,7 @@ def plan_serverless(
         sp,
         episodes,
         budget,
-        float(job["max_wall_minutes"]),
+        wall,
         flavors,
         acct["headroom_usd"],
         target_minutes,
@@ -2159,6 +2180,7 @@ def plan_serverless(
             "problems": seeded,
         },
         "flavors_in_order": flavors,
+        "max_wall_minutes_run": wall,
         "sizing": sizing,
         "endpoint_body_dry_run": body,
         "account": acct,
@@ -2177,13 +2199,18 @@ def run_serverless(a, job, fp, allow, run_dir: Path) -> int:
     rp = RpClient()
     acct = account_headroom(rp, fp)
     flavors = [a.flavor] if a.flavor else list(sp["flavors_pref"])
+    try:
+        wall = run_wall_minutes(job, getattr(a, "max_wall_minutes", None))
+    except jobspec.JobError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     episodes, _resume = resume_episodes(job, fp, allow, a.resume_from, run_dir)
     plan = sizing_plan(
         fp,
         sp,
         episodes,
         a.budget,
-        float(job["max_wall_minutes"]),
+        wall,
         flavors,
         acct["headroom_usd"],
         a.target_minutes,
@@ -2197,7 +2224,10 @@ def run_serverless(a, job, fp, allow, run_dir: Path) -> int:
             file=sys.stderr,
         )
         return 2
-    print(json.dumps({"serverless_choice": plan["choice"], "flavors": flavors}), flush=True)
+    print(
+        json.dumps({"serverless_choice": plan["choice"], "flavors": flavors, "max_wall": wall}),
+        flush=True,
+    )
     r = ServerlessRunner(
         job,
         fp,
@@ -2211,6 +2241,7 @@ def run_serverless(a, job, fp, allow, run_dir: Path) -> int:
         confirm=True,
         preflight_fn=lambda: rmod.preflight(SLS_PREFLIGHT_URLS),
         resume_from=a.resume_from,
+        max_wall_minutes=wall,
     )
     return r.run()
 

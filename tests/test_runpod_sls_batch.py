@@ -536,3 +536,43 @@ def test_batching_needs_no_new_runtime():
     )
     assert serverless.runtime_id(fp, sp) == "64083e3428a874e7"
     assert serverless.MAX_JOB_SLOTS * int(fp["threads_per_episode"]) >= max(sp["vcpu_sizes"])
+
+
+# ---------------------------------------------------------------- shorter run wall
+
+
+def test_shorter_run_wall_shrinks_deadline_watchdog_and_ledger_horizon(world):
+    fake = FakeSls()
+    r = make(world, eps12(), fake, max_wall_minutes=10)
+    assert r.run() == 0
+    assert r.deadline == pytest.approx(r.start + 600)
+    (row,) = tsl.ledger_rows(world)
+    grace = float(world["fp"]["watchdog_grace_seconds"])
+    assert row["until"] == pytest.approx(r.start + 600 + grace + 300)
+    assert fake.created[0]["executionTimeoutMs"] <= (row["until"] - r.start) * 1000
+    argv = runner.watchdog_argv(r, None)
+    assert float(argv[argv.index("--fire-epoch") + 1]) == pytest.approx(r.deadline + grace)
+    plan = json.loads((r.run_dir / "plan.json").read_text())
+    assert plan["max_wall_minutes"] == 10 and plan["units_per_job"] == "auto"
+    assert json.loads((r.run_dir / "job.json").read_text())["max_wall_minutes"] == 30  # as is
+    with pytest.raises(jobspec.JobError, match="max-wall-minutes"):
+        make(world, eps12(), FakeSls(), name="too-long", max_wall_minutes=31)
+
+
+def test_plan_with_a_shorter_wall_reserves_less(world, tmp_path, capsys):
+    j = job(eps12(), repo_commit=world["commit"], checkpoints=[world["hero"]])
+    for e in j["episodes"]:
+        e["roster_member_sha256s"] = [world["hero"], RANDOM, GREEDY, RANDOM, GREEDY]
+    kw = dict(rp=FakeSls(), repo=world["repo"], workers=2, vcpu=8)
+    full = serverless.plan_serverless(j, world["fp"], world["sp"], world["allow"], 3.0, **kw)
+    short = serverless.plan_serverless(
+        j, world["fp"], world["sp"], world["allow"], 3.0, max_wall_minutes=10, **kw
+    )
+    assert full["max_wall_minutes_run"] == 30 and short["max_wall_minutes_run"] == 10
+    assert short["sizing"]["choice"]["worst_case_usd"] < full["sizing"]["choice"]["worst_case_usd"]
+    p = tmp_path / "job.json"
+    p.write_text(json.dumps(job()))
+    assert runner.main(["plan", str(p), "--max-wall-minutes", "45"]) == 2
+    assert "max-wall-minutes" in capsys.readouterr().err
+    assert runner.main(["run", str(p), "--backend", "local", "--units-per-job", "2"]) == 2
+    assert "serverless backend only" in capsys.readouterr().err
