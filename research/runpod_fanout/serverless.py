@@ -10,8 +10,10 @@ dry runs unless ``--confirm``)::
     serverless.py seed --commit C [--confirm]                # short cpu5c-2 pod: archive +
                                                              #   4 checkpoints + venvs
     serverless.py template-create [--confirm]                # serverless template (free)
-    runner.py plan JOB.json --budget USD                     # sizing + speed/cost table
+    runner.py plan JOB.json --budget USD                     # sizing + speed/cost table,
+                                                             #   K units/job, worker quota
     runner.py run  JOB.json --budget USD --confirm           # per-run endpoint, then delete
+        [--units-per-job auto|K] [--max-wall-minutes M]      #   (batches; shorter run wall)
     serverless.py endpoint-cleanup --job-id ID [--confirm]   # manual teardown
     serverless.py volume-cleanup  [--confirm]                # delete the volume
     serverless.py settle                                     # ledger: upper bound -> billing
