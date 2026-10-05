@@ -170,6 +170,12 @@ class FakeStrictRp:
     def balance(self):
         return self.balance_value
 
+    def list_pods(self):  # the watchdog's pod sweep (a serverless run has no pods)
+        return []
+
+    def get_pod(self, pod_id):
+        return None
+
     def list_endpoints(self):
         return [dict(e) for e in self.endpoints.values()]
 
@@ -1134,3 +1140,105 @@ def test_v1_run_and_v2_intent_carry_nothing_of_v3_and_v3_wraps_paired_bands(tmp_
         "paired_ni_at_stop"
     )
     R.validate_intent(R.read_json(R.prepare(v3)), paired)
+
+
+class StepClock:
+    def __init__(self):
+        self.t = time.time()
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.t += seconds
+
+
+def test_the_fanout_watchdog_tears_down_a_dead_orchestrators_endpoint(tmp_path):
+    from research.runpod_fanout import watchdog
+
+    spec, intent_path, fake, factory = passing_remote_run(tmp_path)
+    intent = R.read_json(intent_path)
+    session = factory(
+        label="gate",
+        intent=intent,
+        intent_text=intent_path.read_text(),
+        intent_sha=R.sha256_file(intent_path),
+        run_dir=intent_path.parent / "remote" / "gate-dead",
+        budget_usd=20.0,
+        wall_seconds=600.0,
+        workers=4,
+    )
+    session.open()  # ... and the orchestrator dies here: no close()
+    assert len(fake.endpoints) == 1
+    target = RB._Target(
+        {"job_id": session.job_id}, time.time() + 600, session.fp, session.run_dir, session.sp
+    )
+    argv = RB.rmod.watchdog_argv(target, None)
+    assert argv[argv.index("--job-id") + 1] == session.job_id
+    assert argv[argv.index("--endpoint-prefix") + 1] == session.endpoint_prefix()
+    clock = StepClock()
+    reason = watchdog.watch(
+        session.job_id,
+        float(argv[argv.index("--fire-epoch") + 1]),
+        session.run_dir,
+        999999,
+        rp=fake,
+        clock=clock,
+        sleep=clock.sleep,
+        alive=lambda pid: False,
+        prefix=argv[argv.index("--prefix") + 1],
+        endpoint_prefix=argv[argv.index("--endpoint-prefix") + 1],
+        resweep_seconds=0,
+        give_up_seconds=60,
+    )
+    assert reason == "runner dead" and not fake.endpoints
+    assert json.loads((session.run_dir / "watchdog_result.json").read_text())["leftovers"] == []
+
+
+def test_production_mac_side_of_the_identity_check(tmp_path, monkeypatch):
+    """The Mac half's plumbing (2 slots, key file, two identity-worker children, merged
+    digests) with each child played in-process instead of as a subprocess."""
+    import os
+
+    spec = make_remote_spec(RemoteWorld(effect=400.0), tmp_path)
+    intent_path = prepare_remote(tmp_path, spec)
+    intent = R.read_json(intent_path)
+    fake = FakeStrictRp(spec)
+    factory = session_factory(tmp_path, fake)
+    with pytest.raises(R.StrictRunError, match="needs injected runners"):
+        RB.run_identity_check(intent_path, spec=spec, session_factory=factory)
+    monkeypatch.setattr(R, "resolve_spec", lambda ref: spec)
+    monkeypatch.setattr(os, "getppid", os.getpid)  # the child's parent is this process
+    children = []
+
+    def in_process_children(commands, **kwargs):
+        assert kwargs["pass_fds"] and kwargs["wall_seconds"] == 2400.0
+        for command in commands:
+            assert command[3].endswith("sequential_runner.py") and command[4] == "identity-worker"
+            args = dict(zip(command[5::2], command[6::2]))
+            assert Path(args["--key-file"]).stat().st_mode & 0o077 == 0  # owner-only key
+            RB.identity_worker_main(
+                Path(args["--intent"]),
+                int(args["--shard"]),
+                int(args["--slot-fd"]),
+                Path(args["--key-file"]),
+                Path(args["--out"]),
+            )
+            children.append(args["--shard"])
+        done = {"termination": "natural_exit", "returncode": 0, "confirmed_exit": True}
+        return {"cause": None, "children": [dict(done) for _ in commands]}
+
+    monkeypatch.setattr(R, "supervise_children", in_process_children)
+    mac = RB.SubprocessMacIdentity(Path(intent["slot_lock_root"]))
+    mac.acquire()
+    try:
+        result = identity(intent_path, spec, factory, mac=mac)
+    finally:
+        mac.release()
+    assert children == ["0", "1"]
+    assert result["passes"] is True and result["mac"]["executor"] == "subprocess"
+    assert result["mac"]["platforms_agree"] is True and len(result["mac"]["digests"]) == 18
+    idir = intent_path.parent / RB.IDENTITY_DIR
+    assert not (idir / ".identity-key").exists()  # the key never outlives the check
+    started = R.read_json(idir / "started.json")
+    assert started["mac_runner"] == "subprocess"
