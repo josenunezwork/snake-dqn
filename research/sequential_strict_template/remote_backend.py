@@ -684,6 +684,14 @@ def validate_execution(intent: Mapping[str, Any], spec: R.StudySpec) -> None:
         intent["dry_run"] or block["amendment"]["ratified"] is True,
         "production remote intent without a ratified amendment",
     )
+    # the frozen flag is re-derived from the hash-bound document itself (a hand-edited
+    # intent cannot claim ratification of a Pending amendment)
+    derived = amendment_status(Path(block["amendment"]["path"]))
+    R.require(
+        derived["sha256"] == block["amendment"]["sha256"]
+        and derived["ratified"] is bool(block["amendment"]["ratified"]),
+        "the amendment's ratification differs from the frozen intent's",
+    )
     R.require(
         protocol_names_platform(
             Path(intent["preregistration"]["protocol"]["path"]), rpol["protocol_platform_line"]
@@ -722,6 +730,24 @@ def _lock_held_elsewhere(path: Path) -> bool:
             return True
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     return False
+
+
+def opened_sessions(root: Path, label: str) -> List[str]:
+    """``remote/<label>-*`` session dirs that got past ``open`` (an ``opened`` event): a
+    refused open (NOT_RUN, retryable) never logs it."""
+    found = []
+    for run_dir in sorted((Path(root) / REMOTE_DIR).glob(f"{label}-*")):
+        events = run_dir / "events.jsonl"
+        if not events.is_file():
+            continue
+        for line in events.read_text(encoding="utf-8").splitlines():
+            try:
+                if json.loads(line).get("event") == "opened":
+                    found.append(str(run_dir))
+                    break
+            except ValueError:
+                continue
+    return found
 
 
 def identity_state(root: Path) -> Dict[str, Any]:
@@ -1605,8 +1631,12 @@ class RemoteSession:
             except Exception as exc:  # noqa: BLE001 - recorded, never fatal here
                 self.log("balance_unavailable", detail=str(exc)[:160])
         try:
-            if self.reserved and self.deleted is not None:
+            # release only when the endpoint is confirmed gone or was never created (an
+            # open that failed before _create_endpoint): a reservation left live would keep
+            # counting in own_spend's others_allowance and blunt a retry's balance stop
+            if self.reserved and (self.created is None or self.deleted is not None):
                 self.ledger.release_pod(self.run_id, self.key, upper)
+            if self.reserved and self.endpoint_id and self.deleted is not None:
                 # lets SharedLedger.settle_serverless lower the upper bound to final billing
                 self.ledger.annotate(
                     self.run_id,
@@ -2216,6 +2246,20 @@ def run_identity_check(
     )
     lock = None
     try:
+        # never re-run: a prior session that opened (even if its files were removed since), or a
+        # ledger row of this identity job whose run dir is gone, refuses before anything opens
+        prior = opened_sessions(root, "identity")
+        R.require(not prior, f"identity check already opened a session {prior}: never re-run")
+        ledger = getattr(session, "ledger", None)
+        if ledger is not None:
+            with ledger.locked(write=False) as state:
+                gone = [
+                    run.get("run_dir")
+                    for run in (state.get("runs") or {}).values()
+                    if run.get("job_id") == getattr(session, "job_id", None)
+                    and not Path(str(run.get("run_dir"))).is_dir()
+                ]
+            R.require(not gone, f"identity check evidence removed {gone}: never re-run")
         session.open()  # refuses cleanly: nothing started yet
         idir = root / IDENTITY_DIR
         idir.mkdir()  # create-only: never re-run

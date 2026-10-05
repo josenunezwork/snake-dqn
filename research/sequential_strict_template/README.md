@@ -418,17 +418,26 @@ probe) starts nothing.
 6. `sequential_runner.py identity-check --intent <root>/intent.json`: once per intent. It opens
    the endpoint first (a refusal starts nothing), then plays the sample on the Mac (2 slots,
    `identity-worker` children) and on RunPod, and writes `identity_check.json` with salted
-   digests only.
+   digests only. A session that got past `open` is never followed by another: deleting
+   `identity_check.json`/`identity_check/` refuses ("already opened a session"), and so does
+   deleting the session dir too (the shared ledger still names its run).
 7. `sequential_runner.py run --intent <root>/intent.json`: PASSED runs on RunPod; FAILED or
    ABANDONED runs the same intent on the Mac (2 slots); NOT_RUN refuses.
 
-**Audit (v3, report schema `sequential-strict-audit/v3`).** `execution.platform_named`,
-`execution.speedup_rule`, `identity.result_and_backend` (verdict recomputed from the digests,
-rows bound to `rosters.json`, the backend the state implies), `platform.per_world_single`
+**Audit (v3, report schema `sequential-strict-audit/v3`).** `execution.platform_named`
+(ratification re-derived from the hash-verified amendment text, not taken from the intent's
+flag), `execution.speedup_rule`, `identity.result_and_backend` (sample recomputed from the
+pre-registered ranking, verdict recomputed from the digests, rows bound to `rosters.json`, the
+backend the state implies), `identity.run_once` (exactly one identity session opened, the one
+`identity_check/started.json` and the result's receipt name; every shared-ledger run of the
+identity job still has its run dir; the ledger defaults to the frozen fan-out policy's
+`artifacts_root`, override with `--ledger`), `platform.per_world_single`
 (every record stamped, one stamp and one job per world unit), `remote.segments_exact_units`
 (each segment's `remote.json` lists exactly its planned units, published whole from the job
-the records name), `remote.spend_stop_is_invalid` and `serving.stays_on_mac` (the intent
-says serving qualification stays on the Mac and the closeout records no promotion); segment gates bind the identity state.
+the records name), `remote.spend_stop_is_invalid` (either SpendStop, cap reached or balance
+unreadable, ends `INVALID_STOP`) and `serving.stays_on_mac` (the intent says serving
+qualification stays on the Mac and the closeout records no promotion); segment gates bind the
+identity state.
 
 **Binding of the identity result (explicit deviation).** The task asks for the identity result
 to be "bound into the intent before the final stage". `intent.json` is create-only and frozen

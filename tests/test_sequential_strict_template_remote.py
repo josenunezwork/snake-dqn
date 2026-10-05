@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import socket
 import sys
 import time
@@ -597,13 +598,16 @@ def test_identity_pass_runs_the_gate_on_runpod_and_the_audit_passes(tmp_path):
         assert len(eps) <= body["input"]["slots"]
         for unit in body["input"]["units"]:
             assert len({(e["mix"], e["world_index"]) for e in unit["episodes"]}) == 1
-    report = A.run_audit(intent_path.parent)
+    report = A.run_audit(intent_path.parent, ledger_path=factory.ledger.path)
     assert report["status"] == "PASS", report["failures"]
     assert report["schema_version"] == "sequential-strict-audit/v3"
+    once = next(c for c in report["checks"] if c["rule"] == "identity.run_once")
+    assert once["detail"]["ledger_checked"] is True
     rules = {row["rule"] for row in report["checks"]}
     assert {
         "execution.platform_named",
         "identity.result_and_backend",
+        "identity.run_once",
         "platform.per_world_single",
         "remote.segments_exact_units",
         "remote.spend_stop_is_invalid",
@@ -802,6 +806,101 @@ def test_battery_or_lid_during_a_remote_segment_stops_invalid(tmp_path, guard):
     assert closeout["outcome"] == "INVALID_STOP", why(closeout)
     assert ("on_battery" if guard == "power" else "lid_closed") in closeout["failure"]
     assert not fake.endpoints
+
+
+def test_identity_check_cannot_be_rerun_by_deleting_its_files(tmp_path):
+    spec, intent_path, fake, factory = passing_remote_run(tmp_path)
+    root = intent_path.parent
+    [session_dir] = RB.opened_sessions(root, "identity")
+    (root / RB.IDENTITY_FILE).unlink()
+    shutil.rmtree(root / RB.IDENTITY_DIR)
+    assert RB.identity_state(root)["state"] == "NOT_RUN"
+    with pytest.raises(R.StrictRunError, match="already opened a session"):
+        identity(intent_path, spec, factory)
+    shutil.rmtree(session_dir)  # the ledger still knows the first run
+    with pytest.raises(R.StrictRunError, match="evidence removed"):
+        identity(intent_path, spec, factory)
+    assert len(fake.created) == 1  # neither retry opened anything
+
+
+def test_audit_detects_a_second_identity_session_and_removed_evidence(tmp_path):
+    spec, intent_path, fake, factory = passing_remote_run(tmp_path)
+    execute_remote(intent_path, spec, factory)
+    root = intent_path.parent
+    assert A.run_audit(root, ledger_path=factory.ledger.path)["status"] == "PASS"
+    [first] = RB.opened_sessions(root, "identity")
+    second = root / RB.REMOTE_DIR / "identity-20991231t000000z-beef"
+    second.mkdir()
+    (second / "events.jsonl").write_text(json.dumps({"event": "opened"}) + "\n")
+    failed = {row["rule"] for row in A.run_audit(root)["failures"]}
+    assert "identity.run_once" in failed
+    shutil.rmtree(second)
+    shutil.rmtree(first)  # a removed first session: the ledger still names it
+    failed = {r["rule"] for r in A.run_audit(root, ledger_path=factory.ledger.path)["failures"]}
+    assert "identity.run_once" in failed
+
+
+def test_ratification_is_rederived_from_the_amendment_text(tmp_path):
+    spec, intent_path, fake, factory = passing_remote_run(tmp_path)
+    execute_remote(intent_path, spec, factory)
+    root = intent_path.parent
+    intent = R.read_json(intent_path)
+    assert intent["execution"]["amendment"]["ratified"] is False  # the repo copy is Pending
+    forged = json.loads(json.dumps(intent))
+    forged["execution"]["amendment"]["ratified"] = True
+    with pytest.raises(R.StrictRunError, match="ratification differs"):
+        RB.validate_execution(forged, spec)
+    intent_path.write_text(json.dumps(forged))
+    failed = {row["rule"] for row in A.run_audit(root)["failures"]}
+    assert "execution.platform_named" in failed
+
+
+def test_audit_recomputes_the_identity_sample(tmp_path):
+    spec, intent_path, fake, factory = passing_remote_run(tmp_path)
+    execute_remote(intent_path, spec, factory)
+    intent = R.read_json(intent_path)
+    sample = intent["execution"]["identity_check"]["sample"]
+    chosen = {s["world_index"] for s in sample}
+    other = next(i for i in range(intent["plan"]["look_sizes"][0]) if i not in chosen)
+    for s in sample:
+        if s["world_index"] == sample[0]["world_index"]:
+            s["world_index"], s["world_seed"] = other, int(intent["banks"]["final"][other])
+    assert A.identity_sample(intent, intent["execution"]["identity_check"]["worlds_per_mix"]) != (
+        sample
+    )
+    intent_path.write_text(json.dumps(intent))
+    failed = {row["rule"] for row in A.run_audit(intent_path.parent)["failures"]}
+    assert "identity.result_and_backend" in failed
+
+
+def test_open_failing_before_the_endpoint_releases_the_ledger_reservation(tmp_path):
+    spec = make_remote_spec(RemoteWorld(effect=400.0), tmp_path)
+    intent_path = prepare_remote(tmp_path, spec)
+    fake = FakeStrictRp(spec)
+    factory = session_factory(tmp_path, fake)
+
+    def broken_factory(**kw):
+        session = factory(**kw)
+
+        def spawn(target):
+            raise OSError("cannot spawn the watchdog")
+
+        session.spawn_watchdog = spawn
+        return session
+
+    with pytest.raises(RB.SessionRefused, match="cannot spawn"):
+        identity(intent_path, spec, broken_factory)
+    assert not fake.created and RB.identity_state(intent_path.parent)["state"] == "NOT_RUN"
+    runs = ledger_runs(factory)
+    assert runs
+    for run in runs.values():
+        for pod in run["pods"].values():
+            assert pod["deleted"] is not None and float(pod["cost"]) == 0.0
+            assert "settle" not in pod
+    with factory.ledger.locked(write=False) as state:
+        assert factory.ledger.totals(state)["live_pods"] == 0
+    # the refused attempt never opened: the owner's retry runs normally
+    assert identity(intent_path, spec, factory)["passes"] is True
 
 
 # ---------------------------------------------------------------- audit

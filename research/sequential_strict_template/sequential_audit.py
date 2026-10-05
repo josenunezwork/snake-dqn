@@ -63,6 +63,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import struct
 from functools import lru_cache
 from pathlib import Path
@@ -81,6 +82,8 @@ IDENTITY_SCHEMA = "sequential-strict-identity-check/v1"
 SEGMENT_SCHEMA = "sequential-strict-remote-segment/v1"
 PROTOCOL_PLATFORM_LINE = "Execution platform: runpod-serverless"
 SERVING_QUALIFICATION = "stays on the Mac (condition 4)"
+RATIFIED_RE = re.compile(r"^\s*-\s*Decision:\s*ratified\b", re.IGNORECASE | re.MULTILINE)
+REMOTE_DIR = "remote"
 METHOD = "strict-sequential-obf-bonferroni-v1"
 TEMPLATE_VERSION = "sequential-strict-template/v1"
 TEMPLATE_VERSION_PAIRED = "sequential-strict-template/v2"
@@ -1464,7 +1467,111 @@ def segment_unit_keys(intent: Mapping[str, Any], phase: str) -> List[List[str]]:
     return out
 
 
-def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
+def identity_sample(intent: Mapping[str, Any], worlds_per_mix: int) -> List[Dict[str, Any]]:
+    """The audit's own copy of the pre-registered identity sample ranking."""
+    namespace = intent["spec"]["namespaces"]["final"]
+    first = int(intent["plan"]["look_sizes"][0])
+    ranked = sorted(
+        range(first),
+        key=lambda i: hashlib.sha256(f"{namespace}|identity-sample|{i}".encode()).hexdigest(),
+    )[: int(worlds_per_mix)]
+    bank = intent["banks"]["final"]
+    return [
+        {"mix": mix, "world_index": i, "world_seed": int(bank[i])}
+        for i in sorted(ranked)
+        for mix in intent["spec"]["mixes"]
+    ]
+
+
+def opened_sessions(root: Path, label: str) -> List[str]:
+    """``remote/<label>-*`` session dirs whose events log an ``opened`` session."""
+    found = []
+    for run_dir in sorted((Path(root) / REMOTE_DIR).glob(f"{label}-*")):
+        events = run_dir / "events.jsonl"
+        if not events.is_file():
+            continue
+        for line in events.read_text(encoding="utf-8").splitlines():
+            try:
+                if json.loads(line).get("event") == "opened":
+                    found.append(str(run_dir))
+                    break
+            except ValueError:
+                continue
+    return found
+
+
+def default_ledger_path(intent: Mapping[str, Any]) -> Optional[Path]:
+    """The shared RunPod ledger named by the frozen fan-out policy (artifacts_root)."""
+    policy = ((intent.get("execution") or {}).get("policies") or {}).get("fanout") or {}
+    path = Path(str(policy.get("path")))
+    if not path.is_file():
+        return None
+    root = load_json(path).get("artifacts_root")
+    return Path(root) / "runpod-fanout" / "ledger-v2.json" if root else None
+
+
+def audit_identity_once(
+    audit: Audit,
+    root: Path,
+    intent: Mapping[str, Any],
+    binding: Mapping[str, Any],
+    ledger_path: Optional[Path],
+) -> None:
+    """Condition 3 runs once: exactly one identity session opened, it is the one the result
+    and started.json name, and the shared ledger knows no other run of this identity job."""
+    problems: List[str] = []
+    opened = opened_sessions(root, "identity")
+    started_path = root / "identity_check" / "started.json"
+    started = load_json(started_path) if started_path.is_file() else None
+    state = binding["state"]
+    if state == "NOT_RUN":
+        if opened:
+            problems.append(f"identity sessions opened but no identity check: {opened}")
+    elif state == "ABANDONED" and started is None:
+        if len(opened) > 1:
+            problems.append(f"{len(opened)} identity sessions opened")
+    else:
+        named = str((started or {}).get("remote_session"))
+        if started is None:
+            problems.append("identity_check/started.json missing")
+        if opened != [named]:
+            problems.append(f"opened identity sessions {opened} != started.json's [{named}]")
+        if state in ("PASSED", "FAILED"):
+            result = load_json(root / "identity_check.json")
+            if started is not None and result.get("started_sha256") != sha256_file(started_path):
+                problems.append("identity result is not bound to identity_check/started.json")
+            receipt_dir = ((result.get("remote") or {}).get("receipt") or {}).get("run_dir")
+            if receipt_dir is not None and str(receipt_dir) != named:
+                problems.append("identity remote receipt names another session")
+    remote_policy = ((intent.get("execution") or {}).get("policies") or {}).get("remote") or {}
+    prefix = None
+    if Path(str(remote_policy.get("path"))).is_file():
+        prefix = load_json(Path(remote_policy["path"])).get("job_id_prefix_identity")
+    ledger = Path(ledger_path) if ledger_path is not None else None
+    if ledger is None and intent.get("dry_run") is not True:
+        ledger = default_ledger_path(intent)
+    checked = False
+    if ledger is not None and prefix:
+        if ledger.is_file():
+            job_id = f"{prefix}{sha256_file(root / 'intent.json')[:12]}"
+            runs = (load_json(ledger).get("runs") or {}).values()
+            ours = sorted(str(r.get("run_dir")) for r in runs if r.get("job_id") == job_id)
+            missing = [d for d in ours if not Path(d).is_dir()]
+            if missing:
+                problems.append(f"ledger identity runs without their run dir: {missing}")
+            checked = True
+        elif intent.get("dry_run") is not True:
+            problems.append(f"shared ledger unreadable: {ledger}")
+    audit.add(
+        "identity.run_once",
+        not problems,
+        {"problems": problems[:20], "opened": opened, "ledger_checked": checked},
+    )
+
+
+def audit_remote(
+    audit: Audit, root: Path, intent: Mapping[str, Any], ledger_path: Optional[Path] = None
+) -> None:
     """Template v3 (governance amendment strict on RunPod, 2026-10-05): conditions 1-4."""
     output = root / "output"
     block = intent.get("execution") or {}
@@ -1478,6 +1585,16 @@ def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
         for d in docs
         if not (d and Path(d["path"]).is_file() and sha256_file(Path(d["path"])) == d["sha256"])
     ]
+    # ratification is re-derived from the hash-verified amendment text, never trusted from
+    # the intent's frozen flag alone
+    amendment = block.get("amendment") or {}
+    amendment_path = Path(str(amendment.get("path")))
+    derived_ratified = bool(
+        amendment_path.is_file() and RATIFIED_RE.search(amendment_path.read_text(encoding="utf-8"))
+    )
+    ratified_ok = derived_ratified is bool(amendment.get("ratified")) and (
+        intent.get("dry_run") is True or derived_ratified
+    )
     audit.add(
         "execution.platform_named",
         block.get("schema") == EXECUTION_SCHEMA
@@ -1486,10 +1603,8 @@ def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
         and (block.get("remote_config") or {}).get("values", {}).get("platform") == REMOTE_BACKEND
         and any(line.strip() == PROTOCOL_PLATFORM_LINE for line in text.splitlines())
         and not drifted
-        and (
-            intent.get("dry_run") is True or (block.get("amendment") or {}).get("ratified") is True
-        ),
-        {"drifted": drifted},
+        and ratified_ok,
+        {"drifted": drifted, "amendment_ratified_in_text": derived_ratified},
     )
     audit.add(
         "execution.speedup_rule",
@@ -1509,6 +1624,9 @@ def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
     if binding["state"] not in ("PASSED", "FAILED", "ABANDONED"):
         problems.append(f"identity check {binding['state']} at admission")
     sample = (block.get("identity_check") or {}).get("sample") or []
+    worlds_per_mix = (block.get("identity_check") or {}).get("worlds_per_mix")
+    if not isinstance(worlds_per_mix, int) or sample != identity_sample(intent, worlds_per_mix):
+        problems.append("the frozen identity sample is not the pre-registered ranking's")
     expected = [
         f"final-{arm}-{s['mix']}-w{int(s['world_index']):05d}" for s in sample for arm in ARMS
     ]
@@ -1569,6 +1687,7 @@ def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
     if backend == FALLBACK_BACKEND and executor == REMOTE_EXECUTOR:
         problems.append("fallback backend with the remote executor")
     audit.add("identity.result_and_backend", not problems, problems[:20])
+    audit_identity_once(audit, root, intent, binding, ledger_path)
     # (2) per-world single platform: every record stamped, one platform per world unit
     rows: List[str] = []
     stamps_by_unit: Dict[str, set] = {}
@@ -1670,12 +1789,15 @@ def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
         stopped = str(remote.get("stop_reason") or "")
         audit.add(
             "remote.spend_stop_is_invalid",
-            "spend cap reached" not in stopped or saved.get("outcome") == "INVALID_STOP",
+            ("spend cap" not in stopped and "SpendStop" not in stopped)
+            or saved.get("outcome") == "INVALID_STOP",
             {"stop_reason": stopped, "outcome": saved.get("outcome")},
         )
 
 
-def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
+def run_audit(
+    root: Path, pre_closeout: bool = False, ledger_path: Optional[Path] = None
+) -> Dict[str, Any]:
     """Audit a run root.  Without ``pre_closeout`` a root lacking ``closeout.json`` is
     ``UNCLOSED`` (never PASS); the runner's own pre-closeout call needs the producer claim
     and no closeout yet."""
@@ -1696,7 +1818,7 @@ def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
         final = audit_final(audit, intent, output, calibration, skew)
         recomputed = audit_outcome(audit, intent, output, skew, final)
         if is_remote(intent):
-            audit_remote(audit, root, intent)
+            audit_remote(audit, root, intent, ledger_path)
     except (AuditError, KeyError, TypeError, ValueError, IndexError, OSError) as exc:
         error = f"{type(exc).__name__}: {exc}"
         audit.add("audit.evidence_readable", False, error)
@@ -1755,8 +1877,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="the runner's own call, after producer-outcome.json and before closeout.json",
     )
+    parser.add_argument(
+        "--ledger",
+        type=Path,
+        default=None,
+        help="template v3: the shared RunPod ledger (default: the frozen fan-out policy's)",
+    )
     args = parser.parse_args(argv)
-    report = run_audit(args.root, pre_closeout=args.pre_closeout)
+    report = run_audit(args.root, pre_closeout=args.pre_closeout, ledger_path=args.ledger)
     args.out.mkdir(parents=True, exist_ok=True)
     write_create_only(args.out / "audit.json", report)
     return 0 if report["status"] == "PASS" else 1
