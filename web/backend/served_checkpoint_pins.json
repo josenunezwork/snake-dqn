@@ -1,0 +1,12 @@
+{
+  "schema": "served-checkpoint-strict-pins/v1",
+  "note": "Strict-gate receipt pins that authorize serving a non-champion registry checkpoint (web/backend/served_checkpoint.py). strict_receipt null = unfilled placeholder: the name is refused and the released default is served. Fill ONLY after the checkpoint's strict gate closes STRICT_PASS, with research/frp3_checkpoint_serving_20261005/fill_strict_pin.py, then commit.",
+  "checkpoints": {
+    "frp3-s12": {
+      "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+      "veto_variant": "v8",
+      "veto_method": "free-space-veto/v8-space-and-head(lambda=8.0)",
+      "strict_receipt": null
+    }
+  }
+}

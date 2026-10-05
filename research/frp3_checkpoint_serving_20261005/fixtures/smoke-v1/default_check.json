@@ -1,0 +1,241 @@
+{
+  "builds": {
+    "checkpoint_champion": {
+      "env": {
+        "SNAKE_SERVE_CHECKPOINT": "champion"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "reason": "no serving veto flag applies to play mode",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": true,
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "hero_id": 0,
+          "method": "free-space-veto/v8-space-and-head(lambda=8.0)",
+          "mode": "watch",
+          "reason": null,
+          "snakes_with_veto": [
+            0
+          ],
+          "variant": "v8"
+        }
+      },
+      "pins": "run",
+      "served_checkpoint": {
+        "name": "champion",
+        "path": "/Users/josenunez/.codex/worktrees/frp3-serving/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": "champion",
+        "sha256": null
+      }
+    },
+    "checkpoint_unknown": {
+      "env": {
+        "SNAKE_SERVE_CHECKPOINT": "frp3-s99"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "reason": "no serving veto flag applies to play mode",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": true,
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "hero_id": 0,
+          "method": "free-space-veto/v8-space-and-head(lambda=8.0)",
+          "mode": "watch",
+          "reason": null,
+          "snakes_with_veto": [
+            0
+          ],
+          "variant": "v8"
+        }
+      },
+      "pins": "run",
+      "served_checkpoint": {
+        "name": "champion",
+        "path": "/Users/josenunez/.codex/worktrees/frp3-serving/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+        "pin_problems": [],
+        "reason": "unknown SNAKE_SERVE_CHECKPOINT 'frp3-s99' (must be one of champion, frp3-s12); fell back to the released default champion",
+        "requested": "frp3-s99",
+        "sha256": null
+      }
+    },
+    "empty_env": {
+      "env": {},
+      "modes": {
+        "play": {
+          "active": false,
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "reason": "no serving veto flag applies to play mode",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": true,
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "hero_id": 0,
+          "method": "free-space-veto/v8-space-and-head(lambda=8.0)",
+          "mode": "watch",
+          "reason": null,
+          "snakes_with_veto": [
+            0
+          ],
+          "variant": "v8"
+        }
+      },
+      "pins": "run",
+      "served_checkpoint": {
+        "name": "champion",
+        "path": "/Users/josenunez/.codex/worktrees/frp3-serving/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": null,
+        "sha256": null
+      }
+    },
+    "frp3_pin_unfilled": {
+      "env": {
+        "SNAKE_SERVE_CHECKPOINT": "frp3-s12"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "reason": "no serving veto flag applies to play mode",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": true,
+          "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+          "hero_id": 0,
+          "method": "free-space-veto/v8-space-and-head(lambda=8.0)",
+          "mode": "watch",
+          "reason": null,
+          "snakes_with_veto": [
+            0
+          ],
+          "variant": "v8"
+        }
+      },
+      "pins": "unfilled",
+      "served_checkpoint": {
+        "name": "champion",
+        "path": "/Users/josenunez/.codex/worktrees/frp3-serving/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+        "pin_problems": [
+          "strict receipt pin is the unfilled placeholder (null)"
+        ],
+        "reason": "frp3-s12 has no valid strict-receipt pin: ['strict receipt pin is the unfilled placeholder (null)']; served the released default instead",
+        "requested": "frp3-s12",
+        "sha256": null
+      }
+    },
+    "frp3_rollback_variant_v7": {
+      "env": {
+        "SNAKE_SERVE_CHECKPOINT": "frp3-s12",
+        "SNAKE_SERVE_VETO_VARIANT": "v7"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "reason": "no serving veto flag applies to play mode",
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": false,
+          "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "hero_id": 0,
+          "method": null,
+          "mode": "watch",
+          "reason": "no strict-gate evidence for this checkpoint under variant v7 (sha256 eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723)",
+          "snakes_with_veto": [],
+          "variant": "v7"
+        }
+      },
+      "pins": "run",
+      "served_checkpoint": {
+        "name": "frp3-s12",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/train/arm-M3/seed-12/checkpoints/apex_mark_u60000.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": "frp3-s12",
+        "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+      }
+    },
+    "frp3_watch_off": {
+      "env": {
+        "SNAKE_SERVE_CHECKPOINT": "frp3-s12",
+        "SNAKE_SERVE_VETO_WATCH_HERO": "0"
+      },
+      "modes": {
+        "play": {
+          "active": false,
+          "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "hero_id": 0,
+          "method": null,
+          "mode": "play",
+          "reason": null,
+          "snakes_with_veto": [],
+          "variant": null
+        },
+        "watch": {
+          "active": false,
+          "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+          "hero_id": 0,
+          "method": null,
+          "mode": "watch",
+          "reason": null,
+          "snakes_with_veto": [],
+          "variant": null
+        }
+      },
+      "pins": "run",
+      "served_checkpoint": {
+        "name": "frp3-s12",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/train/arm-M3/seed-12/checkpoints/apex_mark_u60000.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": "frp3-s12",
+        "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+      }
+    }
+  },
+  "checkpoint_released_default": "champion",
+  "default_checkpoint_basename": "champion_a5_freespace_20260621.pth",
+  "flags_from_empty_env": {
+    "play_ai": false,
+    "watch_hero": true
+  },
+  "intent_sha256": "176d5e427142cf39887d832098efd2f26f7268bc720e4821d65a988e3fbfd5a2",
+  "pass": true,
+  "served_config_basename": "mechanics_v2.yaml",
+  "served_config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+  "variant_from_empty_env": "v8"
+}

@@ -55,7 +55,10 @@ stays the master switch; the variant chooses which wrapper the Watch hero gets:
   :data:`V8_STRICT_RECEIPT_CHECKPOINT_SHA256`, the seven veto sources
   (``safety_veto{,_v3,_v4,_v5,_v6,_v7,_v8}.py``) to :data:`V8_STRICT_RECEIPT_SOURCE_SHA256S`,
   the installed method to :data:`V8_STRICT_RECEIPT_METHOD` (the gated lambda), and the
-  installed veto must have the head layer on and no reference lambda.
+  installed veto must have the head layer on and no reference lambda. A checkpoint swap
+  (``web/backend/served_checkpoint.py``, ``SNAKE_SERVE_CHECKPOINT``) adds its checkpoint to
+  the v8 binding only once its own strict receipt (gated with this v8) is pinned there;
+  the v8 pins above stay unchanged and no other variant accepts a swapped checkpoint.
 
 Unset or blank selects the default; ``v2``/``v5``/``v7``/``v8`` (case-insensitive) select a
 variant.
@@ -83,8 +86,8 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from src.evaluation import safety_veto as _veto_module
 from src.evaluation import safety_veto_v3 as _veto_v3_module
-from src.evaluation import safety_veto_v5 as _veto_v5_module
 from src.evaluation import safety_veto_v4 as _veto_v4_module
+from src.evaluation import safety_veto_v5 as _veto_v5_module
 from src.evaluation import safety_veto_v6 as _veto_v6_module
 from src.evaluation import safety_veto_v7 as _veto_v7_module
 from src.evaluation import safety_veto_v8 as _veto_v8_module
@@ -101,6 +104,7 @@ from src.evaluation.safety_veto_v5 import (
 from src.evaluation.safety_veto_v7 import SpacePreferenceVeto, install_space_preference_veto
 from src.evaluation.safety_veto_v8 import SpaceAndHeadVeto, install_space_and_head_veto
 from src.model.obs_spec import VECTOR61
+from web.backend.served_checkpoint import v8_gated_checkpoint_sha256s
 
 ENV_WATCH_HERO = "SNAKE_SERVE_VETO_WATCH_HERO"
 ENV_PLAY_AI = "SNAKE_SERVE_VETO_PLAY_AI"
@@ -405,16 +409,30 @@ class ServingVetoState:
     variant: Optional[str] = None
     # Whether every bound wrapper source hashed to its receipt sha (None = not checked).
     wrapper_sources_match: Optional[bool] = None
+    # v8 only: whether a checkpoint-swap strict pin binds this checkpoint (None = not read
+    # yet). Cached so the install decision and later reports agree if the pins file changes.
+    swap_pin_match: Optional[bool] = None
 
     @property
     def checkpoint_match(self) -> bool:
-        """The served checkpoint is the one the variant's strict receipt binds."""
+        """The served checkpoint is the one the variant's strict receipt binds.
+
+        Under ``v8`` it may also be a checkpoint-swap registry entry whose filled strict
+        pin was gated with v8 (``served_checkpoint.v8_gated_checkpoint_sha256s``; empty
+        while every pin is the unfilled placeholder). The v8 pins themselves are unchanged.
+        """
         pinned = {
             VARIANT_V5: V5_STRICT_RECEIPT_CHECKPOINT_SHA256,
             VARIANT_V7: V7_STRICT_RECEIPT_CHECKPOINT_SHA256,
             VARIANT_V8: V8_STRICT_RECEIPT_CHECKPOINT_SHA256,
         }.get(self.variant, STRICT_RECEIPT_CHECKPOINT_SHA256)
-        return self.checkpoint_sha256 == pinned
+        if self.checkpoint_sha256 == pinned:
+            return True
+        if self.variant == VARIANT_V8 and self.checkpoint_sha256 is not None:
+            if self.swap_pin_match is None:  # read the pins once per build, then frozen
+                self.swap_pin_match = self.checkpoint_sha256 in v8_gated_checkpoint_sha256s()
+            return self.swap_pin_match
+        return False
 
     @property
     def active(self) -> bool:

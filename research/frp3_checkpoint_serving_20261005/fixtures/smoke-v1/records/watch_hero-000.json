@@ -1,0 +1,288 @@
+{
+  "authority": "serving-qualification (non-promoting)",
+  "checkpoint": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/train/arm-M3/seed-12/checkpoints/apex_mark_u60000.pth",
+    "session_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+    "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+  },
+  "decision_frames": {
+    "per_snake": {
+      "0": 500
+    },
+    "total": 500
+  },
+  "ended_by": "horizon",
+  "env": {
+    "SNAKE_SERVE_CHECKPOINT": "frp3-s12",
+    "SNAKE_SERVE_VETO_PLAY_AI": null,
+    "SNAKE_SERVE_VETO_VARIANT": null,
+    "SNAKE_SERVE_VETO_WATCH_HERO": null
+  },
+  "episode": {
+    "game_frame": 500,
+    "hero_alive_frames": 500,
+    "hero_deaths": 0,
+    "hero_final_length": 84,
+    "hero_id": 0
+  },
+  "episode_id": "watch_hero-000",
+  "episode_index": 0,
+  "error": null,
+  "frames_stepped": 500,
+  "horizon_frames": 500,
+  "intent_sha256": "176d5e427142cf39887d832098efd2f26f7268bc720e4821d65a988e3fbfd5a2",
+  "kind": "watch_hero",
+  "schema_version": "frp3-checkpoint-web-serving/v1",
+  "served": {
+    "config_basename": "mechanics_v2.yaml",
+    "config_path": "/Users/josenunez/.codex/worktrees/frp3-serving/snake-dqn/configs/mechanics_v2.yaml",
+    "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+    "epsilon": 0.0,
+    "hero_id": 0,
+    "human_id": null,
+    "mode": "watch",
+    "num_snakes": 6,
+    "obs_spec": "vector61",
+    "policy_class": "ApexPolicy",
+    "policy_training": false,
+    "protocol_version": 2,
+    "snake_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "veto_flags": {
+      "play_ai": false,
+      "watch_hero": true
+    },
+    "world": {
+      "height": 830,
+      "initial_food": 250,
+      "input_size": 61,
+      "max_food": 300,
+      "mechanics_version": 2,
+      "width": 1450
+    }
+  },
+  "served_checkpoint": {
+    "name": "frp3-s12",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/train/arm-M3/seed-12/checkpoints/apex_mark_u60000.pth",
+    "pin_problems": [],
+    "reason": null,
+    "requested": "frp3-s12",
+    "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+  },
+  "snakes_with_veto": [
+    0
+  ],
+  "status": "complete",
+  "study_id": "frp3-checkpoint-serving-20261005",
+  "veto": {
+    "active": true,
+    "diagnostics_per_snake": {
+      "0": {
+        "action_differs_from_reference": 0,
+        "action_differs_from_v7": 0,
+        "decisions": 500,
+        "head_area_evaluations": 0,
+        "head_avoidance": true,
+        "head_checks": 500,
+        "head_risk_waived_hero_wins": 0,
+        "head_risky_decisions": 0,
+        "head_risky_kept_no_alternative": 0,
+        "head_risky_vetoes": 0,
+        "head_vetoes_of_v7_kept": 0,
+        "head_vetoes_of_v7_rerank": 0,
+        "head_vetoes_space_differs_from_highest_q": 0,
+        "head_vetoes_speed_switched": 0,
+        "kept": 499,
+        "no_spacious": 0,
+        "reference_decisions": 0,
+        "reference_lambda": null,
+        "v7": {
+          "area_cap_hits": 500,
+          "area_cap_max": 168,
+          "area_evaluations": 500,
+          "decisions": 500,
+          "extra_landing_checks": 0,
+          "kept": 499,
+          "no_spacious": 0,
+          "rerank_changes": 0,
+          "rerank_changes_boost_mode": 0,
+          "rerank_changes_of_v5_kept": 0,
+          "rerank_changes_tail_release_driven": 0,
+          "rerank_decisions": 500,
+          "rerank_pruned": 0,
+          "rerank_scored": 500,
+          "static_area_evaluations": 0,
+          "v5": {
+            "action_differs_from_v2": 0,
+            "base_landing_failed": 0,
+            "boost_base_decisions": 0,
+            "boost_landing_no_eligible": 0,
+            "boost_landing_v2_rule": 0,
+            "boost_landing_vetoes": 0,
+            "boost_to_normal_same_direction": 0,
+            "decisions": 500,
+            "kept": 499,
+            "landing_checks": 0,
+            "landing_failures": 0,
+            "no_spacious": 0,
+            "vetoes_applied": 1
+          },
+          "vetoes_applied": 1
+        },
+        "v7_probe_counters": {
+          "decisions": 500,
+          "fallback_no_spacious": 0,
+          "kept_base": 499,
+          "vetoed_base_boost": 0,
+          "vetoes_applied": 1,
+          "vetoes_speed_switched": 0,
+          "vetoes_to_boost": 0
+        },
+        "vetoes_applied": 1
+      }
+    },
+    "diagnostics_timing": {
+      "0": {
+        "apply_seconds_max": 0.00043408293277025223,
+        "apply_seconds_total": 0.1178800833877176,
+        "head_seconds_max": 2.3124972358345985e-05,
+        "head_seconds_total": 0.006712125614285469,
+        "mean_apply_seconds": 0.0002357601667754352,
+        "reference_seconds_max": 0.0,
+        "reference_seconds_total": 0.0
+      }
+    },
+    "diagnostics_total": {
+      "action_differs_from_reference": 0,
+      "action_differs_from_v7": 0,
+      "decisions": 500,
+      "head_area_evaluations": 0,
+      "head_checks": 500,
+      "head_risk_waived_hero_wins": 0,
+      "head_risky_decisions": 0,
+      "head_risky_kept_no_alternative": 0,
+      "head_risky_vetoes": 0,
+      "head_vetoes_of_v7_kept": 0,
+      "head_vetoes_of_v7_rerank": 0,
+      "head_vetoes_space_differs_from_highest_q": 0,
+      "head_vetoes_speed_switched": 0,
+      "kept": 499,
+      "no_spacious": 0,
+      "reference_decisions": 0,
+      "v7": {
+        "area_cap_hits": 500,
+        "area_cap_max": 168,
+        "area_evaluations": 500,
+        "decisions": 500,
+        "extra_landing_checks": 0,
+        "kept": 499,
+        "no_spacious": 0,
+        "rerank_changes": 0,
+        "rerank_changes_boost_mode": 0,
+        "rerank_changes_of_v5_kept": 0,
+        "rerank_changes_tail_release_driven": 0,
+        "rerank_decisions": 500,
+        "rerank_pruned": 0,
+        "rerank_scored": 500,
+        "static_area_evaluations": 0,
+        "v5": {
+          "action_differs_from_v2": 0,
+          "base_landing_failed": 0,
+          "boost_base_decisions": 0,
+          "boost_landing_no_eligible": 0,
+          "boost_landing_v2_rule": 0,
+          "boost_landing_vetoes": 0,
+          "boost_to_normal_same_direction": 0,
+          "decisions": 500,
+          "kept": 499,
+          "landing_checks": 0,
+          "landing_failures": 0,
+          "no_spacious": 0,
+          "vetoes_applied": 1
+        },
+        "vetoes_applied": 1
+      },
+      "v7_probe_counters": {
+        "decisions": 500,
+        "fallback_no_spacious": 0,
+        "kept_base": 499,
+        "vetoed_base_boost": 0,
+        "vetoes_applied": 1,
+        "vetoes_speed_switched": 0,
+        "vetoes_to_boost": 0
+      },
+      "vetoes_applied": 1
+    },
+    "flags": {
+      "play_ai": false,
+      "watch_hero": true
+    },
+    "per_snake": {
+      "0": {
+        "decisions": 500,
+        "fallback_no_spacious": 0,
+        "kept_base": 499,
+        "vetoed_base_boost": 0,
+        "vetoes_applied": 1,
+        "vetoes_speed_switched": 0,
+        "vetoes_to_boost": 0
+      }
+    },
+    "reason": null,
+    "scope": "watch_hero",
+    "strict_receipt_checkpoint_match": true,
+    "strict_receipt_wrapper_match": true,
+    "total": {
+      "decisions": 500,
+      "fallback_no_spacious": 0,
+      "kept_base": 499,
+      "vetoed_base_boost": 0,
+      "vetoes_applied": 1,
+      "vetoes_speed_switched": 0,
+      "vetoes_to_boost": 0
+    },
+    "variant": "v8",
+    "variant_requested": "v8",
+    "wrapped_snake_ids": [
+      0
+    ]
+  },
+  "wall_seconds": 2.4538078338373452,
+  "world_seed": 1374552263,
+  "wrapper": {
+    "descriptor": {
+      "area_cap_rule": "min(max(32, 2*length), 4096, in-bounds cells not covered by other live snakes)",
+      "area_rule": "tail-aware-bfs-from-post-move-head/own-body-released-by-steps/slack-1/other-snakes-static",
+      "boost_approximation": "first-cell-and-two-cell-landing",
+      "free_space_bfs_cap": 160,
+      "free_space_min_cap": 32,
+      "head_avoidance": true,
+      "head_replacement_rule": "R = masked-legal v5-eligible non-head-risky actions other than v7's choice, in its speed mode, else the other mode; argmax over R of (q-max_R q)/max(|max_R q-min_R q|,1e-6) + lambda*min(area,cap)/cap; ties -> highest-q member of R (lowest index), then lowest index",
+      "head_rule": "opponent-head-reach-current-and-3-moves-plus-boost-second-cell/hero-wins-iff-mechanics-v2-and-post-burn-length-ge-1.15x-opponent-plus-1/veto-if-v5-eligible-non-risky-alternative",
+      "landing_rule": "post-move-body-blocked-except-head/other-snakes-static/v2-cap-need",
+      "method": "free-space-veto/v8-space-and-head(lambda=8.0)",
+      "replacement_rule": "v7-space-preference-then-v6-head-avoidance-with-v7-score-replacement",
+      "space_preference_lambda": 8.0,
+      "space_preference_rule": "C = v5-eligible actions in the speed mode of v5's choice; argmax score over C; ties -> v5's choice, then lowest index; unchanged when no_spacious, lambda == 0 or a landing veto's same-direction normal-speed replacement",
+      "space_score_rule": "(q-max_C q)/max(|max_C q-min_C q|,1e-6) + lambda*min(area,cap)/cap"
+    },
+    "method": "free-space-veto/v8-space-and-head(lambda=8.0)",
+    "source_path": "src/evaluation/safety_veto_v8.py",
+    "source_sha256": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05",
+    "source_sha256s": {
+      "src/evaluation/safety_veto.py": "1b62d15c48987584533efbefdf3fd84e1e3f2e22cfe70dbb82b43ec57169c428",
+      "src/evaluation/safety_veto_v3.py": "ed3a6d860b09afd982bc6c87ea0a86566455dfcf9562133d1772e595b4bb5be1",
+      "src/evaluation/safety_veto_v4.py": "3f0881afb7ff8ff980c9b425ef40134f127cc90f1f40260aac39f2264ed44578",
+      "src/evaluation/safety_veto_v5.py": "d86d084e7778fc514c4932b27f3750f5f11543e3c7afa44571869407870ec86c",
+      "src/evaluation/safety_veto_v6.py": "a6117cb98383f9f28bf8ebcf22d2ef63d7a03995734a36fb96bb1bf8bb1757d5",
+      "src/evaluation/safety_veto_v7.py": "56ff7009ce2e0c4c93b6570336b35d48341757fc53b386d309b00126f67e2980",
+      "src/evaluation/safety_veto_v8.py": "faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05"
+    }
+  }
+}

@@ -39,6 +39,7 @@ from web.backend.safety_veto_serving import (
     ServingVetoState,
     install_serving_vetoes,
 )
+from web.backend.served_checkpoint import resolve_served_checkpoint
 
 # The three ways to drive the shared game.
 MODE_WATCH = "watch"  # AI plays itself; we observe.
@@ -510,7 +511,16 @@ class GameSession:
         # steer or destroy the run while it is live.
         self.run_owner: Optional[object] = None
 
-        ckpt = checkpoint or (DEFAULT_CHECKPOINT if os.path.exists(DEFAULT_CHECKPOINT) else None)
+        # Which checkpoint a default-constructed session serves: the pinned registry in
+        # web/backend/served_checkpoint.py (SNAKE_SERVE_CHECKPOINT; unset = the released
+        # default, the champion at DEFAULT_CHECKPOINT; fail closed). An explicit
+        # checkpoint bypasses it (served_checkpoint stays None).
+        self.served_checkpoint: Optional[Dict[str, object]] = None
+        ckpt = checkpoint
+        if not ckpt:
+            choice = resolve_served_checkpoint(champion_path=DEFAULT_CHECKPOINT)
+            self.served_checkpoint = choice.to_dict()
+            ckpt = choice.path
         self._build(ckpt, mode=MODE_WATCH)
         if ckpt is None:
             self.last_error = (

@@ -1,0 +1,8 @@
+{
+  "smoke-v1": {
+    "source": "serving_run.py --smoke (2026-10-05): 1 watch + 1 play x 500 frames, 1 parity probe x 200 frames (session vs SIMD), served under the in-process placeholder strict pin, out under the session scratchpad",
+    "writer": "serving_run.main",
+    "audit": "serving_audit.py -I on the original directory: SERVING_PASS (serving_path_qualified=False, smoke)",
+    "note": "captured from the real producer path; the audit's positive tests run on this directory unmodified. A separate dev-only H5000 parity probe (domain frp3-checkpoint-web-serving-devparity-v1, seed 595018777) was identical over 5000 frames (trace, counters, v8 diagnostics; 9 vetoes incl. 8 head vetoes) and is not lane evidence."
+  }
+}
