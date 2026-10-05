@@ -16,7 +16,11 @@ calibration-reference bands) and ``sequential-strict-template/v2`` (``"paired_ni
 the paired survival bands of ``docs/research/governance_amendment_paired_bands_2026-10-03.md``:
 judged once at the qualifying look on candidate-minus-incumbent per-world deltas, with the
 per-study paired-band check as a hash-bound pre-registration artifact).  v1 intents, plan
-dicts, spec descriptors and look receipts keep exactly their v1 content.
+dicts, spec descriptors and look receipts keep exactly their v1 content.  Template v3
+(``sequential-strict-template/v3``, opt-in with ``prepare --remote-config``) keeps either band
+policy and plays the episodes on RunPod serverless (``remote_backend.py``) under
+``docs/research/governance_amendment_strict_on_runpod_2026-10-05.md``; the orchestration below
+stays on the Mac.
 
 Flow of ``run`` (one intent, one attempt, one closeout):
 
@@ -100,6 +104,12 @@ TEMPLATE_VERSIONS = {
     "block_at_stop": TEMPLATE_VERSION,
     "paired_ni_at_stop": TEMPLATE_VERSION_PAIRED,
 }
+# Template v3 (opt-in, ``prepare --remote-config``): either band policy, with the gate's episodes
+# played on RunPod serverless under docs/research/governance_amendment_strict_on_runpod_
+# 2026-10-05.md (remote_backend.py). The spec descriptor keeps its v1/v2 version; the intent
+# says v3 and carries an ``execution`` block. Without --remote-config nothing changes.
+TEMPLATE_VERSION_REMOTE = "sequential-strict-template/v3"
+REMOTE_EXECUTOR = "runpod-serverless"
 HERE = Path(__file__).resolve().parent
 TEMPLATE_README = HERE / "README.md"
 INDEPENDENT_AUDIT = HERE / "sequential_audit.py"
@@ -347,6 +357,10 @@ class StudySpec:
       paired-band check on the study's screen pool with the frozen plan, and
       ``paired_band_pool_path``: that pool (the study's own saved paired screen/pilot records,
       ``simulate.py --data`` format; the validation package's stock pool is refused).
+    * ``remote_worker_setup(intent, ckpt_dir)`` and ``remote_checkpoints()`` (template v3 only,
+      optional otherwise): the per-worker context on a RunPod worker, whose checkpoints live
+      in ``ckpt_dir`` as ``<sha256>.pth``, and the checkpoint sha256s the remote needs (each
+      must be on the RunPod upload allow-list). Neither enters the descriptor.
     """
 
     study_id: str
@@ -372,6 +386,8 @@ class StudySpec:
     band_policy: str = "block_at_stop"
     paired_band_check_path: str = ""
     paired_band_pool_path: str = ""
+    remote_worker_setup: Optional[Callable[[Mapping[str, Any], Path], Any]] = None
+    remote_checkpoints: Optional[Callable[[], Sequence[str]]] = None
 
     @property
     def template_version(self) -> str:
@@ -956,6 +972,8 @@ def build_intent(
     dry_run: bool = False,
     allow_dirty: bool = False,
     repo: Path = REPO,
+    remote_config: Optional[Path] = None,
+    remote_seeding: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Freeze everything the amendment requires before the first final world.
 
@@ -964,6 +982,11 @@ def build_intent(
     comes from the spec; under ``paired_ni_at_stop`` (template v2) ``paired_band`` states the
     four band settings, ``development_delta_ni`` the delta_NI estimate the per-study check
     was run with (``simulate.py --delta-ni``), and that check must pass for this exact plan.
+
+    ``remote_config`` (template v3, opt-in) adds the ``execution`` block of
+    ``remote_backend.execution_block``: the gate may then run on RunPod serverless under the
+    strict-on-RunPod amendment. ``remote_seeding`` (tests only) replaces the volume's seeding
+    status. Without it the intent is exactly v1 or v2.
     """
     validate_spec(spec)
     require(
@@ -1117,6 +1140,15 @@ def build_intent(
     if spec.paired:  # template v2 only: v1 intents keep exactly their v1 keys
         intent["paired_band_check"] = paired_check_record(spec, params, repo, development_delta_ni)
         intent["band_rule"] = paired_band_rule(params)
+    if remote_config is not None:  # template v3 only: v1/v2 intents keep exactly their keys
+        from research.sequential_strict_template import remote_backend as RB
+
+        intent["template_version"] = TEMPLATE_VERSION_REMOTE
+        intent["execution"] = RB.execution_block(
+            spec, intent, Path(remote_config), repo=repo, seeding=remote_seeding
+        )
+    else:
+        require(remote_seeding is None, "remote_seeding without remote_config")
     return intent
 
 
@@ -1168,7 +1200,14 @@ def prepare(intent: Mapping[str, Any]) -> Path:
 
 def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
     """Reject a malformed, drifted or out-of-envelope intent before any child starts."""
-    require(intent["template_version"] == spec.template_version, "template version")
+    if is_remote_intent(intent):  # template v3: the spec keeps its v1/v2 band version
+        from research.sequential_strict_template import remote_backend as RB
+
+        require("execution" in intent, "a template v3 intent needs its execution block")
+        RB.validate_execution(intent, spec)
+    else:
+        require(intent["template_version"] == spec.template_version, "template version")
+        require("execution" not in intent, "an execution block on a v1/v2 intent")
     require(intent["spec"] == spec.descriptor(), "spec descriptor drift")
     require(
         intent["schema_version"] == spec.schema and intent["study_id"] == spec.study_id, "schema"
@@ -1281,6 +1320,44 @@ def on_ac_power() -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return "'AC Power'" in out
+
+
+def parse_clamshell(text: str) -> Optional[bool]:
+    """``True`` lid open, ``False`` closed, ``None`` unparseable (callers fail closed)."""
+    states = []
+    for line in str(text or "").splitlines():
+        if "AppleClamshellState" in line and "=" in line:
+            value = line.split("=", 1)[1].strip()
+            if value not in ("Yes", "No"):
+                return None
+            states.append(value == "No")
+    return all(states) if states else None
+
+
+def lid_open() -> bool:
+    """True when ``ioreg`` reports the lid open (fails closed); other platforms are not gated.
+
+    Template v3 only (the remote orchestrator, its Mac fallback and the identity check): the
+    2026-10-03 incident rule, every long-run launcher checks the lid as well as AC power.
+    """
+    if sys.platform != "darwin":
+        return True
+    try:
+        out = subprocess.run(
+            ["ioreg", "-r", "-k", "AppleClamshellState", "-d", "4"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return parse_clamshell(out) is True
+
+
+def is_remote_intent(intent: Mapping[str, Any]) -> bool:
+    """Template v3: the intent opted into the remote execution backend."""
+    return intent.get("template_version") == TEMPLATE_VERSION_REMOTE
 
 
 def capacity_environment(threads: int = THREADS_PER_WORKER) -> Dict[str, str]:
@@ -1422,9 +1499,14 @@ def run_status(out_root: Path) -> Dict[str, Any]:
         return {"state": "ABANDONED", "reason": "output exists without started.json"}
     marker = read_json(started)
     intent = read_json(Path(out_root) / "intent.json")
-    live = _pid_alive(marker["pid"]) and _slots_held_elsewhere(
-        Path(intent["slot_lock_root"]), intent["caps"]["workers"]
-    )
+    lock = (marker.get("execution") or {}).get("liveness_lock")
+    if lock:  # template v3 remote run: the orchestrator holds its own lock, not CPU slots
+        from research.sequential_strict_template import remote_backend as RB
+
+        held = RB._lock_held_elsewhere(Path(lock))
+    else:
+        held = _slots_held_elsewhere(Path(intent["slot_lock_root"]), intent["caps"]["workers"])
+    live = _pid_alive(marker["pid"]) and held
     if live:
         return {"state": "IN_PROGRESS", "pid": marker["pid"]}
     return {"state": "ABANDONED", "reason": "parent gone without closeout.json; never resumed"}
@@ -1452,11 +1534,29 @@ def prior_gate(intent: Mapping[str, Any], output: Path, phase: str, look: int) -
     """What must exist before a segment may start; returns the sha256s it binds.
 
     Final look 0 needs ``calibration.json`` and a passing ``skew_check.json``; final look
-    ``k > 0`` needs ``looks/look-<k-1>.json`` whose action is ``continue``.
+    ``k > 0`` needs ``looks/look-<k-1>.json`` whose action is ``continue``. Template v3 also
+    binds the identity check's state and file sha256 into every segment (both phases).
     """
     output = Path(output)
+    if is_remote_intent(intent):
+        from research.sequential_strict_template import remote_backend as RB
+
+        identity = RB.identity_gate(output.parent)
+        require(
+            identity["state"] in ("PASSED", "FAILED", "ABANDONED"),
+            f"identity check {identity['state']}: no segment may start",
+        )
+        if phase == "calibration":
+            return {"identity_check": identity}
+        gate = _final_gate(output, look)
+        gate["identity_check"] = identity
+        return gate
     if phase == "calibration":
         return {}
+    return _final_gate(output, look)
+
+
+def _final_gate(output: Path, look: int) -> Dict[str, Any]:
     gate: Dict[str, Any] = {}
     calibration = output / "calibration.json"
     require(calibration.is_file(), "final segment before calibration.json")
@@ -1595,6 +1695,12 @@ def worker_body(
         if not parent_alive(parent_pid):
             return PARENT_GONE_EXIT
         entry = envelope(intent, intent_sha, episode, record, elapsed)
+        if is_remote_intent(intent):  # template v3: every record names its platform
+            from research.sequential_strict_template import remote_worker
+
+            entry["platform"] = remote_worker.platform_stamp(
+                "local-mac" if parent_pid is not None else "in-process"
+            )
         problems = envelope_problems(intent, intent_sha, entry, episode)
         problems += list(spec.validate_record(entry, row))
         require(not problems, f"record shape: {problems}")
@@ -1877,6 +1983,9 @@ class SubprocessExecutor:
         ]
         env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
         env.update(capacity_environment())
+        guard = {}
+        if is_remote_intent(ctx.intent):  # template v3 Mac fallback: the lid is polled too
+            guard["power_check"] = lambda: on_ac_power() and lid_open()
         return supervise_children(
             commands,
             cwd=Path(ctx.intent["repo"]),
@@ -1885,6 +1994,7 @@ class SubprocessExecutor:
             heartbeats=[seg / f"shard-{k}" / "heartbeat.json" for k in range(workers)],
             wall_seconds=wall_seconds,
             pass_fds=[(self.slots[k].fileno(),) for k in range(workers)],
+            **guard,
         )
 
 
@@ -2041,6 +2151,16 @@ def check_continuation(ctx: RunContext, before: str, final_left: float) -> None:
     if remaining < required_seconds(ctx.intent, before, final_left):
         raise DeadlineStop(f"{before}: {remaining:.0f}s left < remaining caps + handoff")
     require(on_ac_power(), f"host on battery before {before}: no further segment is admitted")
+    if is_remote_intent(ctx.intent):  # template v3: lid, execution documents, identity binding
+        from research.sequential_strict_template import remote_backend as RB
+
+        require(lid_open(), f"lid closed before {before}: no further segment is admitted")
+        drift = RB.execution_drift(ctx.intent)
+        require(not drift, f"execution document drift before {before}: {drift}")
+        require(
+            RB.identity_gate(ctx.output.parent) == ctx.state["execution"]["identity_check_gate"],
+            f"identity check binding changed before {before}",
+        )
     require(not closure_drift(ctx.intent["source_closure"]), f"source drift before {before}")
     require(
         json_safe(dict(ctx.spec.arm_identities())) == ctx.intent["arms"],
@@ -2582,6 +2702,11 @@ def closeout(ctx: RunContext) -> Dict[str, Any]:
         "resume_authorized": False,
         "utc": now_utc().isoformat(),
     }
+    if is_remote_intent(ctx.intent):  # template v3 only
+        record["execution"] = {
+            **{k: v for k, v in state.get("execution", {}).items() if k != "identity_check_gate"},
+            "remote": state.get("remote_summary"),
+        }
     if outcome == "STRICT_PASS":
         require(ctx.intent["dry_run"] is False, "a dry run never writes receipt.json")
         record["receipt_sha256"] = write_once(
@@ -2627,6 +2752,8 @@ def run_phases(ctx: RunContext) -> None:
             },
         )
         ctx.prior_tree = _tree_hashes(ctx.output)
+    if is_remote_intent(ctx.intent):  # no remote spend while the audit runs
+        close_remote(ctx, "complete")
     run_audit(ctx)
 
 
@@ -2654,10 +2781,15 @@ def run(
     executor: Any = None,
     skew_runner: Optional[Callable[..., Dict[str, Any]]] = None,
     audit_runner: Optional[Callable[..., Dict[str, Any]]] = None,
+    remote_factory: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
     """Admit the intent once and close out with exactly one outcome.  Never resumes.
 
-    Injected executors/runners are refused unless the intent is a ``dry_run``.
+    Injected executors/runners are refused unless the intent is a ``dry_run``.  A template v3
+    intent picks its backend from the identity check (``remote_backend.identity_state``):
+    PASSED runs the segments on RunPod (``remote_factory`` builds the executor; injected only
+    in a dry run), FAILED or ABANDONED runs them on the Mac (``executor``, the fallback),
+    NOT_RUN or IN_PROGRESS refuses.
     """
     intent_path = Path(intent_path).resolve()
     intent = read_json(intent_path)
@@ -2672,6 +2804,36 @@ def run(
     )
     skew_runner = skew_runner or subprocess_skew_runner
     audit_runner = audit_runner or subprocess_audit_runner
+    remote = is_remote_intent(intent)
+    use_remote = False
+    execution: Optional[Dict[str, Any]] = None
+    if remote:
+        from research.sequential_strict_template import remote_backend as RB
+
+        identity = RB.identity_state(Path(intent["output_root"]))
+        require(
+            identity["state"] in ("PASSED", "FAILED", "ABANDONED"),
+            f"identity check {identity['state']}: run `sequential_runner.py identity-check` "
+            "first (its result decides the backend)",
+        )
+        use_remote = identity["state"] == "PASSED"
+        if intent["dry_run"]:
+            require(
+                not use_remote or remote_factory is not None,
+                "a dry run with a passing identity check needs an injected remote factory",
+            )
+        else:
+            require(remote_factory is None, "a production v3 run builds its own remote executor")
+        execution = {
+            "backend": RB.REMOTE_BACKEND if use_remote else RB.FALLBACK_BACKEND,
+            "identity_check": identity,
+            "identity_check_gate": RB.identity_gate(Path(intent["output_root"])),
+            "remote_factory": (
+                "production" if remote_factory is None else runner_identity(remote_factory)
+            ),
+        }
+    else:
+        require(remote_factory is None, "remote_factory needs a template v3 intent")
     if intent["dry_run"]:
         require(
             isinstance(executor, InProcessExecutor),
@@ -2691,21 +2853,45 @@ def run(
         "dry_run": intent["dry_run"],
         "slot_lock_root": intent["slot_lock_root"],
     }
+    if use_remote:
+        provenance["executor"] = REMOTE_EXECUTOR
+    if execution is not None:
+        provenance["execution"] = {k: execution[k] for k in ("backend", "remote_factory")}
     production = (
-        provenance["executor"] == PRODUCTION_EXECUTOR
+        provenance["executor"] in ((REMOTE_EXECUTOR,) if use_remote else (PRODUCTION_EXECUTOR,))
         and provenance["skew_runner"] == PRODUCTION_SKEW_RUNNER
         and provenance["audit_runner"] == PRODUCTION_AUDIT_RUNNER
     )
     require(intent["dry_run"] or production, f"non-production run needs dry_run: {provenance}")
     if intent["sizing"]["feasible"]:
         require(on_ac_power(), "host is on battery; plug in before a Tier-2 run")
+        if remote:
+            require(lid_open(), "the lid is closed; open it before a Tier-2 run")
     slots: List[Any] = []
+    lock: Any = None
+    remote_executor: Any = None
     try:
         if intent["sizing"]["feasible"]:
-            slots = acquire_run_slots(Path(intent["slot_lock_root"]), intent["caps"]["workers"])
-        executor = executor if executor is not None else SubprocessExecutor(slots)
+            if use_remote:  # the orchestrator holds a liveness lock, no CPU slot
+                lock = RB.acquire_orchestrator_lock(Path(intent["output_root"]))
+            else:
+                slots = acquire_run_slots(Path(intent["slot_lock_root"]), intent["caps"]["workers"])
+        if use_remote:
+            factory = remote_factory or RB.production_remote_factory
+            remote_executor = executor = factory(intent_path, intent, spec)
+            require(executor.identity == REMOTE_EXECUTOR, "remote executor identity")
+            execution["transport"] = getattr(executor, "transport", None)
+            execution["liveness_lock"] = str(Path(lock.name)) if lock is not None else None
+        else:
+            executor = executor if executor is not None else SubprocessExecutor(slots)
         if intent["sizing"]["feasible"]:
-            executor.preflight()
+            executor.preflight()  # remote: endpoint + probe; a refusal starts nothing
+        if remote_executor is not None:
+            execution["transport"] = getattr(remote_executor, "transport", None)
+            require(
+                intent["dry_run"] or execution["transport"] == "rp.py",
+                "a production remote run talks to RunPod through rp.py only",
+            )
         append_ledger(
             Path(intent["ledger_path"]),
             {
@@ -2729,24 +2915,30 @@ def run(
             audit_runner=audit_runner,
             provenance=provenance,
         )
+        if execution is not None:
+            ctx.state["execution"] = execution
         return _admitted_run(ctx, slots)
     finally:
+        if remote_executor is not None:
+            RB.close_quietly(remote_executor, "run exit")
         release_run_slots(slots)
+        if lock is not None:
+            RB.release_lock(lock)
 
 
 def _admitted_run(ctx: RunContext, slots: Sequence[Any]) -> Dict[str, Any]:
     """From ``started.json`` on, every stop the parent sees is final (closeout is written)."""
     ctx.output.mkdir(parents=False)
-    write_once(
-        ctx.output / "started.json",
-        {
-            "utc": now_utc().isoformat(),
-            "pid": os.getpid(),
-            "intent_sha256": ctx.intent_sha,
-            "cpu_slot_locks_held": [str(handle.name) for handle in slots],
-            "provenance": ctx.provenance,
-        },
-    )
+    marker = {
+        "utc": now_utc().isoformat(),
+        "pid": os.getpid(),
+        "intent_sha256": ctx.intent_sha,
+        "cpu_slot_locks_held": [str(handle.name) for handle in slots],
+        "provenance": ctx.provenance,
+    }
+    if "execution" in ctx.state:  # template v3 only
+        marker["execution"] = ctx.state["execution"]
+    write_once(ctx.output / "started.json", marker)
     ctx.state["stage_started_mono"] = {}
 
     def interrupt(signum: int, frame: Any) -> None:
@@ -2765,7 +2957,18 @@ def _admitted_run(ctx: RunContext, slots: Sequence[Any]) -> Dict[str, Any]:
     finally:  # default handlers are back before the closeout is written
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+    if is_remote_intent(ctx.intent):  # endpoint down before the closeout records the spend
+        close_remote(ctx, "run end")
     return closeout(ctx)
+
+
+def close_remote(ctx: RunContext, why: str) -> None:
+    """Template v3: tear the remote endpoint down (idempotent) and keep its summary."""
+    if "remote_summary" in ctx.state or not hasattr(ctx.executor, "close"):
+        return
+    from research.sequential_strict_template import remote_backend as RB
+
+    ctx.state["remote_summary"] = RB.close_quietly(ctx.executor, why)
 
 
 def admit_rosters(ctx: RunContext) -> None:
@@ -2838,6 +3041,43 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
         help="template v2 only: the delta_NI the paired-band check was run with",
     )
     prep.add_argument("--skew-reps", type=int, default=DEFAULT_SKEW_REPS)
+    prep.add_argument(
+        "--remote-config",
+        type=Path,
+        default=None,
+        help="template v3 (opt-in): the remote execution config (RunPod serverless, "
+        "docs/research/governance_amendment_strict_on_runpod_2026-10-05.md)",
+    )
+    rplan = sub.add_parser(
+        "remote-plan",
+        help="template v3 dry run: projected wall and speed-up vs 2 Mac slots, sizing, caps "
+        "(no RunPod call unless --account)",
+    )
+    rplan.add_argument("--spec", required=True, help="module:ATTRIBUTE of a StudySpec")
+    rplan.add_argument("--remote-config", type=Path, required=True)
+    rplan.add_argument("--n-max", type=int, required=True)
+    rplan.add_argument("--mde", type=float, required=True)
+    rplan.add_argument("--n-calibration", type=int, required=True)
+    rplan.add_argument("--fractions", default=",".join(str(f) for f in DEFAULT_FRACTIONS))
+    rplan.add_argument("--futility-policy", default="followed")
+    rplan.add_argument("--band-margin-z", type=float, default=DEFAULT_BAND_MARGIN_Z)
+    rplan.add_argument("--paired-band", default=None, help=PAIRED_BAND_HELP)
+    rplan.add_argument(
+        "--account",
+        action="store_true",
+        help="also read the RunPod balance and worker quota (read-only API calls)",
+    )
+    ident = sub.add_parser(
+        "identity-check",
+        help="template v3: the pre-gate Mac vs RunPod identity check (once per intent)",
+    )
+    ident.add_argument("--intent", type=Path, required=True)
+    iworker = sub.add_parser("identity-worker")
+    iworker.add_argument("--intent", type=Path, required=True)
+    iworker.add_argument("--shard", type=int, required=True)
+    iworker.add_argument("--slot-fd", type=int, required=True)
+    iworker.add_argument("--key-file", type=Path, required=True)
+    iworker.add_argument("--out", type=Path, required=True)
     frozen = sub.add_parser(
         "plan",
         help="write the frozen {plan_parameters, plan} (simulate.py --plan-params input)",
@@ -2886,6 +3126,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             paired_band=parse_paired_band(args.paired_band),
             development_delta_ni=args.development_delta_ni,
             skew_reps=args.skew_reps,
+            remote_config=args.remote_config,
         )
         path = prepare(intent)
         print(json.dumps({"intent": str(path), "sha256": sha256_file(path)}))
@@ -2904,6 +3145,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sha = write_once(args.out, frozen_plan_document(params))
         print(json.dumps({"plan_document": str(args.out), "sha256": sha}))
         return 0
+    if args.command == "remote-plan":
+        from research.sequential_strict_template import remote_backend as RB
+
+        spec = resolve_spec(args.spec)
+        params = study_plan_parameters(
+            spec,
+            n_max=args.n_max,
+            mde=args.mde,
+            fractions=[float(f) for f in args.fractions.split(",")],
+            futility_policy=args.futility_policy,
+            band_margin_z=args.band_margin_z,
+            paired_band=parse_paired_band(args.paired_band),
+        )
+        report = RB.remote_plan_report(
+            spec, params, args.remote_config, args.n_calibration, account=args.account
+        )
+        print(json.dumps(report, indent=1, sort_keys=True))
+        return 0 if report["admissible"] else 2
+    if args.command == "identity-check":
+        from research.sequential_strict_template import remote_backend as RB
+
+        result = RB.run_identity_check(args.intent)
+        print(json.dumps({k: result[k] for k in ("passes", "backend_decided", "reasons")}))
+        return 0
+    if args.command == "identity-worker":
+        from research.sequential_strict_template import remote_backend as RB
+
+        return RB.identity_worker_main(
+            args.intent.resolve(), args.shard, args.slot_fd, args.key_file, args.out
+        )
     if args.command == "status":
         report: Dict[str, Any] = {"ledger": ledger_status(args.ledger)}
         if args.intent is not None:

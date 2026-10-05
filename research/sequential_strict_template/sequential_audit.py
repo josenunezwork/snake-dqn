@@ -44,6 +44,15 @@ What it recomputes in its own code (amendment "Audit requirements"):
   check output re-judged in its own code (hash-bound, frozen plan parameters, coverage of
   every pool x theta x band mix, every joint rate <= 1.2 x band_alpha).  Under the legacy
   ``block_at_stop`` (template v1) the paired fields must be absent.
+* **Remote execution (template v3, ``intent.execution``; governance amendment strict on RunPod,
+  2026-10-05).**  The platform is named in the intent and in the protocol (the line
+  ``Execution platform: runpod-serverless``) and its documents still have their frozen sha256;
+  the identity check result is present and its verdict recomputes from its digests (or the
+  check is ABANDONED), every segment binds it, and the backend used is the one it implies
+  (PASSED: RunPod; FAILED / ABANDONED: the Mac fallback); every record carries a platform
+  stamp shared by every episode of its world unit (one worker per world); and, on RunPod, every
+  look segment's ``remote.json`` lists exactly the segment's planned units, each published
+  whole from one job whose records say so.
 """
 
 from __future__ import annotations
@@ -61,6 +70,15 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 AUDIT_SCHEMA = "sequential-strict-audit/v1"
 AUDIT_SCHEMA_PAIRED = "sequential-strict-audit/v2"
+AUDIT_SCHEMA_REMOTE = "sequential-strict-audit/v3"
+TEMPLATE_VERSION_REMOTE = "sequential-strict-template/v3"
+REMOTE_EXECUTOR = "runpod-serverless"
+REMOTE_BACKEND = "runpod-serverless"
+FALLBACK_BACKEND = "local-mac-fallback"
+EXECUTION_SCHEMA = "sequential-strict-execution/v1"
+IDENTITY_SCHEMA = "sequential-strict-identity-check/v1"
+SEGMENT_SCHEMA = "sequential-strict-remote-segment/v1"
+PROTOCOL_PLATFORM_LINE = "Execution platform: runpod-serverless"
 METHOD = "strict-sequential-obf-bonferroni-v1"
 TEMPLATE_VERSION = "sequential-strict-template/v1"
 TEMPLATE_VERSION_PAIRED = "sequential-strict-template/v2"
@@ -1064,6 +1082,12 @@ def audit_segments(
     root = output / "final" / "segments"
     calibration = output / "calibration.json"
     skew = output / "skew_check.json"
+    identity = identity_binding(output.parent) if is_remote(intent) else None
+    if identity is not None:  # template v3: calibration segments bind the identity check too
+        cal_root = output / "calibration" / "segments"
+        for started in sorted(cal_root.glob("look-*/shard-*/started.json")):
+            if load_json(started).get("gate") != {"identity_check": identity}:
+                rows.append(f"{started.relative_to(output)}: gate binding")
     for look_dir in sorted(root.glob("look-*")) if root.is_dir() else []:
         look = int(look_dir.name.split("-", 1)[1])
         if look > len(receipts):
@@ -1079,6 +1103,8 @@ def audit_segments(
             expected["prior_look_receipt_sha256"] = sha256_file(prior)
             if receipts[look - 1].get("action") != "continue":
                 rows.append(f"segment look {look} started after a stop at look {look - 1}")
+        if identity is not None:
+            expected["identity_check"] = identity
         for started in sorted(look_dir.glob("shard-*/started.json")):
             if load_json(started).get("gate") != expected:
                 rows.append(f"{started.relative_to(output)}: gate binding")
@@ -1164,8 +1190,9 @@ def provenance_problems(
         return []
     problems = []
     prov = started.get("provenance") or {}
+    remote = (started.get("execution") or {}).get("backend") == REMOTE_BACKEND
     expected = {
-        "executor": PRODUCTION_EXECUTOR,
+        "executor": REMOTE_EXECUTOR if remote else PRODUCTION_EXECUTOR,
         "skew_runner": PRODUCTION_SKEW_RUNNER,
         "audit_runner": PRODUCTION_AUDIT_RUNNER,
         "allow_dirty": False,
@@ -1174,6 +1201,11 @@ def provenance_problems(
     for key, value in expected.items():
         if prov.get(key) != value:
             problems.append(f"started.json provenance {key}={prov.get(key)!r}")
+    execution = started.get("execution") or {}
+    if remote and (
+        execution.get("transport") != "rp.py" or execution.get("remote_factory") != "production"
+    ):
+        problems.append("a remote run without the production RunPod transport and factory")
     if intent.get("allow_dirty") is not False or intent["source_closure"].get("dirty"):
         problems.append("dirty source closure on a production intent")
     if str(Path(intent.get("slot_lock_root", ""))) != SLOT_LOCK_ROOT:
@@ -1181,7 +1213,13 @@ def provenance_problems(
     if str(Path(intent.get("ledger_path", ""))) != LEDGER_PATH:
         problems.append(f"ledger {intent.get('ledger_path')!r} is not the global one")
     for row in supervisions:
-        if row.get("executor") is not None or any(
+        if remote:
+            if row.get("executor") != REMOTE_EXECUTOR or any(
+                (child.get("command") or [None])[0] != REMOTE_EXECUTOR
+                for child in row.get("children", [])
+            ):
+                problems.append("a segment did not run through the remote executor")
+        elif row.get("executor") is not None or any(
             "worker" not in child.get("command", []) for child in row.get("children", [])
         ):
             problems.append("a segment did not run through the subprocess executor")
@@ -1316,10 +1354,16 @@ def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) ->
     )
     policy = intent["plan"].get("band_policy")
     version = TEMPLATE_VERSIONS.get(policy)
+    remote = intent.get("template_version") == TEMPLATE_VERSION_REMOTE
+    execution = intent.get("execution") if remote else None
     audit.add(
         "intent.template",
         version is not None
-        and intent.get("template_version") == version
+        and (
+            intent.get("template_version") == version and "execution" not in intent
+            if not remote
+            else isinstance(execution, dict) and execution.get("band_template_version") == version
+        )
         and intent["spec"].get("template_version") == version
         and intent["spec"].get("band_policy", "block_at_stop") == policy
         and intent["caps"]["retry_authorized"] is False
@@ -1362,6 +1406,261 @@ def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) ->
     audit.add("provenance.production_or_dry_run", not problems, problems)
 
 
+# ---------------------------------------------------------------- remote execution (template v3)
+
+
+def is_remote(intent: Mapping[str, Any]) -> bool:
+    return intent.get("template_version") == TEMPLATE_VERSION_REMOTE
+
+
+def identity_binding(root: Path) -> Dict[str, Any]:
+    """The identity check's state from the files alone (the runner's identity_gate)."""
+    result = Path(root) / "identity_check.json"
+    started = Path(root) / "identity_check" / "started.json"
+    if result.is_file():
+        passes = load_json(result).get("passes") is True
+        return {
+            "state": "PASSED" if passes else "FAILED",
+            "file": "identity_check.json",
+            "sha256": sha256_file(result),
+        }
+    if (Path(root) / "identity_check").exists():
+        return {
+            "state": "ABANDONED",
+            "file": "identity_check/started.json" if started.is_file() else None,
+            "sha256": sha256_file(started) if started.is_file() else None,
+        }
+    return {"state": "NOT_RUN", "file": None, "sha256": None}
+
+
+def unit_key(phase: str, unit: Mapping[str, Any]) -> str:
+    return f"{phase}|{unit['mix']}|{unit['world_index']}"
+
+
+def segment_unit_keys(intent: Mapping[str, Any], phase: str) -> List[List[str]]:
+    """Planned unit keys of every segment of ``phase`` (calibration: one segment)."""
+    workers = intent["caps"]["workers"]
+    all_units = units(intent, phase)
+    if phase == "calibration":
+        return [[unit_key(phase, u) for u in all_units]]
+    bounds = segment_bounds(intent)
+    pos: Dict[int, int] = {}
+    seen = [0] * workers
+    for u in all_units:
+        pos[u["unit"]] = seen[u["worker"]]
+        seen[u["worker"]] += 1
+    out = []
+    for j, bound in enumerate(bounds):
+        low = bounds[j - 1] if j else [0] * workers
+        out.append(
+            [
+                unit_key(phase, u)
+                for u in all_units
+                if low[u["worker"]] <= pos[u["unit"]] < bound[u["worker"]]
+            ]
+        )
+    return out
+
+
+def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
+    """Template v3 (governance amendment strict on RunPod, 2026-10-05): conditions 1-3."""
+    output = root / "output"
+    block = intent.get("execution") or {}
+    # (1) the platform is named in the intent and the protocol; its documents are frozen
+    protocol = Path(intent["preregistration"]["protocol"]["path"])
+    text = protocol.read_text(encoding="utf-8") if protocol.is_file() else ""
+    docs = [block.get("remote_config"), block.get("handler"), block.get("amendment")]
+    docs += list((block.get("policies") or {}).values())
+    drifted = [
+        str((d or {}).get("path"))
+        for d in docs
+        if not (d and Path(d["path"]).is_file() and sha256_file(Path(d["path"])) == d["sha256"])
+    ]
+    audit.add(
+        "execution.platform_named",
+        block.get("schema") == EXECUTION_SCHEMA
+        and block.get("platform") == REMOTE_BACKEND
+        and block.get("backend") == REMOTE_BACKEND
+        and (block.get("remote_config") or {}).get("values", {}).get("platform") == REMOTE_BACKEND
+        and any(line.strip() == PROTOCOL_PLATFORM_LINE for line in text.splitlines())
+        and not drifted
+        and (
+            intent.get("dry_run") is True or (block.get("amendment") or {}).get("ratified") is True
+        ),
+        {"drifted": drifted},
+    )
+    audit.add(
+        "execution.speedup_rule",
+        (block.get("plan") or {}).get("meets_min_speedup") is True
+        or (block.get("remote_config") or {}).get("values", {}).get("force_below_5x") is True,
+        {"speedup": block.get("speedup"), "forced_below_min": block.get("forced_below_min")},
+    )
+    # (3) the identity result, its recomputed verdict and the backend it implies
+    started_path = output / "started.json"
+    started = load_json(started_path) if started_path.is_file() else {}
+    execution = started.get("execution") or {}
+    binding = identity_binding(root)
+    problems: List[str] = []
+    recorded = execution.get("identity_check") or {}
+    if {k: recorded.get(k) for k in ("state", "file", "sha256")} != binding:
+        problems.append(f"started.json identity binding {recorded} != files {binding}")
+    if binding["state"] not in ("PASSED", "FAILED", "ABANDONED"):
+        problems.append(f"identity check {binding['state']} at admission")
+    sample = (block.get("identity_check") or {}).get("sample") or []
+    expected = [
+        f"final-{arm}-{s['mix']}-w{int(s['world_index']):05d}" for s in sample for arm in ARMS
+    ]
+    if binding["state"] in ("PASSED", "FAILED"):
+        result = load_json(root / "identity_check.json")
+        if result.get("schema") != IDENTITY_SCHEMA:
+            problems.append("identity result schema")
+        if result.get("intent_sha256") != sha256_file(root / "intent.json"):
+            problems.append("identity result is bound to another intent")
+        if result.get("sample") != sample or sorted(
+            result.get("expected_episodes") or []
+        ) != sorted(expected):
+            problems.append("identity result sample differs from the pre-registered sample")
+        mac, rem = result.get("mac") or {}, result.get("remote") or {}
+        mac_d, rem_d = mac.get("digests") or {}, rem.get("digests") or {}
+        passes = bool(
+            mac.get("complete") is True
+            and rem.get("complete") is True
+            and expected
+            and all(
+                e in mac_d and e in rem_d and mac_d[e].get("digest") == rem_d[e].get("digest")
+                for e in expected
+            )
+        )
+        if result.get("passes") is not passes:
+            problems.append(f"identity verdict {result.get('passes')} != recomputed {passes}")
+        if (binding["state"] == "PASSED") != passes:
+            problems.append("identity state disagrees with the recomputed verdict")
+        rosters = output / "rosters.json"
+        if rosters.is_file():
+            frozen = {
+                unit_key("final", r): canonical_sha(r) for r in load_json(rosters).get("final", [])
+            }
+            for key, sha in (result.get("rows_sha256") or {}).items():
+                if frozen.get(key) != sha:
+                    problems.append(f"identity row {key} is not the frozen roster row")
+        if intent.get("dry_run") is not True and (
+            mac.get("executor") != "subprocess"
+            or (rem.get("transport") not in (None, "rp.py"))
+            or result.get("dry_run") is not False
+        ):
+            problems.append("a production identity check without the production runners")
+        if any("record" in str(k) for k in (result.get("mac") or {})) or any(
+            "record" in str(k) for k in (result.get("remote") or {}) if k != "receipt"
+        ):
+            problems.append("identity result keeps records (digests only are allowed)")
+    elif binding["state"] == "ABANDONED" and (root / "identity_check.json").exists():
+        problems.append("abandoned identity check with a result file")
+    backend = execution.get("backend")
+    want = REMOTE_BACKEND if binding["state"] == "PASSED" else FALLBACK_BACKEND
+    if backend != want:
+        problems.append(
+            f"backend {backend!r}, but the identity state {binding['state']} implies {want}"
+        )
+    executor = (started.get("provenance") or {}).get("executor")
+    if backend == REMOTE_BACKEND and executor != REMOTE_EXECUTOR:
+        problems.append(f"remote backend with executor {executor!r}")
+    if backend == FALLBACK_BACKEND and executor == REMOTE_EXECUTOR:
+        problems.append("fallback backend with the remote executor")
+    audit.add("identity.result_and_backend", not problems, problems[:20])
+    # (2) per-world single platform: every record stamped, one platform per world unit
+    rows: List[str] = []
+    stamps_by_unit: Dict[str, set] = {}
+    dispatch_by_unit: Dict[str, set] = {}
+    for phase in ("calibration", "final"):
+        folder = output / phase / "records"
+        for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+            entry = load_json(path)
+            stamp = entry.get("platform")
+            key = unit_key(phase, entry)
+            if (
+                not isinstance(stamp, dict)
+                or not stamp.get("platform_id")
+                or not stamp.get("backend")
+            ):
+                rows.append(f"{path.stem}: no platform stamp")
+                continue
+            if backend == REMOTE_BACKEND and stamp.get("backend") != REMOTE_BACKEND:
+                rows.append(f"{path.stem}: backend {stamp.get('backend')!r} on a remote run")
+            if backend == FALLBACK_BACKEND and stamp.get("backend") == REMOTE_BACKEND:
+                rows.append(f"{path.stem}: a remote record on a Mac fallback run")
+            stamps_by_unit.setdefault(key, set()).add(canonical_sha(stamp))
+            dispatch_by_unit.setdefault(key, set()).add(canonical_sha(entry.get("fanout")))
+    for key in sorted(stamps_by_unit):
+        if len(stamps_by_unit[key]) > 1:
+            rows.append(f"unit {key} spans {len(stamps_by_unit[key])} platform stamps")
+        if len(dispatch_by_unit[key]) > 1:
+            rows.append(f"unit {key} spans several jobs or attempts")
+    audit.add("platform.per_world_single", not rows, rows[:20])
+    # look segments contain exactly the planned units (remote), or no remote segment (Mac)
+    rows = []
+    for phase in ("calibration", "final"):
+        planned = segment_unit_keys(intent, phase)
+        seg_root = output / phase / "segments"
+        for seg in sorted(seg_root.glob("look-*")) if seg_root.is_dir() else []:
+            look = int(seg.name.split("-", 1)[1])
+            remote_file = seg / "remote.json"
+            if backend != REMOTE_BACKEND:
+                if remote_file.exists():
+                    rows.append(f"{phase} look {look}: remote.json on a Mac fallback run")
+                continue
+            if look >= len(planned) or not remote_file.is_file():
+                rows.append(f"{phase} look {look}: no remote.json or no such segment")
+                continue
+            info = load_json(remote_file)
+            want_units = planned[look]
+            if info.get("schema") != SEGMENT_SCHEMA or info.get("planned_units") != want_units:
+                rows.append(f"{phase} look {look}: planned units differ from the segment's")
+            published = info.get("units") or {}
+            extra = sorted(set(published) - set(want_units))
+            if extra:
+                rows.append(f"{phase} look {look}: units outside the segment {extra[:3]}")
+            reports = [load_json(r) for r in sorted(seg.glob("shard-*/report.json"))]
+            if reports and all(r.get("complete") is True for r in reports):
+                if sorted(published) != sorted(want_units):
+                    rows.append(f"{phase} look {look}: a complete segment missing units")
+            for job in info.get("jobs") or []:
+                outside = sorted(set((job.get("units") or {})) - set(want_units))
+                if outside:
+                    rows.append(f"{phase} look {look}: job {job.get('job')} ran {outside[:3]}")
+            by_key = {unit_key(phase, u): u for u in units(intent, phase)}
+            for key, row in published.items():
+                unit = by_key.get(key)
+                if unit is None:
+                    continue
+                ids = [i for i, _ in unit_ids(phase, unit)]
+                if row.get("episodes") != ids:
+                    rows.append(f"{key}: published episodes are not the whole unit")
+                for eid in ids:
+                    path = output / phase / "records" / f"{eid}.json"
+                    if not path.is_file():
+                        rows.append(f"{key}: record {eid} missing")
+                        continue
+                    entry = load_json(path)
+                    fan = entry.get("fanout") or {}
+                    if (
+                        fan.get("job_id") != row.get("job_id")
+                        or fan.get("unit_key") != key
+                        or (entry.get("platform") or {}).get("worker_id") != row.get("worker_id")
+                    ):
+                        rows.append(f"{eid}: not from the job/worker that published {key}")
+    audit.add("remote.segments_exact_units", not rows, rows[:20])
+    closeout = output / "closeout.json"
+    if closeout.is_file():
+        saved = load_json(closeout)
+        remote = ((saved.get("execution") or {}).get("remote")) or {}
+        stopped = str(remote.get("stop_reason") or "")
+        audit.add(
+            "remote.spend_stop_is_invalid",
+            "spend cap reached" not in stopped or saved.get("outcome") == "INVALID_STOP",
+            {"stop_reason": stopped, "outcome": saved.get("outcome")},
+        )
+
+
 def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
     """Audit a run root.  Without ``pre_closeout`` a root lacking ``closeout.json`` is
     ``UNCLOSED`` (never PASS); the runner's own pre-closeout call needs the producer claim
@@ -1382,6 +1681,8 @@ def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
         skew = audit_skew(audit, intent, output, calibration)
         final = audit_final(audit, intent, output, calibration, skew)
         recomputed = audit_outcome(audit, intent, output, skew, final)
+        if is_remote(intent):
+            audit_remote(audit, root, intent)
     except (AuditError, KeyError, TypeError, ValueError, IndexError, OSError) as exc:
         error = f"{type(exc).__name__}: {exc}"
         audit.add("audit.evidence_readable", False, error)
@@ -1399,8 +1700,10 @@ def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
     else:
         status = "PASS"
     paired_run = isinstance(intent_seen, dict) and intent_seen["plan"].get("band_policy") == PAIRED
+    remote_run = isinstance(intent_seen, dict) and is_remote(intent_seen)
+    schema = AUDIT_SCHEMA_PAIRED if paired_run else AUDIT_SCHEMA
     return {
-        "schema_version": AUDIT_SCHEMA_PAIRED if paired_run else AUDIT_SCHEMA,
+        "schema_version": AUDIT_SCHEMA_REMOTE if remote_run else schema,
         "root": str(root),
         "mode": "pre-closeout" if pre_closeout else "post-hoc",
         "status": status,
