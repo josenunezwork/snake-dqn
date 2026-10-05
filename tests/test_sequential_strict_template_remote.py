@@ -588,7 +588,9 @@ def test_identity_pass_runs_the_gate_on_runpod_and_the_audit_passes(tmp_path):
     assert shard["gate"]["identity_check"]["state"] == "PASSED"
     for run in ledger_runs(factory).values():
         assert run["status"] == "finished"
-        assert all(pod["deleted"] is not None for pod in run["pods"].values())
+        for pod in run["pods"].values():
+            assert pod["deleted"] is not None and pod["kind"] == "serverless"
+            assert pod["settle"]["endpoint_id"] and pod["settled"] == "runner"
     jobs = [b for b in fake.bodies if b["input"]["op"] == "units"]
     for body in jobs:  # whole units only, at most one wave per job
         eps = [e for u in body["input"]["units"] for e in u["episodes"]]
@@ -605,6 +607,7 @@ def test_identity_pass_runs_the_gate_on_runpod_and_the_audit_passes(tmp_path):
         "platform.per_world_single",
         "remote.segments_exact_units",
         "remote.spend_stop_is_invalid",
+        "serving.stays_on_mac",
     } <= rules
 
 
@@ -823,6 +826,20 @@ def test_audit_detects_platform_split_extra_units_and_identity_tamper(tmp_path):
     (intent_path.parent / RB.IDENTITY_FILE).write_text(json.dumps(result))
     failed = {row["rule"] for row in A.run_audit(intent_path.parent)["failures"]}
     assert "identity.result_and_backend" in failed
+
+
+def test_audit_condition_4_serving_stays_on_the_mac(tmp_path):
+    spec, intent_path, fake, factory = passing_remote_run(tmp_path)
+    execute_remote(intent_path, spec, factory)
+    report = A.run_audit(intent_path.parent)
+    check = next(c for c in report["checks"] if c["rule"] == "serving.stays_on_mac")
+    assert check["passes"] is True
+    closeout_path = output_of(intent_path) / "closeout.json"
+    closeout = json.loads(closeout_path.read_text())
+    closeout["promotion_performed"] = True  # a run claiming it served/promoted fails
+    closeout_path.write_text(json.dumps(closeout))
+    failed = {row["rule"] for row in A.run_audit(intent_path.parent)["failures"]}
+    assert "serving.stays_on_mac" in failed
 
 
 def test_audit_provenance_requires_the_remote_executor_on_a_remote_run():

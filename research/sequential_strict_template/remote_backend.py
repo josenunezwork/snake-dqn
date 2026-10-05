@@ -53,7 +53,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 from research.runpod_fanout import jobspec
 from research.runpod_fanout import runner as rmod
 from research.runpod_fanout import serverless
-from research.runpod_fanout.ledger import SAFETY, SLACK_SECONDS, DuplicateRun, SharedLedger
+from research.runpod_fanout.ledger import SAFETY, SLACK_SECONDS, SharedLedger
 from research.runpod_fanout.rp_client import RpClient, RunPodError
 from research.sequential_strict_template import remote_worker
 from research.sequential_strict_template import sequential_runner as R
@@ -67,6 +67,7 @@ PLATFORM = "runpod-serverless"
 REMOTE_EXECUTOR = "runpod-serverless"
 REMOTE_BACKEND = "runpod-serverless"
 FALLBACK_BACKEND = "local-mac-fallback"
+SERVING_QUALIFICATION = "stays on the Mac (condition 4)"  # = sequential_audit's
 POLICY_SCHEMA = "sequential-strict-remote-policy/v1"
 CONFIG_SCHEMA = "sequential-strict-remote-config/v1"
 EXECUTION_SCHEMA = "sequential-strict-execution/v1"
@@ -632,7 +633,7 @@ def execution_block(
         },
         "orchestrator": "the Mac: look boundaries, receipts, ledger, create-only records, the "
         "independent audit; AC power and lid guards; holds an orchestrator lock, no CPU slot",
-        "serving_qualification": "stays on the Mac (condition 4)",
+        "serving_qualification": SERVING_QUALIFICATION,
     }
 
 
@@ -1064,7 +1065,7 @@ class RemoteSession:
         except BaseException as exc:
             self.log("open_refused", reason=str(exc)[:300])
             self.close(f"open refused: {exc}")
-            if isinstance(exc, (R.StrictRunError, RunPodError, DuplicateRun)):
+            if isinstance(exc, Exception):  # nothing usable was created: the run never starts
                 raise SessionRefused(f"{self.label} remote session refused: {exc}") from exc
             raise
 
@@ -1606,6 +1607,19 @@ class RemoteSession:
         try:
             if self.reserved and self.deleted is not None:
                 self.ledger.release_pod(self.run_id, self.key, upper)
+                # lets SharedLedger.settle_serverless lower the upper bound to final billing
+                self.ledger.annotate(
+                    self.run_id,
+                    self.key,
+                    settle={
+                        "endpoint_id": self.endpoint_id,
+                        "start": self.created,
+                        "end": self.deleted,
+                        "estimate": 0.0,
+                        "upper": upper,
+                        "billing_at_finish": None,
+                    },
+                )
             if self.registered:
                 self.ledger.finish_run(
                     self.run_id, success=not leftovers, episodes_complete=why == "complete"

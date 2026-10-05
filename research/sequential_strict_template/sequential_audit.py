@@ -52,7 +52,8 @@ What it recomputes in its own code (amendment "Audit requirements"):
   (PASSED: RunPod; FAILED / ABANDONED: the Mac fallback); every record carries a platform
   stamp shared by every episode of its world unit (one worker per world); and, on RunPod, every
   look segment's ``remote.json`` lists exactly the segment's planned units, each published
-  whole from one job whose records say so.
+  whole from one job whose records say so; serving qualification stays on the Mac (the
+  intent says so and the closeout records no promotion).
 """
 
 from __future__ import annotations
@@ -79,6 +80,7 @@ EXECUTION_SCHEMA = "sequential-strict-execution/v1"
 IDENTITY_SCHEMA = "sequential-strict-identity-check/v1"
 SEGMENT_SCHEMA = "sequential-strict-remote-segment/v1"
 PROTOCOL_PLATFORM_LINE = "Execution platform: runpod-serverless"
+SERVING_QUALIFICATION = "stays on the Mac (condition 4)"
 METHOD = "strict-sequential-obf-bonferroni-v1"
 TEMPLATE_VERSION = "sequential-strict-template/v1"
 TEMPLATE_VERSION_PAIRED = "sequential-strict-template/v2"
@@ -1463,7 +1465,7 @@ def segment_unit_keys(intent: Mapping[str, Any], phase: str) -> List[List[str]]:
 
 
 def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
-    """Template v3 (governance amendment strict on RunPod, 2026-10-05): conditions 1-3."""
+    """Template v3 (governance amendment strict on RunPod, 2026-10-05): conditions 1-4."""
     output = root / "output"
     block = intent.get("execution") or {}
     # (1) the platform is named in the intent and the protocol; its documents are frozen
@@ -1649,7 +1651,19 @@ def audit_remote(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
                     ):
                         rows.append(f"{eid}: not from the job/worker that published {key}")
     audit.add("remote.segments_exact_units", not rows, rows[:20])
+    # (4) serving qualification stays on the Mac: the frozen intent says so and nothing in
+    # this run serves or promotes (the closeout, when present, records no promotion)
     closeout = output / "closeout.json"
+    saved_closeout = load_json(closeout) if closeout.is_file() else None
+    audit.add(
+        "serving.stays_on_mac",
+        block.get("serving_qualification") == SERVING_QUALIFICATION
+        and (saved_closeout is None or saved_closeout.get("promotion_performed") is False),
+        {
+            "serving_qualification": block.get("serving_qualification"),
+            "promotion_performed": (saved_closeout or {}).get("promotion_performed"),
+        },
+    )
     if closeout.is_file():
         saved = load_json(closeout)
         remote = ((saved.get("execution") or {}).get("remote")) or {}

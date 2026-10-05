@@ -413,7 +413,8 @@ probe) starts nothing.
    --confirm` and `serverless.py template-create --handler strict --confirm`.
 5. `prepare ... --remote-config <config>` (refuses below 5x unless forced, an unratified
    amendment in production, a protocol without the platform line, a checkpoint off the
-   allow-list).
+   allow-list). The amendment is bound by sha256, so ratify it (its "Ratification" section,
+   `- Decision: ratified`) and commit before `prepare`; seed the commit `prepare` freezes.
 6. `sequential_runner.py identity-check --intent <root>/intent.json`: once per intent. It opens
    the endpoint first (a refusal starts nothing), then plays the sample on the Mac (2 slots,
    `identity-worker` children) and on RunPod, and writes `identity_check.json` with salted
@@ -426,7 +427,8 @@ probe) starts nothing.
 rows bound to `rosters.json`, the backend the state implies), `platform.per_world_single`
 (every record stamped, one stamp and one job per world unit), `remote.segments_exact_units`
 (each segment's `remote.json` lists exactly its planned units, published whole from the job
-the records name) and `remote.spend_stop_is_invalid`; segment gates bind the identity state.
+the records name), `remote.spend_stop_is_invalid` and `serving.stays_on_mac` (the intent
+says serving qualification stays on the Mac and the closeout records no promotion); segment gates bind the identity state.
 
 **Binding of the identity result (explicit deviation).** The task asks for the identity result
 to be "bound into the intent before the final stage". `intent.json` is create-only and frozen
