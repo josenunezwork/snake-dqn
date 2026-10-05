@@ -401,8 +401,10 @@ probe) starts nothing.
     "engine": "live", "horizon": 5000, "horizon_path": "evaluation_profile.scored_horizon"}
    ```
 
-   Optional: `cloud_episode_seconds`, `workers`, `vcpu_per_worker`, `flavors`,
-   `identity_worlds_per_mix` (default 3), `record_pins`, `force_below_5x`.
+   Optional: `cloud_episode_seconds` (a measured value beats the pod-calibrated default),
+   `workers`, `vcpu_per_worker`, `flavors`, `identity_worlds_per_mix` (default 3),
+   `record_pins`, `force_below_5x`, `sizing_objective` (`fastest`, the default: the fastest
+   size within every cap; or `cheapest` at >= 5x).
 3. `sequential_runner.py remote-plan --spec ... --remote-config ... --n-max ... --mde ...
    --n-calibration ...` prints the projected wall and speed-up vs 2 Mac slots (seeding, the
    identity check, cold starts and barriers counted; every look played), the sizing, the caps

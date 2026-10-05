@@ -103,6 +103,7 @@ CONFIG_OPTIONAL: Dict[str, Any] = {
     "flavors": None,
     "identity_worlds_per_mix": None,
     "force_below_5x": False,
+    "sizing_objective": "fastest",
     "note": "",
 }
 
@@ -222,6 +223,10 @@ def load_remote_config(
     )
     cfg["identity_worlds_per_mix"] = k
     R.require(isinstance(cfg["force_below_5x"], bool), "force_below_5x must be a boolean")
+    R.require(
+        cfg["sizing_objective"] in ("fastest", "cheapest"),
+        "sizing_objective must be fastest (default) or cheapest (cheapest at >= 5x)",
+    )
     return cfg
 
 
@@ -337,8 +342,9 @@ def plan_remote(
     the local registry), the identity check (its Mac half and its remote half, run one after
     the other), one cold start per endpoint, one-wave batches of whole units per worker and a
     barrier per segment. Every option must fit the gate and identity caps (worst-case ledger
-    reservations), the hourly cap, the worker quota and ``max_wall_fill`` of each wall cap;
-    the cheapest option at >= ``min_speedup`` is chosen, else the fastest (flagged).
+    reservations), the hourly cap, the worker quota and ``max_wall_fill`` of each wall cap.
+    ``sizing_objective`` "fastest" (default) picks the fastest such option (the budget caps
+    the spend; ties go to the cheaper); "cheapest" picks the cheapest at >= ``min_speedup``.
     """
     mac_ep = float(cfg["mac_episode_seconds"])
     cloud_ep = cloud_episode_seconds(cfg, fp, sp)
@@ -427,9 +433,10 @@ def plan_remote(
     target = float(rpol["min_speedup"])
     ok = [r for r in rows if not r["refused"]]
     fast = [r for r in ok if r["speedup"] >= target]
-    if fast:
+    objective = cfg.get("sizing_objective") or "fastest"
+    if fast and objective == "cheapest":
         choice = min(fast, key=lambda r: (r["expected_usd"], r["workers"], -r["vcpu_per_worker"]))
-    else:
+    else:  # fastest within every cap (the budget bounds the spend); ties go to the cheaper
         choice = max(ok, key=lambda r: (r["speedup"], -r["expected_usd"]), default=None)
     meets = bool(choice and choice["speedup"] >= target)
     return {
@@ -451,6 +458,7 @@ def plan_remote(
         "cold_start_seconds": cold,
         "barrier_overhead_seconds": overhead,
         "min_speedup": target,
+        "sizing_objective": objective,
         "choice": choice,
         "meets_min_speedup": meets,
         "forced_below_min": bool(cfg.get("force_below_5x")) and not meets,
@@ -1023,6 +1031,7 @@ class RemoteSession:
         self.balance_failures = 0
         self.spend: Dict[str, Any] = {}
         self.watchdog: Any = None
+        self.awake: Any = None
         self.jobs: Dict[str, _Job] = {}
         self.events: Any = None
         self.opened = False
@@ -1103,6 +1112,8 @@ class RemoteSession:
         )
         self.watchdog = self.spawn_watchdog(target)
         self._check_watchdog(startup=True)
+        # the Mac must not sleep while jobs bill: caffeinate follows the watchdog (or this run)
+        self.awake = rmod.keep_awake(getattr(self.watchdog, "pid", None))
         self._create_endpoint()
         self._probe()
         self.opened = True
@@ -1636,6 +1647,8 @@ class RemoteSession:
             self.log("closed", why=why, leftovers=leftovers)
             self.events.close()
             self.events = None
+        if self.awake is not None and self.watchdog is None:
+            self.awake.terminate()  # with a watchdog, caffeinate ends when the watchdog does
         return self.receipt
 
 

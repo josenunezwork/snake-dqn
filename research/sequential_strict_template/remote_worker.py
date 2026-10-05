@@ -25,6 +25,7 @@ re-dispatches the whole unit.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import importlib.metadata
 import json
@@ -91,7 +92,13 @@ def isa_flags() -> list:
 
 def platform_stamp(backend: str) -> Dict[str, Any]:
     """What must be equal within a world unit (one worker): OS/arch, Python, torch, numpy, CPU
-    model, ISA flags, threads and the numerics env (torch is not imported for the stamp)."""
+    model, ISA flags, threads and the numerics env (torch is not imported for the stamp).
+    Computed once per process and backend; every call returns a fresh copy."""
+    return json.loads(json.dumps(_stamp(backend)))
+
+
+@functools.lru_cache(maxsize=4)
+def _stamp(backend: str) -> Dict[str, Any]:
     model = cpu_model()
     return {
         "backend": backend,
