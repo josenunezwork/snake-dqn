@@ -1,6 +1,6 @@
 # Governance amendment: survival band v2 (pooled paired NI, per-mix catastrophic floor), 2026-10-06
 
-Status: **proposed amendment, ratification pending** (see "Ratification" at the end). It adds an
+Status: **ratified 2026-10-06 (option 1)** (see "Ratification" at the end). It adds an
 opt-in survival guardrail, `band_policy = "pooled_ni_continue"`, to the Tier-2 sequential strict
 gate. It amends
 [governance_amendment_paired_bands_2026-10-03.md](governance_amendment_paired_bands_2026-10-03.md)
@@ -513,7 +513,12 @@ Questions for the owner:
 Record the decision with exactly these lines. Write `- Decision: ratified` to adopt, and leave
 the Changes line `none`:
 
-- Decision: ______ (ratified / rejected)
-- Option: ______ (1 / 2)
-- Date: ______
-- Changes, if any: ______
+- Decision: ratified
+- Option: 1
+- Date: 2026-10-06
+- Changes, if any: none
+
+Ratified by the research loop owner under the user's standing decision authority (user,
+2026-10-01: "i want you to make those choices going forward"; user, 2026-10-05, choosing
+"Fix band design first" for the FRP-v3 strict gate). Answers: (1) yes, single-mix losses below
+0.075 are tolerated, as disclosed; (2) yes, the continuation cost is accepted.

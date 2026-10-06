@@ -350,3 +350,13 @@ A STRICT_PASS is a receipt about this checkpoint + v8 (lambda 8) vs champion + v
 hero against unwrapped opponents, under `promotion-v2-watch-rect` H5000 on the platform the gate
 ran on; it does not qualify serving and does not speak to H10000 (LH-1 covers long horizons as a
 non-authoritative screen). Phase R and LH-1 numbers are planning/precondition inputs only.
+
+## Platform decision (2026-10-06, before `prepare`; owner)
+
+The gate runs on the **Mac, 2 slots** (template v2 local execution: `prepare` without
+`--remote-config`). Reason: the RunPod worst-case reservation (about $33 gate + $4.3 identity)
+exceeds the usable account balance (about $27 minus the $5 floor), so a remote run could hit the
+balance-delta hard stop (`INVALID_STOP`) and waste the final bank. The strict-on-RunPod amendment
+is left unratified and unused by this gate. Everything else (banks, namespaces, plan, MDE,
+N_max, survival band v2 option 1, interleaving, caps) is unchanged. Expected Mac runtime about
+7-9 h, worst case about 9.4 h; AC power and lid open.
