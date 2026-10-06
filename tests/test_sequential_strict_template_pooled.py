@@ -151,8 +151,8 @@ def test_pooled_band_pass_at_first_qualifying_look_and_audit(tmp_path):
     assert intent["band_rule"]["policy"] == "pooled_ni_continue"
     amendment = intent["band_amendment"]
     assert amendment["path"].endswith("governance_amendment_survival_band_v2_2026-10-06.md")
-    assert amendment["sha256"] and amendment["ratified"] is False  # the repo copy is Pending
-    assert "the survival band v2 amendment is not ratified" in amendment["production_problems"]
+    assert amendment["sha256"] and amendment["ratified"] is True  # ratified option 1 (865ee9e)
+    assert amendment["production_problems"] == []
     assert intent["paired_band_check"]["rule"] == "pooled_ni_continue"
     assert intent["paired_band_check"]["rows_judged"] == len(POOLS) * len(THETAS) * 4
     closeout = execute(intent_path, spec)
@@ -281,7 +281,8 @@ def test_amendment_status_and_ratified_option(tmp_path):
     doc.write_text("## Ratification\n\n- Decision: ratified\n- Option: 2\n")
     assert R.ratified_band_problems(R.amendment_status(doc), R.POOLED_BAND_OPTIONS["2"]) == []
     repo_copy = R.amendment_status(R.REPO / R.SURVIVAL_BAND_V2_AMENDMENT)
-    assert repo_copy["sha256"] and repo_copy["ratified"] is False  # Pending in the repo
+    # ratified option 1 in the repo at 865ee9e (2026-10-06)
+    assert repo_copy["sha256"] and repo_copy["ratified"] is True and repo_copy["option"] == "1"
 
 
 def test_production_intent_refused_until_ratified(tmp_path, monkeypatch):
@@ -304,14 +305,17 @@ def test_production_intent_refused_until_ratified(tmp_path, monkeypatch):
         slot_lock_root=R.SLOT_LOCK_ROOT,
         ledger_path=R.LEDGER_PATH,
     )
-    with pytest.raises(R.StrictRunError, match="not ratified"):
-        R.build_intent(spec, **kwargs)
     ratified = {
         "path": str(R.REPO / R.SURVIVAL_BAND_V2_AMENDMENT),
         "sha256": "x",
         "ratified": True,
         "option": "1",
     }
+    # the repo copy is ratified since 865ee9e: simulate the Pending state it had before
+    pending = {**ratified, "ratified": False, "option": None}
+    monkeypatch.setattr(R, "amendment_status", lambda path: dict(pending))
+    with pytest.raises(R.StrictRunError, match="not ratified"):
+        R.build_intent(spec, **kwargs)
     monkeypatch.setattr(R, "amendment_status", lambda path: dict(ratified))
     intent = R.build_intent(spec, **kwargs)
     assert intent["band_amendment"]["production_problems"] == []
@@ -326,7 +330,8 @@ def test_forged_ratification_is_refused_by_runner_and_audit(tmp_path):
     execute(intent_path, spec)
     intent = R.read_json(intent_path)
     forged = json.loads(json.dumps(intent))
-    forged["band_amendment"]["ratified"] = True
+    # flip the recorded ratification (the repo copy is ratified since 865ee9e)
+    forged["band_amendment"]["ratified"] = not intent["band_amendment"]["ratified"]
     with pytest.raises(R.StrictRunError, match="amendment differs"):
         R.validate_intent(forged, spec)
     intent_path.chmod(0o644)

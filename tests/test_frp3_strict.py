@@ -877,8 +877,9 @@ def test_dry_intent_freezes_the_survival_band_v2_plan_and_bindings(tmp_path):
     assert intent["paired_band_check"]["passes"] is True
     amendment = intent["band_amendment"]
     assert amendment["path"].endswith("governance_amendment_survival_band_v2_2026-10-06.md")
-    # until the owner ratifies option 1, a production prepare refuses (dry runs allowed)
-    assert amendment["ratified"] is False and amendment["production_problems"]
+    # ratified option 1 at 865ee9e (before the strict intent): no production problems
+    assert amendment["ratified"] is True and amendment["option"] == "1"
+    assert amendment["production_problems"] == []
     assert intent["banks"]["final"] == R.seed_bank("apex-frp3-strict-final-v1", 275)
     assert intent["banks_check"]["passes"] is True
     assert intent["arms"]["candidate"]["screen_binding"]["outcome"] == "CLEAR"
@@ -995,5 +996,8 @@ def test_cli_resolves_the_real_spec_when_the_runner_is_main(tmp_path):
     )
     assert proc.returncode != 0
     assert "spec must be a StudySpec" not in proc.stderr
-    assert "pooled_ni_continue needs explicit" in proc.stderr, proc.stderr[-2000:]
+    # Since the real gate started (frp3-m3s12-strict-20261005/run-v1) the shared ledger
+    # refuses its final namespace first; that is also past spec resolution.
+    reused = "apex-frp3-strict-final-v1 already started a run" in proc.stderr
+    assert "pooled_ni_continue needs explicit" in proc.stderr or reused, proc.stderr[-2000:]
     assert not (tmp_path / "x").exists()
