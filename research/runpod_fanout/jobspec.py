@@ -11,6 +11,10 @@ A job file is JSON::
 
 ``checkpoints`` must be exactly the non-scripted roster members plus the hero, and every
 one must be in ``checkpoint_allowlist.json``. Anything strict/serving is refused.
+
+Allow-list entries may carry ``"root": "artifacts_root"`` (a trained checkpoint pinned where
+the study wrote it); the default root is the policy's ``checkpoint_root``. (Same rule and code
+as branch frp-v3-phaser-rp, commit 2e0947f's parent; ported for the FRP-v3 strict gate.)
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from research.runpod_fanout.wrappers import HERO_SHA256, SCRIPTED_SHA256, WRAPPE
 HERE = Path(__file__).resolve().parent
 POLICY_PATH = HERE / "fanout_policy.json"
 ALLOWLIST_PATH = HERE / "checkpoint_allowlist.json"
+ALLOWLIST_ROOTS = ("checkpoint_root", "artifacts_root")
 JOB_SCHEMA = "runpod-fanout-job/v1"
 MIXES = ("frozen", "scripted", "mixed")
 ENGINES = ("live", "simd")
@@ -58,7 +63,8 @@ def load_policy(path: Path = POLICY_PATH) -> Dict[str, Any]:
 
 
 def load_allowlist(path: Path = ALLOWLIST_PATH) -> Dict[str, Dict[str, str]]:
-    """sha256 -> allow-list entry (path relative to the policy checkpoint_root)."""
+    """sha256 -> allow-list entry (path relative to the policy's ``root``: ``checkpoint_root``
+    by default, or ``artifacts_root`` for a study's trained checkpoint)."""
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     if raw.get("schema") != "runpod-fanout-checkpoint-allowlist/v1":
         raise JobError("unknown allow-list schema")
@@ -67,6 +73,8 @@ def load_allowlist(path: Path = ALLOWLIST_PATH) -> Dict[str, Dict[str, str]]:
         sha, rel = row["sha256"], row["path"]
         if not SHA_RE.match(sha) or Path(rel).is_absolute() or ".." in Path(rel).parts:
             raise JobError(f"bad allow-list entry {row!r}")
+        if row.get("root", "checkpoint_root") not in ALLOWLIST_ROOTS:
+            raise JobError(f"bad allow-list root in {row!r} (one of {ALLOWLIST_ROOTS})")
         if sha in out:
             raise JobError(f"duplicate allow-list sha {sha}")
         out[sha] = dict(row)
@@ -269,12 +277,14 @@ def resolve_checkpoints(
     shas: Iterable[str], policy: Mapping[str, Any], allowlist: Mapping[str, Mapping[str, str]]
 ) -> Dict[str, Path]:
     """sha256 -> local file, each verified against its pinned sha256."""
-    root = Path(policy["checkpoint_root"])
     out: Dict[str, Path] = {}
     for sha in shas:
         if sha not in allowlist:
             raise JobError(f"checkpoint {sha[:16]} not on the allow-list")
-        path = root / allowlist[sha]["path"]
+        root_key = allowlist[sha].get("root", "checkpoint_root")
+        if root_key not in ALLOWLIST_ROOTS:
+            raise JobError(f"allow-list root {root_key!r} for {sha[:16]} is not allowed")
+        path = Path(policy[root_key]) / allowlist[sha]["path"]
         if not path.is_file():
             raise JobError(f"allow-listed checkpoint missing: {path}")
         actual = sha256_file(path)

@@ -177,18 +177,31 @@ def test_unused_checkpoint_and_duplicates_refused():
 
 
 def test_allowlist_is_exactly_the_approved_four():
+    """The approved four, plus only FRP-v3 Phase R heroes pinned by the owner's
+    ``research.frp_v3_phaser_rp.pin`` after training (each traced to a verified training run
+    of the ratified commit; tests/test_frp_v3_phaser_rp.py covers the pin)."""
     allow = jobspec.load_allowlist()
-    assert sorted(allow) == sorted(
-        [
-            HERO_SHA256,
-            OPP,
-            "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
-            "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
-        ]
-    )
+    four = [
+        HERO_SHA256,
+        OPP,
+        "0eb5c121711ecb81c491bb319faeed232249f1548711f40c21c2e997fccc1c8d",
+        "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
+    ]
+    assert set(four) <= set(allow)
+    for sha in set(allow) - set(four):
+        row = allow[sha]
+        assert row["root"] == "artifacts_root" and row["path"].startswith("frp-v3-20261005/train/")
+        assert row["role"].startswith("FRP-v3 M3@") and row["approved"]
+        assert row["pinned_from"]["train_commit"] == "41a160840231ff059965a6ba47e24f2382a46fc4"
+        # an approval is recorded evidence, never a reminder to get one (seed uploads them all)
+        assert "confirm the user's approval" not in row["approved"].lower()
+        if "M3@30000" in row["role"]:
+            assert row["approved"].startswith("user approval of the M3@30000 uploads: ")
+        else:
+            assert "M3@60000" in row["role"] and row["approved"].startswith("user decision ")
     from research.apex_safety_20260926 import dev_screen
 
-    assert {sha for _, sha in dev_screen.POOL} == set(allow)
+    assert {sha for _, sha in dev_screen.POOL} == set(four)
 
 
 def test_scripted_and_hero_pins():

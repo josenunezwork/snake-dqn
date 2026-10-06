@@ -1,0 +1,185 @@
+{
+ "band_alpha": 0.05,
+ "band_bound": "rci_obf",
+ "definition": "paired_ni_at_stop (template v2, ratified 2026-10-03): probability that a candidate fails the paired survival band of a mix when it stops at that look, normal approximation with the pilot SD of the per-world paired survival delta d = candidate - incumbent (exact H5000-prefix survival_fraction): P(mean(d) - t_{n-1}(p_k) * sd / sqrt(n) <= -M), p_k the plan's rci_obf band_nominal_p, M = 0.05, at a true mean delta of 0 and at the pilot's observed mean delta; the floor (candidate mean >= 0.30) is reported separately (pilot candidate means are far above it)",
+ "floor": 0.3,
+ "look_sizes": [
+  69,
+  138,
+  207,
+  275
+ ],
+ "margin": 0.05,
+ "note": "The paired survival delta of two different checkpoints has a large per-world SD (deaths are not tied, unlike v8 vs v7), so M = 0.05 is a demanding band at early looks: a candidate with equal survival fails it often at look 1. This is the ratified rule, applied unchanged and disclosed here and in the joint bootstrap.",
+ "per_mix": {
+  "frozen": {
+   "all_seeds": {
+    "look_1": {
+     "fail_at_pilot_delta": 0.9884963788232707,
+     "fail_if_true_delta_0": 0.9959994161976347,
+     "n": 69
+    },
+    "look_2": {
+     "fail_at_pilot_delta": 0.5734745179616583,
+     "fail_if_true_delta_0": 0.7644832298381331,
+     "n": 138
+    },
+    "look_3": {
+     "fail_at_pilot_delta": 0.1851758072985295,
+     "fail_if_true_delta_0": 0.4052129570250038,
+     "n": 207
+    },
+    "look_4": {
+     "fail_at_pilot_delta": 0.05068163467145642,
+     "fail_if_true_delta_0": 0.1888232001921193,
+     "n": 275
+    },
+    "pilot_candidate_mean": 0.8733125000000002,
+    "pilot_mean_delta": 0.01448625,
+    "pilot_paired_sd": 0.31774457573219517,
+    "pilot_ties": 65,
+    "pilot_worlds": 160
+   },
+   "candidate_own": {
+    "look_1": {
+     "fail_at_pilot_delta": 0.5221241198683655,
+     "fail_if_true_delta_0": 0.9796302560941096,
+     "n": 69
+    },
+    "look_2": {
+     "fail_at_pilot_delta": 0.0015824185159207804,
+     "fail_if_true_delta_0": 0.44591012371931105,
+     "n": 138
+    },
+    "look_3": {
+     "fail_at_pilot_delta": 1.0834170010021182e-06,
+     "fail_if_true_delta_0": 0.09865773172151882,
+     "n": 207
+    },
+    "look_4": {
+     "fail_at_pilot_delta": 6.561035048591179e-10,
+     "fail_if_true_delta_0": 0.01823080558091228,
+     "n": 275
+    },
+    "pilot_candidate_mean": 0.9332,
+    "pilot_mean_delta": 0.05203124999999999,
+    "pilot_paired_sd": 0.2171130825280658,
+    "pilot_ties": 17,
+    "pilot_worlds": 32
+   }
+  },
+  "mixed": {
+   "all_seeds": {
+    "look_1": {
+     "fail_at_pilot_delta": 0.9403026767988758,
+     "fail_if_true_delta_0": 0.9941178439642271,
+     "n": 69
+    },
+    "look_2": {
+     "fail_at_pilot_delta": 0.20402145053411053,
+     "fail_if_true_delta_0": 0.7029387983908254,
+     "n": 138
+    },
+    "look_3": {
+     "fail_at_pilot_delta": 0.016341565129134317,
+     "fail_if_true_delta_0": 0.3191636046514914,
+     "n": 207
+    },
+    "look_4": {
+     "fail_at_pilot_delta": 0.0010786615784275644,
+     "fail_if_true_delta_0": 0.12558177121315872,
+     "n": 275
+    },
+    "pilot_candidate_mean": 0.91969875,
+    "pilot_mean_delta": 0.03339625,
+    "pilot_paired_sd": 0.288423014348673,
+    "pilot_ties": 79,
+    "pilot_worlds": 160
+   },
+   "candidate_own": {
+    "look_1": {
+     "fail_at_pilot_delta": 0.24851866733050998,
+     "fail_if_true_delta_0": 0.9962818728440734,
+     "n": 69
+    },
+    "look_2": {
+     "fail_at_pilot_delta": 3.3008750482343974e-05,
+     "fail_if_true_delta_0": 0.775063875497871,
+     "n": 138
+    },
+    "look_3": {
+     "fail_at_pilot_delta": 9.296314829043695e-10,
+     "fail_if_true_delta_0": 0.42182798518985265,
+     "n": 207
+    },
+    "look_4": {
+     "fail_at_pilot_delta": 2.4868995751603507e-14,
+     "fail_if_true_delta_0": 0.20240149617869274,
+     "n": 275
+    },
+    "pilot_candidate_mean": 0.9533812500000001,
+    "pilot_mean_delta": 0.13083125,
+    "pilot_paired_sd": 0.32384634791278966,
+    "pilot_ties": 16,
+    "pilot_worlds": 32
+   }
+  },
+  "scripted": {
+   "all_seeds": {
+    "look_1": {
+     "fail_at_pilot_delta": 0.9943783120499644,
+     "fail_if_true_delta_0": 0.9986716933589574,
+     "n": 69
+    },
+    "look_2": {
+     "fail_at_pilot_delta": 0.7106778906248683,
+     "fail_if_true_delta_0": 0.8887403517459684,
+     "n": 138
+    },
+    "look_3": {
+     "fail_at_pilot_delta": 0.3290677271086091,
+     "fail_if_true_delta_0": 0.6448086430236639,
+     "n": 207
+    },
+    "look_4": {
+     "fail_at_pilot_delta": 0.13225955285844626,
+     "fail_if_true_delta_0": 0.4294611148147886,
+     "n": 275
+    },
+    "pilot_candidate_mean": 0.8141737499999999,
+    "pilot_mean_delta": 0.024619999999999996,
+    "pilot_paired_sd": 0.4352501862480139,
+    "pilot_ties": 49,
+    "pilot_worlds": 160
+   },
+   "candidate_own": {
+    "look_1": {
+     "fail_at_pilot_delta": 0.9964057687417607,
+     "fail_if_true_delta_0": 0.9989880217157445,
+     "n": 69
+    },
+    "look_2": {
+     "fail_at_pilot_delta": 0.7798420485137705,
+     "fail_if_true_delta_0": 0.9091468768408795,
+     "n": 138
+    },
+    "look_3": {
+     "fail_at_pilot_delta": 0.42952471934767766,
+     "fail_if_true_delta_0": 0.696024464312916,
+     "n": 207
+    },
+    "look_4": {
+     "fail_at_pilot_delta": 0.20884290425138452,
+     "fail_if_true_delta_0": 0.494227478889328,
+     "n": 275
+    },
+    "pilot_candidate_mean": 0.81368125,
+    "pilot_mean_delta": 0.022850000000000006,
+    "pilot_paired_sd": 0.4760520492009115,
+    "pilot_ties": 10,
+    "pilot_worlds": 32
+   }
+  }
+ },
+ "schema": "frp3-m3s12-strict-band-cost/v1"
+}
