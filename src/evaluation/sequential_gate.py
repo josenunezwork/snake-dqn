@@ -70,10 +70,23 @@ Design (all pre-registered in a :class:`SequentialGatePlan` before any final dat
   ``band_bound="pointwise"`` uses ``band_alpha`` at every look (exact at a fixed look, not
   under selection).  ``band_margin_z`` is not used by this policy.  See
   :func:`paired_band_check` and :func:`plan_paired_band_check`.
+* **Pooled survival band v2 (``band_policy="pooled_ni_continue"``, opt-in).**  Proposed by
+  ``docs/research/governance_amendment_survival_band_v2_2026-10-06.md``.  At a look the bands
+  pass iff (1) the pooled paired NI bound clears ``-band_ni_margin``: per world the pooled delta
+  is the mean over the mixes of ``candidate - incumbent``, and ``mean - t_{n-1}(p_k) * se >
+  -band_ni_margin``; (2) every mix's own paired NI bound clears ``-band_mix_margin`` (the
+  per-mix catastrophic floor); (3) every mix's candidate mean is ``>= band_floor`` if a floor is
+  pre-registered.  ``band_bound`` must be ``"rci_obf"`` (repeated confidence bounds), because
+  the band is judged at the qualifying look **and every later look**: a qualified run whose
+  bands fail at an interim look gets the decision ``CONTINUE_BANDS`` (efficacy and NI stay
+  established, futility no longer stops it) and passes at the first later look where the bands
+  pass, else ``FINAL_FAIL``.  ``STOP_FAIL_BANDS`` never occurs under this policy.  See
+  :func:`pooled_band_check` and :func:`plan_pooled_band_check`.
 * **Decision at look k.**  At a qualifying interim look ``STOP_PASS`` if the bands pass,
-  else ``STOP_FAIL_BANDS``; otherwise ``STOP_FUTILE`` if so many uncrossed mixes are
-  futile that ``required_successes`` can no longer be reached; else ``CONTINUE``.  At
-  the last look: ``FINAL_PASS`` if it qualifies and the bands pass, else ``FINAL_FAIL``.
+  else ``STOP_FAIL_BANDS`` (``CONTINUE_BANDS`` under ``pooled_ni_continue``); otherwise
+  ``STOP_FUTILE`` if so many uncrossed mixes are futile that ``required_successes`` can no
+  longer be reached; else ``CONTINUE``.  At the last look: ``FINAL_PASS`` if it qualifies and
+  the bands pass, else ``FINAL_FAIL``.
 
 Every function is pure and deterministic: a decision at look ``k`` replays looks
 ``0..k`` from prefixes of the supplied deltas, so an auditor needs only the plan, the
@@ -103,6 +116,8 @@ __all__ = [
     "conditional_power",
     "paired_band_check",
     "plan_paired_band_check",
+    "plan_pooled_band_check",
+    "pooled_band_check",
     "look_sizes_for",
     "round_robin_plan",
     "run_sequential_gate",
@@ -117,11 +132,20 @@ DEFAULT_MIXES = ("frozen", "scripted", "mixed")
 DEFAULT_FUTILITY_CP = 0.10
 DEFAULT_BAND_MARGIN_Z = 1.645
 FUTILITY_POLICIES = ("followed", "overridable")
-BAND_POLICIES = ("block_at_stop", "paired_ni_at_stop")
+BAND_POLICIES = ("block_at_stop", "paired_ni_at_stop", "pooled_ni_continue")
 PAIRED_BAND_BOUNDS = ("rci_obf", "pointwise")
-# Plan fields that exist only under band_policy "paired_ni_at_stop".  They are omitted from
-# ``as_dict`` under "block_at_stop", so every legacy plan dict (and its sha256) is unchanged.
+POOLED_BAND_POLICY = "pooled_ni_continue"
+# Plan fields that exist only under band_policy "paired_ni_at_stop" / "pooled_ni_continue".
+# They are omitted from ``as_dict`` under the other policies, so every legacy plan dict (and
+# its sha256) is unchanged: "block_at_stop" has none, "paired_ni_at_stop" exactly the five it
+# always had, "pooled_ni_continue" those five plus ``band_mix_margin``.
 _PAIRED_BAND_FIELDS = ("band_ni_margin", "band_alpha", "band_bound", "band_nominal_p", "band_floor")
+_BAND_FIELDS_BY_POLICY = {
+    "block_at_stop": (),
+    "paired_ni_at_stop": _PAIRED_BAND_FIELDS,
+    POOLED_BAND_POLICY: _PAIRED_BAND_FIELDS + ("band_mix_margin",),
+}
+_ALL_BAND_FIELDS = _BAND_FIELDS_BY_POLICY[POOLED_BAND_POLICY]
 _NORMAL = NormalDist()
 
 
@@ -178,16 +202,25 @@ class SequentialGatePlan:
     band_bound: str | None = None
     band_nominal_p: tuple[float, ...] | None = None
     band_floor: float | None = None
+    band_mix_margin: float | None = None
 
     def __post_init__(self) -> None:
         # Build plans with sequential_gate_plan; this only guards direct construction
         # against band fields that as_dict would silently drop or that cannot be used.
         paired = (self.band_ni_margin, self.band_alpha, self.band_bound, self.band_nominal_p)
-        if self.band_policy != "paired_ni_at_stop":
+        if self.band_policy not in _BAND_FIELDS_BY_POLICY:
+            raise ValueError(f"band_policy must be one of {BAND_POLICIES}")
+        if self.band_policy != POOLED_BAND_POLICY and self.band_mix_margin is not None:
+            raise ValueError(f"band_mix_margin set under band_policy {self.band_policy!r}")
+        if self.band_policy == "block_at_stop":
             if any(v is not None for v in paired + (self.band_floor,)):
                 raise ValueError(f"paired band fields set under band_policy {self.band_policy!r}")
         elif any(v is None for v in paired) or len(self.band_nominal_p) != len(self.look_sizes):
-            raise ValueError("paired_ni_at_stop needs margin, alpha, bound and per-look levels")
+            raise ValueError(f"{self.band_policy} needs margin, alpha, bound and per-look levels")
+        elif self.band_policy == POOLED_BAND_POLICY and (
+            self.band_mix_margin is None or self.band_bound != "rci_obf"
+        ):
+            raise ValueError("pooled_ni_continue needs band_mix_margin and band_bound 'rci_obf'")
 
     @property
     def n_looks(self) -> int:
@@ -195,8 +228,9 @@ class SequentialGatePlan:
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"method": SEQUENTIAL_GATE_METHOD}
+        allowed = _BAND_FIELDS_BY_POLICY[self.band_policy]
         for key, value in self.__dict__.items():
-            if key in _PAIRED_BAND_FIELDS and self.band_policy != "paired_ni_at_stop":
+            if key in _ALL_BAND_FIELDS and key not in allowed:
                 continue
             out[key] = list(value) if isinstance(value, tuple) else value
         out["spending"] = "lan_demets_obrien_fleming"
@@ -223,12 +257,16 @@ def sequential_gate_plan(
     band_alpha: float | None = None,
     band_bound: str | None = None,
     band_floor: float | None = None,
+    band_mix_margin: float | None = None,
 ) -> SequentialGatePlan:
     """Compute and freeze the looks, boundaries and nominal levels of the gate.
 
     ``band_ni_margin``, ``band_alpha``, ``band_bound`` and ``band_floor`` belong to
-    ``band_policy="paired_ni_at_stop"`` (margin, alpha and bound are then required, the floor
-    is optional) and must be left ``None`` under the default ``"block_at_stop"``.
+    ``band_policy="paired_ni_at_stop"`` or ``"pooled_ni_continue"`` (margin, alpha and bound
+    are then required, the floor is optional) and must be left ``None`` under the default
+    ``"block_at_stop"``.  ``band_mix_margin`` (the per-mix catastrophic margin) is required
+    under ``"pooled_ni_continue"`` (whose bound must be ``"rci_obf"``; ``band_ni_margin`` is
+    then the pooled margin) and must be ``None`` otherwise.
     """
     names = tuple(str(m) for m in mixes)
     if len(names) < 1 or len(set(names)) != len(names):
@@ -258,6 +296,7 @@ def sequential_gate_plan(
     paired = _paired_band_parameters(
         band_policy, sizes, n_max, band_ni_margin, band_alpha, band_bound, band_floor
     )
+    paired.update(_pooled_band_parameters(band_policy, band_bound, band_mix_margin))
     per_mix = family_alpha / len(names)
     efficacy = futility_plan(sizes, alpha=per_mix, max_size=n_max)
     ni = futility_plan(sizes, alpha=ni_alpha, max_size=n_max)
@@ -295,11 +334,11 @@ def _paired_band_parameters(
     bound: object,
     floor: object,
 ) -> dict[str, Any]:
-    if band_policy != "paired_ni_at_stop":
+    if band_policy == "block_at_stop":
         if any(v is not None for v in (margin, alpha, bound, floor)):
             raise ValueError(
                 "band_ni_margin, band_alpha, band_bound and band_floor need "
-                'band_policy="paired_ni_at_stop"'
+                'band_policy="paired_ni_at_stop" or "pooled_ni_continue"'
             )
         return {}
     if (
@@ -327,6 +366,159 @@ def _paired_band_parameters(
         "band_nominal_p": nominal,
         "band_floor": None if floor is None else float(floor),
     }
+
+
+def _pooled_band_parameters(band_policy: str, bound: object, mix_margin: object) -> dict[str, Any]:
+    if band_policy != POOLED_BAND_POLICY:
+        if mix_margin is not None:
+            raise ValueError('band_mix_margin needs band_policy="pooled_ni_continue"')
+        return {}
+    if bound != "rci_obf":
+        raise ValueError(
+            'pooled_ni_continue judges the bands at several looks: band_bound must be "rci_obf"'
+        )
+    if (
+        isinstance(mix_margin, bool)
+        or not isinstance(mix_margin, (int, float))
+        or not (math.isfinite(mix_margin) and mix_margin > 0.0)
+    ):
+        raise ValueError("band_mix_margin must be a positive finite number")
+    return {"band_mix_margin": float(mix_margin)}
+
+
+def _ni_bound(deltas: Sequence[float], nominal_p: float) -> dict[str, Any]:
+    n = len(deltas)
+    mean = math.fsum(deltas) / n
+    sd = math.sqrt(math.fsum((v - mean) ** 2 for v in deltas) / (n - 1))
+    se = sd / math.sqrt(n)
+    t_crit = student_t_isf(nominal_p, n - 1)
+    return {
+        "mean_delta": mean,
+        "sample_std": sd,
+        "standard_error": se,
+        "t_critical": t_crit,
+        "lower_bound": mean - t_crit * se,
+    }
+
+
+def _positive_margin(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a real number")
+    value = float(value)
+    if not (math.isfinite(value) and value > 0.0):
+        raise ValueError(f"{name} must be a positive finite number")
+    return value
+
+
+def pooled_band_check(
+    candidate: Mapping[str, Sequence[float]],
+    incumbent: Mapping[str, Sequence[float]],
+    *,
+    pooled_margin: float,
+    mix_margin: float,
+    nominal_p: float,
+    floor: float | None = None,
+) -> dict[str, Any]:
+    """Survival band v2 on the worlds available at a look (all mixes at once).
+
+    ``candidate[m][i]`` and ``incumbent[m][i]`` are the band metric of the two arms on world
+    ``i`` of mix ``m`` (world ``i`` is the same world in every mix).  With ``d[m][i] =
+    candidate[m][i] - incumbent[m][i]`` and the pooled per-world delta ``p[i] = mean over m of
+    d[m][i]``, the bands pass iff ``mean(p) - t_{n-1}(nominal_p) * sd(p) / sqrt(n) >
+    -pooled_margin`` and, for every mix, ``mean(d[m]) - t_{n-1}(nominal_p) * sd(d[m]) / sqrt(n)
+    > -mix_margin`` and (if a floor is given) ``mean(candidate[m]) >= floor``.  Strict ``>``;
+    with zero spread a bound is the mean.
+    """
+    mixes = list(candidate)
+    if not mixes or list(incumbent) != mixes:
+        raise ValueError("candidate and incumbent must cover the same mixes, in the same order")
+    cand = {m: [float(v) for v in candidate[m]] for m in mixes}
+    inc = {m: [float(v) for v in incumbent[m]] for m in mixes}
+    n = len(cand[mixes[0]])
+    if any(len(cand[m]) != n or len(inc[m]) != n for m in mixes):
+        raise ValueError("every mix must pair one value per world, on the same worlds")
+    if n < 2 or not all(math.isfinite(v) for m in mixes for v in cand[m] + inc[m]):
+        raise ValueError("pooled_band_check needs at least two finite pairs per mix")
+    pooled_margin = _positive_margin(pooled_margin, "pooled_margin")
+    mix_margin = _positive_margin(mix_margin, "mix_margin")
+    nominal_p = _probability(nominal_p, "nominal_p", 0.5)
+    if floor is not None and (
+        isinstance(floor, bool) or not isinstance(floor, (int, float)) or not math.isfinite(floor)
+    ):
+        raise ValueError("floor must be None or a finite number")
+    deltas = {m: [c - i for c, i in zip(cand[m], inc[m])] for m in mixes}
+    pooled_deltas = [math.fsum(deltas[m][w] for m in mixes) / len(mixes) for w in range(n)]
+    pooled = _ni_bound(pooled_deltas, nominal_p)
+    pooled["margin"] = pooled_margin
+    pooled["passes"] = bool(pooled["lower_bound"] > -pooled_margin)
+    per_mix: dict[str, dict[str, Any]] = {}
+    for m in mixes:
+        row = _ni_bound(deltas[m], nominal_p)
+        candidate_mean = math.fsum(cand[m]) / n
+        row.update(
+            margin=mix_margin,
+            candidate_mean=candidate_mean,
+            incumbent_mean=math.fsum(inc[m]) / n,
+            floor=None if floor is None else float(floor),
+            passes_ni=bool(row["lower_bound"] > -mix_margin),
+            passes_floor=True if floor is None else bool(candidate_mean >= float(floor)),
+        )
+        row["passes"] = row["passes_ni"] and row["passes_floor"]
+        per_mix[m] = row
+    passes_mix = all(r["passes_ni"] for r in per_mix.values())
+    passes_floor = all(r["passes_floor"] for r in per_mix.values())
+    return {
+        "n": n,
+        "df": n - 1,
+        "mixes": mixes,
+        "nominal_p": nominal_p,
+        "t_critical": pooled["t_critical"],
+        "pooled": pooled,
+        "per_mix": per_mix,
+        "floor": None if floor is None else float(floor),
+        "passes_pooled": pooled["passes"],
+        "passes_mix": passes_mix,
+        "passes_floor": passes_floor,
+        "passes": bool(pooled["passes"] and passes_mix and passes_floor),
+    }
+
+
+def plan_pooled_band_check(
+    plan: SequentialGatePlan,
+    look: int,
+    candidate: Mapping[str, Sequence[float]],
+    incumbent: Mapping[str, Sequence[float]],
+) -> dict[str, Any]:
+    """:func:`pooled_band_check` with the plan's margins, floor and look-``look`` level.
+
+    ``candidate`` and ``incumbent`` map every plan mix to exactly ``plan.look_sizes[look]``
+    values (the look's prefix, pre-declared world order); they are taken in plan mix order.
+    """
+    if not isinstance(plan, SequentialGatePlan):
+        raise TypeError("plan must be a SequentialGatePlan")
+    if plan.band_policy != POOLED_BAND_POLICY or plan.band_nominal_p is None:
+        raise ValueError('plan_pooled_band_check needs band_policy="pooled_ni_continue"')
+    if isinstance(look, bool) or not isinstance(look, int) or not 0 <= look < plan.n_looks:
+        raise ValueError("look index out of range")
+    if set(candidate) != set(plan.mixes) or set(incumbent) != set(plan.mixes):
+        raise ValueError(f"the pooled band needs exactly the mixes {list(plan.mixes)}")
+    expected = plan.look_sizes[look]
+    for mix in plan.mixes:
+        if len(candidate[mix]) != expected or len(incumbent[mix]) != expected:
+            raise ValueError(f"look {look} is pre-declared at {expected} worlds per mix")
+    assert plan.band_ni_margin is not None and plan.band_mix_margin is not None
+    out = pooled_band_check(
+        {m: candidate[m] for m in plan.mixes},
+        {m: incumbent[m] for m in plan.mixes},
+        pooled_margin=plan.band_ni_margin,
+        mix_margin=plan.band_mix_margin,
+        nominal_p=plan.band_nominal_p[look],
+        floor=plan.band_floor,
+    )
+    out["look"] = look
+    out["band_bound"] = plan.band_bound
+    out["policy"] = POOLED_BAND_POLICY
+    return out
 
 
 def paired_band_check(
@@ -546,7 +738,10 @@ def _decide(
     qualifies = successes >= plan.required_successes and ni
     if look == plan.n_looks - 1:
         return "FINAL_PASS" if qualifies and bands else "FINAL_FAIL"
-    if qualifies:  # both band policies: bands judged once, at this look, never delay
+    if qualifies and plan.band_policy == POOLED_BAND_POLICY:
+        # survival band v2: judged at this and every later look; a failure continues
+        return "STOP_PASS" if bands else "CONTINUE_BANDS"
+    if qualifies:  # block_at_stop / paired_ni_at_stop: bands judged once, never delay
         return "STOP_PASS" if bands else "STOP_FAIL_BANDS"
     if len(plan.mixes) - futile < plan.required_successes:
         return "STOP_FUTILE"
@@ -568,7 +763,9 @@ def sequential_decision(
     entry per look ``0..look``; only the qualifying look's entry is used.  Under
     ``band_policy="block_at_stop"`` every band goes through :func:`band_check` with
     ``plan.band_margin_z`` and ``n_final = plan.n_max``; under ``"paired_ni_at_stop"`` through
-    :func:`plan_paired_band_check` at look ``i``.  If an
+    :func:`plan_paired_band_check` at look ``i``; under ``"pooled_ni_continue"`` through
+    :func:`plan_pooled_band_check` at look ``i``, and then every qualified look's entry is used
+    (``CONTINUE_BANDS`` while they fail).  If an
     earlier look already reached ``STOP_PASS`` or ``STOP_FAIL_BANDS`` the result is invalid.
     An earlier ``STOP_FUTILE`` that was overridden is listed in ``futility_overrides``; it
     is valid only under ``futility_policy="overridable"`` (futility is non-binding, so
@@ -637,7 +834,7 @@ def sequential_decision(
         "fraction": plan.fractions[look],
         "decision": current["decision"],
         "valid": valid,
-        "stopped": current["decision"] != "CONTINUE",
+        "stopped": current["decision"] not in ("CONTINUE", "CONTINUE_BANDS"),
         "passes": bool(valid and current["decision"] in ("STOP_PASS", "FINAL_PASS")),
         "successful_mixes": current["successful_mixes"],
         "futile_mixes": current["futile_mixes"],

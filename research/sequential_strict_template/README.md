@@ -1,4 +1,4 @@
-# Sequential strict runner template (`sequential-strict-template/v1`, `/v2` and `/v3`)
+# Sequential strict runner template (`sequential-strict-template/v1`, `/v2`, `/v2-pooled` and `/v3`)
 
 Three template versions share this code. An intent declares which one it uses in
 `template_version`. The spec's `band_policy` decides v1 or v2; `prepare --remote-config`
@@ -8,7 +8,8 @@ Three template versions share this code. An intent declares which one it uses in
 |---|---|---|
 | `sequential-strict-template/v1` | `block_at_stop` (default) | candidate mean vs calibration reference + offsets (`survival_bands`) |
 | `sequential-strict-template/v2` | `paired_ni_at_stop` | paired survival noninferiority, judged at the qualifying look (`paired_survival_bands`); see [Adopting paired survival bands](#adopting-paired-survival-bands-template-v2) |
-| `sequential-strict-template/v3` | either (kept in `execution.band_template_version`) | as v1 or v2; the episodes run on RunPod serverless; see [Running the gate on RunPod](#running-the-gate-on-runpod-template-v3) |
+| `sequential-strict-template/v2-pooled` | `pooled_ni_continue` | survival band v2: pooled paired NI + per-mix catastrophic NI, repeated confidence bounds, judged at the qualifying look and every later look (a qualified run whose bands fail continues, `CONTINUE_BANDS`); see [Survival band v2](#survival-band-v2-template-v2-pooled) |
+| `sequential-strict-template/v3` | any (kept in `execution.band_template_version`) | as v1, v2 or v2-pooled; the episodes run on RunPod serverless; see [Running the gate on RunPod](#running-the-gate-on-runpod-template-v3) |
 
 v1 intents keep exactly their v1 content: the same intent keys, plan parameters, plan dict and
 sha256, spec descriptor, calibration and look-receipt fields. Golden hashes in
@@ -344,6 +345,36 @@ list.
 - `simulate.py` does not simulate `band_floor`, which is a tripwire.
 - The audit judges the check output's numbers again but does not re-run the resampling,
   which needs numpy. The output is hash-bound.
+
+## Survival band v2 (template v2-pooled)
+
+The rule is [`governance_amendment_survival_band_v2_2026-10-06.md`](../../docs/research/governance_amendment_survival_band_v2_2026-10-06.md)
+(proposed 2026-10-06; a production `prepare` refuses until its ratification section records
+the decision and the option, and the plan's band values must equal the ratified option).
+Opt in with a spec `band_policy="pooled_ni_continue"` and `bands=paired_survival_bands(MIXES)`
+(exactly frozen, scripted, mixed), plus `paired_band_check_path` / `paired_band_pool_path` as
+for v2.
+
+- **Plan.** `--paired-band M,alpha,rci_obf,floor,mix_margin` (five values; option 1 is
+  `0.05,0.05,rci_obf,0.30,0.10`). `band_bound` must be `rci_obf`. The plan adds
+  `band_mix_margin`; v1/v2 plan dicts are unchanged (golden hashes in
+  `tests/test_sequential_gate.py`).
+- **Per-study check.** `research/survival_band_v2_20261006/simulate.py --part study --data
+  <the study's pool> --plan-params <plan.json> --delta-ni <dev delta_NI> --reps 20000 --thetas
+  <0.5,0.67,1,1.5,2 x MDE[,planning effect]> --out research/<study>/paired_band_check.json`.
+  Acceptance: every joint rate P(PASS and a regression exactly at a margin) for the pooled
+  regression and each one-mix regression is <= 1.2 x band_alpha. A failing check means the
+  study does not adopt the policy (no retuning). The amendment's own calibration pools are
+  refused as a study pool.
+- **Receipts.** `bands_by_look` holds one row per look (pooled bound, every mix's bound, floor,
+  verdicts, pairs digest); `band_judged_looks` lists the qualified looks, `band_judged_look` /
+  `band_results` are this look's (`None` before qualification). `CONTINUE_BANDS` maps to the
+  action `continue`.
+- **Audit.** Own-code recompute of the pooled and per-mix bounds at every look, the
+  `CONTINUE_BANDS` decision sequence, the per-study check
+  (`preregistration.pooled_band_check`) and the amendment binding (`intent.band_amendment`:
+  sha256, ratification and option re-derived from the document). Report schema
+  `sequential-strict-audit/v2-pooled` (v3 for remote runs).
 
 ## Running the gate on RunPod (template v3)
 

@@ -44,6 +44,16 @@ What it recomputes in its own code (amendment "Audit requirements"):
   check output re-judged in its own code (hash-bound, frozen plan parameters, coverage of
   every pool x theta x band mix, every joint rate <= 1.2 x band_alpha).  Under the legacy
   ``block_at_stop`` (template v1) the paired fields must be absent.
+* **Survival band v2 (``band_policy="pooled_ni_continue"``, governance amendment
+  2026-10-06).**  ``band_mix_margin`` present and ``band_bound`` ``rci_obf`` (own OBF levels);
+  at every look from the raw record pairs, in own code: the pooled per-world delta (mean over
+  the mixes), the pooled bound against ``-band_ni_margin``, every mix's bound against
+  ``-band_mix_margin`` and the floor; the decision sequence with ``CONTINUE_BANDS`` (a
+  qualified look whose bands fail continues); the receipts' judged looks and band rows; the
+  per-study ``--part study`` check re-judged (coverage of every pool x theta x {pooled, each
+  mix} regression, every joint rate <= 1.2 x band_alpha); and the amendment binding: sha256,
+  ratification and option re-derived from the document's text, and a production intent must
+  use exactly the ratified option's values.
 * **Remote execution (template v3, ``intent.execution``; governance amendment strict on RunPod,
   2026-10-05).**  The platform is named in the intent and in the protocol (the line
   ``Execution platform: runpod-serverless``) and its documents still have their frozen sha256;
@@ -72,6 +82,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 AUDIT_SCHEMA = "sequential-strict-audit/v1"
 AUDIT_SCHEMA_PAIRED = "sequential-strict-audit/v2"
+AUDIT_SCHEMA_POOLED = "sequential-strict-audit/v2-pooled"
 AUDIT_SCHEMA_REMOTE = "sequential-strict-audit/v3"
 TEMPLATE_VERSION_REMOTE = "sequential-strict-template/v3"
 REMOTE_EXECUTOR = "runpod-serverless"
@@ -96,13 +107,30 @@ REMOTE_DIR = "remote"
 METHOD = "strict-sequential-obf-bonferroni-v1"
 TEMPLATE_VERSION = "sequential-strict-template/v1"
 TEMPLATE_VERSION_PAIRED = "sequential-strict-template/v2"
+TEMPLATE_VERSION_POOLED = "sequential-strict-template/v2-pooled"
 TEMPLATE_VERSIONS = {
     "block_at_stop": TEMPLATE_VERSION,
     "paired_ni_at_stop": TEMPLATE_VERSION_PAIRED,
+    "pooled_ni_continue": TEMPLATE_VERSION_POOLED,
 }
 PAIRED = "paired_ni_at_stop"
+POOLED = "pooled_ni_continue"
+PAIRED_POLICIES = (PAIRED, POOLED)
+# The audit's own copies of survival band v2's constants (governance amendment 2026-10-06).
+SURVIVAL_BAND_V2_AMENDMENT = "docs/research/governance_amendment_survival_band_v2_2026-10-06.md"
+POOLED_OPTIONS = {
+    "1": {"band_ni_margin": 0.05, "band_alpha": 0.05, "band_bound": "rci_obf",
+          "band_floor": 0.30, "band_mix_margin": 0.10},
+    "2": {"band_ni_margin": 0.05, "band_alpha": 0.05, "band_bound": "rci_obf",
+          "band_floor": 0.30, "band_mix_margin": 0.075},
+}  # fmt: skip
+OPTION_RE = re.compile(r"^\s*-\s*Option:\s*([12])\s*$", re.MULTILINE)
+POOLED_STOCK_POOL = "research/survival_band_v2_20261006/survival_pools_20261006.json"
+POOLED_CHECK_SCHEMA = "survival-band-v2-study-check/v1"
 PAIRED_PLAN_FIELDS = ("band_ni_margin", "band_alpha", "band_bound", "band_nominal_p", "band_floor")
 PAIRED_PARAM_FIELDS = ("band_ni_margin", "band_alpha", "band_bound", "band_floor")
+POOLED_PLAN_FIELDS = PAIRED_PLAN_FIELDS + ("band_mix_margin",)
+POOLED_PARAM_FIELDS = PAIRED_PARAM_FIELDS + ("band_mix_margin",)
 PAIRED_CHECK_FACTOR = 1.2
 PAIRED_CHECK_MIN_REPS = 20_000
 ARMS = ("incumbent", "candidate")
@@ -111,6 +139,7 @@ REL_TOLERANCE = 1e-6
 SKEW_EFFICACY_FACTOR = 1.2
 SKEW_NI_LIMIT = 0.06
 TERMINAL = ("STOP_PASS", "STOP_FAIL_BANDS", "FINAL_PASS", "FINAL_FAIL")
+CONTINUING = ("CONTINUE", "CONTINUE_BANDS")
 PASSING = ("STOP_PASS", "FINAL_PASS")
 DECIDED = ("STRICT_PASS", "STRICT_FAIL", "DRY_RUN_PASS", "DRY_RUN_FAIL")
 PRODUCTION_EXECUTOR = "subprocess"
@@ -393,6 +422,71 @@ def paired_band(
     }
 
 
+def _bound(deltas: Sequence[float], nominal_p: float) -> Dict[str, Any]:
+    n = len(deltas)
+    mean = math.fsum(deltas) / n
+    sd = math.sqrt(math.fsum((v - mean) ** 2 for v in deltas) / (n - 1))
+    se = sd / math.sqrt(n)
+    t_crit = t_isf(nominal_p, n - 1)
+    return {
+        "mean_delta": mean,
+        "sample_std": sd,
+        "standard_error": se,
+        "t_critical": t_crit,
+        "lower_bound": mean - t_crit * se,
+    }
+
+
+def pooled_band(
+    candidate: Mapping[str, Sequence[float]],
+    incumbent: Mapping[str, Sequence[float]],
+    pooled_margin: float,
+    mix_margin: float,
+    nominal_p: float,
+    floor: Optional[float],
+) -> Dict[str, Any]:
+    """Survival band v2, own code: pooled per-world delta p_i = mean over the mixes of
+    (candidate - incumbent); pooled bound > -pooled_margin, every mix's bound > -mix_margin
+    (strict), every mix's candidate mean >= floor when a floor is set."""
+    mixes = list(candidate)
+    n = len(candidate[mixes[0]])
+    deltas = {m: [c - i for c, i in zip(candidate[m], incumbent[m])] for m in mixes}
+    pooled_deltas = [math.fsum(deltas[m][w] for m in mixes) / len(mixes) for w in range(n)]
+    pooled = _bound(pooled_deltas, nominal_p)
+    pooled["margin"] = pooled_margin
+    pooled["passes"] = pooled["lower_bound"] > -pooled_margin
+    per_mix = {}
+    for m in mixes:
+        row = _bound(deltas[m], nominal_p)
+        cand_mean = math.fsum(candidate[m]) / n
+        row.update(
+            margin=mix_margin,
+            candidate_mean=cand_mean,
+            incumbent_mean=math.fsum(incumbent[m]) / n,
+            floor=floor,
+            passes_ni=row["lower_bound"] > -mix_margin,
+            passes_floor=True if floor is None else cand_mean >= floor,
+        )
+        row["passes"] = row["passes_ni"] and row["passes_floor"]
+        per_mix[m] = row
+    passes_mix = all(r["passes_ni"] for r in per_mix.values())
+    passes_floor = all(r["passes_floor"] for r in per_mix.values())
+    return {
+        "n": n,
+        "df": n - 1,
+        "mixes": mixes,
+        "nominal_p": nominal_p,
+        "t_critical": pooled["t_critical"],
+        "pooled": pooled,
+        "per_mix": per_mix,
+        "floor": floor,
+        "passes_pooled": pooled["passes"],
+        "passes_mix": passes_mix,
+        "passes_floor": passes_floor,
+        "passes": pooled["passes"] and passes_mix and passes_floor,
+    }
+
+
 def uint32_seed(domain: str, index: int) -> int:
     digest = hashlib.sha256(f"{domain}|worlds|{index}".encode("utf-8")).digest()
     return int(struct.unpack(">I", digest[:4])[0])
@@ -500,17 +594,26 @@ def audit_plan(audit: Audit, intent: Mapping[str, Any]) -> None:
 def audit_paired_plan(
     audit: Audit, plan: Mapping[str, Any], params: Mapping[str, Any], fractions: Tuple
 ) -> None:
-    """Paired band fields: present and recomputed under paired_ni_at_stop, absent otherwise."""
-    if plan.get("band_policy") != PAIRED:
+    """Paired band fields: present and recomputed under paired_ni_at_stop (and, with
+    band_mix_margin, under pooled_ni_continue), absent otherwise."""
+    policy = plan.get("band_policy")
+    if policy not in PAIRED_POLICIES:
         audit.add(
             "plan.paired_band_fields_absent",
-            not any(k in plan for k in PAIRED_PLAN_FIELDS)
-            and not any(k in params for k in PAIRED_PARAM_FIELDS),
+            not any(k in plan for k in POOLED_PLAN_FIELDS)
+            and not any(k in params for k in POOLED_PARAM_FIELDS),
         )
         return
-    ok = all(k in plan for k in PAIRED_PLAN_FIELDS) and all(
-        plan[k] == params.get(k) for k in PAIRED_PARAM_FIELDS
+    plan_fields = POOLED_PLAN_FIELDS if policy == POOLED else PAIRED_PLAN_FIELDS
+    param_fields = POOLED_PARAM_FIELDS if policy == POOLED else PAIRED_PARAM_FIELDS
+    ok = all(k in plan for k in plan_fields) and all(plan[k] == params.get(k) for k in param_fields)
+    ok = ok and not any(
+        k in plan or k in params for k in set(POOLED_PLAN_FIELDS) - set(plan_fields)
     )
+    if policy == POOLED:
+        mix_margin = plan.get("band_mix_margin")
+        ok = ok and isinstance(mix_margin, float) and math.isfinite(mix_margin) and mix_margin > 0
+        ok = ok and plan.get("band_bound") == "rci_obf"
     margin, alpha, bound = (
         plan.get("band_ni_margin"),
         plan.get("band_alpha"),
@@ -520,7 +623,7 @@ def audit_paired_plan(
     ok = ok and isinstance(margin, float) and math.isfinite(margin) and margin > 0
     ok = ok and isinstance(alpha, float) and 0.0 < alpha < 0.5
     ok = ok and (floor is None or (isinstance(floor, float) and math.isfinite(floor)))
-    audit.add("plan.paired_band_parameters", ok, {k: plan.get(k) for k in PAIRED_PARAM_FIELDS})
+    audit.add("plan.paired_band_parameters", ok, {k: plan.get(k) for k in param_fields})
     theirs = plan.get("band_nominal_p") or []
     if bound == "pointwise":
         good = len(theirs) == len(fractions) and all(p == alpha for p in theirs)
@@ -656,7 +759,7 @@ def audit_calibration(
     try:
         delta_ni = spec["ni_fraction"] * means[spec["scripted_mix"]][spec["primary_metric"]]
         ok = close(saved["absolute_delta_ni"], delta_ni, 1e-9) and delta_ni > 0
-        paired_policy = intent["plan"]["band_policy"] == PAIRED
+        paired_policy = intent["plan"]["band_policy"] in PAIRED_POLICIES
         for mine, theirs in zip(spec["bands"], saved["bands"]):
             ref = means[mine["mix"]][mine["metric"]]
             ok = ok and theirs["metric"] == mine["metric"] and theirs["mix"] == mine["mix"]
@@ -796,6 +899,40 @@ def replay_looks(
             ni_look = k
         bands = []
         paired_rows: List[Dict[str, Any]] = []
+        if plan["band_policy"] == POOLED:
+            pairs_by_mix = {
+                m: [
+                    (
+                        entries[eid("final", "candidate", m, w)],
+                        entries[eid("final", "incumbent", m, w)],
+                    )
+                    for w in range(n)
+                ]
+                for m in mixes
+            }
+            same_world = all(
+                all(c.get(f) == i.get(f) for f in ("mix", "world_index", "world_seed", "unit"))
+                and (c.get("arm"), i.get("arm")) == ("candidate", "incumbent")
+                for pairs in pairs_by_mix.values()
+                for c, i in pairs
+            ) and all(
+                pairs_by_mix[m][w][0].get("world_seed")
+                == pairs_by_mix[mixes[0]][w][0].get("world_seed")
+                for m in mixes
+                for w in range(n)
+            )
+            metric_name = spec["bands"][0]["metric"]
+            row = pooled_band(
+                {m: [c["record"][metric_name] for c, _ in pairs_by_mix[m]] for m in mixes},
+                {m: [i["record"][metric_name] for _, i in pairs_by_mix[m]] for m in mixes},
+                plan["band_ni_margin"],
+                plan["band_mix_margin"],
+                plan["band_nominal_p"][k],
+                plan["band_floor"],
+            )
+            row.update(metric=metric_name, same_world=same_world)
+            paired_rows.append(row)
+            bands.append(row)
         for spec_band in spec["bands"] if plan["band_policy"] == PAIRED else ():
             pairs = [
                 (
@@ -819,7 +956,7 @@ def replay_looks(
             row.update(metric=spec_band["metric"], mix=spec_band["mix"], same_world=same_world)
             paired_rows.append(row)
             bands.append(row)
-        for spec_band in calibration["bands"] if plan["band_policy"] != PAIRED else ():
+        for spec_band in calibration["bands"] if plan["band_policy"] not in PAIRED_POLICIES else ():
             values = [
                 entries[eid("final", "candidate", spec_band["mix"], w)]["record"][
                     spec_band["metric"]
@@ -841,6 +978,8 @@ def replay_looks(
         qualifies = successes >= plan["required_successes"] and ni_look is not None
         if k == n_looks - 1:
             decision = "FINAL_PASS" if qualifies and bands_pass else "FINAL_FAIL"
+        elif qualifies and plan["band_policy"] == POOLED:
+            decision = "STOP_PASS" if bands_pass else "CONTINUE_BANDS"
         elif qualifies:
             decision = "STOP_PASS" if bands_pass else "STOP_FAIL_BANDS"
         elif len(mixes) - futile < plan["required_successes"]:
@@ -855,7 +994,7 @@ def replay_looks(
             action = "stop"
         elif decision == "STOP_FUTILE":
             action = "continue" if intent["futility_action"] == "continue" else "stop"
-        else:
+        else:  # CONTINUE, or CONTINUE_BANDS (pooled_ni_continue only)
             action = "continue"
         history.append(
             {
@@ -962,6 +1101,74 @@ def compare_paired_bands(
         rows.append(f"look {k}: band_results are not the judged look's bands")
 
 
+POOLED_TOP = ("n", "df", "nominal_p", "t_critical", "floor")
+POOLED_BOUND = ("mean_delta", "sample_std", "standard_error", "t_critical", "lower_bound", "margin")
+POOLED_MIX = POOLED_BOUND + ("candidate_mean", "incumbent_mean", "floor")
+POOLED_VERDICTS = ("passes_pooled", "passes_mix", "passes_floor", "passes")
+
+
+def compare_pooled_bands(
+    rows: List[str],
+    k: int,
+    history: Sequence[Mapping[str, Any]],
+    receipt: Mapping[str, Any],
+    nominal_p: Sequence[float],
+) -> None:
+    """Survival band v2 rows of every look 0..k in receipt k against this module's recompute,
+    and the receipt's judged looks and band results."""
+    by_look = receipt.get("bands_by_look") or []
+    if len(by_look) != k + 1:
+        rows.append(f"look {k}: pooled bands_by_look has {len(by_look)} looks")
+        return
+    for j in range(k + 1):
+        tag = f"look {k} (band look {j})"
+        mine = history[j]["paired_bands"][0]
+        theirs_rows = by_look[j]
+        if not (isinstance(theirs_rows, list) and len(theirs_rows) == 1):
+            rows.append(f"{tag}: expected one pooled band row")
+            continue
+        theirs = theirs_rows[0]
+        if not mine["same_world"]:
+            rows.append(f"{tag}: candidate and incumbent values are not one world's pairs")
+        if (
+            theirs.get("policy") != POOLED
+            or theirs.get("look") != j
+            or theirs.get("metric") != mine["metric"]
+            or theirs.get("mixes") != mine["mixes"]
+            or theirs.get("nominal_p") != nominal_p[j]
+        ):
+            rows.append(f"{tag}: policy, look, metric, mixes or nominal_p")
+        for key in POOLED_TOP:
+            if not close(theirs.get(key), mine[key], 1e-9, 1e-12):
+                rows.append(f"{tag}: {key}")
+        for key in POOLED_BOUND:
+            if not close((theirs.get("pooled") or {}).get(key), mine["pooled"][key], 1e-9, 1e-12):
+                rows.append(f"{tag}: pooled {key}")
+        if (theirs.get("pooled") or {}).get("passes") is not mine["pooled"]["passes"]:
+            rows.append(f"{tag}: pooled verdict")
+        for mix, row in mine["per_mix"].items():
+            other = (theirs.get("per_mix") or {}).get(mix) or {}
+            for key in POOLED_MIX:
+                if not close(other.get(key), row[key], 1e-9, 1e-12):
+                    rows.append(f"{tag} {mix}: {key}")
+            for key in ("passes_ni", "passes_floor", "passes"):
+                if other.get(key) is not row[key]:
+                    rows.append(f"{tag} {mix}: {key}")
+        for key in POOLED_VERDICTS:
+            if theirs.get(key) is not mine[key]:
+                rows.append(f"{tag}: {key} {theirs.get(key)!r} != recomputed {mine[key]!r}")
+    judged = [h["look"] for h in history[: k + 1] if h["qualifies"]]
+    look = judged[-1] if judged and judged[-1] == k else None
+    if (
+        receipt.get("band_policy") != POOLED
+        or receipt.get("band_judged_looks") != judged
+        or receipt.get("band_judged_look") != look
+    ):
+        rows.append(f"look {k}: band_judged_looks / band_judged_look")
+    if receipt.get("band_results") != (by_look[look] if look is not None else None):
+        rows.append(f"look {k}: band_results are not this look's bands")
+
+
 def segment_bounds(intent: Mapping[str, Any]) -> List[List[int]]:
     """Cumulative per-worker unit counts at each look."""
     return [row["per_worker"] for row in intent["interleaving"]["worker_look_counts"]]
@@ -1052,7 +1259,12 @@ def audit_final(
         compare_receipt(rows, j, history[j], receipt)
         if intent["plan"]["band_policy"] == PAIRED:
             compare_paired_bands(paired_rows, j, history, receipt, intent["plan"]["band_nominal_p"])
-        elif any(key in receipt for key in ("band_policy", "band_judged_look", "band_results")):
+        elif intent["plan"]["band_policy"] == POOLED:
+            compare_pooled_bands(paired_rows, j, history, receipt, intent["plan"]["band_nominal_p"])
+        elif any(
+            key in receipt
+            for key in ("band_policy", "band_judged_look", "band_judged_looks", "band_results")
+        ):
             rows.append(f"look {j}: paired band fields on a block_at_stop receipt")
         if receipt.get("look") != j or receipt.get("n_per_mix") != intent["plan"]["look_sizes"][j]:
             rows.append(f"look {j}: index or size")
@@ -1079,7 +1291,7 @@ def audit_final(
         if j < stop and history[j]["action"] != "continue":
             rows.append(f"look {j}: run continued past a stop")
     audit.add("looks.replay", not rows, rows[:40])
-    if intent["plan"]["band_policy"] == PAIRED:
+    if intent["plan"]["band_policy"] in PAIRED_POLICIES:
         audit.add("looks.paired_bands", not paired_rows, paired_rows[:40])
     last = receipts[-1]
     result.update(
@@ -1346,6 +1558,8 @@ def audit_paired_check(audit: Audit, intent: Mapping[str, Any]) -> None:
                 worst = max(worst, value)
                 if value > threshold:
                     problems.append(f"{key}: joint rate {value} > {threshold:g}")
+    if "band_amendment" in intent:
+        problems.append("band_amendment on a paired_ni_at_stop intent")
     passes = not problems
     if check.get("passes") is not passes:
         problems.append(f"check.passes {check.get('passes')!r} != recomputed {passes}")
@@ -1356,6 +1570,145 @@ def audit_paired_check(audit: Audit, intent: Mapping[str, Any]) -> None:
         not problems,
         {"problems": problems[:20], "max_joint_rate": worst, "threshold": threshold},
     )
+
+
+def audit_pooled_check(audit: Audit, intent: Mapping[str, Any]) -> None:
+    """Survival band v2: the per-study ``--part study`` output re-judged in own code."""
+    plan, params = intent["plan"], intent["plan_parameters"]
+    frozen = intent.get("paired_band_check") or {}
+    doc = intent["preregistration"].get("paired_band_check") or {}
+    problems: List[str] = []
+    path = Path(str(frozen.get("path", "")))
+    if not (path.is_file() and frozen.get("path") == doc.get("path")):
+        audit.add("preregistration.pooled_band_check", False, "check output missing")
+        return
+    if sha256_file(path) != frozen.get("sha256") or frozen.get("sha256") != doc.get("sha256"):
+        problems.append("check output sha256")
+    report = load_json(path)
+    data = Path(str(frozen.get("data_path", "")))
+    pool_doc = intent["preregistration"].get("paired_band_pool") or {}
+    if not data.is_file() or sha256_file(data) != frozen.get("data_sha256"):
+        problems.append("pool data sha256")
+    elif report.get("data_sha256") != frozen.get("data_sha256"):
+        problems.append("check was run on other pool data")
+    if (pool_doc.get("path"), pool_doc.get("sha256")) != (
+        frozen.get("data_path"),
+        frozen.get("data_sha256"),
+    ):
+        problems.append("pool data is not the spec's pre-registered pool")
+    configured = Path(str((report.get("config") or {}).get("data", "")))
+    if not configured.is_absolute():
+        configured = Path(intent["repo"]) / configured
+    if str(configured.resolve()) != frozen.get("data_path"):
+        problems.append("check read another pool file than the frozen one")
+    for stock_rel in (STOCK_POOL, POOLED_STOCK_POOL):
+        stock = Path(intent["repo"]) / stock_rel
+        if str(data.resolve()) == str(stock.resolve()) or (
+            stock.is_file() and data.is_file() and sha256_file(stock) == sha256_file(data)
+        ):
+            problems.append("check used a validation/calibration stock pool, not the study's")
+    mixes = intent["spec"]["mixes"]
+    bands = intent["spec"]["bands"]
+    if sorted(b.get("mix") for b in bands) != sorted(mixes) or any(
+        set(b) != {"metric", "mix"} or b.get("metric") != "survival_fraction" for b in bands
+    ):
+        problems.append("survival band v2 bands must be one survival_fraction band per mix")
+    development = frozen.get("development_delta_ni")
+    config, check = report.get("config") or {}, report.get("check") or {}
+    used = config.get("delta_ni")
+    if not (
+        isinstance(development, float)
+        and development > 0
+        and isinstance(used, (int, float))
+        and math.isclose(used, development, rel_tol=1e-12)
+    ):
+        problems.append(f"check delta_ni {used!r} != pre-registered {development!r}")
+    rule_text = intent.get("band_rule") or {}
+    if (
+        rule_text.get("policy") != POOLED
+        or rule_text.get("all_bands_must_pass") is not True
+        or any(rule_text.get(k) != plan.get(k) for k in POOLED_PARAM_FIELDS)
+    ):
+        problems.append("intent band_rule differs from the plan")
+    if report.get("schema") != POOLED_CHECK_SCHEMA or check.get("rule") != POOLED:
+        problems.append("not a survival band v2 study check")
+    if config.get("plan_params") != params:
+        problems.append("check plan parameters differ from the intent's")
+    reps = report.get("reps")
+    if not (isinstance(reps, int) and reps >= PAIRED_CHECK_MIN_REPS):
+        problems.append(f"reps {reps!r}")
+    thetas = [float(t) for t in config.get("thetas") or []]
+    mde = float(plan["mde"])
+    for multiple in (0.5, 1.0, 1.5, 2.0):
+        if not any(abs(t - multiple * mde) <= 1e-9 * max(1.0, mde) for t in thetas):
+            problems.append(f"no theta at {multiple:g} x MDE")
+    if not any(0.6 * mde <= t <= 0.7 * mde for t in thetas):
+        problems.append("no theta near 0.67 x MDE")
+    pools = []
+    if data.is_file():
+        raw = load_json(data)
+        pools = sorted(k for k, v in raw.items() if isinstance(v, dict) and "world_seeds" in v)
+    threshold = PAIRED_CHECK_FACTOR * plan["band_alpha"]
+    joint = check.get("joint_rates") or {}
+    results = report.get("results") or {}
+    scenarios = ["pooled_at_margin"] + [f"one_mix_at_margin@{b['mix']}" for b in bands]
+    worst = 0.0
+    for pool in pools or ["<no pools>"]:
+        for theta in thetas:
+            for scenario in scenarios:
+                key = f"{pool}|theta={theta:g}|{scenario}"
+                value = joint.get(key)
+                row = (results.get(key) or {}).get("p_pass") or {}
+                if not _rate(value) or row.get("rate") != value:
+                    problems.append(f"{key}: joint rate missing or not its results row")
+                    continue
+                worst = max(worst, value)
+                if value > threshold:
+                    problems.append(f"{key}: joint rate {value} > {threshold:g}")
+    passes = not problems
+    if check.get("passes") is not passes:
+        problems.append(f"check.passes {check.get('passes')!r} != recomputed {passes}")
+    if frozen.get("passes") is not True:
+        problems.append("intent did not record a passing check")
+    audit.add(
+        "preregistration.pooled_band_check",
+        not problems,
+        {"problems": problems[:20], "max_joint_rate": worst, "threshold": threshold},
+    )
+
+
+def audit_band_amendment(audit: Audit, intent: Mapping[str, Any]) -> None:
+    """Survival band v2: the amendment's sha256, ratification and option, re-derived from the
+    document's text; a production intent must use exactly the ratified option."""
+    block = intent.get("band_amendment") or {}
+    expected_path = (Path(intent["repo"]) / SURVIVAL_BAND_V2_AMENDMENT).resolve()
+    path = Path(str(block.get("path", "")))
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    option = OPTION_RE.search(text)
+    derived = {
+        "sha256": sha256_file(path) if path.is_file() else None,
+        "ratified": bool(RATIFIED_RE.search(text)),
+        "option": option.group(1) if option else None,
+    }
+    problems = []
+    if path.resolve() != expected_path:
+        problems.append("amendment path is not the survival band v2 amendment")
+    for key, value in derived.items():
+        if block.get(key) != value:
+            problems.append(f"amendment {key} differs from the document")
+    values = POOLED_OPTIONS.get(derived["option"] or "")
+    production = []
+    if derived["sha256"] is None:
+        production.append("missing")
+    if not derived["ratified"]:
+        production.append("not ratified")
+    if values is None:
+        production.append("no ratified option")
+    elif any(intent["plan_parameters"].get(k) != v for k, v in values.items()):
+        production.append("plan differs from the ratified option")
+    if intent.get("dry_run") is not True and production:
+        problems.append(f"production intent: {production}")
+    audit.add("intent.band_amendment", not problems, {"problems": problems, "derived": derived})
 
 
 def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
@@ -1393,18 +1746,21 @@ def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) ->
         path = Path(row["path"])
         if not path.is_file() or sha256_file(path) != row["sha256"]:
             rows.append(name)
-    expected_docs = PREREGISTRATION_PAIRED if policy == PAIRED else PREREGISTRATION
+    expected_docs = PREREGISTRATION_PAIRED if policy in PAIRED_POLICIES else PREREGISTRATION
     audit.add(
         "intent.preregistration_documents",
         not rows and set(intent["preregistration"]) == set(expected_docs),
         rows,
     )
-    if policy == PAIRED:
+    if policy == POOLED:
+        audit_pooled_check(audit, intent)
+        audit_band_amendment(audit, intent)
+    elif policy == PAIRED:
         audit_paired_check(audit, intent)
     else:
         audit.add(
             "intent.no_paired_fields",
-            not any(k in intent for k in ("paired_band_check", "band_rule"))
+            not any(k in intent for k in ("paired_band_check", "band_rule", "band_amendment"))
             and "paired_band_check_path" not in intent["spec"],
         )
     supervisions = [load_json(p) for p in sorted(output.glob("*/segments/look-*/supervision.json"))]
@@ -1863,9 +2219,11 @@ def run_audit(
         status = "UNCLOSED"  # started (or abandoned) without a closeout: never PASS
     else:
         status = "PASS"
-    paired_run = isinstance(intent_seen, dict) and intent_seen["plan"].get("band_policy") == PAIRED
+    policy_seen = intent_seen["plan"].get("band_policy") if isinstance(intent_seen, dict) else None
     remote_run = isinstance(intent_seen, dict) and is_remote(intent_seen)
-    schema = AUDIT_SCHEMA_PAIRED if paired_run else AUDIT_SCHEMA
+    schema = {PAIRED: AUDIT_SCHEMA_PAIRED, POOLED: AUDIT_SCHEMA_POOLED}.get(
+        policy_seen, AUDIT_SCHEMA
+    )
     return {
         "schema_version": AUDIT_SCHEMA_REMOTE if remote_run else schema,
         "root": str(root),

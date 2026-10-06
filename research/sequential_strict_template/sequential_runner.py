@@ -15,8 +15,13 @@ Template versions: ``sequential-strict-template/v1`` (spec ``band_policy="block_
 calibration-reference bands) and ``sequential-strict-template/v2`` (``"paired_ni_at_stop"``,
 the paired survival bands of ``docs/research/governance_amendment_paired_bands_2026-10-03.md``:
 judged once at the qualifying look on candidate-minus-incumbent per-world deltas, with the
-per-study paired-band check as a hash-bound pre-registration artifact).  v1 intents, plan
-dicts, spec descriptors and look receipts keep exactly their v1 content.  Template v3
+per-study paired-band check as a hash-bound pre-registration artifact) and
+``sequential-strict-template/v2-pooled`` (``"pooled_ni_continue"``, survival band v2 of
+``docs/research/governance_amendment_survival_band_v2_2026-10-06.md``: pooled paired NI plus a
+per-mix catastrophic NI with repeated confidence bounds, judged at the qualifying look and every
+later look, a qualified run whose bands fail continues; its own per-study check and the
+amendment's ratification are hash-bound).  v1 and v2 intents, plan dicts, spec descriptors and
+look receipts keep exactly their content.  Template v3
 (``sequential-strict-template/v3``, opt-in with ``prepare --remote-config``) keeps either band
 policy and plays the episodes on RunPod serverless (``remote_backend.py``) under
 ``docs/research/governance_amendment_strict_on_runpod_2026-10-05.md``; the orchestration below
@@ -57,6 +62,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import signal
 import struct
 import subprocess
@@ -88,6 +94,7 @@ from src.evaluation.sequential_gate import (  # noqa: E402
     SequentialGatePlan,
     band_check,
     plan_paired_band_check,
+    plan_pooled_band_check,
     round_robin_plan,
     sequential_decision,
     sequential_gate_plan,
@@ -100,10 +107,16 @@ TEMPLATE_VERSION = "sequential-strict-template/v1"
 # "block_at_stop" (v1 intents, plan dicts and spec descriptors are unchanged), v2 iff it is
 # "paired_ni_at_stop".
 TEMPLATE_VERSION_PAIRED = "sequential-strict-template/v2"
+# Survival band v2 (governance amendment 2026-10-06): band_policy "pooled_ni_continue".
+TEMPLATE_VERSION_POOLED = "sequential-strict-template/v2-pooled"
+POOLED_POLICY = "pooled_ni_continue"
 TEMPLATE_VERSIONS = {
     "block_at_stop": TEMPLATE_VERSION,
     "paired_ni_at_stop": TEMPLATE_VERSION_PAIRED,
+    POOLED_POLICY: TEMPLATE_VERSION_POOLED,
 }
+# Policies whose bands compare both arms on the same final worlds (no calibration reference).
+PAIRED_POLICIES = ("paired_ni_at_stop", POOLED_POLICY)
 # Template v3 (opt-in, ``prepare --remote-config``): either band policy, with the gate's episodes
 # played on RunPod serverless under docs/research/governance_amendment_strict_on_runpod_
 # 2026-10-05.md (remote_backend.py). The spec descriptor keeps its v1/v2 version; the intent
@@ -135,6 +148,9 @@ CLOSURE_SUFFIXES = (".py", ".yaml", ".yml", ".json", ".md")
 ARMS = ("incumbent", "candidate")
 PHASES = ("calibration", "final")
 TERMINAL_DECISIONS = ("STOP_PASS", "STOP_FAIL_BANDS", "FINAL_PASS", "FINAL_FAIL")
+# Non-terminal decisions: CONTINUE (not qualified) and CONTINUE_BANDS (pooled_ni_continue: the
+# run qualified but its survival bands have not passed yet).
+CONTINUE_DECISIONS = ("CONTINUE", "CONTINUE_BANDS")
 PASSING_DECISIONS = ("STOP_PASS", "FINAL_PASS")
 OUTCOMES = (
     "STRICT_PASS",
@@ -185,7 +201,36 @@ CALIBRATION_BAND_RULES = {
     "block_at_stop": "reference = calibration incumbent mean of the band metric in the band mix",
     "paired_ni_at_stop": "none: paired bands have no reference; calibration band-metric "
     "means are descriptive only",
+    POOLED_POLICY: "none: survival band v2 has no reference; calibration band-metric means "
+    "are descriptive only",
 }
+# Survival band v2 (pooled_ni_continue).  The amendment lists two ratifiable options; a
+# production intent must use exactly the option its ratification section records.
+SURVIVAL_BAND_V2_AMENDMENT = "docs/research/governance_amendment_survival_band_v2_2026-10-06.md"
+POOLED_BAND_KEYS = PAIRED_BAND_KEYS + ("band_mix_margin",)
+POOLED_BAND_OPTIONS = {
+    "1": {
+        "band_ni_margin": 0.05,
+        "band_alpha": 0.05,
+        "band_bound": "rci_obf",
+        "band_floor": 0.30,
+        "band_mix_margin": 0.10,
+    },
+    "2": {
+        "band_ni_margin": 0.05,
+        "band_alpha": 0.05,
+        "band_bound": "rci_obf",
+        "band_floor": 0.30,
+        "band_mix_margin": 0.075,
+    },
+}
+AMENDMENT_RATIFIED_RE = re.compile(r"^\s*-\s*Decision:\s*ratified\b", re.IGNORECASE | re.MULTILINE)
+AMENDMENT_OPTION_RE = re.compile(r"^\s*-\s*Option:\s*([12])\s*$", re.MULTILINE)
+POOLED_BAND_SIMULATOR = REPO / "research" / "survival_band_v2_20261006" / "simulate.py"
+# The amendment's own calibration pools: evidence for the rule, never a study's check.
+POOLED_BAND_STOCK_POOL = (
+    REPO / "research" / "survival_band_v2_20261006" / "survival_pools_20261006.json"
+)
 
 DEFAULT_CAPS = {"calibration": 1800, "skew_check": 900, "final": 45000, "audit": 900}
 HANDOFF_SECONDS = 120
@@ -395,7 +440,13 @@ class StudySpec:
 
     @property
     def paired(self) -> bool:
-        return self.band_policy == "paired_ni_at_stop"
+        """Both arms' band values on the same worlds (``paired_ni_at_stop`` or
+        ``pooled_ni_continue``)."""
+        return self.band_policy in PAIRED_POLICIES
+
+    @property
+    def pooled(self) -> bool:
+        return self.band_policy == POOLED_POLICY
 
     def preregistration_docs(self) -> Tuple[str, ...]:
         if self.paired:
@@ -405,7 +456,7 @@ class StudySpec:
     def descriptor(self) -> Dict[str, Any]:
         out = self._descriptor_v1()
         if self.paired:  # v1 descriptors stay byte-identical
-            out["template_version"] = TEMPLATE_VERSION_PAIRED
+            out["template_version"] = TEMPLATE_VERSIONS[self.band_policy]
             out["band_policy"] = self.band_policy
             out["paired_band_check_path"] = self.paired_band_check_path
             out["paired_band_pool_path"] = self.paired_band_pool_path
@@ -470,7 +521,7 @@ def validate_paired_bands(spec: StudySpec) -> None:
     The per-study check (``simulate.py``) validates survival bands over the mixes frozen,
     scripted and mixed only, so v2 requires exactly that metric and mix set.
     """
-    require(len(spec.bands) >= 1, "paired_ni_at_stop needs at least one band")
+    require(len(spec.bands) >= 1, f"{spec.band_policy} needs at least one band")
     seen = set()
     for band in spec.bands:
         require(
@@ -481,7 +532,7 @@ def validate_paired_bands(spec: StudySpec) -> None:
         )
         require(band["mix"] not in seen, f"two paired bands for mix {band['mix']}")
         seen.add(band["mix"])
-    require(seen == set(spec.mixes), f"paired_ni_at_stop needs one band per mix {spec.mixes}")
+    require(seen == set(spec.mixes), f"{spec.band_policy} needs one band per mix {spec.mixes}")
     require(
         tuple(spec.mixes) == ("frozen", "scripted", "mixed"),
         "the paired-band check (simulate.py) only simulates the mixes frozen, scripted, mixed",
@@ -627,7 +678,8 @@ def plan_parameters(
     paired_band: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Keyword arguments of ``sequential_gate_plan``.  The paired band fields are present
-    only under ``band_policy="paired_ni_at_stop"`` (legacy dicts are byte-identical)."""
+    only under ``band_policy="paired_ni_at_stop"`` / ``"pooled_ni_continue"`` (the latter also
+    ``band_mix_margin``; legacy dicts are byte-identical)."""
     out = {
         "n_max": int(n_max),
         "mde": float(mde),
@@ -644,6 +696,8 @@ def plan_parameters(
     }
     if band_policy == "paired_ni_at_stop":
         out.update(normalize_paired_band(paired_band))
+    elif band_policy == POOLED_POLICY:
+        out.update(normalize_pooled_band(paired_band))
     else:
         require(paired_band is None, f"paired band settings under band_policy {band_policy}")
     return out
@@ -673,6 +727,48 @@ def normalize_paired_band(paired_band: Optional[Mapping[str, Any]]) -> Dict[str,
         "band_bound": str(paired_band["band_bound"]),
         "band_floor": None if floor is None else float(floor),
     }
+
+
+def normalize_pooled_band(paired_band: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """The five pre-registered survival band v2 settings, stated explicitly (no defaults)."""
+    require(
+        isinstance(paired_band, Mapping) and set(paired_band) == set(POOLED_BAND_KEYS),
+        f"pooled_ni_continue needs explicit {list(POOLED_BAND_KEYS)} "
+        f"(amendment 2026-10-06 option 1: {POOLED_BAND_OPTIONS['1']})",
+    )
+    out = normalize_paired_band({k: paired_band[k] for k in PAIRED_BAND_KEYS})
+    require(_real(paired_band["band_mix_margin"]), "band_mix_margin must be a real number")
+    out["band_mix_margin"] = float(paired_band["band_mix_margin"])
+    return out
+
+
+def amendment_status(path: Path) -> Dict[str, Any]:
+    """Survival band v2 amendment: sha256, ratified flag and the ratified option, derived
+    from the document's own text (a hand-edited intent cannot claim ratification)."""
+    path = Path(path)
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    option = AMENDMENT_OPTION_RE.search(text)
+    return {
+        "path": str(path),
+        "sha256": sha256_file(path) if path.is_file() else None,
+        "ratified": bool(AMENDMENT_RATIFIED_RE.search(text)),
+        "option": option.group(1) if option else None,
+    }
+
+
+def ratified_band_problems(status: Mapping[str, Any], params: Mapping[str, Any]) -> List[str]:
+    """Why a production intent may not use these survival band v2 settings (empty = ok)."""
+    problems = []
+    if status.get("sha256") is None:
+        problems.append("the survival band v2 amendment is missing")
+    if status.get("ratified") is not True:
+        problems.append("the survival band v2 amendment is not ratified")
+    option = POOLED_BAND_OPTIONS.get(status.get("option") or "")
+    if option is None:
+        problems.append("the amendment's ratification records no option (1 or 2)")
+    elif any(params.get(k) != v for k, v in option.items()):
+        problems.append(f"plan band settings differ from ratified option {status['option']}")
+    return problems
 
 
 def plan_from_parameters(parameters: Mapping[str, Any]) -> SequentialGatePlan:
@@ -865,6 +961,96 @@ def judge_paired_check(
     }
 
 
+def judge_pooled_check(
+    report: Mapping[str, Any],
+    params: Mapping[str, Any],
+    bands: Sequence[Mapping[str, Any]],
+    development_delta_ni: Any,
+) -> Dict[str, Any]:
+    """Re-judge a survival band v2 ``simulate.py --part study`` output (fail closed).
+
+    Same coverage rules as :func:`judge_paired_check` (frozen plan parameters, development
+    delta_NI, >= :data:`PAIRED_CHECK_MIN_REPS` replicates, mass effects 0.5, ~0.67, 1, 1.5 and
+    2 x MDE); the joint rates P(PASS and a regression exactly at a margin) must cover every pool
+    x theta x {pooled regression, each band mix's one-mix regression} and all be <= 1.2 x
+    band_alpha.
+    """
+    problems: List[str] = []
+    config = report.get("config") if isinstance(report, Mapping) else None
+    check = report.get("check") if isinstance(report, Mapping) else None
+    results = report.get("results") if isinstance(report, Mapping) else None
+    if not (isinstance(config, Mapping) and isinstance(check, Mapping)):
+        return {"passes": False, "problems": ["not a survival band v2 --part study output"]}
+    if not isinstance(results, Mapping):
+        results = {}
+    alpha = params["band_alpha"]
+    threshold = PAIRED_CHECK_FACTOR * alpha
+    if report.get("schema") != "survival-band-v2-study-check/v1":
+        problems.append(f"check schema {report.get('schema')!r}")
+    if config.get("plan_params") != dict(params):
+        problems.append("check was not run with this intent's frozen plan parameters")
+    if check.get("rule") != POOLED_POLICY:
+        problems.append(f"check judged rule {check.get('rule')!r}, not {POOLED_POLICY!r}")
+    reps = report.get("reps")
+    if not (isinstance(reps, int) and reps >= PAIRED_CHECK_MIN_REPS):
+        problems.append(f"check reps {reps!r} < {PAIRED_CHECK_MIN_REPS}")
+    thetas = [float(t) for t in config.get("thetas") or []]
+    mde = float(params["mde"])
+    for multiple in PAIRED_CHECK_THETA_MULTIPLES:
+        if not any(math.isclose(t, multiple * mde, rel_tol=1e-9) for t in thetas):
+            problems.append(f"check lacks theta {multiple:g} x MDE")
+    low, high = PAIRED_CHECK_TWO_THIRDS
+    if not any(low * mde <= t <= high * mde for t in thetas):
+        problems.append("check lacks a theta near 0.67 x MDE")
+    used = config.get("delta_ni")
+    if not (
+        _real(development_delta_ni)
+        and development_delta_ni > 0
+        and _real(used)
+        and math.isclose(used, development_delta_ni, rel_tol=1e-12)
+    ):
+        problems.append(
+            f"check delta_ni {used!r} is not the pre-registered development delta_NI "
+            f"{development_delta_ni!r}"
+        )
+    pools = sorted({key.split("|", 1)[0] for key in results})
+    joint = check.get("joint_rates") if isinstance(check.get("joint_rates"), Mapping) else {}
+    scenarios = ["pooled_at_margin"] + [f"one_mix_at_margin@{b['mix']}" for b in bands]
+    expected = {
+        f"{pool}|theta={theta:g}|{s}" for pool in pools for theta in thetas for s in scenarios
+    }
+    if not pools:
+        problems.append("check has no pools")
+    missing = sorted(expected - set(joint))
+    if missing:
+        problems.append(f"check lacks joint rates {missing[:5]}")
+    rates = {k: joint[k] for k in sorted(joint) if k in expected}
+    bad = sorted(k for k, v in rates.items() if not (_real(v) and 0.0 <= v <= threshold))
+    if bad:
+        problems.append(f"joint rate above {threshold:g} (or not a rate): {bad[:5]}")
+    for key in rates:
+        row = results.get(key) if isinstance(results.get(key), Mapping) else {}
+        if (row.get("p_pass") or {}).get("rate") != rates[key]:
+            problems.append(f"joint rate {key} differs from its results row")
+    worst = max((v for v in rates.values() if _real(v)), default=None)
+    passes = not problems
+    if check.get("passes") is not passes:
+        problems.append(f"check.passes {check.get('passes')!r} != runner verdict {passes}")
+        passes = False
+    return {
+        "rule": POOLED_POLICY,
+        "threshold": threshold,
+        "reps": reps,
+        "thetas": thetas,
+        "pools": pools,
+        "rows_judged": len(rates),
+        "max_joint_rate": worst,
+        "delta_ni_used": config.get("delta_ni"),
+        "problems": problems,
+        "passes": passes,
+    }
+
+
 def check_pool_path(report: Mapping[str, Any], repo: Path) -> Path:
     """The pool the check read (``config.data``; a relative path is taken from the repo)."""
     data = Path(str((report.get("config") or {}).get("data", "")))
@@ -886,19 +1072,19 @@ def paired_check_record(
     )
     require(data_path.is_file(), f"paired band check pool data {data_path} does not exist")
     data_sha = sha256_file(data_path)
-    require(
-        data_path != PAIRED_BAND_STOCK_POOL.resolve()
-        and (
-            not PAIRED_BAND_STOCK_POOL.is_file() or data_sha != sha256_file(PAIRED_BAND_STOCK_POOL)
-        ),
-        "the paired band check must use the study's own screen pool, not the validation "
-        "package's stock v7/v8 pools",
-    )
+    for stock in (PAIRED_BAND_STOCK_POOL, POOLED_BAND_STOCK_POOL):
+        require(
+            data_path != stock.resolve()
+            and (not stock.is_file() or data_sha != sha256_file(stock)),
+            "the paired band check must use the study's own screen pool, not the validation "
+            "package's stock v7/v8 pools or the survival band v2 stock calibration pools",
+        )
     require(
         report.get("data_sha256") == data_sha,
         "paired band check pool data changed since the check was run",
     )
-    judged = judge_paired_check(report, params, spec.bands, development_delta_ni)
+    judge = judge_pooled_check if spec.pooled else judge_paired_check
+    judged = judge(report, params, spec.bands, development_delta_ni)
     require(judged["passes"], f"paired band check fails: {judged['problems']}")
     data = read_json(data_path)
     pools = sorted(k for k, v in data.items() if isinstance(v, dict) and "world_seeds" in v)
@@ -909,9 +1095,13 @@ def paired_check_record(
         "data_path": str(data_path),
         "data_sha256": data_sha,
         "development_delta_ni": float(development_delta_ni),
-        "simulator_path": str(PAIRED_BAND_SIMULATOR),
+        "simulator_path": str(POOLED_BAND_SIMULATOR if spec.pooled else PAIRED_BAND_SIMULATOR),
         "acceptance": f"every joint rate <= {PAIRED_CHECK_FACTOR} x band_alpha",
-        "remedy_on_fail": "band_bound rci_obf, or do not adopt paired_ni_at_stop",
+        "remedy_on_fail": (
+            "do not adopt pooled_ni_continue (no retuning on the study's own data)"
+            if spec.pooled
+            else "band_bound rci_obf, or do not adopt paired_ni_at_stop"
+        ),
         **judged,
     }
 
@@ -991,7 +1181,8 @@ def build_intent(
     validate_spec(spec)
     require(
         spec.paired or development_delta_ni is None,
-        "development_delta_ni is only used under band_policy paired_ni_at_stop",
+        "development_delta_ni is only used under band_policy paired_ni_at_stop / "
+        "pooled_ni_continue",
     )
     require(bool(authorization_quote.strip()), "authorization quote required")
     require(deadline.tzinfo is not None, "deadline needs a UTC offset")
@@ -1139,7 +1330,15 @@ def build_intent(
     }
     if spec.paired:  # template v2 only: v1 intents keep exactly their v1 keys
         intent["paired_band_check"] = paired_check_record(spec, params, repo, development_delta_ni)
-        intent["band_rule"] = paired_band_rule(params)
+        intent["band_rule"] = band_rule_text(params)
+    if spec.pooled:  # survival band v2 only: the amendment and its ratification, by sha256
+        amendment = amendment_status(Path(repo) / SURVIVAL_BAND_V2_AMENDMENT)
+        problems = ratified_band_problems(amendment, params)
+        require(
+            dry_run or not problems,
+            f"survival band v2: {problems} (production intents need the ratified option)",
+        )
+        intent["band_amendment"] = {**amendment, "production_problems": problems}
     if remote_config is not None:  # template v3 only: v1/v2 intents keep exactly their keys
         from research.sequential_strict_template import remote_backend as RB
 
@@ -1150,6 +1349,35 @@ def build_intent(
     else:
         require(remote_seeding is None, "remote_seeding without remote_config")
     return intent
+
+
+def band_rule_text(params: Mapping[str, Any]) -> Dict[str, Any]:
+    """The frozen band rule statement of either paired policy."""
+    if params["band_policy"] == POOLED_POLICY:
+        return pooled_band_rule(params)
+    return paired_band_rule(params)
+
+
+def pooled_band_rule(params: Mapping[str, Any]) -> Dict[str, Any]:
+    """Human-readable statement of the frozen survival band v2 rule (also in the plan dict)."""
+    return {
+        "policy": POOLED_POLICY,
+        "judged": "at the qualifying look and every later look, on the look-k prefix of both "
+        "arms; a qualified run whose bands fail continues (CONTINUE_BANDS); STOP_PASS at the "
+        "first look where they pass, FINAL_PASS / FINAL_FAIL at the last",
+        "per_world": "d_{i,m} = candidate_{i,m} - incumbent_{i,m} (same final world); pooled "
+        "p_i = mean over the mixes of d_{i,m}",
+        "pass_iff": "mean(p) - t_{n-1}(band_nominal_p[k]) * sd(p) / sqrt(n) > -band_ni_margin "
+        "and, every mix m, mean(d_m) - t_{n-1}(band_nominal_p[k]) * sd(d_m) / sqrt(n) > "
+        "-band_mix_margin and (if band_floor) mean(candidate_m) >= band_floor",
+        "all_bands_must_pass": True,
+        "band_ni_margin": params["band_ni_margin"],
+        "band_mix_margin": params["band_mix_margin"],
+        "band_alpha": params["band_alpha"],
+        "band_bound": params["band_bound"],
+        "band_floor": params["band_floor"],
+        "source": SURVIVAL_BAND_V2_AMENDMENT,
+    }
 
 
 def paired_band_rule(params: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1272,9 +1500,26 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
         and intent["calibration_rule"]["bands"] == CALIBRATION_BAND_RULES[spec.band_policy],
         "band policy differs between the spec and the frozen plan",
     )
+    if spec.pooled:
+        block = intent.get("band_amendment")
+        require(isinstance(block, Mapping), "a pooled_ni_continue intent needs band_amendment")
+        derived = amendment_status(Path(block["path"]))
+        require(
+            Path(block["path"]).resolve()
+            == (Path(intent["repo"]) / SURVIVAL_BAND_V2_AMENDMENT).resolve()
+            and derived["sha256"] == block["sha256"]
+            and derived["ratified"] is block["ratified"]
+            and derived["option"] == block["option"],
+            "the survival band v2 amendment differs from the frozen intent's",
+        )
+        problems = ratified_band_problems(derived, intent["plan_parameters"])
+        require(problems == block["production_problems"], "band amendment problems drift")
+        require(intent["dry_run"] or not problems, f"survival band v2: {problems}")
+    else:
+        require("band_amendment" not in intent, "band_amendment on a non-pooled intent")
     if spec.paired:
         frozen = intent["paired_band_check"]
-        require(intent["band_rule"] == paired_band_rule(intent["plan_parameters"]), "band rule")
+        require(intent["band_rule"] == band_rule_text(intent["plan_parameters"]), "band rule")
         docs = intent["preregistration"]
         require(
             frozen["path"] == docs["paired_band_check"]["path"]
@@ -1283,7 +1528,8 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
             and frozen["data_sha256"] == docs["paired_band_pool"]["sha256"],
             "paired band check binding differs from the pre-registration documents",
         )
-        again = judge_paired_check(
+        judge = judge_pooled_check if spec.pooled else judge_paired_check
+        again = judge(
             read_json(Path(frozen["path"])),
             intent["plan_parameters"],
             spec.bands,
@@ -2269,14 +2515,15 @@ def calibration_reference(
     scripted_mean = per_mix[spec["scripted_mix"]][f"mean_{spec['primary_metric']}"]
     delta_ni = spec["ni_fraction"] * scripted_mean
     bands = []
-    paired = intent["plan"]["band_policy"] == "paired_ni_at_stop"
+    policy = intent["plan"]["band_policy"]
+    paired = policy in PAIRED_POLICIES
     for band in spec["bands"]:
         if paired:  # no calibration reference: the means are descriptive only
             bands.append(
                 {
                     **band,
                     "incumbent_calibration_mean": per_mix[band["mix"]][f"mean_{band['metric']}"],
-                    "role": "descriptive only (paired_ni_at_stop has no reference bound)",
+                    "role": f"descriptive only ({policy} has no reference bound)",
                 }
             )
             continue
@@ -2302,12 +2549,13 @@ def look_inputs(
 ) -> Dict[str, Any]:
     """Per-mix paired deltas (world order) and candidate band values for the look prefix.
 
-    Under ``paired_ni_at_stop`` the incumbent's band values of the same worlds are returned
-    too (``incumbent_band_values``), after checking that each pair is one world's record pair.
+    Under ``paired_ni_at_stop`` / ``pooled_ni_continue`` the incumbent's band values of the
+    same worlds are returned too (``incumbent_band_values``), after checking that each pair is
+    one world's record pair.
     """
     spec = intent["spec"]
     size = intent["plan"]["look_sizes"][look]
-    paired = intent["plan"]["band_policy"] == "paired_ni_at_stop"
+    paired = intent["plan"]["band_policy"] in PAIRED_POLICIES
     deltas: Dict[str, List[float]] = {}
     band_values: Dict[str, Dict[str, List[float]]] = {}
     incumbent_values: Dict[str, Dict[str, List[float]]] = {}
@@ -2357,6 +2605,9 @@ def look_analysis(
         checks = []
         if plan.band_policy == "paired_ni_at_stop":
             bands_by_look.append(paired_band_checks(plan, j, intent["spec"]["bands"], inputs))
+            continue
+        if plan.band_policy == POOLED_POLICY:
+            bands_by_look.append(pooled_band_checks(plan, j, intent["spec"]["bands"], inputs))
             continue
         for band in calibration["bands"]:
             values = inputs["band_values"][band["mix"]][band["metric"]][:size]
@@ -2412,12 +2663,40 @@ def paired_band_checks(
     return checks
 
 
+def pooled_band_checks(
+    plan: SequentialGatePlan,
+    look: int,
+    bands: Sequence[Mapping[str, Any]],
+    inputs: Mapping[str, Any],
+) -> List[Dict[str, Any]]:
+    """Survival band v2 at ``look``: one row (pooled + every mix) on the look's prefix of
+    both arms (same world order)."""
+    size = plan.look_sizes[look]
+    metric = PAIRED_BAND_METRIC
+    require(all(b["metric"] == metric for b in bands), "survival band v2 bands are survival")
+    candidate = {m: inputs["band_values"][m][metric][:size] for m in plan.mixes}
+    incumbent = {m: inputs["incumbent_band_values"][m][metric][:size] for m in plan.mixes}
+    check = plan_pooled_band_check(plan, look, candidate, incumbent)
+    return [
+        {
+            "metric": metric,
+            "mixes": list(plan.mixes),
+            "pairs_digest": canonical_sha({"candidate": candidate, "incumbent": incumbent}),
+            **check,
+        }
+    ]
+
+
 def look_action(intent: Mapping[str, Any], decision: str) -> str:
     if decision in TERMINAL_DECISIONS:
         return "stop"
     if decision == "STOP_FUTILE":
         return "continue" if intent["futility_action"] == "continue" else "stop"
-    require(decision == "CONTINUE", f"unknown decision {decision}")
+    require(decision in CONTINUE_DECISIONS, f"unknown decision {decision}")
+    require(
+        decision == "CONTINUE" or intent["plan"]["band_policy"] == POOLED_POLICY,
+        f"decision {decision} under band_policy {intent['plan']['band_policy']}",
+    )
     return "continue"
 
 
@@ -2471,8 +2750,20 @@ def paired_receipt_fields(
     """Template v2 receipt fields (none under block_at_stop, so v1 receipts are unchanged).
 
     ``band_judged_look`` is the qualifying look whose band verdict decides the run (``None``
-    if the run has not qualified): its per-mix results are copied to ``band_results``.
+    if the run has not qualified): its per-mix results are copied to ``band_results``.  Under
+    ``pooled_ni_continue`` the bands are judged at every qualified look:
+    ``band_judged_looks`` lists them and ``band_judged_look`` / ``band_results`` are this
+    look's (``None`` before qualification).
     """
+    if intent["plan"]["band_policy"] == POOLED_POLICY:
+        judged = [h["look"] for h in decision["history"] if h["bands_judged"]]
+        look = judged[-1] if judged and judged[-1] == decision["look"] else None
+        return {
+            "band_policy": POOLED_POLICY,
+            "band_judged_looks": judged,
+            "band_judged_look": look,
+            "band_results": analysis["bands_by_look"][look] if look is not None else None,
+        }
     if intent["plan"]["band_policy"] != "paired_ni_at_stop":
         return {}
     judged = [h["look"] for h in decision["history"] if h["bands_judged"]]
@@ -2999,22 +3290,30 @@ def admit_rosters(ctx: RunContext) -> None:
 
 PAIRED_BAND_HELP = (
     "template v2 only: band_ni_margin,band_alpha,band_bound,band_floor "
-    "(floor 'none' for no floor), e.g. 0.05,0.05,pointwise,0.30 (ratified 2026-10-03)"
+    "(floor 'none' for no floor), e.g. 0.05,0.05,pointwise,0.30 (ratified 2026-10-03); "
+    "pooled_ni_continue (survival band v2) adds band_mix_margin: M,alpha,rci_obf,floor,mix_margin, "
+    "e.g. 0.05,0.05,rci_obf,0.30,0.10 (amendment 2026-10-06 option 1)"
 )
 
 
 def parse_paired_band(text: Optional[str]) -> Optional[Dict[str, Any]]:
-    """``M,alpha,bound,floor`` -> the four paired band settings (``None`` if not given)."""
+    """``M,alpha,bound,floor[,mix_margin]`` -> the paired band settings (``None`` if not
+    given); the fifth value is survival band v2's per-mix catastrophic margin."""
     if text is None:
         return None
     parts = [part.strip() for part in text.split(",")]
-    require(len(parts) == 4, f"--paired-band needs M,alpha,bound,floor; got {text!r}")
-    return {
+    require(
+        len(parts) in (4, 5), f"--paired-band needs M,alpha,bound,floor[,mix_margin]; got {text!r}"
+    )
+    out = {
         "band_ni_margin": float(parts[0]),
         "band_alpha": float(parts[1]),
         "band_bound": parts[2],
         "band_floor": None if parts[3].lower() == "none" else float(parts[3]),
     }
+    if len(parts) == 5:
+        out["band_mix_margin"] = float(parts[4])
+    return out
 
 
 def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:

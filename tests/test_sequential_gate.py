@@ -15,6 +15,8 @@ from src.evaluation.sequential_gate import (
     look_sizes_for,
     paired_band_check,
     plan_paired_band_check,
+    plan_pooled_band_check,
+    pooled_band_check,
     round_robin_plan,
     run_sequential_gate,
     sequential_decision,
@@ -609,3 +611,286 @@ def test_paired_band_pointwise_level_at_the_margin_by_simulation():
     assert abs(rate - 0.05) < 0.006
     one = paired_band_check((d[0] + 0.5).tolist(), [0.5] * n, margin=margin, nominal_p=0.05)
     assert one["lower_bound"] == pytest.approx(lower[0], abs=1e-12)
+
+
+# ------------------------------------- survival band v2: pooled_ni_continue (2026-10-06, opt-in)
+
+
+@pytest.mark.parametrize(
+    "kwargs, digest",
+    [
+        (
+            dict(n_max=249, mde=30.0, band_bound="pointwise", band_floor=None),
+            "9541c160417c93c9c922cc102ab07e1066d533b40c38de387384811c5de26a95",
+        ),
+        (
+            dict(n_max=275, mde=65.0, band_bound="rci_obf", band_floor=0.3),
+            "7a9505d144bc085e32a17e8c45b05c319f566a084d7e4212ad34aaf1637c8acd",
+        ),
+    ],
+)
+def test_paired_ni_at_stop_plan_hash_is_unchanged_by_band_v2(kwargs, digest):
+    # Golden sha256 values computed on frp3-strict (4eb75af) before survival band v2; the
+    # second is the FRP-v3 strict gate's frozen plan (research/frp3_strict_20261005).
+    kw = dict(kwargs)
+    n_max = kw.pop("n_max")
+    frozen = sequential_gate_plan(
+        n_max, band_policy="paired_ni_at_stop", band_ni_margin=0.05, band_alpha=0.05, **kw
+    ).as_dict()
+    assert "band_mix_margin" not in frozen
+    assert _sha(frozen) == digest
+
+
+def _pooled_plan(**overrides):
+    kwargs = dict(
+        band_policy="pooled_ni_continue", band_ni_margin=0.05, band_alpha=0.05,
+        band_bound="rci_obf", band_floor=0.30, band_mix_margin=0.10,
+    )  # fmt: skip
+    kwargs.update(overrides)
+    return sequential_gate_plan(275, mde=65.0, **kwargs)
+
+
+def test_pooled_plan_fields_are_hashed_and_rci_levels():
+    from src.evaluation.screen_stats import futility_plan
+
+    plan = _pooled_plan()
+    frozen = plan.as_dict()
+    assert set(frozen) == LEGACY_PLAN_KEYS | {
+        "band_ni_margin", "band_alpha", "band_bound", "band_nominal_p", "band_floor",
+        "band_mix_margin",
+    }  # fmt: skip
+    assert frozen["band_policy"] == "pooled_ni_continue" and frozen["band_mix_margin"] == 0.10
+    spent = futility_plan(plan.look_sizes, alpha=0.05, max_size=plan.n_max)
+    assert plan.band_nominal_p == pytest.approx([N.cdf(-c) for c in spent.boundaries])
+    assert plan.band_nominal_p == pytest.approx(
+        (9.1224e-05, 5.6293e-3, 2.2124e-2, 4.2624e-2), rel=1e-3
+    )
+    digests = {
+        _sha(p.as_dict())
+        for p in (
+            plan,
+            _pooled_plan(band_mix_margin=0.075),
+            _pooled_plan(band_ni_margin=0.04),
+            _pooled_plan(band_floor=None),
+            _pooled_plan(band_alpha=0.10),
+            sequential_gate_plan(
+                275, mde=65.0, band_policy="paired_ni_at_stop", band_ni_margin=0.05,
+                band_alpha=0.05, band_bound="rci_obf", band_floor=0.3,
+            ),
+        )
+    }  # fmt: skip
+    assert len(digests) == 6
+    legacy = sequential_gate_plan(275, mde=65.0).as_dict()
+    for key in LEGACY_PLAN_KEYS - {"band_policy"}:
+        assert frozen[key] == legacy[key]
+
+
+def test_pooled_plan_rejects_bad_inputs():
+    import dataclasses
+
+    with pytest.raises(ValueError):  # pointwise is refused (bands judged at several looks)
+        _pooled_plan(band_bound="pointwise")
+    for bad in (dict(band_mix_margin=None), dict(band_mix_margin=0.0),
+                dict(band_mix_margin=math.inf), dict(band_mix_margin=True),
+                dict(band_ni_margin=None), dict(band_alpha=None)):  # fmt: skip
+        with pytest.raises((TypeError, ValueError)):
+            _pooled_plan(**bad)
+    with pytest.raises(ValueError):  # mix margin under the other policies
+        sequential_gate_plan(275, mde=65.0, band_mix_margin=0.1)
+    with pytest.raises(ValueError):
+        _paired_plan(band_mix_margin=0.1)
+    with pytest.raises(ValueError):
+        dataclasses.replace(_paired_plan(), band_mix_margin=0.1)
+    with pytest.raises(ValueError):
+        dataclasses.replace(_pooled_plan(), band_mix_margin=None)
+    with pytest.raises(ValueError):
+        dataclasses.replace(_pooled_plan(), band_bound="pointwise")
+
+
+def _oracle_pooled(cand, inc, pooled_margin, mix_margin, p, floor):
+    from src.scripts.eval_stats import student_t_isf
+
+    d = np.asarray([np.asarray(cand[m]) - np.asarray(inc[m]) for m in MIXES])
+    n = d.shape[1]
+    t = student_t_isf(p, n - 1)
+    pooled = d.mean(axis=0)
+    plower = pooled.mean() - t * pooled.std(ddof=1) / math.sqrt(n)
+    lowers = d.mean(axis=1) - t * d.std(axis=1, ddof=1) / math.sqrt(n)
+    floor_ok = True if floor is None else all(np.mean(cand[m]) >= floor for m in MIXES)
+    return (
+        plower,
+        lowers,
+        bool(plower > -pooled_margin and np.all(lowers > -mix_margin) and floor_ok),
+    )
+
+
+def test_pooled_band_check_matches_a_numpy_oracle():
+    rng = np.random.default_rng(21)
+    for trial in range(40):
+        n = int(rng.integers(5, 280))
+        inc = {m: rng.uniform(0, 1, n).tolist() for m in MIXES}
+        shift = rng.normal(-0.03, 0.04, 3)
+        cand = {
+            m: np.clip(np.asarray(inc[m]) + rng.normal(shift[j], 0.35, n), 0, 1).tolist()
+            for j, m in enumerate(MIXES)
+        }
+        pm, mm = float(rng.choice([0.03, 0.05])), float(rng.choice([0.075, 0.10]))
+        p = float(rng.choice([0.005, 0.0426, 0.1]))
+        floor = [None, 0.3, 0.6][trial % 3]
+        out = pooled_band_check(
+            cand, inc, pooled_margin=pm, mix_margin=mm, nominal_p=p, floor=floor
+        )
+        plower, lowers, passes = _oracle_pooled(cand, inc, pm, mm, p, floor)
+        assert out["pooled"]["lower_bound"] == pytest.approx(plower, abs=1e-12)
+        for j, m in enumerate(MIXES):
+            assert out["per_mix"][m]["lower_bound"] == pytest.approx(lowers[j], abs=1e-12)
+        assert out["passes"] is passes
+        assert out["n"] == n and out["df"] == n - 1 and out["mixes"] == list(MIXES)
+
+
+def test_pooled_band_check_components_strict_and_floor():
+    inc = {m: [0.5] * 6 for m in MIXES}
+    # zero spread: bounds are the means; strict >
+    at_margin = {m: [0.25] * 6 for m in MIXES}  # exactly representable: 0.25 - 0.5 = -0.25
+    out = pooled_band_check(at_margin, inc, pooled_margin=0.25, mix_margin=0.5, nominal_p=0.05)
+    assert out["pooled"]["lower_bound"] == -0.25 and not out["passes_pooled"]
+    assert out["passes_mix"] and not out["passes"]
+    # one mix down 0.15: pooled -0.05 fails, that mix's catastrophic floor fails too
+    one = {"frozen": [0.5] * 6, "scripted": [0.35] * 6, "mixed": [0.5] * 6}
+    out = pooled_band_check(one, inc, pooled_margin=0.06, mix_margin=0.10, nominal_p=0.05)
+    assert out["passes_pooled"] and not out["per_mix"]["scripted"]["passes_ni"]
+    assert not out["passes_mix"] and not out["passes"]
+    # one mix down 0.08: tolerated (pooled -0.027, per mix above -0.10)
+    ok = {"frozen": [0.5] * 6, "scripted": [0.42] * 6, "mixed": [0.5] * 6}
+    assert pooled_band_check(ok, inc, pooled_margin=0.05, mix_margin=0.10, nominal_p=0.05)["passes"]
+    floored = pooled_band_check(
+        ok, inc, pooled_margin=0.05, mix_margin=0.10, nominal_p=0.05, floor=0.45
+    )
+    assert floored["passes_pooled"] and floored["passes_mix"] and not floored["passes_floor"]
+    assert not floored["passes"] and not floored["per_mix"]["scripted"]["passes"]
+
+
+def test_pooled_band_check_validation():
+    inc = {m: [0.5, 0.5] for m in MIXES}
+    cand = {m: [0.5, 0.6] for m in MIXES}
+    kw = dict(pooled_margin=0.05, mix_margin=0.1, nominal_p=0.05)
+    with pytest.raises(ValueError):
+        pooled_band_check({**cand, "mixed": [0.5]}, inc, **kw)
+    with pytest.raises(ValueError):
+        pooled_band_check(cand, {"frozen": inc["frozen"]}, **kw)
+    with pytest.raises(ValueError):
+        pooled_band_check({m: [0.5] for m in MIXES}, {m: [0.5] for m in MIXES}, **kw)
+    with pytest.raises(ValueError):
+        pooled_band_check({**cand, "frozen": [0.5, math.nan]}, inc, **kw)
+    with pytest.raises(TypeError):
+        pooled_band_check(cand, inc, **{**kw, "mix_margin": True})
+    with pytest.raises(ValueError):
+        pooled_band_check(cand, inc, **{**kw, "pooled_margin": 0.0})
+    with pytest.raises(ValueError):
+        pooled_band_check(cand, inc, **{**kw, "nominal_p": 0.5})
+    with pytest.raises(ValueError):
+        pooled_band_check(cand, inc, **kw, floor=math.inf)
+
+
+def test_plan_pooled_band_check_uses_plan_levels_and_prefix():
+    plan = _pooled_plan()
+    rng = np.random.default_rng(23)
+    inc = {m: rng.uniform(0.3, 0.9, 275).tolist() for m in MIXES}
+    cand = {m: (np.asarray(inc[m]) + rng.normal(0.0, 0.35, 275)).tolist() for m in MIXES}
+    for look, n in enumerate(plan.look_sizes):
+        out = plan_pooled_band_check(
+            plan, look, {m: cand[m][:n] for m in MIXES}, {m: inc[m][:n] for m in MIXES}
+        )
+        direct = pooled_band_check(
+            {m: cand[m][:n] for m in MIXES}, {m: inc[m][:n] for m in MIXES},
+            pooled_margin=0.05, mix_margin=0.10, nominal_p=plan.band_nominal_p[look], floor=0.3,
+        )  # fmt: skip
+        assert out["look"] == look and out["policy"] == "pooled_ni_continue"
+        assert out["passes"] == direct["passes"]
+        assert out["pooled"] == direct["pooled"]
+    with pytest.raises(ValueError):
+        plan_pooled_band_check(plan, 0, {m: cand[m][:68] for m in MIXES},
+                               {m: inc[m][:68] for m in MIXES})  # fmt: skip
+    with pytest.raises(ValueError):
+        plan_pooled_band_check(plan, 0, {"frozen": cand["frozen"][:69]}, inc)
+    with pytest.raises(ValueError):
+        plan_pooled_band_check(_paired_plan(), 0, cand, inc)
+    with pytest.raises(TypeError):
+        plan_pooled_band_check(plan.as_dict(), 0, cand, inc)
+
+
+def _pooled_verdicts(plan, cand, inc):
+    return [
+        bool(
+            plan_pooled_band_check(
+                plan, k, {m: cand[m][:n] for m in MIXES}, {m: inc[m][:n] for m in MIXES}
+            )["passes"]
+        )
+        for k, n in enumerate(plan.look_sizes)
+    ]
+
+
+def test_pooled_policy_continues_after_a_band_failure_and_passes_later():
+    plan = _pooled_plan()
+    mass = {m: [500.0 + (i % 7) for i in range(275)] for m in MIXES}  # qualifies at look 0
+    bands = [False, False, True, True]
+    out = run_sequential_gate(plan, mass, 9.9, bands)
+    assert out["decision"] == "STOP_PASS" and out["look"] == 2 and out["passes"] and out["valid"]
+    assert [h["decision"] for h in out["history"]] == [
+        "CONTINUE_BANDS",
+        "CONTINUE_BANDS",
+        "STOP_PASS",
+    ]
+    assert all(h["bands_judged"] for h in out["history"])
+    step = sequential_decision(plan, 1, {m: v[:138] for m, v in mass.items()}, 9.9, bands[:2])
+    assert step["decision"] == "CONTINUE_BANDS" and not step["stopped"] and step["valid"]
+    final = run_sequential_gate(plan, mass, 9.9, [False] * 4)
+    assert final["decision"] == "FINAL_FAIL" and final["look"] == 3 and not final["passes"]
+    last = run_sequential_gate(plan, mass, 9.9, [False, False, False, True])
+    assert last["decision"] == "FINAL_PASS" and last["passes"]
+    # a STOP_PASS earlier makes a later look invalid, as under every policy
+    late = sequential_decision(plan, 3, mass, 9.9, [False, True, True, True])
+    assert not late["valid"] and late["invalid_reason"].startswith("already_stopped_for_efficacy")
+    # never STOP_FAIL_BANDS under this policy
+    assert "STOP_FAIL_BANDS" not in {h["decision"] for h in final["history"]}
+
+
+def test_pooled_policy_before_qualification_is_unchanged():
+    plan = _pooled_plan()
+    legacy = sequential_gate_plan(275, mde=65.0)
+    for seed, means in ((31, (0.0, 0.0, 0.0)), (32, (40.0, 0.0, 0.0)), (33, (80.0, 80.0, 80.0))):
+        mass = _draw(means, 275, sd=250.0, seed=seed)
+        a = run_sequential_gate(plan, mass, 9.9, [True] * 4)
+        b = run_sequential_gate(legacy, mass, 9.9, [True] * 4)
+        assert (a["decision"], a["look"]) == (b["decision"], b["look"])
+
+
+def test_pooled_policy_end_to_end_with_real_band_checks():
+    plan = _pooled_plan()
+    rng = np.random.default_rng(41)
+    mass = _draw((400, 400, 400), 275, sd=150.0, seed=40)
+    inc = {m: rng.uniform(0.3, 0.9, 275).tolist() for m in MIXES}
+    good = {m: (np.asarray(inc[m]) + 0.06 + rng.normal(0, 0.05, 275)).tolist() for m in MIXES}
+    out = run_sequential_gate(plan, mass, 9.9, _pooled_verdicts(plan, good, inc))
+    assert out["decision"] == "STOP_PASS" and out["look"] == 0
+    bad = {m: (np.asarray(inc[m]) - 0.2 + rng.normal(0, 0.05, 275)).tolist() for m in MIXES}
+    out = run_sequential_gate(plan, mass, 9.9, _pooled_verdicts(plan, bad, inc))
+    assert out["decision"] == "FINAL_FAIL" and out["look"] == 3
+    assert out["history"][0]["decision"] == "CONTINUE_BANDS"
+
+
+def test_pooled_rci_any_look_level_at_the_pooled_margin_by_simulation():
+    # P(the pooled bound clears at ANY look | true pooled delta = -M) <= alpha (RCI).
+    from src.scripts.eval_stats import student_t_isf
+
+    plan = _pooled_plan()
+    rng = np.random.default_rng(43)
+    reps, margin = 20000, plan.band_ni_margin
+    p = rng.normal(-margin, 0.2, size=(reps, plan.n_max))
+    hit = np.zeros(reps, dtype=bool)
+    for k, n in enumerate(plan.look_sizes):
+        t = student_t_isf(plan.band_nominal_p[k], n - 1)
+        seg = p[:, :n]
+        hit |= seg.mean(axis=1) - t * seg.std(axis=1, ddof=1) / math.sqrt(n) > -margin
+    rate = float(hit.mean())
+    assert rate <= 0.05 + 0.006 and rate > 0.035
