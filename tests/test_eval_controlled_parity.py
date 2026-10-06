@@ -214,11 +214,13 @@ def test_actual_wrappers_pad_terminal_death_to_the_profile_horizon(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A terminal hero may die early while the profile still scores all frames."""
-    cfg = replace(_tiny_config(num_snakes=1), initial_food=0, max_food=0)
+    # Promotion v2 requires a competitive roster, so one opponent is present;
+    # only the hero's terminal-death accounting is asserted.
+    cfg = replace(_tiny_config(num_snakes=2), initial_food=0, max_food=0)
     old = _configure_global(cfg)
     try:
         frames = 3
-        seed = 6  # fixed straight tape reaches the right wall on frame 2
+        seed = 6  # hero spawns at (21, 15); the straight tape hits the right wall on frame 2
         world = te._evaluation_world_from_config()
         profile = replace(
             promotion_v2_watch_rect(world),
@@ -254,8 +256,11 @@ def test_actual_wrappers_pad_terminal_death_to_the_profile_horizon(
         monkeypatch.setattr(te, "_attach_agent", attach_straight)
         monkeypatch.setattr(ee, "build_simd_policy", lambda *args, **kwargs: AlwaysStraight())
 
-        live = te.rollout(("scripted", "straight"), [], frames, seed, profile)
-        simd = ee.run_simd_eval(("scripted", "straight"), [], frames, [seed], profile=profile)[0]
+        opponents = [("scripted", "straight")]
+        live = te.rollout(("scripted", "straight"), opponents, frames, seed, profile)
+        simd = ee.run_simd_eval(
+            ("scripted", "straight"), opponents, frames, [seed], profile=profile
+        )[0]
 
         for record in (live, simd):
             assert record["mass_integral"] == pytest.approx(2 / 3)
@@ -597,7 +602,9 @@ def test_actual_wrappers_reject_equality_at_declared_capacity(
     """Reaching max_capacity on the final transition is a hard evaluation error."""
     from src.game.game_state import GameState
 
-    cfg = replace(_tiny_config(num_snakes=1), initial_food=1, max_food=1)
+    # Promotion v2 requires a competitive roster; the length-1 opponent is
+    # parked far from the hero and its food so only the hero reaches capacity.
+    cfg = replace(_tiny_config(num_snakes=2), initial_food=1, max_food=1)
     old = _configure_global(cfg, max_capacity=2)
     try:
         frames = 1
@@ -608,11 +615,13 @@ def test_actual_wrappers_reject_equality_at_declared_capacity(
             scored_horizon=frames,
             observation_progress_horizon=29,
         )
+        opponent_body = [(12, 12)]
 
         def controlled_game(**kwargs: object) -> GameState:
             del kwargs
-            game = GameState(headless=True, num_snakes=1)
+            game = GameState(headless=True, num_snakes=2)
             _set_live_snake(game.snakes[0], [(2, 2)])
+            _set_live_snake(game.snakes[1], opponent_body)
             game.food_manager.food = [(30, 20)]
             game.food_manager._corpse_positions = set()
             return game
@@ -643,6 +652,7 @@ def test_actual_wrappers_reject_equality_at_declared_capacity(
             def __init__(self, *args: object, **kwargs: object) -> None:
                 super().__init__(*args, **kwargs)
                 _set_batch_snake(self, 0, [(2, 2)])
+                _set_batch_snake(self, 1, opponent_body)
                 self.food_cells[0] = [(3, 2)]
                 self.food_set[0] = {(3, 2)}
                 self.corpse_cells[0] = set()
@@ -660,10 +670,11 @@ def test_actual_wrappers_reject_equality_at_declared_capacity(
         monkeypatch.setattr(ee, "build_simd_policy", lambda *args, **kwargs: FixedSimdPolicy())
 
         message = "evaluation world exceeded its declared max_capacity"
+        opponents = [("scripted", "fixed")]
         with pytest.raises(RuntimeError, match=message):
-            te.rollout(("scripted", "fixed"), [], frames, seed, profile)
+            te.rollout(("scripted", "fixed"), opponents, frames, seed, profile)
         with pytest.raises(RuntimeError, match=message):
-            ee.run_simd_eval(("scripted", "fixed"), [], frames, [seed], profile=profile)
+            ee.run_simd_eval(("scripted", "fixed"), opponents, frames, [seed], profile=profile)
     finally:
         initialize_config(old)
 
