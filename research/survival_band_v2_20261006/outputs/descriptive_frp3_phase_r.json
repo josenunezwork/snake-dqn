@@ -1,5 +1,5 @@
 {
- "cpu_seconds": 11.1,
+ "cpu_seconds": 11.0,
  "data": "research/frp3_strict_20261005/paired_pool.json",
  "data_sha256": "2fb43f84f533621d7c6848827848f1cb667cfa5447e0f82793d4e71885029e4b",
  "gate": {
@@ -730,24 +730,24 @@
      "D_pooled_final": {
       "all_-0.025": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.6218424218123496,
+       "p_band_pass_given_qualified": 0.43288893344025664,
        "p_pass": {
-        "high": 0.6270520705703286,
-        "k": 12407,
-        "low": 0.6136017063509669,
+        "high": 0.43872729068680477,
+        "k": 8637,
+        "low": 0.42499888382764234,
         "n": 20000,
-        "rate": 0.62035
+        "rate": 0.43185
        }
       },
       "all_-0.05": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.04741379310344827,
+       "p_band_pass_given_qualified": 0.025010024057738573,
        "p_pass": {
-        "high": 0.05032993026316259,
-        "k": 946,
-        "low": 0.044443939182034535,
+        "high": 0.027204575750404178,
+        "k": 499,
+        "low": 0.02287787770650082,
         "n": 20000,
-        "rate": 0.0473
+        "rate": 0.02495
        }
       },
       "improves_0.05_all": {
@@ -763,272 +763,127 @@
       },
       "no_change": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.9825581395348837,
+       "p_band_pass_given_qualified": 0.8792101042502005,
        "p_pass": {
-        "high": 0.9820405366842198,
-        "k": 19604,
-        "low": 0.9781750318874973,
+        "high": 0.8815779550739282,
+        "k": 17542,
+        "low": 0.8724772113325576,
         "n": 20000,
-        "rate": 0.9802
+        "rate": 0.8771
        }
       },
       "one_mix_-0.05@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.7469927826784283,
+       "p_band_pass_given_qualified": 0.33229751403368085,
        "p_pass": {
-        "high": 0.7511915748419715,
-        "k": 14904,
-        "low": 0.7391142506761148,
+        "high": 0.33805598631112643,
+        "k": 6630,
+        "low": 0.3250087298397809,
         "n": 20000,
-        "rate": 0.7452
+        "rate": 0.3315
        }
       },
       "one_mix_-0.05@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.7750100240577386,
+       "p_band_pass_given_qualified": 0.3616178829190056,
        "p_pass": {
-        "high": 0.7789013181084651,
-        "k": 15463,
-        "low": 0.767293772594085,
+        "high": 0.3674315168968433,
+        "k": 7215,
+        "low": 0.3541219651447819,
         "n": 20000,
-        "rate": 0.77315
+        "rate": 0.36075
        }
       },
       "one_mix_-0.05@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.5900661587810746,
+       "p_band_pass_given_qualified": 0.24328388131515638,
        "p_pass": {
-        "high": 0.5954520761322417,
-        "k": 11773,
-        "low": 0.5818138758750109,
+        "high": 0.2486906259674504,
+        "k": 4854,
+        "low": 0.236808195787021,
         "n": 20000,
-        "rate": 0.58865
+        "rate": 0.2427
        }
       },
       "one_mix_-0.075@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.3123496391339214,
+       "p_band_pass_given_qualified": 0.04545910184442662,
        "p_pass": {
-        "high": 0.3180544416375999,
-        "k": 6232,
-        "low": 0.3052179175483404,
+        "high": 0.048322012360603905,
+        "k": 907,
+        "low": 0.042552606025212034,
         "n": 20000,
-        "rate": 0.3116
+        "rate": 0.04535
        }
       },
       "one_mix_-0.075@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.328588612670409,
+       "p_band_pass_given_qualified": 0.04210104250200481,
        "p_pass": {
-        "high": 0.33433811996247453,
-        "k": 6556,
-        "low": 0.32132801725524784,
+        "high": 0.044869049131595264,
+        "k": 840,
+        "low": 0.039306855895796584,
         "n": 20000,
-        "rate": 0.3278
+        "rate": 0.042
        }
       },
       "one_mix_-0.075@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.23696872493985566,
+       "p_band_pass_given_qualified": 0.04896752205292702,
        "p_pass": {
-        "high": 0.2423385710103005,
-        "k": 4728,
-        "low": 0.2305626703984778,
+        "high": 0.05192498232128739,
+        "k": 977,
+        "low": 0.04594829181213581,
         "n": 20000,
-        "rate": 0.2364
+        "rate": 0.04885
        }
       },
       "one_mix_-0.125@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0012028869286287089,
+       "p_band_pass_given_qualified": 0.0,
        "p_pass": {
-        "high": 0.0017850135007008356,
-        "k": 24,
-        "low": 0.0008065616688691384,
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
         "n": 20000,
-        "rate": 0.0012
+        "rate": 0.0
        }
       },
       "one_mix_-0.125@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.000751804330392943,
+       "p_band_pass_given_qualified": 0.0,
        "p_pass": {
-        "high": 0.0012371678111665165,
-        "k": 15,
-        "low": 0.00045458019085395195,
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
         "n": 20000,
-        "rate": 0.00075
+        "rate": 0.0
        }
       },
       "one_mix_-0.125@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0040597433841218925,
+       "p_band_pass_given_qualified": 0.0003508420208500401,
        "p_pass": {
-        "high": 0.0050304898892736295,
-        "k": 81,
-        "low": 0.003259990674776548,
+        "high": 0.0007223484532697996,
+        "k": 7,
+        "low": 0.00016955317759555281,
         "n": 20000,
-        "rate": 0.00405
+        "rate": 0.00035
        }
       },
       "one_mix_-0.1@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.04215116279069767,
+       "p_band_pass_given_qualified": 0.0014534883720930232,
        "p_pass": {
-        "high": 0.0449206199467747,
-        "k": 841,
-        "low": 0.039355265877011526,
+        "high": 0.0020816636300105057,
+        "k": 29,
+        "low": 0.0010098155215314162,
         "n": 20000,
-        "rate": 0.04205
+        "rate": 0.00145
        }
       },
       "one_mix_-0.1@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.035735765838011226,
-       "p_pass": {
-        "high": 0.0383101589303617,
-        "k": 713,
-        "low": 0.03316818495494267,
-        "n": 20000,
-        "rate": 0.03565
-       }
-      },
-      "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.047463913392141135,
-       "p_pass": {
-        "high": 0.05038139690272568,
-        "k": 947,
-        "low": 0.04449245333886584,
-        "n": 20000,
-        "rate": 0.04735
-       }
-      }
-     },
-     "E_pooled_continue": {
-      "all_-0.025": {
-       "expected_worlds_per_mix": 245.22205,
-       "p_band_pass_given_qualified": 0.6069566960705693,
-       "p_pass": {
-        "high": 0.6122526284405712,
-        "k": 12110,
-        "low": 0.5987068519515908,
-        "n": 20000,
-        "rate": 0.6055
-       }
-      },
-      "all_-0.05": {
-       "expected_worlds_per_mix": 273.49125,
-       "p_band_pass_given_qualified": 0.046511627906976744,
-       "p_pass": {
-        "high": 0.04940337482367349,
-        "k": 928,
-        "low": 0.04357084028642462,
-        "n": 20000,
-        "rate": 0.0464
-       }
-      },
-      "improves_0.05_all": {
-       "expected_worlds_per_mix": 170.9388,
-       "p_band_pass_given_qualified": 1.0,
-       "p_pass": {
-        "high": 0.9981892140423555,
-        "k": 19952,
-        "low": 0.9968196716746093,
-        "n": 20000,
-        "rate": 0.9976
-       }
-      },
-      "no_change": {
-       "expected_worlds_per_mix": 189.10325,
-       "p_band_pass_given_qualified": 0.9801523656776263,
-       "p_pass": {
-        "high": 0.9797520104094058,
-        "k": 19556,
-        "low": 0.9756644799353805,
-        "n": 20000,
-        "rate": 0.9778
-       }
-      },
-      "one_mix_-0.05@frozen": {
-       "expected_worlds_per_mix": 237.0929,
-       "p_band_pass_given_qualified": 0.7314053728949479,
-       "p_pass": {
-        "high": 0.7357608275012769,
-        "k": 14593,
-        "low": 0.7234509703381543,
-        "n": 20000,
-        "rate": 0.72965
-       }
-      },
-      "one_mix_-0.05@mixed": {
-       "expected_worlds_per_mix": 235.6069,
-       "p_band_pass_given_qualified": 0.7584202085004009,
-       "p_pass": {
-        "high": 0.7624977484018771,
-        "k": 15132,
-        "low": 0.75060369869413,
-        "n": 20000,
-        "rate": 0.7566
-       }
-      },
-      "one_mix_-0.05@scripted": {
-       "expected_worlds_per_mix": 246.80785,
-       "p_band_pass_given_qualified": 0.57528067361668,
-       "p_pass": {
-        "high": 0.5807385792301336,
-        "k": 11478,
-        "low": 0.567033037840774,
-        "n": 20000,
-        "rate": 0.5739
-       }
-      },
-      "one_mix_-0.075@frozen": {
-       "expected_worlds_per_mix": 263.9766,
-       "p_band_pass_given_qualified": 0.2972634322373697,
-       "p_pass": {
-        "high": 0.30291850910728324,
-        "k": 5931,
-        "low": 0.29025963036394575,
-        "n": 20000,
-        "rate": 0.29655
-       }
-      },
-      "one_mix_-0.075@mixed": {
-       "expected_worlds_per_mix": 263.89825,
-       "p_band_pass_given_qualified": 0.31620890136327184,
-       "p_pass": {
-        "high": 0.3219251429750591,
-        "k": 6309,
-        "low": 0.3090457375332492,
-        "n": 20000,
-        "rate": 0.31545
-       }
-      },
-      "one_mix_-0.075@scripted": {
-       "expected_worlds_per_mix": 266.27885,
-       "p_band_pass_given_qualified": 0.2297514033680834,
-       "p_pass": {
-        "high": 0.2350768816808923,
-        "k": 4584,
-        "low": 0.2234271250470939,
-        "n": 20000,
-        "rate": 0.2292
-       }
-      },
-      "one_mix_-0.125@frozen": {
-       "expected_worlds_per_mix": 274.95915,
-       "p_band_pass_given_qualified": 0.0014033680834001604,
-       "p_pass": {
-        "high": 0.002022666621660184,
-        "k": 28,
-        "low": 0.0009688317334873483,
-        "n": 20000,
-        "rate": 0.0014
-       }
-      },
-      "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 274.9693,
        "p_band_pass_given_qualified": 0.0008520449077786688,
        "p_pass": {
         "high": 0.001360921109966698,
@@ -1038,48 +893,193 @@
         "rate": 0.00085
        }
       },
-      "one_mix_-0.125@scripted": {
-       "expected_worlds_per_mix": 274.8091,
-       "p_band_pass_given_qualified": 0.004560946271050521,
+      "one_mix_-0.1@scripted": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.004210104250200481,
        "p_pass": {
-        "high": 0.005582609388572922,
-        "k": 91,
-        "low": 0.003707679139421153,
+        "high": 0.005196449039576223,
+        "k": 84,
+        "low": 0.0033939739136571233,
         "n": 20000,
-        "rate": 0.00455
+        "rate": 0.0042
+       }
+      }
+     },
+     "E_pooled_continue": {
+      "all_-0.025": {
+       "expected_worlds_per_mix": 264.2918,
+       "p_band_pass_given_qualified": 0.4069266238973536,
+       "p_pass": {
+        "high": 0.4127732578298754,
+        "k": 8119,
+        "low": 0.39916286415227786,
+        "n": 20000,
+        "rate": 0.40595
+       }
+      },
+      "all_-0.05": {
+       "expected_worlds_per_mix": 274.5918,
+       "p_band_pass_given_qualified": 0.02185244587008821,
+       "p_pass": {
+        "high": 0.02391755518147272,
+        "k": 436,
+        "low": 0.01986610810258574,
+        "n": 20000,
+        "rate": 0.0218
+       }
+      },
+      "improves_0.05_all": {
+       "expected_worlds_per_mix": 171.7866,
+       "p_band_pass_given_qualified": 0.9998997594226142,
+       "p_pass": {
+        "high": 0.9981030444927942,
+        "k": 19950,
+        "low": 0.9967058796313818,
+        "n": 20000,
+        "rate": 0.9975
+       }
+      },
+      "no_change": {
+       "expected_worlds_per_mix": 225.1807,
+       "p_band_pass_given_qualified": 0.8675821972734563,
+       "p_pass": {
+        "high": 0.870158425396917,
+        "k": 17310,
+        "low": 0.8607011962460707,
+        "n": 20000,
+        "rate": 0.8655
+       }
+      },
+      "one_mix_-0.05@frozen": {
+       "expected_worlds_per_mix": 264.9383,
+       "p_band_pass_given_qualified": 0.313953488372093,
+       "p_pass": {
+        "high": 0.31966310724776226,
+        "k": 6264,
+        "low": 0.3068086374227984,
+        "n": 20000,
+        "rate": 0.3132
+       }
+      },
+      "one_mix_-0.05@mixed": {
+       "expected_worlds_per_mix": 264.67705,
+       "p_band_pass_given_qualified": 0.343925421010425,
+       "p_pass": {
+        "high": 0.34970907057970635,
+        "k": 6862,
+        "low": 0.3365511903346994,
+        "n": 20000,
+        "rate": 0.3431
+       }
+      },
+      "one_mix_-0.05@scripted": {
+       "expected_worlds_per_mix": 267.0142,
+       "p_band_pass_given_qualified": 0.23436246992782678,
+       "p_pass": {
+        "high": 0.23971656829957075,
+        "k": 4676,
+        "low": 0.22798567169669934,
+        "n": 20000,
+        "rate": 0.2338
+       }
+      },
+      "one_mix_-0.075@frozen": {
+       "expected_worlds_per_mix": 273.754,
+       "p_band_pass_given_qualified": 0.043404170008019244,
+       "p_pass": {
+        "high": 0.046209547394955114,
+        "k": 866,
+        "low": 0.04056585833869085,
+        "n": 20000,
+        "rate": 0.0433
+       }
+      },
+      "one_mix_-0.075@mixed": {
+       "expected_worlds_per_mix": 274.07445,
+       "p_band_pass_given_qualified": 0.03904370489174017,
+       "p_pass": {
+        "high": 0.041721131189720366,
+        "k": 779,
+        "low": 0.0363559452576137,
+        "n": 20000,
+        "rate": 0.03895
+       }
+      },
+      "one_mix_-0.075@scripted": {
+       "expected_worlds_per_mix": 273.50885,
+       "p_band_pass_given_qualified": 0.047514033680834004,
+       "p_pass": {
+        "high": 0.05043286263959566,
+        "k": 948,
+        "low": 0.04454096839839024,
+        "n": 20000,
+        "rate": 0.0474
+       }
+      },
+      "one_mix_-0.125@frozen": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@mixed": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@scripted": {
+       "expected_worlds_per_mix": 274.98635,
+       "p_band_pass_given_qualified": 0.0003508420208500401,
+       "p_pass": {
+        "high": 0.0007223484532697996,
+        "k": 7,
+        "low": 0.00016955317759555281,
+        "n": 20000,
+        "rate": 0.00035
        }
       },
       "one_mix_-0.1@frozen": {
-       "expected_worlds_per_mix": 273.69515,
-       "p_band_pass_given_qualified": 0.04109863672814756,
+       "expected_worlds_per_mix": 274.966,
+       "p_band_pass_given_qualified": 0.001553728949478749,
        "p_pass": {
-        "high": 0.043837405387073355,
-        "k": 820,
-        "low": 0.0383388837124307,
+        "high": 0.002199215548282407,
+        "k": 31,
+        "low": 0.001092225196048294,
         "n": 20000,
-        "rate": 0.041
+        "rate": 0.00155
        }
       },
       "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 274.0395,
-       "p_band_pass_given_qualified": 0.033580593424218125,
+       "expected_worlds_per_mix": 274.96935,
+       "p_band_pass_given_qualified": 0.0009522854851643945,
        "p_pass": {
-        "high": 0.03608472426628538,
-        "k": 670,
-        "low": 0.031094445374060243,
+        "high": 0.0014833803364226327,
+        "k": 19,
+        "low": 0.000608290851175394,
         "n": 20000,
-        "rate": 0.0335
+        "rate": 0.00095
        }
       },
       "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 273.40595,
-       "p_band_pass_given_qualified": 0.0467121090617482,
+       "expected_worlds_per_mix": 274.8195,
+       "p_band_pass_given_qualified": 0.004761427425821973,
        "p_pass": {
-        "high": 0.049609301758871086,
-        "k": 932,
-        "low": 0.04376483653680459,
+        "high": 0.00580264623555638,
+        "k": 95,
+        "low": 0.003887565478015252,
         "n": 20000,
-        "rate": 0.0466
+        "rate": 0.00475
        }
       }
      },
@@ -1261,181 +1261,181 @@
        }
       }
      },
-     "E_pooled_continue_mix0.075": {
+     "E_pooled_continue_mix0.1": {
       "all_-0.025": {
-       "expected_worlds_per_mix": 264.2918,
-       "p_band_pass_given_qualified": 0.4069266238973536,
+       "expected_worlds_per_mix": 245.22205,
+       "p_band_pass_given_qualified": 0.6069566960705693,
        "p_pass": {
-        "high": 0.4127732578298754,
-        "k": 8119,
-        "low": 0.39916286415227786,
+        "high": 0.6122526284405712,
+        "k": 12110,
+        "low": 0.5987068519515908,
         "n": 20000,
-        "rate": 0.40595
+        "rate": 0.6055
        }
       },
       "all_-0.05": {
-       "expected_worlds_per_mix": 274.5918,
-       "p_band_pass_given_qualified": 0.02185244587008821,
+       "expected_worlds_per_mix": 273.49125,
+       "p_band_pass_given_qualified": 0.046511627906976744,
        "p_pass": {
-        "high": 0.02391755518147272,
-        "k": 436,
-        "low": 0.01986610810258574,
+        "high": 0.04940337482367349,
+        "k": 928,
+        "low": 0.04357084028642462,
         "n": 20000,
-        "rate": 0.0218
+        "rate": 0.0464
        }
       },
       "improves_0.05_all": {
-       "expected_worlds_per_mix": 171.7866,
-       "p_band_pass_given_qualified": 0.9998997594226142,
+       "expected_worlds_per_mix": 170.9388,
+       "p_band_pass_given_qualified": 1.0,
        "p_pass": {
-        "high": 0.9981030444927942,
-        "k": 19950,
-        "low": 0.9967058796313818,
+        "high": 0.9981892140423555,
+        "k": 19952,
+        "low": 0.9968196716746093,
         "n": 20000,
-        "rate": 0.9975
+        "rate": 0.9976
        }
       },
       "no_change": {
-       "expected_worlds_per_mix": 225.1807,
-       "p_band_pass_given_qualified": 0.8675821972734563,
+       "expected_worlds_per_mix": 189.10325,
+       "p_band_pass_given_qualified": 0.9801523656776263,
        "p_pass": {
-        "high": 0.870158425396917,
-        "k": 17310,
-        "low": 0.8607011962460707,
+        "high": 0.9797520104094058,
+        "k": 19556,
+        "low": 0.9756644799353805,
         "n": 20000,
-        "rate": 0.8655
+        "rate": 0.9778
        }
       },
       "one_mix_-0.05@frozen": {
-       "expected_worlds_per_mix": 264.9383,
-       "p_band_pass_given_qualified": 0.313953488372093,
+       "expected_worlds_per_mix": 237.0929,
+       "p_band_pass_given_qualified": 0.7314053728949479,
        "p_pass": {
-        "high": 0.31966310724776226,
-        "k": 6264,
-        "low": 0.3068086374227984,
+        "high": 0.7357608275012769,
+        "k": 14593,
+        "low": 0.7234509703381543,
         "n": 20000,
-        "rate": 0.3132
+        "rate": 0.72965
        }
       },
       "one_mix_-0.05@mixed": {
-       "expected_worlds_per_mix": 264.67705,
-       "p_band_pass_given_qualified": 0.343925421010425,
+       "expected_worlds_per_mix": 235.6069,
+       "p_band_pass_given_qualified": 0.7584202085004009,
        "p_pass": {
-        "high": 0.34970907057970635,
-        "k": 6862,
-        "low": 0.3365511903346994,
+        "high": 0.7624977484018771,
+        "k": 15132,
+        "low": 0.75060369869413,
         "n": 20000,
-        "rate": 0.3431
+        "rate": 0.7566
        }
       },
       "one_mix_-0.05@scripted": {
-       "expected_worlds_per_mix": 267.0142,
-       "p_band_pass_given_qualified": 0.23436246992782678,
+       "expected_worlds_per_mix": 246.80785,
+       "p_band_pass_given_qualified": 0.57528067361668,
        "p_pass": {
-        "high": 0.23971656829957075,
-        "k": 4676,
-        "low": 0.22798567169669934,
+        "high": 0.5807385792301336,
+        "k": 11478,
+        "low": 0.567033037840774,
         "n": 20000,
-        "rate": 0.2338
+        "rate": 0.5739
        }
       },
       "one_mix_-0.075@frozen": {
-       "expected_worlds_per_mix": 273.754,
-       "p_band_pass_given_qualified": 0.043404170008019244,
+       "expected_worlds_per_mix": 263.9766,
+       "p_band_pass_given_qualified": 0.2972634322373697,
        "p_pass": {
-        "high": 0.046209547394955114,
-        "k": 866,
-        "low": 0.04056585833869085,
+        "high": 0.30291850910728324,
+        "k": 5931,
+        "low": 0.29025963036394575,
         "n": 20000,
-        "rate": 0.0433
+        "rate": 0.29655
        }
       },
       "one_mix_-0.075@mixed": {
-       "expected_worlds_per_mix": 274.07445,
-       "p_band_pass_given_qualified": 0.03904370489174017,
+       "expected_worlds_per_mix": 263.89825,
+       "p_band_pass_given_qualified": 0.31620890136327184,
        "p_pass": {
-        "high": 0.041721131189720366,
-        "k": 779,
-        "low": 0.0363559452576137,
+        "high": 0.3219251429750591,
+        "k": 6309,
+        "low": 0.3090457375332492,
         "n": 20000,
-        "rate": 0.03895
+        "rate": 0.31545
        }
       },
       "one_mix_-0.075@scripted": {
-       "expected_worlds_per_mix": 273.50885,
-       "p_band_pass_given_qualified": 0.047514033680834004,
+       "expected_worlds_per_mix": 266.27885,
+       "p_band_pass_given_qualified": 0.2297514033680834,
        "p_pass": {
-        "high": 0.05043286263959566,
-        "k": 948,
-        "low": 0.04454096839839024,
+        "high": 0.2350768816808923,
+        "k": 4584,
+        "low": 0.2234271250470939,
         "n": 20000,
-        "rate": 0.0474
+        "rate": 0.2292
        }
       },
       "one_mix_-0.125@frozen": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0,
+       "expected_worlds_per_mix": 274.95915,
+       "p_band_pass_given_qualified": 0.0014033680834001604,
        "p_pass": {
-        "high": 0.00019203605610462553,
-        "k": 0,
-        "low": 0.0,
+        "high": 0.002022666621660184,
+        "k": 28,
+        "low": 0.0009688317334873483,
         "n": 20000,
-        "rate": 0.0
+        "rate": 0.0014
        }
       },
       "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0,
+       "expected_worlds_per_mix": 274.9693,
+       "p_band_pass_given_qualified": 0.0008520449077786688,
        "p_pass": {
-        "high": 0.00019203605610462553,
-        "k": 0,
-        "low": 0.0,
+        "high": 0.001360921109966698,
+        "k": 17,
+        "low": 0.0005307884848425495,
         "n": 20000,
-        "rate": 0.0
+        "rate": 0.00085
        }
       },
       "one_mix_-0.125@scripted": {
-       "expected_worlds_per_mix": 274.98635,
-       "p_band_pass_given_qualified": 0.0003508420208500401,
+       "expected_worlds_per_mix": 274.8091,
+       "p_band_pass_given_qualified": 0.004560946271050521,
        "p_pass": {
-        "high": 0.0007223484532697996,
-        "k": 7,
-        "low": 0.00016955317759555281,
+        "high": 0.005582609388572922,
+        "k": 91,
+        "low": 0.003707679139421153,
         "n": 20000,
-        "rate": 0.00035
+        "rate": 0.00455
        }
       },
       "one_mix_-0.1@frozen": {
-       "expected_worlds_per_mix": 274.966,
-       "p_band_pass_given_qualified": 0.001553728949478749,
+       "expected_worlds_per_mix": 273.69515,
+       "p_band_pass_given_qualified": 0.04109863672814756,
        "p_pass": {
-        "high": 0.002199215548282407,
-        "k": 31,
-        "low": 0.001092225196048294,
+        "high": 0.043837405387073355,
+        "k": 820,
+        "low": 0.0383388837124307,
         "n": 20000,
-        "rate": 0.00155
+        "rate": 0.041
        }
       },
       "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 274.96935,
-       "p_band_pass_given_qualified": 0.0009522854851643945,
+       "expected_worlds_per_mix": 274.0395,
+       "p_band_pass_given_qualified": 0.033580593424218125,
        "p_pass": {
-        "high": 0.0014833803364226327,
-        "k": 19,
-        "low": 0.000608290851175394,
+        "high": 0.03608472426628538,
+        "k": 670,
+        "low": 0.031094445374060243,
         "n": 20000,
-        "rate": 0.00095
+        "rate": 0.0335
        }
       },
       "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 274.8195,
-       "p_band_pass_given_qualified": 0.004761427425821973,
+       "expected_worlds_per_mix": 273.40595,
+       "p_band_pass_given_qualified": 0.0467121090617482,
        "p_pass": {
-        "high": 0.00580264623555638,
-        "k": 95,
-        "low": 0.003887565478015252,
+        "high": 0.049609301758871086,
+        "k": 932,
+        "low": 0.04376483653680459,
         "n": 20000,
-        "rate": 0.00475
+        "rate": 0.0466
        }
       }
      },
@@ -2707,24 +2707,24 @@
      "D_pooled_final": {
       "all_-0.025": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.6118325394835799,
+       "p_band_pass_given_qualified": 0.4204562547004262,
        "p_pass": {
-        "high": 0.6168875071308249,
-        "k": 12203,
-        "low": 0.6033701873260153,
+        "high": 0.42615352489798325,
+        "k": 8386,
+        "low": 0.4124774697214721,
         "n": 20000,
-        "rate": 0.61015
+        "rate": 0.4193
        }
       },
       "all_-0.05": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.04768112308849336,
+       "p_band_pass_given_qualified": 0.02411631987966909,
        "p_pass": {
-        "high": 0.050587254447584794,
-        "k": 951,
-        "low": 0.04468651897958429,
+        "high": 0.026266428241676135,
+        "k": 481,
+        "low": 0.022016370880129848,
         "n": 20000,
-        "rate": 0.04755
+        "rate": 0.02405
        }
       },
       "improves_0.05_all": {
@@ -2740,323 +2740,323 @@
       },
       "no_change": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.9813988468287791,
+       "p_band_pass_given_qualified": 0.873953371772374,
        "p_pass": {
-        "high": 0.980610993669256,
-        "k": 19574,
-        "low": 0.9766051510106295,
+        "high": 0.8761158509816144,
+        "k": 17431,
+        "low": 0.8668414470250944,
         "n": 20000,
-        "rate": 0.9787
+        "rate": 0.87155
        }
       },
       "one_mix_-0.05@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.7391326146903986,
+       "p_band_pass_given_qualified": 0.33075958886939083,
        "p_pass": {
-        "high": 0.7431549198328703,
-        "k": 14742,
-        "low": 0.7309540166693248,
+        "high": 0.3363980752677295,
+        "k": 6597,
+        "low": 0.3233672746021628,
         "n": 20000,
-        "rate": 0.7371
+        "rate": 0.32985
        }
       },
       "one_mix_-0.05@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.7680621709701679,
+       "p_band_pass_given_qualified": 0.3593381799949862,
        "p_pass": {
-        "high": 0.7717665533284579,
-        "k": 15319,
-        "low": 0.7600313026933001,
+        "high": 0.3650222454583096,
+        "k": 7167,
+        "low": 0.3517321583563849,
         "n": 20000,
-        "rate": 0.76595
+        "rate": 0.35835
        }
       },
       "one_mix_-0.05@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.5764853346703435,
+       "p_band_pass_given_qualified": 0.2348458260215593,
        "p_pass": {
-        "high": 0.5817363023567509,
-        "k": 11498,
-        "low": 0.5680349306420446,
+        "high": 0.24011997334192273,
+        "k": 4684,
+        "low": 0.22838211302550246,
         "n": 20000,
-        "rate": 0.5749
+        "rate": 0.2342
        }
       },
       "one_mix_-0.075@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.31150664326898975,
+       "p_band_pass_given_qualified": 0.044722988217598396,
        "p_pass": {
-        "high": 0.3170992542271927,
-        "k": 6213,
-        "low": 0.30427346982725406,
+        "high": 0.04754935219206364,
+        "k": 892,
+        "low": 0.041825554247836454,
         "n": 20000,
-        "rate": 0.31065
+        "rate": 0.0446
        }
       },
       "one_mix_-0.075@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.32765104036099274,
+       "p_band_pass_given_qualified": 0.04121333667585861,
        "p_pass": {
-        "high": 0.3332829664466368,
-        "k": 6535,
-        "low": 0.3202835740468034,
+        "high": 0.04394058947056312,
+        "k": 822,
+        "low": 0.0384356612217297,
         "n": 20000,
-        "rate": 0.32675
+        "rate": 0.0411
        }
       },
       "one_mix_-0.075@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.22882928052143395,
+       "p_band_pass_given_qualified": 0.04843319127600902,
        "p_pass": {
-        "high": 0.2340681242727711,
-        "k": 4564,
-        "low": 0.22243626652732731,
+        "high": 0.05135909307110282,
+        "k": 966,
+        "low": 0.04541439230198211,
         "n": 20000,
-        "rate": 0.2282
+        "rate": 0.0483
        }
       },
       "one_mix_-0.125@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0015041363750313362,
+       "p_band_pass_given_qualified": 0.0,
        "p_pass": {
-        "high": 0.002140510875750374,
-        "k": 30,
-        "low": 0.0010509490721859378,
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
         "n": 20000,
-        "rate": 0.0015
+        "rate": 0.0
        }
       },
       "one_mix_-0.125@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0009024818250188017,
+       "p_band_pass_given_qualified": 5.0137879167711205e-05,
        "p_pass": {
-        "high": 0.0014222994168362542,
-        "k": 18,
-        "low": 0.0005693909743673825,
+        "high": 0.0002831905702260402,
+        "k": 1,
+        "low": 8.826282272974824e-06,
         "n": 20000,
-        "rate": 0.0009
+        "rate": 5e-05
        }
       },
       "one_mix_-0.125@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.005164201554274254,
+       "p_band_pass_given_qualified": 0.00015041363750313363,
        "p_pass": {
-        "high": 0.0062414842252658895,
-        "k": 103,
-        "low": 0.004248573859460859,
+        "high": 0.0004409636272928435,
+        "k": 3,
+        "low": 5.101481799495055e-05,
         "n": 20000,
-        "rate": 0.00515
+        "rate": 0.00015
        }
       },
       "one_mix_-0.1@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.041313612434194034,
+       "p_band_pass_given_qualified": 0.0016044121333667585,
        "p_pass": {
-        "high": 0.044043769133690076,
-        "k": 824,
-        "low": 0.03853244315139153,
+        "high": 0.002257784278924517,
+        "k": 32,
+        "low": 0.0011336372618005737,
         "n": 20000,
-        "rate": 0.0412
+        "rate": 0.0016
        }
       },
       "one_mix_-0.1@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.03594885936324894,
+       "p_band_pass_given_qualified": 0.0011531712208573577,
        "p_pass": {
-        "high": 0.038517045158901725,
-        "k": 717,
-        "low": 0.033361221911980196,
+        "high": 0.0017251348523248564,
+        "k": 23,
+        "low": 0.0007664595208507284,
         "n": 20000,
-        "rate": 0.03585
+        "rate": 0.00115
        }
       },
       "one_mix_-0.1@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.04702933065931311,
+       "p_band_pass_given_qualified": 0.005364753070945099,
        "p_pass": {
-        "high": 0.04991816448586441,
-        "k": 938,
-        "low": 0.0440558585881776,
+        "high": 0.006460332729675226,
+        "k": 107,
+        "low": 0.004429648540629079,
         "n": 20000,
-        "rate": 0.0469
+        "rate": 0.00535
        }
       }
      },
      "E_pooled_continue": {
       "all_-0.025": {
-       "expected_worlds_per_mix": 245.7044,
-       "p_band_pass_given_qualified": 0.5968413136124342,
+       "expected_worlds_per_mix": 264.03175,
+       "p_band_pass_given_qualified": 0.3959388317874154,
        "p_pass": {
-        "high": 0.6019838441434783,
-        "k": 11904,
-        "low": 0.5883795921914393,
+        "high": 0.40164412577607234,
+        "k": 7897,
+        "low": 0.3880962594065265,
         "n": 20000,
-        "rate": 0.5952
+        "rate": 0.39485
        }
       },
       "all_-0.05": {
-       "expected_worlds_per_mix": 273.53195,
-       "p_band_pass_given_qualified": 0.04597643519679118,
+       "expected_worlds_per_mix": 274.71085,
+       "p_band_pass_given_qualified": 0.020456254700426172,
        "p_pass": {
-        "high": 0.048836998820805375,
-        "k": 917,
-        "low": 0.04303742752895447,
+        "high": 0.022453248197334224,
+        "k": 408,
+        "low": 0.01853095278768133,
         "n": 20000,
-        "rate": 0.04585
+        "rate": 0.0204
        }
       },
       "improves_0.05_all": {
-       "expected_worlds_per_mix": 170.21045,
-       "p_band_pass_given_qualified": 1.0,
+       "expected_worlds_per_mix": 171.10995,
+       "p_band_pass_given_qualified": 0.9999498621208323,
        "p_pass": {
-        "high": 0.9978864699116221,
-        "k": 19945,
-        "low": 0.9964225502305817,
+        "high": 0.9978429720324211,
+        "k": 19944,
+        "low": 0.9963660673133883,
         "n": 20000,
-        "rate": 0.99725
+        "rate": 0.9972
        }
       },
       "no_change": {
-       "expected_worlds_per_mix": 189.714,
-       "p_band_pass_given_qualified": 0.9794936074204061,
+       "expected_worlds_per_mix": 226.0865,
+       "p_band_pass_given_qualified": 0.8634745550263224,
        "p_pass": {
-        "high": 0.9787965604709954,
-        "k": 19536,
-        "low": 0.9746203139459033,
+        "high": 0.8658237367157979,
+        "k": 17222,
+        "low": 0.8562375748444833,
         "n": 20000,
-        "rate": 0.9768
+        "rate": 0.8611
        }
       },
       "one_mix_-0.05@frozen": {
-       "expected_worlds_per_mix": 237.20905,
-       "p_band_pass_given_qualified": 0.7243419403359238,
+       "expected_worlds_per_mix": 265.29625,
+       "p_band_pass_given_qualified": 0.31326146903985963,
        "p_pass": {
-        "high": 0.728513480471969,
-        "k": 14447,
-        "low": 0.7161011210938814,
+        "high": 0.318858785575566,
+        "k": 6248,
+        "low": 0.30601326635268444,
         "n": 20000,
-        "rate": 0.72235
+        "rate": 0.3124
        }
       },
       "one_mix_-0.05@mixed": {
-       "expected_worlds_per_mix": 235.56115,
-       "p_band_pass_given_qualified": 0.7519679117573327,
+       "expected_worlds_per_mix": 264.93895,
+       "p_band_pass_given_qualified": 0.34013537227375285,
        "p_pass": {
-        "high": 0.7558535652733862,
-        "k": 14998,
-        "low": 0.7438504551057727,
+        "high": 0.34579171474049325,
+        "k": 6784,
+        "low": 0.33267004405515005,
         "n": 20000,
-        "rate": 0.7499
+        "rate": 0.3392
        }
       },
       "one_mix_-0.05@scripted": {
-       "expected_worlds_per_mix": 247.37055,
-       "p_band_pass_given_qualified": 0.5630985209325645,
+       "expected_worlds_per_mix": 267.14665,
+       "p_band_pass_given_qualified": 0.22531962897969415,
        "p_pass": {
-        "high": 0.5684143450900001,
-        "k": 11231,
-        "low": 0.5546620152714934,
+        "high": 0.23053710291444282,
+        "k": 4494,
+        "low": 0.21896863213804837,
         "n": 20000,
-        "rate": 0.56155
+        "rate": 0.2247
        }
       },
       "one_mix_-0.075@frozen": {
-       "expected_worlds_per_mix": 264.4619,
-       "p_band_pass_given_qualified": 0.29746803710203057,
+       "expected_worlds_per_mix": 273.76745,
+       "p_band_pass_given_qualified": 0.04246678365505139,
        "p_pass": {
-        "high": 0.30301910687348027,
-        "k": 5933,
-        "low": 0.2903589941905375,
+        "high": 0.04523002244218186,
+        "k": 847,
+        "low": 0.039645748159970705,
         "n": 20000,
-        "rate": 0.29665
+        "rate": 0.04235
        }
       },
       "one_mix_-0.075@mixed": {
-       "expected_worlds_per_mix": 264.3934,
-       "p_band_pass_given_qualified": 0.31080471296064177,
+       "expected_worlds_per_mix": 273.9752,
+       "p_band_pass_given_qualified": 0.03930809726748558,
        "p_pass": {
-        "high": 0.31639541174498026,
-        "k": 6199,
-        "low": 0.3035775811599451,
+        "high": 0.041979317899982944,
+        "k": 784,
+        "low": 0.03659766252932308,
         "n": 20000,
-        "rate": 0.30995
+        "rate": 0.0392
        }
       },
       "one_mix_-0.075@scripted": {
-       "expected_worlds_per_mix": 266.38005,
-       "p_band_pass_given_qualified": 0.22035597894209075,
+       "expected_worlds_per_mix": 273.46045,
+       "p_band_pass_given_qualified": 0.04622712459262973,
        "p_pass": {
-        "high": 0.22554223134932685,
-        "k": 4395,
-        "low": 0.21406540486011974,
+        "high": 0.04909445651792704,
+        "k": 922,
+        "low": 0.04327987381380474,
         "n": 20000,
-        "rate": 0.21975
+        "rate": 0.0461
        }
       },
       "one_mix_-0.125@frozen": {
-       "expected_worlds_per_mix": 274.9592,
-       "p_band_pass_given_qualified": 0.0014038606166959138,
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
        "p_pass": {
-        "high": 0.002022666621660184,
-        "k": 28,
-        "low": 0.0009688317334873483,
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
         "n": 20000,
-        "rate": 0.0014
+        "rate": 0.0
        }
       },
       "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 274.9796,
-       "p_band_pass_given_qualified": 0.000952619704186513,
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 5.0137879167711205e-05,
        "p_pass": {
-        "high": 0.0014833803364226327,
-        "k": 19,
-        "low": 0.000608290851175394,
+        "high": 0.0002831905702260402,
+        "k": 1,
+        "low": 8.826282272974824e-06,
         "n": 20000,
-        "rate": 0.00095
+        "rate": 5e-05
        }
       },
       "one_mix_-0.125@scripted": {
-       "expected_worlds_per_mix": 274.81575,
-       "p_band_pass_given_qualified": 0.00501378791677112,
+       "expected_worlds_per_mix": 274.98295,
+       "p_band_pass_given_qualified": 0.00030082727500626725,
        "p_pass": {
-        "high": 0.006077104370877246,
-        "k": 100,
-        "low": 0.004113011324666333,
+        "high": 0.0006544211207521783,
+        "k": 6,
+        "low": 0.0001374997137187844,
         "n": 20000,
-        "rate": 0.005
+        "rate": 0.0003
        }
       },
       "one_mix_-0.1@frozen": {
-       "expected_worlds_per_mix": 273.702,
-       "p_band_pass_given_qualified": 0.03920782150915016,
+       "expected_worlds_per_mix": 274.9592,
+       "p_band_pass_given_qualified": 0.0014539984958636249,
        "p_pass": {
-        "high": 0.04187604677946461,
-        "k": 782,
-        "low": 0.03650097205705264,
+        "high": 0.0020816636300105057,
+        "k": 29,
+        "low": 0.0010098155215314162,
         "n": 20000,
-        "rate": 0.0391
+        "rate": 0.00145
        }
       },
       "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 274.0157,
-       "p_band_pass_given_qualified": 0.03409375783404362,
+       "expected_worlds_per_mix": 274.9762,
+       "p_band_pass_given_qualified": 0.001203309100025069,
        "p_pass": {
-        "high": 0.03660250302263967,
-        "k": 680,
-        "low": 0.031576474581649853,
+        "high": 0.0017850135007008356,
+        "k": 24,
+        "low": 0.0008065616688691384,
         "n": 20000,
-        "rate": 0.034
+        "rate": 0.0012
        }
       },
       "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 273.34365,
-       "p_band_pass_given_qualified": 0.045124091250940086,
+       "expected_worlds_per_mix": 274.8397,
+       "p_band_pass_given_qualified": 0.005114063675106543,
        "p_pass": {
-        "high": 0.04796146480836757,
-        "k": 900,
-        "low": 0.042213288002687636,
+        "high": 0.006186714686127089,
+        "k": 102,
+        "low": 0.0042033626022052704,
         "n": 20000,
-        "rate": 0.045
+        "rate": 0.0051
        }
       }
      },
@@ -3238,181 +3238,181 @@
        }
       }
      },
-     "E_pooled_continue_mix0.075": {
+     "E_pooled_continue_mix0.1": {
       "all_-0.025": {
-       "expected_worlds_per_mix": 264.03175,
-       "p_band_pass_given_qualified": 0.3959388317874154,
+       "expected_worlds_per_mix": 245.7044,
+       "p_band_pass_given_qualified": 0.5968413136124342,
        "p_pass": {
-        "high": 0.40164412577607234,
-        "k": 7897,
-        "low": 0.3880962594065265,
+        "high": 0.6019838441434783,
+        "k": 11904,
+        "low": 0.5883795921914393,
         "n": 20000,
-        "rate": 0.39485
+        "rate": 0.5952
        }
       },
       "all_-0.05": {
-       "expected_worlds_per_mix": 274.71085,
-       "p_band_pass_given_qualified": 0.020456254700426172,
+       "expected_worlds_per_mix": 273.53195,
+       "p_band_pass_given_qualified": 0.04597643519679118,
        "p_pass": {
-        "high": 0.022453248197334224,
-        "k": 408,
-        "low": 0.01853095278768133,
+        "high": 0.048836998820805375,
+        "k": 917,
+        "low": 0.04303742752895447,
         "n": 20000,
-        "rate": 0.0204
+        "rate": 0.04585
        }
       },
       "improves_0.05_all": {
-       "expected_worlds_per_mix": 171.10995,
-       "p_band_pass_given_qualified": 0.9999498621208323,
+       "expected_worlds_per_mix": 170.21045,
+       "p_band_pass_given_qualified": 1.0,
        "p_pass": {
-        "high": 0.9978429720324211,
-        "k": 19944,
-        "low": 0.9963660673133883,
+        "high": 0.9978864699116221,
+        "k": 19945,
+        "low": 0.9964225502305817,
         "n": 20000,
-        "rate": 0.9972
+        "rate": 0.99725
        }
       },
       "no_change": {
-       "expected_worlds_per_mix": 226.0865,
-       "p_band_pass_given_qualified": 0.8634745550263224,
+       "expected_worlds_per_mix": 189.714,
+       "p_band_pass_given_qualified": 0.9794936074204061,
        "p_pass": {
-        "high": 0.8658237367157979,
-        "k": 17222,
-        "low": 0.8562375748444833,
+        "high": 0.9787965604709954,
+        "k": 19536,
+        "low": 0.9746203139459033,
         "n": 20000,
-        "rate": 0.8611
+        "rate": 0.9768
        }
       },
       "one_mix_-0.05@frozen": {
-       "expected_worlds_per_mix": 265.29625,
-       "p_band_pass_given_qualified": 0.31326146903985963,
+       "expected_worlds_per_mix": 237.20905,
+       "p_band_pass_given_qualified": 0.7243419403359238,
        "p_pass": {
-        "high": 0.318858785575566,
-        "k": 6248,
-        "low": 0.30601326635268444,
+        "high": 0.728513480471969,
+        "k": 14447,
+        "low": 0.7161011210938814,
         "n": 20000,
-        "rate": 0.3124
+        "rate": 0.72235
        }
       },
       "one_mix_-0.05@mixed": {
-       "expected_worlds_per_mix": 264.93895,
-       "p_band_pass_given_qualified": 0.34013537227375285,
+       "expected_worlds_per_mix": 235.56115,
+       "p_band_pass_given_qualified": 0.7519679117573327,
        "p_pass": {
-        "high": 0.34579171474049325,
-        "k": 6784,
-        "low": 0.33267004405515005,
+        "high": 0.7558535652733862,
+        "k": 14998,
+        "low": 0.7438504551057727,
         "n": 20000,
-        "rate": 0.3392
+        "rate": 0.7499
        }
       },
       "one_mix_-0.05@scripted": {
-       "expected_worlds_per_mix": 267.14665,
-       "p_band_pass_given_qualified": 0.22531962897969415,
+       "expected_worlds_per_mix": 247.37055,
+       "p_band_pass_given_qualified": 0.5630985209325645,
        "p_pass": {
-        "high": 0.23053710291444282,
-        "k": 4494,
-        "low": 0.21896863213804837,
+        "high": 0.5684143450900001,
+        "k": 11231,
+        "low": 0.5546620152714934,
         "n": 20000,
-        "rate": 0.2247
+        "rate": 0.56155
        }
       },
       "one_mix_-0.075@frozen": {
-       "expected_worlds_per_mix": 273.76745,
-       "p_band_pass_given_qualified": 0.04246678365505139,
+       "expected_worlds_per_mix": 264.4619,
+       "p_band_pass_given_qualified": 0.29746803710203057,
        "p_pass": {
-        "high": 0.04523002244218186,
-        "k": 847,
-        "low": 0.039645748159970705,
+        "high": 0.30301910687348027,
+        "k": 5933,
+        "low": 0.2903589941905375,
         "n": 20000,
-        "rate": 0.04235
+        "rate": 0.29665
        }
       },
       "one_mix_-0.075@mixed": {
-       "expected_worlds_per_mix": 273.9752,
-       "p_band_pass_given_qualified": 0.03930809726748558,
+       "expected_worlds_per_mix": 264.3934,
+       "p_band_pass_given_qualified": 0.31080471296064177,
        "p_pass": {
-        "high": 0.041979317899982944,
-        "k": 784,
-        "low": 0.03659766252932308,
+        "high": 0.31639541174498026,
+        "k": 6199,
+        "low": 0.3035775811599451,
         "n": 20000,
-        "rate": 0.0392
+        "rate": 0.30995
        }
       },
       "one_mix_-0.075@scripted": {
-       "expected_worlds_per_mix": 273.46045,
-       "p_band_pass_given_qualified": 0.04622712459262973,
+       "expected_worlds_per_mix": 266.38005,
+       "p_band_pass_given_qualified": 0.22035597894209075,
        "p_pass": {
-        "high": 0.04909445651792704,
-        "k": 922,
-        "low": 0.04327987381380474,
+        "high": 0.22554223134932685,
+        "k": 4395,
+        "low": 0.21406540486011974,
         "n": 20000,
-        "rate": 0.0461
+        "rate": 0.21975
        }
       },
       "one_mix_-0.125@frozen": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0,
+       "expected_worlds_per_mix": 274.9592,
+       "p_band_pass_given_qualified": 0.0014038606166959138,
        "p_pass": {
-        "high": 0.00019203605610462553,
-        "k": 0,
-        "low": 0.0,
+        "high": 0.002022666621660184,
+        "k": 28,
+        "low": 0.0009688317334873483,
         "n": 20000,
-        "rate": 0.0
+        "rate": 0.0014
        }
       },
       "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 5.0137879167711205e-05,
+       "expected_worlds_per_mix": 274.9796,
+       "p_band_pass_given_qualified": 0.000952619704186513,
        "p_pass": {
-        "high": 0.0002831905702260402,
-        "k": 1,
-        "low": 8.826282272974824e-06,
+        "high": 0.0014833803364226327,
+        "k": 19,
+        "low": 0.000608290851175394,
         "n": 20000,
-        "rate": 5e-05
+        "rate": 0.00095
        }
       },
       "one_mix_-0.125@scripted": {
-       "expected_worlds_per_mix": 274.98295,
-       "p_band_pass_given_qualified": 0.00030082727500626725,
+       "expected_worlds_per_mix": 274.81575,
+       "p_band_pass_given_qualified": 0.00501378791677112,
        "p_pass": {
-        "high": 0.0006544211207521783,
-        "k": 6,
-        "low": 0.0001374997137187844,
+        "high": 0.006077104370877246,
+        "k": 100,
+        "low": 0.004113011324666333,
         "n": 20000,
-        "rate": 0.0003
+        "rate": 0.005
        }
       },
       "one_mix_-0.1@frozen": {
-       "expected_worlds_per_mix": 274.9592,
-       "p_band_pass_given_qualified": 0.0014539984958636249,
+       "expected_worlds_per_mix": 273.702,
+       "p_band_pass_given_qualified": 0.03920782150915016,
        "p_pass": {
-        "high": 0.0020816636300105057,
-        "k": 29,
-        "low": 0.0010098155215314162,
+        "high": 0.04187604677946461,
+        "k": 782,
+        "low": 0.03650097205705264,
         "n": 20000,
-        "rate": 0.00145
+        "rate": 0.0391
        }
       },
       "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 274.9762,
-       "p_band_pass_given_qualified": 0.001203309100025069,
+       "expected_worlds_per_mix": 274.0157,
+       "p_band_pass_given_qualified": 0.03409375783404362,
        "p_pass": {
-        "high": 0.0017850135007008356,
-        "k": 24,
-        "low": 0.0008065616688691384,
+        "high": 0.03660250302263967,
+        "k": 680,
+        "low": 0.031576474581649853,
         "n": 20000,
-        "rate": 0.0012
+        "rate": 0.034
        }
       },
       "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 274.8397,
-       "p_band_pass_given_qualified": 0.005114063675106543,
+       "expected_worlds_per_mix": 273.34365,
+       "p_band_pass_given_qualified": 0.045124091250940086,
        "p_pass": {
-        "high": 0.006186714686127089,
-        "k": 102,
-        "low": 0.0042033626022052704,
+        "high": 0.04796146480836757,
+        "k": 900,
+        "low": 0.042213288002687636,
         "n": 20000,
-        "rate": 0.0051
+        "rate": 0.045
        }
       }
      },
@@ -4024,26 +4024,26 @@
      "D_pooled_final": {
       "observed_survival": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.9998495788206979,
+       "p_band_pass_given_qualified": 0.98455675892499,
        "p_pass": {
-        "high": 0.9977121408256364,
-        "k": 19941,
-        "low": 0.99619695613099,
+        "high": 0.9835622025329798,
+        "k": 19636,
+        "low": 0.9798527515233577,
         "n": 20000,
-        "rate": 0.99705
+        "rate": 0.9818
        }
       }
      },
      "E_pooled_continue": {
       "observed_survival": {
-       "expected_worlds_per_mix": 171.09355,
-       "p_band_pass_given_qualified": 0.9998495788206979,
+       "expected_worlds_per_mix": 187.8278,
+       "p_band_pass_given_qualified": 0.9824508624147613,
        "p_pass": {
-        "high": 0.9977121408256364,
-        "k": 19941,
-        "low": 0.99619695613099,
+        "high": 0.9815643265308439,
+        "k": 19594,
+        "low": 0.9776514340769292,
         "n": 20000,
-        "rate": 0.99705
+        "rate": 0.9797
        }
       }
      },
@@ -4060,16 +4060,16 @@
        }
       }
      },
-     "E_pooled_continue_mix0.075": {
+     "E_pooled_continue_mix0.1": {
       "observed_survival": {
-       "expected_worlds_per_mix": 187.8278,
-       "p_band_pass_given_qualified": 0.9824508624147613,
+       "expected_worlds_per_mix": 171.09355,
+       "p_band_pass_given_qualified": 0.9998495788206979,
        "p_pass": {
-        "high": 0.9815643265308439,
-        "k": 19594,
-        "low": 0.9776514340769292,
+        "high": 0.9977121408256364,
+        "k": 19941,
+        "low": 0.99619695613099,
         "n": 20000,
-        "rate": 0.9797
+        "rate": 0.99705
        }
       }
      },
@@ -4865,115 +4865,148 @@
      "D_pooled_final": {
       "all_-0.025": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.6383966883739715,
+       "p_band_pass_given_qualified": 0.45645918521883994,
        "p_pass": {
-        "high": 0.6389565392094232,
-        "k": 12646,
-        "low": 0.6255926480501315,
+        "high": 0.45900618984153535,
+        "k": 9042,
+        "low": 0.4452122072126395,
         "n": 20000,
-        "rate": 0.6323
+        "rate": 0.4521
        }
       },
       "all_-0.05": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.044727144227371396,
+       "p_band_pass_given_qualified": 0.0260487657125549,
        "p_pass": {
-        "high": 0.04724022648277141,
-        "k": 886,
-        "low": 0.041534795178762345,
+        "high": 0.02808992591454359,
+        "k": 516,
+        "low": 0.023692201081066032,
         "n": 20000,
-        "rate": 0.0443
+        "rate": 0.0258
        }
       },
       "improves_0.05_all": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 1.0,
+       "p_band_pass_given_qualified": 0.9997980715836237,
        "p_pass": {
-        "high": 0.9917068528547193,
-        "k": 19809,
-        "low": 0.9890047789778478,
+        "high": 0.9915207570774817,
+        "k": 19805,
+        "low": 0.9887909515695076,
         "n": 20000,
-        "rate": 0.99045
+        "rate": 0.99025
        }
       },
       "no_change": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.9797061941541724,
+       "p_band_pass_given_qualified": 0.8489575445504569,
        "p_pass": {
-        "high": 0.9726119522489758,
-        "k": 19407,
-        "low": 0.9679073994330467,
+        "high": 0.8458543368901595,
+        "k": 16817,
+        "low": 0.8357147521303939,
         "n": 20000,
-        "rate": 0.97035
+        "rate": 0.84085
        }
       },
       "one_mix_-0.05@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.8528446665657025,
+       "p_band_pass_given_qualified": 0.5186026553586753,
        "p_pass": {
-        "high": 0.8496533707287572,
-        "k": 16894,
-        "low": 0.8396142396141641,
+        "high": 0.5205736504509342,
+        "k": 10273,
+        "low": 0.5067211069647342,
         "n": 20000,
-        "rate": 0.8447
+        "rate": 0.51365
        }
       },
       "one_mix_-0.05@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.7580392750769852,
+       "p_band_pass_given_qualified": 0.316775203190469,
        "p_pass": {
-        "high": 0.7567461799261075,
-        "k": 15016,
-        "low": 0.7447574947881506,
+        "high": 0.32021606550567866,
+        "k": 6275,
+        "low": 0.3073554679252202,
         "n": 20000,
-        "rate": 0.7508
+        "rate": 0.31375
        }
       },
       "one_mix_-0.05@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.5483870967741935,
+       "p_band_pass_given_qualified": 0.22055631278711696,
        "p_pass": {
-        "high": 0.5500447221503434,
-        "k": 10863,
-        "low": 0.5362387051380147,
+        "high": 0.22423024989033344,
+        "k": 4369,
+        "low": 0.21277788561285907,
         "n": 20000,
-        "rate": 0.54315
+        "rate": 0.21845
        }
       },
       "one_mix_-0.075@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.43848755616134083,
+       "p_band_pass_given_qualified": 0.03422686657579888,
        "p_pass": {
-        "high": 0.4411814049802956,
-        "k": 8686,
-        "low": 0.4274438285574766,
+        "high": 0.0364989589873406,
+        "k": 678,
+        "low": 0.03148005702416013,
         "n": 20000,
-        "rate": 0.4343
+        "rate": 0.0339
        }
       },
       "one_mix_-0.075@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.3017315361704276,
+       "p_band_pass_given_qualified": 0.03665000757231562,
        "p_pass": {
-        "high": 0.3052321659736672,
-        "k": 5977,
-        "low": 0.2925450901317037,
+        "high": 0.03898246074516704,
+        "k": 726,
+        "low": 0.033795633493264386,
         "n": 20000,
-        "rate": 0.29885
+        "rate": 0.0363
        }
       },
       "one_mix_-0.075@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.22050583068302287,
+       "p_band_pass_given_qualified": 0.048008480993487805,
        "p_pass": {
-        "high": 0.22417978741147315,
-        "k": 4368,
-        "low": 0.21272836729532496,
+        "high": 0.050587254447584794,
+        "k": 951,
+        "low": 0.04468651897958429,
         "n": 20000,
-        "rate": 0.2184
+        "rate": 0.04755
        }
       },
       "one_mix_-0.125@frozen": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@mixed": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@scripted": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.00045433893684688776,
+       "p_pass": {
+        "high": 0.0008550921075141102,
+        "k": 9,
+        "low": 0.00023677111614002098,
+        "n": 20000,
+        "rate": 0.00045
+       }
+      },
+      "one_mix_-0.1@frozen": {
        "expected_worlds_per_mix": 275.0,
        "p_band_pass_given_qualified": 5.0482104094098645e-05,
        "p_pass": {
@@ -4984,174 +5017,174 @@
         "rate": 5e-05
        }
       },
-      "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0008581957695996769,
-       "p_pass": {
-        "high": 0.001360921109966698,
-        "k": 17,
-        "low": 0.0005307884848425495,
-        "n": 20000,
-        "rate": 0.00085
-       }
-      },
-      "one_mix_-0.125@scripted": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.006007370387197738,
-       "p_pass": {
-        "high": 0.007114836777978246,
-        "k": 119,
-        "low": 0.004974914049058734,
-        "n": 20000,
-        "rate": 0.00595
-       }
-      },
-      "one_mix_-0.1@frozen": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.025846837296178506,
-       "p_pass": {
-        "high": 0.02788166572368173,
-        "k": 512,
-        "low": 0.023500538086350335,
-        "n": 20000,
-        "rate": 0.0256
-       }
-      },
       "one_mix_-0.1@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.032106618203846735,
+       "p_band_pass_given_qualified": 0.0010096420818819728,
        "p_pass": {
-        "high": 0.03432314700397579,
-        "k": 636,
-        "low": 0.029456675558960584,
+        "high": 0.0015441859375651431,
+        "k": 20,
+        "low": 0.0006474660464272732,
         "n": 20000,
-        "rate": 0.0318
+        "rate": 0.001
        }
       },
       "one_mix_-0.1@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.04795799888939371,
+       "p_band_pass_given_qualified": 0.006057852491291837,
        "p_pass": {
-        "high": 0.05053579141067499,
-        "k": 950,
-        "low": 0.0446380012200997,
+        "high": 0.007169250547664806,
+        "k": 120,
+        "low": 0.005020481075766563,
         "n": 20000,
-        "rate": 0.0475
+        "rate": 0.006
        }
       }
      },
      "E_pooled_continue": {
       "all_-0.025": {
-       "expected_worlds_per_mix": 244.43785,
-       "p_band_pass_given_qualified": 0.6196678277550608,
+       "expected_worlds_per_mix": 261.43445,
+       "p_band_pass_given_qualified": 0.4327325962946136,
        "p_pass": {
-        "high": 0.6204753571449668,
-        "k": 12275,
-        "low": 0.6069809546522693,
+        "high": 0.43547156890393834,
+        "k": 8572,
+        "low": 0.42175585384487335,
         "n": 20000,
-        "rate": 0.61375
+        "rate": 0.4286
        }
       },
       "all_-0.05": {
-       "expected_worlds_per_mix": 273.70925,
-       "p_band_pass_given_qualified": 0.04230400323085466,
+       "expected_worlds_per_mix": 274.7076,
+       "p_band_pass_given_qualified": 0.021101519511333232,
        "p_pass": {
-        "high": 0.044765904285484374,
-        "k": 838,
-        "low": 0.039210039149118685,
+        "high": 0.02297647798809584,
+        "k": 418,
+        "low": 0.019007530960863602,
         "n": 20000,
-        "rate": 0.0419
+        "rate": 0.0209
        }
       },
       "improves_0.05_all": {
-       "expected_worlds_per_mix": 175.10675,
-       "p_band_pass_given_qualified": 1.0,
+       "expected_worlds_per_mix": 175.733,
+       "p_band_pass_given_qualified": 0.9997980715836237,
        "p_pass": {
-        "high": 0.9917068528547193,
-        "k": 19809,
-        "low": 0.9890047789778478,
+        "high": 0.9915207570774817,
+        "k": 19805,
+        "low": 0.9887909515695076,
         "n": 20000,
-        "rate": 0.99045
+        "rate": 0.99025
        }
       },
       "no_change": {
-       "expected_worlds_per_mix": 190.04735,
-       "p_band_pass_given_qualified": 0.9768791963249028,
+       "expected_worlds_per_mix": 224.5847,
+       "p_band_pass_given_qualified": 0.8378514816497552,
        "p_pass": {
-        "high": 0.9699173291642932,
-        "k": 19351,
-        "low": 0.9650030979196434,
+        "high": 0.83499427700753,
+        "k": 16597,
+        "low": 0.8245790368062578,
         "n": 20000,
-        "rate": 0.96755
+        "rate": 0.82985
        }
       },
       "one_mix_-0.05@frozen": {
-       "expected_worlds_per_mix": 225.03305,
-       "p_band_pass_given_qualified": 0.8415366752486244,
+       "expected_worlds_per_mix": 260.3108,
+       "p_band_pass_given_qualified": 0.49230147912565,
        "p_pass": {
-        "high": 0.8385987491555525,
-        "k": 16670,
-        "low": 0.8282731627950256,
+        "high": 0.4945291042986192,
+        "k": 9752,
+        "low": 0.4806756581955721,
         "n": 20000,
-        "rate": 0.8335
+        "rate": 0.4876
        }
       },
       "one_mix_-0.05@mixed": {
-       "expected_worlds_per_mix": 238.6412,
-       "p_band_pass_given_qualified": 0.740067646019486,
+       "expected_worlds_per_mix": 266.40455,
+       "p_band_pass_given_qualified": 0.29673380786511183,
        "p_pass": {
-        "high": 0.7390859627879653,
-        "k": 14660,
-        "low": 0.7268245484098899,
+        "high": 0.3002525355145478,
+        "k": 5878,
+        "low": 0.28762662174777853,
         "n": 20000,
-        "rate": 0.733
+        "rate": 0.2939
        }
       },
       "one_mix_-0.05@scripted": {
-       "expected_worlds_per_mix": 248.26475,
-       "p_band_pass_given_qualified": 0.5348578928769752,
+       "expected_worlds_per_mix": 266.65045,
+       "p_band_pass_given_qualified": 0.21515472764904842,
        "p_pass": {
-        "high": 0.5366608672061572,
-        "k": 10595,
-        "low": 0.5228277066485045,
+        "high": 0.2188300623289902,
+        "k": 4262,
+        "low": 0.20748012796000262,
         "n": 20000,
-        "rate": 0.52975
+        "rate": 0.2131
        }
       },
       "one_mix_-0.075@frozen": {
-       "expected_worlds_per_mix": 262.3437,
-       "p_band_pass_given_qualified": 0.41127770205462166,
+       "expected_worlds_per_mix": 274.42865,
+       "p_band_pass_given_qualified": 0.0297339593114241,
        "p_pass": {
-        "high": 0.4141766752178737,
-        "k": 8147,
-        "low": 0.4005589090633225,
+        "high": 0.031884946515241264,
+        "k": 589,
+        "low": 0.027195778617158793,
         "n": 20000,
-        "rate": 0.40735
+        "rate": 0.02945
        }
       },
       "one_mix_-0.075@mixed": {
-       "expected_worlds_per_mix": 265.98455,
-       "p_band_pass_given_qualified": 0.2824473724064819,
+       "expected_worlds_per_mix": 274.1561,
+       "p_band_pass_given_qualified": 0.033166742389822805,
        "p_pass": {
-        "high": 0.2860128362626574,
-        "k": 5595,
-        "low": 0.27357175562005676,
+        "high": 0.03541138960554603,
+        "k": 657,
+        "low": 0.030468029681672518,
         "n": 20000,
-        "rate": 0.27975
+        "rate": 0.03285
        }
       },
       "one_mix_-0.075@scripted": {
-       "expected_worlds_per_mix": 266.14215,
-       "p_band_pass_given_qualified": 0.215457620273613,
+       "expected_worlds_per_mix": 273.1016,
+       "p_band_pass_given_qualified": 0.04871523045080519,
        "p_pass": {
-        "high": 0.21913291442594315,
-        "k": 4268,
-        "low": 0.20777716064141602,
+        "high": 0.05130764335429101,
+        "k": 965,
+        "low": 0.04536586122239952,
         "n": 20000,
-        "rate": 0.2134
+        "rate": 0.04825
        }
       },
       "one_mix_-0.125@frozen": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@mixed": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@scripted": {
+       "expected_worlds_per_mix": 274.9795,
+       "p_band_pass_given_qualified": 0.0005048210409409864,
+       "p_pass": {
+        "high": 0.0009202228750329448,
+        "k": 10,
+        "low": 0.000271621145015576,
+        "n": 20000,
+        "rate": 0.0005
+       }
+      },
+      "one_mix_-0.1@frozen": {
        "expected_worlds_per_mix": 275.0,
        "p_band_pass_given_qualified": 5.0482104094098645e-05,
        "p_pass": {
@@ -5162,19 +5195,19 @@
         "rate": 5e-05
        }
       },
-      "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 274.9727,
-       "p_band_pass_given_qualified": 0.0008581957695996769,
+      "one_mix_-0.1@mixed": {
+       "expected_worlds_per_mix": 274.97615,
+       "p_band_pass_given_qualified": 0.0009591599777878742,
        "p_pass": {
-        "high": 0.001360921109966698,
-        "k": 17,
-        "low": 0.0005307884848425495,
+        "high": 0.0014833803364226327,
+        "k": 19,
+        "low": 0.000608290851175394,
         "n": 20000,
-        "rate": 0.00085
+        "rate": 0.00095
        }
       },
-      "one_mix_-0.125@scripted": {
-       "expected_worlds_per_mix": 274.73405,
+      "one_mix_-0.1@scripted": {
+       "expected_worlds_per_mix": 274.7409,
        "p_band_pass_given_qualified": 0.006764601948609218,
        "p_pass": {
         "high": 0.007929189456625414,
@@ -5182,39 +5215,6 @@
         "low": 0.00566027331632741,
         "n": 20000,
         "rate": 0.0067
-       }
-      },
-      "one_mix_-0.1@frozen": {
-       "expected_worlds_per_mix": 274.54405,
-       "p_band_pass_given_qualified": 0.022515018425967995,
-       "p_pass": {
-        "high": 0.024439984111246746,
-        "k": 446,
-        "low": 0.020343487136755607,
-        "n": 20000,
-        "rate": 0.0223
-       }
-      },
-      "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 274.2033,
-       "p_band_pass_given_qualified": 0.02933010247867131,
-       "p_pass": {
-        "high": 0.03146955230265307,
-        "k": 581,
-        "low": 0.026811326458591873,
-        "n": 20000,
-        "rate": 0.02905
-       }
-      },
-      "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 273.00885,
-       "p_band_pass_given_qualified": 0.048967640971275685,
-       "p_pass": {
-        "high": 0.05156488317593174,
-        "k": 970,
-        "low": 0.04560852538273074,
-        "n": 20000,
-        "rate": 0.0485
        }
       }
      },
@@ -5396,151 +5396,118 @@
        }
       }
      },
-     "E_pooled_continue_mix0.075": {
+     "E_pooled_continue_mix0.1": {
       "all_-0.025": {
-       "expected_worlds_per_mix": 261.43445,
-       "p_band_pass_given_qualified": 0.4327325962946136,
+       "expected_worlds_per_mix": 244.43785,
+       "p_band_pass_given_qualified": 0.6196678277550608,
        "p_pass": {
-        "high": 0.43547156890393834,
-        "k": 8572,
-        "low": 0.42175585384487335,
+        "high": 0.6204753571449668,
+        "k": 12275,
+        "low": 0.6069809546522693,
         "n": 20000,
-        "rate": 0.4286
+        "rate": 0.61375
        }
       },
       "all_-0.05": {
-       "expected_worlds_per_mix": 274.7076,
-       "p_band_pass_given_qualified": 0.021101519511333232,
+       "expected_worlds_per_mix": 273.70925,
+       "p_band_pass_given_qualified": 0.04230400323085466,
        "p_pass": {
-        "high": 0.02297647798809584,
-        "k": 418,
-        "low": 0.019007530960863602,
+        "high": 0.044765904285484374,
+        "k": 838,
+        "low": 0.039210039149118685,
         "n": 20000,
-        "rate": 0.0209
+        "rate": 0.0419
        }
       },
       "improves_0.05_all": {
-       "expected_worlds_per_mix": 175.733,
-       "p_band_pass_given_qualified": 0.9997980715836237,
+       "expected_worlds_per_mix": 175.10675,
+       "p_band_pass_given_qualified": 1.0,
        "p_pass": {
-        "high": 0.9915207570774817,
-        "k": 19805,
-        "low": 0.9887909515695076,
+        "high": 0.9917068528547193,
+        "k": 19809,
+        "low": 0.9890047789778478,
         "n": 20000,
-        "rate": 0.99025
+        "rate": 0.99045
        }
       },
       "no_change": {
-       "expected_worlds_per_mix": 224.5847,
-       "p_band_pass_given_qualified": 0.8378514816497552,
+       "expected_worlds_per_mix": 190.04735,
+       "p_band_pass_given_qualified": 0.9768791963249028,
        "p_pass": {
-        "high": 0.83499427700753,
-        "k": 16597,
-        "low": 0.8245790368062578,
+        "high": 0.9699173291642932,
+        "k": 19351,
+        "low": 0.9650030979196434,
         "n": 20000,
-        "rate": 0.82985
+        "rate": 0.96755
        }
       },
       "one_mix_-0.05@frozen": {
-       "expected_worlds_per_mix": 260.3108,
-       "p_band_pass_given_qualified": 0.49230147912565,
+       "expected_worlds_per_mix": 225.03305,
+       "p_band_pass_given_qualified": 0.8415366752486244,
        "p_pass": {
-        "high": 0.4945291042986192,
-        "k": 9752,
-        "low": 0.4806756581955721,
+        "high": 0.8385987491555525,
+        "k": 16670,
+        "low": 0.8282731627950256,
         "n": 20000,
-        "rate": 0.4876
+        "rate": 0.8335
        }
       },
       "one_mix_-0.05@mixed": {
-       "expected_worlds_per_mix": 266.40455,
-       "p_band_pass_given_qualified": 0.29673380786511183,
+       "expected_worlds_per_mix": 238.6412,
+       "p_band_pass_given_qualified": 0.740067646019486,
        "p_pass": {
-        "high": 0.3002525355145478,
-        "k": 5878,
-        "low": 0.28762662174777853,
+        "high": 0.7390859627879653,
+        "k": 14660,
+        "low": 0.7268245484098899,
         "n": 20000,
-        "rate": 0.2939
+        "rate": 0.733
        }
       },
       "one_mix_-0.05@scripted": {
-       "expected_worlds_per_mix": 266.65045,
-       "p_band_pass_given_qualified": 0.21515472764904842,
+       "expected_worlds_per_mix": 248.26475,
+       "p_band_pass_given_qualified": 0.5348578928769752,
        "p_pass": {
-        "high": 0.2188300623289902,
-        "k": 4262,
-        "low": 0.20748012796000262,
+        "high": 0.5366608672061572,
+        "k": 10595,
+        "low": 0.5228277066485045,
         "n": 20000,
-        "rate": 0.2131
+        "rate": 0.52975
        }
       },
       "one_mix_-0.075@frozen": {
-       "expected_worlds_per_mix": 274.42865,
-       "p_band_pass_given_qualified": 0.0297339593114241,
+       "expected_worlds_per_mix": 262.3437,
+       "p_band_pass_given_qualified": 0.41127770205462166,
        "p_pass": {
-        "high": 0.031884946515241264,
-        "k": 589,
-        "low": 0.027195778617158793,
+        "high": 0.4141766752178737,
+        "k": 8147,
+        "low": 0.4005589090633225,
         "n": 20000,
-        "rate": 0.02945
+        "rate": 0.40735
        }
       },
       "one_mix_-0.075@mixed": {
-       "expected_worlds_per_mix": 274.1561,
-       "p_band_pass_given_qualified": 0.033166742389822805,
+       "expected_worlds_per_mix": 265.98455,
+       "p_band_pass_given_qualified": 0.2824473724064819,
        "p_pass": {
-        "high": 0.03541138960554603,
-        "k": 657,
-        "low": 0.030468029681672518,
+        "high": 0.2860128362626574,
+        "k": 5595,
+        "low": 0.27357175562005676,
         "n": 20000,
-        "rate": 0.03285
+        "rate": 0.27975
        }
       },
       "one_mix_-0.075@scripted": {
-       "expected_worlds_per_mix": 273.1016,
-       "p_band_pass_given_qualified": 0.04871523045080519,
+       "expected_worlds_per_mix": 266.14215,
+       "p_band_pass_given_qualified": 0.215457620273613,
        "p_pass": {
-        "high": 0.05130764335429101,
-        "k": 965,
-        "low": 0.04536586122239952,
+        "high": 0.21913291442594315,
+        "k": 4268,
+        "low": 0.20777716064141602,
         "n": 20000,
-        "rate": 0.04825
+        "rate": 0.2134
        }
       },
       "one_mix_-0.125@frozen": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0,
-       "p_pass": {
-        "high": 0.00019203605610462553,
-        "k": 0,
-        "low": 0.0,
-        "n": 20000,
-        "rate": 0.0
-       }
-      },
-      "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0,
-       "p_pass": {
-        "high": 0.00019203605610462553,
-        "k": 0,
-        "low": 0.0,
-        "n": 20000,
-        "rate": 0.0
-       }
-      },
-      "one_mix_-0.125@scripted": {
-       "expected_worlds_per_mix": 274.9795,
-       "p_band_pass_given_qualified": 0.0005048210409409864,
-       "p_pass": {
-        "high": 0.0009202228750329448,
-        "k": 10,
-        "low": 0.000271621145015576,
-        "n": 20000,
-        "rate": 0.0005
-       }
-      },
-      "one_mix_-0.1@frozen": {
        "expected_worlds_per_mix": 275.0,
        "p_band_pass_given_qualified": 5.0482104094098645e-05,
        "p_pass": {
@@ -5551,19 +5518,19 @@
         "rate": 5e-05
        }
       },
-      "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 274.97615,
-       "p_band_pass_given_qualified": 0.0009591599777878742,
+      "one_mix_-0.125@mixed": {
+       "expected_worlds_per_mix": 274.9727,
+       "p_band_pass_given_qualified": 0.0008581957695996769,
        "p_pass": {
-        "high": 0.0014833803364226327,
-        "k": 19,
-        "low": 0.000608290851175394,
+        "high": 0.001360921109966698,
+        "k": 17,
+        "low": 0.0005307884848425495,
         "n": 20000,
-        "rate": 0.00095
+        "rate": 0.00085
        }
       },
-      "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 274.7409,
+      "one_mix_-0.125@scripted": {
+       "expected_worlds_per_mix": 274.73405,
        "p_band_pass_given_qualified": 0.006764601948609218,
        "p_pass": {
         "high": 0.007929189456625414,
@@ -5571,6 +5538,39 @@
         "low": 0.00566027331632741,
         "n": 20000,
         "rate": 0.0067
+       }
+      },
+      "one_mix_-0.1@frozen": {
+       "expected_worlds_per_mix": 274.54405,
+       "p_band_pass_given_qualified": 0.022515018425967995,
+       "p_pass": {
+        "high": 0.024439984111246746,
+        "k": 446,
+        "low": 0.020343487136755607,
+        "n": 20000,
+        "rate": 0.0223
+       }
+      },
+      "one_mix_-0.1@mixed": {
+       "expected_worlds_per_mix": 274.2033,
+       "p_band_pass_given_qualified": 0.02933010247867131,
+       "p_pass": {
+        "high": 0.03146955230265307,
+        "k": 581,
+        "low": 0.026811326458591873,
+        "n": 20000,
+        "rate": 0.02905
+       }
+      },
+      "one_mix_-0.1@scripted": {
+       "expected_worlds_per_mix": 273.00885,
+       "p_band_pass_given_qualified": 0.048967640971275685,
+       "p_pass": {
+        "high": 0.05156488317593174,
+        "k": 970,
+        "low": 0.04560852538273074,
+        "n": 20000,
+        "rate": 0.0485
        }
       }
      },
@@ -6842,115 +6842,148 @@
      "D_pooled_final": {
       "all_-0.025": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.6302643481756961,
+       "p_band_pass_given_qualified": 0.4508493315911147,
        "p_pass": {
-        "high": 0.6337270807909463,
-        "k": 12541,
-        "low": 0.6203241228471974,
+        "high": 0.4554519606754961,
+        "k": 8971,
+        "low": 0.4416677998346771,
         "n": 20000,
-        "rate": 0.62705
+        "rate": 0.44855
        }
       },
       "all_-0.05": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.04523067644989446,
+       "p_band_pass_given_qualified": 0.02618353603377224,
        "p_pass": {
-        "high": 0.04796146480836757,
-        "k": 900,
-        "low": 0.042213288002687636,
+        "high": 0.028350202428133534,
+        "k": 521,
+        "low": 0.023931828549448038,
         "n": 20000,
-        "rate": 0.045
+        "rate": 0.02605
        }
       },
       "improves_0.05_all": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 1.0,
+       "p_band_pass_given_qualified": 0.9998492310785003,
        "p_pass": {
-        "high": 0.9957966373977948,
-        "k": 19898,
-        "low": 0.9938132853138729,
+        "high": 0.9956609340812566,
+        "k": 19895,
+        "low": 0.993649046241228,
         "n": 20000,
-        "rate": 0.9949
+        "rate": 0.99475
        }
       },
       "no_change": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.9757262036385567,
+       "p_band_pass_given_qualified": 0.843753141019198,
        "p_pass": {
-        "high": 0.972996461908489,
-        "k": 19415,
-        "low": 0.9683227361446884,
+        "high": 0.8444726084266433,
+        "k": 16789,
+        "low": 0.8342970182948674,
         "n": 20000,
-        "rate": 0.97075
+        "rate": 0.83945
        }
       },
       "one_mix_-0.05@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.8532013267665092,
+       "p_band_pass_given_qualified": 0.5253794351191075,
        "p_pass": {
-        "high": 0.8537472221685835,
-        "k": 16977,
-        "low": 0.8438187942750722,
+        "high": 0.5296173514638356,
+        "k": 10454,
+        "low": 0.5157739300992175,
         "n": 20000,
-        "rate": 0.84885
+        "rate": 0.5227
        }
       },
       "one_mix_-0.05@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.751181023218414,
+       "p_band_pass_given_qualified": 0.30545783495828727,
        "p_pass": {
-        "high": 0.7533243032643976,
-        "k": 14947,
-        "low": 0.7412806964986473,
+        "high": 0.310311483284393,
+        "k": 6078,
+        "low": 0.2975638332568113,
         "n": 20000,
-        "rate": 0.74735
+        "rate": 0.3039
        }
       },
       "one_mix_-0.05@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.5487988742587194,
+       "p_band_pass_given_qualified": 0.22062518846115187,
        "p_pass": {
-        "high": 0.5528906405072497,
-        "k": 10920,
-        "low": 0.5390916921755887,
+        "high": 0.22528993364132446,
+        "k": 4390,
+        "low": 0.21381779858615022,
         "n": 20000,
-        "rate": 0.546
+        "rate": 0.2195
        }
       },
       "one_mix_-0.075@frozen": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.43798371695647803,
+       "p_band_pass_given_qualified": 0.03633531008141522,
        "p_pass": {
-        "high": 0.44263375952464895,
-        "k": 8715,
-        "low": 0.4288909171085606,
+        "high": 0.038827334201844754,
+        "k": 723,
+        "low": 0.033650817647403505,
         "n": 20000,
-        "rate": 0.43575
+        "rate": 0.03615
        }
       },
       "one_mix_-0.075@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.2912353000301538,
+       "p_band_pass_given_qualified": 0.03839581867524374,
        "p_pass": {
-        "high": 0.29607700252625113,
-        "k": 5795,
-        "low": 0.2835037486353409,
+        "high": 0.040946390886033426,
+        "k": 764,
+        "low": 0.03563097361538481,
         "n": 20000,
-        "rate": 0.28975
+        "rate": 0.0382
        }
       },
       "one_mix_-0.075@scripted": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.22072570107548498,
+       "p_band_pass_given_qualified": 0.050959895466881094,
        "p_pass": {
-        "high": 0.22539085309061888,
-        "k": 4392,
-        "low": 0.21391684072964454,
+        "high": 0.0538276705998262,
+        "k": 1014,
+        "low": 0.04774489300018943,
         "n": 20000,
-        "rate": 0.2196
+        "rate": 0.0507
        }
       },
       "one_mix_-0.125@frozen": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@mixed": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@scripted": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0003517941501658458,
+       "p_pass": {
+        "high": 0.0007223484532697996,
+        "k": 7,
+        "low": 0.00016955317759555281,
+        "n": 20000,
+        "rate": 0.00035
+       }
+      },
+      "one_mix_-0.1@frozen": {
        "expected_worlds_per_mix": 275.0,
        "p_band_pass_given_qualified": 0.0001005126143330988,
        "p_pass": {
@@ -6961,18 +6994,18 @@
         "rate": 0.0001
        }
       },
-      "one_mix_-0.125@mixed": {
+      "one_mix_-0.1@mixed": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.001256407679163735,
+       "p_band_pass_given_qualified": 0.0014574329078299326,
        "p_pass": {
-        "high": 0.0018446952464811046,
-        "k": 25,
-        "low": 0.000846860719483259,
+        "high": 0.0020816636300105057,
+        "k": 29,
+        "low": 0.0010098155215314162,
         "n": 20000,
-        "rate": 0.00125
+        "rate": 0.00145
        }
       },
-      "one_mix_-0.125@scripted": {
+      "one_mix_-0.1@scripted": {
        "expected_worlds_per_mix": 275.0,
        "p_band_pass_given_qualified": 0.005678962709820082,
        "p_pass": {
@@ -6982,153 +7015,153 @@
         "n": 20000,
         "rate": 0.00565
        }
-      },
-      "one_mix_-0.1@frozen": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.027942506784601466,
-       "p_pass": {
-        "high": 0.030170682051207015,
-        "k": 556,
-        "low": 0.025610676800178186,
-        "n": 20000,
-        "rate": 0.0278
-       }
-      },
-      "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.033571213187255,
-       "p_pass": {
-        "high": 0.035981150814875004,
-        "k": 668,
-        "low": 0.030998057232681828,
-        "n": 20000,
-        "rate": 0.0334
-       }
-      },
-      "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0507588702382149,
-       "p_pass": {
-        "high": 0.0536220296892639,
-        "k": 1010,
-        "low": 0.047550610725174164,
-        "n": 20000,
-        "rate": 0.0505
-       }
       }
      },
      "E_pooled_continue": {
       "all_-0.025": {
-       "expected_worlds_per_mix": 244.4196,
-       "p_band_pass_given_qualified": 0.6142828424967334,
+       "expected_worlds_per_mix": 261.5835,
+       "p_band_pass_given_qualified": 0.4275304050658358,
        "p_pass": {
-        "high": 0.6178841710319002,
-        "k": 12223,
-        "low": 0.6043731393528277,
+        "high": 0.43221554524501243,
+        "k": 8507,
+        "low": 0.41851312573816396,
         "n": 20000,
-        "rate": 0.61115
+        "rate": 0.42535
        }
       },
       "all_-0.05": {
-       "expected_worlds_per_mix": 273.6482,
-       "p_band_pass_given_qualified": 0.04246657955573425,
+       "expected_worlds_per_mix": 274.72435,
+       "p_band_pass_given_qualified": 0.022414312996281032,
        "p_pass": {
-        "high": 0.045126892530823914,
-        "k": 845,
-        "low": 0.03954891647853988,
+        "high": 0.024439984111246746,
+        "k": 446,
+        "low": 0.020343487136755607,
         "n": 20000,
-        "rate": 0.04225
+        "rate": 0.0223
        }
       },
       "improves_0.05_all": {
-       "expected_worlds_per_mix": 162.34195,
-       "p_band_pass_given_qualified": 1.0,
+       "expected_worlds_per_mix": 165.2771,
+       "p_band_pass_given_qualified": 0.9997989747713338,
        "p_pass": {
-        "high": 0.9957966373977948,
-        "k": 19898,
-        "low": 0.9938132853138729,
+        "high": 0.9956156539321652,
+        "k": 19894,
+        "low": 0.9935943455939249,
         "n": 20000,
-        "rate": 0.9949
+        "rate": 0.9947
        }
       },
       "no_change": {
-       "expected_worlds_per_mix": 188.70105,
-       "p_band_pass_given_qualified": 0.9722082621368981,
+       "expected_worlds_per_mix": 225.4914,
+       "p_band_pass_given_qualified": 0.8323952155995578,
        "p_pass": {
-        "high": 0.9696283192542254,
-        "k": 19345,
-        "low": 0.9646922230513448,
+        "high": 0.8333151835741253,
+        "k": 16563,
+        "low": 0.8228587831622534,
         "n": 20000,
-        "rate": 0.96725
+        "rate": 0.82815
        }
       },
       "one_mix_-0.05@frozen": {
-       "expected_worlds_per_mix": 225.20675,
-       "p_band_pass_given_qualified": 0.8405869936677053,
+       "expected_worlds_per_mix": 260.25575,
+       "p_band_pass_given_qualified": 0.4946225751331792,
        "p_pass": {
-        "high": 0.8413632199946897,
-        "k": 16726,
-        "low": 0.8311076165539744,
+        "high": 0.4990295060684835,
+        "k": 9842,
+        "low": 0.48517352810120296,
         "n": 20000,
-        "rate": 0.8363
+        "rate": 0.4921
        }
       },
       "one_mix_-0.05@mixed": {
-       "expected_worlds_per_mix": 238.70945,
-       "p_band_pass_given_qualified": 0.7315810634234596,
+       "expected_worlds_per_mix": 266.3217,
+       "p_band_pass_given_qualified": 0.2880691526786612,
        "p_pass": {
-        "high": 0.7339740040779346,
-        "k": 14557,
-        "low": 0.7216384850912985,
+        "high": 0.29290719593337067,
+        "k": 5732,
+        "low": 0.28037476505537484,
         "n": 20000,
-        "rate": 0.72785
+        "rate": 0.2866
        }
       },
       "one_mix_-0.05@scripted": {
-       "expected_worlds_per_mix": 248.41535,
-       "p_band_pass_given_qualified": 0.5345260830234194,
+       "expected_worlds_per_mix": 266.6718,
+       "p_band_pass_given_qualified": 0.21368981807216805,
        "p_pass": {
-        "high": 0.5387087220131999,
-        "k": 10636,
-        "low": 0.5248790644936321,
+        "high": 0.21832529874360657,
+        "k": 4252,
+        "low": 0.20698508358144235,
         "n": 20000,
-        "rate": 0.5318
+        "rate": 0.2126
        }
       },
       "one_mix_-0.075@frozen": {
-       "expected_worlds_per_mix": 262.1399,
-       "p_band_pass_given_qualified": 0.4098401849432104,
+       "expected_worlds_per_mix": 274.3605,
+       "p_band_pass_given_qualified": 0.03095788521459443,
        "p_pass": {
-        "high": 0.4145776410981084,
-        "k": 8155,
-        "low": 0.40095778955424294,
+        "high": 0.03328606993907565,
+        "k": 616,
+        "low": 0.028494136695972925,
         "n": 20000,
-        "rate": 0.40775
+        "rate": 0.0308
        }
       },
       "one_mix_-0.075@mixed": {
-       "expected_worlds_per_mix": 265.96785,
-       "p_band_pass_given_qualified": 0.27480148758669215,
+       "expected_worlds_per_mix": 274.07415,
+       "p_band_pass_given_qualified": 0.035732234395416625,
        "p_pass": {
-        "high": 0.2796201102818009,
-        "k": 5468,
-        "low": 0.2672669204588257,
+        "high": 0.03820670769095522,
+        "k": 711,
+        "low": 0.03307167460156036,
         "n": 20000,
-        "rate": 0.2734
+        "rate": 0.03555
        }
       },
       "one_mix_-0.075@scripted": {
-       "expected_worlds_per_mix": 266.0753,
-       "p_band_pass_given_qualified": 0.21439340637249976,
+       "expected_worlds_per_mix": 273.2488,
+       "p_band_pass_given_qualified": 0.049502462559051164,
        "p_pass": {
-        "high": 0.21903196423087806,
-        "k": 4266,
-        "low": 0.20767814924369227,
+        "high": 0.05233647241501892,
+        "k": 985,
+        "low": 0.04633664808955941,
         "n": 20000,
-        "rate": 0.2133
+        "rate": 0.04925
        }
       },
       "one_mix_-0.125@frozen": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@mixed": {
+       "expected_worlds_per_mix": 275.0,
+       "p_band_pass_given_qualified": 0.0,
+       "p_pass": {
+        "high": 0.00019203605610462553,
+        "k": 0,
+        "low": 0.0,
+        "n": 20000,
+        "rate": 0.0
+       }
+      },
+      "one_mix_-0.125@scripted": {
+       "expected_worlds_per_mix": 274.9693,
+       "p_band_pass_given_qualified": 0.0004523067644989446,
+       "p_pass": {
+        "high": 0.0008550921075141102,
+        "k": 9,
+        "low": 0.00023677111614002098,
+        "n": 20000,
+        "rate": 0.00045
+       }
+      },
+      "one_mix_-0.1@frozen": {
        "expected_worlds_per_mix": 274.9966,
        "p_band_pass_given_qualified": 0.0001507689214996482,
        "p_pass": {
@@ -7139,18 +7172,18 @@
         "rate": 0.00015
        }
       },
-      "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 274.9591,
-       "p_band_pass_given_qualified": 0.0009548698361644386,
+      "one_mix_-0.1@mixed": {
+       "expected_worlds_per_mix": 274.96595,
+       "p_band_pass_given_qualified": 0.0011558950648306362,
        "p_pass": {
-        "high": 0.0014833803364226327,
-        "k": 19,
-        "low": 0.000608290851175394,
+        "high": 0.0017251348523248564,
+        "k": 23,
+        "low": 0.0007664595208507284,
         "n": 20000,
-        "rate": 0.00095
+        "rate": 0.00115
        }
       },
-      "one_mix_-0.125@scripted": {
+      "one_mix_-0.1@scripted": {
        "expected_worlds_per_mix": 274.7853,
        "p_band_pass_given_qualified": 0.005779475324153181,
        "p_pass": {
@@ -7159,39 +7192,6 @@
         "low": 0.004792836464323753,
         "n": 20000,
         "rate": 0.00575
-       }
-      },
-      "one_mix_-0.1@frozen": {
-       "expected_worlds_per_mix": 274.4791,
-       "p_band_pass_given_qualified": 0.023922002211277514,
-       "p_pass": {
-        "high": 0.026005695400639312,
-        "k": 476,
-        "low": 0.021777199739194734,
-        "n": 20000,
-        "rate": 0.0238
-       }
-      },
-      "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 274.1078,
-       "p_band_pass_given_qualified": 0.031510704593426475,
-       "p_pass": {
-        "high": 0.03385654328752186,
-        "k": 627,
-        "low": 0.029023452107865003,
-        "n": 20000,
-        "rate": 0.03135
-       }
-      },
-      "one_mix_-0.1@scripted": {
-       "expected_worlds_per_mix": 273.1906,
-       "p_band_pass_given_qualified": 0.049502462559051164,
-       "p_pass": {
-        "high": 0.05233647241501892,
-        "k": 985,
-        "low": 0.04633664808955941,
-        "n": 20000,
-        "rate": 0.04925
        }
       }
      },
@@ -7373,151 +7373,118 @@
        }
       }
      },
-     "E_pooled_continue_mix0.075": {
+     "E_pooled_continue_mix0.1": {
       "all_-0.025": {
-       "expected_worlds_per_mix": 261.5835,
-       "p_band_pass_given_qualified": 0.4275304050658358,
+       "expected_worlds_per_mix": 244.4196,
+       "p_band_pass_given_qualified": 0.6142828424967334,
        "p_pass": {
-        "high": 0.43221554524501243,
-        "k": 8507,
-        "low": 0.41851312573816396,
+        "high": 0.6178841710319002,
+        "k": 12223,
+        "low": 0.6043731393528277,
         "n": 20000,
-        "rate": 0.42535
+        "rate": 0.61115
        }
       },
       "all_-0.05": {
-       "expected_worlds_per_mix": 274.72435,
-       "p_band_pass_given_qualified": 0.022414312996281032,
+       "expected_worlds_per_mix": 273.6482,
+       "p_band_pass_given_qualified": 0.04246657955573425,
        "p_pass": {
-        "high": 0.024439984111246746,
-        "k": 446,
-        "low": 0.020343487136755607,
+        "high": 0.045126892530823914,
+        "k": 845,
+        "low": 0.03954891647853988,
         "n": 20000,
-        "rate": 0.0223
+        "rate": 0.04225
        }
       },
       "improves_0.05_all": {
-       "expected_worlds_per_mix": 165.2771,
-       "p_band_pass_given_qualified": 0.9997989747713338,
+       "expected_worlds_per_mix": 162.34195,
+       "p_band_pass_given_qualified": 1.0,
        "p_pass": {
-        "high": 0.9956156539321652,
-        "k": 19894,
-        "low": 0.9935943455939249,
+        "high": 0.9957966373977948,
+        "k": 19898,
+        "low": 0.9938132853138729,
         "n": 20000,
-        "rate": 0.9947
+        "rate": 0.9949
        }
       },
       "no_change": {
-       "expected_worlds_per_mix": 225.4914,
-       "p_band_pass_given_qualified": 0.8323952155995578,
+       "expected_worlds_per_mix": 188.70105,
+       "p_band_pass_given_qualified": 0.9722082621368981,
        "p_pass": {
-        "high": 0.8333151835741253,
-        "k": 16563,
-        "low": 0.8228587831622534,
+        "high": 0.9696283192542254,
+        "k": 19345,
+        "low": 0.9646922230513448,
         "n": 20000,
-        "rate": 0.82815
+        "rate": 0.96725
        }
       },
       "one_mix_-0.05@frozen": {
-       "expected_worlds_per_mix": 260.25575,
-       "p_band_pass_given_qualified": 0.4946225751331792,
+       "expected_worlds_per_mix": 225.20675,
+       "p_band_pass_given_qualified": 0.8405869936677053,
        "p_pass": {
-        "high": 0.4990295060684835,
-        "k": 9842,
-        "low": 0.48517352810120296,
+        "high": 0.8413632199946897,
+        "k": 16726,
+        "low": 0.8311076165539744,
         "n": 20000,
-        "rate": 0.4921
+        "rate": 0.8363
        }
       },
       "one_mix_-0.05@mixed": {
-       "expected_worlds_per_mix": 266.3217,
-       "p_band_pass_given_qualified": 0.2880691526786612,
+       "expected_worlds_per_mix": 238.70945,
+       "p_band_pass_given_qualified": 0.7315810634234596,
        "p_pass": {
-        "high": 0.29290719593337067,
-        "k": 5732,
-        "low": 0.28037476505537484,
+        "high": 0.7339740040779346,
+        "k": 14557,
+        "low": 0.7216384850912985,
         "n": 20000,
-        "rate": 0.2866
+        "rate": 0.72785
        }
       },
       "one_mix_-0.05@scripted": {
-       "expected_worlds_per_mix": 266.6718,
-       "p_band_pass_given_qualified": 0.21368981807216805,
+       "expected_worlds_per_mix": 248.41535,
+       "p_band_pass_given_qualified": 0.5345260830234194,
        "p_pass": {
-        "high": 0.21832529874360657,
-        "k": 4252,
-        "low": 0.20698508358144235,
+        "high": 0.5387087220131999,
+        "k": 10636,
+        "low": 0.5248790644936321,
         "n": 20000,
-        "rate": 0.2126
+        "rate": 0.5318
        }
       },
       "one_mix_-0.075@frozen": {
-       "expected_worlds_per_mix": 274.3605,
-       "p_band_pass_given_qualified": 0.03095788521459443,
+       "expected_worlds_per_mix": 262.1399,
+       "p_band_pass_given_qualified": 0.4098401849432104,
        "p_pass": {
-        "high": 0.03328606993907565,
-        "k": 616,
-        "low": 0.028494136695972925,
+        "high": 0.4145776410981084,
+        "k": 8155,
+        "low": 0.40095778955424294,
         "n": 20000,
-        "rate": 0.0308
+        "rate": 0.40775
        }
       },
       "one_mix_-0.075@mixed": {
-       "expected_worlds_per_mix": 274.07415,
-       "p_band_pass_given_qualified": 0.035732234395416625,
+       "expected_worlds_per_mix": 265.96785,
+       "p_band_pass_given_qualified": 0.27480148758669215,
        "p_pass": {
-        "high": 0.03820670769095522,
-        "k": 711,
-        "low": 0.03307167460156036,
+        "high": 0.2796201102818009,
+        "k": 5468,
+        "low": 0.2672669204588257,
         "n": 20000,
-        "rate": 0.03555
+        "rate": 0.2734
        }
       },
       "one_mix_-0.075@scripted": {
-       "expected_worlds_per_mix": 273.2488,
-       "p_band_pass_given_qualified": 0.049502462559051164,
+       "expected_worlds_per_mix": 266.0753,
+       "p_band_pass_given_qualified": 0.21439340637249976,
        "p_pass": {
-        "high": 0.05233647241501892,
-        "k": 985,
-        "low": 0.04633664808955941,
+        "high": 0.21903196423087806,
+        "k": 4266,
+        "low": 0.20767814924369227,
         "n": 20000,
-        "rate": 0.04925
+        "rate": 0.2133
        }
       },
       "one_mix_-0.125@frozen": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0,
-       "p_pass": {
-        "high": 0.00019203605610462553,
-        "k": 0,
-        "low": 0.0,
-        "n": 20000,
-        "rate": 0.0
-       }
-      },
-      "one_mix_-0.125@mixed": {
-       "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.0,
-       "p_pass": {
-        "high": 0.00019203605610462553,
-        "k": 0,
-        "low": 0.0,
-        "n": 20000,
-        "rate": 0.0
-       }
-      },
-      "one_mix_-0.125@scripted": {
-       "expected_worlds_per_mix": 274.9693,
-       "p_band_pass_given_qualified": 0.0004523067644989446,
-       "p_pass": {
-        "high": 0.0008550921075141102,
-        "k": 9,
-        "low": 0.00023677111614002098,
-        "n": 20000,
-        "rate": 0.00045
-       }
-      },
-      "one_mix_-0.1@frozen": {
        "expected_worlds_per_mix": 274.9966,
        "p_band_pass_given_qualified": 0.0001507689214996482,
        "p_pass": {
@@ -7528,18 +7495,18 @@
         "rate": 0.00015
        }
       },
-      "one_mix_-0.1@mixed": {
-       "expected_worlds_per_mix": 274.96595,
-       "p_band_pass_given_qualified": 0.0011558950648306362,
+      "one_mix_-0.125@mixed": {
+       "expected_worlds_per_mix": 274.9591,
+       "p_band_pass_given_qualified": 0.0009548698361644386,
        "p_pass": {
-        "high": 0.0017251348523248564,
-        "k": 23,
-        "low": 0.0007664595208507284,
+        "high": 0.0014833803364226327,
+        "k": 19,
+        "low": 0.000608290851175394,
         "n": 20000,
-        "rate": 0.00115
+        "rate": 0.00095
        }
       },
-      "one_mix_-0.1@scripted": {
+      "one_mix_-0.125@scripted": {
        "expected_worlds_per_mix": 274.7853,
        "p_band_pass_given_qualified": 0.005779475324153181,
        "p_pass": {
@@ -7548,6 +7515,39 @@
         "low": 0.004792836464323753,
         "n": 20000,
         "rate": 0.00575
+       }
+      },
+      "one_mix_-0.1@frozen": {
+       "expected_worlds_per_mix": 274.4791,
+       "p_band_pass_given_qualified": 0.023922002211277514,
+       "p_pass": {
+        "high": 0.026005695400639312,
+        "k": 476,
+        "low": 0.021777199739194734,
+        "n": 20000,
+        "rate": 0.0238
+       }
+      },
+      "one_mix_-0.1@mixed": {
+       "expected_worlds_per_mix": 274.1078,
+       "p_band_pass_given_qualified": 0.031510704593426475,
+       "p_pass": {
+        "high": 0.03385654328752186,
+        "k": 627,
+        "low": 0.029023452107865003,
+        "n": 20000,
+        "rate": 0.03135
+       }
+      },
+      "one_mix_-0.1@scripted": {
+       "expected_worlds_per_mix": 273.1906,
+       "p_band_pass_given_qualified": 0.049502462559051164,
+       "p_pass": {
+        "high": 0.05233647241501892,
+        "k": 985,
+        "low": 0.04633664808955941,
+        "n": 20000,
+        "rate": 0.04925
        }
       }
      },
@@ -8159,26 +8159,26 @@
      "D_pooled_final": {
       "observed_survival": {
        "expected_worlds_per_mix": 275.0,
-       "p_band_pass_given_qualified": 0.9996983560404203,
+       "p_band_pass_given_qualified": 0.973354783570459,
        "p_pass": {
-        "high": 0.9952071635356763,
-        "k": 19885,
-        "low": 0.9931030088228643,
+        "high": 0.9703988876988201,
+        "k": 19361,
+        "low": 0.9655213473490603,
         "n": 20000,
-        "rate": 0.99425
+        "rate": 0.96805
        }
       }
      },
      "E_pooled_continue": {
       "observed_survival": {
-       "expected_worlds_per_mix": 164.36235,
-       "p_band_pass_given_qualified": 0.9993967120808406,
+       "expected_worlds_per_mix": 185.49465,
+       "p_band_pass_given_qualified": 0.9705897139409784,
        "p_pass": {
-        "high": 0.99493393331555,
-        "k": 19879,
-        "low": 0.9927763542646242,
+        "high": 0.9677484412525155,
+        "k": 19306,
+        "low": 0.9626728499936736,
         "n": 20000,
-        "rate": 0.99395
+        "rate": 0.9653
        }
       }
      },
@@ -8195,16 +8195,16 @@
        }
       }
      },
-     "E_pooled_continue_mix0.075": {
+     "E_pooled_continue_mix0.1": {
       "observed_survival": {
-       "expected_worlds_per_mix": 185.49465,
-       "p_band_pass_given_qualified": 0.9705897139409784,
+       "expected_worlds_per_mix": 164.36235,
+       "p_band_pass_given_qualified": 0.9993967120808406,
        "p_pass": {
-        "high": 0.9677484412525155,
-        "k": 19306,
-        "low": 0.9626728499936736,
+        "high": 0.99493393331555,
+        "k": 19879,
+        "low": 0.9927763542646242,
         "n": 20000,
-        "rate": 0.9653
+        "rate": 0.99395
        }
       }
      },

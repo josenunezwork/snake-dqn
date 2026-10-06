@@ -4,7 +4,7 @@
   "band_bound": "rci_obf",
   "band_floor": 0.3,
   "band_margin_z": 1.645,
-  "band_mix_margin": 0.1,
+  "band_mix_margin": 0.075,
   "band_ni_margin": 0.05,
   "band_nominal_p": [
    9.122445538500834e-05,
@@ -85,7 +85,7 @@
   "band_bound": "rci_obf",
   "band_floor": 0.3,
   "band_margin_z": 1.645,
-  "band_mix_margin": 0.1,
+  "band_mix_margin": 0.075,
   "band_ni_margin": 0.05,
   "band_policy": "pooled_ni_continue",
   "family_alpha": 0.05,

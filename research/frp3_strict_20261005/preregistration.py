@@ -109,7 +109,7 @@ N_CALIBRATION = 16
 BAND_MARGIN_Z = 1.645
 FRACTIONS = (0.25, 0.5, 0.75, 1.0)
 FUTILITY_CP = 0.10
-# Survival band v2 (amendment 2026-10-06) option 1: pooled 0.05, per-mix 0.10, alpha 0.05
+# Survival band v2 (amendment 2026-10-06) option 1: pooled 0.05, per-mix 0.075, alpha 0.05
 # rci_obf, floor 0.30 (see spec.PAIRED_BAND)
 PAIRED_BAND = dict(R.POOLED_BAND_OPTIONS["1"])
 # Reference-bank SDs (v8 - v7, 150 worlds/mix, rp-bank-long), quoted for sensitivity only.
@@ -501,12 +501,6 @@ def bootstrap_arrays(
 
 
 CODES = {1: "STOP_PASS", 2: "STOP_FUTILE", 3: "FINAL_PASS", 4: "FINAL_FAIL", 5: "STOP_FAIL_BANDS"}
-SURVIVAL_SCENARIOS = {
-    "observed": None,
-    "no_change": (0.0, 0.0, 0.0),
-    "pooled_at_margin": (-0.05, -0.05, -0.05),
-    "scripted_at_mix_margin": (0.0, -0.10, 0.0),
-}
 
 
 def bootstrap_power(
@@ -672,7 +666,7 @@ def band_cost(phase_r, plan) -> Dict[str, Any]:
         "Under the frozen v2 rule (paired_ni_at_stop, per-mix M 0.05, judged once at the "
         "qualifying look) a no-regression candidate failed the scripted band at look 2 about "
         "91% of the time (superseded_v2_band/). Survival band v2 judges the pooled delta (SD "
-        "about 0.21 here) at margin 0.05 and each mix only against a catastrophic 0.10, and a "
+        "about 0.21 here) at margin 0.05 and each mix only against a catastrophic 0.075, and a "
         "qualified run whose bands fail continues to the next look instead of stopping."
     )
     return out
@@ -767,7 +761,13 @@ def main() -> int:
             phase_r, own_seed, plan, replica, 20_000, 108, survival=(-0.05, -0.05, -0.05)
         ),
         "candidate_own_observed_mass_scripted_at_mix_margin": bootstrap_power(
-            phase_r, own_seed, plan, replica, 20_000, 109, survival=(0.0, -0.10, 0.0)
+            phase_r,
+            own_seed,
+            plan,
+            replica,
+            20_000,
+            109,
+            survival=(0.0, -plan.band_mix_margin, 0.0),
         ),
         "candidate_own_mde_survival_no_change": bootstrap_power(
             phase_r,
@@ -837,7 +837,7 @@ def main() -> int:
             "method": "resample Phase R world indices jointly across mixes (N_max per "
             "replicate), both arms' H5000 survival from the same worlds, a 16-world "
             "calibration delta_NI resampled per replicate (0.03 x incumbent scripted mass); "
-            "survival band v2 (pooled_ni_continue: pooled M 0.05, per-mix 0.10, alpha 0.05 "
+            "survival band v2 (pooled_ni_continue: pooled M 0.05, per-mix 0.075, alpha 0.05 "
             "rci_obf, floor 0.30) judged at the qualifying look and every later look, a "
             "qualified run whose bands fail continues; futility followed before qualification; "
             "'survival_deltas' = observed, or the candidate's survival recentred on the "

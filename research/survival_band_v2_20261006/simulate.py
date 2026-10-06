@@ -30,12 +30,12 @@ Rules simulated in ``oc`` (survival_fraction, d = candidate - incumbent on the s
 * ``C_per_mix_recal_final``: per-mix NI with a recalibrated margin/alpha (M 0.075, alpha 0.10)
   at N_max only.
 * ``D_pooled_final``: pooled NI (mean over mixes of d, M 0.05) and a per-mix catastrophic NI
-  (M 0.10), alpha 0.05 each, at N_max only.
+  (M 0.075), alpha 0.05 each, at N_max only.
 * ``E_pooled_continue`` (proposed): D's components with rci_obf levels, judged at every look
   from the qualifying look on; the first look where all pass is STOP_PASS (FINAL_PASS at the
   last), a qualified run whose bands fail continues; FINAL_FAIL if they never pass.
-* ``E_pooled_continue_mix0.075`` / ``_mix0.125`` / ``_mix0.05``: E with another per-mix
-  margin (the selection grid).
+* ``E_pooled_continue_mix0.1`` / ``_mix0.125`` / ``_mix0.05``: E with another per-mix
+  margin (the selection grid; E itself uses 0.075).
 * ``F_floor_only``: survival co-reported, only the absolute floor (candidate mean >= 0.30).
 * ``none``: no band (efficacy + NI only; the ceiling).
 
@@ -53,7 +53,7 @@ number is deterministic)::
   OMP_NUM_THREADS=1 $P $D/simulate.py --part design-plan --out $D/outputs/design_plan_pooled.json
   OMP_NUM_THREADS=1 $P $D/simulate.py --part crosscheck \
       --plan-params $D/outputs/design_plan_pooled.json --delta-ni 9.945893662499998 \
-      --pool frp2_phase2 --reps 150 --out $D/outputs/crosscheck.json
+      --pool frp2_phase2 --reps 300 --out $D/outputs/crosscheck.json
 """
 
 from __future__ import annotations
@@ -115,18 +115,18 @@ PLANNED_EFFECTS = (98.1, 68.5, 130.5)
 FLOOR = 0.30
 ALPHA = 0.05
 POOLED_MARGIN = 0.05
-MIX_MARGIN = 0.10
+MIX_MARGIN = 0.075
 MIX_MARGIN_GRID = (0.05, 0.075, 0.10, 0.125)
 # Pre-stated selection of the per-mix margin (amendment, "Choice of the per-mix margin").
 SELECTION_RULE = (
     "smallest band_mix_margin in {0.05, 0.075, 0.10, 0.125} such that, with rci_obf levels at "
     "alpha 0.05 and the pooled margin 0.05, the final-look band (n = N_max = 275, judged alone) "
-    "passes a candidate with no survival change with probability >= 0.90 in EVERY independent "
-    "between-checkpoint pool: FRP-v2 Phase 2, FRP-v2 Phase 1 and each of the six FRP-v2 Phase 1 "
-    "recipe cells (the realistic range of between-checkpoint paired survival SDs); the 0.10 "
-    "headroom over the 0.80 target absorbs SD uncertainty and the pooled component"
+    "passes a candidate with no survival change with probability >= 0.80 (the owner's target) in "
+    "EVERY independent between-checkpoint pool: FRP-v2 Phase 2, FRP-v2 Phase 1 and each of the "
+    "six FRP-v2 Phase 1 recipe cells (the realistic range of between-checkpoint paired survival "
+    "SDs); the smallest margin protects one-mix regressions best"
 )
-SELECTION_FLOOR = 0.90
+SELECTION_FLOOR = 0.80
 STRESS_GRID = (0.25, 0.30, 0.35, 0.40, 0.441, 0.50)
 CHUNK = 4000
 CHECK_FACTOR = 1.2

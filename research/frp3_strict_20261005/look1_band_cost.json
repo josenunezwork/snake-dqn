@@ -1,7 +1,7 @@
 {
  "band_alpha": 0.05,
  "band_bound": "rci_obf",
- "band_mix_margin": 0.1,
+ "band_mix_margin": 0.075,
  "band_ni_margin": 0.05,
  "band_nominal_p": [
   9.122445538500834e-05,
@@ -17,58 +17,58 @@
   207,
   275
  ],
- "note": "Under the frozen v2 rule (paired_ni_at_stop, per-mix M 0.05, judged once at the qualifying look) a no-regression candidate failed the scripted band at look 2 about 91% of the time (superseded_v2_band/). Survival band v2 judges the pooled delta (SD about 0.21 here) at margin 0.05 and each mix only against a catastrophic 0.10, and a qualified run whose bands fail continues to the next look instead of stopping.",
+ "note": "Under the frozen v2 rule (paired_ni_at_stop, per-mix M 0.05, judged once at the qualifying look) a no-regression candidate failed the scripted band at look 2 about 91% of the time (superseded_v2_band/). Survival band v2 judges the pooled delta (SD about 0.21 here) at margin 0.05 and each mix only against a catastrophic 0.075, and a qualified run whose bands fail continues to the next look instead of stopping.",
  "pools": {
   "all_seeds": {
    "components": {
     "frozen": {
      "look_1": {
-      "fail_at_pilot_delta": 0.8330258233856633,
-      "fail_if_true_delta_0": 0.9106708618284989,
+      "fail_at_pilot_delta": 0.9473573211091486,
+      "fail_if_true_delta_0": 0.9771665456964944,
       "n": 69
      },
      "look_2": {
-      "fail_at_pilot_delta": 0.04812381696598078,
-      "fail_if_true_delta_0": 0.12971224627839012,
+      "fail_at_pilot_delta": 0.22993880715407766,
+      "fail_if_true_delta_0": 0.4193811127966441,
       "n": 138
      },
      "look_3": {
-      "fail_at_pilot_delta": 0.0007893383103739771,
-      "fail_if_true_delta_0": 0.006141988194166892,
+      "fail_at_pilot_delta": 0.021289488940874957,
+      "fail_if_true_delta_0": 0.08505067928257748,
       "n": 207
      },
      "look_4": {
-      "fail_at_pilot_delta": 1.0794693962312696e-05,
-      "fail_if_true_delta_0": 0.00023993662522481252,
+      "fail_at_pilot_delta": 0.0016250696199281989,
+      "fail_if_true_delta_0": 0.014371484944050161,
       "n": 275
      },
-     "margin": 0.1,
+     "margin": 0.075,
      "pilot_mean_delta": 0.01448625,
      "pilot_sd": 0.31774457573219517,
      "pilot_ties": 65
     },
     "mixed": {
      "look_1": {
-      "fail_at_pilot_delta": 0.5466937465669389,
-      "fail_if_true_delta_0": 0.8597349194343049,
+      "fail_at_pilot_delta": 0.7987925014827402,
+      "fail_if_true_delta_0": 0.9640011540596786,
       "n": 69
      },
      "look_2": {
-      "fail_at_pilot_delta": 0.0020928276356118047,
-      "fail_if_true_delta_0": 0.06634143511924728,
+      "fail_at_pilot_delta": 0.03247650439762073,
+      "fail_if_true_delta_0": 0.3137079805559525,
       "n": 138
      },
      "look_3": {
-      "fail_at_pilot_delta": 1.827270315390983e-06,
-      "fail_if_true_delta_0": 0.0015173331545232371,
+      "fail_at_pilot_delta": 0.0003584446691753951,
+      "fail_if_true_delta_0": 0.042978472032958404,
       "n": 207
      },
      "look_4": {
-      "fail_at_pilot_delta": 1.403834659630121e-09,
-      "fail_if_true_delta_0": 2.8813857836818002e-05,
+      "fail_at_pilot_delta": 3.3175633403215166e-06,
+      "fail_if_true_delta_0": 0.004870025199642192,
       "n": 275
      },
-     "margin": 0.1,
+     "margin": 0.075,
      "pilot_mean_delta": 0.03339625,
      "pilot_sd": 0.288423014348673,
      "pilot_ties": 79
@@ -101,26 +101,26 @@
     },
     "scripted": {
      "look_1": {
-      "fail_at_pilot_delta": 0.9430388829494851,
-      "fail_if_true_delta_0": 0.9798505654182608,
+      "fail_at_pilot_delta": 0.9802013093191175,
+      "fail_if_true_delta_0": 0.9942608520116042,
       "n": 69
      },
      "look_2": {
-      "fail_at_pilot_delta": 0.21356085250990592,
-      "fail_if_true_delta_0": 0.4484270599807483,
+      "fail_at_pilot_delta": 0.4524870604187423,
+      "fail_if_true_delta_0": 0.7071610799838722,
       "n": 138
      },
      "look_3": {
-      "fail_at_pilot_delta": 0.01807335078386607,
-      "fail_if_true_delta_0": 0.10001918025890211,
+      "fail_at_pilot_delta": 0.10224173327413738,
+      "fail_if_true_delta_0": 0.3245366085485266,
       "n": 207
      },
      "look_4": {
-      "fail_at_pilot_delta": 0.0012606055672561012,
-      "fail_if_true_delta_0": 0.01863669663834916,
+      "fail_at_pilot_delta": 0.019306908823427726,
+      "fail_if_true_delta_0": 0.12918511837785945,
       "n": 275
      },
-     "margin": 0.1,
+     "margin": 0.075,
      "pilot_mean_delta": 0.024619999999999996,
      "pilot_sd": 0.4352501862480139,
      "pilot_ties": 49
@@ -137,52 +137,52 @@
    "components": {
     "frozen": {
      "look_1": {
-      "fail_at_pilot_delta": 0.03162099588437822,
-      "fail_if_true_delta_0": 0.5529823464916549,
+      "fail_at_pilot_delta": 0.1837940340356713,
+      "fail_if_true_delta_0": 0.8620742029134955,
       "n": 69
      },
      "look_2": {
-      "fail_at_pilot_delta": 7.719720862553459e-09,
-      "fail_if_true_delta_0": 0.002246135603999111,
+      "fail_at_pilot_delta": 8.389656837470838e-06,
+      "fail_if_true_delta_0": 0.06828627448083935,
       "n": 138
      },
      "look_3": {
-      "fail_at_pilot_delta": 4.440892098500626e-16,
-      "fail_if_true_delta_0": 2.086225933284336e-06,
+      "fail_at_pilot_delta": 8.085915270683586e-11,
+      "fail_if_true_delta_0": 0.0016099792384763334,
       "n": 207
      },
      "look_4": {
-      "fail_at_pilot_delta": 0.0,
-      "fail_if_true_delta_0": 1.7027880772069182e-09,
+      "fail_at_pilot_delta": 7.771561172376096e-16,
+      "fail_if_true_delta_0": 3.150504217486194e-05,
       "n": 275
      },
-     "margin": 0.1,
+     "margin": 0.075,
      "pilot_mean_delta": 0.05203124999999999,
      "pilot_sd": 0.2171130825280658,
      "pilot_ties": 17
     },
     "mixed": {
      "look_1": {
-      "fail_at_pilot_delta": 0.024901433068403422,
-      "fail_if_true_delta_0": 0.9183644731592293,
+      "fail_at_pilot_delta": 0.09334975637254439,
+      "fail_if_true_delta_0": 0.9790947533466594,
       "n": 69
      },
      "look_2": {
-      "fail_at_pilot_delta": 3.239078283368002e-09,
-      "fail_if_true_delta_0": 0.14500646888014246,
+      "fail_at_pilot_delta": 4.864032386864281e-07,
+      "fail_if_true_delta_0": 0.43989611505876486,
       "n": 138
      },
      "look_3": {
-      "fail_at_pilot_delta": 1.1102230246251565e-16,
-      "fail_if_true_delta_0": 0.007790929473971642,
+      "fail_at_pilot_delta": 5.383471446407384e-13,
+      "fail_if_true_delta_0": 0.09545494596487736,
       "n": 207
      },
      "look_4": {
       "fail_at_pilot_delta": 0.0,
-      "fail_if_true_delta_0": 0.00034513831908089543,
+      "fail_if_true_delta_0": 0.017289981296502666,
       "n": 275
      },
-     "margin": 0.1,
+     "margin": 0.075,
      "pilot_mean_delta": 0.13083125,
      "pilot_sd": 0.32384634791278966,
      "pilot_ties": 16
@@ -215,26 +215,26 @@
     },
     "scripted": {
      "look_1": {
-      "fail_at_pilot_delta": 0.9652792013039879,
-      "fail_if_true_delta_0": 0.9865940395011928,
+      "fail_at_pilot_delta": 0.9878312925767122,
+      "fail_if_true_delta_0": 0.9959810030412596,
       "n": 69
      },
      "look_2": {
-      "fail_at_pilot_delta": 0.3219798830334307,
-      "fail_if_true_delta_0": 0.540498835551813,
+      "fail_at_pilot_delta": 0.5614888952286401,
+      "fail_if_true_delta_0": 0.7638078986062143,
       "n": 138
      },
      "look_3": {
-      "fail_at_pilot_delta": 0.04563745831389643,
-      "fail_if_true_delta_0": 0.15910916764088678,
+      "fail_at_pilot_delta": 0.17537192762728904,
+      "fail_if_true_delta_0": 0.40417207103752933,
       "n": 207
      },
      "look_4": {
-      "fail_at_pilot_delta": 0.005352606083017131,
-      "fail_if_true_delta_0": 0.03952675676521916,
+      "fail_at_pilot_delta": 0.046351375279708396,
+      "fail_if_true_delta_0": 0.18798738654671127,
       "n": 275
      },
-     "margin": 0.1,
+     "margin": 0.075,
      "pilot_mean_delta": 0.022850000000000006,
      "pilot_sd": 0.4760520492009115,
      "pilot_ties": 10

@@ -349,14 +349,15 @@ list.
 ## Survival band v2 (template v2-pooled)
 
 The rule is [`governance_amendment_survival_band_v2_2026-10-06.md`](../../docs/research/governance_amendment_survival_band_v2_2026-10-06.md)
-(proposed 2026-10-06; a production `prepare` refuses until its ratification section records
-the decision and the option, and the plan's band values must equal the ratified option).
+(proposed 2026-10-06; a production `prepare` refuses until its ratification section reads
+exactly `- Decision: ratified` with an option and no changes, and the plan's band values must
+equal the ratified option).
 Opt in with a spec `band_policy="pooled_ni_continue"` and `bands=paired_survival_bands(MIXES)`
 (exactly frozen, scripted, mixed), plus `paired_band_check_path` / `paired_band_pool_path` as
 for v2.
 
 - **Plan.** `--paired-band M,alpha,rci_obf,floor,mix_margin` (five values; option 1 is
-  `0.05,0.05,rci_obf,0.30,0.10`). `band_bound` must be `rci_obf`. The plan adds
+  `0.05,0.05,rci_obf,0.30,0.075`, option 2 `0.05,0.05,rci_obf,0.30,0.10`). `band_bound` must be `rci_obf`. The plan adds
   `band_mix_margin`; v1/v2 plan dicts are unchanged (golden hashes in
   `tests/test_sequential_gate.py`).
 - **Per-study check.** `research/survival_band_v2_20261006/simulate.py --part study --data
@@ -365,7 +366,7 @@ for v2.
   Acceptance: every joint rate P(PASS and a regression exactly at a margin) for the pooled
   regression and each one-mix regression is <= 1.2 x band_alpha. A failing check means the
   study does not adopt the policy (no retuning). The amendment's own calibration pools are
-  refused as a study pool.
+  refused as a study pool; the simulator is bound by sha256 in the intent.
 - **Receipts.** `bands_by_look` holds one row per look (pooled bound, every mix's bound, floor,
   verdicts, pairs digest); `band_judged_looks` lists the qualified looks, `band_judged_look` /
   `band_results` are this look's (`None` before qualification). `CONTINUE_BANDS` maps to the

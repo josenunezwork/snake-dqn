@@ -2,37 +2,37 @@
  "batches": {
   "2mde_scripted_at_mix_margin": {
    "pure_decisions": {
-    "FINAL_FAIL": 142,
-    "FINAL_PASS": 4,
-    "STOP_PASS": 4
+    "FINAL_FAIL": 285,
+    "FINAL_PASS": 9,
+    "STOP_PASS": 6
    },
-   "replicates": 150
+   "replicates": 300
   },
   "mde_no_change": {
    "pure_decisions": {
-    "FINAL_FAIL": 1,
-    "FINAL_PASS": 8,
-    "STOP_PASS": 141
+    "FINAL_FAIL": 19,
+    "FINAL_PASS": 67,
+    "STOP_PASS": 214
    },
-   "replicates": 150
+   "replicates": 300
   },
   "mde_pooled_at_margin": {
    "pure_decisions": {
-    "FINAL_FAIL": 140,
-    "FINAL_PASS": 6,
-    "STOP_PASS": 4
+    "FINAL_FAIL": 291,
+    "FINAL_PASS": 7,
+    "STOP_PASS": 2
    },
-   "replicates": 150
+   "replicates": 300
   },
   "null": {
    "pure_decisions": {
-    "FINAL_FAIL": 53,
-    "STOP_FUTILE": 97
+    "FINAL_FAIL": 99,
+    "STOP_FUTILE": 201
    },
-   "replicates": 150
+   "replicates": 300
   }
  },
- "cpu_seconds": 25.4,
+ "cpu_seconds": 53.7,
  "mismatches": [],
  "pool": "frp2_phase2"
 }

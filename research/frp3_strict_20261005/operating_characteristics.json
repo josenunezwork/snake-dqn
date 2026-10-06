@@ -1,5 +1,5 @@
 {
- "cpu_seconds_total": 188.1,
+ "cpu_seconds_total": 190.9,
  "development_data": {
   "all_seeds_per_mix_deltas": {
    "frozen": {
@@ -67,7 +67,7 @@
   },
   "candidate_seed": 12,
   "frozen_plan_path": "research/frp3_strict_20261005/frozen_plan.json",
-  "frozen_plan_sha256": "ad123f97ec72e51baa93cec2dedd75dbb8eb0ee438b3b03e1707f691c386c18d",
+  "frozen_plan_sha256": "e0ce164213d98f6da9d58d915e0e5d76dd6b1b9ea10743e7c7328e22710938d5",
   "paired_pool_path": "research/frp3_strict_20261005/paired_pool.json",
   "paired_pool_sha256": "2fb43f84f533621d7c6848827848f1cb667cfa5447e0f82793d4e71885029e4b",
   "phase_r": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/phaseR/rp-v1",
@@ -82,30 +82,30 @@
  "joint_bootstrap": {
   "all_seeds_observed_effects": {
    "band_failures_at_qualifying_look": {
-    "mix_frozen": 0.01265,
-    "mix_mixed": 0.0007,
-    "mix_scripted": 0.0084,
+    "mix_frozen": 0.0777,
+    "mix_mixed": 0.0082,
+    "mix_scripted": 0.17675,
     "pooled": 5e-05
    },
-   "expected_worlds_per_mix": 171.4484,
+   "expected_worlds_per_mix": 187.90505,
    "outcomes": {
-    "FINAL_FAIL": 0.0023,
-    "FINAL_PASS": 0.035,
+    "FINAL_FAIL": 0.01625,
+    "FINAL_PASS": 0.10025,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.9627
+    "STOP_PASS": 0.8835
    },
    "pass_probability": {
-    "high": 0.9982750963739067,
-    "k": 19954,
-    "low": 0.9969337509358469,
+    "high": 0.9854116698336831,
+    "k": 19675,
+    "low": 0.9819025352820357,
     "n": 20000,
-    "rate": 0.9977
+    "rate": 0.98375
    },
    "per_mix_crossing_by_stop": {
-    "frozen": 0.9378,
-    "mixed": 0.96935,
-    "scripted": 0.59085
+    "frozen": 0.9832,
+    "mixed": 0.97695,
+    "scripted": 0.73245
    },
    "pool_seeds": [
     10,
@@ -125,39 +125,39 @@
    "seed": 105,
    "shifted_means": null,
    "stop_look_distribution": [
-    0.00015,
-    0.5517,
-    0.41085,
-    0.0373
+    0.0001,
+    0.39135,
+    0.49205,
+    0.1165
    ],
    "survival_deltas": "observed"
   },
   "all_seeds_shape_at_mde_all_mixes": {
    "band_failures_at_qualifying_look": {
-    "mix_frozen": 0.01105,
-    "mix_mixed": 0.00055,
-    "mix_scripted": 0.0073,
+    "mix_frozen": 0.07555,
+    "mix_mixed": 0.0093,
+    "mix_scripted": 0.17495,
     "pooled": 5e-05
    },
-   "expected_worlds_per_mix": 172.58395,
+   "expected_worlds_per_mix": 188.96165,
    "outcomes": {
-    "FINAL_FAIL": 0.00225,
-    "FINAL_PASS": 0.03455,
+    "FINAL_FAIL": 0.0175,
+    "FINAL_PASS": 0.10155,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.9632
+    "STOP_PASS": 0.88095
    },
    "pass_probability": {
-    "high": 0.9983179241260579,
-    "k": 19955,
-    "low": 0.99699090398009,
+    "high": 0.9842267945349357,
+    "k": 19650,
+    "low": 0.9805878906709233,
     "n": 20000,
-    "rate": 0.99775
+    "rate": 0.9825
    },
    "per_mix_crossing_by_stop": {
-    "frozen": 0.94405,
-    "mixed": 0.95925,
-    "scripted": 0.5844
+    "frozen": 0.9866,
+    "mixed": 0.96765,
+    "scripted": 0.72125
    },
    "pool_seeds": [
     10,
@@ -181,39 +181,39 @@
     65.0
    ],
    "stop_look_distribution": [
-    0.0001,
-    0.53485,
-    0.42825,
-    0.0368
+    5e-05,
+    0.37865,
+    0.50225,
+    0.11905
    ],
    "survival_deltas": "observed"
   },
   "candidate_own_mde_survival_no_change": {
    "band_failures_at_qualifying_look": {
-    "mix_frozen": 5e-05,
-    "mix_mixed": 0.01865,
-    "mix_scripted": 0.1933,
+    "mix_frozen": 0.01585,
+    "mix_mixed": 0.20535,
+    "mix_scripted": 0.57515,
     "pooled": 0.07045
    },
-   "expected_worlds_per_mix": 190.3523,
+   "expected_worlds_per_mix": 224.9519,
    "outcomes": {
-    "FINAL_FAIL": 0.0346,
-    "FINAL_PASS": 0.1221,
+    "FINAL_FAIL": 0.17455,
+    "FINAL_PASS": 0.2448,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.8433
+    "STOP_PASS": 0.58065
    },
    "pass_probability": {
-    "high": 0.9678448989567642,
-    "k": 19308,
-    "low": 0.9627763538822137,
+    "high": 0.8306480058512065,
+    "k": 16509,
+    "low": 0.8201269978798751,
     "n": 20000,
-    "rate": 0.9654
+    "rate": 0.82545
    },
    "per_mix_crossing_by_stop": {
-    "frozen": 0.99935,
-    "mixed": 0.9767,
-    "scripted": 0.60515
+    "frozen": 1.0,
+    "mixed": 0.99955,
+    "scripted": 0.87085
    },
    "pool_seeds": [
     12
@@ -233,10 +233,10 @@
     65.0
    ],
    "stop_look_distribution": [
-    0.00015,
-    0.3954,
-    0.44775,
-    0.1567
+    0.0,
+    0.1531,
+    0.42755,
+    0.41935
    ],
    "survival_deltas": [
     0.0,
@@ -246,30 +246,30 @@
   },
   "candidate_own_observed_effects": {
    "band_failures_at_qualifying_look": {
-    "mix_frozen": 0.0,
+    "mix_frozen": 0.00025,
     "mix_mixed": 0.0,
-    "mix_scripted": 0.041225,
+    "mix_scripted": 0.3414,
     "pooled": 0.0
    },
-   "expected_worlds_per_mix": 164.6714,
+   "expected_worlds_per_mix": 185.616275,
    "outcomes": {
-    "FINAL_FAIL": 0.006225,
-    "FINAL_PASS": 0.046075,
+    "FINAL_FAIL": 0.036225,
+    "FINAL_PASS": 0.121375,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.9477
+    "STOP_PASS": 0.8424
    },
    "pass_probability": {
-    "high": 0.9944997866892266,
-    "k": 39751,
-    "low": 0.9929553816016167,
+    "high": 0.9655620103830227,
+    "k": 38551,
+    "low": 0.9618989195427246,
     "n": 40000,
-    "rate": 0.993775
+    "rate": 0.963775
    },
    "per_mix_crossing_by_stop": {
     "frozen": 1.0,
     "mixed": 0.99995,
-    "scripted": 0.4198
+    "scripted": 0.666975
    },
    "pool_seeds": [
     12
@@ -285,34 +285,34 @@
    "seed": 101,
    "shifted_means": null,
    "stop_look_distribution": [
-    0.0258,
-    0.6134,
-    0.3085,
-    0.0523
+    0.0121,
+    0.441025,
+    0.389275,
+    0.1576
    ],
    "survival_deltas": "observed"
   },
   "candidate_own_observed_mass_pooled_regression_at_margin": {
    "band_failures_at_qualifying_look": {
-    "mix_frozen": 0.30625,
-    "mix_mixed": 0.6565,
-    "mix_scripted": 0.9084,
+    "mix_frozen": 0.82185,
+    "mix_mixed": 0.90955,
+    "mix_scripted": 0.9764,
     "pooled": 0.9928
    },
-   "expected_worlds_per_mix": 273.6515,
+   "expected_worlds_per_mix": 274.6974,
    "outcomes": {
-    "FINAL_FAIL": 0.95895,
-    "FINAL_PASS": 0.02335,
+    "FINAL_FAIL": 0.9794,
+    "FINAL_PASS": 0.01615,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.0177
+    "STOP_PASS": 0.00445
    },
    "pass_probability": {
-    "high": 0.04388899798232822,
-    "k": 821,
-    "low": 0.03838727191357022,
+    "high": 0.022662576171147218,
+    "k": 412,
+    "low": 0.018721547999445892,
     "n": 20000,
-    "rate": 0.04105
+    "rate": 0.0206
    },
    "per_mix_crossing_by_stop": {
     "frozen": 1.0,
@@ -334,9 +334,9 @@
    "shifted_means": null,
    "stop_look_distribution": [
     0.0,
-    0.0021,
-    0.0156,
-    0.9823
+    0.0,
+    0.00445,
+    0.99555
    ],
    "survival_deltas": [
     -0.05,
@@ -346,25 +346,25 @@
   },
   "candidate_own_observed_mass_scripted_at_mix_margin": {
    "band_failures_at_qualifying_look": {
-    "mix_frozen": 0.0113,
-    "mix_mixed": 0.0929,
+    "mix_frozen": 0.0468,
+    "mix_mixed": 0.3071,
     "mix_scripted": 0.993,
-    "pooled": 0.95365
+    "pooled": 0.8615
    },
-   "expected_worlds_per_mix": 273.21745,
+   "expected_worlds_per_mix": 273.2828,
    "outcomes": {
-    "FINAL_FAIL": 0.95055,
-    "FINAL_PASS": 0.02765,
+    "FINAL_FAIL": 0.9504,
+    "FINAL_PASS": 0.028,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.0218
+    "STOP_PASS": 0.0216
    },
    "pass_probability": {
-    "high": 0.05254219693662836,
-    "k": 989,
-    "low": 0.04653084675352752,
+    "high": 0.05269648141255642,
+    "k": 992,
+    "low": 0.04667650466678262,
     "n": 20000,
-    "rate": 0.04945
+    "rate": 0.0496
    },
    "per_mix_crossing_by_stop": {
     "frozen": 1.0,
@@ -386,42 +386,42 @@
    "shifted_means": null,
    "stop_look_distribution": [
     0.0,
-    0.00435,
-    0.01745,
-    0.9782
+    0.0036,
+    0.018,
+    0.9784
    ],
    "survival_deltas": [
     0.0,
-    -0.1,
+    -0.075,
     0.0
    ]
   },
   "candidate_own_observed_mass_survival_no_change": {
    "band_failures_at_qualifying_look": {
-    "mix_frozen": 0.01205,
-    "mix_mixed": 0.0962,
-    "mix_scripted": 0.3073,
+    "mix_frozen": 0.04765,
+    "mix_mixed": 0.3103,
+    "mix_scripted": 0.6942,
     "pooled": 0.1749
    },
-   "expected_worlds_per_mix": 188.6751,
+   "expected_worlds_per_mix": 224.8348,
    "outcomes": {
-    "FINAL_FAIL": 0.03365,
-    "FINAL_PASS": 0.11665,
+    "FINAL_FAIL": 0.17175,
+    "FINAL_PASS": 0.2474,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.8497
+    "STOP_PASS": 0.58085
    },
    "pass_probability": {
-    "high": 0.968760961295826,
-    "k": 19327,
-    "low": 0.9637599266746452,
+    "high": 0.8334139589577022,
+    "k": 16565,
+    "low": 0.8229599693714652,
     "n": 20000,
-    "rate": 0.96635
+    "rate": 0.82825
    },
    "per_mix_crossing_by_stop": {
     "frozen": 1.0,
     "mixed": 1.0,
-    "scripted": 0.68265
+    "scripted": 0.92185
    },
    "pool_seeds": [
     12
@@ -437,10 +437,10 @@
    "seed": 107,
    "shifted_means": null,
    "stop_look_distribution": [
-    0.00025,
-    0.4132,
-    0.43625,
-    0.1503
+    0.0,
+    0.1546,
+    0.42625,
+    0.41915
    ],
    "survival_deltas": [
     0.0,
@@ -452,28 +452,28 @@
    "band_failures_at_qualifying_look": {
     "mix_frozen": 0.0,
     "mix_mixed": 0.0,
-    "mix_scripted": 0.01525,
+    "mix_scripted": 0.24605,
     "pooled": 0.0
    },
-   "expected_worlds_per_mix": 174.09445,
+   "expected_worlds_per_mix": 189.5417,
    "outcomes": {
-    "FINAL_FAIL": 0.00875,
-    "FINAL_PASS": 0.0597,
+    "FINAL_FAIL": 0.0398,
+    "FINAL_PASS": 0.1202,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.93155
+    "STOP_PASS": 0.84
    },
    "pass_probability": {
-    "high": 0.992449691782613,
-    "k": 19825,
-    "low": 0.9898616327922641,
+    "high": 0.96282209588453,
+    "k": 19204,
+    "low": 0.9574011541294313,
     "n": 20000,
-    "rate": 0.99125
+    "rate": 0.9602
    },
    "per_mix_crossing_by_stop": {
     "frozen": 0.99925,
-    "mixed": 0.97095,
-    "scripted": 0.45005
+    "mixed": 0.97105,
+    "scripted": 0.6211
    },
    "pool_seeds": [
     12
@@ -493,10 +493,10 @@
     67.82395249999999
    ],
    "stop_look_distribution": [
-    0.00025,
-    0.54385,
-    0.38745,
-    0.06845
+    0.0002,
+    0.4103,
+    0.4295,
+    0.16
    ],
    "survival_deltas": "observed"
   },
@@ -504,28 +504,28 @@
    "band_failures_at_qualifying_look": {
     "mix_frozen": 0.0,
     "mix_mixed": 0.0,
-    "mix_scripted": 0.01305,
+    "mix_scripted": 0.2253,
     "pooled": 0.0
    },
-   "expected_worlds_per_mix": 175.85945,
+   "expected_worlds_per_mix": 190.0083,
    "outcomes": {
-    "FINAL_FAIL": 0.01,
-    "FINAL_PASS": 0.05985,
+    "FINAL_FAIL": 0.03495,
+    "FINAL_PASS": 0.12075,
     "STOP_FAIL_BANDS": 0.0,
     "STOP_FUTILE": 0.0,
-    "STOP_PASS": 0.93015
+    "STOP_PASS": 0.8443
    },
    "pass_probability": {
-    "high": 0.9912879339263817,
-    "k": 19800,
-    "low": 0.9885238707386358,
+    "high": 0.9675072723694698,
+    "k": 19301,
+    "low": 0.9624141148947472,
     "n": 20000,
-    "rate": 0.99
+    "rate": 0.96505
    },
    "per_mix_crossing_by_stop": {
     "frozen": 0.99945,
-    "mixed": 0.96385,
-    "scripted": 0.46035
+    "mixed": 0.96395,
+    "scripted": 0.6194
    },
    "pool_seeds": [
     12
@@ -545,10 +545,10 @@
     65.0
    ],
    "stop_look_distribution": [
-    0.00045,
-    0.51925,
-    0.41045,
-    0.06985
+    0.0004,
+    0.3989,
+    0.445,
+    0.1557
    ],
    "survival_deltas": "observed"
   },
@@ -609,11 +609,11 @@
     "at_mde": {
      "mismatches": [],
      "outcome_counts": {
-      "FINAL_FAIL": 6,
-      "FINAL_PASS": 22,
+      "FINAL_FAIL": 16,
+      "FINAL_PASS": 38,
       "STOP_FAIL_BANDS": 0,
       "STOP_FUTILE": 0,
-      "STOP_PASS": 272
+      "STOP_PASS": 246
      },
      "replicates": 300,
      "seed": 4242,
@@ -643,15 +643,15 @@
    },
    "mismatches": [],
    "outcome_counts": {
-    "FINAL_FAIL": 119,
-    "FINAL_PASS": 22,
+    "FINAL_FAIL": 129,
+    "FINAL_PASS": 38,
     "STOP_FAIL_BANDS": 0,
     "STOP_FUTILE": 187,
-    "STOP_PASS": 272
+    "STOP_PASS": 246
    },
    "replicates": 600
   },
-  "method": "resample Phase R world indices jointly across mixes (N_max per replicate), both arms' H5000 survival from the same worlds, a 16-world calibration delta_NI resampled per replicate (0.03 x incumbent scripted mass); survival band v2 (pooled_ni_continue: pooled M 0.05, per-mix 0.10, alpha 0.05 rci_obf, floor 0.30) judged at the qualifying look and every later look, a qualified run whose bands fail continues; futility followed before qualification; 'survival_deltas' = observed, or the candidate's survival recentred on the incumbent's at the stated true deltas (what-if)"
+  "method": "resample Phase R world indices jointly across mixes (N_max per replicate), both arms' H5000 survival from the same worlds, a 16-world calibration delta_NI resampled per replicate (0.03 x incumbent scripted mass); survival band v2 (pooled_ni_continue: pooled M 0.05, per-mix 0.075, alpha 0.05 rci_obf, floor 0.30) judged at the qualifying look and every later look, a qualified run whose bands fail continues; futility followed before qualification; 'survival_deltas' = observed, or the candidate's survival recentred on the incumbent's at the stated true deltas (what-if)"
  },
  "mac_fallback_runtime": {
   "basis": "v8 strict run-v1 final records of its champion+v8 arm (Mac, 2 slots, live H5000, 561 episodes); the FRP-v3 candidate at x1.25 (Phase R: about 1.2x the v8 work per episode, bigger bodies); x1.15 overhead",
@@ -708,7 +708,7 @@
    }
   },
   "boundary_precision": {
-   "cpu_seconds": 3.66,
+   "cpu_seconds": 3.69,
    "efficacy_any_look_at_zero": {
     "high": 0.01695442103524511,
     "k": 33551,
@@ -1015,7 +1015,7 @@
     }
    },
    "lfc_one_effect_two_null": {
-    "cpu_seconds": 2.8,
+    "cpu_seconds": 2.84,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -1189,7 +1189,7 @@
     }
    },
    "ni_null_scripted_at_margin": {
-    "cpu_seconds": 2.77,
+    "cpu_seconds": 2.82,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -1361,7 +1361,7 @@
     }
    },
    "null_indep": {
-    "cpu_seconds": 2.85,
+    "cpu_seconds": 2.9,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -1537,7 +1537,7 @@
     }
    },
    "null_phase_r_corr": {
-    "cpu_seconds": 2.85,
+    "cpu_seconds": 2.9,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -1713,7 +1713,7 @@
     }
    },
    "two_mixes_at_mde_scripted_zero": {
-    "cpu_seconds": 0.71,
+    "cpu_seconds": 0.72,
     "futility_overridden": {
      "between_mix_correlation": 0.0,
      "deltas": [
@@ -1891,7 +1891,7 @@
   "band_bound": "rci_obf",
   "band_floor": 0.3,
   "band_margin_z": 1.645,
-  "band_mix_margin": 0.1,
+  "band_mix_margin": 0.075,
   "band_ni_margin": 0.05,
   "band_nominal_p": [
    9.122445538500834e-05,
@@ -1972,7 +1972,7 @@
   "band_bound": "rci_obf",
   "band_floor": 0.3,
   "band_margin_z": 1.645,
-  "band_mix_margin": 0.1,
+  "band_mix_margin": 0.075,
   "band_ni_margin": 0.05,
   "band_policy": "pooled_ni_continue",
   "family_alpha": 0.05,

@@ -147,7 +147,7 @@ def test_pooled_band_pass_at_first_qualifying_look_and_audit(tmp_path):
     assert intent["template_version"] == "sequential-strict-template/v2-pooled"
     assert intent["spec"]["template_version"] == "sequential-strict-template/v2-pooled"
     assert intent["plan"]["band_policy"] == "pooled_ni_continue"
-    assert intent["plan"]["band_mix_margin"] == 0.10 and intent["plan"]["band_bound"] == "rci_obf"
+    assert intent["plan"]["band_mix_margin"] == 0.075 and intent["plan"]["band_bound"] == "rci_obf"
     assert intent["band_rule"]["policy"] == "pooled_ni_continue"
     amendment = intent["band_amendment"]
     assert amendment["path"].endswith("governance_amendment_survival_band_v2_2026-10-06.md")
@@ -165,7 +165,7 @@ def test_pooled_band_pass_at_first_qualifying_look_and_audit(tmp_path):
     assert row["policy"] == "pooled_ni_continue" and row["mixes"] == list(MIXES)
     assert row["n"] == 10 and row["nominal_p"] == intent["plan"]["band_nominal_p"][0]
     assert row["pooled"]["margin"] == 0.05 and row["passes"] is True
-    assert all(row["per_mix"][m]["margin"] == 0.10 for m in MIXES)
+    assert all(row["per_mix"][m]["margin"] == 0.075 for m in MIXES)
     report = A.run_audit(intent_path.parent)
     assert report["status"] == "PASS", report["failures"]
     assert report["schema_version"] == "sequential-strict-audit/v2-pooled"
@@ -248,8 +248,8 @@ def test_pooled_band_needs_five_explicit_values_and_rci(tmp_path):
     with pytest.raises(ValueError, match="rci_obf"):
         R.plan_from_parameters(plan_params(pooled, {**OPTION_1, "band_bound": "pointwise"}))
     params = plan_params(pooled)
-    assert params["band_mix_margin"] == 0.10 and params["band_policy"] == "pooled_ni_continue"
-    assert R.parse_paired_band("0.05,0.05,rci_obf,0.30,0.10") == OPTION_1
+    assert params["band_mix_margin"] == 0.075 and params["band_policy"] == "pooled_ni_continue"
+    assert R.parse_paired_band("0.05,0.05,rci_obf,0.30,0.075") == OPTION_1
     assert "band_mix_margin" not in R.parse_paired_band("0.05,0.05,rci_obf,0.30")
     with pytest.raises(R.StrictRunError):
         R.parse_paired_band("0.05,0.05,rci_obf")
@@ -261,11 +261,23 @@ def test_amendment_status_and_ratified_option(tmp_path):
     status = R.amendment_status(doc)
     assert status["ratified"] is False and status["option"] is None
     assert len(R.ratified_band_problems(status, OPTION_1)) == 2
-    doc.write_text("## Ratification\n\n- Decision: ratified (owner)\n- Option: 1\n")
+    doc.write_text("## Ratification\n\n- Decision: ratified\n- Option: 1\n")
     status = R.amendment_status(doc)
     assert status["ratified"] is True and status["option"] == "1"
     assert R.ratified_band_problems(status, OPTION_1) == []
-    assert R.ratified_band_problems(status, {**OPTION_1, "band_mix_margin": 0.075})
+    assert R.ratified_band_problems(status, {**OPTION_1, "band_mix_margin": 0.10})
+    doc.write_text("## Ratification\n\n- Decision: ratified with changes\n- Option: 1\n")
+    assert R.amendment_status(doc)["ratified"] is False
+    doc.write_text(
+        "## Ratification\n\n- Decision: ratified\n- Option: 1\n- Changes, if any: margin 0.06\n"
+    )
+    changed = R.amendment_status(doc)
+    assert changed["ratified"] is True and changed["changes"] == "margin 0.06"
+    assert any("records changes" in p for p in R.ratified_band_problems(changed, OPTION_1))
+    doc.write_text(
+        "## Ratification\n\n- Decision: Ratified\n- Option: 1\n- Changes, if any: none\n"
+    )
+    assert R.ratified_band_problems(R.amendment_status(doc), OPTION_1) == []
     doc.write_text("## Ratification\n\n- Decision: ratified\n- Option: 2\n")
     assert R.ratified_band_problems(R.amendment_status(doc), R.POOLED_BAND_OPTIONS["2"]) == []
     repo_copy = R.amendment_status(R.REPO / R.SURVIVAL_BAND_V2_AMENDMENT)
@@ -385,9 +397,23 @@ def test_pooled_band_rows_match_the_gate_function(tmp_path):
             for m in MIXES
         }  # fmt: skip
         direct = pooled_band_check(
-            cand, inc, pooled_margin=0.05, mix_margin=0.10,
+            cand, inc, pooled_margin=0.05, mix_margin=0.075,
             nominal_p=intent["plan"]["band_nominal_p"][k], floor=0.30,
         )  # fmt: skip
         row = receipt["bands_by_look"][k][0]
         assert row["passes"] == direct["passes"]
         assert row["pooled"]["lower_bound"] == pytest.approx(direct["pooled"]["lower_bound"])
+
+
+def test_check_simulator_is_bound_by_sha256(tmp_path, monkeypatch):
+    simulator = tmp_path / "simulate.py"
+    simulator.write_text(R.POOLED_BAND_SIMULATOR.read_text())
+    monkeypatch.setattr(R, "POOLED_BAND_SIMULATOR", simulator)
+    spec = make_pooled_spec(FakeWorld(effect=400.0), tmp_path)
+    intent = R.read_json(prepare_pooled(tmp_path, spec))
+    frozen = intent["paired_band_check"]
+    assert frozen["simulator_sha256"] == R.sha256_file(simulator)
+    R.validate_intent(intent, spec)
+    simulator.write_text(simulator.read_text() + "\n# edited after prepare\n")
+    with pytest.raises(R.StrictRunError, match="simulator changed"):
+        R.validate_intent(intent, spec)

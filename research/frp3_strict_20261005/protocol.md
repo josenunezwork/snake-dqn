@@ -11,13 +11,16 @@ Governance: Tier 2 of
 and
 [`governance_amendment_survival_band_v2_2026-10-06.md`](../../docs/research/governance_amendment_survival_band_v2_2026-10-06.md)
 (**both ratifications pending; the owner ratifies both before `prepare`, which refuses
-otherwise**; survival band v2 must be ratified with **option 1**, the values below).
+otherwise**; survival band v2 must be ratified exactly, with **option 1** and no changes: the
+values below).
 Written 2026-10-05 (UTC) after FRP-v3 Phase R closed `GO_R` and **before any calibration or
 final episode of this study and before any intent**. **Revised 2026-10-06 (UTC), still before
 any intent, calibration or final episode** (ledger: namespace unused): the survival band was
 replaced by survival band v2 at the owner's decision, because the frozen template-v2 band
-(`paired_ni_at_stop`, per-mix, judged once at the qualifying look) failed 53-72% of
-no-regression runs at the qualifying look for a between-checkpoint change. Survival band v2 was
+(`paired_ni_at_stop`, per-mix, judged once at the qualifying look) failed in 53-72% of the
+resampled Phase R runs at the qualifying look (observed survival deltas, near zero or positive)
+and passed a candidate with exactly unchanged survival 2-5% of the time on independent
+between-checkpoint data. Survival band v2 was
 chosen and calibrated on independent, pre-FRP-v3 data only (the amendment's "Data
 provenance"); this study's Phase R pool enters only its validity check and the descriptive
 planning numbers below. Worlds, namespaces, looks, N_max, MDE, efficacy, NI, futility, sizing,
@@ -149,15 +152,16 @@ descriptive only. Written create-only to `calibration.json`.
   incumbent` survival_fraction on the same final world and the pooled per-world delta `p` = the
   mean of `d` over the three mixes, the bands pass at look k iff `mean(p) - t_{n_k-1}(p_k) *
   sd(p) / sqrt(n_k) > -0.05` (pooled NI), every mix's `mean(d_m) - t_{n_k-1}(p_k) * sd(d_m) /
-  sqrt(n_k) > -0.10` (per-mix catastrophic NI) and every mix's candidate mean >= 0.30 (floor),
+  sqrt(n_k) > -0.075` (per-mix catastrophic NI) and every mix's candidate mean >= 0.30 (floor),
   with `p_k` the `rci_obf` levels at alpha 0.05 (9.12e-5, 5.63e-3, 2.21e-2, 4.26e-2). Judged at
   the qualifying look **and every later look**: STOP_PASS at the first look where they pass; a
   qualified run whose bands fail gets `CONTINUE_BANDS` and plays the next look (efficacy and NI
   stay established, futility no longer stops it); FINAL_PASS / FINAL_FAIL at look 4. Stated
-  explicitly: `--paired-band 0.05,0.05,rci_obf,0.30,0.10`. Guarantee (repeated confidence
+  explicitly: `--paired-band 0.05,0.05,rci_obf,0.30,0.075`. Guarantee (repeated confidence
   bounds): P(PASS and a true pooled survival regression >= 0.05) <= 0.05 and P(PASS and a true
-  one-mix regression >= 0.10) <= 0.05 at any stopping look; a 0.05 loss confined to one mix is
-  not protected (not attainable at N_max <= 300; see the amendment).
+  one-mix regression >= 0.075) <= 0.05 at any stopping look; a 0.05 loss confined to one mix is
+  caught 60-73% of the time on independent between-checkpoint data, not guaranteed (not
+  attainable at N_max <= 300; see the amendment).
 - Futility: non-binding CP < 0.10 under the MDE, `futility_policy = "followed"`,
   `futility_action = "stop"`.
 - MDE **65** mass-integral units per mix (sizing below). Interleaving: unit `u = world x 3 +
@@ -215,26 +219,28 @@ independent data in the amendment):
 
 | Pool / scenario | P(PASS) | STOP_PASS / FINAL_PASS / FINAL_FAIL | stop look 1/2/3/4 | E[worlds/mix] |
 |---|---|---|---|---|
-| candidate's own worlds, observed effects (mass and survival) | **0.994** | 0.948 / 0.046 / 0.006 | 0.03/0.61/0.31/0.05 | 165 |
-| candidate's own worlds, observed mass, survival recentred to no change | **0.966** | 0.850 / 0.117 / 0.034 | 0.00/0.41/0.44/0.15 | 189 |
-| candidate's own shape at the MDE in every mix, survival no change | 0.965 | 0.843 / 0.122 / 0.035 | 0.00/0.40/0.45/0.16 | 190 |
-| candidate's own shape at the all-seed means (observed survival) | 0.991 | 0.932 / 0.060 / 0.009 | 0.00/0.54/0.39/0.07 | 174 |
-| candidate's own shape at the MDE in every mix (observed survival) | 0.990 | 0.930 / 0.060 / 0.010 | 0.00/0.52/0.41/0.07 | 176 |
+| candidate's own worlds, observed effects (mass and survival) | **0.964** | 0.842 / 0.121 / 0.036 | 0.01/0.44/0.39/0.16 | 186 |
+| candidate's own worlds, observed mass, survival recentred to no change | **0.828** | 0.581 / 0.247 / 0.172 | 0.00/0.15/0.43/0.42 | 225 |
+| candidate's own shape at the MDE in every mix, survival no change | 0.825 | 0.581 / 0.245 / 0.175 | 0.00/0.15/0.43/0.42 | 225 |
+| candidate's own shape at the all-seed means (observed survival) | 0.960 | 0.840 / 0.120 / 0.040 | 0.00/0.41/0.43/0.16 | 190 |
+| candidate's own shape at the MDE in every mix (observed survival) | 0.965 | 0.844 / 0.121 / 0.035 | 0.00/0.40/0.45/0.16 | 190 |
 | candidate's own shape at the global null | 0.001 | - (0.614 futile, 0.385 final fail) | - | 233 |
-| all five seeds, observed effects | 0.998 | 0.963 / 0.035 / 0.002 | 0.00/0.55/0.41/0.04 | 171 |
-| all five seeds' shape at the MDE in every mix | 0.998 | 0.963 / 0.035 / 0.002 | 0.00/0.53/0.43/0.04 | 173 |
-| **regression what-if**: observed mass, pooled survival -0.05 in every mix | **0.041** | 0.018 / 0.023 / 0.959 | 0.00/0.00/0.02/0.98 | 274 |
-| **regression what-if**: observed mass, scripted survival -0.10 | **0.049** | 0.022 / 0.028 / 0.951 | 0.00/0.00/0.02/0.98 | 273 |
+| all five seeds, observed effects | 0.984 | 0.883 / 0.100 / 0.016 | 0.00/0.39/0.49/0.12 | 188 |
+| all five seeds' shape at the MDE in every mix | 0.983 | 0.881 / 0.102 / 0.018 | 0.00/0.38/0.50/0.12 | 189 |
+| **regression what-if**: observed mass, pooled survival -0.05 in every mix | **0.021** | 0.004 / 0.016 / 0.979 | 0.00/0.00/0.00/1.00 | 275 |
+| **regression what-if**: observed mass, scripted survival -0.075 | **0.050** | 0.022 / 0.028 / 0.950 | 0.00/0.00/0.02/0.98 | 273 |
 
 **Honest expectation.** Efficacy and NI are almost certain at Phase R-sized effects (about
 0.99), and the run usually qualifies at look 2 (138 worlds/mix). Under survival band v2 the
 survival guardrail no longer decides the gate for a candidate without a survival regression:
-expected full-gate pass probability **about 0.97-0.99** (0.994 on the candidate's own worlds
-at its observed effects; 0.966 if its survival were exactly unchanged), at about 165-190 worlds
-per mix (the frozen v2 band gave 0.24-0.38). A true survival regression at a protected margin
-passes about 4-5% of the time. On the amendment's independent between-checkpoint pools
-(FRP-v2), the same plan passes 0.986-0.995 at the MDE with no survival change. A STRICT_FAIL
-now says more about the candidate than before; the look receipts record which component failed.
+expected full-gate pass probability **about 0.96** on the candidate's own worlds at its
+observed effects (0.98 on the all-seed pool), **about 0.83 if its survival were exactly
+unchanged** (its scripted paired survival SD, 0.48, is larger than any independent
+between-checkpoint cell), at about 186-225 worlds per mix (the frozen v2 band gave 0.24-0.38).
+A true survival regression at a protected margin passes 2-5% of the time. On the amendment's
+independent between-checkpoint pools (FRP-v2) the same plan passes 0.92-0.94 at the MDE with
+no survival change. A STRICT_FAIL now says more about the candidate than before; the look
+receipts record which band component failed.
 
 ## Survival band v2: per-study check and band cost
 
@@ -243,18 +249,18 @@ now says more about the candidate than before; the look receipts record which co
   9.946; mass effects 32.5, 43.55, 65, 97.5, 130 (0.5 / 0.67 / 1 / 1.5 / 2 x MDE) and 99.04 (the
   candidate's Phase R mean of mix means); pools `frp3_s12` and `frp3_all_seeds`): joint rate
   P(PASS and a regression exactly at a margin) for the pooled regression (-0.05 in every mix) and
-  each one-mix regression (-0.10), 48 rows. **PASSES**: max joint rate **0.0502** <= 0.06
-  (`frp3_s12`, theta 32.5, scripted at -0.10). Re-judged by `prepare`, `run` and the audit; its
-  sha256 is frozen in the intent with the pool. If it had failed, the study would not have
-  adopted survival band v2 (no retuning).
-- **No-regression pass rate through the gate** (same output, `no_change` rows): 0.62 at 0.5 x
-  MDE (mostly no qualification), 0.87-0.90 at 0.67 x MDE, 0.97-0.98 at the MDE and above.
+  each one-mix regression (-0.075), 48 rows. **PASSES**: max joint rate **0.0498** <= 0.06
+  (`frp3_s12`, theta 32.5, scripted at -0.075). Re-judged by `prepare`, `run` and the audit;
+  its sha256 is frozen in the intent with the pool and the simulator's sha256. Had it failed,
+  the study would not have adopted survival band v2 (no retuning).
+- **No-regression pass rate through the gate** (same output, `no_change` rows): 0.61 at 0.5 x
+  MDE (mostly no qualification), 0.81-0.84 at 0.67 x MDE, 0.82-0.87 at the MDE and above.
 - **Band cost per look** (`look1_band_cost.json`, normal approximation, Phase R pilot SDs:
   pooled 0.211, per mix 0.217 / 0.476 / 0.324 on the candidate's own worlds): probability that
   a component fails at look 1 / 2 / 3 / 4 with a true delta of 0: pooled 0.98 / 0.42 / 0.08 /
-  0.01; scripted (per-mix 0.10) 0.99 / 0.54 / 0.16 / 0.04; frozen 0.55 / 0.00 / 0.00 / 0.00;
-  mixed 0.92 / 0.15 / 0.01 / 0.00. A failure no longer ends the gate: a qualified run continues,
-  so most candidates without a regression that are not yet clear at look 2 pass at look 3.
+  0.01; scripted (per-mix 0.075) 1.00 / 0.76 / 0.40 / 0.19; frozen 0.86 / 0.07 / 0.00 / 0.00;
+  mixed 0.98 / 0.44 / 0.10 / 0.02. A failure no longer ends the gate: a qualified run continues
+  to the next look.
 
 ## Skew check
 
@@ -281,8 +287,8 @@ sample skewness 0.29 / -0.02 / 0.37), scripted NI 0.0499: would pass.
   per job), remote ~57 min for the gate, ~99 min end to end including 30 min runtime seeding, the
   identity check (Mac half 6 min) and cold starts, vs **562 min (9.4 h) on 2 Mac slots: 5.67x**
   (>= the per-step **4x** rule, the user's rule since 2026-10-05; by stop look 2.49x / 3.92x /
-  4.93x / 5.67x). Expected spend about $9-10 (survival band v2's continuation adds about 2-15%
-  expected worlds; worst-case reservations unchanged: $33 gate, $4.3 identity).
+  4.93x / 5.67x). Expected spend about $10-12 under survival band v2 (about 186-225 expected
+  worlds per mix; worst-case reservations unchanged: $33 gate, $4.3 identity).
 - **Identity check** (amendment condition 3, once per intent, after `prepare`, before `run`):
   the default pre-registered sample, 3 worlds per mix of the first look's prefix (ranked by
   `sha256("apex-frp3-strict-final-v1|identity-sample|<i>")`), both arms, full H5000: 18 episodes
@@ -293,8 +299,8 @@ sample skewness 0.29 / -0.02 / 0.37), scripted NI 0.0499: would pass.
 - **Mac fallback runtime** (disclosed): on 2 Mac slots (live H5000; champion+v8 episodes 44.8 / 26.9 /
   34.2 s from the v8 strict run, the candidate at x1.25, x1.15 overhead), calibration about 16
   min, the final stage at N_max about 37,700 s per worker = **84% of the template's final-stage
-  cap** (44,970 s; a cap reached ends the run `INCOMPLETE`), about 6.2 h at the expected 162
-  worlds per mix. Disclosed, not a sizing constraint (the owner's rule is N_max <= 300).
+  cap** (44,970 s; a cap reached ends the run `INCOMPLETE`), about 7.1-8.6 h at the expected 186-225
+  worlds per mix under survival band v2. Disclosed, not a sizing constraint (the owner's rule is N_max <= 300).
 - Checkpoints: the five sha256s of `spec.remote_checkpoints()` are on the RunPod upload
   allow-list; the candidate entry (root `artifacts_root`) is the one the user approved on
   2026-10-05 for FRP-v3 Phase R; its use for this Tier-2 strict gate was approved by the user in
@@ -334,7 +340,7 @@ source closure and on the `arm_identity_sha256` of each envelope).
 See the hand-backs of the branches `frp3-strict` and `band-v2` (ratify the strict-on-RunPod
 amendment and survival band v2 option 1, preflight, seed, remote-plan, prepare, identity check,
 run, audit, decision). `prepare` takes `--n-max 275 --mde 65 --n-calibration 16
---paired-band 0.05,0.05,rci_obf,0.30,0.10 --development-delta-ni 9.945893662499998 --skew-input
+--paired-band 0.05,0.05,rci_obf,0.30,0.075 --development-delta-ni 9.945893662499998 --skew-input
 research/frp3_strict_20261005/phase_r_deltas.json --remote-config
 research/frp3_strict_20261005/remote_config.json`.
 

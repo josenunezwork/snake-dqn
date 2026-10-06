@@ -214,17 +214,23 @@ POOLED_BAND_OPTIONS = {
         "band_alpha": 0.05,
         "band_bound": "rci_obf",
         "band_floor": 0.30,
-        "band_mix_margin": 0.10,
+        "band_mix_margin": 0.075,
     },
     "2": {
         "band_ni_margin": 0.05,
         "band_alpha": 0.05,
         "band_bound": "rci_obf",
         "band_floor": 0.30,
-        "band_mix_margin": 0.075,
+        "band_mix_margin": 0.10,
     },
 }
-AMENDMENT_RATIFIED_RE = re.compile(r"^\s*-\s*Decision:\s*ratified\b", re.IGNORECASE | re.MULTILINE)
+# Exactly "ratified": "ratified with changes" (or anything else) is not a ratification the code
+# can apply, because the code only knows the two listed options.
+AMENDMENT_RATIFIED_RE = re.compile(
+    r"^\s*-\s*Decision:\s*ratified\s*$", re.IGNORECASE | re.MULTILINE
+)
+AMENDMENT_CHANGES_RE = re.compile(r"^\s*-\s*Changes(?:, if any)?:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+NO_CHANGES = ("", "none", "no", "n/a", "-")
 AMENDMENT_OPTION_RE = re.compile(r"^\s*-\s*Option:\s*([12])\s*$", re.MULTILINE)
 POOLED_BAND_SIMULATOR = REPO / "research" / "survival_band_v2_20261006" / "simulate.py"
 # The amendment's own calibration pools: evidence for the rule, never a study's check.
@@ -748,12 +754,19 @@ def amendment_status(path: Path) -> Dict[str, Any]:
     path = Path(path)
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     option = AMENDMENT_OPTION_RE.search(text)
+    changes = AMENDMENT_CHANGES_RE.search(text)
     return {
         "path": str(path),
         "sha256": sha256_file(path) if path.is_file() else None,
         "ratified": bool(AMENDMENT_RATIFIED_RE.search(text)),
         "option": option.group(1) if option else None,
+        "changes": changes.group(1) if changes else None,
     }
+
+
+def _no_changes(value: Any) -> bool:
+    text = str(value or "").strip().strip("_").strip().lower()
+    return text in NO_CHANGES
 
 
 def ratified_band_problems(status: Mapping[str, Any], params: Mapping[str, Any]) -> List[str]:
@@ -763,6 +776,10 @@ def ratified_band_problems(status: Mapping[str, Any], params: Mapping[str, Any])
         problems.append("the survival band v2 amendment is missing")
     if status.get("ratified") is not True:
         problems.append("the survival band v2 amendment is not ratified")
+    if not _no_changes(status.get("changes")):
+        problems.append(
+            "the ratification records changes: a changed rule needs its own amendment and code"
+        )
     option = POOLED_BAND_OPTIONS.get(status.get("option") or "")
     if option is None:
         problems.append("the amendment's ratification records no option (1 or 2)")
@@ -1089,7 +1106,9 @@ def paired_check_record(
     data = read_json(data_path)
     pools = sorted(k for k, v in data.items() if isinstance(v, dict) and "world_seeds" in v)
     require(pools == judged["pools"], f"check pools {judged['pools']} != data pools {pools}")
+    pooled_extra = {"simulator_sha256": sha256_file(POOLED_BAND_SIMULATOR)} if spec.pooled else {}
     return {
+        **pooled_extra,
         "path": str(path),
         "sha256": sha256_file(path),
         "data_path": str(data_path),
@@ -1509,7 +1528,8 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
             == (Path(intent["repo"]) / SURVIVAL_BAND_V2_AMENDMENT).resolve()
             and derived["sha256"] == block["sha256"]
             and derived["ratified"] is block["ratified"]
-            and derived["option"] == block["option"],
+            and derived["option"] == block["option"]
+            and derived["changes"] == block["changes"],
             "the survival band v2 amendment differs from the frozen intent's",
         )
         problems = ratified_band_problems(derived, intent["plan_parameters"])
@@ -1528,6 +1548,12 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
             and frozen["data_sha256"] == docs["paired_band_pool"]["sha256"],
             "paired band check binding differs from the pre-registration documents",
         )
+        if spec.pooled:  # the generator of the check is bound by sha256 (survival band v2)
+            require(
+                Path(frozen["simulator_path"]) == POOLED_BAND_SIMULATOR
+                and sha256_file(POOLED_BAND_SIMULATOR) == frozen["simulator_sha256"],
+                "survival band v2 check simulator changed since prepare",
+            )
         judge = judge_pooled_check if spec.pooled else judge_paired_check
         again = judge(
             read_json(Path(frozen["path"])),
@@ -3292,7 +3318,7 @@ PAIRED_BAND_HELP = (
     "template v2 only: band_ni_margin,band_alpha,band_bound,band_floor "
     "(floor 'none' for no floor), e.g. 0.05,0.05,pointwise,0.30 (ratified 2026-10-03); "
     "pooled_ni_continue (survival band v2) adds band_mix_margin: M,alpha,rci_obf,floor,mix_margin, "
-    "e.g. 0.05,0.05,rci_obf,0.30,0.10 (amendment 2026-10-06 option 1)"
+    "e.g. 0.05,0.05,rci_obf,0.30,0.075 (amendment 2026-10-06 option 1)"
 )
 
 

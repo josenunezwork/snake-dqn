@@ -873,7 +873,7 @@ def test_dry_intent_freezes_the_survival_band_v2_plan_and_bindings(tmp_path):
     assert intent["plan"]["n_max"] == 275 and intent["plan"]["mde"] == 65.0
     assert intent["plan"]["band_policy"] == "pooled_ni_continue"
     assert intent["plan"]["band_ni_margin"] == 0.05 and intent["plan"]["band_floor"] == 0.30
-    assert intent["plan"]["band_bound"] == "rci_obf" and intent["plan"]["band_mix_margin"] == 0.10
+    assert intent["plan"]["band_bound"] == "rci_obf" and intent["plan"]["band_mix_margin"] == 0.075
     assert intent["paired_band_check"]["passes"] is True
     amendment = intent["band_amendment"]
     assert amendment["path"].endswith("governance_amendment_survival_band_v2_2026-10-06.md")

@@ -2,7 +2,7 @@
 
 Instantiation of ``research/sequential_strict_template`` (method
 ``strict-sequential-obf-bonferroni-v1``), template **v2-pooled: survival band v2**
-(``pooled_ni_continue``: pooled paired NI M 0.05 + per-mix catastrophic NI 0.10, alpha 0.05
+(``pooled_ni_continue``: pooled paired NI M 0.05 + per-mix catastrophic NI 0.075, alpha 0.05
 ``rci_obf``, floor 0.30, judged at the qualifying look and every later look; governance
 amendment survival band v2, 2026-10-06, option 1, **ratification pending**: a production
 ``prepare`` refuses until it is ratified with this option). It replaces the template-v2
@@ -74,7 +74,7 @@ CHECKPOINT_DIR = dev_screen.DEFAULT_CHECKPOINT_DIR
 CHAMPION_NAME, CHAMPION_SHA256 = dev_screen.CHAMPION
 POOL = tuple(dev_screen.POOL)  # champion + 3 opponents (the roster pool, unchanged)
 # Survival band v2 (governance amendment 2026-10-06), option 1, stated explicitly at prepare /
-# plan: pooled margin 0.05, alpha 0.05, rci_obf, floor 0.30, per-mix catastrophic margin 0.10.
+# plan: pooled margin 0.05, alpha 0.05, rci_obf, floor 0.30, per-mix catastrophic margin 0.075.
 # History: this package first froze template v2 ``paired_ni_at_stop`` (M 0.05, alpha 0.05,
 # floor 0.30; ``pointwise`` failed its per-study check, ``rci_obf`` passed); that band failed
 # 53-72% of no-regression runs at the qualifying look for a between-checkpoint change, so the
@@ -84,9 +84,9 @@ PAIRED_BAND = {
     "band_alpha": 0.05,
     "band_bound": "rci_obf",
     "band_floor": 0.30,
-    "band_mix_margin": 0.10,
+    "band_mix_margin": 0.075,
 }
-PAIRED_BAND_ARG = "0.05,0.05,rci_obf,0.30,0.10"
+PAIRED_BAND_ARG = "0.05,0.05,rci_obf,0.30,0.075"
 
 ARTIFACTS = preflight.ARTIFACTS
 CANDIDATE_NAME = "frp-v3 M3@60000 seed 12 (apex_mark_u60000.pth)"

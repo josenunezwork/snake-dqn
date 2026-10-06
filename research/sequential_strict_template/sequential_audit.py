@@ -120,11 +120,14 @@ PAIRED_POLICIES = (PAIRED, POOLED)
 SURVIVAL_BAND_V2_AMENDMENT = "docs/research/governance_amendment_survival_band_v2_2026-10-06.md"
 POOLED_OPTIONS = {
     "1": {"band_ni_margin": 0.05, "band_alpha": 0.05, "band_bound": "rci_obf",
-          "band_floor": 0.30, "band_mix_margin": 0.10},
-    "2": {"band_ni_margin": 0.05, "band_alpha": 0.05, "band_bound": "rci_obf",
           "band_floor": 0.30, "band_mix_margin": 0.075},
+    "2": {"band_ni_margin": 0.05, "band_alpha": 0.05, "band_bound": "rci_obf",
+          "band_floor": 0.30, "band_mix_margin": 0.10},
 }  # fmt: skip
 OPTION_RE = re.compile(r"^\s*-\s*Option:\s*([12])\s*$", re.MULTILINE)
+BAND_RATIFIED_RE = re.compile(r"^\s*-\s*Decision:\s*ratified\s*$", re.IGNORECASE | re.MULTILINE)
+CHANGES_RE = re.compile(r"^\s*-\s*Changes(?:, if any)?:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+POOLED_SIMULATOR = "research/survival_band_v2_20261006/simulate.py"
 POOLED_STOCK_POOL = "research/survival_band_v2_20261006/survival_pools_20261006.json"
 POOLED_CHECK_SCHEMA = "survival-band-v2-study-check/v1"
 PAIRED_PLAN_FIELDS = ("band_ni_margin", "band_alpha", "band_bound", "band_nominal_p", "band_floor")
@@ -1632,6 +1635,13 @@ def audit_pooled_check(audit: Audit, intent: Mapping[str, Any]) -> None:
         problems.append("intent band_rule differs from the plan")
     if report.get("schema") != POOLED_CHECK_SCHEMA or check.get("rule") != POOLED:
         problems.append("not a survival band v2 study check")
+    simulator = Path(str(frozen.get("simulator_path", "")))
+    if (
+        simulator.resolve() != (Path(intent["repo"]) / POOLED_SIMULATOR).resolve()
+        or not simulator.is_file()
+        or sha256_file(simulator) != frozen.get("simulator_sha256")
+    ):
+        problems.append("check simulator is not the frozen survival band v2 simulate.py")
     if config.get("plan_params") != params:
         problems.append("check plan parameters differ from the intent's")
     reps = report.get("reps")
@@ -1685,10 +1695,12 @@ def audit_band_amendment(audit: Audit, intent: Mapping[str, Any]) -> None:
     path = Path(str(block.get("path", "")))
     text = path.read_text(encoding="utf-8") if path.is_file() else ""
     option = OPTION_RE.search(text)
+    changes = CHANGES_RE.search(text)
     derived = {
         "sha256": sha256_file(path) if path.is_file() else None,
-        "ratified": bool(RATIFIED_RE.search(text)),
+        "ratified": bool(BAND_RATIFIED_RE.search(text)),
         "option": option.group(1) if option else None,
+        "changes": changes.group(1) if changes else None,
     }
     problems = []
     if path.resolve() != expected_path:
@@ -1702,6 +1714,14 @@ def audit_band_amendment(audit: Audit, intent: Mapping[str, Any]) -> None:
         production.append("missing")
     if not derived["ratified"]:
         production.append("not ratified")
+    if str(derived["changes"] or "").strip().strip("_").strip().lower() not in (
+        "",
+        "none",
+        "no",
+        "n/a",
+        "-",
+    ):
+        production.append("ratified with changes")
     if values is None:
         production.append("no ratified option")
     elif any(intent["plan_parameters"].get(k) != v for k, v in values.items()):
