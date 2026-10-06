@@ -5,10 +5,10 @@ import SteeringWheel, { confidence } from "./SteeringWheel";
 const LABELS = ["Left", "Straight", "Right", "Boost L", "Boost S", "Boost R"];
 
 describe("confidence()", () => {
-  it("buckets the decision margin", () => {
-    expect(confidence(1.5).label).toBe("confident");
-    expect(confidence(0.5).label).toBe("moderate");
-    expect(confidence(0.1).label).toBe("close call");
+  it("buckets the relative decision margin (raw margin / Q spread)", () => {
+    expect(confidence(0.6).label).toBe("confident");
+    expect(confidence(0.15).label).toBe("moderate");
+    expect(confidence(0.05).label).toBe("close call");
   });
 });
 
@@ -62,5 +62,18 @@ describe("SteeringWheel", () => {
     const xs = nums.filter((_, i) => i % 2 === 0);
     const avgX = xs.reduce((a, b) => a + b, 0) / xs.length;
     expect(avgX).toBeLessThan(0);
+  });
+
+  it("reads the same confidence for a ~4x smaller Q scale", () => {
+    // champion-scale Q and the same preferences at FRP-v3's ~1/4 scale
+    const big = [48.0, 47.4, 46.5, 45.0, 44.9, 44.2];
+    const small = big.map((v) => v / 4);
+    const a = render(<SteeringWheel q={big} chosen={0} labels={LABELS} />);
+    const b = render(<SteeringWheel q={small} chosen={0} labels={LABELS} />);
+    const label = (c: HTMLElement) => c.querySelector(".wheel-conf")?.textContent?.split(" · ")[0];
+    expect(label(a.container)).toBe("moderate");
+    expect(label(b.container)).toBe("moderate");
+    // the caption still shows the raw margin in the checkpoint's own units
+    expect(b.container.querySelector(".wheel-conf")?.textContent).toContain("+0.15");
   });
 });

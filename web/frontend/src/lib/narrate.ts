@@ -1,4 +1,5 @@
 import type { InspectorDTO } from "../types";
+import { confidenceLevel, decisionMargin } from "./decisionMargin";
 
 // Turn the hero's raw decision into one plain-English sentence — the kind of
 // caption that closes the gap from "pretty bars" to "oh, it turned right because
@@ -22,9 +23,12 @@ export interface Narration {
 
 const DIR_WORD = ["left", "straight", "right"];
 
-function confidenceBucket(margin: number): { label: string; close: boolean } {
-  if (margin > 1) return { label: "confident", close: false };
-  if (margin > 0.3) return { label: "weighing it up", close: false };
+// `relative` = decisionMargin(q).relative (raw margin / Q spread): scale-free,
+// so the caption reads the same for checkpoints whose Q-values differ in scale.
+function confidenceBucket(relative: number): { label: string; close: boolean } {
+  const level = confidenceLevel(relative);
+  if (level === "confident") return { label: "confident", close: false };
+  if (level === "moderate") return { label: "weighing it up", close: false };
   return { label: "a close call", close: true };
 }
 
@@ -49,10 +53,8 @@ export function narrate(inspector: InspectorDTO | null, obsSpec?: string): Narra
       ? "Going straight"
       : `Turning ${DIR_WORD[dir]}`;
 
-  // decision margin (confidence)
-  const sorted = [...q_values].sort((a, b) => b - a);
-  const margin = sorted.length > 1 ? sorted[0] - sorted[1] : 0;
-  const conf = confidenceBucket(margin);
+  // decision margin relative to the Q spread (confidence)
+  const conf = confidenceBucket(decisionMargin(q_values).relative);
 
   // Vector-spec detection: trust the served obs_spec when present; otherwise
   // infer from the state length (vector states are 58/61-D, raster scalars 26-D).
