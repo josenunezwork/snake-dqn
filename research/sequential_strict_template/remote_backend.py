@@ -24,7 +24,8 @@ Money: the endpoint's worst case is reserved in the shared RunPod ledger (and mu
 pre-registered cap), and the account balance is read every ``balance_guard_seconds``: this
 run's spend reaching its cap tears the endpoint down and stops the run ``INVALID_STOP``.
 Speed: :func:`plan_remote` projects the wall-clock against 2 Mac slots (cold starts, seeding,
-the identity check and look barriers included) and ``prepare`` refuses below 5x unless the
+the identity check and look barriers included) and ``prepare`` refuses below the per-step
+minimum (``min_speedup``, 4x since the user's rule change of 2026-10-05) unless the
 remote configuration forces it (recorded).
 
 Nothing in this module runs unless an intent opts in with ``prepare --remote-config``.
@@ -82,6 +83,13 @@ IDENTITY_STATES = ("NOT_RUN", "IN_PROGRESS", "PASSED", "FAILED", "ABANDONED")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 RATIFIED_RE = re.compile(r"^\s*-\s*Decision:\s*ratified\b", re.IGNORECASE | re.MULTILINE)
 TRANSPORT_PRODUCTION = "rp.py"
+# Floor of remote_policy.json min_speedup: the user's per-step RunPod rule (5x on 2026-10-04,
+# 4x from 2026-10-05). ``force_below_min_speedup`` forces a plan below min_speedup (recorded).
+MIN_SPEEDUP_RULE = 4.0
+# Back-compat: configs written before 2026-10-05 call it ``force_below_5x``; it is read as
+# ``force_below_min_speedup`` (both at once is refused) and frozen under the new name.
+LEGACY_FORCE_KEY = "force_below_5x"
+FORCE_KEY = "force_below_min_speedup"
 
 CONFIG_REQUIRED = {
     "schema",
@@ -103,7 +111,7 @@ CONFIG_OPTIONAL: Dict[str, Any] = {
     "vcpu_per_worker": None,
     "flavors": None,
     "identity_worlds_per_mix": None,
-    "force_below_5x": False,
+    "force_below_min_speedup": False,
     "sizing_objective": "fastest",
     "note": "",
 }
@@ -137,7 +145,9 @@ def load_remote_policy(path: Path = REMOTE_POLICY_PATH) -> Dict[str, Any]:
     R.require(pol.get("schema") == POLICY_SCHEMA, "unknown remote policy schema")
     R.require(pol.get("platform") == PLATFORM, f"remote policy platform must be {PLATFORM}")
     R.require(int(pol["mac_slots"]) == R.WORKERS, "the Mac baseline is the strict gate's 2 slots")
-    R.require(float(pol["min_speedup"]) >= 5.0, "the per-step rule is >= 5x")
+    # The user's standing per-step rule: >= 5x (2026-10-04), lowered to >= 4x on 2026-10-05
+    # ("change rule to 4x not 5"). The policy may be stricter, never looser.
+    R.require(float(pol["min_speedup"]) >= MIN_SPEEDUP_RULE, "the per-step rule is >= 4x")
     return pol
 
 
@@ -156,6 +166,10 @@ def load_remote_config(
     """The study's remote configuration (a hash-bound pre-registration document)."""
     raw = _read(path)
     R.require(isinstance(raw, dict), "remote config must be a JSON object")
+    if LEGACY_FORCE_KEY in raw:  # back-compat (see LEGACY_FORCE_KEY)
+        R.require(FORCE_KEY not in raw, f"give {FORCE_KEY} or {LEGACY_FORCE_KEY}, not both")
+        raw = {**raw, FORCE_KEY: raw[LEGACY_FORCE_KEY]}
+        del raw[LEGACY_FORCE_KEY]
     unknown = set(raw) - CONFIG_REQUIRED - set(CONFIG_OPTIONAL)
     missing = CONFIG_REQUIRED - set(raw)
     R.require(
@@ -223,10 +237,10 @@ def load_remote_config(
         "identity_worlds_per_mix out of range",
     )
     cfg["identity_worlds_per_mix"] = k
-    R.require(isinstance(cfg["force_below_5x"], bool), "force_below_5x must be a boolean")
+    R.require(isinstance(cfg[FORCE_KEY], bool), f"{FORCE_KEY} must be a boolean")
     R.require(
         cfg["sizing_objective"] in ("fastest", "cheapest"),
-        "sizing_objective must be fastest (default) or cheapest (cheapest at >= 5x)",
+        "sizing_objective must be fastest (default) or cheapest (cheapest at >= min_speedup)",
     )
     return cfg
 
@@ -462,7 +476,7 @@ def plan_remote(
         "sizing_objective": objective,
         "choice": choice,
         "meets_min_speedup": meets,
-        "forced_below_min": bool(cfg.get("force_below_5x")) and not meets,
+        "forced_below_min": bool(cfg.get(FORCE_KEY)) and not meets,
         "options_ok": len(ok),
         "options_refused": len(rows) - len(ok),
         "fastest_ok": max(ok, key=lambda r: r["speedup"], default=None),
@@ -550,9 +564,10 @@ def execution_block(
     )
     R.require(plan["choice"] is not None, "no remote sizing fits the caps (see remote-plan)")
     R.require(
-        plan["meets_min_speedup"] or cfg["force_below_5x"],
+        plan["meets_min_speedup"] or cfg[FORCE_KEY],
         f"projected speed-up {plan['choice']['speedup']}x < {plan['min_speedup']}x vs 2 Mac "
-        "slots: the per-step 5x rule keeps this gate on the Mac (force_below_5x overrides, "
+        "slots: the per-step speed-up rule keeps this gate on the Mac (force_below_min_speedup "
+        "overrides, "
         "recorded)",
     )
     choice = plan["choice"]
@@ -699,8 +714,8 @@ def validate_execution(intent: Mapping[str, Any], spec: R.StudySpec) -> None:
         "the protocol no longer names the platform",
     )
     R.require(
-        block["plan"]["meets_min_speedup"] or block["remote_config"]["values"]["force_below_5x"],
-        "plan below the 5x rule without a recorded force",
+        block["plan"]["meets_min_speedup"] or block["remote_config"]["values"][FORCE_KEY],
+        "plan below the per-step speed-up rule without a recorded force",
     )
 
 
@@ -2367,7 +2382,7 @@ def remote_plan_report(
         blockers.append(f"checkpoints not on the RunPod allow-list: {not_allowed}")
     if plan["choice"] is None:
         blockers.append("no sizing fits the caps")
-    elif not plan["meets_min_speedup"] and not cfg["force_below_5x"]:
+    elif not plan["meets_min_speedup"] and not cfg[FORCE_KEY]:
         blockers.append(f"speed-up {plan['choice']['speedup']}x < {plan['min_speedup']}x")
     if not amendment["ratified"]:
         blockers.append("amendment not ratified (production prepare refuses; dry runs allowed)")
@@ -2384,7 +2399,7 @@ def remote_plan_report(
         "amendment": amendment,
         "blockers": blockers,
         "admissible": plan["choice"] is not None
-        and (plan["meets_min_speedup"] or cfg["force_below_5x"])
+        and (plan["meets_min_speedup"] or cfg[FORCE_KEY])
         and hooks
         and not not_allowed,
         "owner_steps": (

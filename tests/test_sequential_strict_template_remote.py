@@ -453,13 +453,54 @@ def test_prepare_refuses_without_hooks_platform_line_allowlist_or_5x(tmp_path):
     spec = make_remote_spec(RemoteWorld(), tmp_path)
     with pytest.raises(R.StrictRunError, match="budget_usd"):
         prepare_remote(tmp_path, spec, config={"budget_usd": 400.0})
-    with pytest.raises(R.StrictRunError, match="per-step 5x rule"):
+    with pytest.raises(R.StrictRunError, match="per-step speed-up rule"):
         prepare_remote(tmp_path, spec, config={"mac_episode_seconds": 20.0})
     forced = R.read_json(
-        prepare_remote(tmp_path, spec, config={"mac_episode_seconds": 20.0, "force_below_5x": True})
+        prepare_remote(
+            tmp_path, spec, config={"mac_episode_seconds": 20.0, "force_below_min_speedup": True}
+        )
     )
     assert forced["execution"]["forced_below_min"] is True
     assert forced["execution"]["plan"]["meets_min_speedup"] is False
+    assert forced["execution"]["remote_config"]["values"]["force_below_min_speedup"] is True
+
+
+def test_legacy_force_below_5x_key_is_read_as_force_below_min_speedup(tmp_path):
+    rpol, _fp, sp = RB.policies()
+    cfg = RB.load_remote_config(write_config(tmp_path, force_below_5x=True), rpol, sp)
+    assert cfg["force_below_min_speedup"] is True and "force_below_5x" not in cfg
+    both = write_config(tmp_path, force_below_5x=True, force_below_min_speedup=False)
+    with pytest.raises(R.StrictRunError, match="not both"):
+        RB.load_remote_config(both, rpol, sp)
+
+
+def test_audit_rechecks_the_speedup_floor_itself(tmp_path):
+    assert A.MIN_SPEEDUP_RULE == RB.MIN_SPEEDUP_RULE == 4.0
+    spec, intent_path, fake, factory = passing_remote_run(tmp_path)
+    execute_remote(intent_path, spec, factory)
+    root = intent_path.parent
+    assert A.run_audit(root, ledger_path=factory.ledger.path)["status"] == "PASS"
+    intent = json.loads(intent_path.read_text())
+    intent["execution"]["plan"]["min_speedup"] = 3.0  # a policy below the user's floor
+    intent["execution"]["min_speedup"] = 3.0
+    intent_path.chmod(0o644)
+    intent_path.write_text(json.dumps(intent))
+    failed = {r["rule"] for r in A.run_audit(root, ledger_path=factory.ledger.path)["failures"]}
+    assert "execution.speedup_rule" in failed
+
+
+def test_the_per_step_rule_is_4x_and_the_policy_may_not_go_below_it(tmp_path):
+    """User rule change 2026-10-05 ("change rule to 4x not 5"): min_speedup 4.0, floor 4.0."""
+    rpol = RB.load_remote_policy()
+    assert rpol["min_speedup"] == 4.0 == RB.MIN_SPEEDUP_RULE
+    raw = json.loads(RB.REMOTE_POLICY_PATH.read_text())
+    (tmp_path / "p.json").write_text(json.dumps({**raw, "min_speedup": 3.9}))
+    with pytest.raises(R.StrictRunError, match="per-step rule is >= 4x"):
+        RB.load_remote_policy(tmp_path / "p.json")
+    (tmp_path / "p.json").write_text(json.dumps({**raw, "min_speedup": 5.0}))
+    assert RB.load_remote_policy(tmp_path / "p.json")["min_speedup"] == 5.0  # stricter is fine
+    amendment = (RB.REPO / rpol["amendment_path"]).read_text()
+    assert "at least 4x faster wall-clock" in amendment and "change rule to 4x not 5" in amendment
 
 
 def test_plan_projects_a_v8_sized_gate_against_two_mac_slots():

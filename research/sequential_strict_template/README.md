@@ -358,7 +358,7 @@ serverless runtime id is pinned in `tests/test_sequential_strict_template_remote
 | `remote_backend.py` | plan (speed-up vs 2 Mac slots), execution block, identity check, `RemoteSession` (one endpoint), `RemoteExecutor` (look segments as world-unit jobs) |
 | `remote_worker.py` | runs ONE episode on a worker, from the frozen commit's archive; re-checks intent, closure and spec first |
 | `strict_sls_handler.py` | the serverless handler, seeded as its own runtime (`serverless.py seed --handler strict`) |
-| `remote_policy.json` | strict-specific knobs (5x rule, attempts, guards, idle timeout); prices, image, volume and quota come from `research/runpod_fanout/` |
+| `remote_policy.json` | strict-specific knobs (4x per-step rule, `min_speedup`; attempts, guards, idle timeout); prices, image, volume and quota come from `research/runpod_fanout/` |
 
 **What stays on the Mac.** The run parent: look boundaries, the barrier, shard markers,
 create-only records and reports, receipts, the strict ledger, the audit, the closeout. It holds
@@ -403,15 +403,15 @@ probe) starts nothing.
 
    Optional: `cloud_episode_seconds` (a measured value beats the pod-calibrated default),
    `workers`, `vcpu_per_worker`, `flavors`, `identity_worlds_per_mix` (default 3),
-   `record_pins`, `force_below_5x`, `sizing_objective` (`fastest`, the default: the fastest
-   size within every cap; or `cheapest` at >= 5x).
+   `record_pins`, `force_below_min_speedup` (formerly `force_below_5x`, still read as an alias), `sizing_objective` (`fastest`, the default: the fastest
+   size within every cap; or `cheapest` at >= `min_speedup`, 4x).
 3. `sequential_runner.py remote-plan --spec ... --remote-config ... --n-max ... --mde ...
    --n-calibration ...` prints the projected wall and speed-up vs 2 Mac slots (seeding, the
    identity check, cold starts and barriers counted; every look played), the sizing, the caps
    and what still blocks it. `--account` adds read-only balance and worker-quota reads.
 4. Owner steps when `remote-plan` lists them: `serverless.py seed --handler strict --commit <C>
    --confirm` and `serverless.py template-create --handler strict --confirm`.
-5. `prepare ... --remote-config <config>` (refuses below 5x unless forced, an unratified
+5. `prepare ... --remote-config <config>` (refuses below 4x unless forced, an unratified
    amendment in production, a protocol without the platform line, a checkpoint off the
    allow-list). The amendment is bound by sha256, so ratify it (its "Ratification" section,
    `- Decision: ratified`) and commit before `prepare`; seed the commit `prepare` freezes.

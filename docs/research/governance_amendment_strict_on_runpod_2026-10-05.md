@@ -105,7 +105,7 @@ The ~5e-5 Q difference is the risk this amendment accepts. The conditions bound 
   of the canonical record bytes (and per-field digests to locate a divergence), never the
   records or their metrics.
 
-## Cost cap and the 5x rule
+## Cost cap and the per-step speed-up rule (4x)
 
 - **Cap.** The pre-registration states a dollar cap for the gate and one for the identity
   check. The endpoint's worst-case reservation (workers x reserved rate x the remote wall cap)
@@ -114,10 +114,12 @@ The ~5e-5 Q difference is the risk this amendment accepts. The conditions bound 
   minutes. If this run's spend (the balance drop since its start, less what other runners'
   ledger reservations could have spent in that time) reaches the cap, the run cancels its
   jobs, deletes its endpoint and closes out `INVALID_STOP`. It is never relabelled.
-- **Per-step 5x rule** (the user's standing rule of 2026-10-04, unchanged): the plan must
-  project at least 5x faster wall-clock than the same gate on 2 Mac slots, counting cold
-  starts, seeding, the identity check and look barriers. `prepare` refuses a plan below 5x
-  unless it is explicitly forced; a forced plan is recorded in the intent and the audit report.
+- **Per-step speed-up rule** (the user's standing rule of 2026-10-04, 5x; lowered by the user
+  to **4x** on 2026-10-05, "change rule to 4x not 5", before this amendment was ratified): the
+  plan must project at least 4x faster wall-clock than the same gate on 2 Mac slots, counting
+  cold starts, seeding, the identity check and look barriers. `prepare` refuses a plan below
+  4x (`remote_policy.json` `min_speedup`; the code refuses a policy below 4x) unless it is
+  explicitly forced; a forced plan is recorded in the intent and the audit report.
 
 ## Failures
 
@@ -145,7 +147,7 @@ its ratification section records the decision as ratified.
 `research/sequential_strict_template/` template v3 (opt-in through `prepare --remote-config`),
 added on branch `strict-runpod` after this document:
 
-- `remote_backend.py`: the plan (speed-up vs 2 Mac slots, refuses below 5x unless forced),
+- `remote_backend.py`: the plan (speed-up vs 2 Mac slots, refuses below 4x unless forced),
   the remote executor (world-unit jobs, batching, re-dispatch, duplicate check, balance hard
   stop, endpoint teardown, watchdog) and the identity check;
 - `remote_worker.py` and `strict_sls_handler.py`: what runs on the worker, from the frozen

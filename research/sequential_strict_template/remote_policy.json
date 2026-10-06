@@ -1,11 +1,12 @@
 {
   "schema": "sequential-strict-remote-policy/v1",
   "approved": "owner decision 2026-10-05 (final calls delegated by the user): strict promotion gates may run on RunPod serverless under docs/research/governance_amendment_strict_on_runpod_2026-10-05.md (four conditions); prospective, opt-in (template v3); serving qualification stays on the Mac",
+  "min_speedup_note": "the user's per-step RunPod rule: >= 5x (2026-10-04), lowered to >= 4x on 2026-10-05 (user: \"change rule to 4x not 5\")",
   "platform": "runpod-serverless",
   "amendment_path": "docs/research/governance_amendment_strict_on_runpod_2026-10-05.md",
   "protocol_platform_line": "Execution platform: runpod-serverless",
   "mac_slots": 2,
-  "min_speedup": 5.0,
+  "min_speedup": 4.0,
   "identity_worlds_per_mix_default": 3,
   "identity_worlds_per_mix_max": 10,
   "max_attempts_per_unit": 3,

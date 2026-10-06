@@ -83,6 +83,15 @@ SEGMENT_SCHEMA = "sequential-strict-remote-segment/v1"
 PROTOCOL_PLATFORM_LINE = "Execution platform: runpod-serverless"
 SERVING_QUALIFICATION = "stays on the Mac (condition 4)"
 RATIFIED_RE = re.compile(r"^\s*-\s*Decision:\s*ratified\b", re.IGNORECASE | re.MULTILINE)
+# The user's per-step RunPod speed-up rule (5x on 2026-10-04, 4x from 2026-10-05): a v3 plan's
+# min_speedup may be stricter, never below this (a copy of remote_backend.MIN_SPEEDUP_RULE).
+MIN_SPEEDUP_RULE = 4.0
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 REMOTE_DIR = "remote"
 METHOD = "strict-sequential-obf-bonferroni-v1"
 TEMPLATE_VERSION = "sequential-strict-template/v1"
@@ -1606,11 +1615,30 @@ def audit_remote(
         and ratified_ok,
         {"drifted": drifted, "amendment_ratified_in_text": derived_ratified},
     )
+    # the per-step rule re-checked here, not taken from the intent: min_speedup >= the user's
+    # floor (4x since 2026-10-05), the plan's verdict recomputed from its own numbers, and a
+    # plan below it only with a recorded force (legacy key force_below_5x read as well)
+    plan_block = block.get("plan") or {}
+    values = (block.get("remote_config") or {}).get("values", {})
+    forced = values.get("force_below_min_speedup") is True or values.get("force_below_5x") is True
+    min_speedup = plan_block.get("min_speedup")
+    speedup = (plan_block.get("choice") or {}).get("speedup")
+    floor_ok = _is_number(min_speedup) and min_speedup >= MIN_SPEEDUP_RULE
+    meets = floor_ok and _is_number(speedup) and speedup >= min_speedup
     audit.add(
         "execution.speedup_rule",
-        (block.get("plan") or {}).get("meets_min_speedup") is True
-        or (block.get("remote_config") or {}).get("values", {}).get("force_below_5x") is True,
-        {"speedup": block.get("speedup"), "forced_below_min": block.get("forced_below_min")},
+        floor_ok
+        and meets == (plan_block.get("meets_min_speedup") is True)
+        and (meets or forced)
+        and block.get("speedup") == speedup
+        and block.get("min_speedup") == min_speedup
+        and bool(block.get("forced_below_min")) == (forced and not meets),
+        {
+            "speedup": speedup,
+            "min_speedup": min_speedup,
+            "floor": MIN_SPEEDUP_RULE,
+            "forced_below_min": block.get("forced_below_min"),
+        },
     )
     # (3) the identity result, its recomputed verdict and the backend it implies
     started_path = output / "started.json"
