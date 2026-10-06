@@ -60,6 +60,11 @@ def no_default_checkpoint(monkeypatch, tmp_path):
     import web.backend.session as session_module
 
     monkeypatch.setattr(session_module, "DEFAULT_CHECKPOINT", str(tmp_path / "absent.pth"))
+    # Since the 2026-10-06 release the registry default is frp3-s12 (found on disk); pin the
+    # pre-release champion default so checkpoint=None still means untrained weights here.
+    from web.backend import served_checkpoint as registry
+
+    monkeypatch.setattr(registry, "CHECKPOINT_RELEASED_DEFAULT", registry.NAME_CHAMPION)
 
 
 @pytest.fixture

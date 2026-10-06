@@ -513,7 +513,8 @@ class GameSession:
 
         # Which checkpoint a default-constructed session serves: the pinned registry in
         # web/backend/served_checkpoint.py (SNAKE_SERVE_CHECKPOINT; unset = the released
-        # default, the champion at DEFAULT_CHECKPOINT; fail closed). An explicit
+        # default, frp3-s12 since 2026-10-06, failing closed to the champion at
+        # DEFAULT_CHECKPOINT; SNAKE_SERVE_CHECKPOINT=champion rolls back). An explicit
         # checkpoint bypasses it (served_checkpoint stays None).
         self.served_checkpoint: Optional[Dict[str, object]] = None
         ckpt = checkpoint

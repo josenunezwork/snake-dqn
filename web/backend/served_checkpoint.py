@@ -4,10 +4,13 @@
 asks :func:`resolve_served_checkpoint` which checkpoint to serve. The operator chooses by
 name with ``SNAKE_SERVE_CHECKPOINT``; only names in :data:`REGISTRY` exist:
 
-* ``champion`` (the released default while :data:`CHECKPOINT_RELEASED_DEFAULT` is
-  ``"champion"``): ``saved_snakes/champion_a5_freespace_20260621.pth``, served exactly as
-  before this module existed (same path, same no-checkpoint fallback to untrained weights).
-* ``frp3-s12``: FRP-v3 arm M3 seed 12 at 60000 learner updates
+* ``champion`` (the released default until 2026-10-06):
+  ``saved_snakes/champion_a5_freespace_20260621.pth``, served exactly as before this module
+  existed (same path, same no-checkpoint fallback to untrained weights). Rollback target:
+  ``SNAKE_SERVE_CHECKPOINT=champion``.
+* ``frp3-s12`` (the released default since 2026-10-06, :data:`CHECKPOINT_RELEASED_DEFAULT`;
+  with no checkpoint named, ``SNAKE_SERVE_VETO_VARIANT=v7/v5/v2`` serves the champion
+  instead, so those veto rollbacks keep their pre-swap meaning): FRP-v3 arm M3 seed 12 at 60000 learner updates
   (``apex_mark_u60000.pth``, sha256 :data:`FRP3_S12_SHA256`), served with the released v8
   veto (lambda 8) unchanged. It is served only when ALL of these hold, otherwise the build
   falls back to the released default and says why (fail closed, never raised):
@@ -57,8 +60,19 @@ PINS_SCHEMA = "served-checkpoint-strict-pins/v1"
 ENV_CHECKPOINT = "SNAKE_SERVE_CHECKPOINT"
 NAME_CHAMPION = "champion"
 NAME_FRP3_S12 = "frp3-s12"
-# Released default when ENV_CHECKPOINT is unset or blank (the swap's release step flips it).
-CHECKPOINT_RELEASED_DEFAULT = NAME_CHAMPION
+# Released default when ENV_CHECKPOINT is unset or blank.
+# frp3-s12 released 2026-10-06 (strict STRICT_PASS frp3-m3s12-strict-20261005/run-v1, receipt
+# 5107f3fc; web SERVING_PASS frp3-s12-serving-20261006/run-v1). Rollback (no code change):
+# SNAKE_SERVE_CHECKPOINT=champion.
+CHECKPOINT_RELEASED_DEFAULT = NAME_FRP3_S12
+
+# The veto-variant env key (read here only to keep the pre-swap veto rollbacks meaningful;
+# web/backend/safety_veto_serving.py owns the variant itself). The released frp3-s12 default
+# was gated and qualified with v8 alone, so when the operator asks for an older variant
+# (SNAKE_SERVE_VETO_VARIANT=v7/v5/v2) with no checkpoint named, the released default yields
+# to the champion: "v7" keeps meaning the pre-swap champion + v7 configuration.
+ENV_VETO_VARIANT = "SNAKE_SERVE_VETO_VARIANT"
+PRE_SWAP_VETO_VARIANTS = ("v7", "v5", "v2")
 
 CHAMPION_FILENAME = "champion_a5_freespace_20260621.pth"
 CHAMPION_SHA256 = "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
@@ -242,11 +256,31 @@ def _champion_choice(path: str) -> ServedCheckpointChoice:
     return ServedCheckpointChoice(requested=None)
 
 
+def _requested_pre_swap_variant(env: Mapping[str, str]) -> Optional[str]:
+    """The normalized SNAKE_SERVE_VETO_VARIANT when it names a pre-swap variant, else None."""
+    raw = env.get(ENV_VETO_VARIANT)
+    word = raw.strip().lower() if raw is not None else ""
+    return word if word in PRE_SWAP_VETO_VARIANTS else None
+
+
 def _released_default(
-    saved_dir: str, champion_path: str, pins: Mapping[str, Any]
+    saved_dir: str,
+    champion_path: str,
+    pins: Mapping[str, Any],
+    env: Optional[Mapping[str, str]] = None,
 ) -> ServedCheckpointChoice:
     if CHECKPOINT_RELEASED_DEFAULT == NAME_CHAMPION:
         return _champion_choice(champion_path)
+    variant = _requested_pre_swap_variant({} if env is None else env)
+    if variant is not None:
+        # The flipped default is gated with v8 only; an older variant is a veto rollback,
+        # which keeps its pre-swap meaning (the champion that variant's receipts bind).
+        fallback = _champion_choice(champion_path)
+        fallback.reason = (
+            f"{ENV_VETO_VARIANT}={variant} is a pre-swap veto rollback; the released default "
+            f"{CHECKPOINT_RELEASED_DEFAULT} is gated with v8 only; serving the champion"
+        )
+        return fallback
     # After a release flip: the flipped default is itself pin-gated; fail closed to the
     # champion when its pin or bytes do not verify.
     choice = _resolve_pinned(REGISTRY[CHECKPOINT_RELEASED_DEFAULT], saved_dir, pins)
@@ -286,9 +320,9 @@ def resolve_served_checkpoint(
     raw = env.get(ENV_CHECKPOINT)
     requested = raw.strip().lower() if raw is not None and raw.strip() else None
     if requested is None:
-        choice = _released_default(saved, champion, doc)
+        choice = _released_default(saved, champion, doc, env)
     elif requested not in REGISTRY:
-        choice = _released_default(saved, champion, doc)
+        choice = _released_default(saved, champion, doc, env)
         notice = (
             f"unknown {ENV_CHECKPOINT} {raw!r} (must be one of {', '.join(sorted(REGISTRY))}); "
             f"fell back to the released default {CHECKPOINT_RELEASED_DEFAULT}"
@@ -299,7 +333,7 @@ def resolve_served_checkpoint(
     else:
         choice = _resolve_pinned(REGISTRY[requested], saved, doc)
         if choice.path is None:
-            fallback = _released_default(saved, champion, doc)
+            fallback = _released_default(saved, champion, doc, env)
             reason = choice.reason
             if fallback.reason:
                 reason = f"{reason}; {fallback.reason}"

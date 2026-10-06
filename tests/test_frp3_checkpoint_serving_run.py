@@ -46,6 +46,10 @@ def _isolate(monkeypatch):
 
     for key in run_mod.schema.ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
+    # This lane qualified the swap BEFORE the release flipped the default (its S6 checks the
+    # champion + v8 default, and build_intent refuses a flipped tree by design). Its tests
+    # therefore run against the pre-release registry default.
+    monkeypatch.setattr(registry, "CHECKPOINT_RELEASED_DEFAULT", registry.NAME_CHAMPION)
     prev = game_config._current_config
     yield
     game_config._current_config = prev
