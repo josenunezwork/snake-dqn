@@ -2,11 +2,13 @@
 
 Nothing here plays a game: ``episode_runner`` raises until a study replaces it.  A study
 (for example the v8 veto challenge) copies this file into its own package, fills in the
-six marked parts and points ``prepare --spec <its.module>:SPEC`` at it.
+six marked parts (a seventh for a gate on RunPod, template v3) and points
+``prepare --spec <its.module>:SPEC`` at it.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
 
 from research.sequential_strict_template.sequential_runner import (
@@ -50,6 +52,19 @@ def excluded_seeds() -> Mapping[str, Sequence[int]]:
     raise NotImplementedError("example_spec: list every earlier namespace before prepare")
 
 
+def remote_worker_setup(intent: Mapping[str, Any], ckpt_dir: Path) -> Any:
+    """(7, template v3 only) The per-worker ``context`` on a RunPod worker: the same as
+    ``worker_setup`` but every checkpoint is ``ckpt_dir / f"{sha256}.pth"`` (verify each
+    sha256 before use). Leave as is for a gate that stays on the Mac."""
+    raise NotImplementedError("example_spec: instantiate remote_worker_setup for a remote gate")
+
+
+def remote_checkpoints() -> Sequence[str]:
+    """(7, template v3 only) sha256 of every checkpoint a remote episode loads; each must be
+    on research/runpod_fanout/checkpoint_allowlist.json (the owner approves uploads)."""
+    raise NotImplementedError("example_spec: list the remote checkpoints for a remote gate")
+
+
 def validate_record(entry: Mapping[str, Any], row: Mapping[str, Any]) -> List[str]:
     """(4) Record-shape rules (e.g. ``strict_promotion.validate_strict_world_record``)."""
     return []
@@ -73,6 +88,9 @@ SPEC = StudySpec(
     validate_record=validate_record,
     excluded_seeds=excluded_seeds,
     closure_roots=DEFAULT_CLOSURE_ROOTS,
+    # (7) Template v3 only (prepare --remote-config, gate on RunPod serverless):
+    remote_worker_setup=remote_worker_setup,
+    remote_checkpoints=remote_checkpoints,
     # (6) Pre-registration documents, relative to the repo, frozen by sha256 in the intent:
     protocol_path="research/REPLACE-ME/protocol.md",
     oc_report_path="research/REPLACE-ME/operating_characteristics.json",

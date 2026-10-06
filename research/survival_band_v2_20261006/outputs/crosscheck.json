@@ -1,0 +1,38 @@
+{
+ "batches": {
+  "2mde_scripted_at_mix_margin": {
+   "pure_decisions": {
+    "FINAL_FAIL": 285,
+    "FINAL_PASS": 9,
+    "STOP_PASS": 6
+   },
+   "replicates": 300
+  },
+  "mde_no_change": {
+   "pure_decisions": {
+    "FINAL_FAIL": 19,
+    "FINAL_PASS": 67,
+    "STOP_PASS": 214
+   },
+   "replicates": 300
+  },
+  "mde_pooled_at_margin": {
+   "pure_decisions": {
+    "FINAL_FAIL": 291,
+    "FINAL_PASS": 7,
+    "STOP_PASS": 2
+   },
+   "replicates": 300
+  },
+  "null": {
+   "pure_decisions": {
+    "FINAL_FAIL": 99,
+    "STOP_FUTILE": 201
+   },
+   "replicates": 300
+  }
+ },
+ "cpu_seconds": 53.7,
+ "mismatches": [],
+ "pool": "frp2_phase2"
+}

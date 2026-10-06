@@ -1,12 +1,15 @@
-# Sequential strict runner template (`sequential-strict-template/v1` and `/v2`)
+# Sequential strict runner template (`sequential-strict-template/v1`, `/v2`, `/v2-pooled` and `/v3`)
 
-Two template versions share this code. An intent declares which one it uses in
-`template_version`, and the spec's `band_policy` decides it:
+Three template versions share this code. An intent declares which one it uses in
+`template_version`. The spec's `band_policy` decides v1 or v2; `prepare --remote-config`
+(opt-in) makes the intent v3 over either band policy:
 
 | Version | `band_policy` | Bands |
 |---|---|---|
 | `sequential-strict-template/v1` | `block_at_stop` (default) | candidate mean vs calibration reference + offsets (`survival_bands`) |
 | `sequential-strict-template/v2` | `paired_ni_at_stop` | paired survival noninferiority, judged at the qualifying look (`paired_survival_bands`); see [Adopting paired survival bands](#adopting-paired-survival-bands-template-v2) |
+| `sequential-strict-template/v2-pooled` | `pooled_ni_continue` | survival band v2: pooled paired NI + per-mix catastrophic NI, repeated confidence bounds, judged at the qualifying look and every later look (a qualified run whose bands fail continues, `CONTINUE_BANDS`); see [Survival band v2](#survival-band-v2-template-v2-pooled) |
+| `sequential-strict-template/v3` | any (kept in `execution.band_template_version`) | as v1, v2 or v2-pooled; the episodes run on RunPod serverless; see [Running the gate on RunPod](#running-the-gate-on-runpod-template-v3) |
 
 v1 intents keep exactly their v1 content: the same intent keys, plan parameters, plan dict and
 sha256, spec descriptor, calibration and look-receipt fields. Golden hashes in
@@ -343,6 +346,142 @@ list.
 - The audit judges the check output's numbers again but does not re-run the resampling,
   which needs numpy. The output is hash-bound.
 
+## Survival band v2 (template v2-pooled)
+
+The rule is [`governance_amendment_survival_band_v2_2026-10-06.md`](../../docs/research/governance_amendment_survival_band_v2_2026-10-06.md)
+(proposed 2026-10-06; a production `prepare` refuses until its ratification section reads
+exactly `- Decision: ratified` with an option and no changes, and the plan's band values must
+equal the ratified option).
+Opt in with a spec `band_policy="pooled_ni_continue"` and `bands=paired_survival_bands(MIXES)`
+(exactly frozen, scripted, mixed), plus `paired_band_check_path` / `paired_band_pool_path` as
+for v2.
+
+- **Plan.** `--paired-band M,alpha,rci_obf,floor,mix_margin` (five values; option 1 is
+  `0.05,0.05,rci_obf,0.30,0.075`, option 2 `0.05,0.05,rci_obf,0.30,0.10`). `band_bound` must be `rci_obf`. The plan adds
+  `band_mix_margin`; v1/v2 plan dicts are unchanged (golden hashes in
+  `tests/test_sequential_gate.py`).
+- **Per-study check.** `research/survival_band_v2_20261006/simulate.py --part study --data
+  <the study's pool> --plan-params <plan.json> --delta-ni <dev delta_NI> --reps 20000 --thetas
+  <0.5,0.67,1,1.5,2 x MDE[,planning effect]> --out research/<study>/paired_band_check.json`.
+  Acceptance: every joint rate P(PASS and a regression exactly at a margin) for the pooled
+  regression and each one-mix regression is <= 1.2 x band_alpha. A failing check means the
+  study does not adopt the policy (no retuning). The amendment's own calibration pools are
+  refused as a study pool; the simulator is bound by sha256 in the intent.
+- **Receipts.** `bands_by_look` holds one row per look (pooled bound, every mix's bound, floor,
+  verdicts, pairs digest); `band_judged_looks` lists the qualified looks, `band_judged_look` /
+  `band_results` are this look's (`None` before qualification). `CONTINUE_BANDS` maps to the
+  action `continue`.
+- **Audit.** Own-code recompute of the pooled and per-mix bounds at every look, the
+  `CONTINUE_BANDS` decision sequence, the per-study check
+  (`preregistration.pooled_band_check`) and the amendment binding (`intent.band_amendment`:
+  sha256, ratification and option re-derived from the document). Report schema
+  `sequential-strict-audit/v2-pooled` (v3 for remote runs).
+
+## Running the gate on RunPod (template v3)
+
+The rule is [`governance_amendment_strict_on_runpod_2026-10-05.md`](../../docs/research/governance_amendment_strict_on_runpod_2026-10-05.md)
+(owner decision 2026-10-05; production use waits for its ratification section). Without
+`--remote-config` nothing below applies and v1/v2 intents, plans, receipts and audits are
+byte-identical (golden hashes in `tests/test_sequential_strict_template_paired.py`; the Tier-1
+serverless runtime id is pinned in `tests/test_sequential_strict_template_remote.py`).
+
+| File | Role |
+|---|---|
+| `remote_backend.py` | plan (speed-up vs 2 Mac slots), execution block, identity check, `RemoteSession` (one endpoint), `RemoteExecutor` (look segments as world-unit jobs) |
+| `remote_worker.py` | runs ONE episode on a worker, from the frozen commit's archive; re-checks intent, closure and spec first |
+| `strict_sls_handler.py` | the serverless handler, seeded as its own runtime (`serverless.py seed --handler strict`) |
+| `remote_policy.json` | strict-specific knobs (4x per-step rule, `min_speedup`; attempts, guards, idle timeout); prices, image, volume and quota come from `research/runpod_fanout/` |
+
+**What stays on the Mac.** The run parent: look boundaries, the barrier, shard markers,
+create-only records and reports, receipts, the strict ledger, the audit, the closeout. It holds
+an orchestrator lock (`<root>/remote/orchestrator.lock`), not CPU slots, and checks AC power and
+the lid before every segment and while remote work runs.
+
+**Units.** A unit is every arm of one (phase, mix, world). A job carries whole units only
+(one wave: at most `slots` episodes, `slots = vCPU / 2`), every episode of a unit runs on one
+worker, and a unit's records are written only when all of them came back from that job. Each
+segment writes a create-only `remote.json`: its planned units, the job, worker, attempt and
+platform of each, lost jobs and spend.
+
+**Records** gain `platform` (backend, platform id, CPU model, ISA flags, worker id) and, on
+RunPod, `fanout` (job id, attempt, unit, endpoint). Before a record is written the orchestrator
+checks the worker's bindings (intent sha256, spec descriptor, arm identity, roster row sha256,
+source-closure digest recomputed on the worker), the pinned horizon (`horizon_path`), the
+spec's `validate_record`, and one platform stamp per unit.
+
+**Failures.** A lost job (failed, timed out, no output, status unavailable) re-dispatches every
+unit it carried, whole, alone from then on, up to `max_attempts_per_unit`; an episode that comes
+back twice must have identical deterministic bytes or the run stops. An exception in the study
+code on a worker, a binding mismatch, the spend cap, battery, a closed lid or a lost watchdog
+stops the run `INVALID_STOP` after the endpoint is torn down; the remote wall cap or the stage
+deadline ends it `INCOMPLETE`. A refusal before admission (seeding, quota, capacity, ledger,
+probe) starts nothing.
+
+**Steps.**
+
+1. In the study's `spec.py`, set `remote_worker_setup(intent, ckpt_dir)` (its checkpoints are
+   `ckpt_dir/<sha256>.pth`) and `remote_checkpoints()` (each sha256 on
+   `research/runpod_fanout/checkpoint_allowlist.json`; uploads need owner approval).
+2. Add the line `Execution platform: runpod-serverless` to `protocol.md`, and write the remote
+   config (a pre-registration document, frozen by sha256):
+
+   ```json
+   {"schema": "sequential-strict-remote-config/v1", "platform": "runpod-serverless",
+    "budget_usd": 25.0, "identity_budget_usd": 4.0,
+    "remote_wall_minutes": 120, "identity_wall_minutes": 45,
+    "mac_episode_seconds": 34.4, "mac_episode_seconds_source": "<where it was measured>",
+    "engine": "live", "horizon": 5000, "horizon_path": "evaluation_profile.scored_horizon"}
+   ```
+
+   Optional: `cloud_episode_seconds` (a measured value beats the pod-calibrated default),
+   `workers`, `vcpu_per_worker`, `flavors`, `identity_worlds_per_mix` (default 3),
+   `record_pins`, `force_below_min_speedup` (formerly `force_below_5x`, still read as an alias), `sizing_objective` (`fastest`, the default: the fastest
+   size within every cap; or `cheapest` at >= `min_speedup`, 4x).
+3. `sequential_runner.py remote-plan --spec ... --remote-config ... --n-max ... --mde ...
+   --n-calibration ...` prints the projected wall and speed-up vs 2 Mac slots (seeding, the
+   identity check, cold starts and barriers counted; every look played), the sizing, the caps
+   and what still blocks it. `--account` adds read-only balance and worker-quota reads.
+4. Owner steps when `remote-plan` lists them: `serverless.py seed --handler strict --commit <C>
+   --confirm` and `serverless.py template-create --handler strict --confirm`.
+5. `prepare ... --remote-config <config>` (refuses below 4x unless forced, an unratified
+   amendment in production, a protocol without the platform line, a checkpoint off the
+   allow-list). The amendment is bound by sha256, so ratify it (its "Ratification" section,
+   `- Decision: ratified`) and commit before `prepare`; seed the commit `prepare` freezes.
+6. `sequential_runner.py identity-check --intent <root>/intent.json`: once per intent. It opens
+   the endpoint first (a refusal starts nothing), then plays the sample on the Mac (2 slots,
+   `identity-worker` children) and on RunPod, and writes `identity_check.json` with salted
+   digests only. A session that got past `open` is never followed by another: deleting
+   `identity_check.json`/`identity_check/` refuses ("already opened a session"), and so does
+   deleting the session dir too (the shared ledger still names its run).
+7. `sequential_runner.py run --intent <root>/intent.json`: PASSED runs on RunPod; FAILED or
+   ABANDONED runs the same intent on the Mac (2 slots); NOT_RUN refuses.
+
+**Audit (v3, report schema `sequential-strict-audit/v3`).** `execution.platform_named`
+(ratification re-derived from the hash-verified amendment text, not taken from the intent's
+flag), `execution.speedup_rule`, `identity.result_and_backend` (sample recomputed from the
+pre-registered ranking, verdict recomputed from the digests, rows bound to `rosters.json`, the
+backend the state implies), `identity.run_once` (exactly one identity session opened, the one
+`identity_check/started.json` and the result's receipt name; every shared-ledger run of the
+identity job still has its run dir; the ledger defaults to the frozen fan-out policy's
+`artifacts_root`, override with `--ledger`), `platform.per_world_single`
+(every record stamped, one stamp and one job per world unit), `remote.segments_exact_units`
+(each segment's `remote.json` lists exactly its planned units, published whole from the job
+the records name), `remote.spend_stop_is_invalid` (either SpendStop, cap reached or balance
+unreadable, ends `INVALID_STOP`) and `serving.stays_on_mac` (the intent says serving
+qualification stays on the Mac and the closeout records no promotion); segment gates bind the
+identity state.
+
+**Binding of the identity result (explicit deviation).** The task asks for the identity result
+to be "bound into the intent before the final stage". `intent.json` is create-only and frozen
+before the check runs (the sample is part of it), so, as for the skew check, the result goes to
+the create-only `identity_check.json` and its state and sha256 are bound into `started.json`,
+every segment's `started.json` gate (calibration and final), the closeout, and re-checked before
+every segment; the audit recomputes the verdict and the backend it implies.
+
+**Limits.** The identity check detects gross platform sensitivity, not rare near-tie flips
+(see the amendment). Remote wall estimates are pod-calibrated x `episode_time_factor`. The
+balance read is account-wide; other runners' ledger reservations are subtracted.
+
 ## Protocol template (copy into the study's `protocol.md`)
 
 ```
@@ -360,4 +499,6 @@ Sizing basis (development variance only) and operating characteristics (simulate
 Early-stop band cost at look 1 (pilot SD of each band metric): ...
 Skew check input: <path>, sha256 ...; thresholds 0.020 / 0.06; remedy: stop and escalate.
 Caps, deadline, no resume, dry_run=false, outcomes: as in the template README.
+(template v3 only, else omit) the exact line below, which names the platform:
+Execution platform: runpod-serverless
 ```

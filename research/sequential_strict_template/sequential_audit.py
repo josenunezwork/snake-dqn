@@ -44,6 +44,26 @@ What it recomputes in its own code (amendment "Audit requirements"):
   check output re-judged in its own code (hash-bound, frozen plan parameters, coverage of
   every pool x theta x band mix, every joint rate <= 1.2 x band_alpha).  Under the legacy
   ``block_at_stop`` (template v1) the paired fields must be absent.
+* **Survival band v2 (``band_policy="pooled_ni_continue"``, governance amendment
+  2026-10-06).**  ``band_mix_margin`` present and ``band_bound`` ``rci_obf`` (own OBF levels);
+  at every look from the raw record pairs, in own code: the pooled per-world delta (mean over
+  the mixes), the pooled bound against ``-band_ni_margin``, every mix's bound against
+  ``-band_mix_margin`` and the floor; the decision sequence with ``CONTINUE_BANDS`` (a
+  qualified look whose bands fail continues); the receipts' judged looks and band rows; the
+  per-study ``--part study`` check re-judged (coverage of every pool x theta x {pooled, each
+  mix} regression, every joint rate <= 1.2 x band_alpha); and the amendment binding: sha256,
+  ratification and option re-derived from the document's text, and a production intent must
+  use exactly the ratified option's values.
+* **Remote execution (template v3, ``intent.execution``; governance amendment strict on RunPod,
+  2026-10-05).**  The platform is named in the intent and in the protocol (the line
+  ``Execution platform: runpod-serverless``) and its documents still have their frozen sha256;
+  the identity check result is present and its verdict recomputes from its digests (or the
+  check is ABANDONED), every segment binds it, and the backend used is the one it implies
+  (PASSED: RunPod; FAILED / ABANDONED: the Mac fallback); every record carries a platform
+  stamp shared by every episode of its world unit (one worker per world); and, on RunPod, every
+  look segment's ``remote.json`` lists exactly the segment's planned units, each published
+  whole from one job whose records say so; serving qualification stays on the Mac (the
+  intent says so and the closeout records no promotion).
 """
 
 from __future__ import annotations
@@ -53,6 +73,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import struct
 from functools import lru_cache
 from pathlib import Path
@@ -61,16 +82,58 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 AUDIT_SCHEMA = "sequential-strict-audit/v1"
 AUDIT_SCHEMA_PAIRED = "sequential-strict-audit/v2"
+AUDIT_SCHEMA_POOLED = "sequential-strict-audit/v2-pooled"
+AUDIT_SCHEMA_REMOTE = "sequential-strict-audit/v3"
+TEMPLATE_VERSION_REMOTE = "sequential-strict-template/v3"
+REMOTE_EXECUTOR = "runpod-serverless"
+REMOTE_BACKEND = "runpod-serverless"
+FALLBACK_BACKEND = "local-mac-fallback"
+EXECUTION_SCHEMA = "sequential-strict-execution/v1"
+IDENTITY_SCHEMA = "sequential-strict-identity-check/v1"
+SEGMENT_SCHEMA = "sequential-strict-remote-segment/v1"
+PROTOCOL_PLATFORM_LINE = "Execution platform: runpod-serverless"
+SERVING_QUALIFICATION = "stays on the Mac (condition 4)"
+RATIFIED_RE = re.compile(r"^\s*-\s*Decision:\s*ratified\b", re.IGNORECASE | re.MULTILINE)
+# The user's per-step RunPod speed-up rule (5x on 2026-10-04, 4x from 2026-10-05): a v3 plan's
+# min_speedup may be stricter, never below this (a copy of remote_backend.MIN_SPEEDUP_RULE).
+MIN_SPEEDUP_RULE = 4.0
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+REMOTE_DIR = "remote"
 METHOD = "strict-sequential-obf-bonferroni-v1"
 TEMPLATE_VERSION = "sequential-strict-template/v1"
 TEMPLATE_VERSION_PAIRED = "sequential-strict-template/v2"
+TEMPLATE_VERSION_POOLED = "sequential-strict-template/v2-pooled"
 TEMPLATE_VERSIONS = {
     "block_at_stop": TEMPLATE_VERSION,
     "paired_ni_at_stop": TEMPLATE_VERSION_PAIRED,
+    "pooled_ni_continue": TEMPLATE_VERSION_POOLED,
 }
 PAIRED = "paired_ni_at_stop"
+POOLED = "pooled_ni_continue"
+PAIRED_POLICIES = (PAIRED, POOLED)
+# The audit's own copies of survival band v2's constants (governance amendment 2026-10-06).
+SURVIVAL_BAND_V2_AMENDMENT = "docs/research/governance_amendment_survival_band_v2_2026-10-06.md"
+POOLED_OPTIONS = {
+    "1": {"band_ni_margin": 0.05, "band_alpha": 0.05, "band_bound": "rci_obf",
+          "band_floor": 0.30, "band_mix_margin": 0.075},
+    "2": {"band_ni_margin": 0.05, "band_alpha": 0.05, "band_bound": "rci_obf",
+          "band_floor": 0.30, "band_mix_margin": 0.10},
+}  # fmt: skip
+OPTION_RE = re.compile(r"^\s*-\s*Option:\s*([12])\s*$", re.MULTILINE)
+BAND_RATIFIED_RE = re.compile(r"^\s*-\s*Decision:\s*ratified\s*$", re.IGNORECASE | re.MULTILINE)
+CHANGES_RE = re.compile(r"^\s*-\s*Changes(?:, if any)?:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+POOLED_SIMULATOR = "research/survival_band_v2_20261006/simulate.py"
+POOLED_STOCK_POOL = "research/survival_band_v2_20261006/survival_pools_20261006.json"
+POOLED_CHECK_SCHEMA = "survival-band-v2-study-check/v1"
 PAIRED_PLAN_FIELDS = ("band_ni_margin", "band_alpha", "band_bound", "band_nominal_p", "band_floor")
 PAIRED_PARAM_FIELDS = ("band_ni_margin", "band_alpha", "band_bound", "band_floor")
+POOLED_PLAN_FIELDS = PAIRED_PLAN_FIELDS + ("band_mix_margin",)
+POOLED_PARAM_FIELDS = PAIRED_PARAM_FIELDS + ("band_mix_margin",)
 PAIRED_CHECK_FACTOR = 1.2
 PAIRED_CHECK_MIN_REPS = 20_000
 ARMS = ("incumbent", "candidate")
@@ -79,6 +142,7 @@ REL_TOLERANCE = 1e-6
 SKEW_EFFICACY_FACTOR = 1.2
 SKEW_NI_LIMIT = 0.06
 TERMINAL = ("STOP_PASS", "STOP_FAIL_BANDS", "FINAL_PASS", "FINAL_FAIL")
+CONTINUING = ("CONTINUE", "CONTINUE_BANDS")
 PASSING = ("STOP_PASS", "FINAL_PASS")
 DECIDED = ("STRICT_PASS", "STRICT_FAIL", "DRY_RUN_PASS", "DRY_RUN_FAIL")
 PRODUCTION_EXECUTOR = "subprocess"
@@ -361,6 +425,71 @@ def paired_band(
     }
 
 
+def _bound(deltas: Sequence[float], nominal_p: float) -> Dict[str, Any]:
+    n = len(deltas)
+    mean = math.fsum(deltas) / n
+    sd = math.sqrt(math.fsum((v - mean) ** 2 for v in deltas) / (n - 1))
+    se = sd / math.sqrt(n)
+    t_crit = t_isf(nominal_p, n - 1)
+    return {
+        "mean_delta": mean,
+        "sample_std": sd,
+        "standard_error": se,
+        "t_critical": t_crit,
+        "lower_bound": mean - t_crit * se,
+    }
+
+
+def pooled_band(
+    candidate: Mapping[str, Sequence[float]],
+    incumbent: Mapping[str, Sequence[float]],
+    pooled_margin: float,
+    mix_margin: float,
+    nominal_p: float,
+    floor: Optional[float],
+) -> Dict[str, Any]:
+    """Survival band v2, own code: pooled per-world delta p_i = mean over the mixes of
+    (candidate - incumbent); pooled bound > -pooled_margin, every mix's bound > -mix_margin
+    (strict), every mix's candidate mean >= floor when a floor is set."""
+    mixes = list(candidate)
+    n = len(candidate[mixes[0]])
+    deltas = {m: [c - i for c, i in zip(candidate[m], incumbent[m])] for m in mixes}
+    pooled_deltas = [math.fsum(deltas[m][w] for m in mixes) / len(mixes) for w in range(n)]
+    pooled = _bound(pooled_deltas, nominal_p)
+    pooled["margin"] = pooled_margin
+    pooled["passes"] = pooled["lower_bound"] > -pooled_margin
+    per_mix = {}
+    for m in mixes:
+        row = _bound(deltas[m], nominal_p)
+        cand_mean = math.fsum(candidate[m]) / n
+        row.update(
+            margin=mix_margin,
+            candidate_mean=cand_mean,
+            incumbent_mean=math.fsum(incumbent[m]) / n,
+            floor=floor,
+            passes_ni=row["lower_bound"] > -mix_margin,
+            passes_floor=True if floor is None else cand_mean >= floor,
+        )
+        row["passes"] = row["passes_ni"] and row["passes_floor"]
+        per_mix[m] = row
+    passes_mix = all(r["passes_ni"] for r in per_mix.values())
+    passes_floor = all(r["passes_floor"] for r in per_mix.values())
+    return {
+        "n": n,
+        "df": n - 1,
+        "mixes": mixes,
+        "nominal_p": nominal_p,
+        "t_critical": pooled["t_critical"],
+        "pooled": pooled,
+        "per_mix": per_mix,
+        "floor": floor,
+        "passes_pooled": pooled["passes"],
+        "passes_mix": passes_mix,
+        "passes_floor": passes_floor,
+        "passes": pooled["passes"] and passes_mix and passes_floor,
+    }
+
+
 def uint32_seed(domain: str, index: int) -> int:
     digest = hashlib.sha256(f"{domain}|worlds|{index}".encode("utf-8")).digest()
     return int(struct.unpack(">I", digest[:4])[0])
@@ -468,17 +597,26 @@ def audit_plan(audit: Audit, intent: Mapping[str, Any]) -> None:
 def audit_paired_plan(
     audit: Audit, plan: Mapping[str, Any], params: Mapping[str, Any], fractions: Tuple
 ) -> None:
-    """Paired band fields: present and recomputed under paired_ni_at_stop, absent otherwise."""
-    if plan.get("band_policy") != PAIRED:
+    """Paired band fields: present and recomputed under paired_ni_at_stop (and, with
+    band_mix_margin, under pooled_ni_continue), absent otherwise."""
+    policy = plan.get("band_policy")
+    if policy not in PAIRED_POLICIES:
         audit.add(
             "plan.paired_band_fields_absent",
-            not any(k in plan for k in PAIRED_PLAN_FIELDS)
-            and not any(k in params for k in PAIRED_PARAM_FIELDS),
+            not any(k in plan for k in POOLED_PLAN_FIELDS)
+            and not any(k in params for k in POOLED_PARAM_FIELDS),
         )
         return
-    ok = all(k in plan for k in PAIRED_PLAN_FIELDS) and all(
-        plan[k] == params.get(k) for k in PAIRED_PARAM_FIELDS
+    plan_fields = POOLED_PLAN_FIELDS if policy == POOLED else PAIRED_PLAN_FIELDS
+    param_fields = POOLED_PARAM_FIELDS if policy == POOLED else PAIRED_PARAM_FIELDS
+    ok = all(k in plan for k in plan_fields) and all(plan[k] == params.get(k) for k in param_fields)
+    ok = ok and not any(
+        k in plan or k in params for k in set(POOLED_PLAN_FIELDS) - set(plan_fields)
     )
+    if policy == POOLED:
+        mix_margin = plan.get("band_mix_margin")
+        ok = ok and isinstance(mix_margin, float) and math.isfinite(mix_margin) and mix_margin > 0
+        ok = ok and plan.get("band_bound") == "rci_obf"
     margin, alpha, bound = (
         plan.get("band_ni_margin"),
         plan.get("band_alpha"),
@@ -488,7 +626,7 @@ def audit_paired_plan(
     ok = ok and isinstance(margin, float) and math.isfinite(margin) and margin > 0
     ok = ok and isinstance(alpha, float) and 0.0 < alpha < 0.5
     ok = ok and (floor is None or (isinstance(floor, float) and math.isfinite(floor)))
-    audit.add("plan.paired_band_parameters", ok, {k: plan.get(k) for k in PAIRED_PARAM_FIELDS})
+    audit.add("plan.paired_band_parameters", ok, {k: plan.get(k) for k in param_fields})
     theirs = plan.get("band_nominal_p") or []
     if bound == "pointwise":
         good = len(theirs) == len(fractions) and all(p == alpha for p in theirs)
@@ -624,7 +762,7 @@ def audit_calibration(
     try:
         delta_ni = spec["ni_fraction"] * means[spec["scripted_mix"]][spec["primary_metric"]]
         ok = close(saved["absolute_delta_ni"], delta_ni, 1e-9) and delta_ni > 0
-        paired_policy = intent["plan"]["band_policy"] == PAIRED
+        paired_policy = intent["plan"]["band_policy"] in PAIRED_POLICIES
         for mine, theirs in zip(spec["bands"], saved["bands"]):
             ref = means[mine["mix"]][mine["metric"]]
             ok = ok and theirs["metric"] == mine["metric"] and theirs["mix"] == mine["mix"]
@@ -764,6 +902,40 @@ def replay_looks(
             ni_look = k
         bands = []
         paired_rows: List[Dict[str, Any]] = []
+        if plan["band_policy"] == POOLED:
+            pairs_by_mix = {
+                m: [
+                    (
+                        entries[eid("final", "candidate", m, w)],
+                        entries[eid("final", "incumbent", m, w)],
+                    )
+                    for w in range(n)
+                ]
+                for m in mixes
+            }
+            same_world = all(
+                all(c.get(f) == i.get(f) for f in ("mix", "world_index", "world_seed", "unit"))
+                and (c.get("arm"), i.get("arm")) == ("candidate", "incumbent")
+                for pairs in pairs_by_mix.values()
+                for c, i in pairs
+            ) and all(
+                pairs_by_mix[m][w][0].get("world_seed")
+                == pairs_by_mix[mixes[0]][w][0].get("world_seed")
+                for m in mixes
+                for w in range(n)
+            )
+            metric_name = spec["bands"][0]["metric"]
+            row = pooled_band(
+                {m: [c["record"][metric_name] for c, _ in pairs_by_mix[m]] for m in mixes},
+                {m: [i["record"][metric_name] for _, i in pairs_by_mix[m]] for m in mixes},
+                plan["band_ni_margin"],
+                plan["band_mix_margin"],
+                plan["band_nominal_p"][k],
+                plan["band_floor"],
+            )
+            row.update(metric=metric_name, same_world=same_world)
+            paired_rows.append(row)
+            bands.append(row)
         for spec_band in spec["bands"] if plan["band_policy"] == PAIRED else ():
             pairs = [
                 (
@@ -787,7 +959,7 @@ def replay_looks(
             row.update(metric=spec_band["metric"], mix=spec_band["mix"], same_world=same_world)
             paired_rows.append(row)
             bands.append(row)
-        for spec_band in calibration["bands"] if plan["band_policy"] != PAIRED else ():
+        for spec_band in calibration["bands"] if plan["band_policy"] not in PAIRED_POLICIES else ():
             values = [
                 entries[eid("final", "candidate", spec_band["mix"], w)]["record"][
                     spec_band["metric"]
@@ -809,6 +981,8 @@ def replay_looks(
         qualifies = successes >= plan["required_successes"] and ni_look is not None
         if k == n_looks - 1:
             decision = "FINAL_PASS" if qualifies and bands_pass else "FINAL_FAIL"
+        elif qualifies and plan["band_policy"] == POOLED:
+            decision = "STOP_PASS" if bands_pass else "CONTINUE_BANDS"
         elif qualifies:
             decision = "STOP_PASS" if bands_pass else "STOP_FAIL_BANDS"
         elif len(mixes) - futile < plan["required_successes"]:
@@ -823,7 +997,7 @@ def replay_looks(
             action = "stop"
         elif decision == "STOP_FUTILE":
             action = "continue" if intent["futility_action"] == "continue" else "stop"
-        else:
+        else:  # CONTINUE, or CONTINUE_BANDS (pooled_ni_continue only)
             action = "continue"
         history.append(
             {
@@ -930,6 +1104,74 @@ def compare_paired_bands(
         rows.append(f"look {k}: band_results are not the judged look's bands")
 
 
+POOLED_TOP = ("n", "df", "nominal_p", "t_critical", "floor")
+POOLED_BOUND = ("mean_delta", "sample_std", "standard_error", "t_critical", "lower_bound", "margin")
+POOLED_MIX = POOLED_BOUND + ("candidate_mean", "incumbent_mean", "floor")
+POOLED_VERDICTS = ("passes_pooled", "passes_mix", "passes_floor", "passes")
+
+
+def compare_pooled_bands(
+    rows: List[str],
+    k: int,
+    history: Sequence[Mapping[str, Any]],
+    receipt: Mapping[str, Any],
+    nominal_p: Sequence[float],
+) -> None:
+    """Survival band v2 rows of every look 0..k in receipt k against this module's recompute,
+    and the receipt's judged looks and band results."""
+    by_look = receipt.get("bands_by_look") or []
+    if len(by_look) != k + 1:
+        rows.append(f"look {k}: pooled bands_by_look has {len(by_look)} looks")
+        return
+    for j in range(k + 1):
+        tag = f"look {k} (band look {j})"
+        mine = history[j]["paired_bands"][0]
+        theirs_rows = by_look[j]
+        if not (isinstance(theirs_rows, list) and len(theirs_rows) == 1):
+            rows.append(f"{tag}: expected one pooled band row")
+            continue
+        theirs = theirs_rows[0]
+        if not mine["same_world"]:
+            rows.append(f"{tag}: candidate and incumbent values are not one world's pairs")
+        if (
+            theirs.get("policy") != POOLED
+            or theirs.get("look") != j
+            or theirs.get("metric") != mine["metric"]
+            or theirs.get("mixes") != mine["mixes"]
+            or theirs.get("nominal_p") != nominal_p[j]
+        ):
+            rows.append(f"{tag}: policy, look, metric, mixes or nominal_p")
+        for key in POOLED_TOP:
+            if not close(theirs.get(key), mine[key], 1e-9, 1e-12):
+                rows.append(f"{tag}: {key}")
+        for key in POOLED_BOUND:
+            if not close((theirs.get("pooled") or {}).get(key), mine["pooled"][key], 1e-9, 1e-12):
+                rows.append(f"{tag}: pooled {key}")
+        if (theirs.get("pooled") or {}).get("passes") is not mine["pooled"]["passes"]:
+            rows.append(f"{tag}: pooled verdict")
+        for mix, row in mine["per_mix"].items():
+            other = (theirs.get("per_mix") or {}).get(mix) or {}
+            for key in POOLED_MIX:
+                if not close(other.get(key), row[key], 1e-9, 1e-12):
+                    rows.append(f"{tag} {mix}: {key}")
+            for key in ("passes_ni", "passes_floor", "passes"):
+                if other.get(key) is not row[key]:
+                    rows.append(f"{tag} {mix}: {key}")
+        for key in POOLED_VERDICTS:
+            if theirs.get(key) is not mine[key]:
+                rows.append(f"{tag}: {key} {theirs.get(key)!r} != recomputed {mine[key]!r}")
+    judged = [h["look"] for h in history[: k + 1] if h["qualifies"]]
+    look = judged[-1] if judged and judged[-1] == k else None
+    if (
+        receipt.get("band_policy") != POOLED
+        or receipt.get("band_judged_looks") != judged
+        or receipt.get("band_judged_look") != look
+    ):
+        rows.append(f"look {k}: band_judged_looks / band_judged_look")
+    if receipt.get("band_results") != (by_look[look] if look is not None else None):
+        rows.append(f"look {k}: band_results are not this look's bands")
+
+
 def segment_bounds(intent: Mapping[str, Any]) -> List[List[int]]:
     """Cumulative per-worker unit counts at each look."""
     return [row["per_worker"] for row in intent["interleaving"]["worker_look_counts"]]
@@ -1020,7 +1262,12 @@ def audit_final(
         compare_receipt(rows, j, history[j], receipt)
         if intent["plan"]["band_policy"] == PAIRED:
             compare_paired_bands(paired_rows, j, history, receipt, intent["plan"]["band_nominal_p"])
-        elif any(key in receipt for key in ("band_policy", "band_judged_look", "band_results")):
+        elif intent["plan"]["band_policy"] == POOLED:
+            compare_pooled_bands(paired_rows, j, history, receipt, intent["plan"]["band_nominal_p"])
+        elif any(
+            key in receipt
+            for key in ("band_policy", "band_judged_look", "band_judged_looks", "band_results")
+        ):
             rows.append(f"look {j}: paired band fields on a block_at_stop receipt")
         if receipt.get("look") != j or receipt.get("n_per_mix") != intent["plan"]["look_sizes"][j]:
             rows.append(f"look {j}: index or size")
@@ -1047,7 +1294,7 @@ def audit_final(
         if j < stop and history[j]["action"] != "continue":
             rows.append(f"look {j}: run continued past a stop")
     audit.add("looks.replay", not rows, rows[:40])
-    if intent["plan"]["band_policy"] == PAIRED:
+    if intent["plan"]["band_policy"] in PAIRED_POLICIES:
         audit.add("looks.paired_bands", not paired_rows, paired_rows[:40])
     last = receipts[-1]
     result.update(
@@ -1064,6 +1311,12 @@ def audit_segments(
     root = output / "final" / "segments"
     calibration = output / "calibration.json"
     skew = output / "skew_check.json"
+    identity = identity_binding(output.parent) if is_remote(intent) else None
+    if identity is not None:  # template v3: calibration segments bind the identity check too
+        cal_root = output / "calibration" / "segments"
+        for started in sorted(cal_root.glob("look-*/shard-*/started.json")):
+            if load_json(started).get("gate") != {"identity_check": identity}:
+                rows.append(f"{started.relative_to(output)}: gate binding")
     for look_dir in sorted(root.glob("look-*")) if root.is_dir() else []:
         look = int(look_dir.name.split("-", 1)[1])
         if look > len(receipts):
@@ -1079,6 +1332,8 @@ def audit_segments(
             expected["prior_look_receipt_sha256"] = sha256_file(prior)
             if receipts[look - 1].get("action") != "continue":
                 rows.append(f"segment look {look} started after a stop at look {look - 1}")
+        if identity is not None:
+            expected["identity_check"] = identity
         for started in sorted(look_dir.glob("shard-*/started.json")):
             if load_json(started).get("gate") != expected:
                 rows.append(f"{started.relative_to(output)}: gate binding")
@@ -1164,8 +1419,9 @@ def provenance_problems(
         return []
     problems = []
     prov = started.get("provenance") or {}
+    remote = (started.get("execution") or {}).get("backend") == REMOTE_BACKEND
     expected = {
-        "executor": PRODUCTION_EXECUTOR,
+        "executor": REMOTE_EXECUTOR if remote else PRODUCTION_EXECUTOR,
         "skew_runner": PRODUCTION_SKEW_RUNNER,
         "audit_runner": PRODUCTION_AUDIT_RUNNER,
         "allow_dirty": False,
@@ -1174,6 +1430,11 @@ def provenance_problems(
     for key, value in expected.items():
         if prov.get(key) != value:
             problems.append(f"started.json provenance {key}={prov.get(key)!r}")
+    execution = started.get("execution") or {}
+    if remote and (
+        execution.get("transport") != "rp.py" or execution.get("remote_factory") != "production"
+    ):
+        problems.append("a remote run without the production RunPod transport and factory")
     if intent.get("allow_dirty") is not False or intent["source_closure"].get("dirty"):
         problems.append("dirty source closure on a production intent")
     if str(Path(intent.get("slot_lock_root", ""))) != SLOT_LOCK_ROOT:
@@ -1181,7 +1442,13 @@ def provenance_problems(
     if str(Path(intent.get("ledger_path", ""))) != LEDGER_PATH:
         problems.append(f"ledger {intent.get('ledger_path')!r} is not the global one")
     for row in supervisions:
-        if row.get("executor") is not None or any(
+        if remote:
+            if row.get("executor") != REMOTE_EXECUTOR or any(
+                (child.get("command") or [None])[0] != REMOTE_EXECUTOR
+                for child in row.get("children", [])
+            ):
+                problems.append("a segment did not run through the remote executor")
+        elif row.get("executor") is not None or any(
             "worker" not in child.get("command", []) for child in row.get("children", [])
         ):
             problems.append("a segment did not run through the subprocess executor")
@@ -1294,6 +1561,8 @@ def audit_paired_check(audit: Audit, intent: Mapping[str, Any]) -> None:
                 worst = max(worst, value)
                 if value > threshold:
                     problems.append(f"{key}: joint rate {value} > {threshold:g}")
+    if "band_amendment" in intent:
+        problems.append("band_amendment on a paired_ni_at_stop intent")
     passes = not problems
     if check.get("passes") is not passes:
         problems.append(f"check.passes {check.get('passes')!r} != recomputed {passes}")
@@ -1306,6 +1575,162 @@ def audit_paired_check(audit: Audit, intent: Mapping[str, Any]) -> None:
     )
 
 
+def audit_pooled_check(audit: Audit, intent: Mapping[str, Any]) -> None:
+    """Survival band v2: the per-study ``--part study`` output re-judged in own code."""
+    plan, params = intent["plan"], intent["plan_parameters"]
+    frozen = intent.get("paired_band_check") or {}
+    doc = intent["preregistration"].get("paired_band_check") or {}
+    problems: List[str] = []
+    path = Path(str(frozen.get("path", "")))
+    if not (path.is_file() and frozen.get("path") == doc.get("path")):
+        audit.add("preregistration.pooled_band_check", False, "check output missing")
+        return
+    if sha256_file(path) != frozen.get("sha256") or frozen.get("sha256") != doc.get("sha256"):
+        problems.append("check output sha256")
+    report = load_json(path)
+    data = Path(str(frozen.get("data_path", "")))
+    pool_doc = intent["preregistration"].get("paired_band_pool") or {}
+    if not data.is_file() or sha256_file(data) != frozen.get("data_sha256"):
+        problems.append("pool data sha256")
+    elif report.get("data_sha256") != frozen.get("data_sha256"):
+        problems.append("check was run on other pool data")
+    if (pool_doc.get("path"), pool_doc.get("sha256")) != (
+        frozen.get("data_path"),
+        frozen.get("data_sha256"),
+    ):
+        problems.append("pool data is not the spec's pre-registered pool")
+    configured = Path(str((report.get("config") or {}).get("data", "")))
+    if not configured.is_absolute():
+        configured = Path(intent["repo"]) / configured
+    if str(configured.resolve()) != frozen.get("data_path"):
+        problems.append("check read another pool file than the frozen one")
+    for stock_rel in (STOCK_POOL, POOLED_STOCK_POOL):
+        stock = Path(intent["repo"]) / stock_rel
+        if str(data.resolve()) == str(stock.resolve()) or (
+            stock.is_file() and data.is_file() and sha256_file(stock) == sha256_file(data)
+        ):
+            problems.append("check used a validation/calibration stock pool, not the study's")
+    mixes = intent["spec"]["mixes"]
+    bands = intent["spec"]["bands"]
+    if sorted(b.get("mix") for b in bands) != sorted(mixes) or any(
+        set(b) != {"metric", "mix"} or b.get("metric") != "survival_fraction" for b in bands
+    ):
+        problems.append("survival band v2 bands must be one survival_fraction band per mix")
+    development = frozen.get("development_delta_ni")
+    config, check = report.get("config") or {}, report.get("check") or {}
+    used = config.get("delta_ni")
+    if not (
+        isinstance(development, float)
+        and development > 0
+        and isinstance(used, (int, float))
+        and math.isclose(used, development, rel_tol=1e-12)
+    ):
+        problems.append(f"check delta_ni {used!r} != pre-registered {development!r}")
+    rule_text = intent.get("band_rule") or {}
+    if (
+        rule_text.get("policy") != POOLED
+        or rule_text.get("all_bands_must_pass") is not True
+        or any(rule_text.get(k) != plan.get(k) for k in POOLED_PARAM_FIELDS)
+    ):
+        problems.append("intent band_rule differs from the plan")
+    if report.get("schema") != POOLED_CHECK_SCHEMA or check.get("rule") != POOLED:
+        problems.append("not a survival band v2 study check")
+    simulator = Path(str(frozen.get("simulator_path", "")))
+    if (
+        simulator.resolve() != (Path(intent["repo"]) / POOLED_SIMULATOR).resolve()
+        or not simulator.is_file()
+        or sha256_file(simulator) != frozen.get("simulator_sha256")
+    ):
+        problems.append("check simulator is not the frozen survival band v2 simulate.py")
+    if config.get("plan_params") != params:
+        problems.append("check plan parameters differ from the intent's")
+    reps = report.get("reps")
+    if not (isinstance(reps, int) and reps >= PAIRED_CHECK_MIN_REPS):
+        problems.append(f"reps {reps!r}")
+    thetas = [float(t) for t in config.get("thetas") or []]
+    mde = float(plan["mde"])
+    for multiple in (0.5, 1.0, 1.5, 2.0):
+        if not any(abs(t - multiple * mde) <= 1e-9 * max(1.0, mde) for t in thetas):
+            problems.append(f"no theta at {multiple:g} x MDE")
+    if not any(0.6 * mde <= t <= 0.7 * mde for t in thetas):
+        problems.append("no theta near 0.67 x MDE")
+    pools = []
+    if data.is_file():
+        raw = load_json(data)
+        pools = sorted(k for k, v in raw.items() if isinstance(v, dict) and "world_seeds" in v)
+    threshold = PAIRED_CHECK_FACTOR * plan["band_alpha"]
+    joint = check.get("joint_rates") or {}
+    results = report.get("results") or {}
+    scenarios = ["pooled_at_margin"] + [f"one_mix_at_margin@{b['mix']}" for b in bands]
+    worst = 0.0
+    for pool in pools or ["<no pools>"]:
+        for theta in thetas:
+            for scenario in scenarios:
+                key = f"{pool}|theta={theta:g}|{scenario}"
+                value = joint.get(key)
+                row = (results.get(key) or {}).get("p_pass") or {}
+                if not _rate(value) or row.get("rate") != value:
+                    problems.append(f"{key}: joint rate missing or not its results row")
+                    continue
+                worst = max(worst, value)
+                if value > threshold:
+                    problems.append(f"{key}: joint rate {value} > {threshold:g}")
+    passes = not problems
+    if check.get("passes") is not passes:
+        problems.append(f"check.passes {check.get('passes')!r} != recomputed {passes}")
+    if frozen.get("passes") is not True:
+        problems.append("intent did not record a passing check")
+    audit.add(
+        "preregistration.pooled_band_check",
+        not problems,
+        {"problems": problems[:20], "max_joint_rate": worst, "threshold": threshold},
+    )
+
+
+def audit_band_amendment(audit: Audit, intent: Mapping[str, Any]) -> None:
+    """Survival band v2: the amendment's sha256, ratification and option, re-derived from the
+    document's text; a production intent must use exactly the ratified option."""
+    block = intent.get("band_amendment") or {}
+    expected_path = (Path(intent["repo"]) / SURVIVAL_BAND_V2_AMENDMENT).resolve()
+    path = Path(str(block.get("path", "")))
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    option = OPTION_RE.search(text)
+    changes = CHANGES_RE.search(text)
+    derived = {
+        "sha256": sha256_file(path) if path.is_file() else None,
+        "ratified": bool(BAND_RATIFIED_RE.search(text)),
+        "option": option.group(1) if option else None,
+        "changes": changes.group(1) if changes else None,
+    }
+    problems = []
+    if path.resolve() != expected_path:
+        problems.append("amendment path is not the survival band v2 amendment")
+    for key, value in derived.items():
+        if block.get(key) != value:
+            problems.append(f"amendment {key} differs from the document")
+    values = POOLED_OPTIONS.get(derived["option"] or "")
+    production = []
+    if derived["sha256"] is None:
+        production.append("missing")
+    if not derived["ratified"]:
+        production.append("not ratified")
+    if str(derived["changes"] or "").strip().strip("_").strip().lower() not in (
+        "",
+        "none",
+        "no",
+        "n/a",
+        "-",
+    ):
+        production.append("ratified with changes")
+    if values is None:
+        production.append("no ratified option")
+    elif any(intent["plan_parameters"].get(k) != v for k, v in values.items()):
+        production.append("plan differs from the ratified option")
+    if intent.get("dry_run") is not True and production:
+        problems.append(f"production intent: {production}")
+    audit.add("intent.band_amendment", not problems, {"problems": problems, "derived": derived})
+
+
 def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) -> None:
     output = root / "output"
     sha = sha256_file(root / "intent.json")
@@ -1316,10 +1741,16 @@ def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) ->
     )
     policy = intent["plan"].get("band_policy")
     version = TEMPLATE_VERSIONS.get(policy)
+    remote = intent.get("template_version") == TEMPLATE_VERSION_REMOTE
+    execution = intent.get("execution") if remote else None
     audit.add(
         "intent.template",
         version is not None
-        and intent.get("template_version") == version
+        and (
+            intent.get("template_version") == version and "execution" not in intent
+            if not remote
+            else isinstance(execution, dict) and execution.get("band_template_version") == version
+        )
         and intent["spec"].get("template_version") == version
         and intent["spec"].get("band_policy", "block_at_stop") == policy
         and intent["caps"]["retry_authorized"] is False
@@ -1335,18 +1766,21 @@ def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) ->
         path = Path(row["path"])
         if not path.is_file() or sha256_file(path) != row["sha256"]:
             rows.append(name)
-    expected_docs = PREREGISTRATION_PAIRED if policy == PAIRED else PREREGISTRATION
+    expected_docs = PREREGISTRATION_PAIRED if policy in PAIRED_POLICIES else PREREGISTRATION
     audit.add(
         "intent.preregistration_documents",
         not rows and set(intent["preregistration"]) == set(expected_docs),
         rows,
     )
-    if policy == PAIRED:
+    if policy == POOLED:
+        audit_pooled_check(audit, intent)
+        audit_band_amendment(audit, intent)
+    elif policy == PAIRED:
         audit_paired_check(audit, intent)
     else:
         audit.add(
             "intent.no_paired_fields",
-            not any(k in intent for k in ("paired_band_check", "band_rule"))
+            not any(k in intent for k in ("paired_band_check", "band_rule", "band_amendment"))
             and "paired_band_check_path" not in intent["spec"],
         )
     supervisions = [load_json(p) for p in sorted(output.glob("*/segments/look-*/supervision.json"))]
@@ -1362,7 +1796,412 @@ def audit_intent_binding(audit: Audit, root: Path, intent: Mapping[str, Any]) ->
     audit.add("provenance.production_or_dry_run", not problems, problems)
 
 
-def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
+# ---------------------------------------------------------------- remote execution (template v3)
+
+
+def is_remote(intent: Mapping[str, Any]) -> bool:
+    return intent.get("template_version") == TEMPLATE_VERSION_REMOTE
+
+
+def identity_binding(root: Path) -> Dict[str, Any]:
+    """The identity check's state from the files alone (the runner's identity_gate)."""
+    result = Path(root) / "identity_check.json"
+    started = Path(root) / "identity_check" / "started.json"
+    if result.is_file():
+        passes = load_json(result).get("passes") is True
+        return {
+            "state": "PASSED" if passes else "FAILED",
+            "file": "identity_check.json",
+            "sha256": sha256_file(result),
+        }
+    if (Path(root) / "identity_check").exists():
+        return {
+            "state": "ABANDONED",
+            "file": "identity_check/started.json" if started.is_file() else None,
+            "sha256": sha256_file(started) if started.is_file() else None,
+        }
+    return {"state": "NOT_RUN", "file": None, "sha256": None}
+
+
+def unit_key(phase: str, unit: Mapping[str, Any]) -> str:
+    return f"{phase}|{unit['mix']}|{unit['world_index']}"
+
+
+def segment_unit_keys(intent: Mapping[str, Any], phase: str) -> List[List[str]]:
+    """Planned unit keys of every segment of ``phase`` (calibration: one segment)."""
+    workers = intent["caps"]["workers"]
+    all_units = units(intent, phase)
+    if phase == "calibration":
+        return [[unit_key(phase, u) for u in all_units]]
+    bounds = segment_bounds(intent)
+    pos: Dict[int, int] = {}
+    seen = [0] * workers
+    for u in all_units:
+        pos[u["unit"]] = seen[u["worker"]]
+        seen[u["worker"]] += 1
+    out = []
+    for j, bound in enumerate(bounds):
+        low = bounds[j - 1] if j else [0] * workers
+        out.append(
+            [
+                unit_key(phase, u)
+                for u in all_units
+                if low[u["worker"]] <= pos[u["unit"]] < bound[u["worker"]]
+            ]
+        )
+    return out
+
+
+def identity_sample(intent: Mapping[str, Any], worlds_per_mix: int) -> List[Dict[str, Any]]:
+    """The audit's own copy of the pre-registered identity sample ranking."""
+    namespace = intent["spec"]["namespaces"]["final"]
+    first = int(intent["plan"]["look_sizes"][0])
+    ranked = sorted(
+        range(first),
+        key=lambda i: hashlib.sha256(f"{namespace}|identity-sample|{i}".encode()).hexdigest(),
+    )[: int(worlds_per_mix)]
+    bank = intent["banks"]["final"]
+    return [
+        {"mix": mix, "world_index": i, "world_seed": int(bank[i])}
+        for i in sorted(ranked)
+        for mix in intent["spec"]["mixes"]
+    ]
+
+
+def opened_sessions(root: Path, label: str) -> List[str]:
+    """``remote/<label>-*`` session dirs whose events log an ``opened`` session."""
+    found = []
+    for run_dir in sorted((Path(root) / REMOTE_DIR).glob(f"{label}-*")):
+        events = run_dir / "events.jsonl"
+        if not events.is_file():
+            continue
+        for line in events.read_text(encoding="utf-8").splitlines():
+            try:
+                if json.loads(line).get("event") == "opened":
+                    found.append(str(run_dir))
+                    break
+            except ValueError:
+                continue
+    return found
+
+
+def default_ledger_path(intent: Mapping[str, Any]) -> Optional[Path]:
+    """The shared RunPod ledger named by the frozen fan-out policy (artifacts_root)."""
+    policy = ((intent.get("execution") or {}).get("policies") or {}).get("fanout") or {}
+    path = Path(str(policy.get("path")))
+    if not path.is_file():
+        return None
+    root = load_json(path).get("artifacts_root")
+    return Path(root) / "runpod-fanout" / "ledger-v2.json" if root else None
+
+
+def audit_identity_once(
+    audit: Audit,
+    root: Path,
+    intent: Mapping[str, Any],
+    binding: Mapping[str, Any],
+    ledger_path: Optional[Path],
+) -> None:
+    """Condition 3 runs once: exactly one identity session opened, it is the one the result
+    and started.json name, and the shared ledger knows no other run of this identity job."""
+    problems: List[str] = []
+    opened = opened_sessions(root, "identity")
+    started_path = root / "identity_check" / "started.json"
+    started = load_json(started_path) if started_path.is_file() else None
+    state = binding["state"]
+    if state == "NOT_RUN":
+        if opened:
+            problems.append(f"identity sessions opened but no identity check: {opened}")
+    elif state == "ABANDONED" and started is None:
+        if len(opened) > 1:
+            problems.append(f"{len(opened)} identity sessions opened")
+    else:
+        named = str((started or {}).get("remote_session"))
+        if started is None:
+            problems.append("identity_check/started.json missing")
+        if opened != [named]:
+            problems.append(f"opened identity sessions {opened} != started.json's [{named}]")
+        if state in ("PASSED", "FAILED"):
+            result = load_json(root / "identity_check.json")
+            if started is not None and result.get("started_sha256") != sha256_file(started_path):
+                problems.append("identity result is not bound to identity_check/started.json")
+            receipt_dir = ((result.get("remote") or {}).get("receipt") or {}).get("run_dir")
+            if receipt_dir is not None and str(receipt_dir) != named:
+                problems.append("identity remote receipt names another session")
+    remote_policy = ((intent.get("execution") or {}).get("policies") or {}).get("remote") or {}
+    prefix = None
+    if Path(str(remote_policy.get("path"))).is_file():
+        prefix = load_json(Path(remote_policy["path"])).get("job_id_prefix_identity")
+    ledger = Path(ledger_path) if ledger_path is not None else None
+    if ledger is None and intent.get("dry_run") is not True:
+        ledger = default_ledger_path(intent)
+    checked = False
+    if ledger is not None and prefix:
+        if ledger.is_file():
+            job_id = f"{prefix}{sha256_file(root / 'intent.json')[:12]}"
+            runs = (load_json(ledger).get("runs") or {}).values()
+            ours = sorted(str(r.get("run_dir")) for r in runs if r.get("job_id") == job_id)
+            missing = [d for d in ours if not Path(d).is_dir()]
+            if missing:
+                problems.append(f"ledger identity runs without their run dir: {missing}")
+            checked = True
+        elif intent.get("dry_run") is not True:
+            problems.append(f"shared ledger unreadable: {ledger}")
+    audit.add(
+        "identity.run_once",
+        not problems,
+        {"problems": problems[:20], "opened": opened, "ledger_checked": checked},
+    )
+
+
+def audit_remote(
+    audit: Audit, root: Path, intent: Mapping[str, Any], ledger_path: Optional[Path] = None
+) -> None:
+    """Template v3 (governance amendment strict on RunPod, 2026-10-05): conditions 1-4."""
+    output = root / "output"
+    block = intent.get("execution") or {}
+    # (1) the platform is named in the intent and the protocol; its documents are frozen
+    protocol = Path(intent["preregistration"]["protocol"]["path"])
+    text = protocol.read_text(encoding="utf-8") if protocol.is_file() else ""
+    docs = [block.get("remote_config"), block.get("handler"), block.get("amendment")]
+    docs += list((block.get("policies") or {}).values())
+    drifted = [
+        str((d or {}).get("path"))
+        for d in docs
+        if not (d and Path(d["path"]).is_file() and sha256_file(Path(d["path"])) == d["sha256"])
+    ]
+    # ratification is re-derived from the hash-verified amendment text, never trusted from
+    # the intent's frozen flag alone
+    amendment = block.get("amendment") or {}
+    amendment_path = Path(str(amendment.get("path")))
+    derived_ratified = bool(
+        amendment_path.is_file() and RATIFIED_RE.search(amendment_path.read_text(encoding="utf-8"))
+    )
+    ratified_ok = derived_ratified is bool(amendment.get("ratified")) and (
+        intent.get("dry_run") is True or derived_ratified
+    )
+    audit.add(
+        "execution.platform_named",
+        block.get("schema") == EXECUTION_SCHEMA
+        and block.get("platform") == REMOTE_BACKEND
+        and block.get("backend") == REMOTE_BACKEND
+        and (block.get("remote_config") or {}).get("values", {}).get("platform") == REMOTE_BACKEND
+        and any(line.strip() == PROTOCOL_PLATFORM_LINE for line in text.splitlines())
+        and not drifted
+        and ratified_ok,
+        {"drifted": drifted, "amendment_ratified_in_text": derived_ratified},
+    )
+    # the per-step rule re-checked here, not taken from the intent: min_speedup >= the user's
+    # floor (4x since 2026-10-05), the plan's verdict recomputed from its own numbers, and a
+    # plan below it only with a recorded force (legacy key force_below_5x read as well)
+    plan_block = block.get("plan") or {}
+    values = (block.get("remote_config") or {}).get("values", {})
+    forced = values.get("force_below_min_speedup") is True or values.get("force_below_5x") is True
+    min_speedup = plan_block.get("min_speedup")
+    speedup = (plan_block.get("choice") or {}).get("speedup")
+    floor_ok = _is_number(min_speedup) and min_speedup >= MIN_SPEEDUP_RULE
+    meets = floor_ok and _is_number(speedup) and speedup >= min_speedup
+    audit.add(
+        "execution.speedup_rule",
+        floor_ok
+        and meets == (plan_block.get("meets_min_speedup") is True)
+        and (meets or forced)
+        and block.get("speedup") == speedup
+        and block.get("min_speedup") == min_speedup
+        and bool(block.get("forced_below_min")) == (forced and not meets),
+        {
+            "speedup": speedup,
+            "min_speedup": min_speedup,
+            "floor": MIN_SPEEDUP_RULE,
+            "forced_below_min": block.get("forced_below_min"),
+        },
+    )
+    # (3) the identity result, its recomputed verdict and the backend it implies
+    started_path = output / "started.json"
+    started = load_json(started_path) if started_path.is_file() else {}
+    execution = started.get("execution") or {}
+    binding = identity_binding(root)
+    problems: List[str] = []
+    recorded = execution.get("identity_check") or {}
+    if {k: recorded.get(k) for k in ("state", "file", "sha256")} != binding:
+        problems.append(f"started.json identity binding {recorded} != files {binding}")
+    if binding["state"] not in ("PASSED", "FAILED", "ABANDONED"):
+        problems.append(f"identity check {binding['state']} at admission")
+    sample = (block.get("identity_check") or {}).get("sample") or []
+    worlds_per_mix = (block.get("identity_check") or {}).get("worlds_per_mix")
+    if not isinstance(worlds_per_mix, int) or sample != identity_sample(intent, worlds_per_mix):
+        problems.append("the frozen identity sample is not the pre-registered ranking's")
+    expected = [
+        f"final-{arm}-{s['mix']}-w{int(s['world_index']):05d}" for s in sample for arm in ARMS
+    ]
+    if binding["state"] in ("PASSED", "FAILED"):
+        result = load_json(root / "identity_check.json")
+        if result.get("schema") != IDENTITY_SCHEMA:
+            problems.append("identity result schema")
+        if result.get("intent_sha256") != sha256_file(root / "intent.json"):
+            problems.append("identity result is bound to another intent")
+        if result.get("sample") != sample or sorted(
+            result.get("expected_episodes") or []
+        ) != sorted(expected):
+            problems.append("identity result sample differs from the pre-registered sample")
+        mac, rem = result.get("mac") or {}, result.get("remote") or {}
+        mac_d, rem_d = mac.get("digests") or {}, rem.get("digests") or {}
+        passes = bool(
+            mac.get("complete") is True
+            and rem.get("complete") is True
+            and expected
+            and all(
+                e in mac_d and e in rem_d and mac_d[e].get("digest") == rem_d[e].get("digest")
+                for e in expected
+            )
+        )
+        if result.get("passes") is not passes:
+            problems.append(f"identity verdict {result.get('passes')} != recomputed {passes}")
+        if (binding["state"] == "PASSED") != passes:
+            problems.append("identity state disagrees with the recomputed verdict")
+        rosters = output / "rosters.json"
+        if rosters.is_file():
+            frozen = {
+                unit_key("final", r): canonical_sha(r) for r in load_json(rosters).get("final", [])
+            }
+            for key, sha in (result.get("rows_sha256") or {}).items():
+                if frozen.get(key) != sha:
+                    problems.append(f"identity row {key} is not the frozen roster row")
+        if intent.get("dry_run") is not True and (
+            mac.get("executor") != "subprocess"
+            or (rem.get("transport") not in (None, "rp.py"))
+            or result.get("dry_run") is not False
+        ):
+            problems.append("a production identity check without the production runners")
+        if any("record" in str(k) for k in (result.get("mac") or {})) or any(
+            "record" in str(k) for k in (result.get("remote") or {}) if k != "receipt"
+        ):
+            problems.append("identity result keeps records (digests only are allowed)")
+    elif binding["state"] == "ABANDONED" and (root / "identity_check.json").exists():
+        problems.append("abandoned identity check with a result file")
+    backend = execution.get("backend")
+    want = REMOTE_BACKEND if binding["state"] == "PASSED" else FALLBACK_BACKEND
+    if backend != want:
+        problems.append(
+            f"backend {backend!r}, but the identity state {binding['state']} implies {want}"
+        )
+    executor = (started.get("provenance") or {}).get("executor")
+    if backend == REMOTE_BACKEND and executor != REMOTE_EXECUTOR:
+        problems.append(f"remote backend with executor {executor!r}")
+    if backend == FALLBACK_BACKEND and executor == REMOTE_EXECUTOR:
+        problems.append("fallback backend with the remote executor")
+    audit.add("identity.result_and_backend", not problems, problems[:20])
+    audit_identity_once(audit, root, intent, binding, ledger_path)
+    # (2) per-world single platform: every record stamped, one platform per world unit
+    rows: List[str] = []
+    stamps_by_unit: Dict[str, set] = {}
+    dispatch_by_unit: Dict[str, set] = {}
+    for phase in ("calibration", "final"):
+        folder = output / phase / "records"
+        for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+            entry = load_json(path)
+            stamp = entry.get("platform")
+            key = unit_key(phase, entry)
+            if (
+                not isinstance(stamp, dict)
+                or not stamp.get("platform_id")
+                or not stamp.get("backend")
+            ):
+                rows.append(f"{path.stem}: no platform stamp")
+                continue
+            if backend == REMOTE_BACKEND and stamp.get("backend") != REMOTE_BACKEND:
+                rows.append(f"{path.stem}: backend {stamp.get('backend')!r} on a remote run")
+            if backend == FALLBACK_BACKEND and stamp.get("backend") == REMOTE_BACKEND:
+                rows.append(f"{path.stem}: a remote record on a Mac fallback run")
+            stamps_by_unit.setdefault(key, set()).add(canonical_sha(stamp))
+            dispatch_by_unit.setdefault(key, set()).add(canonical_sha(entry.get("fanout")))
+    for key in sorted(stamps_by_unit):
+        if len(stamps_by_unit[key]) > 1:
+            rows.append(f"unit {key} spans {len(stamps_by_unit[key])} platform stamps")
+        if len(dispatch_by_unit[key]) > 1:
+            rows.append(f"unit {key} spans several jobs or attempts")
+    audit.add("platform.per_world_single", not rows, rows[:20])
+    # look segments contain exactly the planned units (remote), or no remote segment (Mac)
+    rows = []
+    for phase in ("calibration", "final"):
+        planned = segment_unit_keys(intent, phase)
+        seg_root = output / phase / "segments"
+        for seg in sorted(seg_root.glob("look-*")) if seg_root.is_dir() else []:
+            look = int(seg.name.split("-", 1)[1])
+            remote_file = seg / "remote.json"
+            if backend != REMOTE_BACKEND:
+                if remote_file.exists():
+                    rows.append(f"{phase} look {look}: remote.json on a Mac fallback run")
+                continue
+            if look >= len(planned) or not remote_file.is_file():
+                rows.append(f"{phase} look {look}: no remote.json or no such segment")
+                continue
+            info = load_json(remote_file)
+            want_units = planned[look]
+            if info.get("schema") != SEGMENT_SCHEMA or info.get("planned_units") != want_units:
+                rows.append(f"{phase} look {look}: planned units differ from the segment's")
+            published = info.get("units") or {}
+            extra = sorted(set(published) - set(want_units))
+            if extra:
+                rows.append(f"{phase} look {look}: units outside the segment {extra[:3]}")
+            reports = [load_json(r) for r in sorted(seg.glob("shard-*/report.json"))]
+            if reports and all(r.get("complete") is True for r in reports):
+                if sorted(published) != sorted(want_units):
+                    rows.append(f"{phase} look {look}: a complete segment missing units")
+            for job in info.get("jobs") or []:
+                outside = sorted(set((job.get("units") or {})) - set(want_units))
+                if outside:
+                    rows.append(f"{phase} look {look}: job {job.get('job')} ran {outside[:3]}")
+            by_key = {unit_key(phase, u): u for u in units(intent, phase)}
+            for key, row in published.items():
+                unit = by_key.get(key)
+                if unit is None:
+                    continue
+                ids = [i for i, _ in unit_ids(phase, unit)]
+                if row.get("episodes") != ids:
+                    rows.append(f"{key}: published episodes are not the whole unit")
+                for eid in ids:
+                    path = output / phase / "records" / f"{eid}.json"
+                    if not path.is_file():
+                        rows.append(f"{key}: record {eid} missing")
+                        continue
+                    entry = load_json(path)
+                    fan = entry.get("fanout") or {}
+                    if (
+                        fan.get("job_id") != row.get("job_id")
+                        or fan.get("unit_key") != key
+                        or (entry.get("platform") or {}).get("worker_id") != row.get("worker_id")
+                    ):
+                        rows.append(f"{eid}: not from the job/worker that published {key}")
+    audit.add("remote.segments_exact_units", not rows, rows[:20])
+    # (4) serving qualification stays on the Mac: the frozen intent says so and nothing in
+    # this run serves or promotes (the closeout, when present, records no promotion)
+    closeout = output / "closeout.json"
+    saved_closeout = load_json(closeout) if closeout.is_file() else None
+    audit.add(
+        "serving.stays_on_mac",
+        block.get("serving_qualification") == SERVING_QUALIFICATION
+        and (saved_closeout is None or saved_closeout.get("promotion_performed") is False),
+        {
+            "serving_qualification": block.get("serving_qualification"),
+            "promotion_performed": (saved_closeout or {}).get("promotion_performed"),
+        },
+    )
+    if closeout.is_file():
+        saved = load_json(closeout)
+        remote = ((saved.get("execution") or {}).get("remote")) or {}
+        stopped = str(remote.get("stop_reason") or "")
+        audit.add(
+            "remote.spend_stop_is_invalid",
+            ("spend cap" not in stopped and "SpendStop" not in stopped)
+            or saved.get("outcome") == "INVALID_STOP",
+            {"stop_reason": stopped, "outcome": saved.get("outcome")},
+        )
+
+
+def run_audit(
+    root: Path, pre_closeout: bool = False, ledger_path: Optional[Path] = None
+) -> Dict[str, Any]:
     """Audit a run root.  Without ``pre_closeout`` a root lacking ``closeout.json`` is
     ``UNCLOSED`` (never PASS); the runner's own pre-closeout call needs the producer claim
     and no closeout yet."""
@@ -1382,6 +2221,8 @@ def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
         skew = audit_skew(audit, intent, output, calibration)
         final = audit_final(audit, intent, output, calibration, skew)
         recomputed = audit_outcome(audit, intent, output, skew, final)
+        if is_remote(intent):
+            audit_remote(audit, root, intent, ledger_path)
     except (AuditError, KeyError, TypeError, ValueError, IndexError, OSError) as exc:
         error = f"{type(exc).__name__}: {exc}"
         audit.add("audit.evidence_readable", False, error)
@@ -1398,9 +2239,13 @@ def run_audit(root: Path, pre_closeout: bool = False) -> Dict[str, Any]:
         status = "UNCLOSED"  # started (or abandoned) without a closeout: never PASS
     else:
         status = "PASS"
-    paired_run = isinstance(intent_seen, dict) and intent_seen["plan"].get("band_policy") == PAIRED
+    policy_seen = intent_seen["plan"].get("band_policy") if isinstance(intent_seen, dict) else None
+    remote_run = isinstance(intent_seen, dict) and is_remote(intent_seen)
+    schema = {PAIRED: AUDIT_SCHEMA_PAIRED, POOLED: AUDIT_SCHEMA_POOLED}.get(
+        policy_seen, AUDIT_SCHEMA
+    )
     return {
-        "schema_version": AUDIT_SCHEMA_PAIRED if paired_run else AUDIT_SCHEMA,
+        "schema_version": AUDIT_SCHEMA_REMOTE if remote_run else schema,
         "root": str(root),
         "mode": "pre-closeout" if pre_closeout else "post-hoc",
         "status": status,
@@ -1438,8 +2283,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="the runner's own call, after producer-outcome.json and before closeout.json",
     )
+    parser.add_argument(
+        "--ledger",
+        type=Path,
+        default=None,
+        help="template v3: the shared RunPod ledger (default: the frozen fan-out policy's)",
+    )
     args = parser.parse_args(argv)
-    report = run_audit(args.root, pre_closeout=args.pre_closeout)
+    report = run_audit(args.root, pre_closeout=args.pre_closeout, ledger_path=args.ledger)
     args.out.mkdir(parents=True, exist_ok=True)
     write_create_only(args.out / "audit.json", report)
     return 0 if report["status"] == "PASS" else 1

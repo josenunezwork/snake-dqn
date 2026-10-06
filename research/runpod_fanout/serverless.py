@@ -10,6 +10,8 @@ dry runs unless ``--confirm``)::
     serverless.py seed --commit C [--confirm]                # short cpu5c-2 pod: archive +
                                                              #   4 checkpoints + venvs
     serverless.py template-create [--confirm]                # serverless template (free)
+    serverless.py seed / template-create --handler strict    # the strict gate runtime (template
+                                                             #   v3 of sequential_strict_template)
     runner.py plan JOB.json --budget USD                     # sizing + speed/cost table,
                                                              #   K units/job, worker quota
     runner.py run  JOB.json --budget USD --confirm           # per-run endpoint, then delete
@@ -100,6 +102,12 @@ from research.runpod_fanout.rp_client import RpClient, RunPodError  # noqa: E402
 HERE = Path(__file__).resolve().parent
 SLS_POLICY_PATH = HERE / "serverless_policy.json"
 HANDLER_SOURCE = HERE / "sls_handler.py"
+# Runtimes a seed may build: the Tier-1 handler (default) and the strict gate handler of the
+# sequential strict template v3 (its own runtime id; the Tier-1 runtime is unchanged).
+HANDLERS = {
+    "fanout": HANDLER_SOURCE,
+    "strict": REPO / "research" / "sequential_strict_template" / "strict_sls_handler.py",
+}
 SEED_AGENT_SOURCE = HERE / "seed_agent.py"
 REGISTRY_SCHEMA = "runpod-fanout-serverless-registry/v1"
 LEDGER_SAFETY = 1.02
@@ -164,14 +172,15 @@ def runtime_spec(fp: Mapping[str, Any], sp: Mapping[str, Any]) -> Dict[str, Any]
     }
 
 
-def handler_sha256() -> str:
-    return hashlib.sha256(HANDLER_SOURCE.read_bytes()).hexdigest()
+def handler_sha256(source: Path = HANDLER_SOURCE) -> str:
+    return hashlib.sha256(Path(source).read_bytes()).hexdigest()
 
 
-def runtime_id(fp: Mapping[str, Any], sp: Mapping[str, Any]) -> str:
+def runtime_id(fp: Mapping[str, Any], sp: Mapping[str, Any], handler: Path = HANDLER_SOURCE) -> str:
+    """Runtime id of ``handler`` (default: the Tier-1 handler, whose id is unchanged)."""
     blob = json.dumps(
         {
-            "handler": handler_sha256(),
+            "handler": handler_sha256(handler),
             "image": sp["image"],
             "root": volume_root(sp),
             "spec": runtime_spec(fp, sp),
@@ -2026,10 +2035,12 @@ class SeedRunner(rmod.Runner):
         volume: Mapping[str, Any],
         ckpts: Sequence[str],
         registry: Optional[Registry] = None,
+        handler_source: Path = HANDLER_SOURCE,
         **kw,
     ):
         self.sp = sp
-        self.rid = runtime_id(fp, sp)
+        self.handler_source = Path(handler_source)
+        self.rid = runtime_id(fp, sp, self.handler_source)
         s = sp["seeder"]
         seed_policy = dict(
             fp,
@@ -2111,7 +2122,11 @@ class SeedRunner(rmod.Runner):
                 {"sha256": sha, "path": self.allowlist[sha]["path"], "bytes": p.stat().st_size}
                 for sha, p in sorted(self.ckpt_paths.items())
             ],
-            "handler": {"runtime_id": self.rid, "sha256": handler_sha256()},
+            "handler": {
+                "runtime_id": self.rid,
+                "sha256": handler_sha256(self.handler_source),
+                "source": str(self.handler_source),
+            },
             "venvs": runtime_spec(self.fp, self.sp),
             "nothing_else": "no untracked files, artifacts, scores.db, keys or venv",
         }
@@ -2150,13 +2165,12 @@ class SeedRunner(rmod.Runner):
                     if got.get("sha256") != sha:
                         raise Abort("checkpoint upload sha mismatch")
             rt = (inv.get("runtimes") or {}).get(self.rid)
+            hsha = handler_sha256(self.handler_source)
             if not rt:
-                got = agent.put_file(f"/in/handler/{self.rid}", HANDLER_SOURCE)
-                if got.get("sha256") != handler_sha256():
+                got = agent.put_file(f"/in/handler/{self.rid}", self.handler_source)
+                if got.get("sha256") != hsha:
                     raise Abort("handler upload sha mismatch")
-            out = agent.post_json(
-                "/runtime", {"runtime_id": self.rid, "handler_sha256": handler_sha256()}
-            )
+            out = agent.post_json("/runtime", {"runtime_id": self.rid, "handler_sha256": hsha})
             self.log("runtime_build", out=out)
             self.stage = "building"
             return
@@ -2178,7 +2192,7 @@ class SeedRunner(rmod.Runner):
                 for s in self.ckpt_paths
                 if s not in (inv.get("ckpts") or [])
             ]
-            if ready.get("handler_sha256") != handler_sha256():
+            if ready.get("handler_sha256") != handler_sha256(self.handler_source):
                 problems.append("runtime handler sha differs")
             for k, want in spec["expect"].items():
                 if ready.get(k) != want:
@@ -2617,8 +2631,9 @@ def cmd_seed(a, fp, sp) -> int:
         else {"id": "<volume id>", "dataCenterId": sp["data_center"]}
     )
     commit = jobspec.git(REPO, "rev-parse", a.commit).stdout.strip()
-    ckpts = sorted(allow)  # the 4 allow-listed checkpoints, nothing else
+    ckpts = sorted(allow)  # the allow-listed checkpoints, nothing else
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    handler = HANDLERS[getattr(a, "handler", "fanout") or "fanout"]
     probe = SeedRunner(
         fp,
         sp,
@@ -2628,6 +2643,7 @@ def cmd_seed(a, fp, sp) -> int:
         volume=volume,
         ckpts=ckpts,
         rp=rp,
+        handler_source=handler,
     )
     base = Path(fp["artifacts_root"]) / "runpod-fanout" / probe.job["job_id"]
     if not a.confirm:
@@ -2693,13 +2709,14 @@ def cmd_seed(a, fp, sp) -> int:
         rp=rp,
         budget=budget,
         confirm=True,
+        handler_source=handler,
     )
     return r.run()
 
 
 def cmd_template_create(a, fp, sp) -> int:
     rp, reg = RpClient(), Registry(fp)
-    rid = runtime_id(fp, sp)
+    rid = runtime_id(fp, sp, HANDLERS[getattr(a, "handler", "fanout") or "fanout"])
     rt = (reg.read().get("runtimes") or {}).get(rid) or {}
     if not rt.get("ready"):
         print(
@@ -2840,8 +2857,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     sd.add_argument("--volume-id")
     sd.add_argument("--budget", type=float, default=0.2)
     sd.add_argument("--confirm", action="store_true")
+    sd.add_argument(
+        "--handler",
+        choices=sorted(HANDLERS),
+        default="fanout",
+        help="runtime to build: fanout (Tier-1, default) or strict (sequential strict v3)",
+    )
     tc = sub.add_parser("template-create")
     tc.add_argument("--confirm", action="store_true")
+    tc.add_argument("--handler", choices=sorted(HANDLERS), default="fanout")
     ec = sub.add_parser("endpoint-cleanup")
     ec.add_argument("--job-id")
     ec.add_argument("--all-runner-endpoints", action="store_true")
