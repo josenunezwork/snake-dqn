@@ -8,6 +8,8 @@
 // Action index layout (see src/game action space): 0 L, 1 S, 2 R (normal),
 // 3 boost-L, 4 boost-S, 5 boost-R.
 
+import { confidenceLevel, decisionMargin } from "../lib/decisionMargin";
+
 interface Props {
   q: number[];
   // The action the agent actually took ("action taken"): the executed action
@@ -47,10 +49,14 @@ function wedge(a0: number, a1: number, ri: number, ro: number): string {
   );
 }
 
-export function confidence(margin: number): { label: string; color: string } {
+// `relative` is the scale-free margin from decisionMargin() (raw margin / Q
+// spread), so the buckets read the same for checkpoints whose Q-values differ
+// in scale (the FRP-v3 checkpoint's are ~4x smaller than the champion's).
+export function confidence(relative: number): { label: string; color: string } {
   // CSS variables (with dark-theme fallbacks) so the light theme keeps contrast.
-  if (margin > 1) return { label: "confident", color: "var(--viz-green, #34d399)" };
-  if (margin > 0.3) return { label: "moderate", color: "var(--viz-amber, #fbbf24)" };
+  const level = confidenceLevel(relative);
+  if (level === "confident") return { label: "confident", color: "var(--viz-green, #34d399)" };
+  if (level === "moderate") return { label: "moderate", color: "var(--viz-amber, #fbbf24)" };
   return { label: "close call", color: "var(--viz-red, #f87171)" };
 }
 
@@ -64,10 +70,10 @@ export default function SteeringWheel({ q, chosen, greedy = null, labels, resolv
   const min = Math.min(...q);
   const max = Math.max(...q);
   const range = max - min || 1;
-  // second-best gap = decision margin (confidence)
-  const sorted = [...q].sort((a, b) => b - a);
-  const margin = sorted.length > 1 ? sorted[0] - sorted[1] : 0;
-  const conf = confidence(margin);
+  // second-best gap = decision margin; confidence is judged on it relative to
+  // the Q spread (scale-free), the raw margin is still shown in the caption.
+  const { raw: margin, relative } = decisionMargin(q);
+  const conf = confidence(relative);
 
   // action a -> (direction 0..2, ring 0=normal|1=boost)
   const cells = q.map((val, a) => {
@@ -143,7 +149,11 @@ export default function SteeringWheel({ q, chosen, greedy = null, labels, resolv
             greedy pick: {labels[greedy as number] ?? "—"}
           </span>
         )}
-        <span className="wheel-conf" style={{ color: conf.color }}>
+        <span
+          className="wheel-conf"
+          style={{ color: conf.color }}
+          title={`best - second-best Q = ${margin.toFixed(3)}, ${Math.round(relative * 100)}% of the Q spread`}
+        >
           {conf.label} · margin {margin >= 0 ? "+" : ""}
           {margin.toFixed(2)}
         </span>

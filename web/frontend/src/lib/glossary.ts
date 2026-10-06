@@ -4,7 +4,7 @@ export const GLOSSARY: Record<string, string> = {
   qvalue:
     "Q-value: the network's predicted long-term reward for each action from the current state. The highest Q is the move it takes.",
   margin:
-    "Decision margin: how far the best action's Q leads the runner-up. Large = confident; near-zero = a coin-flip.",
+    "Decision margin: how far the best action's Q leads the runner-up. Confidence is judged relative to the spread of all six Q-values (so it reads the same for checkpoints with different Q scales): large = confident; near-zero = a coin-flip.",
   epsilon:
     "ε (epsilon): exploration rate — with probability ε the agent picks a random action instead of the greedy one. 0 = pure exploitation.",
   loss:

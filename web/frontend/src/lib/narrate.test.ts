@@ -32,6 +32,16 @@ describe("narrate()", () => {
     expect(n?.tone).toBe("warn");
   });
 
+  it("reads confidence scale-free (FRP-v3's ~4x smaller Q-values)", () => {
+    // margin 0.25 on a spread of 0.5: below the old fixed 0.3 cutoff, but half
+    // the spread, so it is a confident pick, not a close call
+    const n = narrate(mk({ q_values: [2.5, 2.25, 2.1, 2.0, 2.05, 2.2], chosen: 0 }));
+    expect(n?.text).toContain("confident");
+    expect(n?.tone).not.toBe("warn");
+    const scaled = narrate(mk({ q_values: [10, 9, 8.4, 8, 8.2, 8.8], chosen: 0 }));
+    expect(scaled?.text).toContain("confident");
+  });
+
   it("describes boosting", () => {
     const n = narrate(mk({ q_values: [0, 0, 0, 9, 1, 1], chosen: 3 }));
     expect(n?.text.startsWith("Boosting left")).toBe(true);
