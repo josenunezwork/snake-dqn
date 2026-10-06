@@ -1,0 +1,1245 @@
+{
+ "check": {
+  "acceptance": "every joint rate P(PASS and a regression exactly at a margin) <= 1.2 x band_alpha",
+  "joint_rates": {
+   "frp3_all_seeds|theta=130|one_mix_at_margin@frozen": 0.04295,
+   "frp3_all_seeds|theta=130|one_mix_at_margin@mixed": 0.0397,
+   "frp3_all_seeds|theta=130|one_mix_at_margin@scripted": 0.04595,
+   "frp3_all_seeds|theta=130|pooled_at_margin": 0.0238,
+   "frp3_all_seeds|theta=32.5|one_mix_at_margin@frozen": 0.0343,
+   "frp3_all_seeds|theta=32.5|one_mix_at_margin@mixed": 0.03095,
+   "frp3_all_seeds|theta=32.5|one_mix_at_margin@scripted": 0.04485,
+   "frp3_all_seeds|theta=32.5|pooled_at_margin": 0.0248,
+   "frp3_all_seeds|theta=43.55|one_mix_at_margin@frozen": 0.04275,
+   "frp3_all_seeds|theta=43.55|one_mix_at_margin@mixed": 0.0413,
+   "frp3_all_seeds|theta=43.55|one_mix_at_margin@scripted": 0.0463,
+   "frp3_all_seeds|theta=43.55|pooled_at_margin": 0.02175,
+   "frp3_all_seeds|theta=65|one_mix_at_margin@frozen": 0.0389,
+   "frp3_all_seeds|theta=65|one_mix_at_margin@mixed": 0.03955,
+   "frp3_all_seeds|theta=65|one_mix_at_margin@scripted": 0.0465,
+   "frp3_all_seeds|theta=65|pooled_at_margin": 0.022,
+   "frp3_all_seeds|theta=97.5|one_mix_at_margin@frozen": 0.04445,
+   "frp3_all_seeds|theta=97.5|one_mix_at_margin@mixed": 0.0413,
+   "frp3_all_seeds|theta=97.5|one_mix_at_margin@scripted": 0.0468,
+   "frp3_all_seeds|theta=97.5|pooled_at_margin": 0.0225,
+   "frp3_all_seeds|theta=99.04|one_mix_at_margin@frozen": 0.045,
+   "frp3_all_seeds|theta=99.04|one_mix_at_margin@mixed": 0.03875,
+   "frp3_all_seeds|theta=99.04|one_mix_at_margin@scripted": 0.04715,
+   "frp3_all_seeds|theta=99.04|pooled_at_margin": 0.0215,
+   "frp3_s12|theta=130|one_mix_at_margin@frozen": 0.0295,
+   "frp3_s12|theta=130|one_mix_at_margin@mixed": 0.03475,
+   "frp3_s12|theta=130|one_mix_at_margin@scripted": 0.0475,
+   "frp3_s12|theta=130|pooled_at_margin": 0.02395,
+   "frp3_s12|theta=32.5|one_mix_at_margin@frozen": 0.02315,
+   "frp3_s12|theta=32.5|one_mix_at_margin@mixed": 0.03065,
+   "frp3_s12|theta=32.5|one_mix_at_margin@scripted": 0.0498,
+   "frp3_s12|theta=32.5|pooled_at_margin": 0.0235,
+   "frp3_s12|theta=43.55|one_mix_at_margin@frozen": 0.0312,
+   "frp3_s12|theta=43.55|one_mix_at_margin@mixed": 0.03515,
+   "frp3_s12|theta=43.55|one_mix_at_margin@scripted": 0.04665,
+   "frp3_s12|theta=43.55|pooled_at_margin": 0.02345,
+   "frp3_s12|theta=65|one_mix_at_margin@frozen": 0.0296,
+   "frp3_s12|theta=65|one_mix_at_margin@mixed": 0.03295,
+   "frp3_s12|theta=65|one_mix_at_margin@scripted": 0.0476,
+   "frp3_s12|theta=65|pooled_at_margin": 0.02165,
+   "frp3_s12|theta=97.5|one_mix_at_margin@frozen": 0.0307,
+   "frp3_s12|theta=97.5|one_mix_at_margin@mixed": 0.0378,
+   "frp3_s12|theta=97.5|one_mix_at_margin@scripted": 0.0496,
+   "frp3_s12|theta=97.5|pooled_at_margin": 0.02075,
+   "frp3_s12|theta=99.04|one_mix_at_margin@frozen": 0.0297,
+   "frp3_s12|theta=99.04|one_mix_at_margin@mixed": 0.03535,
+   "frp3_s12|theta=99.04|one_mix_at_margin@scripted": 0.0485,
+   "frp3_s12|theta=99.04|pooled_at_margin": 0.0216
+  },
+  "max_joint_rate": 0.0498,
+  "passes": true,
+  "rule": "pooled_ni_continue",
+  "threshold": 0.06
+ },
+ "config": {
+  "data": "research/frp3_strict_20261005/paired_pool.json",
+  "delta_ni": 9.945893662499998,
+  "plan_params": {
+   "band_alpha": 0.05,
+   "band_bound": "rci_obf",
+   "band_floor": 0.3,
+   "band_margin_z": 1.645,
+   "band_mix_margin": 0.075,
+   "band_ni_margin": 0.05,
+   "band_policy": "pooled_ni_continue",
+   "family_alpha": 0.05,
+   "fractions": [
+    0.25,
+    0.5,
+    0.75,
+    1.0
+   ],
+   "futility_cp": 0.1,
+   "futility_policy": "followed",
+   "mde": 65.0,
+   "mixes": [
+    "frozen",
+    "scripted",
+    "mixed"
+   ],
+   "n_max": 275,
+   "ni_alpha": 0.05,
+   "required_successes": 2,
+   "scripted_mix": "scripted"
+  },
+  "thetas": [
+   32.5,
+   43.55,
+   65.0,
+   97.5,
+   130.0,
+   99.04
+  ]
+ },
+ "cpu_seconds": 9.0,
+ "data_sha256": "2fb43f84f533621d7c6848827848f1cb667cfa5447e0f82793d4e71885029e4b",
+ "reps": 20000,
+ "results": {
+  "frp3_all_seeds|theta=130|no_change": {
+   "expected_worlds_per_mix": 225.3007,
+   "p_band_pass_given_qualified": 0.8655,
+   "p_pass": {
+    "high": 0.870158425396917,
+    "k": 17310,
+    "low": 0.8607011962460707,
+    "n": 20000,
+    "rate": 0.8655
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.386,
+    "look_2": 0.61355,
+    "look_3": 0.00045,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=130|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 273.7609,
+   "p_band_pass_given_qualified": 0.04295,
+   "p_pass": {
+    "high": 0.04584871348046526,
+    "k": 859,
+    "low": 0.04022682667841999,
+    "n": 20000,
+    "rate": 0.04295
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.386,
+    "look_2": 0.61355,
+    "look_3": 0.00045,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=130|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 273.98915,
+   "p_band_pass_given_qualified": 0.0397,
+   "p_pass": {
+    "high": 0.04249560287969405,
+    "k": 794,
+    "low": 0.03708118551355587,
+    "n": 20000,
+    "rate": 0.0397
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.386,
+    "look_2": 0.61355,
+    "look_3": 0.00045,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=130|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.57385,
+   "p_band_pass_given_qualified": 0.04595,
+   "p_pass": {
+    "high": 0.04893998472461576,
+    "k": 919,
+    "low": 0.04313440321793284,
+    "n": 20000,
+    "rate": 0.04595
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.386,
+    "look_2": 0.61355,
+    "look_3": 0.00045,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=130|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.6293,
+   "p_band_pass_given_qualified": 0.0238,
+   "p_pass": {
+    "high": 0.026005695400639312,
+    "k": 476,
+    "low": 0.021777199739194734,
+    "n": 20000,
+    "rate": 0.0238
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.386,
+    "look_2": 0.61355,
+    "look_3": 0.00045,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=32.5|no_change": {
+   "expected_worlds_per_mix": 257.9442,
+   "p_band_pass_given_qualified": 0.9876332275648849,
+   "p_pass": {
+    "high": 0.6136979822132591,
+    "k": 12139,
+    "low": 0.60016094127434,
+    "n": 20000,
+    "rate": 0.60695
+   },
+   "p_qualify": 0.61455,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.01525,
+    "look_3": 0.23005,
+    "look_4": 0.36925,
+    "never": 0.38545
+   }
+  },
+  "frp3_all_seeds|theta=32.5|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 273.94905,
+   "p_band_pass_given_qualified": 0.05581319664795379,
+   "p_pass": {
+    "high": 0.03691310037779521,
+    "k": 686,
+    "low": 0.03186576200486064,
+    "n": 20000,
+    "rate": 0.0343
+   },
+   "p_qualify": 0.61455,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.01525,
+    "look_3": 0.23005,
+    "look_4": 0.36925,
+    "never": 0.38545
+   }
+  },
+  "frp3_all_seeds|theta=32.5|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.01365,
+   "p_band_pass_given_qualified": 0.05036205353510699,
+   "p_pass": {
+    "high": 0.03344167346613345,
+    "k": 619,
+    "low": 0.028638475558098297,
+    "n": 20000,
+    "rate": 0.03095
+   },
+   "p_qualify": 0.61455,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.01525,
+    "look_3": 0.23005,
+    "look_4": 0.36925,
+    "never": 0.38545
+   }
+  },
+  "frp3_all_seeds|theta=32.5|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.4181,
+   "p_band_pass_given_qualified": 0.07298022943617281,
+   "p_pass": {
+    "high": 0.04780692989971733,
+    "k": 897,
+    "low": 0.0420678805221547,
+    "n": 20000,
+    "rate": 0.04485
+   },
+   "p_qualify": 0.61455,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.01525,
+    "look_3": 0.23005,
+    "look_4": 0.36925,
+    "never": 0.38545
+   }
+  },
+  "frp3_all_seeds|theta=32.5|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.2621,
+   "p_band_pass_given_qualified": 0.040354731104059884,
+   "p_pass": {
+    "high": 0.0270482701160806,
+    "k": 496,
+    "low": 0.02273424095164123,
+    "n": 20000,
+    "rate": 0.0248
+   },
+   "p_qualify": 0.61455,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.01525,
+    "look_3": 0.23005,
+    "look_4": 0.36925,
+    "never": 0.38545
+   }
+  },
+  "frp3_all_seeds|theta=43.55|no_change": {
+   "expected_worlds_per_mix": 236.63455,
+   "p_band_pass_given_qualified": 0.9346281908990011,
+   "p_pass": {
+    "high": 0.8470879059014724,
+    "k": 16842,
+    "low": 0.8369807030289407,
+    "n": 20000,
+    "rate": 0.8421
+   },
+   "p_qualify": 0.901,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.0881,
+    "look_3": 0.5179,
+    "look_4": 0.295,
+    "never": 0.099
+   }
+  },
+  "frp3_all_seeds|theta=43.55|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 273.93135,
+   "p_band_pass_given_qualified": 0.0474472807991121,
+   "p_pass": {
+    "high": 0.045642499883940986,
+    "k": 855,
+    "low": 0.04003311708936671,
+    "n": 20000,
+    "rate": 0.04275
+   },
+   "p_qualify": 0.901,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.0881,
+    "look_3": 0.5179,
+    "look_4": 0.295,
+    "never": 0.099
+   }
+  },
+  "frp3_all_seeds|theta=43.55|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 273.97565,
+   "p_band_pass_given_qualified": 0.04583795782463929,
+   "p_pass": {
+    "high": 0.04414694439183031,
+    "k": 826,
+    "low": 0.038629229486040084,
+    "n": 20000,
+    "rate": 0.0413
+   },
+   "p_qualify": 0.901,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.0881,
+    "look_3": 0.5179,
+    "look_4": 0.295,
+    "never": 0.099
+   }
+  },
+  "frp3_all_seeds|theta=43.55|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.6178,
+   "p_band_pass_given_qualified": 0.0513873473917869,
+   "p_pass": {
+    "high": 0.049300405786933094,
+    "k": 926,
+    "low": 0.04347384773037624,
+    "n": 20000,
+    "rate": 0.0463
+   },
+   "p_qualify": 0.901,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.0881,
+    "look_3": 0.5179,
+    "look_4": 0.295,
+    "never": 0.099
+   }
+  },
+  "frp3_all_seeds|theta=43.55|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.5442,
+   "p_band_pass_given_qualified": 0.02413984461709212,
+   "p_pass": {
+    "high": 0.023865297192834437,
+    "k": 435,
+    "low": 0.019818385294829627,
+    "n": 20000,
+    "rate": 0.02175
+   },
+   "p_qualify": 0.901,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.0881,
+    "look_3": 0.5179,
+    "look_4": 0.295,
+    "never": 0.099
+   }
+  },
+  "frp3_all_seeds|theta=65|no_change": {
+   "expected_worlds_per_mix": 225.0882,
+   "p_band_pass_given_qualified": 0.8688039333734698,
+   "p_pass": {
+    "high": 0.8705031586121581,
+    "k": 17317,
+    "low": 0.8610563286055901,
+    "n": 20000,
+    "rate": 0.86585
+   },
+   "p_qualify": 0.9966,
+   "qualifying_look_distribution": {
+    "look_1": 0.0007,
+    "look_2": 0.55485,
+    "look_3": 0.40775,
+    "look_4": 0.0333,
+    "never": 0.0034
+   }
+  },
+  "frp3_all_seeds|theta=65|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 273.9239,
+   "p_band_pass_given_qualified": 0.03903271121814168,
+   "p_pass": {
+    "high": 0.041669490275319764,
+    "k": 778,
+    "low": 0.036307605375619924,
+    "n": 20000,
+    "rate": 0.0389
+   },
+   "p_qualify": 0.9966,
+   "qualifying_look_distribution": {
+    "look_1": 0.0007,
+    "look_2": 0.55485,
+    "look_3": 0.40775,
+    "look_4": 0.0333,
+    "never": 0.0034
+   }
+  },
+  "frp3_all_seeds|theta=65|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.0198,
+   "p_band_pass_given_qualified": 0.03968492875777644,
+   "p_pass": {
+    "high": 0.042340729677297594,
+    "k": 791,
+    "low": 0.036936116326769165,
+    "n": 20000,
+    "rate": 0.03955
+   },
+   "p_qualify": 0.9966,
+   "qualifying_look_distribution": {
+    "look_1": 0.0007,
+    "look_2": 0.55485,
+    "look_3": 0.40775,
+    "look_4": 0.0333,
+    "never": 0.0034
+   }
+  },
+  "frp3_all_seeds|theta=65|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.42645,
+   "p_band_pass_given_qualified": 0.046658639373871165,
+   "p_pass": {
+    "high": 0.04950634014385705,
+    "k": 930,
+    "low": 0.04366783655902985,
+    "n": 20000,
+    "rate": 0.0465
+   },
+   "p_qualify": 0.9966,
+   "qualifying_look_distribution": {
+    "look_1": 0.0007,
+    "look_2": 0.55485,
+    "look_3": 0.40775,
+    "look_4": 0.0333,
+    "never": 0.0034
+   }
+  },
+  "frp3_all_seeds|theta=65|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.6698,
+   "p_band_pass_given_qualified": 0.02207505518763797,
+   "p_pass": {
+    "high": 0.024126559506679586,
+    "k": 440,
+    "low": 0.02005702696295643,
+    "n": 20000,
+    "rate": 0.022
+   },
+   "p_qualify": 0.9966,
+   "qualifying_look_distribution": {
+    "look_1": 0.0007,
+    "look_2": 0.55485,
+    "look_3": 0.40775,
+    "look_4": 0.0333,
+    "never": 0.0034
+   }
+  },
+  "frp3_all_seeds|theta=97.5|no_change": {
+   "expected_worlds_per_mix": 225.05355,
+   "p_band_pass_given_qualified": 0.8643,
+   "p_pass": {
+    "high": 0.8689764020815611,
+    "k": 17286,
+    "low": 0.8594836804479609,
+    "n": 20000,
+    "rate": 0.8643
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.035,
+    "look_2": 0.93925,
+    "look_3": 0.0256,
+    "look_4": 0.00015,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=97.5|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 273.71315,
+   "p_band_pass_given_qualified": 0.04445,
+   "p_pass": {
+    "high": 0.04739479378273983,
+    "k": 889,
+    "low": 0.04168017026797711,
+    "n": 20000,
+    "rate": 0.04445
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.035,
+    "look_2": 0.93925,
+    "look_3": 0.0256,
+    "look_4": 0.00015,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=97.5|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 273.9314,
+   "p_band_pass_given_qualified": 0.0413,
+   "p_pass": {
+    "high": 0.04414694439183031,
+    "k": 826,
+    "low": 0.038629229486040084,
+    "n": 20000,
+    "rate": 0.0413
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.035,
+    "look_2": 0.93925,
+    "look_3": 0.0256,
+    "look_4": 0.00015,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=97.5|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.45785,
+   "p_band_pass_given_qualified": 0.0468,
+   "p_pass": {
+    "high": 0.04981521391863784,
+    "k": 936,
+    "low": 0.043958847562615394,
+    "n": 20000,
+    "rate": 0.0468
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.035,
+    "look_2": 0.93925,
+    "look_3": 0.0256,
+    "look_4": 0.00015,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=97.5|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.5953,
+   "p_band_pass_given_qualified": 0.0225,
+   "p_pass": {
+    "high": 0.02464888009357027,
+    "k": 450,
+    "low": 0.02053451434000964,
+    "n": 20000,
+    "rate": 0.0225
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.035,
+    "look_2": 0.93925,
+    "look_3": 0.0256,
+    "look_4": 0.00015,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=99.04|no_change": {
+   "expected_worlds_per_mix": 225.586,
+   "p_band_pass_given_qualified": 0.86665,
+   "p_pass": {
+    "high": 0.871291079953996,
+    "k": 17333,
+    "low": 0.8618681000060625,
+    "n": 20000,
+    "rate": 0.86665
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0446,
+    "look_2": 0.93285,
+    "look_3": 0.02225,
+    "look_4": 0.0003,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=99.04|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 273.69285,
+   "p_band_pass_given_qualified": 0.045,
+   "p_pass": {
+    "high": 0.04796146480836757,
+    "k": 900,
+    "low": 0.042213288002687636,
+    "n": 20000,
+    "rate": 0.045
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0446,
+    "look_2": 0.93285,
+    "look_3": 0.02225,
+    "look_4": 0.0003,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=99.04|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.0439,
+   "p_band_pass_given_qualified": 0.03875,
+   "p_pass": {
+    "high": 0.04151456034777516,
+    "k": 775,
+    "low": 0.036162592913981356,
+    "n": 20000,
+    "rate": 0.03875
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0446,
+    "look_2": 0.93285,
+    "look_3": 0.02225,
+    "look_4": 0.0003,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=99.04|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.46015,
+   "p_band_pass_given_qualified": 0.04715,
+   "p_pass": {
+    "high": 0.0501755249147061,
+    "k": 943,
+    "low": 0.044298402141307855,
+    "n": 20000,
+    "rate": 0.04715
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0446,
+    "look_2": 0.93285,
+    "look_3": 0.02225,
+    "look_4": 0.0003,
+    "never": 0.0
+   }
+  },
+  "frp3_all_seeds|theta=99.04|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.6361,
+   "p_band_pass_given_qualified": 0.0215,
+   "p_pass": {
+    "high": 0.023603965338411338,
+    "k": 430,
+    "low": 0.01957981316728078,
+    "n": 20000,
+    "rate": 0.0215
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0446,
+    "look_2": 0.93285,
+    "look_3": 0.02225,
+    "look_4": 0.0003,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=130|no_change": {
+   "expected_worlds_per_mix": 225.6533,
+   "p_band_pass_given_qualified": 0.82445,
+   "p_pass": {
+    "high": 0.829660044653316,
+    "k": 16489,
+    "low": 0.8191153431498777,
+    "n": 20000,
+    "rate": 0.82445
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.34865,
+    "look_2": 0.64865,
+    "look_3": 0.0027,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=130|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 274.4218,
+   "p_band_pass_given_qualified": 0.0295,
+   "p_pass": {
+    "high": 0.03193686269918137,
+    "k": 590,
+    "low": 0.027243843229613075,
+    "n": 20000,
+    "rate": 0.0295
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.34865,
+    "look_2": 0.64865,
+    "look_3": 0.0027,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=130|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.0982,
+   "p_band_pass_given_qualified": 0.03475,
+   "p_pass": {
+    "high": 0.03737889983425655,
+    "k": 695,
+    "low": 0.0322997897159488,
+    "n": 20000,
+    "rate": 0.03475
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.34865,
+    "look_2": 0.64865,
+    "look_3": 0.0027,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=130|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.2112,
+   "p_band_pass_given_qualified": 0.0475,
+   "p_pass": {
+    "high": 0.05053579141067499,
+    "k": 950,
+    "low": 0.0446380012200997,
+    "n": 20000,
+    "rate": 0.0475
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.34865,
+    "look_2": 0.64865,
+    "look_3": 0.0027,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=130|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.6328,
+   "p_band_pass_given_qualified": 0.02395,
+   "p_pass": {
+    "high": 0.026162142360911092,
+    "k": 479,
+    "low": 0.021920695168106116,
+    "n": 20000,
+    "rate": 0.02395
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.34865,
+    "look_2": 0.64865,
+    "look_3": 0.0027,
+    "look_4": 0.0,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=32.5|no_change": {
+   "expected_worlds_per_mix": 255.7622,
+   "p_band_pass_given_qualified": 0.9900210936232354,
+   "p_pass": {
+    "high": 0.6168875071308249,
+    "k": 12203,
+    "low": 0.6033701873260153,
+    "n": 20000,
+    "rate": 0.61015
+   },
+   "p_qualify": 0.6163,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.019,
+    "look_3": 0.2547,
+    "look_4": 0.3426,
+    "never": 0.3837
+   }
+  },
+  "frp3_s12|theta=32.5|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 274.4322,
+   "p_band_pass_given_qualified": 0.037562875223105634,
+   "p_pass": {
+    "high": 0.02532750234394359,
+    "k": 463,
+    "low": 0.021155642442763384,
+    "n": 20000,
+    "rate": 0.02315
+   },
+   "p_qualify": 0.6163,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.019,
+    "look_3": 0.2547,
+    "look_4": 0.3426,
+    "never": 0.3837
+   }
+  },
+  "frp3_s12|theta=32.5|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.1566,
+   "p_band_pass_given_qualified": 0.04973227324355022,
+   "p_pass": {
+    "high": 0.033130451333263235,
+    "k": 613,
+    "low": 0.02834981291260217,
+    "n": 20000,
+    "rate": 0.03065
+   },
+   "p_qualify": 0.6163,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.019,
+    "look_3": 0.2547,
+    "look_4": 0.3426,
+    "never": 0.3837
+   }
+  },
+  "frp3_s12|theta=32.5|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.06965,
+   "p_band_pass_given_qualified": 0.08080480285575208,
+   "p_pass": {
+    "high": 0.05290218222242761,
+    "k": 996,
+    "low": 0.046870727042488985,
+    "n": 20000,
+    "rate": 0.0498
+   },
+   "p_qualify": 0.6163,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.019,
+    "look_3": 0.2547,
+    "look_4": 0.3426,
+    "never": 0.3837
+   }
+  },
+  "frp3_s12|theta=32.5|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.3676,
+   "p_band_pass_given_qualified": 0.03813078046405971,
+   "p_pass": {
+    "high": 0.025692735440504554,
+    "k": 470,
+    "low": 0.021490274920963146,
+    "n": 20000,
+    "rate": 0.0235
+   },
+   "p_qualify": 0.6163,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.019,
+    "look_3": 0.2547,
+    "look_4": 0.3426,
+    "never": 0.3837
+   }
+  },
+  "frp3_s12|theta=43.55|no_change": {
+   "expected_worlds_per_mix": 235.1711,
+   "p_band_pass_given_qualified": 0.9347023534840794,
+   "p_pass": {
+    "high": 0.8155749568361172,
+    "k": 16204,
+    "low": 0.8047059039946756,
+    "n": 20000,
+    "rate": 0.8102
+   },
+   "p_qualify": 0.8668,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.1068,
+    "look_3": 0.48705,
+    "look_4": 0.27295,
+    "never": 0.1332
+   }
+  },
+  "frp3_s12|theta=43.55|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 274.41505,
+   "p_band_pass_given_qualified": 0.03599446239040148,
+   "p_pass": {
+    "high": 0.033700979456452576,
+    "k": 624,
+    "low": 0.028879073549751128,
+    "n": 20000,
+    "rate": 0.0312
+   },
+   "p_qualify": 0.8668,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.1068,
+    "look_3": 0.48705,
+    "look_4": 0.27295,
+    "never": 0.1332
+   }
+  },
+  "frp3_s12|theta=43.55|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.2072,
+   "p_band_pass_given_qualified": 0.04055145362251961,
+   "p_pass": {
+    "high": 0.03779284805003578,
+    "k": 703,
+    "low": 0.03268568787132469,
+    "n": 20000,
+    "rate": 0.03515
+   },
+   "p_qualify": 0.8668,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.1068,
+    "look_3": 0.48705,
+    "look_4": 0.27295,
+    "never": 0.1332
+   }
+  },
+  "frp3_s12|theta=43.55|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.3646,
+   "p_band_pass_given_qualified": 0.05381864328564836,
+   "p_pass": {
+    "high": 0.04966078118048152,
+    "k": 933,
+    "low": 0.043813337911588535,
+    "n": 20000,
+    "rate": 0.04665
+   },
+   "p_qualify": 0.8668,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.1068,
+    "look_3": 0.48705,
+    "look_4": 0.27295,
+    "never": 0.1332
+   }
+  },
+  "frp3_s12|theta=43.55|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.6327,
+   "p_band_pass_given_qualified": 0.02705353022611906,
+   "p_pass": {
+    "high": 0.025640566798027013,
+    "k": 469,
+    "low": 0.0214424627670463,
+    "n": 20000,
+    "rate": 0.02345
+   },
+   "p_qualify": 0.8668,
+   "qualifying_look_distribution": {
+    "look_1": 0.0,
+    "look_2": 0.1068,
+    "look_3": 0.48705,
+    "look_4": 0.27295,
+    "never": 0.1332
+   }
+  },
+  "frp3_s12|theta=65|no_change": {
+   "expected_worlds_per_mix": 225.5324,
+   "p_band_pass_given_qualified": 0.8367995961635538,
+   "p_pass": {
+    "high": 0.8340065976889404,
+    "k": 16577,
+    "low": 0.8235671001969596,
+    "n": 20000,
+    "rate": 0.82885
+   },
+   "p_qualify": 0.9905,
+   "qualifying_look_distribution": {
+    "look_1": 0.0005,
+    "look_2": 0.53045,
+    "look_3": 0.4007,
+    "look_4": 0.05885,
+    "never": 0.0095
+   }
+  },
+  "frp3_s12|theta=65|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 274.43525,
+   "p_band_pass_given_qualified": 0.02988389702170621,
+   "p_pass": {
+    "high": 0.032040689720666427,
+    "k": 592,
+    "low": 0.027339977800916803,
+    "n": 20000,
+    "rate": 0.0296
+   },
+   "p_qualify": 0.9905,
+   "qualifying_look_distribution": {
+    "look_1": 0.0005,
+    "look_2": 0.53045,
+    "look_3": 0.4007,
+    "look_4": 0.05885,
+    "never": 0.0095
+   }
+  },
+  "frp3_s12|theta=65|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.1151,
+   "p_band_pass_given_qualified": 0.03326602725896012,
+   "p_pass": {
+    "high": 0.03551499615798529,
+    "k": 659,
+    "low": 0.030564384722022043,
+    "n": 20000,
+    "rate": 0.03295
+   },
+   "p_qualify": 0.9905,
+   "qualifying_look_distribution": {
+    "look_1": 0.0005,
+    "look_2": 0.53045,
+    "look_3": 0.4007,
+    "look_4": 0.05885,
+    "never": 0.0095
+   }
+  },
+  "frp3_s12|theta=65|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.20755,
+   "p_band_pass_given_qualified": 0.0480565371024735,
+   "p_pass": {
+    "high": 0.05063871658720246,
+    "k": 952,
+    "low": 0.04473503763636102,
+    "n": 20000,
+    "rate": 0.0476
+   },
+   "p_qualify": 0.9905,
+   "qualifying_look_distribution": {
+    "look_1": 0.0005,
+    "look_2": 0.53045,
+    "look_3": 0.4007,
+    "look_4": 0.05885,
+    "never": 0.0095
+   }
+  },
+  "frp3_s12|theta=65|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.6293,
+   "p_band_pass_given_qualified": 0.021857647652700655,
+   "p_pass": {
+    "high": 0.023760772861625316,
+    "k": 433,
+    "low": 0.019722948033249973,
+    "n": 20000,
+    "rate": 0.02165
+   },
+   "p_qualify": 0.9905,
+   "qualifying_look_distribution": {
+    "look_1": 0.0005,
+    "look_2": 0.53045,
+    "look_3": 0.4007,
+    "look_4": 0.05885,
+    "never": 0.0095
+   }
+  },
+  "frp3_s12|theta=97.5|no_change": {
+   "expected_worlds_per_mix": 224.32095,
+   "p_band_pass_given_qualified": 0.832191609580479,
+   "p_pass": {
+    "high": 0.8372656909854425,
+    "k": 16643,
+    "low": 0.826906739462487,
+    "n": 20000,
+    "rate": 0.83215
+   },
+   "p_qualify": 0.99995,
+   "qualifying_look_distribution": {
+    "look_1": 0.04615,
+    "look_2": 0.89685,
+    "look_3": 0.0558,
+    "look_4": 0.00115,
+    "never": 5e-05
+   }
+  },
+  "frp3_s12|theta=97.5|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 274.398,
+   "p_band_pass_given_qualified": 0.030701535076753838,
+   "p_pass": {
+    "high": 0.03318232588387078,
+    "k": 614,
+    "low": 0.02839791915838902,
+    "n": 20000,
+    "rate": 0.0307
+   },
+   "p_qualify": 0.99995,
+   "qualifying_look_distribution": {
+    "look_1": 0.04615,
+    "look_2": 0.89685,
+    "look_3": 0.0558,
+    "look_4": 0.00115,
+    "never": 5e-05
+   }
+  },
+  "frp3_s12|theta=97.5|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.01315,
+   "p_band_pass_given_qualified": 0.03780189009450473,
+   "p_pass": {
+    "high": 0.04053308360913015,
+    "k": 756,
+    "low": 0.035244434521132975,
+    "n": 20000,
+    "rate": 0.0378
+   },
+   "p_qualify": 0.99995,
+   "qualifying_look_distribution": {
+    "look_1": 0.04615,
+    "look_2": 0.89685,
+    "look_3": 0.0558,
+    "look_4": 0.00115,
+    "never": 5e-05
+   }
+  },
+  "frp3_s12|theta=97.5|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.3779,
+   "p_band_pass_given_qualified": 0.0496024801240062,
+   "p_pass": {
+    "high": 0.05269648141255642,
+    "k": 992,
+    "low": 0.04667650466678262,
+    "n": 20000,
+    "rate": 0.0496
+   },
+   "p_qualify": 0.99995,
+   "qualifying_look_distribution": {
+    "look_1": 0.04615,
+    "look_2": 0.89685,
+    "look_3": 0.0558,
+    "look_4": 0.00115,
+    "never": 5e-05
+   }
+  },
+  "frp3_s12|theta=97.5|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.64285,
+   "p_band_pass_given_qualified": 0.020751037551877592,
+   "p_pass": {
+    "high": 0.022819540489576996,
+    "k": 415,
+    "low": 0.018864526070199283,
+    "n": 20000,
+    "rate": 0.02075
+   },
+   "p_qualify": 0.99995,
+   "qualifying_look_distribution": {
+    "look_1": 0.04615,
+    "look_2": 0.89685,
+    "look_3": 0.0558,
+    "look_4": 0.00115,
+    "never": 5e-05
+   }
+  },
+  "frp3_s12|theta=99.04|no_change": {
+   "expected_worlds_per_mix": 224.9931,
+   "p_band_pass_given_qualified": 0.8293,
+   "p_pass": {
+    "high": 0.8344510614301864,
+    "k": 16586,
+    "low": 0.824022463623263,
+    "n": 20000,
+    "rate": 0.8293
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0558,
+    "look_2": 0.8904,
+    "look_3": 0.05285,
+    "look_4": 0.00095,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=99.04|one_mix_at_margin@frozen": {
+   "expected_worlds_per_mix": 274.46935,
+   "p_band_pass_given_qualified": 0.0297,
+   "p_pass": {
+    "high": 0.032144509642733875,
+    "k": 594,
+    "low": 0.027436119471638133,
+    "n": 20000,
+    "rate": 0.0297
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0558,
+    "look_2": 0.8904,
+    "look_3": 0.05285,
+    "look_4": 0.00095,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=99.04|one_mix_at_margin@mixed": {
+   "expected_worlds_per_mix": 274.01965,
+   "p_band_pass_given_qualified": 0.03535,
+   "p_pass": {
+    "high": 0.0379997888517457,
+    "k": 707,
+    "low": 0.03287867025519233,
+    "n": 20000,
+    "rate": 0.03535
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0558,
+    "look_2": 0.8904,
+    "look_3": 0.05285,
+    "look_4": 0.00095,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=99.04|one_mix_at_margin@scripted": {
+   "expected_worlds_per_mix": 273.28295,
+   "p_band_pass_given_qualified": 0.0485,
+   "p_pass": {
+    "high": 0.05156488317593174,
+    "k": 970,
+    "low": 0.04560852538273074,
+    "n": 20000,
+    "rate": 0.0485
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0558,
+    "look_2": 0.8904,
+    "look_3": 0.05285,
+    "look_4": 0.00095,
+    "never": 0.0
+   }
+  },
+  "frp3_s12|theta=99.04|pooled_at_margin": {
+   "expected_worlds_per_mix": 274.694,
+   "p_band_pass_given_qualified": 0.0216,
+   "p_pass": {
+    "high": 0.02370850650023284,
+    "k": 432,
+    "low": 0.019675233598248063,
+    "n": 20000,
+    "rate": 0.0216
+   },
+   "p_qualify": 1.0,
+   "qualifying_look_distribution": {
+    "look_1": 0.0558,
+    "look_2": 0.8904,
+    "look_3": 0.05285,
+    "look_4": 0.00095,
+    "never": 0.0
+   }
+  }
+ },
+ "schema": "survival-band-v2-study-check/v1"
+}

@@ -660,5 +660,10 @@ def test_cli_prepare_resolves_the_real_spec_when_the_runner_is_main(tmp_path):
     )
     assert proc.returncode != 0
     assert "spec must be a StudySpec" not in proc.stderr
-    assert "missing-deltas.json" in proc.stderr, proc.stderr[-2000:]
+    # Before the real v8 strict run, prepare stopped at the deliberately missing skew input.
+    # Since that run started (apex-veto-v8-strict-20261003/run-v1) the shared ledger refuses
+    # its final namespace first ("a namespace is never reused"), which is also past spec
+    # resolution, identities and the bank check.
+    reused = "apex-veto-v8-strict-final-v1 already started a run" in proc.stderr
+    assert "missing-deltas.json" in proc.stderr or reused, proc.stderr[-2000:]
     assert not (tmp_path / "x").exists()

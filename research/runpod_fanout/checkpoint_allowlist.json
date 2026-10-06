@@ -1,6 +1,6 @@
 {
   "schema": "runpod-fanout-checkpoint-allowlist/v1",
-  "note": "Only these checkpoints may be uploaded to RunPod. Paths are relative to the policy's checkpoint_root. Add entries only after the user approves the upload in chat.",
+  "note": "Only these checkpoints may be uploaded to RunPod. Paths are relative to the policy's checkpoint_root, or to the root an entry names (\"root\": \"artifacts_root\" for a study's trained checkpoint, pinned by research.frp_v3_phaser_rp.pin from verified training). Add entries only after the user approves the upload in chat.",
   "checkpoints": [
     {
       "path": "saved_snakes/champion_a5_freespace_20260621.pth",
@@ -25,6 +25,21 @@
       "sha256": "fd96cd00e1000d44e6adfa28c733c4cd86e39caf38bfb5afee16051f4764da6e",
       "role": "opponent pool (frozen/mixed mixes)",
       "approved": "user chat 2026-10-03 (relayed by coordinator)"
+    },
+    {
+      "path": "frp-v3-20261005/train/arm-M3/seed-12/checkpoints/apex_mark_u60000.pth",
+      "root": "artifacts_root",
+      "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+      "role": "FRP-v3 M3@60000 seed 12 (Phase R candidate hero)",
+      "approved": "user decision 2026-10-05 (FRP-v3: train on the Mac, Phase R on RunPod serverless; upload the FRP-v3 M@60000 checkpoints to the private volume, pinned by sha256)",
+      "pinned_from": {
+        "train_result": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/train/arm-M3/seed-12/result.json",
+        "result_sha256": "5b33ce80267fb4d2c29ba52570be8515577201e19767e4f4b4907dec5887e119",
+        "train_commit": "41a160840231ff059965a6ba47e24f2382a46fc4",
+        "train_ratification_sha256": "7fa9a505aa9aeba1ca5bd58f359a9de84bcea533f9d20cb0741e903ed24891ec",
+        "verify_run_ok": true
+      },
+      "strict_gate_use": "user approval in chat 2026-10-05 (relayed by the coordinator): this already-uploaded checkpoint may be used for the Tier-2 sequential strict gate frp3-m3s12-strict-20261005 (research/frp3_strict_20261005)"
     }
   ]
 }

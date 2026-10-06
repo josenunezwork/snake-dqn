@@ -1,0 +1,111 @@
+{
+ "plan": {
+  "band_alpha": 0.05,
+  "band_bound": "rci_obf",
+  "band_floor": 0.3,
+  "band_margin_z": 1.645,
+  "band_mix_margin": 0.075,
+  "band_ni_margin": 0.05,
+  "band_nominal_p": [
+   9.122445538500834e-05,
+   0.005629291010779136,
+   0.02212418543783029,
+   0.042623560437422436
+  ],
+  "band_policy": "pooled_ni_continue",
+  "efficacy_alpha_per_mix": 0.016666666666666666,
+  "efficacy_alpha_spent": [
+   1.7592590040592919e-06,
+   0.0007262842692216177,
+   0.005792225146964605,
+   0.016666666666666642
+  ],
+  "efficacy_boundaries": [
+   4.637967672923052,
+   3.184257344234605,
+   2.5391726868070084,
+   2.173865636313021
+  ],
+  "efficacy_nominal_p": [
+   1.7592590040305112e-06,
+   0.0007256296467992307,
+   0.005555748137917371,
+   0.01485761372088712
+  ],
+  "family_alpha": 0.05,
+  "fractions": [
+   0.2509090909090909,
+   0.5018181818181818,
+   0.7527272727272727,
+   1.0
+  ],
+  "futility": "non_binding_conditional_power_under_mde",
+  "futility_cp": 0.1,
+  "futility_policy": "followed",
+  "look_sizes": [
+   69,
+   138,
+   207,
+   275
+  ],
+  "mde": 65.0,
+  "method": "strict-sequential-obf-bonferroni-v1",
+  "mixes": [
+   "frozen",
+   "scripted",
+   "mixed"
+  ],
+  "multiplicity": "bonferroni_across_mixes",
+  "n_max": 275,
+  "ni_alpha": 0.05,
+  "ni_alpha_spent": [
+   9.12244553850496e-05,
+   0.005661264998951449,
+   0.023879167789376248,
+   0.05000000000000007
+  ],
+  "ni_boundaries": [
+   3.7421550101335503,
+   2.5345687877623737,
+   2.0117303368270916,
+   1.7210204069810344
+  ],
+  "ni_nominal_p": [
+   9.122445538500834e-05,
+   0.005629291010779136,
+   0.02212418543783029,
+   0.042623560437422436
+  ],
+  "required_successes": 2,
+  "scripted_mix": "scripted",
+  "spending": "lan_demets_obrien_fleming"
+ },
+ "plan_parameters": {
+  "band_alpha": 0.05,
+  "band_bound": "rci_obf",
+  "band_floor": 0.3,
+  "band_margin_z": 1.645,
+  "band_mix_margin": 0.075,
+  "band_ni_margin": 0.05,
+  "band_policy": "pooled_ni_continue",
+  "family_alpha": 0.05,
+  "fractions": [
+   0.25,
+   0.5,
+   0.75,
+   1.0
+  ],
+  "futility_cp": 0.1,
+  "futility_policy": "followed",
+  "mde": 65.0,
+  "mixes": [
+   "frozen",
+   "scripted",
+   "mixed"
+  ],
+  "n_max": 275,
+  "ni_alpha": 0.05,
+  "required_successes": 2,
+  "scripted_mix": "scripted"
+ }
+}

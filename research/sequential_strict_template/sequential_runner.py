@@ -15,8 +15,17 @@ Template versions: ``sequential-strict-template/v1`` (spec ``band_policy="block_
 calibration-reference bands) and ``sequential-strict-template/v2`` (``"paired_ni_at_stop"``,
 the paired survival bands of ``docs/research/governance_amendment_paired_bands_2026-10-03.md``:
 judged once at the qualifying look on candidate-minus-incumbent per-world deltas, with the
-per-study paired-band check as a hash-bound pre-registration artifact).  v1 intents, plan
-dicts, spec descriptors and look receipts keep exactly their v1 content.
+per-study paired-band check as a hash-bound pre-registration artifact) and
+``sequential-strict-template/v2-pooled`` (``"pooled_ni_continue"``, survival band v2 of
+``docs/research/governance_amendment_survival_band_v2_2026-10-06.md``: pooled paired NI plus a
+per-mix catastrophic NI with repeated confidence bounds, judged at the qualifying look and every
+later look, a qualified run whose bands fail continues; its own per-study check and the
+amendment's ratification are hash-bound).  v1 and v2 intents, plan dicts, spec descriptors and
+look receipts keep exactly their content.  Template v3
+(``sequential-strict-template/v3``, opt-in with ``prepare --remote-config``) keeps either band
+policy and plays the episodes on RunPod serverless (``remote_backend.py``) under
+``docs/research/governance_amendment_strict_on_runpod_2026-10-05.md``; the orchestration below
+stays on the Mac.
 
 Flow of ``run`` (one intent, one attempt, one closeout):
 
@@ -53,6 +62,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import signal
 import struct
 import subprocess
@@ -84,6 +94,7 @@ from src.evaluation.sequential_gate import (  # noqa: E402
     SequentialGatePlan,
     band_check,
     plan_paired_band_check,
+    plan_pooled_band_check,
     round_robin_plan,
     sequential_decision,
     sequential_gate_plan,
@@ -96,10 +107,22 @@ TEMPLATE_VERSION = "sequential-strict-template/v1"
 # "block_at_stop" (v1 intents, plan dicts and spec descriptors are unchanged), v2 iff it is
 # "paired_ni_at_stop".
 TEMPLATE_VERSION_PAIRED = "sequential-strict-template/v2"
+# Survival band v2 (governance amendment 2026-10-06): band_policy "pooled_ni_continue".
+TEMPLATE_VERSION_POOLED = "sequential-strict-template/v2-pooled"
+POOLED_POLICY = "pooled_ni_continue"
 TEMPLATE_VERSIONS = {
     "block_at_stop": TEMPLATE_VERSION,
     "paired_ni_at_stop": TEMPLATE_VERSION_PAIRED,
+    POOLED_POLICY: TEMPLATE_VERSION_POOLED,
 }
+# Policies whose bands compare both arms on the same final worlds (no calibration reference).
+PAIRED_POLICIES = ("paired_ni_at_stop", POOLED_POLICY)
+# Template v3 (opt-in, ``prepare --remote-config``): either band policy, with the gate's episodes
+# played on RunPod serverless under docs/research/governance_amendment_strict_on_runpod_
+# 2026-10-05.md (remote_backend.py). The spec descriptor keeps its v1/v2 version; the intent
+# says v3 and carries an ``execution`` block. Without --remote-config nothing changes.
+TEMPLATE_VERSION_REMOTE = "sequential-strict-template/v3"
+REMOTE_EXECUTOR = "runpod-serverless"
 HERE = Path(__file__).resolve().parent
 TEMPLATE_README = HERE / "README.md"
 INDEPENDENT_AUDIT = HERE / "sequential_audit.py"
@@ -125,6 +148,9 @@ CLOSURE_SUFFIXES = (".py", ".yaml", ".yml", ".json", ".md")
 ARMS = ("incumbent", "candidate")
 PHASES = ("calibration", "final")
 TERMINAL_DECISIONS = ("STOP_PASS", "STOP_FAIL_BANDS", "FINAL_PASS", "FINAL_FAIL")
+# Non-terminal decisions: CONTINUE (not qualified) and CONTINUE_BANDS (pooled_ni_continue: the
+# run qualified but its survival bands have not passed yet).
+CONTINUE_DECISIONS = ("CONTINUE", "CONTINUE_BANDS")
 PASSING_DECISIONS = ("STOP_PASS", "FINAL_PASS")
 OUTCOMES = (
     "STRICT_PASS",
@@ -175,7 +201,42 @@ CALIBRATION_BAND_RULES = {
     "block_at_stop": "reference = calibration incumbent mean of the band metric in the band mix",
     "paired_ni_at_stop": "none: paired bands have no reference; calibration band-metric "
     "means are descriptive only",
+    POOLED_POLICY: "none: survival band v2 has no reference; calibration band-metric means "
+    "are descriptive only",
 }
+# Survival band v2 (pooled_ni_continue).  The amendment lists two ratifiable options; a
+# production intent must use exactly the option its ratification section records.
+SURVIVAL_BAND_V2_AMENDMENT = "docs/research/governance_amendment_survival_band_v2_2026-10-06.md"
+POOLED_BAND_KEYS = PAIRED_BAND_KEYS + ("band_mix_margin",)
+POOLED_BAND_OPTIONS = {
+    "1": {
+        "band_ni_margin": 0.05,
+        "band_alpha": 0.05,
+        "band_bound": "rci_obf",
+        "band_floor": 0.30,
+        "band_mix_margin": 0.075,
+    },
+    "2": {
+        "band_ni_margin": 0.05,
+        "band_alpha": 0.05,
+        "band_bound": "rci_obf",
+        "band_floor": 0.30,
+        "band_mix_margin": 0.10,
+    },
+}
+# Exactly "ratified": "ratified with changes" (or anything else) is not a ratification the code
+# can apply, because the code only knows the two listed options.
+AMENDMENT_RATIFIED_RE = re.compile(
+    r"^\s*-\s*Decision:\s*ratified\s*$", re.IGNORECASE | re.MULTILINE
+)
+AMENDMENT_CHANGES_RE = re.compile(r"^\s*-\s*Changes(?:, if any)?:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+NO_CHANGES = ("", "none", "no", "n/a", "-")
+AMENDMENT_OPTION_RE = re.compile(r"^\s*-\s*Option:\s*([12])\s*$", re.MULTILINE)
+POOLED_BAND_SIMULATOR = REPO / "research" / "survival_band_v2_20261006" / "simulate.py"
+# The amendment's own calibration pools: evidence for the rule, never a study's check.
+POOLED_BAND_STOCK_POOL = (
+    REPO / "research" / "survival_band_v2_20261006" / "survival_pools_20261006.json"
+)
 
 DEFAULT_CAPS = {"calibration": 1800, "skew_check": 900, "final": 45000, "audit": 900}
 HANDOFF_SECONDS = 120
@@ -347,6 +408,10 @@ class StudySpec:
       paired-band check on the study's screen pool with the frozen plan, and
       ``paired_band_pool_path``: that pool (the study's own saved paired screen/pilot records,
       ``simulate.py --data`` format; the validation package's stock pool is refused).
+    * ``remote_worker_setup(intent, ckpt_dir)`` and ``remote_checkpoints()`` (template v3 only,
+      optional otherwise): the per-worker context on a RunPod worker, whose checkpoints live
+      in ``ckpt_dir`` as ``<sha256>.pth``, and the checkpoint sha256s the remote needs (each
+      must be on the RunPod upload allow-list). Neither enters the descriptor.
     """
 
     study_id: str
@@ -372,6 +437,8 @@ class StudySpec:
     band_policy: str = "block_at_stop"
     paired_band_check_path: str = ""
     paired_band_pool_path: str = ""
+    remote_worker_setup: Optional[Callable[[Mapping[str, Any], Path], Any]] = None
+    remote_checkpoints: Optional[Callable[[], Sequence[str]]] = None
 
     @property
     def template_version(self) -> str:
@@ -379,7 +446,13 @@ class StudySpec:
 
     @property
     def paired(self) -> bool:
-        return self.band_policy == "paired_ni_at_stop"
+        """Both arms' band values on the same worlds (``paired_ni_at_stop`` or
+        ``pooled_ni_continue``)."""
+        return self.band_policy in PAIRED_POLICIES
+
+    @property
+    def pooled(self) -> bool:
+        return self.band_policy == POOLED_POLICY
 
     def preregistration_docs(self) -> Tuple[str, ...]:
         if self.paired:
@@ -389,7 +462,7 @@ class StudySpec:
     def descriptor(self) -> Dict[str, Any]:
         out = self._descriptor_v1()
         if self.paired:  # v1 descriptors stay byte-identical
-            out["template_version"] = TEMPLATE_VERSION_PAIRED
+            out["template_version"] = TEMPLATE_VERSIONS[self.band_policy]
             out["band_policy"] = self.band_policy
             out["paired_band_check_path"] = self.paired_band_check_path
             out["paired_band_pool_path"] = self.paired_band_pool_path
@@ -454,7 +527,7 @@ def validate_paired_bands(spec: StudySpec) -> None:
     The per-study check (``simulate.py``) validates survival bands over the mixes frozen,
     scripted and mixed only, so v2 requires exactly that metric and mix set.
     """
-    require(len(spec.bands) >= 1, "paired_ni_at_stop needs at least one band")
+    require(len(spec.bands) >= 1, f"{spec.band_policy} needs at least one band")
     seen = set()
     for band in spec.bands:
         require(
@@ -465,7 +538,7 @@ def validate_paired_bands(spec: StudySpec) -> None:
         )
         require(band["mix"] not in seen, f"two paired bands for mix {band['mix']}")
         seen.add(band["mix"])
-    require(seen == set(spec.mixes), f"paired_ni_at_stop needs one band per mix {spec.mixes}")
+    require(seen == set(spec.mixes), f"{spec.band_policy} needs one band per mix {spec.mixes}")
     require(
         tuple(spec.mixes) == ("frozen", "scripted", "mixed"),
         "the paired-band check (simulate.py) only simulates the mixes frozen, scripted, mixed",
@@ -611,7 +684,8 @@ def plan_parameters(
     paired_band: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Keyword arguments of ``sequential_gate_plan``.  The paired band fields are present
-    only under ``band_policy="paired_ni_at_stop"`` (legacy dicts are byte-identical)."""
+    only under ``band_policy="paired_ni_at_stop"`` / ``"pooled_ni_continue"`` (the latter also
+    ``band_mix_margin``; legacy dicts are byte-identical)."""
     out = {
         "n_max": int(n_max),
         "mde": float(mde),
@@ -628,6 +702,8 @@ def plan_parameters(
     }
     if band_policy == "paired_ni_at_stop":
         out.update(normalize_paired_band(paired_band))
+    elif band_policy == POOLED_POLICY:
+        out.update(normalize_pooled_band(paired_band))
     else:
         require(paired_band is None, f"paired band settings under band_policy {band_policy}")
     return out
@@ -657,6 +733,59 @@ def normalize_paired_band(paired_band: Optional[Mapping[str, Any]]) -> Dict[str,
         "band_bound": str(paired_band["band_bound"]),
         "band_floor": None if floor is None else float(floor),
     }
+
+
+def normalize_pooled_band(paired_band: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """The five pre-registered survival band v2 settings, stated explicitly (no defaults)."""
+    require(
+        isinstance(paired_band, Mapping) and set(paired_band) == set(POOLED_BAND_KEYS),
+        f"pooled_ni_continue needs explicit {list(POOLED_BAND_KEYS)} "
+        f"(amendment 2026-10-06 option 1: {POOLED_BAND_OPTIONS['1']})",
+    )
+    out = normalize_paired_band({k: paired_band[k] for k in PAIRED_BAND_KEYS})
+    require(_real(paired_band["band_mix_margin"]), "band_mix_margin must be a real number")
+    out["band_mix_margin"] = float(paired_band["band_mix_margin"])
+    return out
+
+
+def amendment_status(path: Path) -> Dict[str, Any]:
+    """Survival band v2 amendment: sha256, ratified flag and the ratified option, derived
+    from the document's own text (a hand-edited intent cannot claim ratification)."""
+    path = Path(path)
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    option = AMENDMENT_OPTION_RE.search(text)
+    changes = AMENDMENT_CHANGES_RE.search(text)
+    return {
+        "path": str(path),
+        "sha256": sha256_file(path) if path.is_file() else None,
+        "ratified": bool(AMENDMENT_RATIFIED_RE.search(text)),
+        "option": option.group(1) if option else None,
+        "changes": changes.group(1) if changes else None,
+    }
+
+
+def _no_changes(value: Any) -> bool:
+    text = str(value or "").strip().strip("_").strip().lower()
+    return text in NO_CHANGES
+
+
+def ratified_band_problems(status: Mapping[str, Any], params: Mapping[str, Any]) -> List[str]:
+    """Why a production intent may not use these survival band v2 settings (empty = ok)."""
+    problems = []
+    if status.get("sha256") is None:
+        problems.append("the survival band v2 amendment is missing")
+    if status.get("ratified") is not True:
+        problems.append("the survival band v2 amendment is not ratified")
+    if not _no_changes(status.get("changes")):
+        problems.append(
+            "the ratification records changes: a changed rule needs its own amendment and code"
+        )
+    option = POOLED_BAND_OPTIONS.get(status.get("option") or "")
+    if option is None:
+        problems.append("the amendment's ratification records no option (1 or 2)")
+    elif any(params.get(k) != v for k, v in option.items()):
+        problems.append(f"plan band settings differ from ratified option {status['option']}")
+    return problems
 
 
 def plan_from_parameters(parameters: Mapping[str, Any]) -> SequentialGatePlan:
@@ -849,6 +978,96 @@ def judge_paired_check(
     }
 
 
+def judge_pooled_check(
+    report: Mapping[str, Any],
+    params: Mapping[str, Any],
+    bands: Sequence[Mapping[str, Any]],
+    development_delta_ni: Any,
+) -> Dict[str, Any]:
+    """Re-judge a survival band v2 ``simulate.py --part study`` output (fail closed).
+
+    Same coverage rules as :func:`judge_paired_check` (frozen plan parameters, development
+    delta_NI, >= :data:`PAIRED_CHECK_MIN_REPS` replicates, mass effects 0.5, ~0.67, 1, 1.5 and
+    2 x MDE); the joint rates P(PASS and a regression exactly at a margin) must cover every pool
+    x theta x {pooled regression, each band mix's one-mix regression} and all be <= 1.2 x
+    band_alpha.
+    """
+    problems: List[str] = []
+    config = report.get("config") if isinstance(report, Mapping) else None
+    check = report.get("check") if isinstance(report, Mapping) else None
+    results = report.get("results") if isinstance(report, Mapping) else None
+    if not (isinstance(config, Mapping) and isinstance(check, Mapping)):
+        return {"passes": False, "problems": ["not a survival band v2 --part study output"]}
+    if not isinstance(results, Mapping):
+        results = {}
+    alpha = params["band_alpha"]
+    threshold = PAIRED_CHECK_FACTOR * alpha
+    if report.get("schema") != "survival-band-v2-study-check/v1":
+        problems.append(f"check schema {report.get('schema')!r}")
+    if config.get("plan_params") != dict(params):
+        problems.append("check was not run with this intent's frozen plan parameters")
+    if check.get("rule") != POOLED_POLICY:
+        problems.append(f"check judged rule {check.get('rule')!r}, not {POOLED_POLICY!r}")
+    reps = report.get("reps")
+    if not (isinstance(reps, int) and reps >= PAIRED_CHECK_MIN_REPS):
+        problems.append(f"check reps {reps!r} < {PAIRED_CHECK_MIN_REPS}")
+    thetas = [float(t) for t in config.get("thetas") or []]
+    mde = float(params["mde"])
+    for multiple in PAIRED_CHECK_THETA_MULTIPLES:
+        if not any(math.isclose(t, multiple * mde, rel_tol=1e-9) for t in thetas):
+            problems.append(f"check lacks theta {multiple:g} x MDE")
+    low, high = PAIRED_CHECK_TWO_THIRDS
+    if not any(low * mde <= t <= high * mde for t in thetas):
+        problems.append("check lacks a theta near 0.67 x MDE")
+    used = config.get("delta_ni")
+    if not (
+        _real(development_delta_ni)
+        and development_delta_ni > 0
+        and _real(used)
+        and math.isclose(used, development_delta_ni, rel_tol=1e-12)
+    ):
+        problems.append(
+            f"check delta_ni {used!r} is not the pre-registered development delta_NI "
+            f"{development_delta_ni!r}"
+        )
+    pools = sorted({key.split("|", 1)[0] for key in results})
+    joint = check.get("joint_rates") if isinstance(check.get("joint_rates"), Mapping) else {}
+    scenarios = ["pooled_at_margin"] + [f"one_mix_at_margin@{b['mix']}" for b in bands]
+    expected = {
+        f"{pool}|theta={theta:g}|{s}" for pool in pools for theta in thetas for s in scenarios
+    }
+    if not pools:
+        problems.append("check has no pools")
+    missing = sorted(expected - set(joint))
+    if missing:
+        problems.append(f"check lacks joint rates {missing[:5]}")
+    rates = {k: joint[k] for k in sorted(joint) if k in expected}
+    bad = sorted(k for k, v in rates.items() if not (_real(v) and 0.0 <= v <= threshold))
+    if bad:
+        problems.append(f"joint rate above {threshold:g} (or not a rate): {bad[:5]}")
+    for key in rates:
+        row = results.get(key) if isinstance(results.get(key), Mapping) else {}
+        if (row.get("p_pass") or {}).get("rate") != rates[key]:
+            problems.append(f"joint rate {key} differs from its results row")
+    worst = max((v for v in rates.values() if _real(v)), default=None)
+    passes = not problems
+    if check.get("passes") is not passes:
+        problems.append(f"check.passes {check.get('passes')!r} != runner verdict {passes}")
+        passes = False
+    return {
+        "rule": POOLED_POLICY,
+        "threshold": threshold,
+        "reps": reps,
+        "thetas": thetas,
+        "pools": pools,
+        "rows_judged": len(rates),
+        "max_joint_rate": worst,
+        "delta_ni_used": config.get("delta_ni"),
+        "problems": problems,
+        "passes": passes,
+    }
+
+
 def check_pool_path(report: Mapping[str, Any], repo: Path) -> Path:
     """The pool the check read (``config.data``; a relative path is taken from the repo)."""
     data = Path(str((report.get("config") or {}).get("data", "")))
@@ -870,32 +1089,38 @@ def paired_check_record(
     )
     require(data_path.is_file(), f"paired band check pool data {data_path} does not exist")
     data_sha = sha256_file(data_path)
-    require(
-        data_path != PAIRED_BAND_STOCK_POOL.resolve()
-        and (
-            not PAIRED_BAND_STOCK_POOL.is_file() or data_sha != sha256_file(PAIRED_BAND_STOCK_POOL)
-        ),
-        "the paired band check must use the study's own screen pool, not the validation "
-        "package's stock v7/v8 pools",
-    )
+    for stock in (PAIRED_BAND_STOCK_POOL, POOLED_BAND_STOCK_POOL):
+        require(
+            data_path != stock.resolve()
+            and (not stock.is_file() or data_sha != sha256_file(stock)),
+            "the paired band check must use the study's own screen pool, not the validation "
+            "package's stock v7/v8 pools or the survival band v2 stock calibration pools",
+        )
     require(
         report.get("data_sha256") == data_sha,
         "paired band check pool data changed since the check was run",
     )
-    judged = judge_paired_check(report, params, spec.bands, development_delta_ni)
+    judge = judge_pooled_check if spec.pooled else judge_paired_check
+    judged = judge(report, params, spec.bands, development_delta_ni)
     require(judged["passes"], f"paired band check fails: {judged['problems']}")
     data = read_json(data_path)
     pools = sorted(k for k, v in data.items() if isinstance(v, dict) and "world_seeds" in v)
     require(pools == judged["pools"], f"check pools {judged['pools']} != data pools {pools}")
+    pooled_extra = {"simulator_sha256": sha256_file(POOLED_BAND_SIMULATOR)} if spec.pooled else {}
     return {
+        **pooled_extra,
         "path": str(path),
         "sha256": sha256_file(path),
         "data_path": str(data_path),
         "data_sha256": data_sha,
         "development_delta_ni": float(development_delta_ni),
-        "simulator_path": str(PAIRED_BAND_SIMULATOR),
+        "simulator_path": str(POOLED_BAND_SIMULATOR if spec.pooled else PAIRED_BAND_SIMULATOR),
         "acceptance": f"every joint rate <= {PAIRED_CHECK_FACTOR} x band_alpha",
-        "remedy_on_fail": "band_bound rci_obf, or do not adopt paired_ni_at_stop",
+        "remedy_on_fail": (
+            "do not adopt pooled_ni_continue (no retuning on the study's own data)"
+            if spec.pooled
+            else "band_bound rci_obf, or do not adopt paired_ni_at_stop"
+        ),
         **judged,
     }
 
@@ -956,6 +1181,8 @@ def build_intent(
     dry_run: bool = False,
     allow_dirty: bool = False,
     repo: Path = REPO,
+    remote_config: Optional[Path] = None,
+    remote_seeding: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Freeze everything the amendment requires before the first final world.
 
@@ -964,11 +1191,17 @@ def build_intent(
     comes from the spec; under ``paired_ni_at_stop`` (template v2) ``paired_band`` states the
     four band settings, ``development_delta_ni`` the delta_NI estimate the per-study check
     was run with (``simulate.py --delta-ni``), and that check must pass for this exact plan.
+
+    ``remote_config`` (template v3, opt-in) adds the ``execution`` block of
+    ``remote_backend.execution_block``: the gate may then run on RunPod serverless under the
+    strict-on-RunPod amendment. ``remote_seeding`` (tests only) replaces the volume's seeding
+    status. Without it the intent is exactly v1 or v2.
     """
     validate_spec(spec)
     require(
         spec.paired or development_delta_ni is None,
-        "development_delta_ni is only used under band_policy paired_ni_at_stop",
+        "development_delta_ni is only used under band_policy paired_ni_at_stop / "
+        "pooled_ni_continue",
     )
     require(bool(authorization_quote.strip()), "authorization quote required")
     require(deadline.tzinfo is not None, "deadline needs a UTC offset")
@@ -1116,8 +1349,54 @@ def build_intent(
     }
     if spec.paired:  # template v2 only: v1 intents keep exactly their v1 keys
         intent["paired_band_check"] = paired_check_record(spec, params, repo, development_delta_ni)
-        intent["band_rule"] = paired_band_rule(params)
+        intent["band_rule"] = band_rule_text(params)
+    if spec.pooled:  # survival band v2 only: the amendment and its ratification, by sha256
+        amendment = amendment_status(Path(repo) / SURVIVAL_BAND_V2_AMENDMENT)
+        problems = ratified_band_problems(amendment, params)
+        require(
+            dry_run or not problems,
+            f"survival band v2: {problems} (production intents need the ratified option)",
+        )
+        intent["band_amendment"] = {**amendment, "production_problems": problems}
+    if remote_config is not None:  # template v3 only: v1/v2 intents keep exactly their keys
+        from research.sequential_strict_template import remote_backend as RB
+
+        intent["template_version"] = TEMPLATE_VERSION_REMOTE
+        intent["execution"] = RB.execution_block(
+            spec, intent, Path(remote_config), repo=repo, seeding=remote_seeding
+        )
+    else:
+        require(remote_seeding is None, "remote_seeding without remote_config")
     return intent
+
+
+def band_rule_text(params: Mapping[str, Any]) -> Dict[str, Any]:
+    """The frozen band rule statement of either paired policy."""
+    if params["band_policy"] == POOLED_POLICY:
+        return pooled_band_rule(params)
+    return paired_band_rule(params)
+
+
+def pooled_band_rule(params: Mapping[str, Any]) -> Dict[str, Any]:
+    """Human-readable statement of the frozen survival band v2 rule (also in the plan dict)."""
+    return {
+        "policy": POOLED_POLICY,
+        "judged": "at the qualifying look and every later look, on the look-k prefix of both "
+        "arms; a qualified run whose bands fail continues (CONTINUE_BANDS); STOP_PASS at the "
+        "first look where they pass, FINAL_PASS / FINAL_FAIL at the last",
+        "per_world": "d_{i,m} = candidate_{i,m} - incumbent_{i,m} (same final world); pooled "
+        "p_i = mean over the mixes of d_{i,m}",
+        "pass_iff": "mean(p) - t_{n-1}(band_nominal_p[k]) * sd(p) / sqrt(n) > -band_ni_margin "
+        "and, every mix m, mean(d_m) - t_{n-1}(band_nominal_p[k]) * sd(d_m) / sqrt(n) > "
+        "-band_mix_margin and (if band_floor) mean(candidate_m) >= band_floor",
+        "all_bands_must_pass": True,
+        "band_ni_margin": params["band_ni_margin"],
+        "band_mix_margin": params["band_mix_margin"],
+        "band_alpha": params["band_alpha"],
+        "band_bound": params["band_bound"],
+        "band_floor": params["band_floor"],
+        "source": SURVIVAL_BAND_V2_AMENDMENT,
+    }
 
 
 def paired_band_rule(params: Mapping[str, Any]) -> Dict[str, Any]:
@@ -1168,7 +1447,14 @@ def prepare(intent: Mapping[str, Any]) -> Path:
 
 def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
     """Reject a malformed, drifted or out-of-envelope intent before any child starts."""
-    require(intent["template_version"] == spec.template_version, "template version")
+    if is_remote_intent(intent):  # template v3: the spec keeps its v1/v2 band version
+        from research.sequential_strict_template import remote_backend as RB
+
+        require("execution" in intent, "a template v3 intent needs its execution block")
+        RB.validate_execution(intent, spec)
+    else:
+        require(intent["template_version"] == spec.template_version, "template version")
+        require("execution" not in intent, "an execution block on a v1/v2 intent")
     require(intent["spec"] == spec.descriptor(), "spec descriptor drift")
     require(
         intent["schema_version"] == spec.schema and intent["study_id"] == spec.study_id, "schema"
@@ -1233,9 +1519,27 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
         and intent["calibration_rule"]["bands"] == CALIBRATION_BAND_RULES[spec.band_policy],
         "band policy differs between the spec and the frozen plan",
     )
+    if spec.pooled:
+        block = intent.get("band_amendment")
+        require(isinstance(block, Mapping), "a pooled_ni_continue intent needs band_amendment")
+        derived = amendment_status(Path(block["path"]))
+        require(
+            Path(block["path"]).resolve()
+            == (Path(intent["repo"]) / SURVIVAL_BAND_V2_AMENDMENT).resolve()
+            and derived["sha256"] == block["sha256"]
+            and derived["ratified"] is block["ratified"]
+            and derived["option"] == block["option"]
+            and derived["changes"] == block["changes"],
+            "the survival band v2 amendment differs from the frozen intent's",
+        )
+        problems = ratified_band_problems(derived, intent["plan_parameters"])
+        require(problems == block["production_problems"], "band amendment problems drift")
+        require(intent["dry_run"] or not problems, f"survival band v2: {problems}")
+    else:
+        require("band_amendment" not in intent, "band_amendment on a non-pooled intent")
     if spec.paired:
         frozen = intent["paired_band_check"]
-        require(intent["band_rule"] == paired_band_rule(intent["plan_parameters"]), "band rule")
+        require(intent["band_rule"] == band_rule_text(intent["plan_parameters"]), "band rule")
         docs = intent["preregistration"]
         require(
             frozen["path"] == docs["paired_band_check"]["path"]
@@ -1244,7 +1548,14 @@ def validate_intent(intent: Mapping[str, Any], spec: StudySpec) -> None:
             and frozen["data_sha256"] == docs["paired_band_pool"]["sha256"],
             "paired band check binding differs from the pre-registration documents",
         )
-        again = judge_paired_check(
+        if spec.pooled:  # the generator of the check is bound by sha256 (survival band v2)
+            require(
+                Path(frozen["simulator_path"]) == POOLED_BAND_SIMULATOR
+                and sha256_file(POOLED_BAND_SIMULATOR) == frozen["simulator_sha256"],
+                "survival band v2 check simulator changed since prepare",
+            )
+        judge = judge_pooled_check if spec.pooled else judge_paired_check
+        again = judge(
             read_json(Path(frozen["path"])),
             intent["plan_parameters"],
             spec.bands,
@@ -1281,6 +1592,44 @@ def on_ac_power() -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return "'AC Power'" in out
+
+
+def parse_clamshell(text: str) -> Optional[bool]:
+    """``True`` lid open, ``False`` closed, ``None`` unparseable (callers fail closed)."""
+    states = []
+    for line in str(text or "").splitlines():
+        if "AppleClamshellState" in line and "=" in line:
+            value = line.split("=", 1)[1].strip()
+            if value not in ("Yes", "No"):
+                return None
+            states.append(value == "No")
+    return all(states) if states else None
+
+
+def lid_open() -> bool:
+    """True when ``ioreg`` reports the lid open (fails closed); other platforms are not gated.
+
+    Template v3 only (the remote orchestrator, its Mac fallback and the identity check): the
+    2026-10-03 incident rule, every long-run launcher checks the lid as well as AC power.
+    """
+    if sys.platform != "darwin":
+        return True
+    try:
+        out = subprocess.run(
+            ["ioreg", "-r", "-k", "AppleClamshellState", "-d", "4"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return parse_clamshell(out) is True
+
+
+def is_remote_intent(intent: Mapping[str, Any]) -> bool:
+    """Template v3: the intent opted into the remote execution backend."""
+    return intent.get("template_version") == TEMPLATE_VERSION_REMOTE
 
 
 def capacity_environment(threads: int = THREADS_PER_WORKER) -> Dict[str, str]:
@@ -1422,9 +1771,14 @@ def run_status(out_root: Path) -> Dict[str, Any]:
         return {"state": "ABANDONED", "reason": "output exists without started.json"}
     marker = read_json(started)
     intent = read_json(Path(out_root) / "intent.json")
-    live = _pid_alive(marker["pid"]) and _slots_held_elsewhere(
-        Path(intent["slot_lock_root"]), intent["caps"]["workers"]
-    )
+    lock = (marker.get("execution") or {}).get("liveness_lock")
+    if lock:  # template v3 remote run: the orchestrator holds its own lock, not CPU slots
+        from research.sequential_strict_template import remote_backend as RB
+
+        held = RB._lock_held_elsewhere(Path(lock))
+    else:
+        held = _slots_held_elsewhere(Path(intent["slot_lock_root"]), intent["caps"]["workers"])
+    live = _pid_alive(marker["pid"]) and held
     if live:
         return {"state": "IN_PROGRESS", "pid": marker["pid"]}
     return {"state": "ABANDONED", "reason": "parent gone without closeout.json; never resumed"}
@@ -1452,11 +1806,29 @@ def prior_gate(intent: Mapping[str, Any], output: Path, phase: str, look: int) -
     """What must exist before a segment may start; returns the sha256s it binds.
 
     Final look 0 needs ``calibration.json`` and a passing ``skew_check.json``; final look
-    ``k > 0`` needs ``looks/look-<k-1>.json`` whose action is ``continue``.
+    ``k > 0`` needs ``looks/look-<k-1>.json`` whose action is ``continue``. Template v3 also
+    binds the identity check's state and file sha256 into every segment (both phases).
     """
     output = Path(output)
+    if is_remote_intent(intent):
+        from research.sequential_strict_template import remote_backend as RB
+
+        identity = RB.identity_gate(output.parent)
+        require(
+            identity["state"] in ("PASSED", "FAILED", "ABANDONED"),
+            f"identity check {identity['state']}: no segment may start",
+        )
+        if phase == "calibration":
+            return {"identity_check": identity}
+        gate = _final_gate(output, look)
+        gate["identity_check"] = identity
+        return gate
     if phase == "calibration":
         return {}
+    return _final_gate(output, look)
+
+
+def _final_gate(output: Path, look: int) -> Dict[str, Any]:
     gate: Dict[str, Any] = {}
     calibration = output / "calibration.json"
     require(calibration.is_file(), "final segment before calibration.json")
@@ -1595,6 +1967,12 @@ def worker_body(
         if not parent_alive(parent_pid):
             return PARENT_GONE_EXIT
         entry = envelope(intent, intent_sha, episode, record, elapsed)
+        if is_remote_intent(intent):  # template v3: every record names its platform
+            from research.sequential_strict_template import remote_worker
+
+            entry["platform"] = remote_worker.platform_stamp(
+                "local-mac" if parent_pid is not None else "in-process"
+            )
         problems = envelope_problems(intent, intent_sha, entry, episode)
         problems += list(spec.validate_record(entry, row))
         require(not problems, f"record shape: {problems}")
@@ -1877,6 +2255,9 @@ class SubprocessExecutor:
         ]
         env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
         env.update(capacity_environment())
+        guard = {}
+        if is_remote_intent(ctx.intent):  # template v3 Mac fallback: the lid is polled too
+            guard["power_check"] = lambda: on_ac_power() and lid_open()
         return supervise_children(
             commands,
             cwd=Path(ctx.intent["repo"]),
@@ -1885,6 +2266,7 @@ class SubprocessExecutor:
             heartbeats=[seg / f"shard-{k}" / "heartbeat.json" for k in range(workers)],
             wall_seconds=wall_seconds,
             pass_fds=[(self.slots[k].fileno(),) for k in range(workers)],
+            **guard,
         )
 
 
@@ -2041,6 +2423,16 @@ def check_continuation(ctx: RunContext, before: str, final_left: float) -> None:
     if remaining < required_seconds(ctx.intent, before, final_left):
         raise DeadlineStop(f"{before}: {remaining:.0f}s left < remaining caps + handoff")
     require(on_ac_power(), f"host on battery before {before}: no further segment is admitted")
+    if is_remote_intent(ctx.intent):  # template v3: lid, execution documents, identity binding
+        from research.sequential_strict_template import remote_backend as RB
+
+        require(lid_open(), f"lid closed before {before}: no further segment is admitted")
+        drift = RB.execution_drift(ctx.intent)
+        require(not drift, f"execution document drift before {before}: {drift}")
+        require(
+            RB.identity_gate(ctx.output.parent) == ctx.state["execution"]["identity_check_gate"],
+            f"identity check binding changed before {before}",
+        )
     require(not closure_drift(ctx.intent["source_closure"]), f"source drift before {before}")
     require(
         json_safe(dict(ctx.spec.arm_identities())) == ctx.intent["arms"],
@@ -2149,14 +2541,15 @@ def calibration_reference(
     scripted_mean = per_mix[spec["scripted_mix"]][f"mean_{spec['primary_metric']}"]
     delta_ni = spec["ni_fraction"] * scripted_mean
     bands = []
-    paired = intent["plan"]["band_policy"] == "paired_ni_at_stop"
+    policy = intent["plan"]["band_policy"]
+    paired = policy in PAIRED_POLICIES
     for band in spec["bands"]:
         if paired:  # no calibration reference: the means are descriptive only
             bands.append(
                 {
                     **band,
                     "incumbent_calibration_mean": per_mix[band["mix"]][f"mean_{band['metric']}"],
-                    "role": "descriptive only (paired_ni_at_stop has no reference bound)",
+                    "role": f"descriptive only ({policy} has no reference bound)",
                 }
             )
             continue
@@ -2182,12 +2575,13 @@ def look_inputs(
 ) -> Dict[str, Any]:
     """Per-mix paired deltas (world order) and candidate band values for the look prefix.
 
-    Under ``paired_ni_at_stop`` the incumbent's band values of the same worlds are returned
-    too (``incumbent_band_values``), after checking that each pair is one world's record pair.
+    Under ``paired_ni_at_stop`` / ``pooled_ni_continue`` the incumbent's band values of the
+    same worlds are returned too (``incumbent_band_values``), after checking that each pair is
+    one world's record pair.
     """
     spec = intent["spec"]
     size = intent["plan"]["look_sizes"][look]
-    paired = intent["plan"]["band_policy"] == "paired_ni_at_stop"
+    paired = intent["plan"]["band_policy"] in PAIRED_POLICIES
     deltas: Dict[str, List[float]] = {}
     band_values: Dict[str, Dict[str, List[float]]] = {}
     incumbent_values: Dict[str, Dict[str, List[float]]] = {}
@@ -2237,6 +2631,9 @@ def look_analysis(
         checks = []
         if plan.band_policy == "paired_ni_at_stop":
             bands_by_look.append(paired_band_checks(plan, j, intent["spec"]["bands"], inputs))
+            continue
+        if plan.band_policy == POOLED_POLICY:
+            bands_by_look.append(pooled_band_checks(plan, j, intent["spec"]["bands"], inputs))
             continue
         for band in calibration["bands"]:
             values = inputs["band_values"][band["mix"]][band["metric"]][:size]
@@ -2292,12 +2689,40 @@ def paired_band_checks(
     return checks
 
 
+def pooled_band_checks(
+    plan: SequentialGatePlan,
+    look: int,
+    bands: Sequence[Mapping[str, Any]],
+    inputs: Mapping[str, Any],
+) -> List[Dict[str, Any]]:
+    """Survival band v2 at ``look``: one row (pooled + every mix) on the look's prefix of
+    both arms (same world order)."""
+    size = plan.look_sizes[look]
+    metric = PAIRED_BAND_METRIC
+    require(all(b["metric"] == metric for b in bands), "survival band v2 bands are survival")
+    candidate = {m: inputs["band_values"][m][metric][:size] for m in plan.mixes}
+    incumbent = {m: inputs["incumbent_band_values"][m][metric][:size] for m in plan.mixes}
+    check = plan_pooled_band_check(plan, look, candidate, incumbent)
+    return [
+        {
+            "metric": metric,
+            "mixes": list(plan.mixes),
+            "pairs_digest": canonical_sha({"candidate": candidate, "incumbent": incumbent}),
+            **check,
+        }
+    ]
+
+
 def look_action(intent: Mapping[str, Any], decision: str) -> str:
     if decision in TERMINAL_DECISIONS:
         return "stop"
     if decision == "STOP_FUTILE":
         return "continue" if intent["futility_action"] == "continue" else "stop"
-    require(decision == "CONTINUE", f"unknown decision {decision}")
+    require(decision in CONTINUE_DECISIONS, f"unknown decision {decision}")
+    require(
+        decision == "CONTINUE" or intent["plan"]["band_policy"] == POOLED_POLICY,
+        f"decision {decision} under band_policy {intent['plan']['band_policy']}",
+    )
     return "continue"
 
 
@@ -2351,8 +2776,20 @@ def paired_receipt_fields(
     """Template v2 receipt fields (none under block_at_stop, so v1 receipts are unchanged).
 
     ``band_judged_look`` is the qualifying look whose band verdict decides the run (``None``
-    if the run has not qualified): its per-mix results are copied to ``band_results``.
+    if the run has not qualified): its per-mix results are copied to ``band_results``.  Under
+    ``pooled_ni_continue`` the bands are judged at every qualified look:
+    ``band_judged_looks`` lists them and ``band_judged_look`` / ``band_results`` are this
+    look's (``None`` before qualification).
     """
+    if intent["plan"]["band_policy"] == POOLED_POLICY:
+        judged = [h["look"] for h in decision["history"] if h["bands_judged"]]
+        look = judged[-1] if judged and judged[-1] == decision["look"] else None
+        return {
+            "band_policy": POOLED_POLICY,
+            "band_judged_looks": judged,
+            "band_judged_look": look,
+            "band_results": analysis["bands_by_look"][look] if look is not None else None,
+        }
     if intent["plan"]["band_policy"] != "paired_ni_at_stop":
         return {}
     judged = [h["look"] for h in decision["history"] if h["bands_judged"]]
@@ -2582,6 +3019,11 @@ def closeout(ctx: RunContext) -> Dict[str, Any]:
         "resume_authorized": False,
         "utc": now_utc().isoformat(),
     }
+    if is_remote_intent(ctx.intent):  # template v3 only
+        record["execution"] = {
+            **{k: v for k, v in state.get("execution", {}).items() if k != "identity_check_gate"},
+            "remote": state.get("remote_summary"),
+        }
     if outcome == "STRICT_PASS":
         require(ctx.intent["dry_run"] is False, "a dry run never writes receipt.json")
         record["receipt_sha256"] = write_once(
@@ -2627,6 +3069,8 @@ def run_phases(ctx: RunContext) -> None:
             },
         )
         ctx.prior_tree = _tree_hashes(ctx.output)
+    if is_remote_intent(ctx.intent):  # no remote spend while the audit runs
+        close_remote(ctx, "complete")
     run_audit(ctx)
 
 
@@ -2654,10 +3098,15 @@ def run(
     executor: Any = None,
     skew_runner: Optional[Callable[..., Dict[str, Any]]] = None,
     audit_runner: Optional[Callable[..., Dict[str, Any]]] = None,
+    remote_factory: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
     """Admit the intent once and close out with exactly one outcome.  Never resumes.
 
-    Injected executors/runners are refused unless the intent is a ``dry_run``.
+    Injected executors/runners are refused unless the intent is a ``dry_run``.  A template v3
+    intent picks its backend from the identity check (``remote_backend.identity_state``):
+    PASSED runs the segments on RunPod (``remote_factory`` builds the executor; injected only
+    in a dry run), FAILED or ABANDONED runs them on the Mac (``executor``, the fallback),
+    NOT_RUN or IN_PROGRESS refuses.
     """
     intent_path = Path(intent_path).resolve()
     intent = read_json(intent_path)
@@ -2672,6 +3121,36 @@ def run(
     )
     skew_runner = skew_runner or subprocess_skew_runner
     audit_runner = audit_runner or subprocess_audit_runner
+    remote = is_remote_intent(intent)
+    use_remote = False
+    execution: Optional[Dict[str, Any]] = None
+    if remote:
+        from research.sequential_strict_template import remote_backend as RB
+
+        identity = RB.identity_state(Path(intent["output_root"]))
+        require(
+            identity["state"] in ("PASSED", "FAILED", "ABANDONED"),
+            f"identity check {identity['state']}: run `sequential_runner.py identity-check` "
+            "first (its result decides the backend)",
+        )
+        use_remote = identity["state"] == "PASSED"
+        if intent["dry_run"]:
+            require(
+                not use_remote or remote_factory is not None,
+                "a dry run with a passing identity check needs an injected remote factory",
+            )
+        else:
+            require(remote_factory is None, "a production v3 run builds its own remote executor")
+        execution = {
+            "backend": RB.REMOTE_BACKEND if use_remote else RB.FALLBACK_BACKEND,
+            "identity_check": identity,
+            "identity_check_gate": RB.identity_gate(Path(intent["output_root"])),
+            "remote_factory": (
+                "production" if remote_factory is None else runner_identity(remote_factory)
+            ),
+        }
+    else:
+        require(remote_factory is None, "remote_factory needs a template v3 intent")
     if intent["dry_run"]:
         require(
             isinstance(executor, InProcessExecutor),
@@ -2691,21 +3170,45 @@ def run(
         "dry_run": intent["dry_run"],
         "slot_lock_root": intent["slot_lock_root"],
     }
+    if use_remote:
+        provenance["executor"] = REMOTE_EXECUTOR
+    if execution is not None:
+        provenance["execution"] = {k: execution[k] for k in ("backend", "remote_factory")}
     production = (
-        provenance["executor"] == PRODUCTION_EXECUTOR
+        provenance["executor"] in ((REMOTE_EXECUTOR,) if use_remote else (PRODUCTION_EXECUTOR,))
         and provenance["skew_runner"] == PRODUCTION_SKEW_RUNNER
         and provenance["audit_runner"] == PRODUCTION_AUDIT_RUNNER
     )
     require(intent["dry_run"] or production, f"non-production run needs dry_run: {provenance}")
     if intent["sizing"]["feasible"]:
         require(on_ac_power(), "host is on battery; plug in before a Tier-2 run")
+        if remote:
+            require(lid_open(), "the lid is closed; open it before a Tier-2 run")
     slots: List[Any] = []
+    lock: Any = None
+    remote_executor: Any = None
     try:
         if intent["sizing"]["feasible"]:
-            slots = acquire_run_slots(Path(intent["slot_lock_root"]), intent["caps"]["workers"])
-        executor = executor if executor is not None else SubprocessExecutor(slots)
+            if use_remote:  # the orchestrator holds a liveness lock, no CPU slot
+                lock = RB.acquire_orchestrator_lock(Path(intent["output_root"]))
+            else:
+                slots = acquire_run_slots(Path(intent["slot_lock_root"]), intent["caps"]["workers"])
+        if use_remote:
+            factory = remote_factory or RB.production_remote_factory
+            remote_executor = executor = factory(intent_path, intent, spec)
+            require(executor.identity == REMOTE_EXECUTOR, "remote executor identity")
+            execution["transport"] = getattr(executor, "transport", None)
+            execution["liveness_lock"] = str(Path(lock.name)) if lock is not None else None
+        else:
+            executor = executor if executor is not None else SubprocessExecutor(slots)
         if intent["sizing"]["feasible"]:
-            executor.preflight()
+            executor.preflight()  # remote: endpoint + probe; a refusal starts nothing
+        if remote_executor is not None:
+            execution["transport"] = getattr(remote_executor, "transport", None)
+            require(
+                intent["dry_run"] or execution["transport"] == "rp.py",
+                "a production remote run talks to RunPod through rp.py only",
+            )
         append_ledger(
             Path(intent["ledger_path"]),
             {
@@ -2729,24 +3232,30 @@ def run(
             audit_runner=audit_runner,
             provenance=provenance,
         )
+        if execution is not None:
+            ctx.state["execution"] = execution
         return _admitted_run(ctx, slots)
     finally:
+        if remote_executor is not None:
+            RB.close_quietly(remote_executor, "run exit")
         release_run_slots(slots)
+        if lock is not None:
+            RB.release_lock(lock)
 
 
 def _admitted_run(ctx: RunContext, slots: Sequence[Any]) -> Dict[str, Any]:
     """From ``started.json`` on, every stop the parent sees is final (closeout is written)."""
     ctx.output.mkdir(parents=False)
-    write_once(
-        ctx.output / "started.json",
-        {
-            "utc": now_utc().isoformat(),
-            "pid": os.getpid(),
-            "intent_sha256": ctx.intent_sha,
-            "cpu_slot_locks_held": [str(handle.name) for handle in slots],
-            "provenance": ctx.provenance,
-        },
-    )
+    marker = {
+        "utc": now_utc().isoformat(),
+        "pid": os.getpid(),
+        "intent_sha256": ctx.intent_sha,
+        "cpu_slot_locks_held": [str(handle.name) for handle in slots],
+        "provenance": ctx.provenance,
+    }
+    if "execution" in ctx.state:  # template v3 only
+        marker["execution"] = ctx.state["execution"]
+    write_once(ctx.output / "started.json", marker)
     ctx.state["stage_started_mono"] = {}
 
     def interrupt(signum: int, frame: Any) -> None:
@@ -2765,7 +3274,18 @@ def _admitted_run(ctx: RunContext, slots: Sequence[Any]) -> Dict[str, Any]:
     finally:  # default handlers are back before the closeout is written
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+    if is_remote_intent(ctx.intent):  # endpoint down before the closeout records the spend
+        close_remote(ctx, "run end")
     return closeout(ctx)
+
+
+def close_remote(ctx: RunContext, why: str) -> None:
+    """Template v3: tear the remote endpoint down (idempotent) and keep its summary."""
+    if "remote_summary" in ctx.state or not hasattr(ctx.executor, "close"):
+        return
+    from research.sequential_strict_template import remote_backend as RB
+
+    ctx.state["remote_summary"] = RB.close_quietly(ctx.executor, why)
 
 
 def admit_rosters(ctx: RunContext) -> None:
@@ -2796,22 +3316,30 @@ def admit_rosters(ctx: RunContext) -> None:
 
 PAIRED_BAND_HELP = (
     "template v2 only: band_ni_margin,band_alpha,band_bound,band_floor "
-    "(floor 'none' for no floor), e.g. 0.05,0.05,pointwise,0.30 (ratified 2026-10-03)"
+    "(floor 'none' for no floor), e.g. 0.05,0.05,pointwise,0.30 (ratified 2026-10-03); "
+    "pooled_ni_continue (survival band v2) adds band_mix_margin: M,alpha,rci_obf,floor,mix_margin, "
+    "e.g. 0.05,0.05,rci_obf,0.30,0.075 (amendment 2026-10-06 option 1)"
 )
 
 
 def parse_paired_band(text: Optional[str]) -> Optional[Dict[str, Any]]:
-    """``M,alpha,bound,floor`` -> the four paired band settings (``None`` if not given)."""
+    """``M,alpha,bound,floor[,mix_margin]`` -> the paired band settings (``None`` if not
+    given); the fifth value is survival band v2's per-mix catastrophic margin."""
     if text is None:
         return None
     parts = [part.strip() for part in text.split(",")]
-    require(len(parts) == 4, f"--paired-band needs M,alpha,bound,floor; got {text!r}")
-    return {
+    require(
+        len(parts) in (4, 5), f"--paired-band needs M,alpha,bound,floor[,mix_margin]; got {text!r}"
+    )
+    out = {
         "band_ni_margin": float(parts[0]),
         "band_alpha": float(parts[1]),
         "band_bound": parts[2],
         "band_floor": None if parts[3].lower() == "none" else float(parts[3]),
     }
+    if len(parts) == 5:
+        out["band_mix_margin"] = float(parts[4])
+    return out
 
 
 def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
@@ -2838,6 +3366,43 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
         help="template v2 only: the delta_NI the paired-band check was run with",
     )
     prep.add_argument("--skew-reps", type=int, default=DEFAULT_SKEW_REPS)
+    prep.add_argument(
+        "--remote-config",
+        type=Path,
+        default=None,
+        help="template v3 (opt-in): the remote execution config (RunPod serverless, "
+        "docs/research/governance_amendment_strict_on_runpod_2026-10-05.md)",
+    )
+    rplan = sub.add_parser(
+        "remote-plan",
+        help="template v3 dry run: projected wall and speed-up vs 2 Mac slots, sizing, caps "
+        "(no RunPod call unless --account)",
+    )
+    rplan.add_argument("--spec", required=True, help="module:ATTRIBUTE of a StudySpec")
+    rplan.add_argument("--remote-config", type=Path, required=True)
+    rplan.add_argument("--n-max", type=int, required=True)
+    rplan.add_argument("--mde", type=float, required=True)
+    rplan.add_argument("--n-calibration", type=int, required=True)
+    rplan.add_argument("--fractions", default=",".join(str(f) for f in DEFAULT_FRACTIONS))
+    rplan.add_argument("--futility-policy", default="followed")
+    rplan.add_argument("--band-margin-z", type=float, default=DEFAULT_BAND_MARGIN_Z)
+    rplan.add_argument("--paired-band", default=None, help=PAIRED_BAND_HELP)
+    rplan.add_argument(
+        "--account",
+        action="store_true",
+        help="also read the RunPod balance and worker quota (read-only API calls)",
+    )
+    ident = sub.add_parser(
+        "identity-check",
+        help="template v3: the pre-gate Mac vs RunPod identity check (once per intent)",
+    )
+    ident.add_argument("--intent", type=Path, required=True)
+    iworker = sub.add_parser("identity-worker")
+    iworker.add_argument("--intent", type=Path, required=True)
+    iworker.add_argument("--shard", type=int, required=True)
+    iworker.add_argument("--slot-fd", type=int, required=True)
+    iworker.add_argument("--key-file", type=Path, required=True)
+    iworker.add_argument("--out", type=Path, required=True)
     frozen = sub.add_parser(
         "plan",
         help="write the frozen {plan_parameters, plan} (simulate.py --plan-params input)",
@@ -2886,6 +3451,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             paired_band=parse_paired_band(args.paired_band),
             development_delta_ni=args.development_delta_ni,
             skew_reps=args.skew_reps,
+            remote_config=args.remote_config,
         )
         path = prepare(intent)
         print(json.dumps({"intent": str(path), "sha256": sha256_file(path)}))
@@ -2904,6 +3470,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sha = write_once(args.out, frozen_plan_document(params))
         print(json.dumps({"plan_document": str(args.out), "sha256": sha}))
         return 0
+    if args.command == "remote-plan":
+        from research.sequential_strict_template import remote_backend as RB
+
+        spec = resolve_spec(args.spec)
+        params = study_plan_parameters(
+            spec,
+            n_max=args.n_max,
+            mde=args.mde,
+            fractions=[float(f) for f in args.fractions.split(",")],
+            futility_policy=args.futility_policy,
+            band_margin_z=args.band_margin_z,
+            paired_band=parse_paired_band(args.paired_band),
+        )
+        report = RB.remote_plan_report(
+            spec, params, args.remote_config, args.n_calibration, account=args.account
+        )
+        print(json.dumps(report, indent=1, sort_keys=True))
+        return 0 if report["admissible"] else 2
+    if args.command == "identity-check":
+        from research.sequential_strict_template import remote_backend as RB
+
+        result = RB.run_identity_check(args.intent)
+        print(json.dumps({k: result[k] for k in ("passes", "backend_decided", "reasons")}))
+        return 0
+    if args.command == "identity-worker":
+        from research.sequential_strict_template import remote_backend as RB
+
+        return RB.identity_worker_main(
+            args.intent.resolve(), args.shard, args.slot_fd, args.key_file, args.out
+        )
     if args.command == "status":
         report: Dict[str, Any] = {"ledger": ledger_status(args.ledger)}
         if args.intent is not None:

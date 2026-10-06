@@ -1,0 +1,27 @@
+{
+  "schema": "served-checkpoint-strict-pins/v1",
+  "note": "Strict-gate receipt pins that authorize serving a non-champion registry checkpoint (web/backend/served_checkpoint.py). strict_receipt null = unfilled placeholder: the name is refused and the released default is served. Fill ONLY after the checkpoint's strict gate closes STRICT_PASS, with research/frp3_checkpoint_serving_20261005/fill_strict_pin.py, then commit.",
+  "checkpoints": {
+    "frp3-s12": {
+      "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+      "veto_variant": "v8",
+      "veto_method": "free-space-veto/v8-space-and-head(lambda=8.0)",
+      "strict_receipt": {
+        "verdict": "STRICT_PASS",
+        "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp3-m3s12-strict-20261005/run-v1",
+        "receipt": {
+          "path": "output/receipt.json",
+          "sha256": "5107f3fc540af41f2d81f907d2c9e40302ea4140141833144460f562e5acc5b3"
+        },
+        "intent": {
+          "path": "intent.json",
+          "sha256": "5deef5a9d415ec135b4c16d59757b486e97b9b5af2068564cfe003a616520485"
+        },
+        "audit_report": {
+          "path": "output/audit/audit.json",
+          "sha256": "fa015c2f4b8c38c61d23d387c129fc732c857e6156e638fa1431b412e38a2911"
+        }
+      }
+    }
+  }
+}

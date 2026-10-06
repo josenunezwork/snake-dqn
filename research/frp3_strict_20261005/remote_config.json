@@ -1,0 +1,21 @@
+{
+  "schema": "sequential-strict-remote-config/v1",
+  "platform": "runpod-serverless",
+  "budget_usd": 40.0,
+  "identity_budget_usd": 8.0,
+  "remote_wall_minutes": 150,
+  "identity_wall_minutes": 60,
+  "mac_episode_seconds": 39.7,
+  "mac_episode_seconds_source": "v8 strict run-v1 (apex-veto-v8-strict-20261003) final records of its champion+v8 arm on 2 Mac slots, live H5000: 44.8 / 26.9 / 34.2 s (frozen / scripted / mixed), 561 episodes; the FRP-v3 candidate at x1.25 (Phase R: ~1.2x the v8 work per episode); mean over both arms and mixes 39.7 s (preregistration.py runtime_projection)",
+  "cloud_episode_seconds": 174.0,
+  "engine": "live",
+  "horizon": 5000,
+  "horizon_path": "evaluation_profile.scored_horizon",
+  "record_pins": {
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "probes.safety_veto.method": "free-space-veto/v8-space-and-head(lambda=8.0)"
+  },
+  "identity_worlds_per_mix": 3,
+  "sizing_objective": "fastest",
+  "note": "cloud_episode_seconds: the pod-calibrated live H5000 estimate (12 + 0.0182 x 5000 = 103 s) x the serverless episode_time_factor 1.5 x 1.125 (half the episodes are the candidate at x1.25). identity sample: the amendment's default, 3 worlds per mix of the first look's prefix, both arms (18 episodes)."
+}
