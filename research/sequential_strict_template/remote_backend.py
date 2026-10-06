@@ -2386,6 +2386,12 @@ def remote_plan_report(
         blockers.append(f"speed-up {plan['choice']['speedup']}x < {plan['min_speedup']}x")
     if not amendment["ratified"]:
         blockers.append("amendment not ratified (production prepare refuses; dry runs allowed)")
+    if spec.pooled:  # survival band v2 (amendment 2026-10-06): ratified option == plan values
+        band = R.amendment_status(Path(repo) / R.SURVIVAL_BAND_V2_AMENDMENT)
+        blockers.extend(
+            f"survival band v2: {p} (production prepare refuses; dry runs allowed)"
+            for p in R.ratified_band_problems(band, params)
+        )
     if closure["dirty"]:
         blockers.append("source closure is dirty")
     report: Dict[str, Any] = {

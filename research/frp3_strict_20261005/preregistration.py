@@ -17,12 +17,18 @@ pinned by sha256, decision GO_R) and writes, beside this file:
 * ``operating_characteristics.json``: the sizing rule and its result, the frozen plan, a normal
   Monte Carlo of the plan (``research/sequential_gate_validation_20261002/simulate.py``'s
   ``Replica`` reused with this study's N_max, per-mix SDs and development delta_NI), a joint
-  bootstrap of the candidate's Phase R worlds through the whole gate WITH the paired survival
-  bands at the qualifying look (cross-checked decision by decision against
-  ``run_sequential_gate`` + ``plan_paired_band_check``), sensitivity sizing, the Mac-fallback
+  bootstrap of the candidate's Phase R worlds through the whole gate WITH survival band v2
+  (``pooled_ni_continue``: judged at the qualifying look and every later look, a qualified run
+  whose bands fail continues; cross-checked decision by decision against
+  ``run_sequential_gate`` + ``plan_pooled_band_check``), sensitivity sizing, the Mac-fallback
   runtime projection and a planning-only pre-run of the resampling skew check.
-* ``look1_band_cost.json``: the paired band's early-stop cost per mix (pilot SD of the paired
-  survival delta), at look 1, look 2 and the final look.
+* ``look1_band_cost.json``: survival band v2's cost per look (pilot SDs of the paired and the
+  pooled survival delta): the chance a no-regression candidate fails the band at a look, and
+  the chance it has not passed by the final look when it qualifies at a given look.
+
+The band rule and its margins come from the survival band v2 amendment, which chose and
+calibrated them on independent pre-FRP-v3 data only. The Phase R pool below is used, as the
+template requires, for this study's validity check and for planning (descriptive).
 
 Usage: ``python research/frp3_strict_20261005/preregistration.py`` (single-threaded; about
 10-20 min of one core: hold one shared CPU slot). Nothing here reads strict data.
@@ -60,7 +66,7 @@ if str(REPO) not in sys.path:
 from research.sequential_gate_validation_20261002 import simulate as sim  # noqa: E402
 from research.sequential_gate_validation_20261002 import skew_probe  # noqa: E402
 from research.sequential_strict_template import sequential_runner as R  # noqa: E402
-from src.evaluation.sequential_gate import plan_paired_band_check, run_sequential_gate  # noqa: E402
+from src.evaluation.sequential_gate import plan_pooled_band_check, run_sequential_gate  # noqa: E402
 from src.scripts.eval_stats import student_t_isf  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -103,9 +109,9 @@ N_CALIBRATION = 16
 BAND_MARGIN_Z = 1.645
 FRACTIONS = (0.25, 0.5, 0.75, 1.0)
 FUTILITY_CP = 0.10
-# M 0.05, alpha 0.05, floor 0.30 as ratified; bound rci_obf (the amendment's remedy after the
-# pointwise check failed on this pool; see spec.PAIRED_BAND)
-PAIRED_BAND = {**R.RATIFIED_PAIRED_BAND, "band_bound": "rci_obf"}
+# Survival band v2 (amendment 2026-10-06) option 1: pooled 0.05, per-mix 0.10, alpha 0.05
+# rci_obf, floor 0.30 (see spec.PAIRED_BAND)
+PAIRED_BAND = dict(R.POOLED_BAND_OPTIONS["1"])
 # Reference-bank SDs (v8 - v7, 150 worlds/mix, rp-bank-long), quoted for sensitivity only.
 REFERENCE_BANK_SDS = {"frozen": 124.0, "scripted": 141.0, "mixed": 97.0}
 # Mac-fallback runtime basis (2 slots, live H5000): the v8 strict run's champion+v8 arm.
@@ -382,75 +388,104 @@ def normal_scenarios(mde: float, delta_ni: float, own: Sequence[float], pooled_m
 # ---------------------------------------------------------------- joint bootstrap (paired)
 
 
+def band_ok_by_look(replica, cand, inc, plan):
+    """Survival band v2 verdict per look (list of (reps,) arrays) and, per look, the failing
+    component counts input: pooled ok (reps,), per-mix ok (reps, 3)."""
+    d = cand - inc
+    pooled = d.mean(axis=1)
+    out = []
+    for k, n in enumerate(replica.sizes):
+        t_band = student_t_isf(plan.band_nominal_p[k], int(n) - 1)
+        dk = d[:, :, :n]
+        mix_lower = dk.mean(axis=2) - t_band * dk.std(axis=2, ddof=1) / math.sqrt(n)
+        mix_ok = mix_lower > -plan.band_mix_margin
+        if plan.band_floor is not None:
+            mix_ok &= cand[:, :, :n].mean(axis=2) >= plan.band_floor
+        pk = pooled[:, :n]
+        pooled_ok = pk.mean(axis=1) - t_band * pk.std(axis=1, ddof=1) / math.sqrt(n) > -(
+            plan.band_ni_margin
+        )
+        out.append((pooled_ok & np.all(mix_ok, axis=1), pooled_ok, mix_ok))
+    return out
+
+
 def bootstrap_decide(replica, x, cand, inc, delta_ni, plan):
-    """``Replica.decide`` with a per-replicate delta_NI and the paired survival bands.
+    """``Replica.decide`` with a per-replicate delta_NI and survival band v2.
 
     x: (reps, 3, N) mass deltas; cand / inc: (reps, 3, N) survival of the arms on the same
-    worlds; delta_ni: (reps,). Codes: 1 STOP_PASS, 2 STOP_FUTILE, 3 FINAL_PASS, 4 FINAL_FAIL,
-    5 STOP_FAIL_BANDS. Bands (``paired_ni_at_stop``) are judged once, at the qualifying look:
-    ``mean(d) - t_{n-1}(band_nominal_p[k]) * sd(d) / sqrt(n) > -M`` and
-    ``mean(candidate) >= floor`` in every mix.
+    worlds; delta_ni: (reps,). Codes: 1 STOP_PASS, 2 STOP_FUTILE, 3 FINAL_PASS, 4 FINAL_FAIL
+    (5 STOP_FAIL_BANDS cannot occur under ``pooled_ni_continue``). Qualification as in the gate;
+    from the qualifying look on, the bands (pooled NI > -band_ni_margin, every mix's NI >
+    -band_mix_margin, every candidate mean >= floor, at the look's rci_obf level) are judged at
+    every look: STOP_PASS at the first look where they pass, FINAL_PASS / FINAL_FAIL at the
+    last; a qualified run is never stopped for futility.
     """
     reps = x.shape[0]
     last = len(replica.sizes) - 1
     stats = replica.look_stats(x)
-    d = cand - inc
+    bands = band_ok_by_look(replica, cand, inc, plan)
     crossed = np.zeros((reps, 3), dtype=bool)
     ni = np.zeros(reps, dtype=bool)
     active = np.ones(reps, dtype=bool)
+    qualified = np.zeros(reps, dtype=bool)
     outcome = np.zeros(reps, dtype=np.int8)
     stop_look = np.full(reps, last, dtype=np.int8)
+    qualify_look = np.full(reps, -1, dtype=np.int8)
+    pooled_fail_q = 0
     band_fail_mix = np.zeros(3, dtype=np.int64)
     c_final = plan.efficacy_boundaries[last]
-    margin, floor = plan.band_ni_margin, plan.band_floor
     for k, n in enumerate(replica.sizes):
         mean, sd, t = stats[k]
+        ok, pooled_ok, mix_ok = bands[k]
         crossed |= (t >= replica.t_eff[k]) & active[:, None]
         lower = mean[:, SCRIPTED] - replica.t_ni[k] * sd[:, SCRIPTED] / math.sqrt(n)
         ni |= (lower > -delta_ni) & active
-        qualifies = (crossed.sum(axis=1) >= plan.required_successes) & ni
-        dk = d[:, :, :n]
-        t_band = student_t_isf(plan.band_nominal_p[k], int(n) - 1)
-        band_lower = dk.mean(axis=2) - t_band * dk.std(axis=2, ddof=1) / math.sqrt(n)
-        per_mix = band_lower > -margin
-        if floor is not None:
-            per_mix &= cand[:, :, :n].mean(axis=2) >= floor
-        bands = np.all(per_mix, axis=1)
+        newly = active & ~qualified & (crossed.sum(axis=1) >= plan.required_successes) & ni
+        qualify_look[newly] = k
+        pooled_fail_q += int((~pooled_ok[newly]).sum())
+        band_fail_mix += (~mix_ok[newly]).sum(axis=0)
+        qualified |= newly
         if k == last:
-            judged = active & qualifies
-            band_fail_mix += (~per_mix[judged]).sum(axis=0)
-            outcome[active] = np.where((qualifies & bands)[active], 3, 4)
+            outcome[active] = np.where((qualified & ok)[active], 3, 4)
             break
+        stop_q = active & qualified & ok
+        outcome[stop_q] = 1
+        stop_look[stop_q] = k
+        active &= ~stop_q
         f = plan.fractions[k]
         z = replica.t_to_z(k, t)
         theta = plan.mde * math.sqrt(plan.n_max) / sd
         arg = z * math.sqrt(f) + theta * (1.0 - f) - c_final
         futile = (~crossed) & (arg < replica.z_cut * math.sqrt(1.0 - f))
-        stop_q = active & qualifies
-        band_fail_mix += (~per_mix[stop_q]).sum(axis=0)
-        futile_now = active & ~qualifies & (3 - futile.sum(axis=1) < plan.required_successes)
-        outcome[stop_q] = np.where(bands[stop_q], 1, 5)
-        stop_look[stop_q] = k
-        active &= ~stop_q
+        futile_now = active & ~qualified & (3 - futile.sum(axis=1) < plan.required_successes)
         outcome[futile_now] = 2
         stop_look[futile_now] = k
         active &= ~futile_now
     return {
         "outcome": outcome,
         "stop_look": stop_look,
+        "qualify_look": qualify_look,
         "crossed": crossed,
+        "pooled_band_fail_at_qualifying_look": pooled_fail_q,
         "band_fail_by_mix": band_fail_mix,
     }
 
 
-def bootstrap_arrays(phase_r, seeds, rng, reps: int, n_max: int, shift=None, delta_ni=None):
+def bootstrap_arrays(
+    phase_r, seeds, rng, reps: int, n_max: int, shift=None, delta_ni=None, survival=None
+):
     """Joint world resampling (same world for every mix), plus a 16-world calibration
-    delta_NI per replicate (0.03 x resampled incumbent scripted mean) unless fixed."""
+    delta_NI per replicate (0.03 x resampled incumbent scripted mean) unless fixed.
+    ``survival`` (per-mix true survival deltas) recentres the candidate's survival on the
+    incumbent's (descriptive what-if; ``None`` keeps the observed deltas)."""
     deltas = np.asarray([pooled(phase_r, seeds, "deltas", m) for m in MIXES], dtype=float)
     if shift is not None:
         deltas = deltas - deltas.mean(axis=1, keepdims=True) + np.asarray(shift)[:, None]
     cand = np.asarray([pooled(phase_r, seeds, "candidate_survival", m) for m in MIXES])
     inc = np.asarray([pooled(phase_r, seeds, "incumbent_survival", m) for m in MIXES])
+    if survival is not None:
+        d = cand - inc
+        cand = inc + d - d.mean(axis=1, keepdims=True) + np.asarray(survival)[:, None]
     mass_inc = np.asarray(pooled(phase_r, PHASE_R_SEEDS, "incumbent_mass", "scripted"))
     worlds = deltas.shape[1]
     idx = rng.integers(0, worlds, size=(reps, n_max))
@@ -466,25 +501,39 @@ def bootstrap_arrays(phase_r, seeds, rng, reps: int, n_max: int, shift=None, del
 
 
 CODES = {1: "STOP_PASS", 2: "STOP_FUTILE", 3: "FINAL_PASS", 4: "FINAL_FAIL", 5: "STOP_FAIL_BANDS"}
+SURVIVAL_SCENARIOS = {
+    "observed": None,
+    "no_change": (0.0, 0.0, 0.0),
+    "pooled_at_margin": (-0.05, -0.05, -0.05),
+    "scripted_at_mix_margin": (0.0, -0.10, 0.0),
+}
 
 
-def bootstrap_power(phase_r, seeds, plan, replica, reps, seed, shift=None) -> Dict[str, Any]:
+def bootstrap_power(
+    phase_r, seeds, plan, replica, reps, seed, shift=None, survival=None
+) -> Dict[str, Any]:
     rng = np.random.default_rng(seed)
     counts = {name: 0 for name in CODES.values()}
     looks = np.zeros(len(plan.look_sizes), dtype=np.int64)
+    qlooks = np.zeros(len(plan.look_sizes) + 1, dtype=np.int64)
     per_mix_cross = np.zeros(3, dtype=np.int64)
     band_fail = np.zeros(3, dtype=np.int64)
+    pooled_fail = 0
     worlds = done = 0
     while done < reps:
         k = min(5_000, reps - done)
-        x, c, i, dni = bootstrap_arrays(phase_r, seeds, rng, k, plan.n_max, shift)
+        x, c, i, dni = bootstrap_arrays(
+            phase_r, seeds, rng, k, plan.n_max, shift, survival=survival
+        )
         res = bootstrap_decide(replica, x, c, i, dni, plan)
         for code, name in CODES.items():
             counts[name] += int((res["outcome"] == code).sum())
         looks += np.bincount(res["stop_look"], minlength=len(plan.look_sizes))
+        qlooks += np.bincount(res["qualify_look"] + 1, minlength=len(plan.look_sizes) + 1)
         worlds += int(np.asarray(plan.look_sizes)[res["stop_look"]].sum())
         per_mix_cross += res["crossed"].sum(axis=0)
         band_fail += res["band_fail_by_mix"]
+        pooled_fail += res["pooled_band_fail_at_qualifying_look"]
         done += k
     passes = counts["STOP_PASS"] + counts["FINAL_PASS"]
     return {
@@ -492,12 +541,20 @@ def bootstrap_power(phase_r, seeds, plan, replica, reps, seed, shift=None) -> Di
         "seed": seed,
         "pool_seeds": list(seeds),
         "shifted_means": None if shift is None else list(shift),
+        "survival_deltas": "observed" if survival is None else list(survival),
         "pass_probability": sim.wilson(passes, reps),
         "outcomes": {name: counts[name] / reps for name in CODES.values()},
         "stop_look_distribution": (looks / reps).tolist(),
+        "qualifying_look_distribution": {
+            "never": qlooks[0] / reps,
+            **{f"look_{j + 1}": qlooks[j + 1] / reps for j in range(len(plan.look_sizes))},
+        },
         "expected_worlds_per_mix": worlds / reps,
         "per_mix_crossing_by_stop": dict(zip(MIXES, (per_mix_cross / reps).tolist())),
-        "band_failures_at_qualifying_look_by_mix": dict(zip(MIXES, (band_fail / reps).tolist())),
+        "band_failures_at_qualifying_look": {
+            "pooled": pooled_fail / reps,
+            **{f"mix_{m}": v for m, v in zip(MIXES, (band_fail / reps).tolist())},
+        },
     }
 
 
@@ -510,12 +567,13 @@ def _crosscheck_batch(phase_r, plan, replica, reps: int, seed: int, shift) -> Di
     for r in range(reps):
         bands = []
         for look, n in enumerate(plan.look_sizes):
-            ok = True
-            for j in range(3):
-                ok &= plan_paired_band_check(
-                    plan, look, c[r, j, :n].tolist(), i[r, j, :n].tolist()
-                )["passes"]
-            bands.append(bool(ok))
+            check = plan_pooled_band_check(
+                plan,
+                look,
+                {m: c[r, j, :n].tolist() for j, m in enumerate(MIXES)},
+                {m: i[r, j, :n].tolist() for j, m in enumerate(MIXES)},
+            )
+            bands.append(bool(check["passes"]))
         pure = run_sequential_gate(
             plan, {m: x[r, j].tolist() for j, m in enumerate(MIXES)}, float(dni[r]), bands
         )
@@ -535,10 +593,10 @@ def _crosscheck_batch(phase_r, plan, replica, reps: int, seed: int, shift) -> Di
 
 
 def crosscheck_bootstrap(phase_r, plan, replica, reps: int = 300, seed: int = 4242) -> Dict:
-    """The bootstrap replica vs the pure ``run_sequential_gate`` with per-look paired band
-    verdicts from ``plan_paired_band_check``, decision by decision (candidate's own pool), in
-    two batches: shifted to the MDE (passes and band failures occur) and to the global null
-    (futility stops and final fails occur), so every outcome kind is exercised."""
+    """The bootstrap replica vs the pure ``run_sequential_gate`` with per-look survival band v2
+    verdicts from ``plan_pooled_band_check``, decision by decision (candidate's own pool), in
+    two batches: shifted to the MDE (passes, continued band failures and final fails occur) and
+    to the global null (futility stops and final fails occur)."""
     mde = (plan.mde, plan.mde, plan.mde)
     batches = {
         "at_mde": _crosscheck_batch(phase_r, plan, replica, reps, seed, mde),
@@ -553,36 +611,42 @@ def crosscheck_bootstrap(phase_r, plan, replica, reps: int = 300, seed: int = 42
     }
 
 
-# ---------------------------------------------------------------- band cost (paired)
+# ---------------------------------------------------------------- band cost (survival band v2)
 
 
 def band_cost(phase_r, plan) -> Dict[str, Any]:
-    margin = plan.band_ni_margin
+    """Normal approximation of survival band v2's per-look cost with the Phase R pilot SDs:
+    for the pooled component and each mix's component, P(fail at look k) at a true delta of 0
+    and at the pilot's observed delta (descriptive planning input)."""
     out: Dict[str, Any] = {
         "definition": (
-            "paired_ni_at_stop (template v2, ratified 2026-10-03): probability that a candidate "
-            "fails the paired survival band of a mix when it stops at that look, normal "
-            "approximation with the pilot SD of the per-world paired survival delta d = "
-            "candidate - incumbent (exact H5000-prefix survival_fraction): P(mean(d) - t_{n-1}"
-            "(p_k) * sd / sqrt(n) <= -M), p_k the plan's rci_obf band_nominal_p, M = 0.05, "
-            "at a true mean delta of 0 and at the "
-            "pilot's observed mean delta; the floor (candidate mean >= 0.30) is reported "
-            "separately (pilot candidate means are far above it)"
+            "pooled_ni_continue (survival band v2, amendment 2026-10-06, option 1): at look k "
+            "the bands pass iff the pooled paired NI bound (per-world mean over the mixes of "
+            "candidate - incumbent survival_fraction) clears -band_ni_margin and every mix's "
+            "bound clears -band_mix_margin at the plan's rci_obf level p_k (and every candidate "
+            "mean >= floor); normal approximation with the Phase R pilot SDs; per look: "
+            "P(fail) of the pooled component and of each mix's component at a true delta of 0 "
+            "and at the pilot's observed delta; descriptive planning input (the rule was "
+            "chosen on independent data)"
         ),
         "look_sizes": list(plan.look_sizes),
-        "margin": margin,
+        "band_ni_margin": plan.band_ni_margin,
+        "band_mix_margin": plan.band_mix_margin,
         "band_alpha": plan.band_alpha,
         "band_bound": plan.band_bound,
+        "band_nominal_p": list(plan.band_nominal_p),
         "floor": plan.band_floor,
-        "per_mix": {},
+        "pools": {},
     }
-    for mix in MIXES:
+    for label, seeds in (("candidate_own", (CANDIDATE_SEED,)), ("all_seeds", PHASE_R_SEEDS)):
+        cand = np.asarray([pooled(phase_r, seeds, "candidate_survival", m) for m in MIXES])
+        inc = np.asarray([pooled(phase_r, seeds, "incumbent_survival", m) for m in MIXES])
+        d = cand - inc
+        series = {**{m: d[j] for j, m in enumerate(MIXES)}, "pooled": d.mean(axis=0)}
         rows: Dict[str, Any] = {}
-        for label, seeds in (("candidate_own", (CANDIDATE_SEED,)), ("all_seeds", PHASE_R_SEEDS)):
-            cand = np.asarray(pooled(phase_r, seeds, "candidate_survival", mix), dtype=float)
-            inc = np.asarray(pooled(phase_r, seeds, "incumbent_survival", mix), dtype=float)
-            d = cand - inc
-            sd, obs = float(d.std(ddof=1)), float(d.mean())
+        for name, values in series.items():
+            sd, obs = float(values.std(ddof=1)), float(values.mean())
+            margin = plan.band_ni_margin if name == "pooled" else plan.band_mix_margin
             looks = {}
             for k, n in enumerate(plan.look_sizes):
                 se = sd / math.sqrt(n)
@@ -592,20 +656,24 @@ def band_cost(phase_r, plan) -> Dict[str, Any]:
                     "fail_if_true_delta_0": _NORMAL.cdf(t - margin / se),
                     "fail_at_pilot_delta": _NORMAL.cdf(t - (margin + obs) / se),
                 }
-            rows[label] = {
-                "pilot_paired_sd": sd,
+            rows[name] = {
+                "pilot_sd": sd,
                 "pilot_mean_delta": obs,
-                "pilot_candidate_mean": float(cand.mean()),
-                "pilot_ties": int(np.sum(d == 0.0)),
-                "pilot_worlds": int(d.size),
+                "margin": margin,
+                "pilot_ties": int(np.sum(values == 0.0)),
                 **looks,
             }
-        out["per_mix"][mix] = rows
+        out["pools"][label] = {
+            "pilot_worlds": int(d.shape[1]),
+            "pilot_candidate_means": dict(zip(MIXES, cand.mean(axis=1).tolist())),
+            "components": rows,
+        }
     out["note"] = (
-        "The paired survival delta of two different checkpoints has a large per-world SD "
-        "(deaths are not tied, unlike v8 vs v7), so M = 0.05 is a demanding band at early "
-        "looks: a candidate with equal survival fails it often at look 1. This is the ratified "
-        "rule, applied unchanged and disclosed here and in the joint bootstrap."
+        "Under the frozen v2 rule (paired_ni_at_stop, per-mix M 0.05, judged once at the "
+        "qualifying look) a no-regression candidate failed the scripted band at look 2 about "
+        "91% of the time (superseded_v2_band/). Survival band v2 judges the pooled delta (SD "
+        "about 0.21 here) at margin 0.05 and each mix only against a catastrophic 0.10, and a "
+        "qualified run whose bands fail continues to the next look instead of stopping."
     )
     return out
 
@@ -692,6 +760,25 @@ def main() -> int:
         "candidate_own_observed_effects": bootstrap_power(
             phase_r, own_seed, plan, replica, 40_000, 101
         ),
+        "candidate_own_observed_mass_survival_no_change": bootstrap_power(
+            phase_r, own_seed, plan, replica, 20_000, 107, survival=(0.0, 0.0, 0.0)
+        ),
+        "candidate_own_observed_mass_pooled_regression_at_margin": bootstrap_power(
+            phase_r, own_seed, plan, replica, 20_000, 108, survival=(-0.05, -0.05, -0.05)
+        ),
+        "candidate_own_observed_mass_scripted_at_mix_margin": bootstrap_power(
+            phase_r, own_seed, plan, replica, 20_000, 109, survival=(0.0, -0.10, 0.0)
+        ),
+        "candidate_own_mde_survival_no_change": bootstrap_power(
+            phase_r,
+            own_seed,
+            plan,
+            replica,
+            20_000,
+            110,
+            shift=(mde, mde, mde),
+            survival=(0.0, 0.0, 0.0),
+        ),
         "candidate_own_shape_at_all_seed_means": bootstrap_power(
             phase_r, own_seed, plan, replica, 20_000, 102, shift=tuple(all_means)
         ),
@@ -714,7 +801,7 @@ def main() -> int:
     projection = runtime_projection(n_max)
     skew = skew_prerun(deltas_by_mix, n_max, dev_ni, 300_000)
     report = {
-        "schema": "frp3-m3s12-strict-oc/v1",
+        "schema": "frp3-m3s12-strict-oc/v2-survival-band-v2",
         "development_data": {
             "phase_r": str(PHASE_R),
             "summary_sha256": phase_r["summary_sha256"],
@@ -750,8 +837,11 @@ def main() -> int:
             "method": "resample Phase R world indices jointly across mixes (N_max per "
             "replicate), both arms' H5000 survival from the same worlds, a 16-world "
             "calibration delta_NI resampled per replicate (0.03 x incumbent scripted mass); "
-            "paired survival bands (M 0.05, alpha 0.05 rci_obf, floor 0.30) judged at the "
-            "qualifying look; futility followed",
+            "survival band v2 (pooled_ni_continue: pooled M 0.05, per-mix 0.10, alpha 0.05 "
+            "rci_obf, floor 0.30) judged at the qualifying look and every later look, a "
+            "qualified run whose bands fail continues; futility followed before qualification; "
+            "'survival_deltas' = observed, or the candidate's survival recentred on the "
+            "incumbent's at the stated true deltas (what-if)",
             **boot,
             "crosscheck_vs_run_sequential_gate": cross,
         },
@@ -760,7 +850,7 @@ def main() -> int:
         "cpu_seconds_total": round(time.process_time() - began, 1),
     }
     write_json(OC_OUT, report)
-    write_json(BAND_OUT, {"schema": "frp3-m3s12-strict-band-cost/v1", **band_cost(phase_r, plan)})
+    write_json(BAND_OUT, {"schema": "frp3-m3s12-strict-band-cost/v2", **band_cost(phase_r, plan)})
     print(
         json.dumps(
             {

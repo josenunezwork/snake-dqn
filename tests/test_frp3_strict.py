@@ -206,11 +206,11 @@ def test_lh1_pins_match_the_lh1_branch_when_present():
 # ---------------------------------------------------------------- spec wiring
 
 
-def test_spec_wiring_is_template_v2_paired_bands_with_remote_hooks():
+def test_spec_wiring_is_survival_band_v2_with_remote_hooks():
     spec = S.SPEC
     R.validate_spec(spec)
-    assert spec.template_version == R.TEMPLATE_VERSION_PAIRED
-    assert spec.band_policy == "paired_ni_at_stop"
+    assert spec.template_version == R.TEMPLATE_VERSION_POOLED
+    assert spec.band_policy == "pooled_ni_continue"
     assert spec.bands == R.paired_survival_bands(("frozen", "scripted", "mixed"))
     assert spec.namespaces == {
         "calibration": "apex-frp3-strict-dev-v1",
@@ -220,12 +220,15 @@ def test_spec_wiring_is_template_v2_paired_bands_with_remote_hooks():
     assert set(R.DEFAULT_CLOSURE_ROOTS) <= set(spec.closure_roots)
     assert {"research/apex_safety_20260926", S.PACKAGE} <= set(spec.closure_roots)
     assert callable(spec.remote_worker_setup) and callable(spec.remote_checkpoints)
-    # ratified M / alpha / floor; bound rci_obf, the amendment's remedy after pointwise failed
-    assert S.PAIRED_BAND == {**R.RATIFIED_PAIRED_BAND, "band_bound": "rci_obf"}
+    # survival band v2 (amendment 2026-10-06) option 1
+    assert S.PAIRED_BAND == R.POOLED_BAND_OPTIONS["1"]
     assert R.parse_paired_band(S.PAIRED_BAND_ARG) == S.PAIRED_BAND
-    failed = json.loads((PACKAGE / "paired_band_check_pointwise_failed.json").read_text())
+    # the superseded template-v2 band artifacts are kept, never used
+    old = PACKAGE / "superseded_v2_band"
+    failed = json.loads((old / "paired_band_check_pointwise_failed.json").read_text())
     assert failed["check"]["rule"] == "paired_M0.05_a0.05_pointwise"
     assert failed["check"]["passes"] is False
+    assert not (PACKAGE / "paired_band_check_pointwise_failed.json").exists()
 
 
 def test_remote_checkpoints_are_pool_plus_candidate_and_allow_listed():
@@ -683,13 +686,17 @@ def test_preregistered_plan_is_the_one_prepare_freezes():
     assert frozen == R.frozen_plan_document(params)
     assert oc["plan"] == R.plan_from_parameters(params).as_dict()
     assert oc["plan"]["look_sizes"] == [69, 138, 207, 275]
+    assert oc["plan"]["band_policy"] == "pooled_ni_continue"
     cross = oc["joint_bootstrap"]["crosscheck_vs_run_sequential_gate"]
     assert cross["mismatches"] == [] and cross["replicates"] == 600
     assert cross["batches"]["at_null"]["outcome_counts"]["STOP_FUTILE"] > 0
-    assert cross["outcome_counts"]["STOP_FAIL_BANDS"] > 0 and cross["outcome_counts"]["STOP_PASS"]
+    counts = cross["outcome_counts"]
+    assert counts["STOP_FAIL_BANDS"] == 0 and counts["STOP_PASS"] and counts["FINAL_PASS"]
     dni = oc["development_delta_ni"]["value"]
     record = R.paired_check_record(S.SPEC, params, REPO, dni)
+    assert record["rule"] == "pooled_ni_continue"
     assert record["passes"] and record["max_joint_rate"] <= 1.2 * 0.05
+    assert record["rows_judged"] == 2 * 6 * 4
     assert record["pools"] == ["frp3_all_seeds", "frp3_s12"]
     assert oc["development_data"]["skew_input_sha256"] == R.sha256_file(
         PACKAGE / "phase_r_deltas.json"
@@ -859,15 +866,19 @@ def execute(path, spec, skew=None):
 
 @needs_preregistration
 @needs_artifacts
-def test_dry_intent_freezes_the_paired_plan_and_bindings(tmp_path):
+def test_dry_intent_freezes_the_survival_band_v2_plan_and_bindings(tmp_path):
     spec = fake_spec(tmp_path, effect=0.0)
     intent = dry_intent(tmp_path, spec)
-    assert intent["template_version"] == R.TEMPLATE_VERSION_PAIRED
+    assert intent["template_version"] == R.TEMPLATE_VERSION_POOLED
     assert intent["plan"]["n_max"] == 275 and intent["plan"]["mde"] == 65.0
-    assert intent["plan"]["band_policy"] == "paired_ni_at_stop"
+    assert intent["plan"]["band_policy"] == "pooled_ni_continue"
     assert intent["plan"]["band_ni_margin"] == 0.05 and intent["plan"]["band_floor"] == 0.30
-    assert intent["plan"]["band_bound"] == "rci_obf"
+    assert intent["plan"]["band_bound"] == "rci_obf" and intent["plan"]["band_mix_margin"] == 0.10
     assert intent["paired_band_check"]["passes"] is True
+    amendment = intent["band_amendment"]
+    assert amendment["path"].endswith("governance_amendment_survival_band_v2_2026-10-06.md")
+    # until the owner ratifies option 1, a production prepare refuses (dry runs allowed)
+    assert amendment["ratified"] is False and amendment["production_problems"]
     assert intent["banks"]["final"] == R.seed_bank("apex-frp3-strict-final-v1", 275)
     assert intent["banks_check"]["passes"] is True
     assert intent["arms"]["candidate"]["screen_binding"]["outcome"] == "CLEAR"
@@ -898,7 +909,7 @@ def test_dry_v3_intent_freezes_runpod_execution_with_mac_fallback(tmp_path):
     )
     block = intent["execution"]
     assert intent["template_version"] == R.TEMPLATE_VERSION_REMOTE
-    assert block["band_template_version"] == R.TEMPLATE_VERSION_PAIRED
+    assert block["band_template_version"] == R.TEMPLATE_VERSION_POOLED
     assert block["platform"] == "runpod-serverless"
     assert block["checkpoints"] == S.remote_checkpoints()
     assert block["speedup"] >= 4.0 and block["min_speedup"] == 4.0
@@ -926,12 +937,18 @@ def test_dry_run_large_effect_passes_dry_and_never_writes_a_receipt(tmp_path):
 
 @needs_preregistration
 @needs_artifacts
-def test_dry_run_survival_regression_fails_the_paired_band(tmp_path):
+def test_dry_run_survival_regression_continues_and_fails_survival_band_v2(tmp_path):
     spec = fake_spec(tmp_path, effect=200.0, survival_shift=-0.1)
     path = R.prepare(dry_intent(tmp_path, spec))
     closeout = execute(path, spec)
     assert closeout["outcome"] == "DRY_RUN_FAIL", closeout
-    assert closeout["stop_decision"] == "STOP_FAIL_BANDS"
+    assert closeout["stop_decision"] == "FINAL_FAIL" and closeout["stop_look"] == 3
+    looks = [
+        json.loads((path.parent / "output" / "looks" / f"look-{k}.json").read_text())
+        for k in range(4)
+    ]
+    assert [r["decision"] for r in looks] == ["CONTINUE_BANDS"] * 3 + ["FINAL_FAIL"]
+    assert closeout["audit_passed"] is True
 
 
 @needs_preregistration
@@ -978,5 +995,5 @@ def test_cli_resolves_the_real_spec_when_the_runner_is_main(tmp_path):
     )
     assert proc.returncode != 0
     assert "spec must be a StudySpec" not in proc.stderr
-    assert "paired_ni_at_stop needs explicit" in proc.stderr, proc.stderr[-2000:]
+    assert "pooled_ni_continue needs explicit" in proc.stderr, proc.stderr[-2000:]
     assert not (tmp_path / "x").exists()

@@ -1,15 +1,20 @@
 """StudySpec: FRP-v3 seed-12 M3@60000 + v8 vs the released champion + v8 (champion change).
 
 Instantiation of ``research/sequential_strict_template`` (method
-``strict-sequential-obf-bonferroni-v1``), template **v2 paired survival bands**
-(``paired_ni_at_stop``, M 0.05, alpha 0.05, floor 0.30 as ratified 2026-10-03, bound ``rci_obf``:
-the amendment's remedy after the recommended ``pointwise`` check failed on this pool), run
-through template **v3** (``prepare --remote-config``: RunPod serverless under
+``strict-sequential-obf-bonferroni-v1``), template **v2-pooled: survival band v2**
+(``pooled_ni_continue``: pooled paired NI M 0.05 + per-mix catastrophic NI 0.10, alpha 0.05
+``rci_obf``, floor 0.30, judged at the qualifying look and every later look; governance
+amendment survival band v2, 2026-10-06, option 1, **ratification pending**: a production
+``prepare`` refuses until it is ratified with this option). It replaces the template-v2
+``paired_ni_at_stop`` band this package first froze (2026-10-05; no intent was ever written),
+run through template **v3** (``prepare --remote-config``: RunPod serverless under
 ``docs/research/governance_amendment_strict_on_runpod_2026-10-05.md``, Mac 2-slot fallback on an
 identity-check mismatch). Pre-registration: ``protocol.md`` beside this file; the sizing, the
 operating-characteristics report, the look-1 band cost, the skew input and the paired-band pool
-come from ``preregistration.py`` (FRP-v3 Phase R, the candidate's own paired worlds); the paired
-band check is ``simulate.py --part gate`` on that pool with the frozen plan.
+come from ``preregistration.py`` (FRP-v3 Phase R, the candidate's own paired worlds); the band
+check is survival band v2's ``simulate.py --part study`` on that pool with the frozen plan (a
+validity check of the rule's guarantee; the rule and its margins were chosen on independent
+pre-FRP-v3 data, not on this pool).
 
 Arms (hero only; opponents never carry a veto). Both arms run
 ``tournament_eval.rollout(hero_safety_veto=True)`` with the install routed through
@@ -68,18 +73,20 @@ CONFIG_SHA256 = "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292c3eb71715aa
 CHECKPOINT_DIR = dev_screen.DEFAULT_CHECKPOINT_DIR
 CHAMPION_NAME, CHAMPION_SHA256 = dev_screen.CHAMPION
 POOL = tuple(dev_screen.POOL)  # champion + 3 opponents (the roster pool, unchanged)
-# The paired-band settings of the 2026-10-03 amendment (stated explicitly at prepare / plan)
-# with its own remedy applied: the per-study check of the recommended ``pointwise`` bound
-# FAILED on this study's pool (max joint rate 0.0612 > 1.2 x 0.05, scripted band;
-# paired_band_check_pointwise_failed.json), so ``band_bound = "rci_obf"`` (amendment: "If the
-# check fails, use band_bound = rci_obf"); M, alpha and the floor are unchanged.
+# Survival band v2 (governance amendment 2026-10-06), option 1, stated explicitly at prepare /
+# plan: pooled margin 0.05, alpha 0.05, rci_obf, floor 0.30, per-mix catastrophic margin 0.10.
+# History: this package first froze template v2 ``paired_ni_at_stop`` (M 0.05, alpha 0.05,
+# floor 0.30; ``pointwise`` failed its per-study check, ``rci_obf`` passed); that band failed
+# 53-72% of no-regression runs at the qualifying look for a between-checkpoint change, so the
+# owner had the band redesigned before the gate (superseded_v2_band/; no intent was written).
 PAIRED_BAND = {
     "band_ni_margin": 0.05,
     "band_alpha": 0.05,
     "band_bound": "rci_obf",
     "band_floor": 0.30,
+    "band_mix_margin": 0.10,
 }
-PAIRED_BAND_ARG = "0.05,0.05,rci_obf,0.30"
+PAIRED_BAND_ARG = "0.05,0.05,rci_obf,0.30,0.10"
 
 ARTIFACTS = preflight.ARTIFACTS
 CANDIDATE_NAME = "frp-v3 M3@60000 seed 12 (apex_mark_u60000.pth)"
@@ -520,7 +527,7 @@ SPEC = StudySpec(
     build_row=build_row,
     validate_record=validate_record,
     closure_roots=(*DEFAULT_CLOSURE_ROOTS, "research/apex_safety_20260926", PACKAGE),
-    band_policy="paired_ni_at_stop",
+    band_policy="pooled_ni_continue",
     paired_band_check_path=f"{PACKAGE}/paired_band_check.json",
     paired_band_pool_path=f"{PACKAGE}/paired_pool.json",
     remote_worker_setup=remote_worker_setup,
