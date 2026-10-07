@@ -1,0 +1,40 @@
+total self time 485.3s (main_eval.prof)
+   28.0%     135.7s  collision + food cell checks (distance/same_cell)
+   16.4%      79.7s  state: per-action danger
+   15.2%      73.6s  state: free-space BFS (61-D)
+   10.1%      48.9s  action mask (safe-action sim)
+    8.7%      42.3s  veto (v8 chain: BFS/landing/area/head)
+    8.5%      41.0s  state: danger map
+    3.5%      16.9s  state: other features
+    2.8%      13.4s  game physics / episode loop
+    2.7%      12.9s  scripted opponents
+    2.0%       9.7s  torch forward / tensor ops
+    0.9%       4.4s  other
+    0.6%       3.1s  replay / actor bookkeeping
+    0.6%       3.0s  ai_snake update glue
+    0.2%       0.7s  reward
+    0.0%       0.0s  python builtins (attributed below by caller)
+
+inclusive time of entry points:
+   99.3%     481.8s  calls=30000     main/src/game/game_state.py:266 update
+   55.0%     267.0s  calls=110000    main/src/game/ai_snake.py:532 compute_reward_and_train
+   39.8%     192.9s  calls=109436    main/src/game/snake_state.py:30 get_state
+   23.4%     113.7s  calls=179436    main/src/game/ai_snake.py:320 _get_safe_actions
+   16.5%      80.0s  calls=109436    main/src/game/snake_state.py:419 _get_per_action_danger
+   15.9%      77.1s  calls=108698    main/src/game/ai_snake.py:372 update
+   15.2%      73.9s  calls=138143    main/src/game/snake_state.py:535 _get_free_space_features
+   12.8%      62.2s  calls=28698     main/src/evaluation/safety_veto_v8.py:247 apply
+   12.8%      61.9s  calls=28698     main/src/evaluation/safety_veto_v8.py:269 decide
+   12.4%      60.2s  calls=28698     main/src/evaluation/safety_veto_v7.py:415 decide
+   11.5%      56.0s  calls=70000     main/src/game/scripted_snake.py:204 update
+    9.7%      47.2s  calls=30000     main/src/game/game_state.py:652 handle_collisions
+    6.6%      32.2s  calls=109436    main/src/game/snake_state.py:196 _get_danger_map
+    1.7%       8.2s  calls=108698    main/src/model/apex_network.py:120 forward
+
+top self time:
+Tue Oct  6 22:16:45 2026    main_eval.prof
+
+         3502346057 function calls (3499144161 primitive calls) in 485.286 seconds
+
+   Ordered by: internal time
+   List reduced from 4660 to 25 due to restriction <25>
