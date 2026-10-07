@@ -1,0 +1,615 @@
+# Redesign scope: vectorized simulator + spatial (ego-raster) policy
+
+**Date:** 2026-10-07. **Branch:** `redesign-scope` (from `main` 68c0efe).
+**Status:** code-only scoping, approved by the owner on 2026-10-07. No training
+runs, no RunPod or GPU spend. Milestone-1 prototype code ships with this doc.
+**Inputs:**
+- [ml_redesign_blueprint_2026-07.md](../ml_redesign_blueprint_2026-07.md) (the July blueprint)
+- [experiment_portfolio_review_2026-09-26.md](experiment_portfolio_review_2026-09-26.md) (the PQN/raster post-mortem)
+- [perf_plan_2026-10-07.md](perf_plan_2026-10-07.md)
+- [simd_vector61_plan_2026-09-26.md](simd_vector61_plan_2026-09-26.md)
+- [governance_tiers_2026-09-26.md](governance_tiers_2026-09-26.md) and its amendments
+- the frp3 death census (branch `census-frp3`)
+- the train-smarter memo and E0 result (branches `train-smarter` and `frp-v5h`)
+
+## 0. Pre-committed direction rule
+
+The owner recorded this rule on 2026-10-07, before FRP-v5-H and FRP-v5-S2 report:
+
+> If FRP-v5-H and FRP-v5-S2 **together** add less than about **+20 H5000** over
+> frp3-s12+v8, the 61-D vector line is declared near its ceiling, and main
+> effort moves to this redesign.
+> If **either** wins, combine horizon and sight in the next round, **and**
+> continue this redesign in parallel.
+
+Either way, this redesign continues. The rule decides only whether it is the
+main line or a parallel one. The milestones below are sized so that M1 and M2
+are worth doing under either branch.
+
+## 1. Why a redesign, and why this one is not the July attempt again
+
+The July blueprint was built: BatchSim, `raster31v2`, RasterDuelingNetwork, the
+PQN trainer and web serving. In September the raster/PQN line was **retired**
+after 192 experiments (about 31 compute-hours). The lessons from that work shape
+this plan:
+
+| September failure (portfolio review) | What this plan does differently |
+|---|---|
+| PQN learned, then collapsed; seed variance swamped every single-knob change | Keep the **DQN family that produced every champion** (Double DQN, dueling, n-step, replay). It now runs synchronously on vectorized envs. PQN becomes an M4 option, not the base. |
+| Started from scratch; a behaviour-cloned (BC) policy handed to PQN without an anchor lost its skill | **Warm-start by distillation from frp3-s12+v8**, and keep a distillation anchor during RL (§6). |
+| Trained in mechanics v2 with the PBRS reward, then judged on H5000 mass, an objective mismatch | Train in the **gate world**: profile `promotion-v2-watch-rect`, mechanics v2, champion reward contract. Score by the H5000 metric from the first dev check. |
+| No cheap check against Apex before investing days; lineage 6102 lost at H5000 by −30 to −66 | Every milestone ends with a **dev H5000 check vs frp3-s12+v8** (one hour, not days). |
+| Featurization was 80% of each PQN update; GPU idle | The env is the measured bottleneck. M1 measures it and fixes the sim. Featurization placement is a costed decision (§5). |
+
+**What makes it worth doing now** is the frp3 census and the train-smarter and
+E0 findings:
+- 100 of 109 deaths are big-body self deaths, at a median length of 1068.
+- The 61-D input caps length at 150. That is `min(L/150, 1)`, and 98/100 self
+  deaths happen at L > 150.
+- The free-space BFS caps at 160 cells.
+- γ 0.99 gives a horizon of about 100 frames, but traps form 92–119 decisions
+  before death (this is a hypothesis; E0 found closure in 0–1.2% of survivor
+  decisions vs 20–50% before death).
+
+A raster that shows the whole own body with time-to-vacate, a global map of the
+arena, and an uncapped length removes the perception caps by construction. A
+much cheaper simulator buys the data volume that a longer horizon needs.
+FRP-v5-S2 (67-D sight features) and FRP-v5-H (γ 0.995) test the same two
+hypotheses inside the vector line. Their results are evidence for this design
+either way.
+
+## 2. What exists and what is reused
+
+| Asset | State | Reuse |
+|---|---|---|
+| `BatchSim` (`src/simd_env/batch_sim.py`) | Bit-exact with the live game: v2 over 600k frames; v1 checked by the v7/v8 tests. Vectorized only at the edges: collisions, masks, food and respawn are per-env Python loops whose cost grows with body length. | **Base class.** M1's `GridBatchSim` subclasses it, so ring buffers, accessors, step order, RNG discipline and every existing harness carry over unchanged. |
+| `EnvRng` + `docs/simd_env_spec.md` | Per-env CPython `random.Random` in the live draw order | Reused. Spawns stay exact; only the occupancy test changed (O(1) grid lookup). |
+| `parity.run_parity` / `PyRefGame` | Live-game reference harness | M1 tests drive `GridBatchSim` through it directly. |
+| `vector61_featurizer` / `vector61_policy` / `run_simd_eval` | Bit-exact 61-D features and decisions for the v2/v5 vetoes; v7/v8 run the live hook code per row | **The teacher path for distillation** (M2). It is engine-agnostic over `BatchSim`, so it works on `GridBatchSim` unchanged. |
+| `featurizer.py` (`raster31v2`), `gpu_featurizer.py` | Paints per agent from coordinate lists | Superseded for new work by grid gathers (`ego_raster.py`). The GPU port is the precedent for featurizing on the learner device. |
+| `RasterDuelingNetwork`, InferenceAgent `obs_spec` dispatch, web ego-raster viewer | Built in July | The network shape is a starting point. The obs-spec and checkpoint contract mechanism is reused for a new spec, `ego2s`. |
+| Apex learner (`apex_learner.py`, PER, n-step, td_targets) | Produced every champion | The TD math is reused in a **synchronous** single-process learner (§6). |
+| Governance: Tier-1, Phase R sequential, LH-1, Tier-2 strict, Mac serving qualification | Mature | Unchanged (§9). |
+
+## 3. Milestone-1 prototype (this branch)
+
+### 3.1 `GridBatchSim` — `src/simd_env/grid_sim.py`
+
+This is a subclass of `BatchSim` with per-env **occupancy grids**, stored with a
+24-cell border:
+- `owner` (int16): which snake occupies the cell;
+- `slot` (int32): the ring slot of that segment, so its offset from the head
+  and its time-to-vacate are O(1);
+- `food` (int8): ambient, corpse or outside.
+
+The grids are updated incrementally:
+- popped tails are cleared;
+- new heads are stamped after detection;
+- envs with a collision event are rebuilt exactly.
+
+What runs as array work over the whole `(E, S)` batch:
+- **Collision detection:**
+  - wall, self and body take one gather per traversed head cell into the
+    post-move grid;
+  - head-on (shared cell or head swap) is an `(E, S, S, 2, 2)` pairwise compare.
+- **The 6-bit action mask:**
+  - 3 × 2 candidate cells are gathered per snake, using the exact own-tail and
+    other-tail vacate offsets from `BatchSim._compute_action_masks`;
+  - the bounds were derived from `_sim_body_after_move` and are documented in
+    the code.
+- **Bookkeeping:** food-consumption detection, rewards, respawn timers, trail
+  pellets.
+
+What stays scalar Python, but only for the rare rows that need it:
+- order-dependent collision **resolution**, for envs with an event;
+- **spawns**, in the exact CPython RNG draw order;
+- **contested food** cells;
+- **corpse drops.** A v2 death of length L used to cost O(L·F) through repeated
+  `evict_oldest_corpse` scans. It is now one O(F + L) bulk drop
+  (`_drop_corpse_v2`), proven equal to the sequential adds, including the case
+  where a pellet is evicted and then re-added.
+
+**Parity (bit-exact, CI):** `tests/test_grid_sim_parity.py` has 48 tests. They
+compare every frame against `BatchSim`:
+- ordered bodies, lengths, alive, heading, the boost, hunger and respawn
+  counters;
+- the ordered food list, the corpse set and the per-env RNG state;
+- the advisory, legal and resolved masks;
+- rewards, done, death cause, kill credit and victim lengths, and the
+  food-source events.
+
+The grid invariants are also checked against a from-scratch rebuild. The tests
+cover:
+- mechanics v1 and v2, the train and watch food branches, both respawn arms;
+- greedy growth with boost burns;
+- injected **big bodies** (L = 150–900) on the full 1450×830 gate arena, which
+  must produce self-trap deaths;
+- forced head-on and head-swap geometry: gap 0/1/2, equal and unequal sizes,
+  with and without boost;
+- **paused worlds:** `active_env_mask` on worlds holding long and dead snakes,
+  resumed without a reset, with the grid checked every frame; this covers both
+  `step` and `step_with_policy`;
+- `reset_envs`;
+- `GridBatchSim` run **directly through the live-game reference**
+  (`run_parity`, v2, both respawn arms).
+
+The adversarial review found one real divergence, in paused worlds. BatchSim
+leaves a stale "current head" traversal flag on inactive rows, which made the
+grid pop their tails. It is fixed: `n_trav` is now zeroed for inactive rows.
+The earlier test could not catch it, because its paused world held only
+length-1 snakes. The new paused-world tests fail on the old code (5 of 5).
+`check_grid_invariants` is now non-mutating, so a check cannot repair the drift
+it is looking for. `GridBatchSim` refuses `min_boost_length < 3`, because a
+length-2 burn would pop a new head cell.
+
+The bench also checks a **live-vs-grid lockstep on an injected big-body world**
+(§3.3). The live reference uses the live `Snake`, `FoodManager` and collision
+primitives plus the live mask. Bodies, alive, lengths, the ordered food list
+and masks were equal on every one of 300 frames (2 deaths, max length 898).
+This check is recorded in `results/bench_20261007.json`. The capped big-body
+rerun ran with `--verify 0`.
+
+Mutation check: off-by-one changes to the own-tail and other-tail mask bounds
+fail 9–10 tests. Removing the head-swap rule fails 8 tests.
+
+One deliberately unobservable equivalence: the self-hit threshold `k_post >= 3`
+vs `>= 2` cannot be told apart, because offset-2 self contact needs a 180° turn
+and relative actions cannot make one.
+
+### 3.2 `ego2s-draft` featurizer — `src/simd_env/ego_raster.py`
+
+Every plane is a gather from the simulator's padded grids, one flat `take` per
+plane, using a precomputed per-heading offset table. The rotation is exact (an
+index permutation), and the cost does not depend on body length or pellet count.
+
+- **Local** `6 × 31 × 31` uint8, 1 cell per pixel, head at (23, 15):
+  - own TTL: the estimated frames until the segment vacates, `L − k`. This is
+    exact only if the owner neither eats nor boosts, so it is an estimate, not
+    a guarantee;
+  - enemy TTL;
+  - enemy head (size ratio);
+  - food (ambient or corpse);
+  - wall;
+  - **reach_time:** a 24-step time-aware flood from the head, in which body
+    cells become passable once their TTL has elapsed. This is the
+    tail-chasing / "will this pocket open?" signal that the capped BFS lacks.
+- **Global** `4 × 37 × 37` uint8 at 8×8 cells per pixel: own mass, enemy mass,
+  food mass, outside. The window spans ±144 cells, so **the whole arena is
+  visible from any head position**, including a 1000-long own body.
+- **Scalars (12):**
+  - `log1p(L)`, and `L/1000` uncapped;
+  - pending growth;
+  - boost available and boost phase;
+  - hunger;
+  - ego wall distances ×4;
+  - alive fraction.
+
+In the global map, a block that is only partly outside the arena (the edge
+column 144, and rows 80–82 of the last block row) counts as inside.
+
+Tests (`tests/test_ego_raster.py`) check every local and global plane, the
+uncapped length and the ego wall distances against a slow reference. The reference reads ordered bodies and the food list (never the
+grids), rotates with a hand-written heading table, and runs a scalar BFS.
+
+Gaps in this draft, left for M1-full:
+- **Region size per action.** E0's three uncapped, tail-aware region/L values
+  need a connected-component pass. Pure NumPy has no efficient labeling, and
+  scipy and numba are not in the venv. See §5.
+- **Enemy next-cell prediction**, including boost.
+- **Live adapter** (GameState → the same grids) and its identity test.
+- Incremental coarse grids.
+
+### 3.3 Measured throughput (Mac, one slot)
+
+Measurement conditions:
+- run under `with_slots.py --slots 1` with `OMP_NUM_THREADS=1`;
+- the host was loaded at the time (FRP-v5-S2 training and the FRP-v5-H identity
+  half);
+- 2 rounds × 6 s per cell; the table reports medians;
+- raw output: `research/redesign_scope_20261007/results/bench_20261007.json`.
+
+The gate arena is 1450×830 with 6 snakes, 250/300 food, mechanics v2,
+train-mode food and respawn on. Actions come from a mask-following
+SurvivorPolicy and are not timed. An agent-step is one living snake advanced one
+frame, including its 6-bit mask.
+
+**Fresh worlds** (episode start, snakes growing from length 1; 2 rounds × 6 s per cell, medians;
+`results/bench_20261007.json`):
+
+| engine | worlds/process | env-frames/s | agent-steps/s | vs live |
+|---|---|---|---|---|
+| live physics + live mask (`PyRefGame`) | 4 (serial) | 6,222 | 37,316 | 1.0× |
+| `BatchSim` | 1 | 6,611 | 39,666 | 1.1× |
+| `BatchSim` | 64 | 18,219 | 109,280 | 2.9× |
+| `GridBatchSim` | 1 | 3,679 | 22,074 | 0.6× |
+| `GridBatchSim` | 64 | 52,446 | 314,577 | 8.4× |
+| `GridBatchSim` | 256 | 70,176 | 420,916 | 11.3× |
+
+**Big-body worlds** (injected serpentines L = 900/600/400/300/150/150, capped at 60 frames
+per world so the regime stays big; mean length at the end 280–420; 2 rounds × ≤20 s;
+`results/bench_big_capped_20261007.json`):
+
+| engine | worlds/process | env-frames/s | agent-steps/s | vs live |
+|---|---|---|---|---|
+| live physics + live mask | 4 (serial) | 340 | 2,033 | 1.0× |
+| `BatchSim` | 1 | 349 | 2,093 | 1.0× |
+| `BatchSim` | 64 | 401 | 2,395 | 1.2× |
+| `GridBatchSim` | 1 | 3,774 | 22,642 | 11× |
+| `GridBatchSim` | 64 | 31,235 | 186,427 | **92×** |
+| `GridBatchSim` | 256 | 32,290 | 192,679 | 95× |
+
+Key results:
+- The live engine and `BatchSim` slow down about **18×** from fresh to big
+  bodies, because their per-frame cost grows with body length.
+- `GridBatchSim` slows down only about 1.6×. Its residual cost comes from food
+  and corpse events, not geometry.
+- The "vs live" multipliers compare `GridBatchSim` running 64–256 worlds in
+  lockstep against live worlds stepped one after another. They depend on the
+  batch size. With 1 world per process, the speedup is about 11× on big worlds
+  and 0.6× on fresh ones.
+- With one world per process, `GridBatchSim` is slower than `BatchSim` on fresh
+  worlds (NumPy call overhead). Its gain needs at least ~16 worlds in lockstep.
+- An uncapped 6 s run of the big scenario lets bodies die back to a mean length
+  of 60–160. It gives `GridBatchSim` 48–53k env-frames/s, also in
+  `bench_20261007.json`.
+
+How to read the table:
+- `live` is the live game's physics plus mask share of an actor frame. A real
+  live actor frame also pays for the 61-D `get_state`, the forward pass and the
+  v8 veto. perf-sim measured that at about **317 rows/s/core** for the gate-world
+  actor after its 2.2× speedup.
+- The `big` scenario is the regime where the champion dies.
+- Featurizer costs are per agent and come from the 64-env cells.
+
+**Featurizers**, per living agent, from the 64-world cells:
+
+| featurizer | fresh µs/agent | big µs/agent | agents/s/core (big) |
+|---|---|---|---|
+| `raster31v2` (`obs_inputs_from_batch_sim` + `build_observations`) | 56.5 | 338.6 | 2,953 |
+| `ego2s-draft`, no reach flood | 66.3 | 64.9 | 15,399 |
+| `ego2s-draft`, with 24-step reach flood | 98.1 | 95.3 | 10,488 |
+
+Split, from `results/featurizer_split_20261007.log` (big worlds, per agent):
+
+| component | µs/agent |
+|---|---|
+| local gathers | 34.9 |
+| global planes | 42.2 (13.7 of it is the coarse bincount) |
+| reach flood | 34.0 |
+| scalars | 0.1 |
+
+**Bottom line:** at gate-world scale the NumPy sim runs at about 190–420k
+agent-steps/s per core, while the NumPy featurizer runs at 10–15k. The
+**featurizer, not the sim, is now the binding cost**, by about 15–30×. This is
+why §5 matters.
+
+`ego2s` is length-independent: big ≈ fresh. `raster31v2` is 6× slower on big
+bodies, because it repaints every segment.
+
+## 4. Target architecture
+
+```
+GridBatchSim (E envs x S snakes, lockstep, CPU, many worlds per process)
+   |  padded grids (owner/slot/food) + scalars          <- one H2D copy per step if GPU
+   v
+ego2s featurizer (CPU NumPy today; GPU torch.gather or compiled kernel at scale)
+   v
+Ego2sNet dueling CNN (~1.6M params, ~22 MFLOP fwd)  -- acting: one batched forward
+   v                                                     for every hero slot
+synchronous vectorized DQN learner (Double, dueling, n-step, replay, target net)
+   + distillation anchor to the frp3-s12+v8 teacher
+   + frozen-opponent pool = frp3-s12 / champion / scripted (the gate's mixes)
+```
+
+### 4.1 Batched step: many worlds per process, in lockstep
+
+This is `GridBatchSim.step(actions[E, S])`, built in M1:
+- **Episode resets:** per env with `reset_envs(mask, seeds)`. The September
+  barrier-reset bug (52–55% of slots valid) is avoided by design.
+- **Opponents:** mixed-policy execution as in the gate. Opponent slots run the
+  frozen vector61 policies through `vector61_policy` (batched rows), or the
+  scripted anchors. Only hero slots train.
+- **Many processes:** one `GridBatchSim` per worker process, `E` ≈ 64–256 per
+  worker. Each worker sends `(obs uint8, mask, reward, done)` blocks to the
+  learner.
+
+### 4.2 Parity strategy
+
+There are three tiers.
+
+1. **Bit-exact, CI-enforced:** world dynamics, RNG, masks, rewards and events.
+   This holds `GridBatchSim` ≡ `BatchSim` ≡ live, as in the tests above. It is
+   required, because the sim is the gate's SIMD engine and the teacher's world.
+2. **Bit-exact, CI-enforced: featurizer, live vs sim (M1-full).** A
+   `game_state_to_grids` adapter builds the same padded grids from a live
+   `GameState`. The serving obs must equal the training obs byte for byte (the
+   `raster31v2` live adapter is the precedent).
+   A GPU port of the featurizer is integer gathers only. It must also be
+   **bit-exact** with the CPU one (the `gpu_featurizer.py` precedent), so
+   training and serving observations never differ.
+3. **Statistical, not bit-exact:**
+   - batched-forward policy decisions (float reductions differ by about 6e-6);
+   - training-throughput paths.
+
+   Guarded by:
+   - a decision-agreement rate of at least 99.9% on recorded states;
+   - the obs-histogram KS check (`obs_histogram_diff.py`);
+   - and, for anything that becomes gate evidence, the existing rule: **final
+     strict evidence runs on the live engine**.
+
+## 5. Featurizer and compute placement (the decision M1 must close)
+
+The prototype shows **the sim is no longer the bottleneck; the NumPy featurizer
+is** (§3.3). Options, cheapest first:
+
+| Option | Est. cost per agent | Notes |
+|---|---|---|
+| (a) NumPy as is | 65 µs (no reach) / 95 µs (reach), measured (§3.3) | Fine for serving: 12 snakes × 95 µs ≈ 1.1 ms, plus the forward (not yet measured at batch 12). Fine for distillation-data generation. Bounds CPU-only training. |
+| (b) Incremental coarse grids kept in the sim | Removes the coarse bincount (13.7 µs/agent measured) | 1–2 days. Updates go in the existing head-write and tail-pop sites. |
+| (c) Featurize on the learner GPU: upload per-env uint8 code + TTL grids over the unpadded arena (145×83 × 2 B ≈ 24 KB/env/step, or ~6 MB/step at E=256), pad and crop with `torch.gather`. The raw padded int16+int32+int8 grids are about 177 KB/env, so do not ship those. | ≈ free on a 4090 | The `gpu_featurizer.py` precedent. Region labeling and reach floods are cheap as `max_pool2d` iterations on GPU. |
+| (d) Compiled kernel (numba or a small C extension) for crop + BFS + region labels | ~5–10 µs/agent (estimate) | New dependency. This is an owner decision. It also gives E0's uncapped region sizes on CPU for serving. |
+
+**Recommendation:**
+- do (b) in M1-full;
+- do (c) for any GPU training run;
+- treat (d) as an owner decision, needed only if uncapped region-size features
+  must run on Mac CPU for serving.
+
+## 6. Learner: keep vectorized DQN; PQN deferred
+
+**Recommendation: a synchronous, single-process vectorized DQN.** This is the
+Ape-X *semantics* (Double DQN, dueling, n-step, PER optional, target network)
+with no actor/buffer IPC. The actor is `GridBatchSim` and the learner shares its
+process.
+
+| | Vectorized DQN (recommended) | PQN (Q(λ), no replay/target) |
+|---|---|---|
+| Track record here | Every champion (A5 → frp3-s12) | Retired after 192 experiments; collapse at about 1M transitions; extreme seed variance |
+| Warm start / anchor | Natural: teacher transitions in replay (DQfD-style), plus a Q-distillation loss | A BC→PQN handoff without an anchor lost the skill |
+| Throughput need | Replay reuses each sample; less env volume per update | Needs many fresh frames per update; only makes sense at GPU env scale |
+| Horizon (γ 0.995–0.997) | n-step 5–10 plus frequent target sync; FRP-v5-H tests γ 0.995 now | λ-returns are natural, but they are the unstable part |
+| UI contract | Dueling Q, unchanged | Dueling Q, unchanged |
+
+PQN is re-admitted only at M4. The condition is that the DQN line learns, and
+that GPU env throughput is at least 100k/s, where replay becomes the bottleneck.
+
+**Horizon:**
+- Start at γ 0.995, n-step 5, target sync every 1000 updates, matching the
+  FRP-v5-H arm so its result transfers.
+- Move to γ 0.997 only if FRP-v5-H wins.
+- The census closure window is about 100 decisions, so γ 0.995 (about 200
+  frames) is the smallest horizon that covers it.
+
+## 7. Warm start: distil frp3-s12+v8, then fine-tune with an anchor
+
+1. **Teacher data, on CPU, in M2.** Run frp3-s12 with the v8 veto as the hero,
+   and the gate's opponent mixes, on `GridBatchSim` through the vector61 batched
+   path. That path is bit-exact with live for the v2/v5 vetoes. v7/v8 run the
+   live hook code per row, so their decisions are exact by construction, but
+   H5000 record parity is still pending on branch `simd-v7v8`.
+   - Log per hero decision: the ego2s obs, the teacher Q(6), the v8-chosen
+     action, and the mask.
+   - Use DAgger rounds: the student acts while the teacher labels, so the
+     student sees its own state distribution, including the big-body states
+     where the teacher dies.
+2. **Student fit.** Minimize:
+   - a regression loss onto the teacher's **raw** Q. Do not standardize: the
+     DQN continuation needs the absolute scale;
+   - plus a **DQfD large-margin loss** on the v8-chosen action. This makes the
+     v8 action the argmax by a margin, without fighting the Q regression
+     wherever v8 overrides the teacher (a cross-entropy loss would pull the
+     argmax two ways).
+
+   The student learns *teacher+veto* behaviour without needing the veto at
+   serve time. v8 can still wrap the student, because it is policy-agnostic
+   (range-normalized Q + λ·area).
+
+   **Bellman-scale caveat:** the teacher's Q is a γ 0.99 value. If M3 uses
+   γ 0.995, start the fine-tune at γ 0.99 and anneal it. Alternatively, run a
+   short value re-bootstrap with the policy held fixed by the margin loss
+   before lifting the anchor.
+3. **RL fine-tune (M3).** Use vectorized DQN in the gate world.
+   - Keep the distillation loss as an anchor, with a weight decayed over time,
+     and keep about 25% teacher transitions in replay.
+   - The reward is the champion's contract, so H5000 and the training objective
+     do not diverge further than they do for frp3.
+
+## 8. Compute plan
+
+Measured inputs: §3.3 and `bench_network_20261007.log` (network probe).
+
+**Network probe** (`results/bench_network_20261007.log`; draft `Ego2sNet`, 1,625,687 params;
+batch 512; one CPU thread vs MPS; loaded host):
+
+| device | act (no-grad fwd) samples/s | DQN update samples/s (online s, s′ + target s′, bwd, Adam) |
+|---|---|---|
+| CPU, 1 thread | 1,737 | 569 |
+| MPS (M5 Pro GPU) | 127,454 | 19,974 |
+
+**What this means:**
+- **CPU acting** at about 1.7k/s per core is ten times below the featurizer and
+  a hundred times below the sim. So CPU-only end-to-end is about 1k hero
+  steps/s per core.
+- **CPU training** at 0.57k samples/s rules out local CPU RL at scale. That
+  matches September's 0.3–1.3k/s PQN numbers.
+- **MPS** does about 20k updates/s and 127k acting forwards/s. That makes the
+  Mac a credible M2 (distillation) and M3-smoke box: the sim and featurizer on
+  1–3 CPU slots, the network on the idle GPU. MPS is not gate evidence, and it
+  does not need to be.
+- A 4090-class pod should reach several times the MPS rate. G2 measures this
+  rather than assuming it.
+
+**Where each step runs.** The ≥4× per-step RunPod rule applies throughout.
+Pods are used only for steps projected at least 4× faster than the Mac.
+
+| Step | Mac (≤ 1–3 slots, thermal guard) | Pod |
+|---|---|---|
+| M1 sim/featurizer development, parity CI | Yes | — |
+| M2 teacher data, about 2–5M labelled hero decisions | 1–3 slots. The teacher's v8 veto is the cost, at about 300–1000 rows/s/core | CPU pods if teacher labelling projects ≥4× (32 vCPU). This is embarrassingly parallel. |
+| M2 student fit (supervised, about 5M samples × a few epochs) | **MPS.** The Mac GPU is idle and allowed for training, not for gate evidence | — |
+| M3 RL fine-tune (tens of millions of transitions) | Not viable on CPU: the learner is the bottleneck (see the network probe) | **One GPU pod, about 4090-class, on-demand.** RunPod spot was discontinued in 2026-09, so the blueprint's spot pricing no longer applies. Env workers run on the pod's vCPUs. |
+| Dev H5000 checks, Phase R, LH-1, strict | Per governance (live/SIMD engines, 2-slot strict) | Per the strict-on-RunPod amendment |
+
+**Opponent cost dominates the gate world.** Five of six slots are frozen
+opponents. A vector61 opponent row costs about 0.1–0.2 ms to featurize. That
+figure is from `simd_vector61_plan_2026-09-26.md`, measured on a loaded host
+and not re-measured here; M1-full measures it at big lengths. An
+opponent wrapped in the v8 veto costs more. Of the gate's mixes, only the hero
+carries v8; the frozen and mixed opponents are plain vector61 or scripted. So
+opponent rows, not the hero raster, set the env rate unless:
+- opponents become cheaper (scripted, or distilled ego2s students that share
+  the hero's batched forward);
+- or training uses a cheaper opponent mix and the gate mixes are used only for
+  evaluation.
+
+M1-full must measure this. The gates therefore count **whole worlds**.
+
+**Throughput gates** (replacing the blueprint's 40k/100k with measured,
+end-to-end numbers):
+- **G1 (Mac, before any pod):** at least 20k hero agent-steps/s per process
+  (ego2s obs and masks included, no learner) **with the training opponent mix's
+  rows included**. Report the gate mix separately.
+- **G2 (pod, before any long run):** at least 50k hero transitions/s end-to-end,
+  including opponent rows and forwards and the learner. This is measured in a
+  30-minute smoke test. The 4× rule is checked against the Mac's measured
+  M2/M3 rate.
+- **Where we stand on G1 today:** the sim does 190–420k agent-steps/s per core;
+  the NumPy featurizer does 10–15k (§3.3). G1 therefore needs option (b), plus
+  either the reach flood moved to the network device, or option (c). M1-full
+  closes this or reports the gap.
+
+**Storage.** One ego2s observation is 6·31² + 4·37² ≈ 11.2 KB. 5M teacher
+samples stored raw would be about 56 GB, so do not store observations. Because
+`GridBatchSim` is deterministic, keep `(world seed, all slots' action log,
+teacher Q, v8 action)` as the audit record. Seed + action log alone does not
+work for training: reaching a sample would mean re-simulating its episode from
+the start, which breaks shuffled minibatches. So store **compressed uint8
+observation chunks** for training. The planes are sparse, and zlib/zstd should
+cut them several-fold; M2 measures the ratio. Alternatively, store periodic
+world snapshots every ~100 frames and re-simulate short windows.
+The replay buffer stores next-states by index into a shared frame ring: about
+11 GB per 1M transitions in uint8. A GPU replay can hold the compact
+code + TTL grids instead.
+
+**Spend (owner approval required; RunPod budget $50).** These are estimates
+from 2026-10 on-demand pricing; check with the runpod skill before any request.
+
+| Item | Hours | Rate | Cost |
+|---|---|---|---|
+| G2 smoke test (4090-class pod) | 0.5 | ~$0.6–0.8/h | ≤ $0.5 |
+| M3, 3 seeds × ~6 h | 18 | ~$0.6–0.8/h | ~$11–15 |
+| CPU pods for teacher labelling (optional, only if ≥ 4×) | ~10 vCPU-h × 32 | ~$0.02–0.03 per vCPU-h | ~$7–10 |
+| Phase R (M4), per the FRP-v5 precedent | — | — | ≥ $35 (the FRP-v5-H vector61 plan; raster evaluation and training likely cost more) |
+
+The M4 Phase R cost alone is most of the budget, so M4 needs its own spend
+approval.
+
+## 9. Governance path for an ego2s candidate
+
+The candidate competes against **I = frp3-s12+v8**, the served champion. The
+docs are the governance tiers, the sequential-gate amendment, survival band v2,
+strict-on-RunPod, and LH-1.
+
+1. **Serving harness first.** Register the `ego2s` obs spec and checkpoint
+   contract, then the InferenceAgent and web adapter. Add the live-vs-sim
+   featurizer identity test (parity tier 2). Tier-1 numbers on SIMD do not count
+   until this exists, per the governance note for new architectures.
+2. **Dev H5000 check:** at the end of every milestone, about 1 hour, 16 worlds
+   per mix. This is development-only, not evidence.
+3. **Tier-1 screen** against I: profile `promotion-v2-watch-rect`, H5000, three
+   mixes, at least 16 fresh worlds per mix, paired. The candidate stops if the
+   pooled upper bound is below 0.
+4. **Phase R, FRP-style and sequential:** at least 5 seeds, pre-registered with
+   the same 8-criterion rule as FRP-v5. It is pooled H5000 ≥ +20 with an HK
+   one-sided 90% lower bound > 0, plus the survival floors, the guard vs
+   champion+v8, and so on. Use sequential looks; this is the owner's 2026-10-07
+   directive to cut process overhead.
+5. **LH-1** must come back CLEAR: prefix identity, MI10, and the big-body hazard
+   ratio. The hazard ratio is the metric this redesign should move most.
+6. **Tier-2 strict sequential gate** on the live engine, with 2 Mac slots or the
+   RunPod amendment.
+7. **Mac serving qualification:** 25 Watch, 25 Play, parity, and ≤ 8 ms for 12
+   snakes.
+
+## 10. Milestones (2–3 weeks)
+
+| # | Days | Deliverable | Exit criterion |
+|---|---|---|---|
+| **M1-proto** | done | `GridBatchSim`, `ego2s-draft`, parity tests, benches, this doc | Bit-exact CI green; throughput measured (§3.3) |
+| **M1-full** | 1–5 | (b) incremental coarse grids. Enemy next-cell channel. Region-size-per-action decision (§5). **`run_simd_eval` on `GridBatchSim`**, a one-line engine swap. `game_state_to_grids` live adapter plus an identity test. Register the `ego2s` obs spec. | **First measurable milestone (3–5 days):** (i) H5000 records for frp3-s12+v2 veto are byte-identical on `GridBatchSim` vs `BatchSim` (48/48, the existing `simd_parity_h5000_check` harness), and the same for v8 when simd-v7v8 lands; (ii) G1 met; (iii) live-vs-sim ego2s obs identical over 10k frames. |
+| **M2** | 5–9 | Batched teacher labelling, DAgger loop, student fit on MPS | Pre-registered **non-inferiority**: the distilled student without veto vs **frp3-s12 without veto**, dev H5000, n=32 per mix, pooled one-sided 90% LB > −30 (about 8% of 399). The student+v8 vs I check is reported, not gated. |
+| **M3** | 8–14 | Synchronous vectorized DQN with anchor; γ/n-step per FRP-v5-H; a 30-minute pod smoke test (G2) after owner approval of the spend | A dev H5000 learning slope > 0 across 3 seeds; then a Tier-1 screen vs I with pooled UB > 0. The big-body hazard ratio is reported. |
+| **M4** | 14–21+ | Phase R (pre-registered, separate spend approval); optional PQN or larger-net arm if M3 is env-bound | Per §9 step 4 |
+
+The schedule is optimistic. September needed 192 runs to retire one lineage.
+Only M1-full and M2 are firm. M3 and M4 depend on the anchor holding the skill,
+and they may slip by a week or more.
+
+## 11. Risks
+
+1. **Featurizer cost on CPU caps local training** (measured, §3.3). Mitigation:
+   GPU featurization (§5c) for training. CPU NumPy is already enough for
+   serving and teacher data.
+2. **The distilled student does not reach teacher+veto quality.** The veto's
+   area term is a capped-BFS heuristic, and the student must infer it from
+   rasters. Mitigation: keep v8 wrapping the student (it is policy-agnostic),
+   and add the region-size scalars (§5) as inputs.
+3. **RL fine-tune erodes distilled skill**, as the September BC→PQN handoff
+   did. Mitigation: an anchor loss plus teacher replay; early-stop on the dev
+   H5000 check; the checkpoint area-under-curve, not the last checkpoint.
+4. **Parity drift as mechanics evolve.** `GridBatchSim` inherits from `BatchSim`
+   and is lockstep-tested against it and against live. A mechanics change shows
+   up as a red CI. One BatchSim quirk is already hard-won: the stale traversal
+   flag on paused rows (§3.1). Any new BatchSim state must be checked against
+   the grid's incremental updates.
+5. **v7/v8 teacher on SIMD.** H5000 record parity is pending on `simd-v7v8`.
+   Until it lands, teacher data uses v8 decisions that are exact by
+   construction but not yet record-audited. That is acceptable for distillation
+   data, which is not gate evidence.
+6. **The horizon hypothesis is wrong.** FRP-v5-H tests it first. If γ 0.995
+   loses, M3 keeps γ 0.99 and relies on the global view.
+7. **Opponent rows dominate env cost.** Frozen vector61 opponents with Python
+   featurization, plus v8 where used, may cap the world rate well below the
+   hero raster rate (§8). Mitigation: measure in M1-full; train against cheaper
+   opponent mixes and evaluate on the gate mixes; distil opponents into ego2s
+   so they share the batched forward.
+8. **Compute contention.** The Mac is busy with the FRP-v5 studies. M1 and M2
+   need at most 1 CPU slot plus the idle GPU. M3 needs an owner-approved pod.
+
+## 12. Independent review (2026-10-07)
+
+An adversarial, read-only review of the doc and the prototype returned
+**GO-with-fixes**. It reproduced the physics cases that worked — head swap,
+boost paths, 170 ring wraps, growth lag, the corpse cap, contested food, and the
+v1/v2 rules — and raised 14 findings. A re-check after the fixes returned
+**GO**: 57/57 tests pass, and the paused-world repro is clean in all four
+configs. Five non-blocking points from that re-check are folded in: the source
+of the live big-body check; the opponent-row cost marked as unmeasured here;
+compressed observation chunks instead of seed replay for training data; batch
+size dependence of the speedup; and the Phase R cost as a lower bound. What was
+done with the 14 findings:
+
+| Finding | Severity | Resolution |
+|---|---|---|
+| Paused worlds (`active_env_mask`) corrupted the grid: a stale traversal flag popped tails | blocker | Fixed (`n_trav` zeroed for inactive rows). New tests with grown and dead snakes in paused worlds, plus `step_with_policy`, fail on the old code. |
+| The paused-world test was too weak | major | Replaced (above). |
+| `check_grid_invariants` repaired drift as a side effect | minor | Now non-mutating. |
+| A length-2 boost pops a new head cell | minor | Constructor rejects `min_boost_length < 3`. |
+| Victim lists are `()` tuples in worlds with no event | minor | Kept for speed. The accessor returns lists; nothing appends to them. |
+| Measured claims were made before the benches landed | major | Benches landed; every number in §3.3, §5 and §8 cites a results file. |
+| The distillation loss contradicted itself (standardized Q, γ mismatch, CE vs Q) | major | Now raw-Q regression plus a DQfD margin loss, with an explicit γ re-bootstrap (§7). |
+| Throughput gates ignored opponent-row cost | major | Gates now count whole worlds including opponent rows (§8); added as risk 7. |
+| Storage and spend not sized | major | Seed + action-log storage; spend table against the $50 budget (§8). |
+| GPU upload size was wrong | minor | Corrected to about 24 KB/env/step, uint8 code + TTL. |
+| GPU featurization was classed as statistical | minor | Moved to the bit-exact tier. |
+| Featurizer gaps (TTL is an estimate, scalars untested, hard-coded boost cadence, partial edge blocks) | minor | TTL documented as an estimate; scalar test added; cadence read from config; edge blocks documented. |
+| Schedule inconsistent and optimistic; M2 bar too weak | minor | M1-full is 1–5 days; M2 is a pre-registered non-inferiority test; the slip risk is stated. |
+| Overclaims about paused-world parity | minor | True after the fix and the new tests. |
+
+## 13. Files
+
+- `src/simd_env/grid_sim.py`: `GridBatchSim`
+- `src/simd_env/ego_raster.py`: the `ego2s-draft` featurizer
+- `src/simd_env/grid_scenarios.py`: serpentine injection and the greedy-safe policy
+- `tests/test_grid_sim_parity.py`, `tests/test_ego_raster.py`
+- `research/redesign_scope_20261007/bench_throughput.py`, `bench_network.py`, `results/`

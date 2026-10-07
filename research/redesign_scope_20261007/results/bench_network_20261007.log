@@ -1,0 +1,3 @@
+holding ['/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909/cpu-slot-1.lock']
+{"device": "cpu", "batch": 512, "params": 1625687, "act_samples_per_s": 1737.1, "train_samples_per_s": 568.9}
+{"device": "mps", "batch": 512, "params": 1625687, "act_samples_per_s": 127453.5, "train_samples_per_s": 19974.1}
