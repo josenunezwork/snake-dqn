@@ -39,6 +39,7 @@ HERE = Path(__file__).resolve().parent
 POOL = HERE / "variance_pool_20261007.json"
 METRIC_INDEX = {"mi5": 0, "surv5": 1, "mi10": 2}
 CHUNK = 2000
+GUARD_RHO = 0.5
 _DF_GRID = np.exp(np.linspace(0.0, math.log(5000.0), 4000))
 
 
@@ -97,25 +98,52 @@ def draw(
         "primary": float(scenario["effect"]),
         "control": float(scenario.get("control_effect", 0.0)),
     }
-    effects["guard"] = effects["primary"] + float(scenario.get("guard_gap", 75.0))
-    out = {}
-    for cell in sorted(rule["cells"]):
+    gap = float(scenario.get("guard_gap", 75.0))
+    rho = float(scenario.get("guard_rho", GUARD_RHO))
+    out: Dict[str, np.ndarray] = {}
+    means: Dict[str, np.ndarray] = {}
+    for cell in ("primary", "control"):
+        if cell not in rule["cells"]:
+            continue
         k = len(rule["cells"][cell]["seeds"])
         x = pool[rng.integers(0, pool.shape[0], size=(reps, k, n_worlds))].copy()
-        d = effects.get(cell, 0.0)
+        d = effects[cell]
         u = rng.normal(0.0, tau, size=(reps, k)) if tau > 0 else np.zeros((reps, k))
         z = rng.normal(0.0, tau, size=(reps, k)) if tau > 0 else np.zeros((reps, k))
         u10 = ratio * (0.7 * u + math.sqrt(1.0 - 0.49) * z)
-        if cell == "guard":  # one reference seed; its seed effect is part of the gap
-            u = np.zeros_like(u)
-            u10 = np.zeros_like(u10)
-        x[..., 0] += (d + u)[:, :, None, None]
-        x[..., 2] += (ratio * d + u10)[:, :, None, None]
-        x[..., 1] += per_mass * d
-        for mix, shift in harm.items():
-            if cell in ("primary", "guard"):
-                x[..., mixes.index(mix), 1] += float(shift)
-        out[cell] = x
+        mean = np.zeros((reps, k, 1, len(mixes), 3))
+        mean[..., 0] = (d + u)[:, :, None, None]
+        mean[..., 2] = (ratio * d + u10)[:, :, None, None]
+        mean[..., 1] = per_mass * d
+        if cell == "primary":
+            for mix, shift in harm.items():
+                mean[..., mixes.index(mix), 1] += float(shift)
+        if (
+            cell == "control"
+            and rule["cells"]["control"]["seeds"] == rule["cells"]["primary"]["seeds"]
+        ):
+            # both arms are paired with the same incumbent episodes on the same worlds
+            x = rho * (out["primary"] - means["primary"]) + math.sqrt(1.0 - rho**2) * x
+        out[cell] = x + mean
+        means[cell] = mean
+    if "guard" in rule["cells"]:
+        # hero - champion on the reference seed shares the hero's episodes with the primary
+        # cell (hero - incumbent on the same worlds): correlation ``rho`` (FRP-v4: 0.54 for
+        # H5000 mass, 0.51 for survival), the hero's own effects and harm, plus the gap.
+        ref = rule["cells"]["primary"]["seeds"].index(rule["cells"]["guard"]["seeds"][0])
+        primary = out["primary"][:, ref : ref + 1]
+        mean = means["primary"][:, ref : ref + 1]
+        fresh = pool[rng.integers(0, pool.shape[0], size=(reps, 1, n_worlds))]
+        shift = np.zeros((len(mixes), 3))
+        shift[:, :] = [gap, per_mass * gap, ratio * gap]
+        for mix, extra in (scenario.get("guard_harm") or {}).items():
+            shift[mixes.index(mix), 1] += float(extra)
+        out["guard"] = (
+            mean
+            + rho * (primary - mean)
+            + math.sqrt(1.0 - rho**2) * fresh
+            + shift[None, None, None]
+        )
     return out
 
 
@@ -239,6 +267,7 @@ def evaluate(
     stop = np.full(reps, -1)
     efficacy_at_stop = np.zeros(reps, bool)
     efficacy_ever = np.zeros(reps, bool)
+    efficacy_nonbinding = np.zeros(reps, bool)  # any look, every stop ignored
     open_ = np.ones(reps, bool)
     statuses = rule["statuses"]
     for look, n in enumerate(sizes):
@@ -330,6 +359,7 @@ def evaluate(
             here[kill & ~blocked] = statuses["kill"]
             here[go] = statuses["go"]
         efficacy_ever |= open_ & eff
+        efficacy_nonbinding |= eff
         sel = open_ & (here != "")
         status[sel] = here[sel]
         stop[sel] = look
@@ -341,6 +371,7 @@ def evaluate(
         "fraction": np.asarray(sizes)[stop] / n_total,
         "efficacy_at_stop": efficacy_at_stop,
         "efficacy_ever": efficacy_ever,
+        "efficacy_nonbinding": efficacy_nonbinding,
     }
 
 
@@ -352,7 +383,7 @@ def scenarios(family: str) -> List[Dict[str, Any]]:
     threshold = 20.0 if family == "v4" else 32.0  # v5: H - C contrast exactly +25
     rows = []
     for tau2 in (0.0, 500.0):
-        for effect in (-20.0, 0.0, 20.0, 30.0, 40.0, 65.0):
+        for effect in (-20.0, 0.0, 20.0, 30.0, 40.0, 50.0, 65.0):
             rows.append({"family": family, "effect": effect, "tau2": tau2, **control})
         if family == "v5":
             rows.append(
@@ -380,6 +411,16 @@ def scenarios(family: str) -> List[Dict[str, Any]]:
                     **control,
                 }
             )
+        rows.append(
+            {
+                "family": family,
+                "effect": 65.0,
+                "tau2": tau2,
+                "label": "harm_guard_scripted-0.10",
+                "guard_harm": {"scripted": -0.10},
+                **control,
+            }
+        )
     return rows
 
 
@@ -402,6 +443,7 @@ def summarise(result: Mapping[str, np.ndarray], labels: Sequence[str]) -> Dict[s
     ]
     out["efficacy_at_stop"] = rate(result["efficacy_at_stop"])
     out["efficacy_ever"] = rate(result["efficacy_ever"])
+    out["efficacy_any_look_nonbinding"] = rate(result["efficacy_nonbinding"])
     out["reps"] = reps
     return out
 
@@ -433,16 +475,31 @@ def run(reps: int, seed: int, n_worlds: int = 32, no_go: float = 50.0) -> Dict[s
                 data = draw(pool, base.rule, scenario, n_worlds, min(CHUNK, reps - start), rng)
                 for design in designs:  # common random numbers across designs
                     parts[design["name"]].append(evaluate(design, data))
-            for design in designs:
-                result = {
+            merged = {
+                design["name"]: {
                     key: np.concatenate([part[key] for part in parts[design["name"]]])
                     for key in parts[design["name"]][0]
                 }
+                for design in designs
+            }
+            fixed = merged["fixed"]
+            for design in designs:
+                result = merged[design["name"]]
+                paired = {}
+                for label in (base.rule["statuses"]["go"], base.rule["statuses"]["kill"]):
+                    diff = (result["status"] == label).astype(float) - (
+                        fixed["status"] == label
+                    ).astype(float)
+                    paired[label] = {
+                        "diff": float(diff.mean()),
+                        "paired_se": float(diff.std(ddof=1) / math.sqrt(len(diff))),
+                    }
                 rows.append(
                     {
                         "scenario": dict(scenario),
                         "design": design["name"],
                         **summarise(result, labels),
+                        "vs_fixed": paired,
                     }
                 )
             print(

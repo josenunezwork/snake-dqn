@@ -35,7 +35,7 @@
    4. Call `hooks.analyse_look(seq_root, plan, entries, k, {"prefix_controls": <bool>})`.
    5. Stop unless the receipt says `CONTINUE`.
 4. **Audit.** Run `python -I research/sequential_phase_r/audit.py --root <seq_root>
-   --record-dirs <every shard dir>`. It must report `PASS`. `UNCLOSED` or `FAIL` makes the study
+   --record-dirs <every shard dir>`. It must report `PASS`. `UNCLOSED`, `HALTED` or `FAIL` makes the study
    INVALID / INCOMPLETE.
 5. **Report.** The study reports the last receipt's status. After an early stop:
    * the point estimates are biased upward and are descriptive only;

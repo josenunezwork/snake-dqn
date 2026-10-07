@@ -14,7 +14,13 @@ the repository).
   own Student-t; status and action must agree with the receipt, numbers within
   ``REL_TOLERANCE``;
 * prefix integrity: no decision record in ``--record-dirs`` beyond the stopping look;
-* closure: a root whose last receipt says CONTINUE is ``UNCLOSED`` (never PASS).
+* the prefix identity flag, recomputed from the control records in ``--record-dirs``, and the
+  flags being identical in every receipt;
+* closure: a root whose last receipt says CONTINUE is ``UNCLOSED``, one that ended HALT /
+  INVALID_ANALYSIS is ``HALTED``; neither is ever PASS (exit 1).
+
+Not audited here: the shard start markers that carry the ``look_gate`` binding (they are the
+study runner's files; its own audit checks them).
 """
 
 from __future__ import annotations
@@ -411,6 +417,19 @@ def decide(plan: Mapping[str, Any], look: int, deltas, flags) -> Dict[str, Any]:
 
 
 # ----------------------------------------------------------------------------- the audit
+def prefix_identical(direct: Mapping[str, Any], prefix: Mapping[str, Any]) -> bool:
+    """Every field of the nested record's H5000 prefix block equals the direct H5000 record's
+    (``probes.safety_veto`` excluded, as in the FRP packages)."""
+    for field, value in prefix.items():
+        a = direct.get(field)
+        if field == "probes" and isinstance(a, dict):
+            a = {k: v for k, v in a.items() if k != "safety_veto"}
+            value = {k: v for k, v in value.items() if k != "safety_veto"}
+        if json.dumps(a, sort_keys=True) != json.dumps(value, sort_keys=True):
+            return False
+    return True
+
+
 def metric_value(record: Mapping[str, Any], metric: str) -> float:
     if record.get("prefix_h5000") is None:
         raise AuditError("a decision record without a prefix block")
@@ -488,6 +507,7 @@ def audit(root: Path, record_dirs: Sequence[Path] = ()) -> Dict[str, Any]:
     looks: List[Dict[str, Any]] = []
     previous_sha: Optional[str] = None
     ended = False
+    first_flags: Optional[Dict[str, Any]] = None
     k = 0
     while (Path(root) / "looks" / f"look-{k}.json").exists():
         path = Path(root) / "looks" / f"look-{k}.json"
@@ -580,11 +600,22 @@ def audit(root: Path, record_dirs: Sequence[Path] = ()) -> Dict[str, Any]:
                 mine = {"status": "INVALID_ANALYSIS", "action": "HALT"}
             if mine is not None:
                 row["audit_status"] = mine["status"]
-                if mine["status"] != decision.get("status"):
-                    bad.append(f"status {decision.get('status')} != audit {mine['status']}")
-                expected_action = mine["action"] if decision.get("valid") else "HALT"
-                if receipt.get("action") != expected_action:
-                    bad.append(f"action {receipt.get('action')} != audit {expected_action}")
+                if decision.get("valid"):
+                    if mine["status"] != decision.get("status"):
+                        bad.append(f"status {decision.get('status')} != audit {mine['status']}")
+                    if receipt.get("action") != mine["action"]:
+                        bad.append(f"action {receipt.get('action')} != audit {mine['action']}")
+                else:  # an invalid look must be INVALID_ANALYSIS / HALT whatever its data say
+                    if (
+                        decision.get("status") != "INVALID_ANALYSIS"
+                        or receipt.get("action") != "HALT"
+                    ):
+                        bad.append("an invalid decision that is not INVALID_ANALYSIS / HALT")
+                    if decision.get("status_if_valid", mine["status"]) != mine["status"]:
+                        bad.append(
+                            f"status_if_valid {decision.get('status_if_valid')} != audit "
+                            f"{mine['status']}"
+                        )
                 if "efficacy_estimate" in mine and "efficacy" in decision:
                     for a, b, what in (
                         (
@@ -612,6 +643,11 @@ def audit(root: Path, record_dirs: Sequence[Path] = ()) -> Dict[str, Any]:
                             )
         row["status"] = decision.get("status")
         row["action"] = receipt.get("action")
+        flags = receipt.get("flags", {})
+        if first_flags is None:
+            first_flags = flags
+        elif flags != first_flags:
+            bad.append(f"flags {flags} differ from look 0's {first_flags} (look 0 binds them)")
         looks.append(row)
         problems += [f"look {k}: {p}" for p in bad]
         ended = receipt.get("action") != "CONTINUE"
@@ -633,12 +669,40 @@ def audit(root: Path, record_dirs: Sequence[Path] = ()) -> Dict[str, Any]:
                 idx = position.get(str(r.get("seed")), {}).get(int(r.get("world_seed", -1)), -1)
                 if idx >= size:
                     problems.append(f"record beyond the stopping look ({size} worlds): {p}")
+    # prefix identity controls, recomputed from the direct-H5000 control records
+    controls_checked = 0
+    if record_dirs and first_flags is not None and "prefix_controls" in first_flags:
+        nested: Dict[Tuple, Dict[str, Any]] = {}
+        direct: List[Tuple[Tuple, Dict[str, Any], Path]] = []
+        for d in record_dirs:
+            for p in sorted(Path(d, "records").glob("*.json")):
+                r = load(p)
+                key = (r.get("hero"), r.get("seed"), r.get("mix"), r.get("world_seed"))
+                if r.get("control"):
+                    direct.append((key, r, p))
+                elif r.get("prefix_h5000") is not None:
+                    nested[key] = r
+        identical = bool(direct)
+        for key, r, p in direct:
+            controls_checked += 1
+            partner = nested.get(key)
+            if partner is None or not prefix_identical(r["record"], partner["prefix_h5000"]):
+                identical = False
+        if not direct:
+            problems.append("prefix_controls cannot be verified: no control records found")
+        elif identical != bool(first_flags["prefix_controls"]):
+            problems.append(
+                f"prefix_controls flag {first_flags['prefix_controls']} but the control records "
+                f"recompute to {identical}"
+            )
     if not looks:
         verdict = "UNCLOSED"
     elif problems:
         verdict = "FAIL"
     elif looks[-1]["action"] == "CONTINUE":
         verdict = "UNCLOSED"
+    elif looks[-1]["action"] == "HALT" or looks[-1]["status"] == "INVALID_ANALYSIS":
+        verdict = "HALTED"  # consistent receipts, but the study ended INVALID_ANALYSIS
     else:
         verdict = "PASS"
     return {
@@ -646,6 +710,11 @@ def audit(root: Path, record_dirs: Sequence[Path] = ()) -> Dict[str, Any]:
         "root": str(root),
         "verdict": verdict,
         "final_status": looks[-1]["status"] if looks else None,
+        "controls_checked": controls_checked,
+        "unaudited": [
+            "shard start markers (the look_gate binding) are written by the study's runner and "
+            "are not read here; the study's own audit must check them"
+        ],
         "looks": looks,
         "problems": problems,
     }

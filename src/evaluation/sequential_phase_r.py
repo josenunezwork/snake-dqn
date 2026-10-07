@@ -30,7 +30,7 @@ Design (every number frozen in the plan):
     t)`` is the variance of (interim mean - final mean), so an interim pass is a pass that the
     full run would confirm with probability about ``Phi(protective_margin_z)``.  This shape
     bounds the extra chances an early look gives a floor-violating candidate (simulated: within
-    about +0.005 absolute of the fixed design's GO rate, see the design doc);
+    +0.004 absolute of the fixed design's GO rate, design doc sections 5 and 9);
   - other point clauses (clause 1's +20, MI10 +20, attribution points) use ``margin_z * se_k *
     (1 - sqrt(n_k / N))`` (the strict gate's ``block_at_stop`` band margin).
 
@@ -85,6 +85,7 @@ __all__ = [
     "sequential_phase_r_decision",
     "spending",
     "stat_value",
+    "invalidate",
     "validate_rule",
 ]
 
@@ -214,11 +215,15 @@ def _stat_spec(spec: Mapping[str, Any], cells: Mapping[str, Any], mixes: Sequenc
         pair = list(spec.get("cells") or [])
         if len(pair) != 2 or any(c not in cells for c in pair) or pair[0] == pair[1]:
             raise ValueError("a welch stat needs two distinct declared cells")
+        if any(len(cells[c]["seeds"]) < 2 for c in pair):
+            raise ValueError("a welch stat needs >= 2 seeds in each cell")
         out["cells"] = pair
     else:
         if spec.get("cell") not in cells:
             raise ValueError(f"stat cell {spec.get('cell')!r} is not declared")
         out["cell"] = spec["cell"]
+        if kind == "hk" and len(cells[spec["cell"]]["seeds"]) < 2:
+            raise ValueError("an hk stat needs a cell with >= 2 seeds")
     if kind == "mix_mean":
         if spec.get("mix") not in mixes:
             raise ValueError(f"mix_mean needs one of the mixes {list(mixes)}")
@@ -999,4 +1004,16 @@ def sequential_phase_r_decision(
         result["invalid_reason"] = (
             f"data beyond look {look} supplied for {oversize[:3]} (prefix integrity)"
         )
+    if not valid:
+        return invalidate(result, result["invalid_reason"])
     return result
+
+
+def invalidate(decision: Mapping[str, Any], reason: str) -> dict[str, Any]:
+    """An invalid look is INVALID_ANALYSIS / HALT whatever its data say (INVALID precedes every
+    scientific status); the would-be status is kept only as ``status_if_valid``."""
+    out = dict(decision)
+    if out.get("status") != INVALID:
+        out["status_if_valid"] = out.get("status")
+    out.update(status=INVALID, action=HALT, valid=False, invalid_reason=reason)
+    return out

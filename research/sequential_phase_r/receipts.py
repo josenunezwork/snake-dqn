@@ -172,6 +172,10 @@ def write_look_receipt(
         raise ReceiptError("the decision was computed under a different plan")
     if int(decision.get("look", -1)) != int(look):
         raise ReceiptError("decision look index mismatch")
+    if not decision.get("valid") and (
+        decision.get("status") != "INVALID_ANALYSIS" or decision.get("action") != "HALT"
+    ):
+        raise ReceiptError("an invalid decision must be INVALID_ANALYSIS / HALT")
     previous_sha = None
     if int(look) > 0:
         prev = receipt_path(root, int(look) - 1)
@@ -199,7 +203,7 @@ def write_look_receipt(
         "deltas_sha256": deltas_sha256,
         "flags": {str(k): bool(v) for k, v in sorted(flags.items())},
         "decision": json.loads(canonical(dict(decision))),
-        "action": decision["action"] if decision.get("valid") else "HALT",
+        "action": decision["action"],
         "extra": dict(extra or {}),
     }
     return write_once(receipt_path(root, look), payload)

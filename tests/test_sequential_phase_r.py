@@ -313,7 +313,7 @@ def _study(tmp_path, effect, n_worlds=6, no_go=None):
     return plan, banks, root
 
 
-def _write_records(shard: Path, plan, banks, lo, hi, effect, rng):
+def _write_records(shard: Path, plan, banks, lo, hi, effect, rng, broken_control=False):
     shard.mkdir(parents=True, exist_ok=True)
     (shard / "records").mkdir(exist_ok=True)
     heroes = [("incumbent", SEEDS), ("R4@60000", SEEDS), ("champion", SEEDS[:1])]
@@ -340,6 +340,12 @@ def _write_records(shard: Path, plan, banks, lo, hi, effect, rng):
                     }
                     name = f"{hero}-s{seed}-{mix}-{world}.json".replace("@", "_")
                     (shard / "records" / name).write_text(json.dumps(rec))
+                    if lo == 0 and world == banks[seed][0] and hero != "champion":
+                        control = dict(rec, control=True, record=dict(rec["prefix_h5000"]))
+                        del control["prefix_h5000"]
+                        if broken_control:
+                            control["record"]["mass_integral"] += 1.0
+                        (shard / "records" / f"control-{name}").write_text(json.dumps(control))
 
 
 def _play(tmp_path, effect, no_go=None, stop_after=None):
@@ -467,6 +473,47 @@ def test_audit_is_standalone_stdlib(tmp_path):
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert json.loads(proc.stdout)["verdict"] == "PASS"
+
+
+def test_beyond_look_records_halt_and_audit_reports_halted(tmp_path):
+    plan, banks, root = _study(tmp_path, 0.0)
+    shard = tmp_path / "shard-L0"
+    _write_records(shard, plan, banks, 0, 3, 0.0, np.random.default_rng(0))  # 3 worlds, look 0 = 2
+    receipt = hooks.analyse_look(root, plan, hooks.load_entries([shard]), 0, FLAGS)
+    assert receipt["action"] == "HALT"
+    assert (
+        receipt["decision"]["status"] == "INVALID_ANALYSIS"
+        and "status_if_valid" in receipt["decision"]
+    )
+    with pytest.raises(receipts.ReceiptError):
+        receipts.look_gate(root, 1)
+    result = audit_mod.audit(root, [])
+    assert result["verdict"] == "HALTED" and result["final_status"] == "INVALID_ANALYSIS"
+
+
+def test_audit_recomputes_prefix_controls(tmp_path):
+    plan, banks, root = _study(tmp_path, 0.0)
+    shard = tmp_path / "shard-L0"
+    _write_records(shard, plan, banks, 0, 2, -400.0, np.random.default_rng(0), broken_control=True)
+    receipt = hooks.analyse_look(root, plan, hooks.load_entries([shard]), 0, FLAGS)
+    assert receipt["action"] == "STOP"
+    bad = audit_mod.audit(root, [shard])
+    assert bad["verdict"] == "FAIL" and any("prefix_controls" in p for p in bad["problems"])
+
+
+def test_validate_rule_rejects_pooled_stats_on_single_seed_cells():
+    rule = example_rules.frp_v4_like()
+    rule["go_clauses"].append(
+        {
+            "name": "bad",
+            "kind": "point",
+            "stat": {"kind": "hk", "cell": "guard", "metric": "mi5"},
+            "op": ">",
+            "threshold": 0.0,
+        }
+    )
+    with pytest.raises(ValueError, match=">= 2 seeds"):
+        validate_rule(rule)
 
 
 def test_audit_boundaries_match_module():

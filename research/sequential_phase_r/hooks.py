@@ -25,6 +25,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from research.sequential_phase_r import receipts
 from src.evaluation.sequential_phase_r import (
     SequentialPhaseRPlan,
+    invalidate,
     required_inputs,
     sequential_phase_r_decision,
 )
@@ -248,11 +249,10 @@ def analyse_look(
     deltas, used, beyond = look_deltas(plan, banks, entries, look)
     decision = sequential_phase_r_decision(plan, look, deltas, flags)
     if beyond:
-        decision = dict(decision)
-        decision["valid"] = False
-        decision["invalid_reason"] = (
+        decision = invalidate(
+            decision,
             f"{len(beyond)} decision record(s) beyond look {look} present at analysis "
-            f"(prefix integrity), e.g. {list(beyond[0])}"
+            f"(prefix integrity), e.g. {list(beyond[0])}",
         )
     rows = [
         {
