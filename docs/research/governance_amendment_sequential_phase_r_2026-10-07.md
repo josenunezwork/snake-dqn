@@ -2,7 +2,7 @@
 
 * **Date:** 2026-10-07.
 * **Branch:** `seq-phaser`.
-* **Status:** **Pending.** Nothing below applies until the owner ratifies it, and then only to
+* **Status:** **Ratified 2026-10-08 (see section 5).** Previously pending. Nothing below applies until the owner ratifies it, and then only to
   studies whose pre-registration opts in.
 * **Design:** `docs/research/sequential_phase_r_design_2026-10-07.md`.
 * **Code:** `src/evaluation/sequential_phase_r.py` and `research/sequential_phase_r/`.
@@ -95,7 +95,13 @@ A **future** FRP-family Tier-1 screen may pre-register a **sequential Phase R**
 
 ## 5. Ratification record (to be filled by the owner)
 
-- Decision: (ratified / ratified with changes / rejected)
-- Options: D2 NO_GO allowed (yes/no), default G = ...
-- Changes, if any:
-- By / date (UTC):
+- Decision: ratified
+- Options: D1 core design adopted. D2 NO_GO allowed as a per-study opt-in declared in the
+  study's pre-registration; default G = 50 at cap 600 (or the study's own gateable MDE if it
+  pre-registers a different cap). A study whose main purpose is a RECIPE decision should
+  either opt out of NO_GO or state that RECIPE is then descriptive only. D3 margins accepted
+  as drafted. D4 deferred: wiring the per-look gate into research/pod_phaser is a separate,
+  reviewed change before the first sequential study runs on pods.
+- Changes, if any: none to the drafted design (the options above only fill in D2-D4).
+- By / date (UTC): research loop owner, under the user's standing decision authority and the
+  user's 2026-10-07 request for a sequential Phase R ("DO THIS"), 2026-10-08.
