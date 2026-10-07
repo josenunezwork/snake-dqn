@@ -1,0 +1,40 @@
+total self time 192.4s (final_eval.prof)
+   23.1%      44.4s  veto (v8 chain: BFS/landing/area/head)
+   17.6%      33.8s  action mask (safe-action sim)
+   10.1%      19.4s  state: danger map
+    9.6%      18.6s  state: other features
+    8.4%      16.2s  state: free-space BFS (61-D)
+    7.0%      13.4s  state: per-action danger
+    5.4%      10.4s  collision + food cell checks (distance/same_cell)
+    4.8%       9.3s  torch forward / tensor ops
+    4.6%       8.8s  scripted opponents
+    4.1%       8.0s  game physics / episode loop
+    2.3%       4.3s  other
+    1.4%       2.7s  ai_snake update glue
+    1.3%       2.5s  replay / actor bookkeeping
+    0.3%       0.6s  reward
+    0.0%       0.0s  python builtins (attributed below by caller)
+
+inclusive time of entry points:
+   98.4%     189.3s  calls=30000     /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/game_state.py:266 update
+   44.9%      86.5s  calls=110000    /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/ai_snake.py:643 compute_reward_and_train
+   36.8%      70.7s  calls=109436    /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/snake_state.py:31 get_state
+   30.2%      58.1s  calls=108698    /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/ai_snake.py:483 update
+   23.5%      45.2s  calls=28698     /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/evaluation/safety_veto_v8.py:247 apply
+   23.3%      44.9s  calls=28698     /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/evaluation/safety_veto_v8.py:269 decide
+   22.4%      43.0s  calls=28698     /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/evaluation/safety_veto_v7.py:415 decide
+   11.5%      22.1s  calls=30000     /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/game_state.py:652 handle_collisions
+   10.5%      20.2s  calls=109436    /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/snake_state.py:208 _get_danger_map
+    9.0%      17.3s  calls=138143    /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/snake_state.py:668 _get_free_space_features
+    8.7%      16.8s  calls=179436    /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/ai_snake.py:431 _get_safe_actions
+    7.7%      14.8s  calls=109436    /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/snake_state.py:490 _get_per_action_danger
+    7.2%      13.8s  calls=70000     /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/game/scripted_snake.py:204 update
+    4.1%       7.9s  calls=108698    /8b38327f-2897-4918-b079-74962b22441c/scratchpad/snap_a86/src/model/apex_network.py:120 forward
+
+top self time:
+Tue Oct  6 23:28:01 2026    final_eval.prof
+
+         788111143 function calls (784909247 primitive calls) in 192.428 seconds
+
+   Ordered by: internal time
+   List reduced from 4668 to 25 due to restriction <25>

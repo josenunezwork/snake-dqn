@@ -1,0 +1,158 @@
+{
+  "schema": "perf-sim-identity-summary/v1",
+  "reference_trees": {
+    "eval_and_train_actor": "git archive db2ef7a (main)",
+    "gate_actor": "git archive 41a1608 (frp-v3)"
+  },
+  "runs": [
+    {
+      "all_identical": true,
+      "results": [
+        {
+          "reference": "id1/eval-main.jsonl",
+          "candidate": "id1/eval-perf.jsonl",
+          "episodes_compared": 30,
+          "frames_compared": 150000,
+          "network_rows_compared": 520219,
+          "buffer_rows_compared": 0,
+          "identical": true,
+          "problems": []
+        },
+        {
+          "reference": "id1/gate-main.jsonl",
+          "candidate": "id1/gate-perf.jsonl",
+          "episodes_compared": 6,
+          "frames_compared": 18000,
+          "network_rows_compared": 66000,
+          "buffer_rows_compared": 18000,
+          "identical": true,
+          "problems": []
+        },
+        {
+          "reference": "id1/train-main.jsonl",
+          "candidate": "id1/train-perf.jsonl",
+          "episodes_compared": 1,
+          "frames_compared": 629,
+          "network_rows_compared": 1263,
+          "buffer_rows_compared": 1385,
+          "identical": true,
+          "problems": []
+        }
+      ],
+      "candidate_commit": "f5dbdf7 (WIP snapshot)",
+      "note": "first full run: 30 eval episodes (10 worlds x 3 mixes), 6 gate-actor episodes H3000, 3 train-actor episodes"
+    },
+    {
+      "all_identical": true,
+      "results": [
+        {
+          "reference": "id1/eval-main.jsonl",
+          "candidate": "idf/eval-perf.jsonl",
+          "episodes_compared": 30,
+          "frames_compared": 150000,
+          "network_rows_compared": 520219,
+          "buffer_rows_compared": 0,
+          "identical": true,
+          "problems": []
+        },
+        {
+          "reference": "id1/gate-main.jsonl",
+          "candidate": "idf/gate-perf.jsonl",
+          "episodes_compared": 6,
+          "frames_compared": 18000,
+          "network_rows_compared": 66000,
+          "buffer_rows_compared": 18000,
+          "identical": true,
+          "problems": []
+        },
+        {
+          "reference": "id1/train-main.jsonl",
+          "candidate": "idf/train-perf.jsonl",
+          "episodes_compared": 1,
+          "frames_compared": 629,
+          "network_rows_compared": 1263,
+          "buffer_rows_compared": 1385,
+          "identical": true,
+          "problems": []
+        }
+      ],
+      "candidate_commit": "1456521",
+      "note": "same episodes as run 1 on the final optimization commit"
+    },
+    {
+      "all_identical": true,
+      "results": [
+        {
+          "reference": "idf/evx-main.jsonl",
+          "candidate": "idf/evx-perf.jsonl",
+          "episodes_compared": 12,
+          "frames_compared": 60000,
+          "network_rows_compared": 210177,
+          "buffer_rows_compared": 0,
+          "identical": true,
+          "problems": []
+        },
+        {
+          "reference": "idf/gatex-main.jsonl",
+          "candidate": "idf/gatex-perf.jsonl",
+          "episodes_compared": 9,
+          "frames_compared": 37883,
+          "network_rows_compared": 152173,
+          "buffer_rows_compared": 37883,
+          "identical": true,
+          "problems": []
+        },
+        {
+          "reference": "idf/trainx-main.jsonl",
+          "candidate": "idf/trainx-perf.jsonl",
+          "episodes_compared": 1,
+          "frames_compared": 3618,
+          "network_rows_compared": 7619,
+          "buffer_rows_compared": 8485,
+          "identical": true,
+          "problems": []
+        }
+      ],
+      "candidate_commit": "1456521",
+      "note": "extension: 12 more eval episodes (worlds 10-13), 9 gate-actor episodes H5000 (namespace actorx, hero deaths included), 20 train-actor episodes"
+    },
+    {
+      "all_identical": true,
+      "results": [
+        {
+          "reference": "idc/eval-ref.jsonl",
+          "candidate": "idc/eval-perf.jsonl",
+          "episodes_compared": 6,
+          "frames_compared": 30000,
+          "network_rows_compared": 108698,
+          "buffer_rows_compared": 0,
+          "identical": true,
+          "problems": []
+        },
+        {
+          "reference": "idc/gate-ref.jsonl",
+          "candidate": "idc/gate-perf.jsonl",
+          "episodes_compared": 3,
+          "frames_compared": 9000,
+          "network_rows_compared": 33000,
+          "buffer_rows_compared": 9000,
+          "identical": true,
+          "problems": []
+        },
+        {
+          "reference": "idf/trainx-main.jsonl",
+          "candidate": "idc/train-perf.jsonl",
+          "episodes_compared": 1,
+          "frames_compared": 3618,
+          "network_rows_compared": 7619,
+          "buffer_rows_compared": 8485,
+          "identical": true,
+          "problems": []
+        }
+      ],
+      "candidate_commit": "a86dc37",
+      "note": "post-review fixes (non-int fallback / degenerate empty snake only): 6 eval, 3 gate-actor, 20 train-actor episodes"
+    }
+  ],
+  "all_identical": true
+}

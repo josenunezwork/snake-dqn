@@ -356,6 +356,25 @@ def build_mix_specs(
     raise ValueError(f"unknown mix {mix!r}; expected one of {MIX_NAMES}")
 
 
+_FOOD_CELLS_CACHE: List[Any] = [None]
+
+
+def _food_cells(food: Sequence[Tuple[Any, Any]], segment_size: Any) -> Tuple[Tuple[int, int], ...]:
+    """``tuple((int(x // ss), int(y // ss)) for x, y in food)``, memoized on content.
+
+    Every scripted anchor in a frame converts the same food list; the single-entry cache
+    returns the stored tuple only when the food positions (and the cell size) compare
+    equal to the cached ones, so the result is exactly the direct computation.
+    """
+    key = tuple(food)
+    cached = _FOOD_CELLS_CACHE[0]
+    if cached is not None and cached[0] == segment_size and cached[1] == key:
+        return cached[2]
+    cells = tuple((int(x // segment_size), int(y // segment_size)) for x, y in key)
+    _FOOD_CELLS_CACHE[0] = (segment_size, key, cells)
+    return cells
+
+
 def _attach_agent(
     gs,
     slot: int,
@@ -450,9 +469,7 @@ def _attach_agent(
                         int(self.head[1] // self.segment_size),
                     ),
                     heading=tuple(int(value) for value in self.direction),
-                    food_cells=tuple(
-                        (int(x // self.segment_size), int(y // self.segment_size)) for x, y in food
-                    ),
+                    food_cells=_food_cells(food, self.segment_size),
                     allowed_mask=allowed,
                 )
             )

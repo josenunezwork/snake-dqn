@@ -14,8 +14,9 @@ import torch
 
 from src.core.game_config import GameConfig
 from src.core.runtime_contract import ActionMaskSet
-from src.game.game_logic import GameLogic
+from src.game.game_logic import GameLogic, exact_radius_sq
 from src.game.snake import Snake
+from src.game.snake_geometry import geometry_for, near_obstacle_min_d2
 from src.model.checkpoint_manager import CheckpointManager
 from src.training.action_mask import INVALID_Q_VALUE, action_mask_from_safe_actions
 from src.training.td_targets import (
@@ -26,6 +27,34 @@ from src.training.td_targets import (
 
 if TYPE_CHECKING:
     from src.training.apex_policy import ApexPolicy
+
+
+def build_obstacle_index(
+    snake: "Snake", other_snakes: Optional[List["Snake"]]
+) -> Optional[Tuple[int, int, list]]:
+    """Per-other-snake cell-bucketed collision points for exact radius queries.
+
+    The points are exactly what ``_segments_collide_after_move`` scans per other live
+    snake: its head, then ``segments[1:]`` minus the vacating tail when the snake is full
+    (:class:`~src.game.snake_geometry.SnakeGeometry`, cached per snake content). On
+    integer coordinates a point with ``dx*dx + dy*dy < ss*ss`` has ``|dx|, |dy| < ss`` and
+    so lies in the 3x3 cell neighbourhood of the query point, which makes the bucketed
+    query exactly the full scan. Returns ``None`` (callers scan) when the squared test is
+    not exact for ``ss``.
+    """
+    ss = snake.segment_size
+    r2 = exact_radius_sq(ss)
+    if r2 is None:
+        return None
+    geometries = [
+        geometry_for(other, ss)
+        for other in (other_snakes or [])
+        if not (other == snake or not other.is_alive)
+    ]
+    if not all(geometry.has_obstacles for geometry in geometries):
+        # A live snake with no segments: keep the original scan (and its IndexError).
+        return None
+    return ss, r2, geometries
 
 
 def simulate_relative_action_fatality(
@@ -63,6 +92,9 @@ def simulate_relative_action_fatality(
     normal_fatal = [True, True, True]
     boost_fatal = [True, True, True]
     can_boost = snake.length >= GameConfig.MIN_BOOST_LENGTH
+    # One cell-bucketed index of the other snakes' obstacle points, shared by the up to
+    # six candidate-move scans below (exact; see _segments_collide_after_move).
+    obstacle_index = build_obstacle_index(snake, other_snakes)
 
     for relative_action in range(3):  # 0=left, 1=straight, 2=right
         abs_dir = GameLogic.relative_to_absolute_direction(snake.direction, relative_action)
@@ -71,6 +103,7 @@ def simulate_relative_action_fatality(
             normal_segments,
             other_snakes,
             traversed_heads=normal_heads,
+            obstacle_index=obstacle_index,
         ):
             continue
         normal_fatal[relative_action] = False
@@ -88,16 +121,28 @@ def simulate_relative_action_fatality(
         first_head = boost_heads[0]
         first_head_hits_own_body = False
         if len(boost_segments) > 3:
-            for segment in boost_segments[3:]:
-                if GameLogic.distance(first_head, segment) < snake.segment_size:
-                    first_head_hits_own_body = True
-                    break
+            r2 = exact_radius_sq(snake.segment_size)
+            if r2 is not None:
+                fx, fy = first_head
+                for index in range(3, len(boost_segments)):
+                    sx, sy = boost_segments[index]
+                    dx = fx - sx
+                    dy = fy - sy
+                    if dx * dx + dy * dy < r2:
+                        first_head_hits_own_body = True
+                        break
+            else:
+                for segment in boost_segments[3:]:
+                    if GameLogic.distance(first_head, segment) < snake.segment_size:
+                        first_head_hits_own_body = True
+                        break
         if first_head_hits_own_body:
             continue
         if snake._segments_collide_after_move(
             boost_segments,
             other_snakes,
             traversed_heads=boost_heads[1:],
+            obstacle_index=obstacle_index,
         ):
             continue
         boost_fatal[relative_action] = False
@@ -289,13 +334,79 @@ class AISnake(Snake):
         segments: List[Tuple[int, int]],
         other_snakes: Optional[List["Snake"]] = None,
         traversed_heads: Optional[List[Tuple[int, int]]] = None,
+        obstacle_index: Optional[Tuple[int, int, dict]] = None,
     ) -> bool:
-        """Return whether a simulated post-move body would collide."""
+        """Return whether a simulated post-move body would collide.
+
+        Fast path (byte-identical): with an integer segment size whose float radius test
+        is exactly the squared-integer test (:func:`~src.game.game_logic.exact_radius_sq`),
+        ``distance(head, p) < segment_size`` on integer lattice coordinates is
+        ``dx*dx + dy*dy < segment_size**2``; the scan is inlined (no per-segment call).
+        Otherwise the original float expression runs unchanged.
+        """
         collision_heads = traversed_heads or [segments[0]]
         for head in collision_heads:
             if not self._in_bounds_position(*head):
                 return True
 
+        r2 = exact_radius_sq(self.segment_size)
+        if r2 is None:
+            # Called through the class: ScriptedSnake and parity's reference snake borrow
+            # this method without inheriting the helper.
+            return AISnake._segments_collide_after_move_float(
+                self, segments, other_snakes, collision_heads
+            )
+
+        heads = [(int_head[0], int_head[1]) for int_head in collision_heads]
+        n = len(segments)
+        if n > 3:
+            for hx, hy in heads:
+                for index in range(3, n):
+                    sx, sy = segments[index]
+                    dx = hx - sx
+                    dy = hy - sy
+                    if dx * dx + dy * dy < r2:
+                        return True
+
+        if obstacle_index is not None and obstacle_index[0] == self.segment_size:
+            geometries = obstacle_index[2]
+            ss = self.segment_size
+            for hx, hy in heads:
+                best = near_obstacle_min_d2(geometries, hx, hy, ss, 1)
+                if best is not None and best < r2:
+                    return True
+            return False
+
+        for snake in other_snakes or []:
+            if snake == self or not snake.is_alive:
+                continue
+            body = snake.segments
+            # Body = segments[1:], minus the vacating tail when the snake is full.
+            stop = len(body)
+            if stop >= snake.length and stop > 1:
+                stop -= 1
+            ox, oy = snake.head
+            for hx, hy in heads:
+                dx = hx - ox
+                dy = hy - oy
+                if dx * dx + dy * dy < r2:
+                    return True
+                for index in range(1, stop):
+                    sx, sy = body[index]
+                    dx = hx - sx
+                    dy = hy - sy
+                    if dx * dx + dy * dy < r2:
+                        return True
+
+        return False
+
+    def _segments_collide_after_move_float(
+        self,
+        segments: List[Tuple[int, int]],
+        other_snakes: Optional[List["Snake"]],
+        collision_heads: List[Tuple[int, int]],
+    ) -> bool:
+        """The original float-distance scan (used when the integer fast path is not exact)."""
         if len(segments) > 3:
             for head in collision_heads:
                 for segment in segments[3:]:

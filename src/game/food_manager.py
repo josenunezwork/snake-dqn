@@ -12,7 +12,6 @@ from src.core.mechanics_constants import (
     CORPSE_EXEMPT_FROM_CAP_V2,
     corpse_food_cap,
     evict_oldest_corpse,
-    same_cell,
     snap_to_cell,
 )
 from src.game.game_logic import GameLogic
@@ -126,7 +125,13 @@ class FoodManager:
         but it never over-suppresses corpse/trail pellets that merely land near
         (but not on) an existing pellet.
         """
-        return any(same_cell(position, food_pos, self.segment_size) for food_pos in self.food)
+        # Inlined same_cell(position, food_pos, ss): equal floor-divided cells per axis.
+        ss = self.segment_size
+        cx, cy = position[0] // ss, position[1] // ss
+        for fx, fy in self.food:
+            if fx // ss == cx and fy // ss == cy:
+                return True
+        return False
 
     def add_food(self, position: Tuple[int, int], corpse: bool = False) -> bool:
         """Add food if it does not overlap existing food.
@@ -224,7 +229,9 @@ class FoodManager:
         Returns:
             True if food was consumed, False otherwise
         """
-        eaten = [f for f in self.food if same_cell(f, position, radius)]
+        # Inlined same_cell(f, position, radius): equal floor-divided cells per axis.
+        cx, cy = position[0] // radius, position[1] // radius
+        eaten = [f for f in self.food if f[0] // radius == cx and f[1] // radius == cy]
         if eaten:
             self.food = [f for f in self.food if f not in eaten]
             self._corpse_positions.difference_update(eaten)

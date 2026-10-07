@@ -2,16 +2,52 @@
 
 import math
 import random
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from src.core.game_config import GameConfig
 from src.core.mechanics_constants import same_cell, snap_to_cell
+from src.game.snake_geometry import geometry_for
 
 if TYPE_CHECKING:
     from src.game.game_state import GameState
     from src.game.snake import Snake
 
 # Relative action constants
+_EXACT_RADIUS_SQ: Dict[object, Optional[int]] = {}
+
+
+def exact_radius_sq(radius: object) -> Optional[int]:
+    """``radius * radius`` when the squared-integer test is exactly the float radius test.
+
+    The hot paths test ``((dx) ** 2 + (dy) ** 2) ** 0.5 < radius`` (and the ``math.sqrt``
+    form) on integer lattice offsets. For an integer ``radius`` and an integer squared
+    distance ``d2`` the float test equals ``d2 < radius * radius`` exactly, provided the
+    platform's ``pow(x, 0.5)``/``sqrt`` are exact at the perfect square ``radius**2`` and off
+    by less than one ulp elsewhere (then ``sqrt(r2 - 1) <= r - 1/(2r)`` stays below ``r`` and
+    ``sqrt(r2 + 1)`` above it). Both are checked here once per radius; any failure (or a
+    non-int radius) returns ``None`` and callers keep the original float expression.
+    """
+    key = (type(radius), radius)
+    cached = _EXACT_RADIUS_SQ.get(key, -1)
+    if cached != -1:
+        return cached  # type: ignore[return-value]
+    result: Optional[int] = None
+    if type(radius) is int and 0 < radius < 1 << 20:
+        r2 = radius * radius
+        if (
+            r2**0.5 == radius
+            and float(r2) ** 0.5 == radius
+            and math.sqrt(r2) == radius
+            and (r2 - 1) ** 0.5 < radius
+            and math.sqrt(r2 - 1) < radius
+            and (r2 + 1) ** 0.5 > radius
+            and math.sqrt(r2 + 1) > radius
+        ):
+            result = r2
+    _EXACT_RADIUS_SQ[key] = result
+    return result
+
+
 TURN_LEFT = 0
 TURN_STRAIGHT = 1
 TURN_RIGHT = 2
@@ -244,10 +280,14 @@ class GameLogic:
         """
         if len(snake.segments) <= 3:
             return False
-        for head in GameLogic._collision_positions(snake):
-            for segment in snake.segments[3:]:
-                if same_cell(head, segment, snake.segment_size):
-                    return True
+        cs = snake.segment_size
+        # same_cell(a, b, cs) is (a // cs) == (b // cs) per axis; compare cell tuples.
+        heads = {(x // cs, y // cs) for x, y in GameLogic._collision_positions(snake)}
+        body = snake.segments
+        for index in range(3, len(body)):
+            x, y = body[index]
+            if (x // cs, y // cs) in heads:
+                return True
         return False
 
     @staticmethod
@@ -288,11 +328,13 @@ class GameLogic:
         Returns:
             True if snake1's head hits snake2's body
         """
-        return any(
-            same_cell(head, segment, snake1.segment_size)
-            for head in GameLogic._collision_positions(snake1)
-            for segment in snake2.segments[1:]
-        )
+        cs = snake1.segment_size
+        # Cells of snake2.segments[1:] from the content-validated geometry cache.
+        body_cells = geometry_for(snake2, cs).neck_to_tail_cells
+        for x, y in GameLogic._collision_positions(snake1):
+            if (x // cs, y // cs) in body_cells:
+                return True
+        return False
 
     @staticmethod
     def distance(point1: Tuple[int, int], point2: Tuple[int, int]) -> float:

@@ -1,0 +1,73 @@
+{
+  "schema": "perf-sim-ab/v1",
+  "machine": "Apple M5 Pro (6P+12E), AC, lid open; 1 shared CPU slot per arm, OMP_NUM_THREADS=1, torch 1 thread; both arms concurrent",
+  "eval_h5000": [
+    {
+      "note": "worlds 0-1 of the bench namespace, commit 1456521-equivalent (f5dbdf7+caches)",
+      "candidate": "perf-sim working tree at the time",
+      "summary": {
+        "a": "ref_main",
+        "b": "/Users/josenunez/.codex/worktrees/perf-sim/snake-dqn",
+        "episodes_per_arm": 6,
+        "a_total_wall_s": 233.81,
+        "b_total_wall_s": 96.45,
+        "speedup_total": 2.424,
+        "speedup_episode_median": 2.347,
+        "speedup_episode_min_max": [
+          2.239,
+          2.755
+        ],
+        "a_episodes_per_hour_per_core": 92.4,
+        "b_episodes_per_hour_per_core": 224.0,
+        "mass_integrals_equal": true
+      }
+    },
+    {
+      "note": "worlds 20-21, both arm orders (--swap)",
+      "candidate": "a86dc37",
+      "summary": {
+        "a": "ref_main",
+        "b": "snap_a86",
+        "episodes_per_arm": 12,
+        "a_total_wall_s": 388.27,
+        "b_total_wall_s": 185.37,
+        "speedup_total": 2.095,
+        "speedup_episode_median": 2.042,
+        "speedup_episode_min_max": [
+          1.72,
+          2.34
+        ],
+        "a_episodes_per_hour_per_core": 111.3,
+        "b_episodes_per_hour_per_core": 233.1,
+        "mass_integrals_equal": true
+      }
+    }
+  ],
+  "gate_world_actor_h3000_eps0.1": {
+    "main_wall_s": 124.27,
+    "perf_wall_s": 56.84,
+    "speedup": 2.186,
+    "rows_sent_main": 18000,
+    "rows_sent_perf": 18000,
+    "rows_per_s_main": 144.8,
+    "rows_per_s_perf": 316.7,
+    "rows_digest_equal": true,
+    "reference": "git archive 41a1608 (frp-v3)",
+    "candidate": "41a1608 + perf-sim src diff (a86dc37)",
+    "episodes": 6
+  },
+  "default_train_world_actor": {
+    "main_wall_s": 8.23,
+    "perf_wall_s": 6.34,
+    "speedup": 1.297,
+    "rows_sent_main": 16714,
+    "rows_sent_perf": 16714,
+    "rows_per_s_main": 2031.4,
+    "rows_per_s_perf": 2634.2,
+    "rows_digest_equal": true,
+    "reference": "git archive db2ef7a",
+    "candidate": "a86dc37",
+    "episodes": 40,
+    "note": "0.2-scale actor board, short snakes: least benefit"
+  }
+}
