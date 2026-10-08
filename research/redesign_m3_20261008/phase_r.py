@@ -172,7 +172,18 @@ def p2_evidence() -> Dict[str, Any]:
             if not path.exists():
                 raise SystemExit(f"P2 evidence missing: {path}")
             data = json.loads(path.read_text())
-            if not data.get("pass") or data["student"]["sha256"] != want:
+            n = 9 if kind == "p2_v8" else 3
+            horizons = {int(w.get("horizon", 5000)) for w in data["worlds"]}
+            ok = (
+                data.get("pass") is True
+                and data.get("arm") == "v8"
+                and data["student"]["sha256"] == want
+                and data["compared"] == n
+                and data["identical"] == n
+                and horizons == ({5000} if kind == "p2_v8" else {10000})
+                and (kind == "p2_v8" or data.get("profile_digest") == PROFILE_DIGEST_H10000)
+            )
+            if not ok:
                 raise SystemExit(f"P2 did not pass for seed {s} ({path})")
             out[f"{kind}_seed{s}"] = {"path": str(path), "sha256": sha256_file(path)}
     return out
@@ -311,6 +322,23 @@ def hero_call(hero: str, seed: int, ctx, study) -> Tuple[Any, Dict[str, Any]]:
     raise SystemExit(f"unknown hero {hero}")
 
 
+def bank_rows(bank: Sequence[int], mix: str) -> Dict[int, Mapping[str, Any]]:
+    """Design rows of the FULL bank (never of a batch), filtered by mix."""
+    from research.apex_safety_20260926 import dev_screen
+
+    return {
+        int(r["world_seed"]): r
+        for r in dev_screen._design_rows([int(w) for w in bank])
+        if r["mix"] == mix
+    }
+
+
+def hero_checkpoint(hero: str, seed: int, study: Mapping[str, Any]) -> Dict[str, str]:
+    ck = study["checkpoints"]
+    row = ck[f"{CANDIDATE}|s{int(seed)}"] if hero == CANDIDATE else ck[hero]
+    return {"path": row["path"], "sha256": row["sha256"]}
+
+
 def record_name(entry: Mapping[str, Any]) -> str:
     hero = str(entry["hero"]).replace("@", "-u").replace("+", "p")
     kind = "control-" if entry.get("control") else ""
@@ -324,7 +352,6 @@ def shard_dir(root: Path, look: int) -> Path:
 def run_unit(root: Path, look: int, unit_id: str) -> int:
     import torch
 
-    from research.apex_safety_20260926 import dev_screen
     from research.redesign_scope_20261007 import grid_h5000_identity as gid
     from src.evaluation.strict_promotion import _expected_world_identity
     from src.simd_env.eval_engine import run_simd_eval
@@ -333,11 +360,21 @@ def run_unit(root: Path, look: int, unit_id: str) -> int:
     payload, plan, banks = load_plan(root)
     units = {u["unit_id"]: u for u in units_for(root, look)}
     unit = units[unit_id]
+    from research.sequential_phase_r import receipts
+
     out_dir = shard_dir(root, look) / "records"
     start = json.loads((shard_dir(root, look) / "start.json").read_text())
-    names = [
-        record_name(dict(unit, world_seed=w)) for w in unit["worlds"]
-    ]  # resume: a fully written unit is skipped
+    commit, dirty = git_commit()
+    if commit != start["commit"] or (dirty and not payload["study"]["smoke"]):
+        raise SystemExit("refusing: HEAD / worktree differs from the look's start marker")
+    names = [record_name(dict(unit, world_seed=w)) for w in unit["worlds"]]
+    # Resume: validate every record already written for this unit; write only missing ones.
+    for n in names:
+        path = out_dir / n
+        if path.exists():
+            old = json.loads(path.read_text())
+            if old.get("unit_id") != unit_id or old.get("binding") != start["binding"]:
+                raise SystemExit(f"refusing: {path} belongs to another unit / binding")
     if all((out_dir / n).exists() for n in names):
         return 0
     ctx = gid._context(1)
@@ -350,14 +387,13 @@ def run_unit(root: Path, look: int, unit_id: str) -> int:
     control = bool(unit["control"])
     horizon = H5000 if control else H10000
     seeds = [int(w) for w in unit["worlds"]]
-    rows = {
-        int(r["world_seed"]): r for r in dev_screen._design_rows(seeds) if r["mix"] == unit["mix"]
-    }
+    rows = bank_rows(banks[int(unit["seed"])], unit["mix"])
     rosters = {
         s: [ctx["lookup"][slot["member_sha256"]] for slot in rows[s]["slots"]] for s in seeds
     }
     identities = {s: _expected_world_identity(rows[s]) for s in seeds}
     hero_spec, extra = hero_call(unit["hero"], unit["seed"], ctx, payload["study"])
+    hero_ck = hero_checkpoint(unit["hero"], unit["seed"], payload["study"])
     observer = None if control else PrefixObserver(len(seeds), H5000)
     started = time.monotonic()
     records = run_simd_eval(
@@ -385,16 +421,18 @@ def run_unit(root: Path, look: int, unit_id: str) -> int:
             "unit_id": unit_id,
             "look": int(look),
             "binding": start["binding"],
-            "commit": start["commit"],
+            "commit": commit,
             "hero": unit["hero"],
             "seed": int(unit["seed"]),
             "mix": unit["mix"],
             "world_seed": s,
+            "world_index": banks[int(unit["seed"])].index(s),
             "world_index_range": unit["world_index_range"],
+            "roster_member_sha256s": [slot["member_sha256"] for slot in rows[s]["slots"]],
             "horizon": horizon,
             "control": control,
             "tier": int(unit["tier"]),
-            "hero_checkpoint": extra.get("hero_ego2s"),
+            "hero_checkpoint": hero_ck,
             "engine": {
                 "sim_engine": SIM_ENGINE,
                 "vector61_forward": VECTOR61_FORWARD,
@@ -406,8 +444,8 @@ def run_unit(root: Path, look: int, unit_id: str) -> int:
             "unit_wall_seconds": wall,
         }
         path = out_dir / names[i]
-        with path.open("x") as stream:  # create-only
-            json.dump(entry, stream, sort_keys=True)
+        if not path.exists():  # resume writes only the missing records (validated above)
+            receipts.write_once(path, entry)
     return 0
 
 
@@ -444,42 +482,54 @@ def prefix_controls_flag(root: Path) -> Tuple[bool, List[Dict[str, Any]]]:
 
 
 def run_units(root: Path, look: int, units: Sequence[Mapping[str, Any]], procs: int) -> List[str]:
-    """Each unit = one subprocess holding one shared CPU slot (``slotrun.py``)."""
+    """Each unit = one subprocess (own session) holding one shared CPU slot (``slotrun.py``).
+    On any exit of this runner (error, Ctrl-C), still-running unit sessions are terminated."""
+    import signal
+
     log = shard_dir(root, look) / "units.log"
     todo = list(units)
     running: List[Tuple[subprocess.Popen, str]] = []
     failed: List[str] = []
     with log.open("a") as stream:
-        while todo or running:
-            still = []
-            for proc, uid in running:
+        try:
+            while todo or running:
+                still = []
+                for proc, uid in running:
+                    if proc.poll() is None:
+                        still.append((proc, uid))
+                    elif proc.returncode != 0:
+                        failed.append(uid)
+                running = still
+                if todo and len(running) < procs:
+                    u = todo.pop(0)
+                    argv = [
+                        sys.executable,
+                        str(REPO / "research/redesign_m3_20261008/slotrun.py"),
+                        "--",
+                        sys.executable,
+                        str(Path(__file__).resolve()),
+                        "unit",
+                        "--root",
+                        str(root),
+                        "--look",
+                        str(look),
+                        "--unit-id",
+                        u["unit_id"],
+                    ]
+                    proc = subprocess.Popen(
+                        argv, cwd=REPO, stdout=stream, stderr=stream, start_new_session=True
+                    )
+                    running.append((proc, u["unit_id"]))
+                    print(json.dumps({"started": u["unit_id"], "left": len(todo)}), flush=True)
+                    continue
+                time.sleep(2)
+        finally:
+            for proc, _ in running:
                 if proc.poll() is None:
-                    still.append((proc, uid))
-                elif proc.returncode != 0:
-                    failed.append(uid)
-            running = still
-            if todo and len(running) < procs:
-                u = todo.pop(0)
-                argv = [
-                    sys.executable,
-                    str(REPO / "research/redesign_m3_20261008/slotrun.py"),
-                    "--",
-                    sys.executable,
-                    str(Path(__file__).resolve()),
-                    "unit",
-                    "--root",
-                    str(root),
-                    "--look",
-                    str(look),
-                    "--unit-id",
-                    u["unit_id"],
-                ]
-                running.append(
-                    (subprocess.Popen(argv, cwd=REPO, stdout=stream, stderr=stream), u["unit_id"])
-                )
-                print(json.dumps({"started": u["unit_id"], "left": len(todo)}), flush=True)
-                continue
-            time.sleep(2)
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    except OSError:
+                        proc.terminate()
     return failed
 
 
@@ -507,8 +557,7 @@ def cmd_look(args) -> int:
         if old["binding"] != binding or old["units"] != start["units"] or old["commit"] != commit:
             raise SystemExit("start marker exists with a different binding (recovery mismatch)")
     else:
-        with marker.open("x") as stream:
-            json.dump(start, stream, indent=1, sort_keys=True)
+        receipts.write_once(marker, start)
     failed = run_units(root, look, units, args.procs)
     if failed:
         print(json.dumps({"look": look, "failed_units": failed}))
@@ -525,11 +574,22 @@ def cmd_look(args) -> int:
     flags_path = root / "flags.json"
     if look == 0:
         ok, rows = prefix_controls_flag(root)
-        with flags_path.open("x") as stream:
-            json.dump({"prefix_controls": ok, "controls": rows}, stream, indent=1, sort_keys=True)
+        computed = {"prefix_controls": ok, "controls": rows}
+        if flags_path.exists():
+            if json.loads(flags_path.read_text()) != computed:
+                raise SystemExit("flags.json exists and differs from the recomputed flags")
+        else:
+            receipts.write_once(flags_path, computed)
     flags = {"prefix_controls": bool(json.loads(flags_path.read_text())["prefix_controls"])}
     entries = hooks.load_entries([shard_dir(root, k) for k in range(look + 1)])
-    receipt = hooks.analyse_look(root, plan, entries, look, flags)
+    receipt = hooks.analyse_look(
+        root,
+        plan,
+        entries,
+        look,
+        flags,
+        extra={"analysed_utc": datetime.now(timezone.utc).isoformat()},
+    )
     d = receipt["decision"]
     print(
         json.dumps(

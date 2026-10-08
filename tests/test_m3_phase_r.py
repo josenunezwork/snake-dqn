@@ -60,3 +60,23 @@ def test_record_names_are_unique_per_key():
     assert phase_r.record_name(
         {"hero": "incumbent", "seed": 0, "mix": "frozen", "world_seed": 1, "control": True}
     ).startswith("control-")
+
+
+def test_unit_rosters_come_from_the_full_bank():
+    from research.apex_safety_20260926 import dev_screen
+
+    plan = phase_r.plan_for(smoke=False)
+    banks = phase_r.make_banks(plan.n_worlds, phase_r.PHASE_R_NS)
+    full = {
+        (s, r["mix"], int(r["world_seed"])): [x["member_sha256"] for x in r["slots"]]
+        for s, bank in banks.items()
+        for r in dev_screen._design_rows(bank)
+    }
+    for look in range(3):
+        for u in hooks.look_units(
+            plan, look, banks, phase_r.heroes(), phase_r.controls(), phase_r.MAX_BATCH
+        ):
+            rows = phase_r.bank_rows(banks[u["seed"]], u["mix"])
+            for w in u["worlds"]:
+                got = [x["member_sha256"] for x in rows[int(w)]["slots"]]
+                assert got == full[(u["seed"], u["mix"], int(w))]

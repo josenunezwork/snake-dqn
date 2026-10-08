@@ -210,3 +210,18 @@ to 3 h, the same $8 cap and the same safety. Launch r4 runs from commit `0f6a12a
 the record: the relayed approval names the 3090, A6000, A40, A5000 and L4. The runner's
 list also includes the RTX 3090 Ti (secure list price $0.46/h, same class and caps). If a
 3090 Ti is the GPU allocated, that is reported explicitly.
+
+**Phase R harness disclosures (2026-10-08, before the study plan is written).**
+`phase_r.py` is a fork of FRP-v5-S2's unit runner on the generic `research/sequential_phase_r`
+package. It was smoke-tested on the out-of-namespace bank `redesign-m3-phase-r-smoke/v1`
+(N = 4) and independently reviewed. Deviations from §7 as written:
+(i) prefix controls: the candidate and the incumbent on every seed, plus champion_a5 + v8 on
+seed 0. That is 33 control episodes, not 30; with them the study holds at most 1,185
+episodes (≈ 1,180 in §7). (ii) Compute: up to 3 Mac processes, one per shared CPU slot
+lock under the compute policy, instead of the 2 in §7's estimate. Results do not depend
+on the process count: each unit is a deterministic, single-thread episode batch.
+(iii) P2 at H10000 uses the `p2_h10000.py` wrapper, so the pinned P2 tool is unchanged.
+Records carry each world's bank index, its roster member sha256s (rows always built from
+the full bank) and the hero checkpoint path + sha256. A stdlib-only `phase_r_verify.py`
+(run with `python -I`) checks the shard start markers and record bindings. It runs next to
+the package's `audit.py`, and both must PASS before the decision is reported.
