@@ -168,10 +168,10 @@ KILL / NO_GO stops play that role.
     give identical records on the SIMD grid engine and on the live engine (same platform).
   * **Engine rule fixed in advance:** if P2 passes, Phase R runs on the SIMD grid engine;
     if any world differs, the WHOLE study runs on the live engine. No per-world substitution.
-    The live engine is several times slower (live ≈ 0.0042 s per frame-world per Mac slot
-    for the vector61 line; ego2s serving adds ≈ 3 ms per frame with 6 snakes): the fixed
-    maximum would grow to roughly **25–35 h on 2 Mac processes**, so a P2 failure returns
-    the platform choice to the owner before any shard.
+    The live engine is slower: ≈ 0.0042 s per frame-world per Mac slot for the vector61 line
+    (≈ 42 s per H10000 episode) plus ≈ 3 ms per frame for the ego2s hero's build (≈ 30 s), so
+    ≈ 70 s per episode × ≈ 1180 ≈ 23 h on one thread, **≈ 12–15 h on 2 Mac processes**; a P2
+    failure therefore returns the platform choice to the owner before any shard.
 * **Platform:** Mac only. Pod Phase R needs D4 (the per-look gate in
   `research/pod_phaser`), which is deferred, so the CPU-pod option is not available until
   that reviewed change lands.
