@@ -15,10 +15,36 @@ memory/decision records take precedence over older launch notes; source pointers
 
 ## Standing decisions (2026-10-08)
 
-- **vector61 FROZEN:** no new governed FRP studies on that line; if reopened, S2's 67-D sight inputs are the default.
-- **Redesign is the sole main line:** beat **frp3-s12+v8 WITHOUT a veto** using GridBatchSim, ego2s-b and distilled DQN.
-- **M3-C next:** code and pre-registration only until spend approval. Address Q drift (97→113–119), the 10M peak then decline, and under-boosting; include a no-veto arm. Size 10–15 seeds or multiple actors per learner from M3-B measurements, target >70% GPU-pod bottleneck utilization, with incremental checkpoint pulls and live telemetry.
-- Batch changes before ratification; sequential Phase R by default; **no new pod work until the runner is stable**. Existing fixed-N studies keep their registered rules.
+- **vector61 FROZEN:** no new governed FRP studies on the 61-D vector line. If the line is reopened, S2's 67-D sight inputs are the default.
+- **Redesign is the sole main line.** The goal is to beat **frp3-s12+v8 WITHOUT a veto**, using GridBatchSim, ego2s-b and distilled DQN.
+- **M3-C next:** code and pre-registration only until spend is approved. It must address Q drift (97→113–119), the peak at 10M followed by decline, and under-boosting, and it must include a no-veto arm. Size it at 10–15 seeds or multiple actors per learner, based on M3-B measurements. Target >70% utilization of the GPU-pod bottleneck, with incremental checkpoint pulls and live telemetry.
+- **Process:** batch code changes before ratifying. Sequential Phase R is the default for new studies. **No new pod work until the runner is stable.** Existing fixed-N studies keep their registered rules.
+
+## Operating rules (current)
+
+These rules replace any older text that conflicts with them (for example the 5x rule,
+"always serverless", or champion+v8 as the served agent).
+
+- **Released agent:** frp3-s12 + v8. The rollbacks are listed under "Released agent" above.
+- **RunPod per-step rule:** use RunPod for a step only if its projected wall-clock time is
+  **≥4× faster than the same step on the Mac**. Base the projection on measured timings,
+  including setup and transfers. The threshold was 5× until the user lowered it on 2026-10-05.
+  Waivers below 4× are granted by the user case by case and are recorded per step. So far:
+  - FRP-v5-H Phase R on pods at about 3.3–3.8× (2026-10-07);
+  - FRP-v5-S2 Phase R on pods (2026-10-07).
+  FRP-v3 Phase R at about 4.7× was granted as an exception under the old 5× bar. Under 4× it
+  qualifies without a waiver. A waiver never carries over to another step.
+- **Cheap pods first:** when RunPod is used, poll for cheap CPU pods first. Serverless is only
+  a fallback when cheap pods stay unavailable and the job cannot wait. Its real cost has run
+  at about 6–10× the catalog rate. The older "always serverless" default is superseded. The
+  Mac is available whenever it is on AC.
+- **Strict gates and serving qualification run on the Mac.** The
+  [strict-on-RunPod amendment](research/governance_amendment_strict_on_runpod_2026-10-05.md)
+  is **NOT RATIFIED and was superseded on 2026-10-08**; see its
+  [status note](research/governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md).
+  It was never used. Mac↔x86 bitwise identity fails at random on exact float32 ties. Any future
+  strict-on-pods rule needs a new amendment with a tie-explaining identity check and a
+  per-world single CPU model.
 
 ## Latest results
 
@@ -47,16 +73,19 @@ Mac↔pod identity check? Exact float32 Q ties caused S2's 1/54 identity failure
 not permission to waive identity. M3-C remains the next decision, not a reported result here.
 
 Mac: AC + open lid, thermal guard, 3×2-thread Tier-1 slots; strict gates 2 slots.
-RunPod: projected **≥4× wall-clock per step**, sized from measured timings (including setup/transfers), unless explicitly waived; cheap pods first, approved spend/uploads, caps and cleanup;
-maximize useful utilization. Strict-on-RunPod permission is conditional on pre-registration,
-ratification and identity; the checked-in amendment still says **Pending**. Serving qualification
-stays on Mac. See [compute policy](research/compute_policy_2026-10-02.md),
+RunPod: see "Operating rules" above. That covers the ≥4× per-step rule, waivers, cheap pods
+first with serverless as fallback, approved spend and uploads, caps, cleanup, and maximizing
+useful utilization. Strict gates and serving qualification stay on the Mac. The strict-on-RunPod
+amendment is not ratified and was superseded on 2026-10-08. See [compute policy](research/compute_policy_2026-10-02.md) (historical),
 [sequential Phase R amendment](research/governance_amendment_sequential_phase_r_2026-10-07.md),
 and [external policy sources / discrepancies](README.md).
 
 Sources: Claude memory `standing-decisions-2026-10-08.md`, `redesign-scope.md`,
 `frp3-s12-release.md`, `frp-v2-phase2-go-l.md`, `frp-v3-go-r.md`, `frp-v4-partial.md`,
-`frp-v5h-kill.md`, `frp-v5s2-recipe.md`, `mac-pod-float-ties.md`; campaign keys
-`standing_decisions_2026-10-08` and `training_bet_frp_v5s`. Locations and branch documents
-are in the [map](README.md) and [index](research/INDEX.md). The S2 artifact namespace
-contains `20261009`; the recorded merge/result date is **2026-10-08**.
+`frp-v5h-kill.md`, `frp-v5s2-recipe.md`, `mac-pod-float-ties.md`, `runpod-5x-rule.md`,
+`runpod-cheap-pods-first.md`. Campaign keys: `standing_decisions_2026-10-08`, plus the
+`final_outcome` fields added on 2026-10-08 to `training_bet_frp_v4`, `training_bet_frp_v5h`,
+`training_bet_frp_v5s`, `training_bet_frp_v5s2` and `governance_strict_on_runpod`. Locations
+and branch documents are in the [map](README.md) and [index](research/INDEX.md). The S2
+artifact namespace contains `20261009`. That suffix is a namespace label; the recorded
+merge/result date is **2026-10-08**.

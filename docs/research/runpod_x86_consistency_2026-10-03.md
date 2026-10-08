@@ -1,5 +1,7 @@
 # RunPod x86 consistency check (2026-10-03)
 
+> **Superseded — see [STATUS.md](../STATUS.md) (2026-10-08):** the later Mac/pod divergence diagnosis (branch `diag-divergence`) shows that bitwise identity fails at random on exact float32 Q ties, at about 1 in 50 H10000 episodes. This document's all-identical sample is preserved as dated evidence.
+
 **Question:** do eval episodes run on RunPod Linux x86 CPUs give results bit-identical to
 the same episodes recorded on the Mac (Apple M5 Pro)?
 
