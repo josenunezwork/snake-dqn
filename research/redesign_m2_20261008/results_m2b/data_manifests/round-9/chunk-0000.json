@@ -1,0 +1,109 @@
+{
+ "chunk": 0,
+ "created_utc": "2026-10-08T03:34:15.318372+00:00",
+ "decisions_per_s": 324.0359635162775,
+ "fields": [
+  "local",
+  "global",
+  "scalars",
+  "q_teacher",
+  "a_base",
+  "a_v8",
+  "a_taken",
+  "mask_resolved",
+  "mask_teacher",
+  "length",
+  "frame",
+  "world_seed",
+  "state61"
+ ],
+ "frames": 5000,
+ "git": {
+  "commit": "6403974f2c4a08ce0a8087dd46f608f880875834",
+  "dirty_paths": "M research/redesign_m2_20261008/gen_data.py\n M research/redesign_m2_20261008/train_student.py\n M src/model/ego2s_network.py\n M src/simd_env/ego2s_policy.py\n?? research/redesign_m2_20261008/coverage_audit.py"
+ },
+ "max_length": 1074,
+ "mix": "frozen",
+ "obs_version": "b",
+ "parts": [
+  {
+   "bytes": 4589883,
+   "file": "chunk-0000-part-00.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5595238,
+   "file": "chunk-0000-part-01.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5818931,
+   "file": "chunk-0000-part-02.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5914078,
+   "file": "chunk-0000-part-03.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5987188,
+   "file": "chunk-0000-part-04.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 6162438,
+   "file": "chunk-0000-part-05.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 6261201,
+   "file": "chunk-0000-part-06.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 6187884,
+   "file": "chunk-0000-part-07.npz",
+   "samples": 10000
+  }
+ ],
+ "round": 9,
+ "schema_version": "redesign-m2-distill-shard/v1",
+ "stats": {
+  "decisions": 80000,
+  "hero_deaths": 6,
+  "student_acted": 0,
+  "veto_override": 100
+ },
+ "student": null,
+ "teacher": {
+  "forward": "batched",
+  "lambda": 8.0,
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": "v8"
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "wall_seconds": 246.88617624994367,
+ "world_seeds": [
+  2990500813,
+  4127102639,
+  1917309283,
+  913867557,
+  612536603,
+  1560248653,
+  39085153,
+  265722575,
+  1262377579,
+  80301263,
+  605787678,
+  1658878797,
+  4042297255,
+  122585023,
+  2957968133,
+  1534488186
+ ],
+ "worlds": 16
+}

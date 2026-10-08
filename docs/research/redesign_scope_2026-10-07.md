@@ -967,3 +967,87 @@ next moves, cheapest first:
    within ~2% of I) and move to M3 with the veto kept as a wrapper, re-registering M2's
    criterion against I+v8 rather than against unvetoed frp3-s12.
 3. Capacity / longer fits: low expected value given the plateau.
+
+## 17. M2b (2026-10-08): observation gap closed; fresh-world pre-registered NI check **PASS**
+
+The M2 FAIL (§16) stays on record. Owner decision "Option 1": close the observation gap,
+re-verify identity, regenerate, refit, probe, then the same rule on fresh worlds.
+Pre-registration `PREREGISTRATION_M2B.md` + `ni_spec_m2b.py` committed in `1d78a8b`
+before any M2b training data (first round-10 shard 29 min later) or student; addendum
+`2582fc2` (from the pre-check review) fixed the final-fit recipe and recorded the lineage
+before the final fit existed. Compute: Mac CPU unlocked, `nice -n 10`, ≤ 2 processes ×
+1 thread, AC / lid / thermal guard per chunk (no refusals); fits on MPS; no RunPod. Results
+in `research/redesign_m2_20261008/results_m2b/`.
+
+### 17.1 `ego2s-b` and the coverage audit
+
+`ego2s-b` = `ego2s-draft` + local channel `enemy_next` (each enemy's next cell, 255 on the
+two-cell path when it is boosting) + 18 scalars: nearest / second enemy ego offset, size,
+heading, boosting, a stateless approach signal (the teacher's distance trend made
+forward-looking), kill opportunity, **uncapped tail-aware free-region size per action**
+(fraction of L and log), enemies-alive fraction (`src/simd_env/ego_raster_b.py`; numba
+component labelling bitwise = a Python BFS reference).
+
+**Coverage audit** (`coverage_audit.py`, `results_m2b/coverage_audit.json`; 160k
+decisions with the teacher's exact 61-D input; probe nets regress the 61 features, held-out
+R²): draft → b: kill_opportunity 0.005 → 0.93, nearest-enemy trend 0.05 → 0.71, enemy
+heading −0.01 → 0.55, enemy sizes 0.61–0.65 → 0.94–0.95; everything else unchanged.
+Reading (from the review): the probe has a **floor of ~0.84–0.95** even on inputs the
+student receives exactly (boost_available matches on 160,000/160,000 samples yet scores
+0.84), so lower R² on absolute-frame features is not evidence of a gap; those are absent
+by the ego-frame design. **Boost:** the teacher's only boost-specific input is
+`length >= MIN_BOOST_LENGTH`, which ego2s already carried exactly; there is no other boost
+state in the 61 inputs. The student's low boost rate is therefore a fitting issue, not an
+observation gap (held-out agreement on boost labels 17%, predicted boost rate 0.6% vs 1.5%
+labels).
+
+**Live-vs-sim identity (`ego2s-b`):** the first gate-world run found a real divergence
+(2 of 3 frozen-mix worlds, frames 920 and 4779): BatchSim's persistent boosted flag survives
+a respawn, while live clears `is_boosting`. Fixed in the view (`boosted & length > 1`,
+`b84d4de`, regression test at the decision point); rerun: **9 worlds, 45k frames, 264k
+rows identical**, both backends (the failing pre-fix runs are kept).
+
+### 17.2 Data and fits
+
+| Data round | Who acts | Decisions | Hero deaths | Max length |
+|---|---|---|---|---|
+| 10 | frp3-s12 + v8 | 2.08M | 179 | 1231 |
+| 11 | `exp_adv` student w.p. 0.5 | 1.04M | 211 (M2's round 1: 457) | 1280 |
+| 12 | r11 student w.p. 0.75 | 1.04M | 362 (M2's round 2: 506) | 1117 |
+
+The new features alone did not lift agreement (round-10 fit, M2 recipe, 12 epochs: 0.783,
+like M2's 0.781; on the same held-out data the M2 student's regret was no worse). Two loss
+terms did, chosen on held-out distillation worlds: advantage regression ×10 and a softened
+KL (τ 0.05) from the teacher's Q (4-epoch fits: M2 recipe 0.768, +KL 0.777, +adv 0.780;
+adv+KL 8 epochs 0.794). Final student (rounds 10–12, warm from r11, 6 epochs, sha
+`36a92948…`): **held-out v8 agreement 0.809, Q R² 0.906**, 0.778 at L > 500.
+
+### 17.3 The pre-registered check (fresh worlds `redesign-m2b-ni/v1`, commit `2582fc2`)
+
+| Mix | frp3-s12 no veto | student no veto | Δ mean | one-sided 90% LB |
+|---|---|---|---|---|
+| frozen | 94.4 | 146.0 | +51.6 | +18.2 |
+| scripted | 63.4 | 98.5 | +35.2 | +6.6 |
+| mixed | 113.3 | 183.6 | +70.3 | +40.0 |
+| **pooled (144 paired)** | 90.4 | 142.7 | **+52.4** (sd 163.8) | **+34.8 > −15 → PASS** |
+
+`verdict.json` written by `ni_check.py --spec m2b decide` after its provenance audit
+(one clean commit for all arms, student sha matches the intent, NI seeds exact).
+
+Behaviour (no veto): survival 0.45 vs 0.36, peak length 492 vs 371; deaths still mostly
+self-collision (129/144 vs 127/144); boost frames 0.43% vs 0.76%.
+
+**Reported, not gated: student + v8 vs I (frp3-s12 + v8):** 409.4 vs 398.4, Δ **+11.1**
+(LB −16.4; frozen +0.4, scripted −6.7, mixed +39.4); survival 0.83 vs 0.84, peak length
+899 vs 845.
+
+### 17.4 Reading and next steps
+
+M2's exit criterion (doc §10, re-run under the owner's Option 1) is **met**: the
+distilled ego2s-b student is non-inferior to its teacher without a veto, and in fact better
+on all three mixes (pooled LB > 0). With v8 wrapped around both, the student is at parity
+with the served champion (point +11, wide CI). This is the warm start M3 was waiting for.
+Open items before M3: register `ego2s-b` as an obs spec with the serving adapter and run the
+Mac serving latency check; the student still under-boosts (a fitting issue); the
+G1 throughput numbers in §14.4 were for `ego2s-draft` (`ego2s-b` adds the enemy features
+and one component labelling per world: re-measure); M3 needs an owner-approved pod spend.

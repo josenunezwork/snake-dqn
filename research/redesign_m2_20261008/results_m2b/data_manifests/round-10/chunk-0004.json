@@ -1,0 +1,108 @@
+{
+ "chunk": 4,
+ "created_utc": "2026-10-08T04:13:58.234147+00:00",
+ "decisions_per_s": 610.5631704320614,
+ "fields": [
+  "local",
+  "global",
+  "scalars",
+  "q_teacher",
+  "a_base",
+  "a_v8",
+  "a_taken",
+  "mask_resolved",
+  "mask_teacher",
+  "length",
+  "frame",
+  "world_seed"
+ ],
+ "frames": 5000,
+ "git": {
+  "commit": "221c3604f91a512cddefd466d7754555d6ab3d84",
+  "dirty_paths": ""
+ },
+ "max_length": 1170,
+ "mix": "scripted",
+ "obs_version": "b",
+ "parts": [
+  {
+   "bytes": 4253977,
+   "file": "chunk-0004-part-00.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5292409,
+   "file": "chunk-0004-part-01.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5067449,
+   "file": "chunk-0004-part-02.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5361875,
+   "file": "chunk-0004-part-03.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5359883,
+   "file": "chunk-0004-part-04.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5507266,
+   "file": "chunk-0004-part-05.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5493361,
+   "file": "chunk-0004-part-06.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5751974,
+   "file": "chunk-0004-part-07.npz",
+   "samples": 10000
+  }
+ ],
+ "round": 10,
+ "schema_version": "redesign-m2-distill-shard/v1",
+ "stats": {
+  "decisions": 80000,
+  "hero_deaths": 11,
+  "student_acted": 0,
+  "veto_override": 111
+ },
+ "student": null,
+ "teacher": {
+  "forward": "batched",
+  "lambda": 8.0,
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": "v8"
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "wall_seconds": 131.02657329197973,
+ "world_seeds": [
+  2384718955,
+  1932277780,
+  232976186,
+  871625234,
+  562795499,
+  2116828640,
+  2550098736,
+  3697242182,
+  548759589,
+  2164188273,
+  2963363836,
+  1422543217,
+  374296282,
+  1823539375,
+  2902770945,
+  443471871
+ ],
+ "worlds": 16
+}

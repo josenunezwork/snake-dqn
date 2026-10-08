@@ -1,0 +1,112 @@
+{
+ "chunk": 0,
+ "created_utc": "2026-10-08T05:12:31.444253+00:00",
+ "decisions_per_s": 220.92149646307956,
+ "fields": [
+  "local",
+  "global",
+  "scalars",
+  "q_teacher",
+  "a_base",
+  "a_v8",
+  "a_taken",
+  "mask_resolved",
+  "mask_teacher",
+  "length",
+  "frame",
+  "world_seed"
+ ],
+ "frames": 5000,
+ "git": {
+  "commit": "30fc34f65d2fb553809002c8022fb5bc138540f1",
+  "dirty_paths": ""
+ },
+ "max_length": 1148,
+ "mix": "frozen",
+ "obs_version": "b",
+ "parts": [
+  {
+   "bytes": 4109662,
+   "file": "chunk-0000-part-00.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5219543,
+   "file": "chunk-0000-part-01.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5416116,
+   "file": "chunk-0000-part-02.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5562031,
+   "file": "chunk-0000-part-03.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5502788,
+   "file": "chunk-0000-part-04.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5427993,
+   "file": "chunk-0000-part-05.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5462254,
+   "file": "chunk-0000-part-06.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5426466,
+   "file": "chunk-0000-part-07.npz",
+   "samples": 10000
+  }
+ ],
+ "round": 11,
+ "schema_version": "redesign-m2-distill-shard/v1",
+ "stats": {
+  "decisions": 80000,
+  "hero_deaths": 19,
+  "student_acted": 39767,
+  "veto_override": 137
+ },
+ "student": {
+  "beta": 0.5,
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/fits/exp_adv/student.pth",
+  "sha256": "d49e1003855164adfa706860c5279c626f42ad9c29d41c20f6aa60b9e584b238"
+ },
+ "teacher": {
+  "forward": "batched",
+  "lambda": 8.0,
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": "v8"
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "wall_seconds": 362.1195822081063,
+ "world_seeds": [
+  2869887743,
+  2973485441,
+  2464427011,
+  4279933033,
+  808681849,
+  1107684797,
+  3399179012,
+  212580763,
+  286463711,
+  4043659024,
+  541044139,
+  2912860811,
+  2484083312,
+  1834200452,
+  141144850,
+  3125921099
+ ],
+ "worlds": 16
+}
