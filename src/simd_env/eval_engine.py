@@ -645,6 +645,7 @@ def run_simd_eval(
     hero_safety_veto_reference_lambda: float | None = None,
     sim_engine: str = "batch",
     hero_ego2s: str | None = None,
+    ego2s_forward: str = "batched",
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -698,6 +699,8 @@ def run_simd_eval(
             ``sim_engine="grid"`` and ``vector61=True``; ``hero_spec`` must be a vector61
             checkpoint, used only as the vector61 carrier of the optional veto (the
             student's Q replaces the carrier's). Records gain ``ego2s_hero``.
+        ego2s_forward: ``"batched"`` (default; the M2/M2b checks) or ``"rowwise"`` (one
+            batch-1 forward per hero row: comparable with the live engine's records).
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -851,7 +854,7 @@ def run_simd_eval(
                 from src.simd_env.ego2s_policy import Ego2sSimdPolicy, Ego2sV8Policy
 
                 if veto_spec is None:
-                    ego2s_cache["hero"] = Ego2sSimdPolicy(hero_ego2s)
+                    ego2s_cache["hero"] = Ego2sSimdPolicy(hero_ego2s, forward=ego2s_forward)
                 else:
                     ego2s_cache["hero"] = Ego2sV8Policy(
                         hero_ego2s,
@@ -860,6 +863,7 @@ def run_simd_eval(
                         veto_variant=veto_spec.variant,
                         veto_lambda=veto_spec.lam,
                         veto_reference_lambda=veto_spec.reference_lambda,
+                        ego2s_forward=ego2s_forward,
                     )
             return ego2s_cache["hero"]
         if vector61_runtime is not None and spec[0] == "checkpoint":
@@ -1079,6 +1083,7 @@ def run_simd_eval(
                     "checkpoint": str(hero_ego2s),
                     "sha256": hashlib.sha256(Path(hero_ego2s).read_bytes()).hexdigest(),
                     "veto": None if veto_spec is None else veto_spec.method,
+                    "forward": ego2s_forward,
                 }
             records.append(record)
             continue

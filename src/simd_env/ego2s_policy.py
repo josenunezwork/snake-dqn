@@ -33,15 +33,39 @@ def ego_config_for(net) -> EgoRasterConfig:
     return EgoRasterConfig(version="b" if spec_for(net) == OBS_SPEC_B else "draft")
 
 
-def student_q(net, sim, slots: np.ndarray) -> torch.Tensor:
+FORWARDS = ("batched", "rowwise")
+
+
+def forward_q(net, obs, forward: str = "batched") -> torch.Tensor:
+    """``(N, 6)`` CPU Q for featurizer output ``obs``.
+
+    ``"rowwise"`` runs one batch-1 forward per row, so a row's Q never depends on the batch
+    it was computed in (the convention that makes SIMD and live records comparable,
+    as ``vector61_forward="rowwise"`` does for the 61-D policies).
+    """
+    if forward not in FORWARDS:
+        raise ValueError(f"forward must be one of {FORWARDS}, got {forward!r}")
+    device = next(net.parameters()).device
+    n = int(obs["local"].shape[0])
+    with torch.no_grad():
+        if forward == "batched" or n <= 1:
+            return net(*obs_tensors(obs, device)).float().cpu()
+        rows = [
+            net(
+                *obs_tensors({k: obs[k][i : i + 1] for k in ("local", "global", "scalars")}, device)
+            )
+            for i in range(n)
+        ]
+        return torch.cat(rows).float().cpu()
+
+
+def student_q(net, sim, slots: np.ndarray, forward: str = "batched") -> torch.Tensor:
     """``(N, 6)`` student Q for ``(N, 2)`` rows of ``sim`` (CPU tensor)."""
     slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
     if not len(slots):
         return torch.zeros((0, 6))
     obs = build_ego_raster(sim, ego_config_for(net), backend="numba", rows=slots)
-    device = next(net.parameters()).device
-    with torch.no_grad():
-        return net(*obs_tensors(obs, device)).float().cpu()
+    return forward_q(net, obs, forward)
 
 
 class Ego2sSimdPolicy:
@@ -49,12 +73,13 @@ class Ego2sSimdPolicy:
 
     batched_rows = True  # eval_engine groups every row of a frame into one call
 
-    def __init__(self, checkpoint_path: str, device: str = "cpu") -> None:
+    def __init__(self, checkpoint_path: str, device: str = "cpu", forward: str = "batched") -> None:
         self.checkpoint_path = str(checkpoint_path)
         self.net = load_ego2s_checkpoint(checkpoint_path, device)
+        self.forward = forward
 
     def actions(self, masks: np.ndarray, sim, slots: np.ndarray) -> np.ndarray:
-        q = student_q(self.net, sim, slots).numpy()
+        q = student_q(self.net, sim, slots, self.forward).numpy()
         m = np.asarray(masks, dtype=bool).copy()
         m[~m.any(axis=1), :3] = True
         return np.where(m, q, -np.inf).argmax(axis=1).astype(np.int64)
@@ -74,6 +99,7 @@ class Ego2sV8Policy(Vector61SimdPolicy):
         veto_lambda: Optional[float] = 8.0,
         veto_reference_lambda: Optional[float] = None,
         device: str = "cpu",
+        ego2s_forward: str = "batched",
     ) -> None:
         super().__init__(
             carrier_vector61_checkpoint,
@@ -87,6 +113,7 @@ class Ego2sV8Policy(Vector61SimdPolicy):
         self.network = None  # the carrier network is never run
         self.checkpoint_path = str(checkpoint_path)
         self.student = load_ego2s_checkpoint(checkpoint_path, device)
+        self.ego2s_forward = ego2s_forward
         self._pending = None
 
     def actions(self, masks: np.ndarray, sim, slots: np.ndarray) -> np.ndarray:
@@ -100,4 +127,4 @@ class Ego2sV8Policy(Vector61SimdPolicy):
         if self._pending is None:
             raise RuntimeError("Ego2sV8Policy.q_values outside actions()")
         sim, slots = self._pending
-        return student_q(self.student, sim, slots)
+        return student_q(self.student, sim, slots, self.ego2s_forward)

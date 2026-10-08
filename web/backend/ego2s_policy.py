@@ -28,7 +28,7 @@ import numpy as np
 import torch
 
 from src.model.ego2s_network import load_ego2s_checkpoint, obs_spec_of, obs_tensors
-from src.simd_env.ego2s_policy import ego_config_for
+from src.simd_env.ego2s_policy import ego_config_for, forward_q
 from src.simd_env.ego_live_adapter import game_state_to_ego_view
 from src.simd_env.ego_raster import build_ego_raster
 
@@ -54,12 +54,19 @@ class _Ego2sDQNShim:
 class Ego2sServingPolicy:
     """Forward-only ego2s student serving policy for the live web game."""
 
-    def __init__(self, checkpoint_path: str, device: Optional[torch.device] = None) -> None:
+    def __init__(
+        self,
+        checkpoint_path: str,
+        device: Optional[torch.device] = None,
+        *,
+        forward: str = "batched",
+    ) -> None:
         self.checkpoint_path = str(checkpoint_path)
         self.obs_spec = obs_spec_of(checkpoint_path)
         self.device = torch.device(device) if device is not None else torch.device("cpu")
         self.net = load_ego2s_checkpoint(checkpoint_path, self.device)
         self.ego_cfg = ego_config_for(self.net)
+        self.forward = forward  # "rowwise" for evaluation (record parity with SIMD)
         self.output_size = 6
         self.training = False
         self.total_reward = 0.0
@@ -111,8 +118,7 @@ class Ego2sServingPolicy:
         obs = None
         if len(rows):
             obs = build_ego_raster(view, self.ego_cfg, backend="numba", rows=rows)
-            with torch.no_grad():
-                q_rows = self.net(*obs_tensors(obs, self.device)).float().cpu().numpy()
+            q_rows = forward_q(self.net, obs, self.forward).numpy()
             q[rows[:, 1]] = q_rows
         self._frame = frame
         self._q = q
