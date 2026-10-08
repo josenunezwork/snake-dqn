@@ -55,7 +55,11 @@ SCHEMA = "redesign-grid-h5000-identity/v1"
 AUTHORITY = "development-only identity check (not a screen, not gate evidence)"
 DOMAIN = "redesign-grid-identity/v1"
 NAMESPACE = "worlds"
-CHECKPOINT_DIR = Path("/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
+# The pinned checkpoints' directory; ``SNAKE_CKPT_DIR`` relocates it (e.g. on a RunPod pod,
+# where the files are uploaded sha-verified). ``_context`` re-verifies every hash.
+CHECKPOINT_DIR = Path(
+    os.environ.get("SNAKE_CKPT_DIR", "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes")
+)
 FRP3_S12 = (
     "frp3_m3_s12_u60000_20261005.pth",
     "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",

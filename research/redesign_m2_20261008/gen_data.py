@@ -283,8 +283,15 @@ def gid_sha(path: str) -> str:
 
 
 def guard_ok() -> List[str]:
-    """AC power, lid open, thermal guard clear (empty list = ok)."""
+    """AC power, lid open, thermal guard clear (empty list = ok).
+
+    Mac-only guards: on a non-macOS host (a RunPod pod) there is no battery, lid or pmset;
+    that host's runner enforces its own deadline and spend cap instead.
+    """
     import subprocess
+
+    if sys.platform != "darwin":
+        return []
 
     from research.apex_safety_20260926 import dev_screen
     from research.compute.thermal_guard import (
