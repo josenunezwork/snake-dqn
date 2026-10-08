@@ -910,9 +910,9 @@ every chunk (no refusals); student fits on MPS; no RunPod. Raw data (1.9 GB) und
 
 | Round | Who acts | Decisions | Hero deaths | Max length | Rate / process |
 |---|---|---|---|---|---|
-| 0 | frp3-s12 + v8 | 2.08M (26 chunks × 16 worlds × 5000 frames) | 117 | 1287 | 541/s mean |
-| 1 | student r0 w.p. 0.5 | 1.04M | 457 | 1055 | 317–682/s |
-| 2 | student r1 w.p. 0.75 | 1.04M | 506 | 1183 | — |
+| 0 | frp3-s12 + v8 | 2.08M (26 chunks × 16 worlds × 5000 frames) | 171 | 1287 | 331–733/s |
+| 1 | student r0 w.p. 0.5 | 1.04M (13 chunks) | 457 | 1055 | 318–755/s |
+| 2 | student r1 w.p. 0.75 | 1.04M (13 chunks) | 506 | 1183 | 414–762/s |
 
 v8 overrode the teacher's argmax on only 0.15% of round-0 decisions, so the margin term
 mostly reinforces the teacher's own argmax. Shards compress to ~450 B/sample (≈25×).
