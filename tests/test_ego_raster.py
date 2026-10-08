@@ -375,7 +375,7 @@ def _reference_enemy_next(sim, e, s, cfg):
     from src.simd_env.batch_sim import CARDINAL
 
     head = sim.get_bodies(e, s)[0]
-    boosting = sim.get_boosted_this_step()
+    boosting = sim.get_boosted_this_step() & (sim.length > 1)  # live clears it on respawn
     marks = {}
     for j in range(sim.S):
         if j == s or not sim.alive[e, j]:
@@ -465,3 +465,31 @@ def test_b_scalars_reference_on_a_hand_built_world():
     assert sc2[B_SCALAR_NAMES.index("region_log_left")] == pytest.approx(
         np.log1p(whole) / np.log1p(400), rel=1e-6
     )
+
+
+def test_b_boosting_flag_clears_on_respawn_like_live():
+    """A snake that boosted into a wall and respawned is not 'boosting' in ego2s-b."""
+    cfg = BatchSimConfig(num_envs=1, num_snakes=2, game_width=200, game_height=200)
+    sim = GridBatchSim(cfg, seeds=[9], train_mode=False, allow_respawn=True)
+    cells = [(17, 5), (16, 5), (15, 5), (14, 5), (13, 5), (12, 5), (11, 5)]
+    sim.bodies[0, 1] = 0
+    sim.bodies[0, 1, : len(cells)] = np.array(cells[::-1])
+    sim.head_ptr[0, 1] = len(cells) - 1
+    sim.seg_count[0, 1] = sim.length[0, 1] = len(cells)
+    sim.direction[0, 1] = 1  # heading right, toward the wall at x = 20
+    sim._rebuild_env_grids(0)
+    flags = []
+
+    def act(prepared):
+        # The decision point: respawns are done, the last move's flags are still set.
+        view = prepared.ego_view()
+        raw = bool(prepared.get_boosted_this_step()[0, 1])
+        flags.append((int(prepared.length[0, 1]), raw, bool(view.boosting[0, 1])))
+        return np.array([[1, 4]])  # snake 1 boosts straight into the wall
+
+    for _ in range(8):
+        sim.step_with_policy(act)
+    # The scenario really has a respawned snake whose BatchSim flag is still set ...
+    assert any(length == 1 and raw for length, raw, _ in flags)
+    # ... and ego2s-b reports it as not boosting, as the live game does.
+    assert all(not b for length, _, b in flags if length == 1)

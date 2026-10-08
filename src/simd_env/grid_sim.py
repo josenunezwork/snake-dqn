@@ -980,5 +980,9 @@ class GridBatchSim(BatchSim):
             coarse_snake=self._csnake,
             coarse_food=self._cfood,
             coarse_cell=COARSE_CELL,
-            boosting=self.get_boosted_this_step(),
+            # The live game clears ``is_boosting`` on respawn; BatchSim's persistent
+            # boosted flag is not (and must stay as is for BatchSim parity). A respawned
+            # snake has length 1, and no other length-1 snake can have boosted, so
+            # ``length > 1`` reproduces the live flag exactly (gate-world identity check).
+            boosting=self.get_boosted_this_step() & (self.length > 1),
         )
