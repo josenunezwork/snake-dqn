@@ -388,6 +388,7 @@ def main() -> int:
         "learn_s": 0.0,
         "decisions": 0,
         "boost": 0,
+        "greedy_boost": 0,
         "deaths": 0,
         "action_window": deque(maxlen=100_000),
     }
@@ -411,7 +412,15 @@ def main() -> int:
         a = to_dev(replay.a[idx])
         R = to_dev(replay.R[idx])
         disc = to_dev(replay.disc[idx])
-        q = online(to_dev(sl), to_dev(sg), to_dev(ss))
+        d = demos.sample(rng, 128)
+        n_agent = len(idx)
+        # One online forward for the agent and demonstration rows (shared graph).
+        q_all = online(
+            to_dev(np.concatenate([sl, d["local"]])),
+            to_dev(np.concatenate([sg, d["global"]])),
+            to_dev(np.concatenate([ss, d["scalars"]])),
+        )
+        q, qd = q_all[:n_agent], q_all[n_agent:]
         qa = q.gather(1, a[:, None]).squeeze(1)
         with torch.no_grad():
             nlt, ngt, nst, nmt = to_dev(nl), to_dev(ng), to_dev(ns), to_dev(nm)
@@ -419,9 +428,7 @@ def main() -> int:
             q_next = target(nlt, ngt, nst).gather(1, a_star[:, None]).squeeze(1)
             y = R + disc * q_next
         td = torch.nn.functional.smooth_l1_loss(qa, y)
-        d = demos.sample(rng, 128)
-        db = {k: to_dev(v) for k, v in d.items()}
-        qd = online(db["local"], db["global"], db["scalars"])
+        db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         anc = anchor_loss(torch, qd, db, margin)
         loss = td + lam * anc
         if not torch.isfinite(loss):
@@ -432,8 +439,8 @@ def main() -> int:
         torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
         opt.step()
         state["updates"] += 1
-        state["td"].append(float(td))
-        state["anc"].append(float(anc))
+        state["td"].append(float(td.detach()))
+        state["anc"].append(float(anc.detach()))
         state["qmax"] = max(state["qmax"], float(q.detach().abs().max()))
         if state["updates"] % 1000 == 0:
             target.load_state_dict(online.state_dict())
@@ -492,7 +499,7 @@ def main() -> int:
                     rand = np.array([rng.choice(np.flatnonzero(r)) for r in mm])
                     act = np.where(rng.random(len(hero)) < eps, rand, greedy)
                     actions[hero[:, 0], 0] = act
-                    chosen.update(hero=hero, obs=obs, mask=m, act=act)
+                    chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
                 for spec, cells in groups.items():
                     live = cells[alive[cells[:, 0], cells[:, 1]]]
                     if len(live):
@@ -525,6 +532,7 @@ def main() -> int:
                 acts = chosen["act"]
                 state["decisions"] += len(acts)
                 state["boost"] += int((acts >= 3).sum())
+                state["greedy_boost"] += int((chosen["greedy"] >= 3).sum())
                 state["action_window"].extend(acts.tolist())
                 state["transitions"] += len(acts)
             state["env_s"] += time.perf_counter() - t_env
@@ -555,6 +563,7 @@ def main() -> int:
                     "anchor": float(np.mean(state["anc"])) if state["anc"] else None,
                     "qmax": state["qmax"],
                     "boost_rate": state["boost"] / max(1, state["decisions"]),
+                    "greedy_boost_rate": state["greedy_boost"] / max(1, state["decisions"]),
                     "deaths_per_1k": 1000 * state["deaths"] / max(1, state["decisions"]),
                     "demo_shards_loaded": demos.loaded,
                     "demo_distinct": demos.distinct,
@@ -567,7 +576,9 @@ def main() -> int:
                         )
                 if state["qmax"] > 5 * demo_qmax:
                     state["flags"].append({"t": state["transitions"], "qmax": state["qmax"]})
-                state.update(td=[], anc=[], qmax=0.0, boost=0, decisions=0, deaths=0)
+                state.update(
+                    td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0
+                )
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")
                 print(json.dumps(row), flush=True)
