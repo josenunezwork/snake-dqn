@@ -39,8 +39,12 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from research.redesign_m2_20261008 import ni_spec  # noqa: E402
+from research.redesign_m2_20261008 import ni_spec, ni_spec_m2b  # noqa: E402
 from research.redesign_scope_20261007 import grid_h5000_identity as gid  # noqa: E402
+
+SPECS = {"m2": (ni_spec, 2), "m2b": (ni_spec_m2b, 12)}
+SPEC = ni_spec  # set by --spec (default m2, the original M2 check)
+FINAL_ROUND = 2
 
 ARMS = {
     "baseline": {"ego2s": False, "veto": False},
@@ -66,11 +70,11 @@ def _student_meta(path: str) -> Dict[str, Any]:
 def cmd_intent(args: argparse.Namespace) -> int:
     out = Path(args.out)
     meta = _student_meta(args.student)
-    if 2 not in meta.get("rounds", []):
-        raise SystemExit("the pre-registered student is the round-2 fit (meta rounds lack 2)")
+    if FINAL_ROUND not in meta.get("rounds", []):
+        raise SystemExit(f"the pre-registered student is the fit on round {FINAL_ROUND}")
     out.mkdir(parents=True, exist_ok=True)
     intent = {
-        "schema_version": ni_spec.SCHEMA,
+        "schema_version": SPEC.SCHEMA,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "git": gid._git(),
         "student": {
@@ -78,15 +82,15 @@ def cmd_intent(args: argparse.Namespace) -> int:
             "sha256": _sha(args.student),
             "meta": meta,
         },
-        "baseline": {"name": ni_spec.FRP3_S12[0], "sha256": ni_spec.FRP3_S12[1]},
+        "baseline": {"name": SPEC.FRP3_S12[0], "sha256": SPEC.FRP3_S12[1]},
         "rule": {
-            "margin": ni_spec.MARGIN,
-            "confidence": ni_spec.CONFIDENCE,
-            "worlds_per_mix": ni_spec.WORLDS_PER_MIX,
-            "mixes": list(ni_spec.MIXES),
-            "namespace": ni_spec.NAMESPACE,
+            "margin": SPEC.MARGIN,
+            "confidence": SPEC.CONFIDENCE,
+            "worlds_per_mix": SPEC.WORLDS_PER_MIX,
+            "mixes": list(SPEC.MIXES),
+            "namespace": SPEC.NAMESPACE,
         },
-        "ni_seeds": ni_spec.ni_seeds(),
+        "ni_seeds": SPEC.ni_seeds(),
         "grid_sim_jit": gid._grid_jit(),
     }
     with (out / "intent.json").open("x") as stream:
@@ -117,7 +121,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     torch.set_num_threads(1)
     ctx = gid._context(1)
-    seeds = ni_spec.ni_seeds()
+    seeds = SPEC.ni_seeds()
     if seeds != intent["ni_seeds"]:
         raise SystemExit("NI seeds differ from intent.json")
     rows = {
@@ -132,9 +136,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         kwargs["hero_ego2s"] = student
     started = time.perf_counter()
     records = ee.run_simd_eval(
-        ctx["lookup"][ni_spec.FRP3_S12[1]],
+        ctx["lookup"][SPEC.FRP3_S12[1]],
         rows[seeds[0]],
-        ni_spec.HORIZON,
+        SPEC.HORIZON,
         seeds,
         profile=ctx["profile"],
         opponent_specs_by_world=rows,
@@ -161,7 +165,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def _load(out: Path, arm: str) -> Dict[str, Dict[str, Any]]:
     payloads = {}
-    for mix in ni_spec.MIXES:
+    for mix in SPEC.MIXES:
         path = out / f"{arm}-{mix}.json"
         if path.exists():
             payloads[mix] = json.loads(path.read_text())
@@ -179,11 +183,11 @@ def audit(out: Path, intent: Dict[str, Any]) -> List[str]:
     """Provenance problems that must block a verdict (empty list = ok)."""
     problems: List[str] = []
     sha = intent["student"]["sha256"]
-    seeds = sorted(ni_spec.ni_seeds())
+    seeds = sorted(SPEC.ni_seeds())
     commits, digests = set(), set()
     for arm in ("student", "baseline"):
         payloads = _load(out, arm)
-        for mix in ni_spec.MIXES:
+        for mix in SPEC.MIXES:
             p = payloads.get(mix)
             if p is None:
                 problems.append(f"missing {arm}-{mix}.json")
@@ -228,12 +232,12 @@ def cmd_decide(args: argparse.Namespace) -> int:
         print(json.dumps({"refused": problems}, indent=1))
         return 2
     student, baseline = _masses(_load(out, "student")), _masses(_load(out, "baseline"))
-    verdict = ni_spec.decide(student, baseline)
-    verdict["identical_arms_flag"] = all(student[m] == baseline[m] for m in ni_spec.MIXES)
+    verdict = SPEC.decide(student, baseline)
+    verdict["identical_arms_flag"] = all(student[m] == baseline[m] for m in SPEC.MIXES)
     reported: Dict[str, Any] = {}
     sv8, bv8 = _masses(_load(out, "student_v8")), _masses(_load(out, "baseline_v8"))
     if sv8 and bv8:
-        reported["student_v8_vs_I"] = ni_spec.decide(sv8, bv8)
+        reported["student_v8_vs_I"] = SPEC.decide(sv8, bv8)
         reported["student_v8_vs_I"].pop("verdict")
     for arm in ARMS:
         m = _masses(_load(out, arm))
@@ -251,7 +255,9 @@ def cmd_decide(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    global SPEC, FINAL_ROUND
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--spec", choices=sorted(SPECS), default="m2")
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("intent")
     a.add_argument("--student", required=True)
@@ -263,6 +269,7 @@ def main() -> int:
     d = sub.add_parser("decide")
     d.add_argument("--out", required=True)
     args = ap.parse_args()
+    SPEC, FINAL_ROUND = SPECS[args.spec]
     return {"intent": cmd_intent, "run": cmd_run, "decide": cmd_decide}[args.cmd](args)
 
 

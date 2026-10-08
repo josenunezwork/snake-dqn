@@ -40,6 +40,7 @@ def main() -> int:
     ap.add_argument("--mix", choices=ni_spec.MIXES, required=True)
     ap.add_argument("--worlds", type=int, default=8)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--round-index", type=int, default=PROBE_ROUND_INDEX, help="M2b: 51")
     args = ap.parse_args()
     import torch
 
@@ -47,8 +48,10 @@ def main() -> int:
 
     torch.set_num_threads(1)
     ctx = gid._context(1)
-    seeds = ni_spec.distill_seeds(args.worlds, round_index=PROBE_ROUND_INDEX)
-    assert not set(seeds) & set(ni_spec.ni_seeds())
+    from research.redesign_m2_20261008 import ni_spec_m2b
+
+    seeds = ni_spec.distill_seeds(args.worlds, round_index=args.round_index)
+    assert not set(seeds) & (set(ni_spec.ni_seeds()) | set(ni_spec_m2b.ni_seeds()))
     rows = {
         int(r["world_seed"]): [ctx["lookup"][s["member_sha256"]] for s in r["slots"]]
         for r in ctx["ds"]._design_rows(seeds)
