@@ -38,11 +38,24 @@ E = 64, seeds `redesign-m3-train/v1` key `seed<s>`; HALT on NaN/inf or action co
   counts): the SIMD `Ego2sSimdPolicy` acts on the resolved mask (as pre-registered for
   M2/M2b) while the live AISnake uses its advisory mask with the normal-only fallback. No
   Phase R arm uses that path (both C and I carry v8, which uses the advisory mask in both
-  engines).
-* **Rule spec + plan pinned:** `rule_spec.py` (FRP-v4 sequential form; seeds 0–4; NO_GO
-  G = 50; cap 600; N 32) pinned by `tests/test_m3_rule_spec.py`: rule sha256
-  `fd42a5d5…4267`, plan sha256 `5d1ee49d…304e`, looks 11 / 22 / 32, GO nominal
-  0.0050 / 0.0457 / 0.0860, KILL nominal 0.0464 / 0.0508 / 0.0528.
+  engines). The review confirmed the cause: each differing world differs only by +1 boost
+  frame on the trapped death frame (the resolved mask falls back to the legal mask, boost
+  included; the live snake falls back to normal moves).
+* **P2 is repeated on the real candidates** before Phase R's first shard: `--arm v8`, 3
+  worlds per mix at H5000 plus 1 world per mix at H10000, for every seed's 20M checkpoint.
+  Any difference triggers the fixed engine rule (the whole study on the live engine; the
+  platform choice returns to the owner first).
+* **Rule spec + plan pinned (amendment condition 1):** `rule_spec.py` (FRP-v4 sequential
+  form; seeds 0–4; NO_GO G = 50; cap 600; N 32); canonical JSON in `rule_spec_m3.json`;
+  pinned by `tests/test_m3_rule_spec.py`: rule sha256
+  `fd42a5d5ba898e41c2f4b251ac7833a461ed7773e5c91290f4d5015c00e04267`, plan sha256
+  `5d1ee49d0ce8ce0f764f61909ad1803b542e825c70a08c01c12b83636651304e`, looks 11 / 22 / 32,
+  GO nominal 0.0050 / 0.0457 / 0.0860, KILL nominal 0.0464 / 0.0508 / 0.0528. The rule's
+  hero is a label; the candidate checkpoints' sha256 are written into `plan.json` before the
+  first Phase R shard.
+* **World namespaces** (`tests/test_m3_namespaces.py`): training `redesign-m3-train/v1`
+  key `seed<s>`; Phase R banks `redesign-m3-phase-r/v1` key `seed<s>` (32 worlds each);
+  disjoint from every NI, probe, distillation, P2 and M1 world used so far.
 
 ## 4. Measured rates (Mac, one thread + MPS; loaded host)
 
@@ -52,7 +65,8 @@ E = 64, seeds `redesign-m3-train/v1` key `seed<s>`; HALT on NaN/inf or action co
 
 ## 5. M3-A (Mac smoke; runs after ratification)
 
-Seed 0, 5M transitions, checkpoints at 2.5M and 5M. Dev probes (16 worlds per mix,
+Seed 0, 5M transitions; checkpoint at 2.5M (`ckpt_2500k.pth`), the 5M model is `final.pth`.
+Dev probes (16 worlds per mix,
 distillation-namespace round index 52, grid engine, student + v8 and student alone) at 0
 (= the M2b student), 2.5M, 5M. HALT only on a §2 tripwire; FLAG if the 5M student + v8 mean
 is below the 0M mean by more than 50 (≈ 1.4–2.3 SE); report the rate, the probes, the
@@ -61,8 +75,8 @@ per 1k decisions).
 
 ## 6. M3-B and the learning-slope gate
 
-5 seeds (0–4) × 20M transitions, checkpoints every 2.5M (seed 0 restarts unless M3-A's
-config is identical, in which case it continues). Probes (student + v8) at 0, 5, 10, 15,
+5 seeds (0–4) × 20M transitions, checkpoints every 2.5M, the 20M model is `final.pth`.
+Seed 0 restarts (the trainer saves weights only, no optimizer / replay / RNG state). Probes (student + v8) at 0, 5, 10, 15,
 20M on the same 48 round-52 worlds; per seed the OLS slope of the world-paired
 mix-stratified means on transitions; **proceed to Phase R iff the one-sided 90% t lower
 bound across the 5 seed slopes (df 4) > 0**. Candidates: each seed's 20M checkpoint.
@@ -75,13 +89,18 @@ prefix controls in look 0; GO (OBF on the HK LB + clauses 2–7, guard vs champi
 on seed 0's bank), KILL (Pocock HK UB < +20), NO_GO (UB < 50); create-only plan before any
 shard, look receipts, look gate, `python -I` audit must PASS; stops are final; disclosures
 after an early stop; control arm M2b student + v8 on seed 0's bank (reported). Engine: SIMD
-grid (P2 passed), Mac only (D4 deferred). ≈ 1180 episodes ≈ 4.6 h max on 2 Mac processes.
+grid (P2 passed; repeated on the candidates, §3), Mac only (D4 deferred). Forward modes are
+pinned and asserted by the Phase R harness: `vector61_forward="rowwise"` and
+`ego2s_forward="rowwise"` (the modes P2 verified). ≈ 1180 episodes ≈ 4.6 h max on 2 Mac
+processes.
 
 ## 8. Pinned code (commit `a6244da` + this file's commit)
 
 `train_m3.py` sha256 prefix `aef08446e4c77b12`; `rule_spec.py` `04a2d7f69ced2756`;
 `src/simd_env/ego2s_policy.py` `247686a44008a794`; `web/backend/ego2s_policy.py`
-`591473721bde0ffc`. Any change to these before the M3-B / Phase R step it governs is a
+`591473721bde0ffc`; `src/simd_env/eval_engine.py` `48b46a2cd22e193b`;
+`src/scripts/tournament_eval.py` `ce43be867cbe2357`; `student_record_parity.py`
+`46f842f048d0c417`; `research/redesign_m2_20261008/dev_probe.py` `0ac3b9673e842a81`. Any change to these before the M3-B / Phase R step it governs is a
 recorded deviation.
 
 ## 9. Owner decisions and ratification
@@ -93,5 +112,17 @@ end-to-end" (the per-step 4× rule); pod spend still needs the user's approval w
 proposed; (c) NO_GO opt-in at G = 50 confirmed; (d) the 5-seed platform is decided after
 M3-A. Boosting is left to RL; the boost rate is reported.
 
-**Ratification:** pending the independent review of this file and the pinned code; recorded
-below when done.
+**Independent review (pre-ratification, 2026-10-08):** GO-with-fixes; `train_m3.py`
+verified correct (every one of 19,936 replay entries of a logged smoke recomputed exactly:
+full 5-step windows, terminal flushes, truncation bootstraps; Double-DQN target with the
+next state's mask; schedules; anchor = M2b loss minus raw-Q; demo stream; tripwires);
+rates reproduced (1.73k/s). Its fixes are folded in above: P2 repeated on the real
+candidates incl. H10000 (§3), forward modes pinned (§7), full rule / plan sha, rule JSON,
+bank key, candidate hashes into `plan.json`, namespace disjointness test (§3), seed 0
+restarts and `final.pth` naming (§5, §6), the pinned-file list extended (§8). Known and
+accepted: the action-collapse check costs ≈ 5% (M3-A ≈ 48 min); demo prefetch makes runs
+non-bit-reproducible; training never sees the "mixed" mix.
+
+**RATIFIED 2026-10-08 by the research loop owner** (owner decisions (a)–(d) above), effective
+at this file's commit. M3-A may start; M3-B's platform and any pod spend are decided after
+M3-A; Phase R needs M3-B's slope gate and the candidate P2 re-run.
