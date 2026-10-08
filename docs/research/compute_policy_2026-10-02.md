@@ -1,5 +1,7 @@
 # Compute policy for CPU research runs, 2026-10-02
 
+> **Superseded as the current operating policy (2026-10-08):** use [STATUS.md](../STATUS.md) for the latest compute and RunPod rules. This document remains the dated policy record.
+
 Status: **policy, opt-in tooling landed; 3 slots are not yet the default.** This policy covers
 new runs that start on or after 2026-10-02. It does not change any closed study, any strict
 (Tier-2) package or any default code path. Tier names follow

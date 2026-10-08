@@ -12,6 +12,11 @@ produce evidence; no command in this repository silently replaces it.
 ![code style](https://img.shields.io/badge/code%20style-black-000000)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
+## Documentation
+
+Use the [documentation map](docs/README.md) to find the current status,
+release records, research chronology, and historical study evidence.
+
 ## What is established, and what is not
 
 The deployed reference is the 61-feature free-space Apex checkpoint. Its earlier
