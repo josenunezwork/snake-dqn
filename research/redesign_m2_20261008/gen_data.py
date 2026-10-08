@@ -165,6 +165,10 @@ def run_chunk(args: argparse.Namespace) -> Dict[str, Any]:
 
         device = torch.device(args.student_device)
         student = load_ego2s_checkpoint(args.student, device)
+        from src.simd_env.ego2s_policy import ego_config_for
+
+        if ego_config_for(student).version != args.obs_version:
+            raise SystemExit("--student was trained on another obs version than --obs-version")
     rng = np.random.default_rng([args.round, args.chunk, 77])
 
     out = Path(args.out) / f"round-{args.round}"

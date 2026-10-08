@@ -56,6 +56,7 @@ BACKENDS = ("numpy", "numba")
 
 
 HUNGER = 5  # SCALAR_NAMES index of the own-hunger scalar
+OBS_VERSION = {"value": "draft"}  # set by --obs-version
 
 
 def obs_digest(view: Any, env: int, scripted_slots: Sequence[int] = ()) -> Dict[str, Any]:
@@ -67,7 +68,7 @@ def obs_digest(view: Any, env: int, scripted_slots: Sequence[int] = ()) -> Dict[
     scalar appears only in that row's own observation, so every observation a policy
     can read is still compared in full.
     """
-    from src.simd_env.ego_raster import build_ego_raster
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 
     alive = np.asarray(view.alive[env], dtype=bool)
     rows = np.array([[env, s] for s in np.flatnonzero(alive)], dtype=np.int64).reshape(-1, 2)
@@ -76,7 +77,8 @@ def obs_digest(view: Any, env: int, scripted_slots: Sequence[int] = ()) -> Dict[
     h.update(alive.tobytes())
     per_backend = {}
     for backend in BACKENDS:
-        obs = build_ego_raster(view, backend=backend, rows=rows)
+        cfg = EgoRasterConfig(version=OBS_VERSION["value"])
+        obs = build_ego_raster(view, cfg, backend=backend, rows=rows)
         scalars = obs["scalars"].copy()
         scalars[scripted, HUNGER] = 0.0
         obs["scalars"] = scalars
@@ -215,7 +217,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--mixes", default="frozen,scripted,mixed")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--obs-version", choices=("draft", "b"), default="draft")
     args = parser.parse_args(argv)
+    OBS_VERSION["value"] = args.obs_version
     if args.out.exists():
         print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
         return 2
@@ -252,6 +256,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "hero": {"name": gid.FRP3_S12[0], "sha256": gid.FRP3_S12[1], "veto": gid.ARMS["v8"]},
         "versions": {"numba": numba.__version__, "numpy": np.__version__},
         "grid_sim_jit": gid._grid_jit(),
+        "obs_version": args.obs_version,
         "frames_compared": int(sum(r["frames_live"] for r in results)),
         "rows_compared": int(sum(r["rows_compared"] for r in results)),
         "pass": passed,

@@ -19,11 +19,18 @@ from typing import Optional, Sequence
 import numpy as np
 import torch
 
-from src.model.ego2s_network import load_ego2s_checkpoint, obs_tensors
-from src.simd_env.ego_raster import build_ego_raster
+from src.model.ego2s_network import OBS_SPEC_B, load_ego2s_checkpoint, obs_tensors
+from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 from src.simd_env.vector61_policy import Vector61SimdPolicy
 
 __all__ = ["Ego2sSimdPolicy", "Ego2sV8Policy", "student_q"]
+
+
+def ego_config_for(net) -> EgoRasterConfig:
+    """The featurizer config a student was trained on (from its input shape)."""
+    from src.model.ego2s_network import spec_for
+
+    return EgoRasterConfig(version="b" if spec_for(net) == OBS_SPEC_B else "draft")
 
 
 def student_q(net, sim, slots: np.ndarray) -> torch.Tensor:
@@ -31,7 +38,7 @@ def student_q(net, sim, slots: np.ndarray) -> torch.Tensor:
     slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
     if not len(slots):
         return torch.zeros((0, 6))
-    obs = build_ego_raster(sim, backend="numba", rows=slots)
+    obs = build_ego_raster(sim, ego_config_for(net), backend="numba", rows=slots)
     device = next(net.parameters()).device
     with torch.no_grad():
         return net(*obs_tensors(obs, device)).float().cpu()

@@ -19,16 +19,20 @@ import torch
 from torch import nn
 
 OBS_SPEC = "ego2s-draft"
+OBS_SPEC_B = "ego2s-b"
 ARCH = "ego2s-dueling-cnn/v1"
+#: obs spec -> (local channels, scalars)
+OBS_SHAPES = {OBS_SPEC: (6, 12), OBS_SPEC_B: (7, 30)}
 
 
 class Ego2sNet(nn.Module):
     """Local conv tower + global conv tower + scalars -> dueling V + A(6)."""
 
-    def __init__(self) -> None:
+    def __init__(self, local_channels: int = 6, n_scalars: int = 12, n_out: int = 6) -> None:
         super().__init__()
+        self.config = {"local_channels": local_channels, "n_scalars": n_scalars, "n_out": n_out}
         self.local = nn.Sequential(
-            nn.Conv2d(6, 32, 3, padding=1),
+            nn.Conv2d(local_channels, 32, 3, padding=1),
             nn.ReLU(),
             nn.Conv2d(32, 64, 3, stride=2, padding=1),
             nn.ReLU(),
@@ -49,9 +53,11 @@ class Ego2sNet(nn.Module):
             nn.LayerNorm(128),
             nn.ReLU(),
         )
-        self.fuse = nn.Sequential(nn.Linear(256 + 128 + 12, 256), nn.LayerNorm(256), nn.ReLU())
+        self.fuse = nn.Sequential(
+            nn.Linear(256 + 128 + n_scalars, 256), nn.LayerNorm(256), nn.ReLU()
+        )
         self.value = nn.Linear(256, 1)
-        self.adv = nn.Linear(256, 6)
+        self.adv = nn.Linear(256, n_out)
 
     def forward(
         self, local: torch.Tensor, glob: torch.Tensor, scalars: torch.Tensor
@@ -72,17 +78,39 @@ def obs_tensors(obs: Mapping[str, np.ndarray], device: torch.device):
     )
 
 
+def spec_for(net: Ego2sNet) -> str:
+    shape = (net.config["local_channels"], net.config["n_scalars"])
+    for spec, s in OBS_SHAPES.items():
+        if s == shape:
+            return spec
+    raise ValueError(f"no obs spec has local/scalar shape {shape}")
+
+
 def save_ego2s_checkpoint(path: Path, net: Ego2sNet, meta: Optional[Dict[str, Any]] = None) -> None:
     """Write a CPU state dict with the obs-spec / architecture contract."""
     state = {k: v.detach().cpu() for k, v in net.state_dict().items()}
-    torch.save({"obs_spec": OBS_SPEC, "arch": ARCH, "state_dict": state, "meta": meta or {}}, path)
+    blob = {
+        "obs_spec": spec_for(net),
+        "arch": ARCH,
+        "config": dict(net.config),
+        "state_dict": state,
+        "meta": meta or {},
+    }
+    torch.save(blob, path)
+
+
+def obs_spec_of(path: str) -> str:
+    """The obs spec a checkpoint was trained on (``ego2s-draft`` or ``ego2s-b``)."""
+    return torch.load(path, map_location="cpu", weights_only=False)["obs_spec"]
 
 
 def load_ego2s_checkpoint(path: str, device: str | torch.device = "cpu") -> Ego2sNet:
     """Load an :class:`Ego2sNet` in eval mode; refuses any other contract."""
     blob = torch.load(path, map_location="cpu", weights_only=False)
-    if blob.get("obs_spec") != OBS_SPEC or blob.get("arch") != ARCH:
-        raise ValueError(f"{path} is not an {OBS_SPEC} / {ARCH} checkpoint")
-    net = Ego2sNet()
+    if blob.get("obs_spec") not in OBS_SHAPES or blob.get("arch") != ARCH:
+        raise ValueError(f"{path} is not an ego2s / {ARCH} checkpoint")
+    net = Ego2sNet(**blob.get("config", {}))
+    if spec_for(net) != blob["obs_spec"]:
+        raise ValueError(f"{path}: config does not match obs spec {blob['obs_spec']}")
     net.load_state_dict(blob["state_dict"])
     return net.to(device).eval()

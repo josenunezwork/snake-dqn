@@ -173,8 +173,8 @@ def main() -> int:
     if margin_file.exists():
         margin = json.loads(margin_file.read_text())["margin"]
     else:
-        if rounds != [0]:
-            raise SystemExit("margin.json must be fixed from round-0 data first")
+        if len(rounds) != 1:
+            raise SystemExit("margin.json must be fixed from the first round's data alone")
         ranges = []
         for p in paths:
             with np.load(p) as z:
@@ -195,7 +195,9 @@ def main() -> int:
     if args.init:
         net = load_ego2s_checkpoint(args.init, device)
     else:
-        net = Ego2sNet()
+        net = Ego2sNet(
+            local_channels=int(val["local"].shape[1]), n_scalars=int(val["scalars"].shape[1])
+        )
         with torch.no_grad():  # start the value head at the teacher's mean Q (raw scale)
             net.value.bias.fill_(float(val["q_teacher"].mean()))
         net = net.to(device)
