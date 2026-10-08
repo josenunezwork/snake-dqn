@@ -48,12 +48,12 @@ when they conflict.
 | 2026-10-03 | v9 development sweep | `SELECTED`: K8S soft opponent forecasting | `veto-v9:docs/research/apex_veto_v9_dev_sweep_2026-10-03.md` | K8S was selected for a separate screen; hard hazards were harmful and the selection was non-authoritative. |
 | 2026-10-03 | Serving-time search feasibility | Feasible only as bounded research/design work | `main:docs/research/serving_time_search_feasibility_2026-10-03.md` | Documents lookahead-search measurements and limits for the v8 Watch hero. |
 | 2026-10-04 | v9 soft-k sweep | `EXPLORATORY_NO_SELECTION` | `veto-v9:docs/research/apex_veto_v9_softk_sweep_2026-10-04.md` | Soft k=4/12/16 comparisons could not change the separately pre-registered K8S screen arm. |
-| 2026-10-04 | LH-1 long-horizon screen amendment | Ratified 2026-10-05; C2 descriptive, C3 binding at mass >=300 | `lh1-screen:docs/research/governance_amendment_long_horizon_screen_2026-10-04.md` | The opening `DRAFT` label is stale: the ratification section records the adopted calibration-dependent rule. |
+| 2026-10-04 | LH-1 long-horizon screen amendment | Ratified 2026-10-05; C2 descriptive, C3 binding at mass >=300 | `lh1-screen:docs/research/governance_amendment_long_horizon_screen_2026-10-04.md` | The opening `DRAFT` label is stale: the ratification section records the adopted calibration-dependent rule. The file is hash-bound by the FRP-v3 LH-1 screen intent and is left unedited; see the [erratum](governance_amendment_long_horizon_screen_2026-10-04_erratum_2026-10-08.md) (ratified 2026-10-05, `ecddfab`). |
 | 2026-10-04 | Opponent robustness | v8 retains about 83% of its edge under v8-wrapped opponents | `rp-kill-robust:docs/research/opponent_robustness_2026-10-04.md` | Tier-1 non-authoritative probe: v8 held up at least as well as v7, while smarter opponents reduced both vetoed heroes' mass. |
 | 2026-10-04 | V8 long horizon | Mortality, not food, is the population ceiling | `rp-bank-long:docs/research/v8_long_horizon_2026-10-04.md` | Survival falls 65% at H5000 to 20% at H10000 and 1/60 at H20000 although surviving individuals keep growing. |
 | 2026-10-04 | V8 reference bank | Planning data; paired SD 124/141/97, 56–63% exact ties | `rp-bank-long:docs/research/v8_reference_bank_2026-10-04.md` | Tier-1 data sized future sequential gates; at N_max 243 the recorded MDE is about 19–27 mass. |
 | 2026-10-05 | Strict gates on RunPod — initial | **Historical revision** | `strict-runpod:docs/research/governance_amendment_strict_on_runpod_2026-10-05.md` | Original proposed remote-strict-gate amendment using the then-5x speed-up requirement. |
-| 2026-10-05 | Strict gates on RunPod — current text | Proposed and **pending ratification** | `main:docs/research/governance_amendment_strict_on_runpod_2026-10-05.md` | Prospective opt-in remote rule with Mac/pod identity check and Mac serving qualification; revised to the 4x per-step rule, but its footer remains pending. |
+| 2026-10-05 | Strict gates on RunPod — current text | **NOT RATIFIED; superseded 2026-10-08** | `main:docs/research/governance_amendment_strict_on_runpod_2026-10-05.md` | Never used (FRP-v3 strict ran on the Mac). The byte-identity condition fails at random on exact float32 ties. Its "Pending" footer is historical; the file is hash-bound by template v3 `prepare`, so it is left unedited. See the [status note](governance_amendment_strict_on_runpod_2026-10-05_status_2026-10-08.md). |
 | 2026-10-06 | Survival band v2 | Ratified option 1 (`pooled_ni_continue`) | `main:docs/research/governance_amendment_survival_band_v2_2026-10-06.md` | Replaces the prior per-mix paired-band approach for opted-in strict work with pooled paired NI plus a catastrophic floor. |
 | 2026-10-06 | FRP-v3 strict gate | `STRICT_PASS` at look 2, n=207/mix | `main:docs/research/frp3_strict_result_2026-10-06.md` | FRP-v3 seed 12 + v8 beat champion + v8 on H5000 mass under band v2; the prior band would have failed scripted survival. |
 | 2026-10-06 | FRP-v3 serving and release | `SERVING_PASS`; frp3-s12 + v8 released | `main:docs/research/frp3_serving_result_and_release_2026-10-06.md` | Documents the checkpoint swap, serving qualification, and rollback environment variables. |
@@ -95,6 +95,11 @@ M1/M2 use the memory record's **2026-10-08** date rather than dates embedded in 
 | 2026-10-08 | Redesign M3-A / M3-B | M3-A smoke completed without HALT/FLAG; M3-B learning-slope gate `PASS` (LB90 +0.46 > 0) | `m3c:research/redesign_m3_20261008/results/m3b/slope_gate.json` |
 | 2026-10-08 | Redesign M3 Phase R | `NO_GO_EARLY` at look 1: candidate+v8 vs frp3-s12+v8 +11.4, SE 13.7, NO_GO upper bound +40.5 < 50; verify and audit passed | `redesign-scope:research/redesign_m3_20261008/results/phase_r/look-1.json` |
 | 2026-10-08 | Standing decisions | vector61 frozen; redesign is the sole main line; goal is to beat frp3-s12+v8 without a veto; M3-C next; no spend without OK | Claude memory `standing-decisions-2026-10-08.md` record |
+
+**Namespace labels are not dates.** The `20261009` suffix in `frp_v5s_20261009`,
+`frp_v5s2_20261009`, `frp-v5s-20261009` and `frp-v5s2-20261009` is a namespace label fixed
+at registration. FRP-v5-S closed on 2026-10-07. FRP-v5-S2's result was recorded and merged
+on **2026-10-08**. The dates in the tables above are the recorded outcome dates.
 
 ## Notes on documents outside this directory
 
