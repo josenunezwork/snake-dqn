@@ -58,7 +58,7 @@ def _write_arms(out, sha, tamper=None):
         for mix in ni_spec.MIXES:
             recs = []
             for s in seeds:
-                r = {"seed": s, "mass_integral": 100.0, "mix_id": mix}
+                r = {"seed": s, "mass_integral": 100.0, "world_identity": {"mix_id": mix}}
                 r["evaluation_profile_digest"] = "d"
                 if arm == "student":
                     r["ego2s_hero"] = {"sha256": sha, "veto": None}

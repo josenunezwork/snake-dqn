@@ -200,8 +200,9 @@ def audit(out: Path, intent: Dict[str, Any]) -> List[str]:
                 problems.append(f"{arm}-{mix}.json seeds differ from the NI seeds")
             for r in recs:
                 digests.add(r.get("evaluation_profile_digest"))
-                if r.get("mix_id") != mix:
-                    problems.append(f"{arm}-{mix}.json record mix_id {r.get('mix_id')}")
+                mix_id = r.get("world_identity", {}).get("mix_id")
+                if mix_id != mix:
+                    problems.append(f"{arm}-{mix}.json record mix_id {mix_id}")
                     break
                 hero = r.get("ego2s_hero")
                 if arm == "student" and (
