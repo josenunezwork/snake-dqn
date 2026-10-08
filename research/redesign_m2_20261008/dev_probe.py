@@ -40,7 +40,8 @@ def main() -> int:
     ap.add_argument("--mix", choices=ni_spec.MIXES, required=True)
     ap.add_argument("--worlds", type=int, default=8)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--round-index", type=int, default=PROBE_ROUND_INDEX, help="M2b: 51")
+    ap.add_argument("--round-index", type=int, default=PROBE_ROUND_INDEX, help="M2b: 51; M3: 52")
+    ap.add_argument("--veto", choices=("none", "v8"), default="none")
     args = ap.parse_args()
     import torch
 
@@ -58,6 +59,8 @@ def main() -> int:
         if r["mix"] == args.mix
     }
     kwargs = {"hero_ego2s": args.student} if args.arm == "student" else {}
+    if args.veto == "v8":
+        kwargs.update(hero_safety_veto="v8", hero_safety_veto_lambda=8.0)
     t0 = time.perf_counter()
     recs = ee.run_simd_eval(
         ctx["lookup"][ni_spec.FRP3_S12[1]],
@@ -74,6 +77,8 @@ def main() -> int:
     )
     row = {
         "arm": args.arm,
+        "veto": args.veto,
+        "round_index": args.round_index,
         "student": args.student,
         "mix": args.mix,
         "wall": time.perf_counter() - t0,
@@ -84,7 +89,9 @@ def main() -> int:
     with args.out.open("a") as stream:
         stream.write(json.dumps(row) + "\n")
     m = list(row["mass"].values())
-    print(json.dumps({"arm": args.arm, "mix": args.mix, "mean": sum(m) / len(m)}))
+    print(
+        json.dumps({"arm": args.arm, "veto": args.veto, "mix": args.mix, "mean": sum(m) / len(m)})
+    )
     return 0
 
 
