@@ -48,3 +48,53 @@ def test_lower_bound_matches_t():
     assert out["mean"] == 2.5
     assert out["lb"] == pytest.approx(2.5 - out["t"] * out["sd"] / 2.0)
     assert 1.6 < out["t"] < 1.7  # t_{0.90, 3} = 1.638
+
+
+def _write_arms(out, sha, tamper=None):
+    import json
+
+    seeds = ni_spec.ni_seeds()
+    for arm in ("student", "baseline"):
+        for mix in ni_spec.MIXES:
+            recs = []
+            for s in seeds:
+                r = {"seed": s, "mass_integral": 100.0, "mix_id": mix}
+                r["evaluation_profile_digest"] = "d"
+                if arm == "student":
+                    r["ego2s_hero"] = {"sha256": sha, "veto": None}
+                recs.append(r)
+            payload = {
+                "arm": arm,
+                "mix": mix,
+                "git": {"commit": "c", "dirty_paths": ""},
+                "student_sha256": sha if arm == "student" else None,
+                "records": recs,
+            }
+            if tamper:
+                tamper(arm, mix, payload)
+            (out / f"{arm}-{mix}.json").write_text(json.dumps(payload))
+
+
+def test_ni_check_audit_blocks_bad_provenance(tmp_path):
+    from research.redesign_m2_20261008 import ni_check
+
+    intent = {"student": {"sha256": "abc"}}
+    _write_arms(tmp_path, "abc")
+    assert ni_check.audit(tmp_path, intent) == []
+
+    def drop_student(arm, mix, p):
+        if arm == "student" and mix == "mixed":
+            for r in p["records"]:
+                r.pop("ego2s_hero")
+
+    _write_arms(tmp_path, "abc", drop_student)
+    assert any("not played by the student" in x for x in ni_check.audit(tmp_path, intent))
+
+    def lose_world(arm, mix, p):
+        if arm == "baseline" and mix == "frozen":
+            p["records"].pop()
+
+    _write_arms(tmp_path, "abc", lose_world)
+    assert any("seeds differ" in x for x in ni_check.audit(tmp_path, intent))
+    (tmp_path / "student-scripted.json").unlink()
+    assert any("missing" in x for x in ni_check.audit(tmp_path, intent))

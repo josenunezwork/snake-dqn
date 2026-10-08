@@ -33,7 +33,7 @@ import sys  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
-from typing import Any, Dict  # noqa: E402
+from typing import Any, Dict, List  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -56,14 +56,28 @@ def _sha(path: str) -> str:
     return dev_screen.sha256_file(Path(path))
 
 
+def _student_meta(path: str) -> Dict[str, Any]:
+    import torch
+
+    meta = torch.load(path, map_location="cpu", weights_only=False).get("meta", {})
+    return json.loads(json.dumps(meta, default=str))
+
+
 def cmd_intent(args: argparse.Namespace) -> int:
     out = Path(args.out)
+    meta = _student_meta(args.student)
+    if 2 not in meta.get("rounds", []):
+        raise SystemExit("the pre-registered student is the round-2 fit (meta rounds lack 2)")
     out.mkdir(parents=True, exist_ok=True)
     intent = {
         "schema_version": ni_spec.SCHEMA,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "git": gid._git(),
-        "student": {"path": str(Path(args.student).resolve()), "sha256": _sha(args.student)},
+        "student": {
+            "path": str(Path(args.student).resolve()),
+            "sha256": _sha(args.student),
+            "meta": meta,
+        },
         "baseline": {"name": ni_spec.FRP3_S12[0], "sha256": ni_spec.FRP3_S12[1]},
         "rule": {
             "margin": ni_spec.MARGIN,
@@ -145,26 +159,83 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _masses(out: Path, arm: str) -> Dict[str, Dict[int, float]]:
-    table: Dict[str, Dict[int, float]] = {}
+def _load(out: Path, arm: str) -> Dict[str, Dict[str, Any]]:
+    payloads = {}
     for mix in ni_spec.MIXES:
         path = out / f"{arm}-{mix}.json"
         if path.exists():
-            recs = json.loads(path.read_text())["records"]
-            table[mix] = {int(r["seed"]): float(r["mass_integral"]) for r in recs}
-    return table
+            payloads[mix] = json.loads(path.read_text())
+    return payloads
+
+
+def _masses(payloads: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[int, float]]:
+    return {
+        mix: {int(r["seed"]): float(r["mass_integral"]) for r in p["records"]}
+        for mix, p in payloads.items()
+    }
+
+
+def audit(out: Path, intent: Dict[str, Any]) -> List[str]:
+    """Provenance problems that must block a verdict (empty list = ok)."""
+    problems: List[str] = []
+    sha = intent["student"]["sha256"]
+    seeds = sorted(ni_spec.ni_seeds())
+    commits, digests = set(), set()
+    for arm in ("student", "baseline"):
+        payloads = _load(out, arm)
+        for mix in ni_spec.MIXES:
+            p = payloads.get(mix)
+            if p is None:
+                problems.append(f"missing {arm}-{mix}.json")
+                continue
+            if p.get("arm") != arm or p.get("mix") != mix:
+                problems.append(f"{arm}-{mix}.json holds arm={p.get('arm')} mix={p.get('mix')}")
+            if (p.get("student_sha256") == sha) != (arm == "student"):
+                problems.append(f"{arm}-{mix}.json student_sha256 mismatch")
+            if p["git"]["dirty_paths"].strip():
+                problems.append(f"{arm}-{mix}.json ran on a dirty tree")
+            commits.add(p["git"]["commit"])
+            recs = p["records"]
+            if sorted(int(r["seed"]) for r in recs) != seeds:
+                problems.append(f"{arm}-{mix}.json seeds differ from the NI seeds")
+            for r in recs:
+                digests.add(r.get("evaluation_profile_digest"))
+                if r.get("mix_id") != mix:
+                    problems.append(f"{arm}-{mix}.json record mix_id {r.get('mix_id')}")
+                    break
+                hero = r.get("ego2s_hero")
+                if arm == "student" and (
+                    not hero or hero.get("sha256") != sha or hero.get("veto") is not None
+                ):
+                    problems.append(f"{arm}-{mix}.json record not played by the student")
+                    break
+                if arm == "baseline" and hero is not None:
+                    problems.append(f"{arm}-{mix}.json baseline record played by a student")
+                    break
+    if len(commits) > 1:
+        problems.append(f"arms ran on different commits {sorted(commits)}")
+    if len(digests) != 1:
+        problems.append(f"profile digests differ {sorted(map(str, digests))}")
+    return problems
 
 
 def cmd_decide(args: argparse.Namespace) -> int:
     out = Path(args.out)
-    verdict = ni_spec.decide(_masses(out, "student"), _masses(out, "baseline"))
+    intent = json.loads((out / "intent.json").read_text())
+    problems = audit(out, intent)
+    if problems:
+        print(json.dumps({"refused": problems}, indent=1))
+        return 2
+    student, baseline = _masses(_load(out, "student")), _masses(_load(out, "baseline"))
+    verdict = ni_spec.decide(student, baseline)
+    verdict["identical_arms_flag"] = all(student[m] == baseline[m] for m in ni_spec.MIXES)
     reported: Dict[str, Any] = {}
-    sv8, bv8 = _masses(out, "student_v8"), _masses(out, "baseline_v8")
+    sv8, bv8 = _masses(_load(out, "student_v8")), _masses(_load(out, "baseline_v8"))
     if sv8 and bv8:
         reported["student_v8_vs_I"] = ni_spec.decide(sv8, bv8)
         reported["student_v8_vs_I"].pop("verdict")
     for arm in ARMS:
-        m = _masses(out, arm)
+        m = _masses(_load(out, arm))
         vals = [v for mix in m.values() for v in mix.values()]
         if vals:
             reported[f"mean_{arm}"] = sum(vals) / len(vals)

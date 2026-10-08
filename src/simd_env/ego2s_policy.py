@@ -31,7 +31,7 @@ def student_q(net, sim, slots: np.ndarray) -> torch.Tensor:
     slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
     if not len(slots):
         return torch.zeros((0, 6))
-    obs = build_ego_raster(sim, rows=slots)
+    obs = build_ego_raster(sim, backend="numba", rows=slots)
     device = next(net.parameters()).device
     with torch.no_grad():
         return net(*obs_tensors(obs, device)).float().cpu()
