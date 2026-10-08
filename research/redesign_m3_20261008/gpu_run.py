@@ -676,6 +676,7 @@ def launch(args) -> int:
         stop_watchdog(watchdog_pid, run_dir)
         raise SystemExit(f"ledger refused: {refusal}")
     state: Dict[str, Any] = {
+        "accept_no_self_delete": getattr(args, "accept_no_self_delete", None),
         "run_id": run_id,
         "name": name,
         "balance0": balance0,
@@ -800,7 +801,15 @@ def drive(agent, rp, run_dir, state, inputs, args) -> str:
         },
     )
     if not h.get("self_delete_armed") or h.get("self_delete_probe") != 200:
-        return f"pod self-delete not proven (probe {h.get('self_delete_probe')})"
+        why = f"pod self-delete not proven (probe {h.get('self_delete_probe')})"
+        waiver = getattr(args, "accept_no_self_delete", None)
+        if not waiver:
+            return why
+        # User decision 2026-10-08: Mac-side stop only. The pod still kills its jobs at the
+        # deadline and on the 20-min dead-man; only its own deletion is missing.
+        state["self_delete_waived"] = {"reason": why, "note": waiver, "t": now()}
+        save_state(run_dir, state)
+        note(stage="self_delete_waived", reason=why, waiver=waiver)
     mems = [m for m in (h.get("cgroup_memory_gb"), h.get("mem_total_gb")) if m is not None]
     mem = min(mems) if mems else 0.0
     cpus = min(
@@ -984,7 +993,17 @@ def main() -> int:
     ap.add_argument("--spend-cap", type=float, default=8.0)
     ap.add_argument("--rate", type=float, default=0.74)
     ap.add_argument("--confirm", action="store_true")
+    ap.add_argument(
+        "--accept-no-self-delete",
+        metavar="NOTE",
+        default=None,
+        help="explicit opt-in to run when the pod cannot delete itself (Mac runner + Mac "
+        "watchdog stop only); NOTE (who decided, when) is recorded in state.json",
+    )
     args = ap.parse_args()
+    if args.accept_no_self_delete is not None and len(args.accept_no_self_delete.strip()) < 10:
+        print("--accept-no-self-delete needs a real note (who decided, when)", file=sys.stderr)
+        return 2
     if args.cmd == "plan":
         return plan(args)
     if args.cmd == "cleanup":

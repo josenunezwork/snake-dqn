@@ -21,6 +21,7 @@ import hmac
 import json
 import os
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -173,13 +174,18 @@ def self_delete():
 
 
 def kill_all():
+    """SIGKILL every job's whole process group (each job is its own session), so no child
+    keeps the GPU busy; the pod then idles until the Mac side deletes it."""
     with LOCK:
         for p in PROCS.values():
             if p.poll() is None:
                 try:
-                    p.kill()
+                    os.killpg(p.pid, signal.SIGKILL)
                 except OSError:
-                    pass
+                    try:
+                        p.kill()
+                    except OSError:
+                        pass
 
 
 def reaper():
@@ -196,13 +202,7 @@ def reaper():
                 self_delete()
             continue
         if DEADLINE and now >= DEADLINE:
-            with LOCK:
-                for p in PROCS.values():
-                    if p.poll() is None:
-                        try:
-                            p.kill()
-                        except OSError:
-                            pass
+            kill_all()
         if SELF_DELETE and now >= SELF_DELETE and now - tried > 600:
             tried = now
             self_delete()

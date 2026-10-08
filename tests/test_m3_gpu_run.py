@@ -472,3 +472,35 @@ def test_definite_refusal_only_for_4xx_or_runpod_capacity():
     msg = {"error": "There are no longer any instances available with the requested specs"}
     assert gpu_run.definite_refusal(e(500, msg))
     assert not gpu_run.definite_refusal(RunPodError("timed out"))
+
+
+def test_self_delete_waiver_is_explicit_and_recorded(tmp_path):
+    class A:
+        def health(self):
+            return {
+                "self_delete_armed": True,
+                "self_delete_probe": 403,
+                "cgroup_memory_gb": 48,
+                "mem_total_gb": 125,
+                "cpus_allowed": 256,
+            }
+
+    rp = FakeRp()
+    state = {"deadline": gpu_run.now() + 3600, "balance0": 66.0}
+    inputs = {"files": [], "bytes": 0, "demo_sha256": "d", "commit": "c"}
+    no = SimpleNamespace(spend_cap=8.0, accept_no_self_delete=None)
+    assert "not proven (probe 403)" in gpu_run.drive(A(), rp, tmp_path, state, inputs, no)
+    assert "self_delete_waived" not in state
+    yes = SimpleNamespace(spend_cap=8.0, accept_no_self_delete="user in chat 2026-10-08")
+    out = gpu_run.drive(A(), rp, tmp_path, state, inputs, yes)
+    assert "too small" in out  # got past the self-delete check to the next one
+    assert state["self_delete_waived"]["note"] == "user in chat 2026-10-08"
+
+
+def test_waiver_needs_a_real_note(monkeypatch):
+    import sys
+
+    monkeypatch.setattr(
+        sys, "argv", ["gpu_run.py", "launch", "--confirm", "--accept-no-self-delete", "ok"]
+    )
+    assert gpu_run.main() == 2

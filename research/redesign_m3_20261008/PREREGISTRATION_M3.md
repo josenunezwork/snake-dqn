@@ -166,3 +166,17 @@ available, are retried. Proxy 5xx responses such as 502 or 524 are unknown outco
 never re-POSTed. Each launch's watchdog deletes only its own pod (exact name). A launch that
 ends with its pod verified deleted, or aborts before creating one, stops its watchdog with a
 stop file plus SIGTERM.
+
+**M3-B launch attempt 2 (r2, commit `7add8c4`): aborted correctly, $0.06.** A secure 4090
+pod came up in EU-CZ-1 (125 GB, 256 CPUs visible). The runner refused to train because the
+pod's own RunPod key got HTTP 403 on its self-delete probe, so pod self-delete is not
+available. The pod was deleted and `GET /pods` was empty. **User decision (2026-10-08, in
+chat): "Run with Mac-side stop only".** The runner gets an explicit opt-in,
+`--accept-no-self-delete "<note>"`, which records the note and the probe result in
+`state.json` and the progress log. Without it, the run still refuses. What stops spend
+without pod self-delete: the Mac runner (balance cap $8, 7 h lifetime); the detached Mac
+watchdog (deletes the pod by exact name at lifetime + 5 min); the Mac stays on AC; the pod
+still SIGKILLs every job's process group at the deadline and on the 20-min dead-man, so the
+GPU idles but the pod is not deleted. Worst case if the Mac side fails entirely: the pod
+idles until the watchdog fires (≈ 7.1 h × $0.74 ≈ $5.3, inside the cap). Seeds, gates and
+the algorithm are unchanged.
