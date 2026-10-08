@@ -519,13 +519,15 @@ def _dispatch_actions(
         actions[slots[:, 0], slots[:, 1]] = policy.actions(selected_masks, sim, slots)
 
 
-class _TerminalHeroBatchSim(BatchSim):
+class _TerminalHeroMixin:
     """Eval sim where arena slot 0 is terminal but opponents still respawn.
 
     The live gate makes the hero terminal per-snake (``hero.auto_respawn = False``,
     honoured by :meth:`~src.game.game_state.GameState.update`). :class:`BatchSim`
     only exposes the sim-wide ``allow_respawn``, so slot 0 is exempted from the
-    respawn sweep here instead.
+    respawn sweep here instead. Mixed into both engines (``BatchSim`` and the
+    grid-backed ``GridBatchSim``), whose ``_respawn_dead`` both skip a row whose
+    timer is above zero before any RNG draw.
     """
 
     # Parked into a terminal hero's respawn timer: large enough that the base
@@ -542,6 +544,34 @@ class _TerminalHeroBatchSim(BatchSim):
             super()._respawn_dead()
         finally:
             self.respawn_timer[:, 0] = hero_timer
+
+
+class _TerminalHeroBatchSim(_TerminalHeroMixin, BatchSim):
+    """The default SIMD eval engine: :class:`BatchSim` with a terminal hero."""
+
+
+#: ``run_simd_eval(sim_engine=...)`` choices. ``"grid"`` is the redesign's
+#: :class:`~src.simd_env.grid_sim.GridBatchSim` (bit-exact with BatchSim; CI-pinned in
+#: ``tests/test_grid_sim_parity.py`` and the H5000 record check of
+#: ``research/redesign_scope_20261007/grid_h5000_identity.py``).
+SIM_ENGINES = ("batch", "grid")
+_TERMINAL_HERO_GRID_SIM: type | None = None  # built lazily (grid_sim imports stay optional)
+
+
+def _terminal_hero_sim_class(sim_engine: str) -> type:
+    """The terminal-hero eval sim class for ``sim_engine`` (``"batch"`` or ``"grid"``)."""
+    if sim_engine == "batch":
+        return _TerminalHeroBatchSim
+    if sim_engine == "grid":
+        global _TERMINAL_HERO_GRID_SIM
+        if _TERMINAL_HERO_GRID_SIM is None:
+            from src.simd_env.grid_sim import GridBatchSim
+
+            _TERMINAL_HERO_GRID_SIM = type(
+                "_TerminalHeroGridBatchSim", (_TerminalHeroMixin, GridBatchSim), {}
+            )
+        return _TERMINAL_HERO_GRID_SIM
+    raise ValueError(f"sim_engine must be one of {SIM_ENGINES}, got {sim_engine!r}")
 
 
 def _readonly_array(value: np.ndarray) -> np.ndarray:
@@ -611,6 +641,7 @@ def run_simd_eval(
     vector61_trace: Callable[[Mapping[str, object]], None] | None = None,
     hero_safety_veto_lambda: float | None = None,
     hero_safety_veto_reference_lambda: float | None = None,
+    sim_engine: str = "batch",
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -655,6 +686,10 @@ def run_simd_eval(
         hero_safety_veto_lambda: v7/v8 only (required there): the live ``lambda``.
         hero_safety_veto_reference_lambda: v8 only (optional): the live
             diagnostic-only ``reference_lambda`` (the v8 screens set it to 4.0).
+        sim_engine: ``"batch"`` (default, :class:`BatchSim`) or ``"grid"`` (the
+            bit-exact grid-backed :class:`~src.simd_env.grid_sim.GridBatchSim`).
+            Records are byte-identical across engines (development check, not a
+            governance input; gate packages keep the default).
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -667,6 +702,7 @@ def run_simd_eval(
     """
     if frames <= 0:
         raise ValueError(f"frames must be positive, got {frames}")
+    sim_class = _terminal_hero_sim_class(sim_engine)
     if frame_observer is not None and not callable(frame_observer):
         raise TypeError("frame_observer must be callable")
     if frame_observer is not None and profile is None:
@@ -788,7 +824,7 @@ def run_simd_eval(
     # opponents to respawn — so run in eval (non-train) mode, where only slot 0
     # is held terminal (withholding a dead hero's actions would NOT do it: the
     # non-train respawn sweep resurrects any dead slot).
-    sim = _TerminalHeroBatchSim(cfg, seeds=seeds, train_mode=False)
+    sim = sim_class(cfg, seeds=seeds, train_mode=False)
 
     # Build one policy per (spec, env-seed) for scripted agents: their RNGs must
     # remain per world/slot.  A checkpoint model is stateless at evaluation time,

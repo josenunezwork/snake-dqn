@@ -72,15 +72,45 @@ from src.simd_env.batch_sim import (
     BatchSimConfig,
 )
 
-__all__ = ["GridBatchSim", "FOOD_NONE", "FOOD_AMBIENT", "FOOD_CORPSE", "FOOD_OUTSIDE", "GRID_PAD"]
+__all__ = [
+    "GridBatchSim",
+    "FOOD_NONE",
+    "FOOD_AMBIENT",
+    "FOOD_CORPSE",
+    "FOOD_OUTSIDE",
+    "GRID_PAD",
+    "padded_width",
+]
 
 FOOD_NONE = 0
 FOOD_AMBIENT = 1
 FOOD_CORPSE = 2
 FOOD_OUTSIDE = -1  # border marker in the padded food grid (never inside the arena)
 GRID_PAD = 24  # >= the farthest ego-crop offset from the head (23 cells ahead)
+GRID_ROW_ALIGN = 8  # padded row width is rounded up to this many cells (word scans)
+COARSE_CELL = 8  # block size of the maintained coarse counts (the ego2s global plane)
+
+
+def padded_width(grid_w: int, pad: int = GRID_PAD) -> int:
+    """Padded grid row width: ``grid_w + 2 * pad`` rounded up to ``GRID_ROW_ALIGN`` cells.
+
+    The extra right-hand cells are border like the rest of the pad (owner ``-1``, food
+    ``FOOD_OUTSIDE``). Aligned rows let the compiled featurizer scan the int16 owner and
+    int8 food rows a 64-bit word at a time; nothing else depends on the stride.
+    """
+    width = grid_w + 2 * pad
+    return -(-width // GRID_ROW_ALIGN) * GRID_ROW_ALIGN
+
 
 _EMPTY_VICTIMS: Tuple[int, ...] = ()
+
+
+def _numba_available() -> bool:
+    try:
+        import src.simd_env.grid_sim_nb  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 class GridBatchSim(BatchSim):
@@ -92,7 +122,13 @@ class GridBatchSim(BatchSim):
         seeds: Per-environment RNG seeds (length E). Defaults to ``range(E)``.
         train_mode: Train-mode food replacement branch (see BatchSim).
         allow_respawn: Whether dead snakes respawn (see BatchSim).
+        jit: Use the compiled (numba) action-mask and collision-detection kernels of
+            :mod:`src.simd_env.grid_sim_nb` (bit-exact with the NumPy versions kept
+            here). ``None`` (default) means ``JIT_DEFAULT``: on when numba imports.
     """
+
+    #: Default for ``jit=None``. Tests flip it to run the parity suite on both paths.
+    JIT_DEFAULT: Optional[bool] = None
 
     def __init__(
         self,
@@ -100,6 +136,7 @@ class GridBatchSim(BatchSim):
         seeds: Optional[Sequence[int]] = None,
         train_mode: bool = True,
         allow_respawn: Optional[bool] = None,
+        jit: Optional[bool] = None,
     ) -> None:
         s = config.segment_size
         if config.game_width % s or config.game_height % s:
@@ -112,6 +149,14 @@ class GridBatchSim(BatchSim):
             # cells; the grid bookkeeping assumes only old segments pop.
             raise ValueError("GridBatchSim requires min_boost_length >= 3")
         self._grids_ready = False
+        self._grid_pad = GRID_PAD
+        if jit is None:
+            jit = self.JIT_DEFAULT if self.JIT_DEFAULT is not None else _numba_available()
+        self._kernels = None
+        if jit:
+            from src.simd_env import grid_sim_nb
+
+            self._kernels = grid_sim_nb
         super().__init__(config, seeds=seeds, train_mode=train_mode, allow_respawn=allow_respawn)
 
     # ==================================================================
@@ -122,17 +167,24 @@ class GridBatchSim(BatchSim):
         if self._grids_ready:
             return
         E, H, W, P = self.E, self.grid_h, self.grid_w, GRID_PAD
-        # Grids are stored with a GRID_PAD-cell border so ego crops are single
-        # flat ``take`` calls; the public grids are interior views. The food
-        # border holds FOOD_OUTSIDE, which marks out-of-arena cells.
-        self._owner_pad = np.full((E, H + 2 * P, W + 2 * P), -1, dtype=np.int16)
-        self._slot_pad = np.zeros((E, H + 2 * P, W + 2 * P), dtype=np.int32)
-        self._food_pad = np.full((E, H + 2 * P, W + 2 * P), FOOD_OUTSIDE, dtype=np.int8)
+        # Grids are stored with a GRID_PAD-cell border (the right border widened to an
+        # aligned row, see padded_width) so ego crops are single flat ``take`` calls;
+        # the public grids are interior views. The food border holds FOOD_OUTSIDE,
+        # which marks out-of-arena cells.
+        shape = (E, H + 2 * P, padded_width(W, P))
+        self._owner_pad = np.full(shape, -1, dtype=np.int16)
+        self._slot_pad = np.zeros(shape, dtype=np.int32)
+        self._food_pad = np.full(shape, FOOD_OUTSIDE, dtype=np.int8)
         self._owner = self._owner_pad[:, P : P + H, P : P + W]
         self._slot = self._slot_pad[:, P : P + H, P : P + W]
         self._food = self._food_pad[:, P : P + H, P : P + W]
         self._food[...] = FOOD_NONE
         self._amb_count = np.zeros(E, dtype=np.int64)
+        # Coarse COARSE_CELL x COARSE_CELL block counts, maintained at every owner /
+        # food write (featurizer-only side state: dynamics never read them).
+        hc, wc = -(-H // COARSE_CELL), -(-W // COARSE_CELL)
+        self._csnake = np.zeros((E, self.S, hc, wc), dtype=np.int32)
+        self._cfood = np.zeros((E, hc, wc), dtype=np.int32)
         self._env_index = np.arange(E)[:, None]
         self._snake_index = np.arange(self.S)[None, :]
         self._det = None
@@ -170,6 +222,26 @@ class GridBatchSim(BatchSim):
                     self._food[e, r, c] = FOOD_AMBIENT
                     amb += 1
             self._amb_count[e] = amb
+        self._recount_env(e, food=food)
+
+    def _recount_env(self, e: int, *, food: bool = True) -> None:
+        """Recompute env ``e``'s coarse block counts from its grids."""
+        cc = COARSE_CELL
+        hc, wc = self._cfood.shape[1:]
+        rows = np.arange(self.grid_h)[:, None] // cc
+        cols = np.arange(self.grid_w)[None, :] // cc
+        block = np.broadcast_to(rows * wc + cols, (self.grid_h, self.grid_w))
+        owner = self._owner[e]
+        occ = owner >= 0
+        idx = owner[occ].astype(np.int64) * (hc * wc) + block[occ]
+        counts = np.bincount(idx, minlength=self.S * hc * wc)
+        self._csnake[e] = counts.reshape(self.S, hc, wc)
+        if food:
+            has = self._food[e] > 0
+            self._cfood[e] = np.bincount(block[has], minlength=hc * wc).reshape(hc, wc)
+
+    def _cfood_add(self, e: int, cell: Tuple[int, int], delta: int) -> None:
+        self._cfood[e, cell[1] // COARSE_CELL, cell[0] // COARSE_CELL] += delta
 
     def check_grid_invariants(self) -> None:
         """Assert grids/counters equal a from-scratch rebuild (test/debug helper).
@@ -182,22 +254,29 @@ class GridBatchSim(BatchSim):
             self._slot.copy(),
             self._food.copy(),
             self._amb_count.copy(),
+            self._csnake.copy(),
+            self._cfood.copy(),
         )
         try:
             for e in range(self.E):
                 self._rebuild_env_grids(e)
             rebuilt = (self._owner.copy(), self._slot.copy(), self._food.copy())
             rebuilt_amb = self._amb_count.copy()
+            rebuilt_coarse = (self._csnake.copy(), self._cfood.copy())
         finally:
             self._owner[...] = saved[0]
             self._slot[...] = saved[1]
             self._food[...] = saved[2]
             self._amb_count[...] = saved[3]
+            self._csnake[...] = saved[4]
+            self._cfood[...] = saved[5]
         live = rebuilt[0] >= 0
         assert np.array_equal(saved[0], rebuilt[0]), "owner grid drifted"
         assert np.array_equal(saved[1][live], rebuilt[1][live]), "slot grid drifted"
         assert np.array_equal(saved[2], rebuilt[2]), "food grid drifted"
         assert np.array_equal(saved[3], rebuilt_amb), "ambient count drifted"
+        assert np.array_equal(saved[4], rebuilt_coarse[0]), "coarse snake counts drifted"
+        assert np.array_equal(saved[5], rebuilt_coarse[1]), "coarse food counts drifted"
         for e in range(self.E):
             assert rebuilt_amb[e] == self._ambient_count(e)
 
@@ -275,6 +354,7 @@ class GridBatchSim(BatchSim):
             else:
                 self._food[e, cell[1], cell[0]] = FOOD_AMBIENT
                 self._amb_count[e] += 1
+            self._cfood_add(e, cell, 1)
             spawned += 1
         return spawned
 
@@ -300,6 +380,7 @@ class GridBatchSim(BatchSim):
             return False
         self.food_cells[e].append(cell)
         self.food_set[e].add(cell)
+        self._cfood_add(e, cell, 1)
         if corpse:
             self.corpse_cells[e].add(cell)
             self._food[e, cell[1], cell[0]] = FOOD_CORPSE
@@ -310,6 +391,7 @@ class GridBatchSim(BatchSim):
                     break
                 self.food_set[e].discard(evicted)
                 self._food[e, evicted[1], evicted[0]] = FOOD_NONE
+                self._cfood_add(e, evicted, -1)
         else:
             self._food[e, cell[1], cell[0]] = FOOD_AMBIENT
             self._amb_count[e] += 1
@@ -343,11 +425,13 @@ class GridBatchSim(BatchSim):
             corpse.add(cell)
             queue.append(cell)
             self._food[e, cell[1], cell[0]] = FOOD_CORPSE
+            self._cfood_add(e, cell, 1)
             while len(corpse) > cap:
                 victim = queue.popleft()
                 corpse.discard(victim)
                 fset.discard(victim)
                 self._food[e, victim[1], victim[0]] = FOOD_NONE
+                self._cfood_add(e, victim, -1)
                 if victim in appended:
                     del appended[victim]
                 else:
@@ -401,8 +485,16 @@ class GridBatchSim(BatchSim):
             # Only clear a cell still owned by that snake (bodies are disjoint).
             own = self._owner[e_i, c[:, 1], c[:, 0]] == s_i
             self._owner[e_i[own], c[own, 1], c[own, 0]] = -1
+            np.subtract.at(
+                self._csnake,
+                (e_i[own], s_i[own], c[own, 1] // COARSE_CELL, c[own, 0] // COARSE_CELL),
+                1,
+            )
 
-        self._det = self._detect_collisions(n_trav)
+        if self._kernels is not None:
+            self._det = self._kernels.detect_collisions(self, n_trav)
+        else:
+            self._det = self._detect_collisions(n_trav)
         self._write_new_heads(n_trav)
         return trail
 
@@ -495,8 +587,15 @@ class GridBatchSim(BatchSim):
             k = (n_trav[e_i, s_i] - 1 - t).astype(np.int64)
             ring = (self.head_ptr[e_i, s_i] - k) % cap
             c = cells[e_i, s_i]
+            br, bc = c[:, 1] // COARSE_CELL, c[:, 0] // COARSE_CELL
+            # A head written over an owned cell only happens in an event env (head-on,
+            # body or self hit), which _apply_deaths rebuilds and recounts exactly.
+            old = self._owner[e_i, c[:, 1], c[:, 0]].astype(np.int64)
+            had = old >= 0
+            np.subtract.at(self._csnake, (e_i[had], old[had], br[had], bc[had]), 1)
             self._owner[e_i, c[:, 1], c[:, 0]] = s_i
             self._slot[e_i, c[:, 1], c[:, 0]] = ring
+            np.add.at(self._csnake, (e_i, s_i, br, bc), 1)
 
     # ==================================================================
     # Food consumption
@@ -555,6 +654,7 @@ class GridBatchSim(BatchSim):
                 self.corpse_cells[e].discard(cell)
                 fset.discard(cell)
                 self._food[e, cell[1], cell[0]] = FOOD_NONE
+                self._cfood_add(e, cell, -1)
                 if not is_corpse:
                     self._amb_count[e] -= 1
                 self.length[e, sidx] += 1
@@ -737,6 +837,7 @@ class GridBatchSim(BatchSim):
             self._reward_prev_length[e, sidx] = 1
             self._owner[e, cell[1], cell[0]] = sidx
             self._slot[e, cell[1], cell[0]] = 0
+            self._csnake[e, sidx, cell[1] // COARSE_CELL, cell[0] // COARSE_CELL] += 1
 
     # ==================================================================
     # Rewards (vectorized; kill term only for credited rows)
@@ -770,6 +871,13 @@ class GridBatchSim(BatchSim):
     # Action masks (vectorized grid gathers)
     # ==================================================================
     def _compute_action_masks(self) -> np.ndarray:
+        """The advisory masks: the compiled kernel when ``jit``, else the NumPy version."""
+        if self._kernels is not None:
+            self._ensure_grids()
+            return self._kernels.action_masks(self)
+        return self._compute_action_masks_numpy()
+
+    def _compute_action_masks_numpy(self) -> np.ndarray:
         """Exact ``BatchSim._compute_action_masks`` via 6 grid gathers per snake.
 
         For each relative action the candidate head(s) are tested against:
@@ -842,3 +950,34 @@ class GridBatchSim(BatchSim):
     def get_padded_grids(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """``(owner, slot, food)`` with a ``GRID_PAD`` border (food = FOOD_OUTSIDE)."""
         return self._owner_pad, self._slot_pad, self._food_pad
+
+    def ego_view(self):
+        """An :class:`~src.simd_env.ego_raster.EgoGridView` over this sim's own arrays.
+
+        No copies except the ``(E, S, 2)`` head gather; the view is only valid
+        until the next step.
+        """
+        from src.simd_env.ego_raster import EgoGridView
+
+        self._ensure_grids()
+        return EgoGridView(
+            owner_pad=self._owner_pad,
+            slot_pad=self._slot_pad,
+            food_pad=self._food_pad,
+            head_ptr=self.head_ptr,
+            seg_count=self.seg_count,
+            length=self.length,
+            alive=self.alive,
+            direction=self.direction,
+            heads=self.heads(),
+            boost_frames=self.boost_frames,
+            frames_since_food=self.frames_since_food,
+            grid_w=int(self.grid_w),
+            grid_h=int(self.grid_h),
+            cap=int(self.cap),
+            pad=GRID_PAD,
+            boost_length_cost_frames=int(self.cfg.boost_length_cost_frames),
+            coarse_snake=self._csnake,
+            coarse_food=self._cfood,
+            coarse_cell=COARSE_CELL,
+        )

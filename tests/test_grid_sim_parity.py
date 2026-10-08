@@ -22,9 +22,21 @@ import pytest
 
 from src.simd_env import parity
 from src.simd_env.batch_sim import BatchSim, BatchSimConfig
-from src.simd_env.grid_scenarios import GreedySafePolicy, inject_serpentines, serpentine_path
+from src.simd_env.grid_scenarios import (
+    GreedySafePolicy,
+    inject_serpentines,
+    serpentine_path,
+)
 from src.simd_env.grid_sim import GridBatchSim
 from src.simd_env.parity import SurvivorPolicy, build_parity_config, run_parity
+
+
+@pytest.fixture(autouse=True, params=[False, True], ids=["numpy", "jit"])
+def grid_kernels(request, monkeypatch):
+    """Run every test on the NumPy hot paths and on the compiled (numba) kernels."""
+    monkeypatch.setattr(GridBatchSim, "JIT_DEFAULT", request.param)
+    return request.param
+
 
 _ARRAYS = (
     "head_ptr",

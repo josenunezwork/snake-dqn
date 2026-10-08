@@ -8,13 +8,16 @@ the rotation.
 
 from __future__ import annotations
 
-from collections import deque
-
 import numpy as np
 import pytest
 
 from src.simd_env.batch_sim import BatchSimConfig
-from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+from src.simd_env.ego_raster import (
+    EgoGridView,
+    EgoRasterConfig,
+    _reach_time,
+    build_ego_raster,
+)
 from src.simd_env.grid_scenarios import GreedySafePolicy, inject_serpentines
 from src.simd_env.grid_sim import GridBatchSim
 
@@ -59,13 +62,22 @@ def _reference_local(sim, e, s, cfg):
                     out[2, r, c] = int(ratio * 254.0) + 1
             if w in food:
                 out[3, r, c] = 255 if w in corpse else 128
-    # Time-aware BFS (first arrival), the slow way.
+    out[5] = _reference_reach(ttl_grid, wall, cfg)
+    return out
+
+
+def _reference_reach(ttl_grid, wall, cfg):
+    """Time-aware flood (first arrival), the slow way: every step, every reached cell.
+
+    No early stop: a step at which nothing is gained does not end the flood, because a
+    blocked neighbour can still open when its segment vacates later.
+    """
+    size = cfg.local_size
+    out = np.zeros((size, size), dtype=np.int64)
     seen = {(cfg.local_head_row, cfg.local_head_col): 0}
-    q = deque([(cfg.local_head_row, cfg.local_head_col)])
-    frontier = {(cfg.local_head_row, cfg.local_head_col)}
     for t in range(1, cfg.reach_steps + 1):
         nxt = set()
-        for r, c in frontier | set(seen):
+        for r, c in list(seen):
             for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 rr, cc = r + dr, c + dc
                 if not (0 <= rr < size and 0 <= cc < size) or (rr, cc) in seen:
@@ -73,13 +85,9 @@ def _reference_local(sim, e, s, cfg):
                 if wall[rr, cc] or ttl_grid[rr, cc] > t:
                     continue
                 nxt.add((rr, cc))
-        if not nxt:
-            break
         for p in nxt:
             seen[p] = t
-            out[5, p[0], p[1]] = t
-        frontier = nxt
-    del q
+            out[p[0], p[1]] = t
     return out
 
 
@@ -130,9 +138,10 @@ def test_shapes_and_dtypes(played_sim):
     assert obs["scalars"].shape == (E, S, 12) and obs["scalars"].dtype == np.float32
 
 
-def test_local_planes_match_reference(played_sim):
+@pytest.mark.parametrize("backend", ["numpy", "numba"])
+def test_local_planes_match_reference(played_sim, backend):
     cfg = EgoRasterConfig()
-    obs = build_ego_raster(played_sim, cfg)
+    obs = build_ego_raster(played_sim, cfg, backend=backend)
     checked = 0
     for e in range(played_sim.E):
         for s in range(played_sim.S):
@@ -145,9 +154,10 @@ def test_local_planes_match_reference(played_sim):
     assert checked >= 4
 
 
-def test_global_planes_match_reference(played_sim):
+@pytest.mark.parametrize("backend", ["numpy", "numba"])
+def test_global_planes_match_reference(played_sim, backend):
     cfg = EgoRasterConfig()
-    obs = build_ego_raster(played_sim, cfg)
+    obs = build_ego_raster(played_sim, cfg, backend=backend)
     for e in range(played_sim.E):
         for s in range(played_sim.S):
             if played_sim.alive[e, s]:
@@ -205,3 +215,150 @@ def test_scalar_wall_distances_and_boost_phase(heading):
     expect = [edge[(heading + j) % 4] / 145.0 for j in range(4)]
     np.testing.assert_allclose(sc[6:10], expect, rtol=1e-6)
     assert sc[4] == pytest.approx(2 / cfg.boost_length_cost_frames)
+
+
+# ---------------------------------------------------------------------------
+# numba backend == NumPy reference, bitwise
+# ---------------------------------------------------------------------------
+_KEYS = ("local", "global", "scalars", "mask")
+
+
+def _assert_backends_equal(source, cfg=EgoRasterConfig(), rows=None, where=""):
+    a = build_ego_raster(source, cfg, backend="numpy", rows=rows)
+    b = build_ego_raster(source, cfg, backend="numba", rows=rows)
+    assert set(a) == set(b)
+    for key in a:
+        assert a[key].dtype == b[key].dtype and a[key].shape == b[key].shape, (where, key)
+        assert np.array_equal(a[key], b[key]), (where, key, np.argwhere(a[key] != b[key])[:5])
+    return a
+
+
+@pytest.mark.parametrize("mechanics", [1, 2])
+def test_numba_equals_numpy_over_played_big_body_worlds(mechanics):
+    """Every frame of a big-body game: deaths, respawns, boosts, corpses, dead rows."""
+    cfg = BatchSimConfig(num_envs=3, num_snakes=6, mechanics_version=mechanics, max_capacity=1200)
+    sim = GridBatchSim(cfg, seeds=[21, 22, 23], train_mode=True, allow_respawn=True)
+    inject_serpentines([sim], [800, 400, 150, 60, 20, 5], box_height=8)
+    pol = GreedySafePolicy(7, boost_prob=0.3)
+    dead_rows = deaths = 0
+    for frame in range(150):
+        sim.step(pol.actions(sim, sim.get_action_mask()))
+        deaths += int(sim.get_done().sum())
+        dead_rows += int((~sim.alive).sum())
+        _assert_backends_equal(sim, where=f"frame {frame}")
+    assert deaths > 0 and dead_rows > 0
+
+
+def test_numba_equals_numpy_on_rows_subset_and_paused_worlds():
+    """Hero-only rows (repeated envs, a dead row last) and a paused world."""
+    cfg = BatchSimConfig(num_envs=4, num_snakes=4, mechanics_version=2, max_capacity=900)
+    sim = GridBatchSim(cfg, seeds=[1, 2, 3, 4], train_mode=True, allow_respawn=False)
+    inject_serpentines([sim], [600, 200, 50, 10], box_height=8)
+    pol = GreedySafePolicy(3, boost_prob=0.2)
+    active = np.ones(sim.E, dtype=bool)
+    for frame in range(60):
+        if frame == 20:
+            active = np.array([True, False, True, True])
+        sim.step(pol.actions(sim, sim.get_action_mask()), active_env_mask=active)
+        rows = np.array([[e, 0] for e in range(sim.E)] + [[1, 2], [1, 3], [3, 3]])
+        full = _assert_backends_equal(sim, where=f"frame {frame}")
+        sub = _assert_backends_equal(sim, rows=rows, where=f"rows frame {frame}")
+        for key in ("local", "global", "scalars", "mask"):
+            np.testing.assert_array_equal(sub[key], full[key][rows[:, 0], rows[:, 1]])
+
+
+def test_numba_equals_numpy_reach_variants():
+    """Reach off, short and long floods, and a moved head anchor."""
+    cfg = BatchSimConfig(num_envs=2, num_snakes=5, mechanics_version=2, max_capacity=1200)
+    sim = GridBatchSim(cfg, seeds=[5, 6], train_mode=True, allow_respawn=True)
+    inject_serpentines([sim], [700, 300, 120, 60, 20], box_height=6)
+    pol = GreedySafePolicy(9, boost_prob=0.3)
+    for _ in range(40):
+        sim.step(pol.actions(sim, sim.get_action_mask()))
+    for ecfg in (
+        EgoRasterConfig(reach_steps=0),
+        EgoRasterConfig(reach_steps=1),
+        EgoRasterConfig(reach_steps=60),
+        EgoRasterConfig(local_head_row=15, reach_steps=24),
+    ):
+        _assert_backends_equal(sim, ecfg, where=str(ecfg))
+
+
+def _random_view(rng, E=3, S=5, H=40, W=50, pad=24, cap=64):
+    """A synthetic, internally consistent-enough view with dense random occupancy."""
+    shape = (E, H + 2 * pad, W + 2 * pad)
+    owner = np.full(shape, -1, dtype=np.int16)
+    slot = np.zeros(shape, dtype=np.int32)
+    food = np.full(shape, -1, dtype=np.int8)
+    inner = (slice(None), slice(pad, pad + H), slice(pad, pad + W))
+    food[inner] = rng.choice([0, 0, 0, 1, 2], size=(E, H, W)).astype(np.int8)
+    occ = rng.random((E, H, W)) < 0.45
+    owner[inner] = np.where(occ, rng.integers(0, S, size=(E, H, W)), -1).astype(np.int16)
+    slot[inner] = rng.integers(0, cap, size=(E, H, W)).astype(np.int32)
+    alive = rng.random((E, S)) < 0.85
+    owner[inner] = np.where(
+        alive[np.arange(E)[:, None, None], np.clip(owner[inner], 0, None)] | (owner[inner] < 0),
+        owner[inner],
+        -1,
+    )
+    heads = np.stack([rng.integers(0, W, (E, S)), rng.integers(0, H, (E, S))], -1)
+    return EgoGridView(
+        owner_pad=owner,
+        slot_pad=slot,
+        food_pad=food,
+        head_ptr=rng.integers(0, cap, (E, S)).astype(np.int64),
+        seg_count=rng.integers(1, 40, (E, S)).astype(np.int64),
+        length=rng.integers(1, 300, (E, S)).astype(np.int64),
+        alive=alive,
+        direction=rng.integers(0, 4, (E, S)).astype(np.int64),
+        heads=heads.astype(np.int64),
+        boost_frames=rng.integers(0, 3, (E, S)).astype(np.int64),
+        frames_since_food=rng.integers(0, 900, (E, S)).astype(np.int64),
+        grid_w=W,
+        grid_h=H,
+        cap=cap,
+        pad=pad,
+        boost_length_cost_frames=3,
+    )
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_numba_equals_numpy_on_random_views(seed):
+    """Dense random occupancy stresses TTL clamps, the size ratio and the flood."""
+    view = _random_view(np.random.default_rng(seed))
+    _assert_backends_equal(view, where=f"seed {seed}")
+    _assert_backends_equal(view, EgoRasterConfig(reach_steps=40), where=f"seed {seed} K40")
+
+
+def test_reach_matches_slow_reference_on_random_ttl():
+    """The vectorized flood equals the slow per-agent reference on random grids."""
+    rng = np.random.default_rng(11)
+    cfg = EgoRasterConfig()
+    ttl = rng.integers(0, 40, size=(4, 3, 31, 31)) * (rng.random((4, 3, 31, 31)) < 0.6)
+    wall = rng.random((4, 3, 31, 31)) < 0.05
+    wall[:, :, cfg.local_head_row, cfg.local_head_col] = False
+    got = _reach_time(ttl, wall, cfg)
+    for e in range(4):
+        for s in range(3):
+            np.testing.assert_array_equal(got[e, s], _reference_reach(ttl[e, s], wall[e, s], cfg))
+
+
+def test_reach_waits_for_a_vacating_tail_and_is_batch_independent():
+    """A head boxed in by segments that vacate at t=5 is reached later, not cut off.
+
+    The first draft stopped the flood for the whole batch at the first step with no new
+    cell anywhere, so this agent's plane was empty when featurized alone and non-empty
+    when another agent in its batch kept the flood alive.
+    """
+    cfg = EgoRasterConfig()
+    hr, hc = cfg.local_head_row, cfg.local_head_col
+    boxed = np.zeros((31, 31), dtype=np.int64)
+    for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        boxed[hr + dr, hc + dc] = 5
+    free = np.zeros((31, 31), dtype=np.int64)
+    no_wall = np.zeros((1, 2, 31, 31), dtype=bool)
+    alone = _reach_time(boxed[None, None], no_wall[:, :1], cfg)[0, 0]
+    batched = _reach_time(np.stack([boxed, free])[None], no_wall, cfg)[0, 0]
+    np.testing.assert_array_equal(alone, batched)
+    assert alone[hr - 1, hc] == 5 and alone[hr - 2, hc] == 6
+    np.testing.assert_array_equal(alone, _reference_reach(boxed, no_wall[0, 0], cfg))
