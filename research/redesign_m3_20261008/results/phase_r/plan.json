@@ -1,0 +1,629 @@
+{
+ "banks": {
+  "0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683,
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213,
+   1576742598,
+   1836301950,
+   2326055240,
+   4207523964,
+   332920900,
+   1179324959,
+   2653320399,
+   2658806608,
+   793126098,
+   2014552416,
+   899962499,
+   3173878752,
+   2471608282,
+   3556372791,
+   3277261507,
+   566223533,
+   1122748175,
+   2964835451,
+   127771507,
+   1937960120,
+   892645985
+  ],
+  "1": [
+   1205217914,
+   853488431,
+   3023168831,
+   2647839194,
+   1111486103,
+   3186501795,
+   2242629975,
+   2487963060,
+   3134653090,
+   275424692,
+   331437354,
+   3281328316,
+   820921848,
+   1451481415,
+   408940837,
+   3168974058,
+   895810125,
+   4217316994,
+   2034423358,
+   1226177081,
+   895697244,
+   1515834815,
+   3531193356,
+   1639532876,
+   1272385224,
+   1862191885,
+   956880888,
+   2700510295,
+   498813327,
+   560215197,
+   3666349077,
+   4291958890
+  ],
+  "2": [
+   1200803570,
+   2292911079,
+   4082616132,
+   902422845,
+   2569396910,
+   2463635294,
+   2246799338,
+   445497591,
+   4210514136,
+   3997245026,
+   1569660064,
+   3532423807,
+   2372468401,
+   284704093,
+   535272134,
+   162231792,
+   3977735474,
+   2793452589,
+   1294410997,
+   2851772713,
+   3415477976,
+   2463873108,
+   3622014961,
+   232875464,
+   690873405,
+   4291135776,
+   4189396889,
+   3034665654,
+   178770836,
+   849460367,
+   1054427953,
+   3201788021
+  ],
+  "3": [
+   3427005134,
+   1484917668,
+   1523590507,
+   4038672200,
+   996680166,
+   3658667311,
+   4056492983,
+   3480367604,
+   1267663816,
+   3775292584,
+   3814835873,
+   259275026,
+   2947256218,
+   3980880669,
+   3872564222,
+   3169814122,
+   2895902228,
+   2519263396,
+   1608420771,
+   2651568772,
+   474624106,
+   3273316656,
+   1036629329,
+   917585664,
+   1305373374,
+   2308085970,
+   3256464079,
+   4133055155,
+   4020346191,
+   978827919,
+   1700642463,
+   2344082039
+  ],
+  "4": [
+   4104003196,
+   253566765,
+   2538303743,
+   551178938,
+   1442395548,
+   3762373708,
+   2027229472,
+   296229515,
+   345491551,
+   2825833181,
+   3810523406,
+   3384797949,
+   1195420017,
+   4224358001,
+   605216876,
+   3079005440,
+   782045371,
+   3349394484,
+   2077458845,
+   1282769481,
+   3760832565,
+   2748340375,
+   3992487562,
+   904162083,
+   161011649,
+   3660633328,
+   3184731115,
+   2852810900,
+   4180695713,
+   1812881290,
+   1340357847,
+   4211309463
+  ]
+ },
+ "plan": {
+  "fractions": [
+   0.34375,
+   0.6875,
+   1.0
+  ],
+  "futility": "non_binding_for_go; kill followed by protocol",
+  "go_alpha": 0.1,
+  "go_alpha_spent": [
+   0.005024298185851005,
+   0.04728169620282561,
+   0.10000000000000026
+  ],
+  "go_boundaries": [
+   2.574152526726805,
+   1.6881123044314994,
+   1.3654960444630446
+  ],
+  "go_nominal_p": [
+   0.005024298185851039,
+   0.04569483645995853,
+   0.08604859773929796
+  ],
+  "go_spending": "obf",
+  "information_time": "world_fraction",
+  "kill_alpha": 0.1,
+  "kill_alpha_spent": [
+   0.04641486337461645,
+   0.07799296283356791,
+   0.1
+  ],
+  "kill_boundaries": [
+   1.680656128406302,
+   1.6374127659373467,
+   1.6180747393366555
+  ],
+  "kill_nominal_p": [
+   0.04641486337461642,
+   0.05077212630005545,
+   0.052823245825834864
+  ],
+  "kill_spending": "pocock",
+  "look_sizes": [
+   11,
+   22,
+   32
+  ],
+  "margin_z": 1.2815515655446004,
+  "method": "sequential-phase-r-obf-hk-v1",
+  "n_worlds": 32,
+  "protective_margin_z": 1.6448536269514722,
+  "rule": {
+   "candidate": {
+    "cell": "primary",
+    "confidence": 0.8,
+    "metric": "mi5"
+   },
+   "cells": {
+    "guard": {
+     "baseline": "champion",
+     "hero": "M3-ego2s-b@20M+v8",
+     "seeds": [
+      0
+     ]
+    },
+    "primary": {
+     "baseline": "incumbent",
+     "hero": "M3-ego2s-b@20M+v8",
+     "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ]
+    }
+   },
+   "efficacy": {
+    "lower_bound_above": 0.0,
+    "stat": {
+     "cell": "primary",
+     "kind": "hk",
+     "metric": "mi5"
+    }
+   },
+   "final_outcomes": [
+    {
+     "all_of": [
+      "c1_point",
+      "c2_scripted_mean",
+      "c2_scripted_survival",
+      "c3_frozen_survival",
+      "c3_mixed_survival",
+      "c4_positive_seeds",
+      "c5_prefix_controls",
+      "c5_mi10",
+      "c6_guard_point",
+      "c6_guard_scripted_survival"
+     ],
+     "extra": [],
+     "none_of": [
+      "c7_feasibility"
+     ],
+     "requires_efficacy": true,
+     "status": "GO_R_UNGATEABLE"
+    }
+   ],
+   "go_clauses": [
+    {
+     "kind": "point",
+     "name": "c1_point",
+     "op": ">=",
+     "protective": false,
+     "stat": {
+      "cell": "primary",
+      "kind": "hk",
+      "metric": "mi5"
+     },
+     "threshold": 20.0,
+     "tolerance": 0.0
+    },
+    {
+     "kind": "point",
+     "name": "c2_scripted_mean",
+     "op": ">=",
+     "protective": true,
+     "stat": {
+      "cell": "primary",
+      "kind": "mix_mean",
+      "metric": "mi5",
+      "mix": "scripted"
+     },
+     "threshold": 0.0,
+     "tolerance": 0.0
+    },
+    {
+     "kind": "point",
+     "name": "c2_scripted_survival",
+     "op": ">=",
+     "protective": true,
+     "stat": {
+      "cell": "primary",
+      "kind": "mix_mean",
+      "metric": "surv5",
+      "mix": "scripted"
+     },
+     "threshold": -0.03,
+     "tolerance": 1e-09
+    },
+    {
+     "kind": "point",
+     "name": "c3_frozen_survival",
+     "op": ">=",
+     "protective": true,
+     "stat": {
+      "cell": "primary",
+      "kind": "mix_mean",
+      "metric": "surv5",
+      "mix": "frozen"
+     },
+     "threshold": -0.03,
+     "tolerance": 1e-09
+    },
+    {
+     "kind": "point",
+     "name": "c3_mixed_survival",
+     "op": ">=",
+     "protective": true,
+     "stat": {
+      "cell": "primary",
+      "kind": "mix_mean",
+      "metric": "surv5",
+      "mix": "mixed"
+     },
+     "threshold": -0.03,
+     "tolerance": 1e-09
+    },
+    {
+     "cell": "primary",
+     "kind": "positive_seeds",
+     "metric": "mi5",
+     "min": 4,
+     "name": "c4_positive_seeds"
+    },
+    {
+     "flag": "prefix_controls",
+     "kind": "flag",
+     "name": "c5_prefix_controls"
+    },
+    {
+     "kind": "point",
+     "name": "c5_mi10",
+     "op": ">=",
+     "protective": false,
+     "stat": {
+      "cell": "primary",
+      "kind": "hk",
+      "metric": "mi10"
+     },
+     "threshold": 20.0,
+     "tolerance": 0.0
+    },
+    {
+     "kind": "point",
+     "name": "c6_guard_point",
+     "op": ">",
+     "protective": true,
+     "stat": {
+      "cell": "guard",
+      "kind": "stratified",
+      "metric": "mi5"
+     },
+     "threshold": 0.0,
+     "tolerance": 0.0
+    },
+    {
+     "kind": "point",
+     "name": "c6_guard_scripted_survival",
+     "op": ">=",
+     "protective": true,
+     "stat": {
+      "cell": "guard",
+      "kind": "mix_mean",
+      "metric": "surv5",
+      "mix": "scripted"
+     },
+     "threshold": -0.05,
+     "tolerance": 1e-09
+    },
+    {
+     "cap": 600,
+     "inflation": 1.02,
+     "kind": "feasibility",
+     "name": "c7_feasibility",
+     "per_mix_alpha": 0.016666666666666666,
+     "power": 0.9,
+     "shrink": 0.6
+    }
+   ],
+   "kill": {
+    "all_of": [
+     {
+      "name": "kill_h5000",
+      "stat": {
+       "cell": "primary",
+       "kind": "hk",
+       "metric": "mi5"
+      },
+      "upper_below": 20.0
+     }
+    ]
+   },
+   "mixes": [
+    "frozen",
+    "mixed",
+    "scripted"
+   ],
+   "no_go": {
+    "all_of": [
+     {
+      "name": "no_go_h5000",
+      "stat": {
+       "cell": "primary",
+       "kind": "hk",
+       "metric": "mi5"
+      },
+      "upper_below": 50.0
+     }
+    ],
+    "status": "NO_GO_EARLY"
+   },
+   "schema": "sequential-phase-r-rule/v1",
+   "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "statuses": {
+    "go": "GO_R",
+    "kill": "KILL_V4",
+    "partial": "PARTIAL"
+   },
+   "study_id": "redesign-m3-phase-r"
+  },
+  "rule_sha256": "929331899785e003ba342b03639780d1b9f7591e156b2bdb869dbc077e37ed4f"
+ },
+ "plan_sha256": "5d1ee49d0ce8ce0f764f61909ad1803b542e825c70a08c01c12b83636651304e",
+ "schema": "sequential-phase-r-plan/v1",
+ "study": {
+  "checkpoints": {
+   "M2b-student+v8": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+    "sha256": "36a92948ff82618b1944431675414301ef27f22bc15c7e12329bf75fc7cac48f"
+   },
+   "M3-ego2s-b@20M+v8|s0": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r4/attempt01/out/m3b_seed0/final.pth",
+    "sha256": "cecbfe6278a6992c09dce2db28098bf669c7963d065c839b08ac73535af914c6"
+   },
+   "M3-ego2s-b@20M+v8|s1": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r4/attempt01/out/m3b_seed1/final.pth",
+    "sha256": "0d0e54674c045712ad6749f98596365ff971e3d45fa6a533be3ec45ad7ae7f3e"
+   },
+   "M3-ego2s-b@20M+v8|s2": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r4/attempt01/out/m3b_seed2/final.pth",
+    "sha256": "4b41265da8abdca3398b16c3aa8b6f2b17c8cf7999d479991b6d91367ba0d8ff"
+   },
+   "M3-ego2s-b@20M+v8|s3": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r4/attempt01/out/m3b_seed3/final.pth",
+    "sha256": "07d4a368bc22604234b6e53e08ce1b846b679db50a663929f7f6460d545c81ec"
+   },
+   "M3-ego2s-b@20M+v8|s4": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r4/attempt01/out/m3b_seed4/final.pth",
+    "sha256": "bdf5774d5a9d321e03e8e5b9956fe543618534e4ef3e10e548d4a80ad103c2a2"
+   },
+   "champion": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/champion_a5_freespace_20260621.pth",
+    "sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93"
+   },
+   "incumbent": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+    "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+   }
+  },
+  "commit": "aeffbdd6748063fd3291d23095287d9db1f1a648",
+  "controls": [
+   {
+    "hero": "M3-ego2s-b@20M+v8",
+    "seeds": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ]
+   },
+   {
+    "hero": "incumbent",
+    "seeds": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ]
+   },
+   {
+    "hero": "champion",
+    "seeds": [
+     0
+    ]
+   }
+  ],
+  "created_utc": "2026-10-08T21:15:46.723188+00:00",
+  "dirty": false,
+  "engine": {
+   "ego2s_forward": "rowwise",
+   "profile_h10000": "c882e07fb7179c01feed5380aeae228113975442bb10ab8840bc58a0011f5b15",
+   "profile_h5000": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+   "sim_engine": "grid",
+   "vector61_forward": "rowwise",
+   "veto": "v8",
+   "veto_lambda": 8.0
+  },
+  "heroes": [
+   {
+    "hero": "M3-ego2s-b@20M+v8",
+    "seeds": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "tier": 1
+   },
+   {
+    "hero": "incumbent",
+    "seeds": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "tier": 1
+   },
+   {
+    "hero": "champion",
+    "seeds": [
+     0
+    ],
+    "tier": 1
+   },
+   {
+    "hero": "M2b-student+v8",
+    "seeds": [
+     0
+    ],
+    "tier": 2
+   }
+  ],
+  "namespace": "redesign-m3-phase-r/v1",
+  "p2": {
+   "p2_h10000_seed0": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_h10000_seed0.json",
+    "sha256": "a71d70093035fdba189ac4f197ac0f34f16bea00648fb6fa0a5db30cd64f7760"
+   },
+   "p2_h10000_seed1": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_h10000_seed1.json",
+    "sha256": "7f6f48507c7ea8f119f8dc578b43136e25d0913b6d5f63898624ea999faec508"
+   },
+   "p2_h10000_seed2": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_h10000_seed2.json",
+    "sha256": "9026e100429278fb30c448676e34e4c851bca1fba0cdda07731c6e45499f9e15"
+   },
+   "p2_h10000_seed3": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_h10000_seed3.json",
+    "sha256": "0742db6c51e0c3d263295deadb04065c116fdb4d99448372bd8fdea487f8cde3"
+   },
+   "p2_h10000_seed4": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_h10000_seed4.json",
+    "sha256": "1d0d0c4805f8d68b2ab6f013100f1077cca2a444c0e2df7c2e45127278136b93"
+   },
+   "p2_v8_seed0": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_v8_seed0.json",
+    "sha256": "dd0ac169bd13910ec8dca1254b150720b2e797913258832a895dfba325268ff6"
+   },
+   "p2_v8_seed1": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_v8_seed1.json",
+    "sha256": "c87de7c04059b13ed60ebede67b40d009073aae9152eabb3f72f05773d880cfb"
+   },
+   "p2_v8_seed2": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_v8_seed2.json",
+    "sha256": "2e687c522e5442189a795eb461c3226eb0eab078d15424e827680b03c1ba91cf"
+   },
+   "p2_v8_seed3": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_v8_seed3.json",
+    "sha256": "f1ddd8c97dc91c29df1e9fdb3731a7174de70f505ac4f61764b7c4b611451fa7"
+   },
+   "p2_v8_seed4": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-p2-candidates-20261008/p2_v8_seed4.json",
+    "sha256": "71d79a4060231b2437f7ac7556905a457d8feb51bd1938546c5ad56f1c8be7bb"
+   }
+  },
+  "preregistration": {
+   "path": "research/redesign_m3_20261008/PREREGISTRATION_M3.md",
+   "sha256": "06f8fd489b46219f1d62d82863dc66ee13c0fa2c9041cb13eedfd5cbde9bc2b7"
+  },
+  "ratification": "PREREGISTRATION_M3.md section 9 (RATIFIED 2026-10-08)",
+  "rule_sha256": "fd42a5d5ba898e41c2f4b251ac7833a461ed7773e5c91290f4d5015c00e04267",
+  "smoke": false,
+  "study_id": "redesign-m3-phase-r"
+ }
+}

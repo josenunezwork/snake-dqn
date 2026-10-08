@@ -1,0 +1,302 @@
+{
+ "controls": [
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    1205217914
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    1205217914
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    1205217914
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    1200803570
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    1200803570
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    1200803570
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    3427005134
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    3427005134
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    3427005134
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    4104003196
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    4104003196
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    4104003196
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    3276743559
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    1205217914
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    1205217914
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    1205217914
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    1200803570
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    1200803570
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    1200803570
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    3427005134
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    3427005134
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    3427005134
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    4104003196
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    4104003196
+   ]
+  },
+  {
+   "identical": true,
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    4104003196
+   ]
+  }
+ ],
+ "prefix_controls": true
+}

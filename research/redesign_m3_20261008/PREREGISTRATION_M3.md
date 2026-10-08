@@ -225,3 +225,19 @@ Records carry each world's bank index, its roster member sha256s (rows always bu
 the full bank) and the hero checkpoint path + sha256. A stdlib-only `phase_r_verify.py`
 (run with `python -I`) checks the shard start markers and record bindings. It runs next to
 the package's `audit.py`, and both must PASS before the decision is reported.
+
+**M3 Phase R OUTCOME (2026-10-08): NO_GO_EARLY at look 1 (n = 22 worlds per seed × mix).
+`phase_r_verify` PASS, `audit.py` PASS (both recompute the record keys, the deltas and the
+decision; 33/33 prefix controls identical).** Plan `5d1ee49d…` was written at commit
+`aeffbdd`.
+* Look 0 (n = 11): CONTINUE. Primary HK (candidate + v8 − frp3-s12 + v8, H5000 mass
+  integral) was +25.7, SE 23.1.
+* Look 1 (n = 22): HK +11.4, SE 13.7. Seed effects: +24.9, +34.4, +14.2, −34.3, +16.9.
+  The NO_GO upper bound +40.5 is below G = 50, so the study stops (KILL needs UB < +20,
+  so it is not a KILL; GO needs LB > 0, and the LB is −19.0).
+* Stops are final. Under §7 the point estimates below are biased by the early stop and
+  are descriptive only; final-only labels are not resolved.
+* Descriptive: c4 4/5 positive seeds; c5 mi10 HK −18.0 (SE 36.6); frozen survival −0.057;
+  guard (vs champion_a5 + v8, seed 0) +111.9; control arm M2b + v8 vs the incumbent on seed
+  0: stratified +14.2 (the candidate on the same bank: +24.9).
+* Record: `results/phase_r/`.

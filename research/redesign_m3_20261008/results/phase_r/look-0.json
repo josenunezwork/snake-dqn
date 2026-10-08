@@ -1,0 +1,3891 @@
+{
+ "action": "CONTINUE",
+ "decision": {
+  "action": "CONTINUE",
+  "candidate_selection": {
+   "lower": 27.60653259613661,
+   "ranking": [
+    {
+     "effect": 83.3492424242424,
+     "lower": 27.60653259613661,
+     "seed": 1
+    },
+    {
+     "effect": 49.78217575757577,
+     "lower": -9.376411402092508,
+     "seed": 0
+    },
+    {
+     "effect": 39.447157575757565,
+     "lower": -10.5652365627828,
+     "seed": 2
+    },
+    {
+     "effect": 15.397569696969713,
+     "lower": -38.90679122834895,
+     "seed": 4
+    },
+    {
+     "effect": -54.45180000000001,
+     "lower": -107.85623222085358,
+     "seed": 3
+    }
+   ],
+   "rule": "highest lower end of the seed's two-sided WS interval at the candidate confidence, on the worlds of the stopping look; ties -> lowest seed",
+   "seed": 1
+  },
+  "clauses": {
+   "c1_point": {
+    "adjusted": 13.467706000932534,
+    "estimate": 25.705328826766824,
+    "kind": "point",
+    "margin": 12.23762282583429,
+    "name": "c1_point",
+    "op": ">=",
+    "pass": false,
+    "pass_point": true,
+    "se": 23.08221730850163,
+    "threshold": 20.0
+   },
+   "c2_scripted_mean": {
+    "adjusted": -25.849783356369706,
+    "estimate": 20.03327636363636,
+    "kind": "point",
+    "margin": 45.88305972000607,
+    "name": "c2_scripted_mean",
+    "op": ">=",
+    "pass": false,
+    "pass_point": true,
+    "se": 34.43423636146579,
+    "threshold": 0.0
+   },
+   "c2_scripted_survival": {
+    "adjusted": -0.07067629738112426,
+    "estimate": -0.010512727272727274,
+    "kind": "point",
+    "margin": 0.060163570108396985,
+    "name": "c2_scripted_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": true,
+    "se": 0.04515144818380228,
+    "threshold": -0.03
+   },
+   "c3_frozen_survival": {
+    "adjusted": -0.10729292191938171,
+    "estimate": -0.04718181818181817,
+    "kind": "point",
+    "margin": 0.06011110373756354,
+    "name": "c3_frozen_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 0.04511207331592443,
+    "threshold": -0.03
+   },
+   "c3_mixed_survival": {
+    "adjusted": 0.019172626043940863,
+    "estimate": 0.07635636363636364,
+    "kind": "point",
+    "margin": 0.057183737592422776,
+    "name": "c3_mixed_survival",
+    "op": ">=",
+    "pass": true,
+    "pass_point": true,
+    "se": 0.042915148821929136,
+    "threshold": -0.03
+   },
+   "c4_positive_seeds": {
+    "kind": "positive_seeds",
+    "min": 4,
+    "name": "c4_positive_seeds",
+    "pass": true,
+    "positive": 4,
+    "seeds": 5
+   },
+   "c5_mi10": {
+    "adjusted": -35.787935546811035,
+    "estimate": -7.916380170749404,
+    "kind": "point",
+    "margin": 27.871555376061632,
+    "name": "c5_mi10",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 52.570446652275585,
+    "threshold": 20.0
+   },
+   "c5_prefix_controls": {
+    "flag": "prefix_controls",
+    "kind": "flag",
+    "name": "c5_prefix_controls",
+    "pass": true
+   },
+   "c6_guard_point": {
+    "adjusted": 107.36669810110527,
+    "estimate": 148.88794545454547,
+    "kind": "point",
+    "margin": 41.521247353440195,
+    "name": "c6_guard_point",
+    "op": ">",
+    "pass": true,
+    "pass_point": true,
+    "se": 31.160791240080282,
+    "threshold": 0.0
+   },
+   "c6_guard_scripted_survival": {
+    "adjusted": -0.05377635392849605,
+    "estimate": 0.01883636363636363,
+    "kind": "point",
+    "margin": 0.07261271756485968,
+    "name": "c6_guard_scripted_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": true,
+    "se": 0.05449426203777166,
+    "threshold": -0.05
+   },
+   "c7_feasibility": {
+    "cap": 600,
+    "kind": "feasibility",
+    "mde_bound_route": -80.41886627142611,
+    "mde_shrink_route": 15.423197296060094,
+    "mde_star": 15.423197296060094,
+    "n_fixed": 3190,
+    "n_max": 3254,
+    "name": "c7_feasibility",
+    "pass": false,
+    "sd_by_mix": {
+     "frozen": 242.97698637426504,
+     "mixed": 215.55586672409083,
+     "scripted": 255.37113160819706
+    },
+    "sd_star": 255.37113160819706
+   }
+  },
+  "efficacy": {
+   "df": 4.0,
+   "estimate": 25.705328826766824,
+   "lower_bound": -80.41886627142611,
+   "pass": false,
+   "se": 23.08221730850163,
+   "seed_effects": [
+    49.78217575757577,
+    83.3492424242424,
+    39.447157575757565,
+    -54.45180000000001,
+    15.397569696969706
+   ],
+   "tau2": 950.7863105810409,
+   "threshold": 0.0
+  },
+  "failed_go_clauses": [
+   "efficacy",
+   "c1_point",
+   "c2_scripted_mean",
+   "c2_scripted_survival",
+   "c3_frozen_survival",
+   "c5_mi10",
+   "c6_guard_scripted_survival",
+   "c7_feasibility"
+  ],
+  "final_look": false,
+  "final_outcomes": [],
+  "final_outcomes_holding": [],
+  "fraction": 0.34375,
+  "go_nominal_p": 0.005024298185851039,
+  "history": [
+   {
+    "action": "CONTINUE",
+    "look": 0,
+    "n_per_seed_mix": 11,
+    "status": "CONTINUE"
+   }
+  ],
+  "kill": {
+   "all_below": false,
+   "parts": [
+    {
+     "df": 4.0,
+     "estimate": 25.705328826766824,
+     "name": "kill_h5000",
+     "pass": false,
+     "se": 23.08221730850163,
+     "threshold": 20.0,
+     "upper_bound": 76.44668423905699
+    }
+   ],
+   "suppressed_by": []
+  },
+  "kill_nominal_p": 0.04641486337461642,
+  "look": 0,
+  "margin_shrink": 0.4136980300220713,
+  "margin_shrink_protective": 0.8100925873009825,
+  "method": "sequential-phase-r-obf-hk-v1",
+  "n_per_seed_mix": 11,
+  "no_go": {
+   "all_below": false,
+   "parts": [
+    {
+     "df": 4.0,
+     "estimate": 25.705328826766824,
+     "name": "no_go_h5000",
+     "pass": false,
+     "se": 23.08221730850163,
+     "threshold": 50.0,
+     "upper_bound": 76.44668423905699
+    }
+   ],
+   "suppressed_by": []
+  },
+  "plan_sha256": "5d1ee49d0ce8ce0f764f61909ad1803b542e825c70a08c01c12b83636651304e",
+  "status": "CONTINUE",
+  "valid": true
+ },
+ "deltas_sha256": "36e14606f0902e296088b3657027b38899e2c543b175cb41b4e4f00739147c27",
+ "extra": {
+  "analysed_utc": "2026-10-08T22:12:43.287950+00:00"
+ },
+ "flags": {
+  "prefix_controls": true
+ },
+ "look": 0,
+ "n_per_seed_mix": 11,
+ "plan_file_sha256": "64ee770b377a8fe545e4736812eb4f0026c8122be5bbaeaedbefd365bb64e1cf",
+ "plan_sha256": "5d1ee49d0ce8ce0f764f61909ad1803b542e825c70a08c01c12b83636651304e",
+ "previous_receipt_sha256": null,
+ "records": [
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-1214446203.json",
+   "sha256": "56b94036cdd22ab58e2a2441b031741344f19f22a89a2e018ae7930aac794c0f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-127914920.json",
+   "sha256": "74e03f1917cc796f932d3dc66b1e03c130c7ff5d52ecd6cb2c042f5afe40ac99"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-1374822683.json",
+   "sha256": "3f2be4f42500c80e08901debe3026c42afd43a5390b4360cb3d3152289ab0696"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-1664884884.json",
+   "sha256": "dfdb6bd3384e3662f09f4b59510ec4a4cffcf6003cc318a3b9a9333f23b31d8a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-2506114760.json",
+   "sha256": "baac92f861915a1880c62bb741c7020bdcd6eb8aa4a102ab0792f7567d9ed55a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-2685325467.json",
+   "sha256": "4a98b111e39b22779d74180d804ed58c5d96cc429a4cd10e1c21a5f43fca1957"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-2782577213.json",
+   "sha256": "3fc33c60b0c990eb189ae8c28f31aab8515d59630d2107bb63208389e162e47a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-3276743559.json",
+   "sha256": "dd7a6abd02de28aaa8ed032eed17262e9e502c5dc934581d73805be00dae9398"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-3814607135.json",
+   "sha256": "78b3d4b2b68e94a52d2333d4b32829655ed47c65d5e829ccb36b42e5db0614df"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-681204125.json",
+   "sha256": "a8e4c0e0dae024d042d938fd9bd2958292ab35f2ddcf64b5e9a28e8db4762542"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-95850668.json",
+   "sha256": "e5195b8bf10a7e9d6c0af0c4c3dd1233d86edf6db0bcef37024b2aa0c7ecd96c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-1214446203.json",
+   "sha256": "d478abae7966b9a953bcd2e92d631d67c0797e8aee374ece36d2e5be4beb30ee"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-127914920.json",
+   "sha256": "efa582393fd18059529e8ee76fb04329a00c2d1a37f20103dca6aca650c42f4c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-1374822683.json",
+   "sha256": "edb26690926bf4de42588b651cb78a51851db0bfbdf0be53a0bbc38b7bde15f9"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-1664884884.json",
+   "sha256": "c1c6142fd84c9be99f0a1dc3f0cc3fb837ab65a4933dec8da15e18ba2d3b6941"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-2506114760.json",
+   "sha256": "bd52417043c18390b39b6d9a2015a99b091ad3e612ddbeaa6b5d0fef1852a3eb"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-2685325467.json",
+   "sha256": "0ca98b83cff0262e049f7268502e9b320c0ac96f0cfa384b77f345e6e25f3b03"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-2782577213.json",
+   "sha256": "83f6d93eee8f7cdff68af135942d0ea805aef63a47572eb0e3e84a1135760aa7"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-3276743559.json",
+   "sha256": "872371053a72fcf8a04ba0c896f986a753645f23ddf4ada128bc7d46eda3d551"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-3814607135.json",
+   "sha256": "9028b20c3643fe805886028a7afee17bf90ad845f485109881bb9aabf7c0dea7"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-681204125.json",
+   "sha256": "dd16a3fd6b63c25c1a6f626b3c0ec834aec8ee2db3b6f2807241f64913aac45c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-95850668.json",
+   "sha256": "6dc5dd692dd51792c9cd4d5ebf9d22ae03674565ea966924957bf832a44f73f5"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-1214446203.json",
+   "sha256": "6e63221dd5581ef38032f2bd28415b05431a1d59b66ae0525d578d86d01d21d7"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-127914920.json",
+   "sha256": "b33677d8edaca0e9c0ac91ec5135cc8d99bf7d2b61ecc1f9863afb4e233df4f3"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-1374822683.json",
+   "sha256": "803c42e468066d4d0a1e392d1f08aebe641aa9b8aa64f5b930091226ccb8f182"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-1664884884.json",
+   "sha256": "be2b5be86f691ade8b1508fa82f2235fdfa92e412a7112773db43eaa1b65f093"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-2506114760.json",
+   "sha256": "459837c89a948e5e3cd830a7be2287196b4d620cbf1d8a3026b7057a74b23ec9"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-2685325467.json",
+   "sha256": "fd2a63204b1301a81ee233f2da60c36db0eecd90863f7f533590c1012b47729c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-2782577213.json",
+   "sha256": "bd5a791ac6f7344260b5335836aecf1a4a4197514436d9f6c99ea79a1b55489e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-3276743559.json",
+   "sha256": "978350a4c3c441f20fa913d1fff2da3306148c3a7a78649f5c9d2dd7ac0cfd78"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-3814607135.json",
+   "sha256": "9b47e72ab758da956cd6734d794368db4e9f65bd66ead77d9676bfcd34b41e68"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-681204125.json",
+   "sha256": "a62b5fbc4749ba3ac0e002b76dfa4659b5e83c9c6c875227ce3b2de5f2f9f422"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-95850668.json",
+   "sha256": "dbb800a8de89e969eecadb77c8633cef39207bccc4297b251be176eed57b519d"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    1111486103
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-1111486103.json",
+   "sha256": "816d8c0c2b1442b9cacc62d39c512358b7d060b5b1387b0eb3f393e9fe0f9bed"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    1205217914
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-1205217914.json",
+   "sha256": "9b84ed63370b31329715901a63844cee2d5269b937d6d90040da17ce53890428"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    2242629975
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-2242629975.json",
+   "sha256": "630b66f135da9b6b575d7ea3f106d9c22cfbb6c2dd9eca9eecb56391f1641dd5"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    2487963060
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-2487963060.json",
+   "sha256": "4a1c309dabc7c124a7671735c7f163ab3f08064938434a19869c377febf1a6de"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    2647839194
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-2647839194.json",
+   "sha256": "bf59f9667e49ae28b7740afa46b6b809509c90c3c0eeaf8b145d81db279c1d3c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    275424692
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-275424692.json",
+   "sha256": "2ddd468aecacef582bec930dce1d900ad27371388e63656aba41a6a157c816d0"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    3023168831
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-3023168831.json",
+   "sha256": "f266881c9d555106503019b21cd51c8d5a8f5fb64ceb22e65a78ea1460a4ab98"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    3134653090
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-3134653090.json",
+   "sha256": "b0463356ff9826133426b6dff29547b6ccdb80f11ee32ca456700e2cff4ce13e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    3186501795
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-3186501795.json",
+   "sha256": "3e62bc015c56f71dd3591732d49776d784225a7b383f04d318c703a949e3041c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    331437354
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-331437354.json",
+   "sha256": "3d8b4c82917d05ce150d978329124000afe90ea51a87cbee7e3fd43d57c61070"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    853488431
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-853488431.json",
+   "sha256": "a3a2e0954b3fd1e4cd12cab0b6c834c6dfefbef37d964e2457ed1193c095d073"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    1111486103
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-1111486103.json",
+   "sha256": "0d4bc7e30122e1760e438d4bf5b3cc86d79284ed4998a9664a671c174d359132"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    1205217914
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-1205217914.json",
+   "sha256": "f5a4830ecb57b4ec5828407ed2af731369edc9793a1863db8ceb06cb00a1ba45"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    2242629975
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-2242629975.json",
+   "sha256": "02eccbe74b51ab4f7271ca624d6fb9695d13e0d8cde1cc1227bdab5f7e761fd2"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    2487963060
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-2487963060.json",
+   "sha256": "2c6989b528dd8d02eea1bf60a6fce9d3626dc7fa9a4fb89b52abb1df88c18a9a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    2647839194
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-2647839194.json",
+   "sha256": "935318e2ba773e0c6d500eb7123be8cdc2b737e6da7d22855266a13986ab0b58"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    275424692
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-275424692.json",
+   "sha256": "127741c32658f5797c7fb79c5628ad8940cc06e111b90fb693cf9d3587662f49"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    3023168831
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-3023168831.json",
+   "sha256": "944630d278db83d2b5d89fd51b79ccbde4d64d1e6768193fee24a4da9ef6d74b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    3134653090
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-3134653090.json",
+   "sha256": "87fcc1ae652695404b68fcd85173b93f5f1fc194fb2ef1e4b9ee09a305e4b39b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    3186501795
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-3186501795.json",
+   "sha256": "2846b277632bc482830c3f8cd826db5b2aa8a43859e5c4b01bad2a9031e212cd"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    331437354
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-331437354.json",
+   "sha256": "a9888d2d2760c1de79441b162ab3af48d1ee4bf8cced206abfeb5c22d0d104a8"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    853488431
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-853488431.json",
+   "sha256": "48013fb8db10c6481fde2441cb36c049bd4d1fa3f2e89e184f2253357cd2fa05"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    1111486103
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-1111486103.json",
+   "sha256": "ef82dffe9e82e17f77230f07bb450e684e76d2e77e1d9bc3b93814181d877e66"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    1205217914
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-1205217914.json",
+   "sha256": "c8969965da6df5252fc8a5c9807c98bace0e29f09ca048c5f0f217f0c4bde830"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    2242629975
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-2242629975.json",
+   "sha256": "4ff0689df307d5f1600f0ae463297d9559a1d3cba29f8634152f167dfefd9690"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    2487963060
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-2487963060.json",
+   "sha256": "4b93ee44d997d27e37d3ff2543ebc2ce400ddf6bf1dcba6c38031eed130461a7"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    2647839194
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-2647839194.json",
+   "sha256": "8bfd84e97732801a7ac940a032dd38178d5ea645c5b639b0170809ddfbbed8e0"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    275424692
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-275424692.json",
+   "sha256": "97ac9275eb2fb94bac4ca83157a193012f5855c1ac4ccf45b27a466af1715a9e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    3023168831
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-3023168831.json",
+   "sha256": "84bf48b46cccaf8073d992c3f28450a5675edf7a46ab0f153af559b5c22e4bd9"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    3134653090
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-3134653090.json",
+   "sha256": "793d757a4c3b6b7316f13473f18b23b30bb5b41e7658186c10f992ab30bd403b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    3186501795
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-3186501795.json",
+   "sha256": "f59c2e0d571439d6791970f7762c3b3723d84c19af53e2c84b0356d634c8f607"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    331437354
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-331437354.json",
+   "sha256": "18ab2862772381fbaff17ff24426eb3f58bddf568c7eef31279f398ea3e7cb9c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    853488431
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-853488431.json",
+   "sha256": "87d1ff65bfd2fb16cc9e226a09c24d885b5fe42fdeb4412d2e06492e251c294b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    1200803570
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-1200803570.json",
+   "sha256": "805c13be28287b92ef9c7fb877bae45f8b8c336742e87d71e1cacb331cab82fa"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    1569660064
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-1569660064.json",
+   "sha256": "3441a09a3479869f133f6a54d536e01fa569a23e660800050450feb9d0af38c4"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    2246799338
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-2246799338.json",
+   "sha256": "887c0c9d1a3ca2261816bc833650fdac2a5bdaa25241fc8a9b107171fc9847ed"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    2292911079
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-2292911079.json",
+   "sha256": "ee0fc8227191c681a3dc0194b9a3b5013133cb402008d77f1fd28fc58716ba43"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    2463635294
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-2463635294.json",
+   "sha256": "2fd82b75c06dfdf96d6484fc3cf211d80cd681e6b7d63fec7c62fc2aa6c7816b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    2569396910
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-2569396910.json",
+   "sha256": "05b6656b64900d9783465b7cff267a926c9c6eefb811020c2d07398bbbd757ca"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    3997245026
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-3997245026.json",
+   "sha256": "2c37701704787a830f1890a1fbcd757fa05b67e6c6a9d6cd54109c7a935b8a49"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    4082616132
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-4082616132.json",
+   "sha256": "94cca8a382e632723c19e50d56bbb93546d505481220e07721aca5e663be32f4"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    4210514136
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-4210514136.json",
+   "sha256": "5e1d5b915c3aca73ad5ea177da85fc71ac06b0209979b8fd6940d2cc86c6787a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    445497591
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-445497591.json",
+   "sha256": "8fd9bc02e526ecf1fe6f876d91f0c8bcc843988098ea3070d8bb451aa5e4bb4d"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    902422845
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-902422845.json",
+   "sha256": "5edb0ba8c82b228be5221940090f50369c6a32423e5a09100476018ca95cbedd"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    1200803570
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-1200803570.json",
+   "sha256": "a259c1789b128ad5321503f4c7831b33832692690c8d8a0b8bd3d2820c4ebb3f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    1569660064
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-1569660064.json",
+   "sha256": "f9d72460e680d6113363409a9f5e8f6a2ba232dfd143da2eef9bf3079ef09e6f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    2246799338
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-2246799338.json",
+   "sha256": "979946b49ca2097bffaf95cea4b1202f102b38cb140b0e117054112a29a38d79"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    2292911079
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-2292911079.json",
+   "sha256": "d0a52fd84cc82a11cf2a7d2d1ad4e407d0fd07ee40315f7d06fe3e8512c09786"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    2463635294
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-2463635294.json",
+   "sha256": "456abe3cba3c0f166abb9dc7115f862d0fc4449ef28419e8ab2c3eb403f3243a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    2569396910
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-2569396910.json",
+   "sha256": "ed5b206934123e17d957c4122f8a7188298158640202007cb47aea726ef38376"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    3997245026
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-3997245026.json",
+   "sha256": "3253cd7a4c5a0e53c01f89677e8c2e6c4b2f93548d984783176bd2f4c817b190"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    4082616132
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-4082616132.json",
+   "sha256": "be9f7522bf919af46f0bc0f400666ad6ffb57428df984102e9e6b91097e67cc5"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    4210514136
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-4210514136.json",
+   "sha256": "a6bbf045f535198ec4d8ede97acb84c2f3e227077c52c8f8235f5cd33c9a81f1"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    445497591
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-445497591.json",
+   "sha256": "06af735de6aab19516d00e4499fe5109b0114d57106e9a5f478ede2e1b20b0ba"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    902422845
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-902422845.json",
+   "sha256": "dfb4f6d9ad5e542dd93a74860c7383ca583e8233fc1afd766c19ec3e72d2d1ea"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    1200803570
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-1200803570.json",
+   "sha256": "784a61d2400dd85218cb7e95c7f2d6e44d24888d18f4b246bbeb65f903b69123"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    1569660064
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-1569660064.json",
+   "sha256": "50275a969c7289d002f18f94ef6dffd3c2bf4dd047b3bde1348d78cb4c9de42b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    2246799338
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-2246799338.json",
+   "sha256": "227793d4e693888cd0bcc07e2b5b09973285406d0d88a947808f0ff1d52d5c50"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    2292911079
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-2292911079.json",
+   "sha256": "4087b95b83650020cf81ecbe59ce78d7e5f41693b4caa7a38f27d6000bcc4451"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    2463635294
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-2463635294.json",
+   "sha256": "24ab418fb16e1dbf32f20a4f5b6d349860da5432fde58949838a602c1f843c78"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    2569396910
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-2569396910.json",
+   "sha256": "1640448308884b4b97f6896be31230e4fee7a7476d7766ccc822308e78a2ef02"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    3997245026
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-3997245026.json",
+   "sha256": "27216d423478879b8cd3013d4b6ab4bf66d5787e1d1d59dc534d0f13db09e973"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    4082616132
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-4082616132.json",
+   "sha256": "6c6eb64b18b4af1bb9943e671b3f42b8ffdc26281574169721c08a3a1d26cb67"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    4210514136
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-4210514136.json",
+   "sha256": "06dbf97e696c106834ee7d8ba6d231bf2c41a65a16dda11ee25e172c3b2e25b1"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    445497591
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-445497591.json",
+   "sha256": "c1fc561f639d50e1b3d4cf2b1d185a27f30eab5e0b8af97c4582e189ed79d882"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    902422845
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-902422845.json",
+   "sha256": "4fdd23d974bfcda4d54bcdbf2aa832dc089e9634aa5d37f565bdddbd77c81d2e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    1267663816
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-1267663816.json",
+   "sha256": "34d227e25df6943b508e27f0f6bccb8f7d98aa7e93d1e31b90e51af386543804"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    1484917668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-1484917668.json",
+   "sha256": "17d68eb0d68acc0d15eb4f6e0b6cd9472b2b7db93d5679cbb674737d4d24bc24"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    1523590507
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-1523590507.json",
+   "sha256": "83fac23dddb3255ef0f8bcd833dd65334da257afe1b89a608390c0b388989ad8"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    3427005134
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-3427005134.json",
+   "sha256": "fe69ad4979c3daadc6e3588c2ea42b703ff7b6618949022d83dc15ed235a480b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    3480367604
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-3480367604.json",
+   "sha256": "46f70864b07f1cb8a0f847a833a9a9fbbd6851036a94d3d0b036736d4c516ab4"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    3658667311
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-3658667311.json",
+   "sha256": "5d777bc2cc959692a034b2621b94c10f412dec473927d5314850088a3fd4f176"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    3775292584
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-3775292584.json",
+   "sha256": "3a96f31c4805171d4562313b7eb6bdb745abd439131540a5ce53a390eec22c62"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    3814835873
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-3814835873.json",
+   "sha256": "a5701937404d35906ea77ff7e7c78bebc1186fbf0963526dfcfcb5189f8b5c7b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    4038672200
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-4038672200.json",
+   "sha256": "41d30dd8099bffd4d91a369fe15ca2ef6f064ce85eb9375210a5535c9e8f04b8"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    4056492983
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-4056492983.json",
+   "sha256": "0af0c22fe37a72fcefb6f981cd1769b5ab5cba0ca1268ec9ad3bf7f9579bf0b0"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    996680166
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-996680166.json",
+   "sha256": "8934544f6f35ffcebd7f73fb7019b17dba1ac7ceefd5c1167aa51a9ae2068828"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    1267663816
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-1267663816.json",
+   "sha256": "e075d34ac3210a990bf9f3c36a40744b9e30e07e98bc3737132beb94fcca9db5"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    1484917668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-1484917668.json",
+   "sha256": "1ecbd454ebc012b86df0a6ff6df03b81c6cadec5b59e45c4d602d3573fd0e224"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    1523590507
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-1523590507.json",
+   "sha256": "b872ed6b92cbb2c056f22da1691592f2deeacd5f29edfb8f88420828c68a00a6"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    3427005134
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-3427005134.json",
+   "sha256": "a49b5a7ca997caa7bffb052a7acd22271ff2f85ef7439667dcfcde70de9edfe3"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    3480367604
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-3480367604.json",
+   "sha256": "9e7609ca01eeee915b64a25023e1767569a92c5eb397fde0d07da5348de2290e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    3658667311
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-3658667311.json",
+   "sha256": "6917101b803e330f2ee44dcdd063fbc4ab3e0f1966275592c7ae278ea4d6c7bc"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    3775292584
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-3775292584.json",
+   "sha256": "01939ac14340f7d034f7bd2259839eace91db127b40577f6189872eac8d31f3a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    3814835873
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-3814835873.json",
+   "sha256": "87f7bfa7d916621eff4be4bfdb39fd5359232e4807688727e174070c89186d38"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    4038672200
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-4038672200.json",
+   "sha256": "4fbde55fed4fb323fae055c3b61eaad142b696be43fdbfe377bd5d855878e568"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    4056492983
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-4056492983.json",
+   "sha256": "550456c13d4e0895642ba7cf537a02d92b254693e04a818b3b4dc494bf5e8a73"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    996680166
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-996680166.json",
+   "sha256": "b9938a711bb0603e266e187e8a53cb98e44b207183158246adfe7aac7fe1866e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    1267663816
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-1267663816.json",
+   "sha256": "0477fe2d3d10a76866d407c0a43fb66b9027534f1800735d764bf891bc607d37"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    1484917668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-1484917668.json",
+   "sha256": "0b3cd47a76edd51395b34b9de938f552ef3b295e43998ed603032963610529bc"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    1523590507
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-1523590507.json",
+   "sha256": "774cc00033d94ebc5a26448d7b83b83b3dd0e098b6e09538be7c1e488db72938"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    3427005134
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-3427005134.json",
+   "sha256": "9d41e1c7408b0a1044597a609737b19ac19da3e97f9b13351cfe469a49e548e4"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    3480367604
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-3480367604.json",
+   "sha256": "c48e81d8dd58a5818d8bcc2b33c575395c7b8e32316efc046257105fabd60c23"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    3658667311
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-3658667311.json",
+   "sha256": "ce68cdfb19efef05004aac7bb14a6811666050214cd20e435aca21cccb9dec59"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    3775292584
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-3775292584.json",
+   "sha256": "44fbee5bae4f8bd2eb8a899bf0538ada6296653f82b6f09e2a7a6860ce94b50c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    3814835873
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-3814835873.json",
+   "sha256": "9e5cd4a15ad8788ada2d6cb73aafc188e2c51e365a9dc3928a815a3e878f6e2f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    4038672200
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-4038672200.json",
+   "sha256": "b524d60e34374abc162fdec314f766350b9a80bea0dc64b290f6269beb7f26a4"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    4056492983
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-4056492983.json",
+   "sha256": "215020433b910a1fa4c5b27cd0f693f79fa7cc48d36dba39e3ec8a89772d1e2d"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    996680166
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-996680166.json",
+   "sha256": "3959ebab01c39b288c8b45cbaa2db66a4560a739f08684bc0136ceb3380055b8"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    1442395548
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-1442395548.json",
+   "sha256": "e3bfa158768ce285411d2118d7bd3ddab0c44272a0a53ab36ae9023d13050591"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    2027229472
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-2027229472.json",
+   "sha256": "63809177e11837142902b1fb38ead99c7976190cef73daa3d81ec13a06b1c182"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    253566765
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-253566765.json",
+   "sha256": "46164363db24da23e31f210fc7262cd1c30125411c59866b49e7b3188185582e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    2538303743
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-2538303743.json",
+   "sha256": "24cce09ea426b44914fdcc4ef7d71defb0f456566e68bfbbc9dc71713f8ec4a1"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    2825833181
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-2825833181.json",
+   "sha256": "aa23946042c4b376069d663365ff2e8921d3c6424a554d8689663c0766754393"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    296229515
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-296229515.json",
+   "sha256": "1128ce684f4f3da577fcf9dcc4693045ff3925d4304eb5491ba8be45e97c0a13"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    345491551
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-345491551.json",
+   "sha256": "700a39ea74430815bd57ef43d48983c2bc8a7aea84b81250ff78d286e9b20b50"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    3762373708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-3762373708.json",
+   "sha256": "6c980a26893c646d30e8fd86b1f27c733ad109a9e5061516a12ea7b8294d038e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    3810523406
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-3810523406.json",
+   "sha256": "0bae3abf3c8842bb1b9aabb932bdc2d9e74cd258cb55ccf712dd5945bf03a0ae"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    4104003196
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-4104003196.json",
+   "sha256": "c9571c23cbac10611796d28938e01e92da19bee844095c9b36cfcf11bfb52835"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    551178938
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-551178938.json",
+   "sha256": "e402cdf12ac1bfe0cded02027c80f676babe7def0c5874e9dc5ad440a857c017"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    1442395548
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-1442395548.json",
+   "sha256": "268903e5c2e8ea356838d578223284e32424effa78abefe52d557e0eedc8775a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    2027229472
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-2027229472.json",
+   "sha256": "1c74ddb02369b9a462d22064bc4d8494ae93f9f028440abd8bc9350ad26a7d31"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    253566765
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-253566765.json",
+   "sha256": "f7e14327cd8b5a3636e7dbe5fbd372365b6b8d1727f238ff5331fbb55841891d"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    2538303743
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-2538303743.json",
+   "sha256": "88f4414e85d807f367fd91c357922e3f77030fb52e2f200d89fe39ce32426c8f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    2825833181
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-2825833181.json",
+   "sha256": "9a399a76ff0b0be886c589520995280d90debeafd3708813e6cbda03a5b656e3"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    296229515
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-296229515.json",
+   "sha256": "34549c9109af3bc4ddac47c41485c73746c617e73521f494fd645542937ad8cc"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    345491551
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-345491551.json",
+   "sha256": "3ec352231d0d252430427daf8107fc40db0c3ca99ad3aaa5f26ded6b16ee969b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    3762373708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-3762373708.json",
+   "sha256": "8e45eb5c7be1532dab3a65ec187d24337ef963f392a5377c31f2302c5b759b14"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    3810523406
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-3810523406.json",
+   "sha256": "6e7dca82c30d077800df664c55d725d9cbb74bd3ee4b72bf739eb4187d53d379"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    4104003196
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-4104003196.json",
+   "sha256": "435d09bb7bdd6521ce6caae7740746e06d59b43a4075ff2d5e153e7c3e311c9b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    551178938
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-551178938.json",
+   "sha256": "1ad4a20f415f2f1e151cb424392deb89d02168f92c0ad10e4098592bb87e6d2c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    1442395548
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-1442395548.json",
+   "sha256": "71898ae46d5f54fc05b2126e47d47fa74c183ab15339cafeb2d2642f8ea13907"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    2027229472
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-2027229472.json",
+   "sha256": "021ff9c169f15b3f4550f79846478d789ff7dc9cc634e9ba57c78c84560980ca"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    253566765
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-253566765.json",
+   "sha256": "9eb8d577228e3d736dea0c92d89e9251b126f1ef42ba7542ff57a6a859e57319"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    2538303743
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-2538303743.json",
+   "sha256": "02772562e97cecd6e71d539adb8eb0e079aa3b1e7a8f33fa893c8a5f9a1643e1"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    2825833181
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-2825833181.json",
+   "sha256": "24f3653e0b1f612110a3118aa46976bacae3f0113bd57d4fb57d3a28fb7b4b40"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    296229515
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-296229515.json",
+   "sha256": "33194aeafe5607b5bc83fd7a4448e9f3688816b8afd23d82f5ac2be265874938"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    345491551
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-345491551.json",
+   "sha256": "e54eb9a15f35446a2d8f642b157086cc0f1bd0e91accc1ed805fa95bae367f79"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    3762373708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-3762373708.json",
+   "sha256": "7a48063b4c420f020d41a2a34a9771ba29e6599a0d58b11b06ce31af1825fb76"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    3810523406
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-3810523406.json",
+   "sha256": "627827febcf67b3bbbd43742dd364182f417f710c57a9dc8c926049f503e7871"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    4104003196
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-4104003196.json",
+   "sha256": "9fb1cd6688d3269addf4c8ccee4c839117e279dd2069dd19bc8588938756aede"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    551178938
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-551178938.json",
+   "sha256": "3f8dada8b480c58894790610f5fe6921af9f9117d0ca2d4e6d7633fe99f27ec6"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-1214446203.json",
+   "sha256": "5c27e7390dbff46184ace5f3bf97f43f9e64086b36ec1c673acd3c20b5ffa75b"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-127914920.json",
+   "sha256": "d4cc4c22e69a3068f1d5d5ecb0ca3f99fce461da7755dc3875adfaf0d704d110"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-1374822683.json",
+   "sha256": "840527734bb88c25d41b4f75a9e170a929ecde19bc8e9357690aff90461d7f28"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-1664884884.json",
+   "sha256": "ee1807945c430ee1b975f2e658b2327c374fe84572636ad89d40bd1cd30bed8a"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-2506114760.json",
+   "sha256": "e39dc8b10059199e8c74ba8cd495bf3df6a957779c2cc6c1fac08a4dc9823bb9"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-2685325467.json",
+   "sha256": "5258d821c5f2537afc6a9d9b982ce107f732f1c4b90cfd6f4303b6ee374c700a"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-2782577213.json",
+   "sha256": "6f52854e5c0037d717440fea40ffa1cf66f48252b443556da3b39b25631c25bc"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-3276743559.json",
+   "sha256": "948a27952fa80393f0683c71a1a7c747314becc97eb5459e3938883a36b074f2"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-3814607135.json",
+   "sha256": "ff54cfd1a07e1037d957b6552188f87eef3d68a5146d4d8c21c739143fb820c0"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-681204125.json",
+   "sha256": "a4a064c132c8ccde3c1126049bcee2f8deecce9c8f296978bdb912cb0681046a"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-frozen-95850668.json",
+   "sha256": "5789d1ab321c9ae3b16fc53969158da1cdaed30c9b3058a6931f5d1b8e66348a"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-1214446203.json",
+   "sha256": "6c77856d7309fefdfb53649ec3efd7cd054a0a38b033f5bbda9b31df8d777bd0"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-127914920.json",
+   "sha256": "a0abb24007bb71aff1a90000468a8945d9c67554bdfc4654a3122e55946837c6"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-1374822683.json",
+   "sha256": "f75d0d0cebb33242407c12b82dbebba1acbbba401635a296df51369143897531"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-1664884884.json",
+   "sha256": "641a4e672c098109c07c5a8ea4550587d498862faa63f57ca580f6476a241c0e"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-2506114760.json",
+   "sha256": "d621b368c9e1fb9221b7592828f78f4fd0fe208c0707d86be27ed33e77386738"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-2685325467.json",
+   "sha256": "01c16154187aef2bb81f533054f7096da3f139523ffc77f732740aa885f3e7c4"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-2782577213.json",
+   "sha256": "97e69c1b88167ae27aabae199635e2d1d0009b470e4acb201ef4948c14a52020"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-3276743559.json",
+   "sha256": "6ac3f287a2bfd6c8bd1b51c4d313b5cc24b94410d68959e0380119326684a61e"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-3814607135.json",
+   "sha256": "76f48b3ccfd98b6dbe689385835eed518acacbf67fb606a1a341be0ebcce00f2"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-681204125.json",
+   "sha256": "419e1d68e070ea45cdcf2b80b640ed8dc7da6780206f634b4d17a28149216435"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-mixed-95850668.json",
+   "sha256": "8429bcbd2d0d3f9346406c8f90d6d009bbe57e3531c1522f77b3c0271fa004bc"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-1214446203.json",
+   "sha256": "1ee8060b571b6a6e5c6c3a3faf332dbe25ff7eda954a12401a0e65a2da3bf541"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-127914920.json",
+   "sha256": "65e5edc4705527b3018acc816086ffe2ac96a48caeb5c042db9a36e3f08ec610"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-1374822683.json",
+   "sha256": "71530629cc2e7192e89cbac91f4f5ed12cd0b3cbd570178b5bc20e2d93b3c5e8"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-1664884884.json",
+   "sha256": "b121267c000d17b3487b204c8c8a80b45c1d8e56c2515e1393a2da84c986f9a4"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-2506114760.json",
+   "sha256": "10bd6864ea267336f3b06e20aa58f875a8182a26073f925f2a331bb998ee1ba9"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-2685325467.json",
+   "sha256": "82eccb4edfaf2993375a143740572863b48b5f1f36a5df75cd4aa82521ab6c39"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-2782577213.json",
+   "sha256": "ec8647f4b02427e7c3ef5cfa76d3db9f890c1b993320384fff12ae23652014bf"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-3276743559.json",
+   "sha256": "98400fd77ee3852a9201295d6a39fcf8324cc1436feed98a8357f783cd20f147"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-3814607135.json",
+   "sha256": "4274dc61bf295e292e832851066fa592b1027c537877763d4b6d70b565cc78ab"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-681204125.json",
+   "sha256": "32618d595ab0ec39ccc5876f318fbf86f28bfe829bc91c7f58591523ee9aa2af"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/champion-s0-scripted-95850668.json",
+   "sha256": "cbda59fa9260a7e511a9fe4bb39f08445e69ea3aa50270de13af72c0472bfef6"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-1214446203.json",
+   "sha256": "4e5d7dc8f6d77a924d2fbaa0225d4cd2f86a2c855928c90943251359f7ed30af"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-127914920.json",
+   "sha256": "a839112e5e3240bcf9a23021bf79bd6da763032e76017f1836471819d16eec7e"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-1374822683.json",
+   "sha256": "1434bda97f351844e3e210ab007cb7be0e4dd07d9d31761616e3bc26a3b339c0"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-1664884884.json",
+   "sha256": "73606672b1f15e9755a04da81fa6d955175008eaec3b5b44383bd81bd24ddf81"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-2506114760.json",
+   "sha256": "9b797b6a2ba817781cd4d675587cf4139017787f70d1beaba9fd4f7d03008f57"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-2685325467.json",
+   "sha256": "b66066731d1ecc296618b04cf283b6ba213186be638029a06c8d465303c64cac"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-2782577213.json",
+   "sha256": "1ce9002cc3b996c7c947809daea156a2bb5fac7adf89a72ea4ff6bf551bd1409"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-3276743559.json",
+   "sha256": "0c2f5727bcb61a7c31d3527a9a75e0010c28ea9b7aa8a1f5f32983623d256d5e"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-3814607135.json",
+   "sha256": "b8276594e45b0a4825ff507bca6fbbaf06d89b671b7cefc294463c721d29ee0a"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-681204125.json",
+   "sha256": "12c85c18a9fac0430fd17d47077ea10205ea16286566aeea8b0acc2445cc4315"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-frozen-95850668.json",
+   "sha256": "95561a69e6a7891bd99a147fe239c6471c55246f979a0d0379b188c47fae79ff"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-1214446203.json",
+   "sha256": "1627b45ea8ae2b2e067282c4f7171843b2b7ff03b506cd8ed2a178ac57b6ff2f"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-127914920.json",
+   "sha256": "51c54587b44d7f658a2272a9c7d51213fd813de67af695ab1c4216bbb16a7ac0"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-1374822683.json",
+   "sha256": "6ccdcc3d64770a51ffaf500058e6bd153954ad095dd4c8750d3b947ce0e06050"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-1664884884.json",
+   "sha256": "9ffb75aa9687abee47743a4045359c3fe42334c01242edd0ed79806c9a150239"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-2506114760.json",
+   "sha256": "91a1b1bfcb635ea8606027ff99cfb68289ece422e29f63729afb9235bd178fcf"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-2685325467.json",
+   "sha256": "94628356842ab527276dde4411aec870e24f2003f5144e98511c7205da1e5a6b"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-2782577213.json",
+   "sha256": "ec368405b2853a84628e268e4d42e802db27490e82396846425cf15336deb073"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-3276743559.json",
+   "sha256": "ffeafe845f1aaa53627a33b98bb2d83d84047bdd3b1e8d153ab1bcafd0532373"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-3814607135.json",
+   "sha256": "75351a46449c067c0744277287373c74acab61f5b25f8a97e3170b24253c933c"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-681204125.json",
+   "sha256": "8a642abaf1f0b9ba35b835fe954b0063f57821cb158f92896f42d012b4a92918"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-mixed-95850668.json",
+   "sha256": "3f8bf28cf227b23ebda2ad8b3e8055b56fd8c8b6479f443a39edf995cf73931e"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    1214446203
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-1214446203.json",
+   "sha256": "9a30a02bb6188cded039a19ae627782078d391eaf70e4dc90a3459b2cc55d31c"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    127914920
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-127914920.json",
+   "sha256": "750d26ec155399351cd804ba88473677d6104022fbe2877294b6040c52093438"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    1374822683
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-1374822683.json",
+   "sha256": "bfd59370d35001b2f3bfa637542c4ae24a821f245e689cb36d41d0f4a077c4e4"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    1664884884
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-1664884884.json",
+   "sha256": "920d051f2dbefa3c1aa91ec464734e9570dbd0a7fc6b6b0754bbac98e397857a"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    2506114760
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-2506114760.json",
+   "sha256": "8adfccd4d63b240340c4ff91e84a0504586f141b6b81f1735f36d1d518c2c976"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    2685325467
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-2685325467.json",
+   "sha256": "f2735efb811f1dd55f84067fc450095621897c953777e9d2fc7c6c17553242c1"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    2782577213
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-2782577213.json",
+   "sha256": "2fcb2843a48a922054f5eaa8b291fc40c86c375760c5c4f046c71ef3bf4a4800"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    3276743559
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-3276743559.json",
+   "sha256": "945a68bd3e8417c3ef73dd0715e0922e8bf4578e6f74fb581756d21406e6201a"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    3814607135
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-3814607135.json",
+   "sha256": "8ac8adfc68b9e1bba6aa71d94d21db2dc46e63f875e6647da636a7758d9ca107"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    681204125
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-681204125.json",
+   "sha256": "b0309101048db4b22b2aeb53775d5015894cd0655e140c46cca3826f5fa0f7a7"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    95850668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s0-scripted-95850668.json",
+   "sha256": "6c1abf2929434fd3fd6180ccc0e2e315e2bc8d0ab4b337f47b0d5b4b818f69e1"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    1111486103
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-1111486103.json",
+   "sha256": "d1f6b7914f6a8ad757230a5846a0d0ee1bf2c434ff676202be228d9637cd5ed4"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    1205217914
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-1205217914.json",
+   "sha256": "67ea0dcbdfd8612d2564b06906ed88b6f469f1be561eb7f19bce6e2e01f9aba9"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    2242629975
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-2242629975.json",
+   "sha256": "0a8e4e66294568f052e1c9b32209daceaeffa2098cc64035240ffb6879f2e055"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    2487963060
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-2487963060.json",
+   "sha256": "3d649920a6400a9347e8b80fd21744a93d5dcf05733cc7312e8a601297fd9f0f"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    2647839194
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-2647839194.json",
+   "sha256": "c756236db4ce8d95ce05c02dd264999b9e944540d77d0735c50c54e6043f1d0d"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    275424692
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-275424692.json",
+   "sha256": "de44d2c4ed59d09b842723b16baa68bb64fc1471c9ae5a4def4933a40fd23b1b"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    3023168831
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-3023168831.json",
+   "sha256": "50d1e82fa53313f887bad994c673ebad5157b5c7c117d4ff29a753ea68fcdc45"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    3134653090
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-3134653090.json",
+   "sha256": "1caed8820145a4991ec5a4260774d6c38c0594b45b5dc25eef477ad1d5463fa7"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    3186501795
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-3186501795.json",
+   "sha256": "767cdcc54e83238a0a74244e36f296fcb71cef6ba5be21239ffab408814886ea"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    331437354
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-331437354.json",
+   "sha256": "49ee40f9df10411ea71576bab55fd8b93201832ae2ab6b96041f38236faf728b"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    853488431
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-frozen-853488431.json",
+   "sha256": "da2fd769501f5b4190385c7b82fa31feefe4f8a2a84a3ab5cd53fa4fff1900b7"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    1111486103
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-1111486103.json",
+   "sha256": "84de1056ba2026c1576bd1536838fe87ac2cbc59b1157faacfe91f4155e5a059"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    1205217914
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-1205217914.json",
+   "sha256": "166dc95343d09c8ba5553c27dd812fe98398e57b7a071422469721ee82eae3f5"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    2242629975
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-2242629975.json",
+   "sha256": "432bfd27b619f28cfc263c086c0a8071de90df352b2c1ac5f29f71c10f9ead64"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    2487963060
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-2487963060.json",
+   "sha256": "36db8d3439b696cb017725b9f247b86993d7c565aec098e3a4f8690b529e8a41"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    2647839194
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-2647839194.json",
+   "sha256": "3debf0a06943a0c87d7329c87fe65ac811348fda24219e548246daeae73fd1cf"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    275424692
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-275424692.json",
+   "sha256": "6dd29d3eeb71ee4cef49a700bc6b893d899015054b65557c195777f803d57fcb"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    3023168831
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-3023168831.json",
+   "sha256": "76606bf9f04f614ff3a6d1cbf24afa6ce671ef8a96c852e57c4701bff47307b8"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    3134653090
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-3134653090.json",
+   "sha256": "597e18daa09303f35c8d4511b230ccb2152c3fb5593324bc5ba1a91e943bed11"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    3186501795
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-3186501795.json",
+   "sha256": "575b33ed2358803ef55fe0f65cece0d39503fb25d822e1518cdac961451c4532"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    331437354
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-331437354.json",
+   "sha256": "c0b30c7467f0bf676cdf500829a3c33df6cc85db5e04ea748f60e34b3f08ebc8"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    853488431
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-mixed-853488431.json",
+   "sha256": "c087e726621853f29090086a35881375835bbc7c37709d548225bd62ecca8460"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    1111486103
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-1111486103.json",
+   "sha256": "c554fa1cbe50a1ac12a3dbf7cf4a4472dc5efc635f75f46d660673d6694f6f00"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    1205217914
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-1205217914.json",
+   "sha256": "2f163bc02975f429acb4b6e4b12e46bf867371b32af5e726770f2087b698b2bb"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    2242629975
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-2242629975.json",
+   "sha256": "a5d050516cba7a1dbc3bb7929e9f66bd9a7e2c42f5a99ffe76674b1168dbf810"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    2487963060
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-2487963060.json",
+   "sha256": "4ad3a85d8097ca405a2089e00cd94debb8a8a108519fbbcd129869473cb77d77"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    2647839194
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-2647839194.json",
+   "sha256": "d67f8e9e9adb94da760aea6765ad9cb4e2cf8415af2533353e3139e1d391fde1"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    275424692
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-275424692.json",
+   "sha256": "f5ba435394f870b9ba1298c7505d61e6b2a9a94de63c9619d40cc4098cf8fee1"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    3023168831
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-3023168831.json",
+   "sha256": "91f595496cd795b56243e8c903aa2d43435af26996cf72b58ab672ef03a2eaf9"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    3134653090
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-3134653090.json",
+   "sha256": "91a53dc55a4b62a9216295069f5a5cd78085b6286960409c31ca1903597c12f4"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    3186501795
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-3186501795.json",
+   "sha256": "28b801fb66a91d94f6c20dd5110c4ab5b5ed8101c8853b6e60c97aca8670e297"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    331437354
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-331437354.json",
+   "sha256": "48824825425f9d7f8fa65959a64cf0e4d442b17337d75eddef0a613d3eeec525"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    853488431
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s1-scripted-853488431.json",
+   "sha256": "401499abbe4b6793a3e3c214648fa40c073af583b4332cbd9fbf9090a99ce089"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    1200803570
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-1200803570.json",
+   "sha256": "d24cf3dcddf4ea2ecddcd5a78a178f9431ca184d5609528752dc762593cd85c7"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    1569660064
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-1569660064.json",
+   "sha256": "e5862b6f97605a0485bf1fd91caf8848554deda918cf0b853f2c0e4a6b643125"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    2246799338
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-2246799338.json",
+   "sha256": "7c9b999fe001e62482f083f9511c46445aeac1bb0dcec53d61b1cbee758fdd5c"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    2292911079
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-2292911079.json",
+   "sha256": "746e423f0943e2970a7427408efd9ef034f76f2675e638ba779e86f9fd9f64e5"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    2463635294
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-2463635294.json",
+   "sha256": "8dfe4b46da1055e2bb0565ddff95df7ca25ff42e3f3539563f6d58b662f641b4"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    2569396910
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-2569396910.json",
+   "sha256": "7cb417146e0b5c605aad3cd76b36b0cb1b9065b3c52de37387b184b5ced1c6d7"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    3997245026
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-3997245026.json",
+   "sha256": "ee98ec53472e5434e928082e474fe3a5e841b1c838274628a614f6e294088f74"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    4082616132
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-4082616132.json",
+   "sha256": "9cb666dff778e7a8f7560a261052406ed2ed21b934f9f4b934984d2975d91466"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    4210514136
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-4210514136.json",
+   "sha256": "1f602c06094acdf2d11f171f411aa36312186cf083b36d7a597eb326c534040f"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    445497591
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-445497591.json",
+   "sha256": "54156e43a69ec6fe7f0e3b49fed4a6aabf19fadfc32694d6583d35d02e58929b"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    902422845
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-frozen-902422845.json",
+   "sha256": "b690689a16a3771e6b724c9500f4d56e6f75a39485dd79a83674ffdb1e0509db"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    1200803570
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-1200803570.json",
+   "sha256": "b9499f39d26b9f126c92fb34d1039d550d67e2d8aab89b68b08f2f4a2a1e216b"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    1569660064
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-1569660064.json",
+   "sha256": "86c9ae945092e031e13c56bfe4b323814c2a751916e0a23bfb5c4737ce928209"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    2246799338
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-2246799338.json",
+   "sha256": "c69eb5c70223ace455cfdeba952247df4ff1c4f42bb77feb5e1be34c10aec159"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    2292911079
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-2292911079.json",
+   "sha256": "366364a86e4c4e6392fad48715855ad2076e3df9e94a38bc60dbb4eb159d3ada"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    2463635294
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-2463635294.json",
+   "sha256": "eb4a5bb2d7539e4822ac67d8ecb53b70f52b14305df7dde5eb99ff1ab4182504"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    2569396910
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-2569396910.json",
+   "sha256": "0674537d06943b1b7975f5270bc2f38853f2ed4ce9d9deed4ddb90a0c810de3e"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    3997245026
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-3997245026.json",
+   "sha256": "57eb68d4ced587f13f945f7cd7581e298bb9c4d79eb24900633fd12db5198a41"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    4082616132
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-4082616132.json",
+   "sha256": "512985405b33a09fd2006e42cb44a5c0ff700ec825e8f7ca389dffb70d5cd074"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    4210514136
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-4210514136.json",
+   "sha256": "a499b1dedeeb44541016351c381f49b7544e5e845f4b63b6a2dbee12146e4040"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    445497591
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-445497591.json",
+   "sha256": "6da4f05333e353efca77556e64d24b1343e79aa377de180331637ec0512e7e66"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    902422845
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-mixed-902422845.json",
+   "sha256": "abfe6085c10ffb7c3ee54200ad3d6300ef4c0a8997e02e2271656e1b2734fb10"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    1200803570
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-1200803570.json",
+   "sha256": "031d4128e79bcb063f22ec49353d7995ad0771bfc0f140036bead4298cee64b5"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    1569660064
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-1569660064.json",
+   "sha256": "4d318f3fe536732a2b810ce21da93760056c592911b5dd696cfecddbf13fdeb8"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    2246799338
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-2246799338.json",
+   "sha256": "c7dcf94975e548b01028c22a6ab95ab64a4400b6707bad0407c8da45c09b0376"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    2292911079
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-2292911079.json",
+   "sha256": "e3ce1ae9656b05e6ea7ec19e3cdef9e98df15dc59ec0c4a5346794797274092e"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    2463635294
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-2463635294.json",
+   "sha256": "d9cd52bf2832d69ae6eeae6ea2ddccfcd87fd8449aa0329c782e941b158e8009"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    2569396910
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-2569396910.json",
+   "sha256": "37352035b0403a28e1de42a31432cead1e82e51a24a71cde520971083f8b6df3"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    3997245026
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-3997245026.json",
+   "sha256": "fe69b2506d9a0cf7b219f218792c538f6166ea0bd7888cb3f49f744411f40369"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    4082616132
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-4082616132.json",
+   "sha256": "0852ddfc38b08c718f6ea1d85f8fec6a3aee551df3274664bd4b548f9cbce791"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    4210514136
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-4210514136.json",
+   "sha256": "8b85a3f2dfb812d690eeb9f9e786c284ed7f6445f79238c718c2f9423a9dc1c1"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    445497591
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-445497591.json",
+   "sha256": "7e54b38fddfa349c7ed972aeceabaea47b9df5b008e7136d635008dffe7fdae3"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    902422845
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s2-scripted-902422845.json",
+   "sha256": "fff7252b232c3532078911c156f042858fa80eb1e4e1f433e8b9af09ff2ac04f"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    1267663816
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-1267663816.json",
+   "sha256": "28cdadb1e0dc21e4cba98b99862f38675bf2b08c1aa0b0dbd73885fce51d476d"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    1484917668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-1484917668.json",
+   "sha256": "53d835f85b1d5d3225c9f5b8c0c25a1c53ac4dc7c490ee7940b9fff6f840e016"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    1523590507
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-1523590507.json",
+   "sha256": "b910054aebae70e74eb496a615e92fa18458038bbcf6c6a5593543ef4a44cd5c"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    3427005134
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-3427005134.json",
+   "sha256": "1ad8da772ef2109055c5176d28ec85e1c3fa4e67d47f16a17c202398eb029bad"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    3480367604
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-3480367604.json",
+   "sha256": "d0cd8c977d2b47465688b71aafb619e8789a533eaedab4065bc68f553fc5131c"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    3658667311
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-3658667311.json",
+   "sha256": "ea796b70a7a8dd2b0733b67222fce87ff8f8d000d69245fcd46f36a9e7a68515"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    3775292584
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-3775292584.json",
+   "sha256": "80bb5faee73131e9d7213ff9169b9f2e6e64782a6a54a97886e5cb1f4fa7f4f1"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    3814835873
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-3814835873.json",
+   "sha256": "cef87787127276e44b5a4094927af5d95211567ce1be5b530414f9a818e981bb"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    4038672200
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-4038672200.json",
+   "sha256": "a9d487f6a89f4f17a2974147f0cb5e752810ee6bd3608cd64d810ca284a3bb28"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    4056492983
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-4056492983.json",
+   "sha256": "e034d3329cc38a88b9049d239b716c2e6772b14104a6fef6c954482a0997e3bf"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    996680166
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-frozen-996680166.json",
+   "sha256": "c7ec3d9705bf6c38255762e4e0ae730897a74ac243d5e4efd9f3d92e1d4baf33"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    1267663816
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-1267663816.json",
+   "sha256": "b252e4e31c48fa8c9ef354cc07c439ed56dab1c2fecf1a7688b394ee92eea409"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    1484917668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-1484917668.json",
+   "sha256": "2b5510790313517beb21708895b76b84bba7ca3e448a91e024525fe97b7b4830"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    1523590507
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-1523590507.json",
+   "sha256": "7532a087d092caa3917dcd59c6da3df74ab9af221b68c92fe766dd62ce240cb7"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    3427005134
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-3427005134.json",
+   "sha256": "2770802dc5f974d246b180e6fefc327d55b2ed0f7794d605c8778394ecc2bb12"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    3480367604
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-3480367604.json",
+   "sha256": "5aba028daed373164d45c23db946ac0146c5625c28ac5164ba0f6044457cfe26"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    3658667311
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-3658667311.json",
+   "sha256": "91317ab99b189e76ada29960c7657b397207d301863bd132102f0b7dce4bffe5"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    3775292584
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-3775292584.json",
+   "sha256": "02957c64450c8ec698195cc1117e64d82531a14d50906e3931b7ba22edbfb40a"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    3814835873
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-3814835873.json",
+   "sha256": "be24e6c4a6727b95a9df36aed115cb1e8074d83e742623b774d216d229d4a58d"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    4038672200
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-4038672200.json",
+   "sha256": "def1d7bb91e17276431b4139e9c6f467a7cdb7bf4b3c7c6d5644839230d4dee4"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    4056492983
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-4056492983.json",
+   "sha256": "d180f6958773eec922b20b9e27af6bdeb71b16e1d93e823a395874e4d00ad918"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    996680166
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-mixed-996680166.json",
+   "sha256": "92b35249fb8036aaef66dd53bd9026dc7eefc725c2aaa7ed1a552bfd3c664428"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    1267663816
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-1267663816.json",
+   "sha256": "ebbe09d306724ace211320f2ba05ad0ecdf91c94b720ab17efd003da75756ef7"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    1484917668
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-1484917668.json",
+   "sha256": "399ba694aa2d2ef4ae11fa555333ae5c298cf8eb4b4135e28712395b4ac773a1"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    1523590507
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-1523590507.json",
+   "sha256": "84c3eff810a03c2dcd874895d01ead536db15290f3ee7585e3c1a1637b500e5d"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    3427005134
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-3427005134.json",
+   "sha256": "e95a599193fce0277746512b90b455cded24b6168eefd708bd90515521b3561d"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    3480367604
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-3480367604.json",
+   "sha256": "be1ba7b77ac57cc8215fbfee3ea5c4fe79b205250678ccf30e4d4fea66471c58"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    3658667311
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-3658667311.json",
+   "sha256": "1465a129b682bac56d6e47aaf46903e9844cc0e444ae5f52e9c5340148fae186"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    3775292584
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-3775292584.json",
+   "sha256": "20400144f0ed93133153cb8a2eaf0eef5c7f0146031787c3c36b230354f58a7e"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    3814835873
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-3814835873.json",
+   "sha256": "18bc0b23d808277d8d7959384bed2c9a49bd85926f02e4435b23c0e61b19bf19"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    4038672200
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-4038672200.json",
+   "sha256": "be6e8fca57f1554f2150b55b624af45913fafe7571a17e175b242dd63a8d3212"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    4056492983
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-4056492983.json",
+   "sha256": "a192635fec5baab43a69312589363c3445f843e0db4e666eeab5afa427b63911"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    996680166
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s3-scripted-996680166.json",
+   "sha256": "ff6c2874add4608e29ba2a5efbdaec3c9c82544593e4852a60c13ed5663b239d"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    1442395548
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-1442395548.json",
+   "sha256": "c0eea039824df496605808830390054b1791ff3c93ef216597167f14d41a49ac"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    2027229472
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-2027229472.json",
+   "sha256": "b8d23a4a985d7c73d541ab52a09230097264c7207a3ca57bdbebcb5fcfc2b05e"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    253566765
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-253566765.json",
+   "sha256": "3fafd559d1e58b78778cfd5d8f6bb1b3d33788cac48b0286c75172fa747ea12f"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    2538303743
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-2538303743.json",
+   "sha256": "ed55b510266c98ca996ea9dcfdda58b68066a6147dd8944ceba3b99d7cb5ad72"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    2825833181
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-2825833181.json",
+   "sha256": "5188b10aed58638389b36057a56a03d81aa0b2e93cc4f4fb4caae33a4bc4d090"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    296229515
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-296229515.json",
+   "sha256": "f1c9cbdce7e2bcc879c365d0446bb6445e02fd4e6757a30eaef43567cca91950"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    345491551
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-345491551.json",
+   "sha256": "c3fe579749421b15a2ace14d5c8830278f0bcf1aa82476ef084bf3af43eaa541"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    3762373708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-3762373708.json",
+   "sha256": "3001dce50fc9104c5433d4d9d8fcadaf190e400f59680630f71d855a316355bd"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    3810523406
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-3810523406.json",
+   "sha256": "f0f9476dc49820a01738e8a40019b2e9fb6dccf0207a5e2390926d96f9f980d5"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    4104003196
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-4104003196.json",
+   "sha256": "1c5a7ef7f63528977d8cef25a99df5cba157bb32c6c07f607d5e04ecddf297c4"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    551178938
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-frozen-551178938.json",
+   "sha256": "32a1605a233aced8d5b3e2f1588b6ce3d2183ebf8c4a112ad901bcda8857d39b"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    1442395548
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-1442395548.json",
+   "sha256": "4982d6d4f70e05810bb3476d6a6639263e71045694e9367c6930c5aeefd8f7ff"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    2027229472
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-2027229472.json",
+   "sha256": "830e525795e1b25398cd435b6c8ccd5489159ff315c0b88892ffd17ac9702011"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    253566765
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-253566765.json",
+   "sha256": "7d45ca68273276997fbc9bc83880460a5ab5e3926babb5002f63922a60550ab1"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    2538303743
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-2538303743.json",
+   "sha256": "051ba7884249cc0ac43f6d36b2b9823743cf928df6630b0314e4d3440417f1da"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    2825833181
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-2825833181.json",
+   "sha256": "35b5e3f774c1ce8db014663cdd52b64b82f40e94ef0d0e051f7e22efe5056ab1"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    296229515
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-296229515.json",
+   "sha256": "909bdd66dd73fd518f79761c77d6327b37641e7e1653d629759ba20b3019ee8c"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    345491551
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-345491551.json",
+   "sha256": "81b7761b11adb13eba8c4b9f3d1395448a6a384e2b32ae20406cc1fbd55855d8"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    3762373708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-3762373708.json",
+   "sha256": "3e0c6889b63fbf145b86b2ead2793a47461bfdf186c1e483bd43f375f964263f"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    3810523406
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-3810523406.json",
+   "sha256": "0082d46c197f1785ce70985abd1da51d146df7b54b0575f7e6c01ea88df6dad7"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    4104003196
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-4104003196.json",
+   "sha256": "fbb01b03ee99fe15b2a9aa56d4d725a21e9bca5d6dee3c95632cad447806dd6b"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    551178938
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-mixed-551178938.json",
+   "sha256": "84b2ec420976aa768642885827f10c34a74de421819e7a5026f31481ec931a34"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    1442395548
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-1442395548.json",
+   "sha256": "da0746d24d45e70bf1e7617212d7b10d65fc4099dac7965b6a0b62cd5da910d0"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    2027229472
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-2027229472.json",
+   "sha256": "76a4c88543538cd58cfa38c4d92f83fee91c05a92c3de3219714d126067d4fd9"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    253566765
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-253566765.json",
+   "sha256": "f1d693cf55d7cf488a778f47fab97ef4947527bc41e1dd79f389116fa4687c79"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    2538303743
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-2538303743.json",
+   "sha256": "dfa81bea8b8c27b55aeea15ea3ef273694d36be969aac205c2098f277834d72d"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    2825833181
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-2825833181.json",
+   "sha256": "6a80601c50164823c2e0df57c0f26b9e88bb387a5285db5511a999e17b797a0a"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    296229515
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-296229515.json",
+   "sha256": "a72fc0da281b05faceb2d4cedae7d674887f59c36bef2a75de33faed5e555066"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    345491551
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-345491551.json",
+   "sha256": "a1b7441930471d7c3c6943d6b73787275f9127a74da812c02843fcb80c43e497"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    3762373708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-3762373708.json",
+   "sha256": "022f0f7670585211b00233e63af7d31aecab4bdf067c1556b6986d7c0d1c6b54"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    3810523406
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-3810523406.json",
+   "sha256": "d26e28e49fbb79941411c8e0ccccad67e4686b63991e1e0f9aeaf23165ce0581"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    4104003196
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-4104003196.json",
+   "sha256": "3f3ca50b150b3a7a6f768be78d8a7e332c16f83b16b49ce0c3c9a3c60e5784da"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    551178938
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008/shards/look-0/records/incumbent-s4-scripted-551178938.json",
+   "sha256": "6fd711f7e5cbdb7eb981f2cf4fd31a373cba1242529e49ed30070ffedd1a87cd"
+  }
+ ],
+ "records_sha256": "ae6669f3ce204f6255a5f0c0b369fa0e99d17f483c5a6585d07a1f5cac1b6420",
+ "schema": "sequential-phase-r-look/v1"
+}
