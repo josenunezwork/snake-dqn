@@ -251,6 +251,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "git": gid._git(),
         "hero": {"name": gid.FRP3_S12[0], "sha256": gid.FRP3_S12[1], "veto": gid.ARMS["v8"]},
         "versions": {"numba": numba.__version__, "numpy": np.__version__},
+        "grid_sim_jit": gid._grid_jit(),
         "frames_compared": int(sum(r["frames_live"] for r in results)),
         "rows_compared": int(sum(r["rows_compared"] for r in results)),
         "pass": passed,

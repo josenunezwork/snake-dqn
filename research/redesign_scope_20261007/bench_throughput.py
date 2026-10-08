@@ -196,9 +196,9 @@ def time_sim(cls, cfg, n_envs: int, big: bool, budget: float, max_frames: int, f
                 if k == "raster31v2":
                     build_observations(obs_inputs_from_batch_sim(sim), sim.get_action_mask())
                 elif k == "ego":
-                    build_ego_raster(sim)
+                    build_ego_raster(sim, backend="numpy")
                 elif k == "ego_noreach":
-                    build_ego_raster(sim, EgoRasterConfig(reach_steps=0))
+                    build_ego_raster(sim, EgoRasterConfig(reach_steps=0), backend="numpy")
                 feat_t[k] += time.perf_counter() - t0
     out = rates(frames, agents, spent, lengths=sim.length[sim.alive].tolist())
     for k in feat:

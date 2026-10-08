@@ -13,6 +13,12 @@ rasterising the live state into the same padded occupancy grids:
 - ``food``: 1 ambient pellet, 2 corpse/trail pellet (``FoodManager._corpse_positions``),
   ``FOOD_OUTSIDE`` on the border.
 
+Hunger caveat: the live game advances ``frames_since_food`` only in reward bookkeeping
+(``SnakeRewardMixin``), which a scripted snake never runs, so a scripted row's own-hunger
+scalar is 0 here while the sim counts it. Only that row's own observation is affected, and
+scripted anchors never read ego2s; a learned policy served through a non-reward wrapper
+must keep the counter advancing before relying on this scalar.
+
 Dead snakes own no cells (the sim drops them from its grids at death). Positions
 go through :func:`~src.core.mechanics_constants.cell_index`, as in the raster31v2
 adapter. Bytewise identity with the sim path is pinned by

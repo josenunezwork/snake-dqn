@@ -64,6 +64,8 @@ DEPLOYMENT_CONFIG_SHA256 = "4146baa3a06102b8afd627b1fba8384e9a2f47aaac4a9bc96292
 ARMS: Dict[str, Dict[str, Any]] = {
     "v8": {"hero_safety_veto": "v8", "hero_safety_veto_lambda": 8.0},
     "none": {"hero_safety_veto": False},
+    # The doc's original M1(i) arm (simd_parity_h5000_check ran frp3-s12 + v2).
+    "v2": {"hero_safety_veto": "v2"},
 }
 ENGINES = ("batch", "grid")
 _ARRAYS = (
