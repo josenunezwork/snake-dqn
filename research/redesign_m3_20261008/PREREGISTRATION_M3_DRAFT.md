@@ -39,11 +39,17 @@ diagnostic.
   next state, so they take **no TD loss**. On them: `λ_anchor · (advantage-Huber ×10 + KL
   τ 0.05 to the teacher Q + DQfD margin to the v8 action)`; the raw-Q regression term is
   **dropped** (it would fight γ 0.995 forever). Demonstrations are 25% of every batch.
-  `λ_anchor` = 1 until 6M transitions, then decays exponentially to a floor of 0.1 at 15M.
+  `λ_anchor` = 1 until **8M** transitions (2M past the end of the γ anneal, so the longer
+  horizon's values settle under the anchor; still a risk, disclosed), then decays
+  exponentially to a floor of 0.1 at 15M.
 * **Memory (Mac, 64 GB, shared with the Phase R jobs):** agent replay 500k transitions
   (uint8 obs 12.4 KB → ~6.2 GB); demonstrations streamed from the compressed shards (1.9 GB
   on disk) by a background decompress thread into a rotating 300k-sample buffer (~3.7 GB),
-  one shard swapped per 20k updates; total ≤ 12 GB.
+  **one 10k-sample shard swapped per 1,000 updates** (≈ 156 swaps per 20M-transition seed,
+  so the anchor sees ≈ 1.9M distinct demonstrations per seed, cycling the 416 shards in a
+  seeded random order); the initial buffer is the first 30 shards of that order; the
+  held-out worlds (`world_seed % 10 == 0`) are excluded from the stream (the agreement flag
+  reads them); total ≤ 12 GB.
 * **Exploration:** ε-greedy over the resolved mask, ε 0.05 → 0.01 by 5M.
 * **Reward:** the champion's contract (`GridBatchSim` reward v2: potential length term, death
   −3, kill credit 0.3 × victim length).
@@ -102,7 +108,8 @@ M3-A's measured rate and the owner's G2 ruling.
 * **M3-A (Mac smoke):** 1 seed, 5M transitions; dev probes at 0 / 2.5M / 5M on reserved
   distillation-namespace worlds (round index 52, 16 per mix, student + v8 and student
   alone). HALT only on a §3 tripwire; the probe trend is FLAGGED if the 5M student + v8 mean
-  is below the 0M mean by more than 50 (≈ 2 SE on 48 worlds) and the owner decides.
+  is below the 0M mean by more than 50 (≈ 1.4–2.3 SE on 48 paired worlds) and the owner
+  decides.
 * **M3-B:** 5 training seeds (0–4), 20M transitions each, checkpoints every 2.5M.
 * **Learning slope (doc §10 M3 exit, part 1):** per seed s, the dev H5000 mass of student +
   v8 at checkpoints 0, 5, 10, 15, 20M on the same 48 round-52 worlds; per world, the
@@ -161,11 +168,15 @@ KILL / NO_GO stops play that role.
     give identical records on the SIMD grid engine and on the live engine (same platform).
   * **Engine rule fixed in advance:** if P2 passes, Phase R runs on the SIMD grid engine;
     if any world differs, the WHOLE study runs on the live engine. No per-world substitution.
+    The live engine is several times slower (live ≈ 0.0042 s per frame-world per Mac slot
+    for the vector61 line; ego2s serving adds ≈ 3 ms per frame with 6 snakes): the fixed
+    maximum would grow to roughly **25–35 h on 2 Mac processes**, so a P2 failure returns
+    the platform choice to the owner before any shard.
 * **Platform:** Mac only. Pod Phase R needs D4 (the per-look gate in
   `research/pod_phaser`), which is deferred, so the CPU-pod option is not available until
   that reviewed change lands.
 * **Compute:** per H10000 v8 world ≈ 25–30 s on one Mac thread. Fixed maximum: 960 (C, I) +
-  96 (control) + 96 (champion guard) + 15 (prefix controls) ≈ 1170 episodes ≈ **9.2 h on one
+  96 (control) + 96 (champion guard) + 30 (prefix controls, both C and I) ≈ 1180 episodes ≈ **9.2 h on one
   thread → ≈ 4.6 h on 2 Mac processes**; ≈ 2–2.5 h expected near the null with NO_GO. Doc §8's
   "≥ $35" was a pod Phase R of the vector61 line on the live engine; this Mac plan is free.
 
@@ -209,3 +220,10 @@ independent review.
 | Dev-probe and Phase R extras not budgeted; $35 vs $0.5 | major | Budgeted (§6, §7); reconciled |
 | |Q| > 50 halt mis-calibrated; agreement halt; weak non-collapse test | minor | Flags with scale-relative rule; probe flag at ~2 SE (§3, §6) |
 | Raw-Q anchor fights γ 0.995; γ in the shaping; "champion" in clause 6; training namespace; skipped intermediate screen | minor | Raw-Q term dropped; shaping γ stated; champion_a5 + v8; namespace named; owner ruling (§3, §4, §7) |
+
+Re-review of rev. 2 (pre-M3 code GO; rev. 2 GO-with-fixes as a decision basis; not yet
+ratifiable until P1, P2, `train_m3.py` and the rule pin exist). Folded in: demonstration
+stream swaps one shard per 1,000 updates with a defined initial buffer and the hold-out
+excluded (was ≈ 9% coverage); live-engine fallback cost bounded and returned to the owner;
+prefix controls counted for both arms; anchor decay starts at 8M; probe-flag SE wording;
+the serving policy now logs when its dispatch queue is empty.

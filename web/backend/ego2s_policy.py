@@ -21,6 +21,7 @@ Q row, as it does for every served policy. Forward-only: training is never enabl
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -32,6 +33,8 @@ from src.simd_env.ego_live_adapter import game_state_to_ego_view
 from src.simd_env.ego_raster import build_ego_raster
 
 __all__ = ["Ego2sServingPolicy"]
+
+_LOG = logging.getLogger(__name__)
 
 
 class _Ego2sDQNShim:
@@ -132,7 +135,11 @@ class Ego2sServingPolicy:
         if self._q is None:
             n = 1 if state is None or state.dim() == 1 else int(state.shape[0])
             return torch.zeros((n, self.output_size), device=self.device)
-        row = self._id_to_row.get(self._dispatch.pop(0), 0) if self._dispatch else 0
+        if self._dispatch:
+            row = self._id_to_row.get(self._dispatch.pop(0), 0)
+        else:
+            _LOG.warning("ego2s serving: dqn called with an empty dispatch queue; row 0 served")
+            row = 0
         return torch.as_tensor(self._q[row], dtype=torch.float32, device=self.device).unsqueeze(0)
 
     def select_action(self, state, snake_id: Optional[int] = None, action_mask=None) -> int:

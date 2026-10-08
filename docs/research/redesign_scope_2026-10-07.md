@@ -1137,4 +1137,7 @@ grid engine only if a student-acting record-identity check (P2) passes, ≈ 4.6 
 Mac processes. The same review found one serving bug (a reset at frame 1 could reuse the
 previous game's cached Q rows for one frame: `GameSession.reset_game` calls
 `_invalidate_cache`); fixed with a regression test, and a word-path test was added for the
-region kernel.
+region kernel. A re-review of rev. 2 returned GO for the pre-M3 code and GO-with-fixes for
+the draft as a decision basis (ratifiable only once P1, P2, `train_m3.py` and the rule pin
+exist); its remaining points (demonstration stream coverage, live-fallback cost bound,
+prefix-control count, anchor decay start at 8M, empty-dispatch logging) are folded in.
