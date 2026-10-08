@@ -1,5 +1,7 @@
 # Project history and durable findings
 
+> **Superseded as a current-status source (2026-10-08):** use [STATUS.md](STATUS.md) for the released agent and standing decisions. This document remains the dated evidence and provenance record.
+
 This concise evidence record separates dated observations from current promotion
 status. For the September operational cleanup, see
 [Codebase quality handoff](codebase_quality_2026-09.md).

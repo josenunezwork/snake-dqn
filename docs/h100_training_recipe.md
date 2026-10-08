@@ -1,5 +1,7 @@
 # H100 training recipe — continue the Apex vector winner
 
+> **Superseded as an active plan (2026-10-08):** the vector line is frozen; start with [the current status](STATUS.md) for the redesign-led research direction. This recipe remains a provenance record for the former Apex/vector training line.
+
 **Scope:** this recipe covers the **Apex + 61-D vector stack** only. It is no longer the whole
 codebase: the redesign branch adds a raster/PQN stack (`PQNTrainer`, `RasterDuelingNetwork`,
 `BatchSim`) on its own track — see

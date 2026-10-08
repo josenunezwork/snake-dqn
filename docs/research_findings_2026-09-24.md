@@ -1,5 +1,7 @@
 # Research findings through 24 September 2026
 
+> **Superseded as a current-status source (2026-10-08):** use [STATUS.md](STATUS.md) for the released agent and active research direction. This document remains the September evidence index.
+
 This index publishes the existing research record before the requested Astra team review of the overall strategy. It does not rerun experiments, close unresolved audits, select a model, or approve the next draft. Read each report for its exact protocol, negative results, qualification history, and limits.
 
 The subsequent [four-agent Astra review](research_review_2026-09-24/README.md) separates demonstrated learning from missing full-task reliability and recommends the next integration-and-learning milestone. It adds no numerical experiment.

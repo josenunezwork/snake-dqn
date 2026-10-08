@@ -1,5 +1,7 @@
 # ML Redesign Research & Blueprint
 
+> **Superseded as an active plan (2026-10-08):** use [STATUS.md](STATUS.md) for the adopted October redesign direction and standing decisions. This document remains the July architecture rationale and original blueprint.
+
 **Date:** 2026-07-05
 **Scope:** July 2026 assessment snapshot of the ML stack (state representation, algorithm, training system, environment, evaluation) plus a verified redesign blueprint targeting: best-possible state representation and algorithm for the slither-style multi-agent sim, training in hours on one rented GPU, real-time serving on a MacBook inside the web backend.
 **Provenance:** Produced by a multi-agent pipeline — 4 code audits (file:line evidence), 6 literature/web research sweeps (primary sources), 3 competing redesign proposals (clean-slate / evolve-in-place / pragmatic-modernization), a 3-lens judge panel (science, engineering, economics), one synthesis, and 10 adversarial verification agents that attacked every load-bearing claim (including git archaeology and an independently written-and-run throughput benchmark on this machine). Verification verdicts are in Appendix B.

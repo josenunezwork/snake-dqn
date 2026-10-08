@@ -1,5 +1,7 @@
 # Governance amendment: paired survival bands, 2026-10-03
 
+> **Superseded for the adopted survival-band policy (2026-10-06):** use [survival band v2](governance_amendment_survival_band_v2_2026-10-06.md). This document preserves the earlier paired-band analysis, ratification, and scope.
+
 Status: **proposed amendment** to item 5 ("Behavioral bands") of
 [governance_amendment_sequential_gates_2026-10-02.md](governance_amendment_sequential_gates_2026-10-02.md)
 and to the band rule of the Tier-2 strict gate in
