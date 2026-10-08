@@ -202,3 +202,11 @@ After re-review: the GPU fallbacks and the stock wait go beyond the recorded app
 default is the 4090 only and a single attempt. `--gpu-fallbacks` allows the fallback list;
 `--stock-wait-hours H` (at most 3) polls for capacity. Whichever is used is recorded in
 `state.json` (`gpus_allowed`) and in this section when the run is reported.
+
+**User approval (2026-10-08, directly in chat, relayed by the research loop): "Yes,
+fallbacks + 3 h wait".** Secure fallback GPUs at ≤ $0.80/h, with 5-min stock polling for up
+to 3 h, the same $8 cap and the same safety. Launch r4 runs from commit `0f6a12a` with
+`--accept-no-self-delete … --gpu-fallbacks --stock-wait-hours 3`. Discrepancy, noted for
+the record: the relayed approval names the 3090, A6000, A40, A5000 and L4. The runner's
+list also includes the RTX 3090 Ti (secure list price $0.46/h, same class and caps). If a
+3090 Ti is the GPU allocated, that is reported explicitly.
