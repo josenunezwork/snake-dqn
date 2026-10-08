@@ -161,3 +161,8 @@ same name before each retry. An unknown outcome is never re-POSTed. Host minimum
 ≥ 72 GB RAM and ≥ 10 vCPU: the cheapest secure 4090 offers list 12 vCPU and 83–100 GB, so
 the minimums do not exclude stock, and 5 trainers need about 62–65 GB (review estimate),
 so the earlier ≥ 48 GB figure would be unsafe for 5 seeds.
+After re-review: only 4xx refusals, or a RunPod 5xx whose body says no instances are
+available, are retried. Proxy 5xx responses such as 502 or 524 are unknown outcomes and are
+never re-POSTed. Each launch's watchdog deletes only its own pod (exact name). A launch that
+ends with its pod verified deleted, or aborts before creating one, stops its watchdog with a
+stop file plus SIGTERM.

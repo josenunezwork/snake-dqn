@@ -407,13 +407,18 @@ log = open({log!r}, "a")
 t = {fire!r}
 log.write(json.dumps({{"watchdog": "armed", "pid": os.getpid(), "fire": t}}) + "\n")
 log.flush()
+stop = {stop!r}
 while time.time() < t:  # short sleeps: a long sleep does not count macOS sleep time
-    time.sleep(60)
+    if os.path.exists(stop):  # the runner verified its pod is gone
+        log.write(json.dumps({{"watchdog": "stopped", "t": time.time()}}) + "\n")
+        log.flush()
+        sys.exit(0)
+    time.sleep(2)
 rp = RpClient()
 end = time.time() + 1800
 while time.time() < end:
     try:
-        pods = [p for p in rp.list_pods() if str(p.get("name", "")).startswith({prefix!r})]
+        pods = [p for p in rp.list_pods() if p.get("name") == {name!r}]
         if not pods:
             log.write(json.dumps({{"watchdog": "clean", "t": time.time()}}) + "\n")
             break
@@ -427,18 +432,38 @@ while time.time() < end:
 """
 
 
-def watchdog_code(run_dir: Path, until: float) -> str:
+def watchdog_code(run_dir: Path, until: float, name: str) -> str:
+    """The watchdog deletes only the pod of this exact name (never a later relaunch's)."""
+    assert name.startswith(POD_NAME) and len(name) > len(POD_NAME)
     return WATCHDOG.format(
-        repo=str(REPO), log=str(run_dir / "watchdog.log"), fire=until + 300, prefix=POD_NAME
+        repo=str(REPO),
+        log=str(run_dir / "watchdog.log"),
+        stop=str(run_dir / "watchdog.stop"),
+        fire=until + 300,
+        name=name,
     )
 
 
-def spawn_watchdog(run_dir: Path, until: float, wait_s: float = 60.0) -> int:
+def stop_watchdog(pid: Optional[int], run_dir: Optional[Path] = None) -> None:
+    """End this launch's own watchdog: a stop file it polls each minute (works where signals
+    are not permitted), plus SIGTERM to its own session (caffeinate + python) when allowed."""
+    if run_dir is not None:
+        (run_dir / "watchdog.stop").write_text(str(now()))
+    if not pid:
+        return
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except OSError:
+        pass
+
+
+def spawn_watchdog(run_dir: Path, until: float, name: str, wait_s: float = 60.0) -> int:
     """Start the detached watchdog; return its pid only once it is alive and logged "armed"."""
-    compile(watchdog_code(run_dir, until), "<watchdog>", "exec")  # SyntaxError here, not later
+    code = watchdog_code(run_dir, until, name)
+    compile(code, "<watchdog>", "exec")  # SyntaxError here, not later
     caff = ["caffeinate", "-i"] if sys.platform == "darwin" else []
     proc = subprocess.Popen(
-        caff + [sys.executable, "-c", watchdog_code(run_dir, until)],
+        caff + [sys.executable, "-c", code],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -452,7 +477,8 @@ def spawn_watchdog(run_dir: Path, until: float, wait_s: float = 60.0) -> int:
         if log.exists() and '"armed"' in log.read_text():
             return proc.pid
         time.sleep(0.5)
-    raise SystemExit("refusing: the watchdog did not log 'armed' (it is left running harmlessly)")
+    stop_watchdog(proc.pid, run_dir)
+    raise SystemExit("refusing: the watchdog did not log 'armed'")
 
 
 def stocked_data_centers(rp) -> List[str]:
@@ -483,7 +509,15 @@ def definite_refusal(exc: BaseException) -> bool:
     cannot duplicate a pod; a timeout or unparsable answer is never retried."""
     payload = getattr(exc, "payload", None)
     status = payload.get("http_status") if isinstance(payload, dict) else None
-    return isinstance(status, int) and 400 <= status < 600
+    if not isinstance(status, int):
+        return False
+    if 400 <= status < 500:
+        return True
+    # A 5xx may come from the proxy after the origin created the pod (e.g. Cloudflare 524):
+    # only RunPod's own JSON "no capacity" answer counts as definite.
+    body = payload.get("error")
+    text = json.dumps(body).lower() if isinstance(body, (dict, list, str)) else ""
+    return 500 <= status < 600 and "instances available" in text
 
 
 def create_pod_retrying(rp, body: Dict[str, Any], run_dir: Path, state: Dict[str, Any]):
@@ -628,13 +662,18 @@ def launch(args) -> int:
     body_path = run_dir / "pod_body.json"
     body_path.write_text(json.dumps(body))
     # The watchdog must be alive and armed before anything can cost money.
-    watchdog_pid = spawn_watchdog(run_dir, until)
+    watchdog_pid = spawn_watchdog(run_dir, until, name)
     ledger = SharedLedger(policy)
     run_id = f"m3b-gpu-{int(created)}"
-    ledger.register_run(run_id, "redesign-m3b-gpu", str(run_dir), args.spend_cap, os.getpid())
-    refusal = ledger.reserve_pod(run_id, name, MAX_HOURLY, until, balance0)
+    try:
+        ledger.register_run(run_id, "redesign-m3b-gpu", str(run_dir), args.spend_cap, os.getpid())
+        refusal = ledger.reserve_pod(run_id, name, MAX_HOURLY, until, balance0)
+    except BaseException:
+        stop_watchdog(watchdog_pid, run_dir)  # nothing was created
+        raise
     if refusal:
         ledger.finish_run(run_id, False, False)
+        stop_watchdog(watchdog_pid, run_dir)
         raise SystemExit(f"ledger refused: {refusal}")
     state: Dict[str, Any] = {
         "run_id": run_id,
@@ -689,6 +728,9 @@ def launch(args) -> int:
         except Exception as exc:  # noqa: BLE001
             alert(f"ledger/balance bookkeeping failed: {exc}")
         state["pods_deleted_verified"] = ok
+        if ok:  # verified gone: this launch's watchdog has nothing left to guard
+            stop_watchdog(watchdog_pid, run_dir)
+            state["watchdog_stopped"] = True
         save_state(run_dir, state)
     return 0 if outcome == "complete" and state.get("pods_deleted_verified") else 1
 

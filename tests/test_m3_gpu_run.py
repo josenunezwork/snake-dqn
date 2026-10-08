@@ -158,7 +158,7 @@ def _patch_launch(monkeypatch, rp, drive_result):
     monkeypatch.setattr(tls_mod, "preflight", lambda: [])
     Clock(monkeypatch)
     monkeypatch.setattr(gpu_run.signal, "signal", lambda *a: None)
-    monkeypatch.setattr(gpu_run, "spawn_watchdog", lambda run_dir, until: 0)
+    monkeypatch.setattr(gpu_run, "spawn_watchdog", lambda run_dir, until, name: 0)
     monkeypatch.setattr(gpu_run.subprocess, "Popen", lambda *a, **k: None)
     monkeypatch.setattr(
         gpu_run,
@@ -369,21 +369,28 @@ def test_agent_exec_env_and_dead_man(tmp_path, monkeypatch):
 
 
 def test_watchdog_compiles_starts_and_arms(tmp_path, monkeypatch):
-    import os
-    import signal
     import sys
 
-    code = gpu_run.watchdog_code(tmp_path, gpu_run.now() + 7 * 3600)
+    code = gpu_run.watchdog_code(tmp_path, gpu_run.now() + 7 * 3600, "m3b-gpu-x")
     compile(code, "<watchdog>", "exec")
     assert "\\n" in code and '"armed"' in code
     monkeypatch.setattr(sys, "platform", "linux")  # no caffeinate wrapper: the pid is python's
-    pid = gpu_run.spawn_watchdog(tmp_path, gpu_run.now() + 7 * 3600, wait_s=60)
+    pid = gpu_run.spawn_watchdog(tmp_path, gpu_run.now() + 7 * 3600, "m3b-gpu-x", wait_s=60)
     try:
         row = json.loads((tmp_path / "watchdog.log").read_text().splitlines()[0])
         assert row["watchdog"] == "armed" and row["pid"] == pid
         assert (tmp_path / "watchdog.err").read_text() == ""
+        assert "== 'm3b-gpu-x'" in code  # exact name, never the prefix
     finally:
-        os.killpg(pid, signal.SIGTERM)  # our own test child (its own session)
+        gpu_run.stop_watchdog(None, tmp_path)  # the stop file alone, no signal
+    import time as _t
+
+    for _ in range(100):
+        if '"stopped"' in (tmp_path / "watchdog.log").read_text():
+            break
+        _t.sleep(0.1)
+    else:
+        raise AssertionError("the watchdog did not stop on its stop file")
 
 
 def test_spawn_watchdog_refuses_a_broken_script(tmp_path, monkeypatch):
@@ -391,7 +398,7 @@ def test_spawn_watchdog_refuses_a_broken_script(tmp_path, monkeypatch):
 
     monkeypatch.setattr(gpu_run, "WATCHDOG", 'print("x\n")')
     with pytest.raises(SyntaxError):
-        gpu_run.spawn_watchdog(tmp_path, gpu_run.now() + 3600)
+        gpu_run.spawn_watchdog(tmp_path, gpu_run.now() + 3600, "m3b-gpu-x")
 
 
 class RefusingRp(FakeRp):
@@ -451,3 +458,17 @@ def test_create_never_reposts_after_an_unknown_outcome(tmp_path, monkeypatch):
     body = gpu_run.pod_body("m3b-gpu-t", "a" * 64, 1.0, 2.0)
     out, err = gpu_run.create_pod_retrying(rp, body, tmp_path, {})
     assert out is None and len(rp.bodies) == 1 and "exit 1" in err
+
+
+def test_definite_refusal_only_for_4xx_or_runpod_capacity():
+    from research.runpod_fanout.rp_client import RunPodError
+
+    def e(status, body):
+        return RunPodError("x", {"http_status": status, "error": body})
+
+    assert gpu_run.definite_refusal(e(400, {"error": "bad"}))
+    assert not gpu_run.definite_refusal(e(524, "<html>timeout</html>"))
+    assert not gpu_run.definite_refusal(e(502, {"error": "bad gateway"}))
+    msg = {"error": "There are no longer any instances available with the requested specs"}
+    assert gpu_run.definite_refusal(e(500, msg))
+    assert not gpu_run.definite_refusal(RunPodError("timed out"))
