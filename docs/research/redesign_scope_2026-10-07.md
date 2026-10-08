@@ -1051,3 +1051,79 @@ Open items before M3: register `ego2s-b` as an obs spec with the serving adapter
 Mac serving latency check; the student still under-boosts (a fitting issue); the
 G1 throughput numbers in §14.4 were for `ego2s-draft` (`ego2s-b` adds the enemy features
 and one component labelling per world: re-measure); M3 needs an owner-approved pod spend.
+
+## 18. Pre-M3 items (2026-10-08): serving, Gate 1 with ego2s-b, under-boosting, M3 draft
+
+Code + Mac only, same compute rules (unlocked, `nice -n 10`, ≤ 2 processes × 1 thread; GPU
+for fits). Results in `research/redesign_m2_20261008/results_m2b/`.
+
+### 18.1 ego2s-b registered and served (Watch / Play; default unchanged)
+
+* `src/model/obs_spec.py`: `EGO2S_DRAFT`, `EGO2S_B` in `KNOWN_OBS_SPECS`; `InferenceAgent`
+  refuses ego2s checkpoints with a pointer to the right loader.
+* `web/backend/ego2s_policy.py` `Ego2sServingPolicy`: per-frame live → `EgoGridView` →
+  ego2s-b numba featurizer for every living snake → one batched forward; the
+  `ApexPolicy` surface (`dqn` dispatch by `game.snakes` order, epsilon pinned to 0) as the
+  raster serving policy; inspector / net-viz show the 30 scalars, V and A; train mode is
+  refused (forward-only); the v8 serving veto does not wrap it (it applies to vector61
+  only). `tests/test_web_ego2s_serving.py` (served Q rows equal a direct featurize+forward;
+  Watch, Play, train refusal, default session unchanged).
+* **Mac serving latency** (`serving_latency.py`, `serving_latency.json`; live GameState with
+  every AI snake served by the student, 1 thread, 1500 frames, loaded host): **12 snakes:
+  student per-frame build p50 5.4 ms, p95 7.0 ms, max 8.4 ms** (bar ≤ 8 ms: met at p95,
+  max just over); 6 snakes p50 2.7 / p95 3.1 ms. The whole `GameState.update` with 12 AI
+  snakes is p50 13.3 ms (the snakes' own mask / state code dominates the rest).
+
+### 18.2 Gate 1 with ego2s-b
+
+The first measurement exposed the per-action region labelling (full-grid BFS) at 44.5
+µs/agent (G1 fell to 12.5k). Replaced by a run-length union-find with 4-cell word skips
+(`203cde2`; bitwise = the BFS reference, new dense random-view tests): region 5.9 µs,
+**full ego2s-b featurizer 23.4 µs/agent** (draft 10.5). Rerun (`bench_g1_ego2s_b.jsonl`;
+two bench processes concurrent plus a GPU fit, so the sim cost reads 22–39 µs/world-frame
+vs 22–25 µs alone):
+
+| Opponents | Scenario | E | Hero steps/s |
+|---|---|---|---|
+| scripted | fresh / warm / big-300 | 256 | **16.8k / 15.2k / 16.1k** |
+| scripted + MPS acting forward | fresh | 256 | 12.1k |
+| frozen (gate) | fresh / warm | 64 | 2.7k / 1.6k |
+| mixed (gate) | fresh / warm | 64 | 3.7k / 2.7k |
+
+**G1 (20k) is NOT met with ego2s-b** (15–17k for scripted opponents; draft was 28–30k).
+It does not bind M3 on the Mac: the learner at replay ratio 4 caps the Mac at ~5k
+transitions/s anyway (M3 draft §5). Remaining levers if needed: fuse the numpy ego2s-b
+extras into the numba kernel (~5 µs), and the sim's per-eat Python food path.
+
+### 18.3 Under-boosting: diagnosis and a fix candidate (held-out distillation worlds only)
+
+`boost_diagnosis.py` on the final student (435k held-out decisions): boost labels are 1.42%
+of decisions (boost is legal in 98.8%); on them the teacher prefers boost by a median
++0.059 Q while the student's boost-vs-normal gap is −0.084 (boost agreement 17%, regret
+0.130 vs 0.016 on other states). The student's boost gap is nearly state-independent: a
+rare-class regression bias, not missing information (§17.1). Fix candidates (2-epoch
+fine-tunes from the final student on rounds 10–12; `results_m2b/boost/`):
+
+| Candidate | Boost agree | Boost pred rate | Boost-state regret | False boosts | Other-state regret | **Overall teacher-Q regret** |
+|---|---|---|---|---|---|---|
+| control (same recipe) | 0.166 | 0.17 | 0.130 | 0.36% | 0.0162 | **0.0178** |
+| boost weight 10 | 0.214 | 0.22 | 0.119 | 0.54% | 0.0166 | 0.0181 |
+| boost weight 30 | 0.276 | 0.29 | 0.111 | 0.83% | 0.0173 | 0.0186 |
+| weight 30 + margin ×3 | 0.315 | 0.33 | 0.101 | 1.04% | 0.0177 | 0.0189 |
+
+Reweighting buys boost agreement with false boosts; by the teacher's own Q it **raises**
+overall regret (+1.4% to +6%). The under-boosting costs ~0.0018 Q per decision (10% of the
+student's total regret). **Recommendation:** do not adopt a boost reweighting for the
+starting student; leave boosting to the RL fine-tune's reward (M3), and report the boost
+rate as an M3 diagnostic. (Weight 10 is the least harmful option if the owner wants one.)
+
+### 18.4 M3 plan
+
+`research/redesign_m3_20261008/PREREGISTRATION_M3_DRAFT.md` (owner ratifies; pod spend is
+the owner's decision): DQN family (Double, dueling, n-step 5, γ 0.99 → 0.995 via a value
+re-bootstrap, target sync 1000), anchor kept (M2b distillation loss on the teacher
+demonstrations at 25% of each batch, λ 1 → 0.1), scripted 75% / frozen-pool 25% training
+worlds; Mac ≈ 5k transitions/s (M3-A smoke 17 min; 5 seeds × 20M ≈ 5.6 h, free) vs a
+4090 pod (G2 decides the 4× rule; ≈ $1.5–2.5); learning-slope gate; sequential Phase R vs
+frp3-s12+v8 (OBF GO, Pocock KILL, NO_GO G = 50, N = 32 per (seed, mix), SIMD grid engine
+with a live-replay check; ≈ 4.5 h max on 2 Mac processes or ≈ $0.3–0.5 on a CPU pod).
