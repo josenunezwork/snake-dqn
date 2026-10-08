@@ -197,3 +197,8 @@ one GPU type, and rp.py refuses any try whose secure estimate is above $0.80/h. 
 minimums (≥ 72 GB RAM, ≥ 10 vCPU) and the G2 gate (≥ 5.6k transitions/s combined at
 30 min) are unchanged, so a slower GPU simply fails G2 and M3-B falls back to the Mac. The
 GPU used is recorded in `state.json` and in the M3-B report.
+After re-review: the GPU fallbacks and the stock wait go beyond the recorded approval
+("ONE RTX 4090"), so both are explicit opt-ins that need the user's own approval. The
+default is the 4090 only and a single attempt. `--gpu-fallbacks` allows the fallback list;
+`--stock-wait-hours H` (at most 3) polls for capacity. Whichever is used is recorded in
+`state.json` (`gpus_allowed`) and in this section when the run is reported.

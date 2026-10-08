@@ -498,20 +498,24 @@ def spawn_watchdog(run_dir: Path, until: float, name: str, wait_s: float = 60.0)
     raise SystemExit("refusing: the watchdog did not log 'armed'")
 
 
-def stocked_data_centers(rp, gpu: str = GPU) -> List[str]:
-    """Secure data centers listing stock of this GPU type right now (read-only GraphQL)."""
+def stock_by_gpu(rp) -> Dict[str, List[str]]:
+    """{gpu: secure data centers listing its stock, best first} from ONE read-only query."""
     q = "query { dataCenters { id gpuAvailability { gpuTypeId stockStatus } } }"
     try:
         out = rp._call("gql", q)
     except Exception:  # noqa: BLE001
-        return []
+        return {}
     rank = {"High": 0, "Medium": 1, "Low": 2}
-    hits = []
+    hits: Dict[str, List[tuple]] = {}
     for dc in out.get("dataCenters") or []:
         for g in dc.get("gpuAvailability") or []:
-            if g.get("gpuTypeId") == gpu and g.get("stockStatus") in rank:
-                hits.append((rank[g["stockStatus"]], dc["id"]))
-    return [d for _, d in sorted(hits)]
+            if g.get("stockStatus") in rank:
+                hits.setdefault(g.get("gpuTypeId"), []).append((rank[g["stockStatus"]], dc["id"]))
+    return {gpu: [d for _, d in sorted(v)] for gpu, v in hits.items()}
+
+
+def stocked_data_centers(rp, gpu: str = GPU) -> List[str]:
+    return stock_by_gpu(rp).get(gpu, [])
 
 
 def error_detail(exc: BaseException) -> str:
@@ -537,22 +541,25 @@ def definite_refusal(exc: BaseException) -> bool:
     return 500 <= status < 600 and bool(NO_CAPACITY.search(text))
 
 
-def create_plans(rp) -> List[tuple]:
-    """(gpu, data centers or None) tries: the 4090 in any DC, then every fallback GPU pinned
-    to each data center that lists its stock, in GPU_FALLBACKS order."""
-    plans: List[tuple] = [(GPU_FALLBACKS[0], None)]
-    for gpu in GPU_FALLBACKS:
-        plans += [(gpu, [d]) for d in stocked_data_centers(rp, gpu)]
+def create_plans(rp, gpus=(GPU,)) -> List[tuple]:
+    """(gpu, data centers or None) tries: the 4090 in any DC, then each allowed GPU (the
+    4090 only, unless the fallbacks were opted into) pinned to each DC listing its stock."""
+    stock = stock_by_gpu(rp)
+    plans: List[tuple] = [(gpus[0], None)]
+    for gpu in gpus:
+        plans += [(gpu, [d]) for d in stock.get(gpu, [])]
     return plans[:CREATE_TRIES]
 
 
-def create_pod_retrying(rp, body: Dict[str, Any], run_dir: Path, state: Dict[str, Any]):
+def create_pod_retrying(
+    rp, body: Dict[str, Any], run_dir: Path, state: Dict[str, Any], gpus=(GPU,)
+):
     """POST /pods; on a definite refusal (e.g. no capacity) retry the next (GPU, DC) plan,
     adopting any pod of this name that shows up first. Returns (out, error, no_capacity):
     no_capacity is True only when every try was a definite refusal (no pod can exist)."""
     attempts = state.setdefault("create_attempts", [])
     err = ""
-    for i, (gpu, plan_dcs) in enumerate(create_plans(rp)):
+    for i, (gpu, plan_dcs) in enumerate(create_plans(rp, gpus)):
         if i:
             time.sleep(20)
             if [p for p in our_pods(rp) if p.get("name") == body["name"]]:
@@ -656,6 +663,10 @@ def _raise_interrupt(signum, frame):  # noqa: ARG001
     raise KeyboardInterrupt(f"signal {signum}")
 
 
+class PreCreateTransient(RuntimeError):
+    """A read failed before anything was reserved or created (safe to retry next poll)."""
+
+
 def _install_signal_handlers() -> None:
     for sig in (signal.SIGTERM, signal.SIGHUP):
         signal.signal(sig, _raise_interrupt)
@@ -688,11 +699,16 @@ def launch(args) -> int:
         sub = root / f"attempt{k:02d}"
         sub.mkdir()
         (root / "CURRENT_ATTEMPT").write_text(sub.name)
-        code, no_capacity = launch_attempt(args, rp, sub, inputs)
+        try:
+            code, no_capacity = launch_attempt(args, rp, sub, inputs)
+        except PreCreateTransient as exc:  # nothing reserved or live: retry next poll
+            say(f"{sub.name}: transient before create: {exc}")
+            code, no_capacity = 1, True
         if not no_capacity:
             return code
-        if now() - t0 + STOCK_POLL_S > STOCK_WAIT_S:
-            alert(f"no capacity for {STOCK_WAIT_S / 3600:.1f} h; giving up at $0 (Mac fallback)")
+        wait_s = min(STOCK_WAIT_S, 3600.0 * float(getattr(args, "stock_wait_hours", 0.0) or 0.0))
+        if now() - t0 + STOCK_POLL_S > wait_s:
+            alert(f"no capacity after {(now() - t0) / 3600:.2f} h; giving up at $0 (Mac fallback)")
             return code
         k += 1
         _install_signal_handlers()  # the attempt's cleanup ignored them; nothing is live now
@@ -704,9 +720,13 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any]):
 
     _install_signal_handlers()
     policy = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
-    if our_pods(rp):
+    try:
+        mine = our_pods(rp)
+        balance0 = rp.balance()
+    except Exception as exc:  # noqa: BLE001
+        raise PreCreateTransient(repr(exc)) from exc
+    if mine:
         raise SystemExit("refusing: a pod of ours already exists")
-    balance0 = rp.balance()
     token = secrets.token_urlsafe(32)
     created = now()
     until = created + args.lifetime_hours * 3600
@@ -747,7 +767,9 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any]):
     save_state(run_dir, state)
     outcome, rate, no_capacity = "unknown", MAX_HOURLY, False
     try:
-        out, err, no_capacity = create_pod_retrying(rp, body, run_dir, state)
+        gpus = GPU_FALLBACKS if getattr(args, "gpu_fallbacks", False) else (GPU,)
+        state["gpus_allowed"] = list(gpus)
+        out, err, no_capacity = create_pod_retrying(rp, body, run_dir, state, gpus)
         if err:
             outcome = f"create error: {err}"
         pod_id = out.get("id") if isinstance(out, dict) else None
@@ -1058,6 +1080,18 @@ def main() -> int:
         default=None,
         help="explicit opt-in to run when the pod cannot delete itself (Mac runner + Mac "
         "watchdog stop only); NOTE (who decided, when) is recorded in state.json",
+    )
+    ap.add_argument(
+        "--gpu-fallbacks",
+        action="store_true",
+        help="also try the secure fallback GPUs (GPU_FALLBACKS); default is the RTX 4090 only. "
+        "Needs the user's explicit approval (scope beyond 'ONE RTX 4090').",
+    )
+    ap.add_argument(
+        "--stock-wait-hours",
+        type=float,
+        default=0.0,
+        help="poll for capacity this long (0 = one attempt). Needs the user's approval.",
     )
     args = ap.parse_args()
     if args.accept_no_self_delete is not None and len(args.accept_no_self_delete.strip()) < 10:

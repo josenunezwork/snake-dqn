@@ -541,7 +541,10 @@ def test_fallback_gpus_are_tried_per_stocked_dc(tmp_path, monkeypatch):
     rp = R(refusals=99)
     body = gpu_run.pod_body("m3b-gpu-t", "a" * 64, 1.0, 2.0)
     state = {}
-    out, err, no_cap = gpu_run.create_pod_retrying(rp, body, tmp_path, state)
+    out, err, no_cap = gpu_run.create_pod_retrying(rp, body, tmp_path, {})
+    assert out is None and no_cap and len(rp.bodies) == 1  # default: the 4090 only
+    rp.bodies.clear()
+    out, err, no_cap = gpu_run.create_pod_retrying(rp, body, tmp_path, state, gpu_run.GPU_FALLBACKS)
     assert out is None and no_cap
     tried = [(b["gpuTypeIds"][0], b.get("dataCenterIds")) for b in rp.bodies]
     assert tried == [
@@ -555,8 +558,8 @@ def test_fallback_gpus_are_tried_per_stocked_dc(tmp_path, monkeypatch):
 def test_launch_polls_for_capacity_then_gives_up_at_zero_cost(tmp_path, monkeypatch):
     rp = RefusingRp(refusals=10**6)
     _patch_launch(monkeypatch, rp, "complete")
-    monkeypatch.setattr(gpu_run, "STOCK_WAIT_S", 3600)
     args = _args(tmp_path)
+    args.stock_wait_hours = 1.0
     assert gpu_run.launch(args) == 1
     root = tmp_path / "run"
     attempts = sorted(p.name for p in root.glob("attempt*"))
@@ -570,8 +573,35 @@ def test_launch_polls_for_capacity_then_gives_up_at_zero_cost(tmp_path, monkeypa
 def test_launch_polls_then_runs_when_capacity_appears(tmp_path, monkeypatch):
     rp = RefusingRp(refusals=5)  # attempt00 burns 3 tries (one per plan), attempt01 2 more
     _patch_launch(monkeypatch, rp, "complete")
-    assert gpu_run.launch(_args(tmp_path)) == 0
+    args = _args(tmp_path)
+    args.stock_wait_hours = 1.0
+    assert gpu_run.launch(args) == 0
     root = tmp_path / "run"
     cur = (root / "CURRENT_ATTEMPT").read_text()
     st = json.loads((root / cur / "state.json").read_text())
     assert st["pod_id"] == "p1" and st["gpu"] and st["outcome"] == "complete"
+
+
+def test_no_polling_without_opt_in(tmp_path, monkeypatch):
+    rp = RefusingRp(refusals=10**6)
+    _patch_launch(monkeypatch, rp, "complete")
+    assert gpu_run.launch(_args(tmp_path)) == 1
+    assert [p.name for p in (tmp_path / "run").glob("attempt*")] == ["attempt00"]
+
+
+def test_transient_read_before_create_retries_next_poll(tmp_path, monkeypatch):
+    rp = RefusingRp(refusals=0)
+    calls = {"n": 0}
+    real = rp.balance
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("rp.py gql timed out")
+        return real()
+
+    rp.balance = flaky
+    _patch_launch(monkeypatch, rp, "complete")
+    args = _args(tmp_path)
+    args.stock_wait_hours = 1.0
+    assert gpu_run.launch(args) == 0
