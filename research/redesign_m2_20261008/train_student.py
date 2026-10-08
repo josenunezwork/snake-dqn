@@ -112,6 +112,7 @@ def losses(net: Ego2sNet, b: Dict[str, torch.Tensor], margin: float):
 def evaluate(net: Ego2sNet, val: Dict[str, np.ndarray], device, margin: float) -> Dict[str, float]:
     net.eval()
     agree, n, reg, ss_res, big_agree, big_n, ov_agree, ov_n = 0, 0, 0.0, 0.0, 0, 0, 0, 0
+    bst_agree, bst_n, pred_boost = 0, 0, 0
     qs: List[np.ndarray] = []
     for start in range(0, len(val["a_v8"]), 2048):
         b = {k: v[start : start + 2048] for k, v in val.items()}
@@ -125,6 +126,10 @@ def evaluate(net: Ego2sNet, val: Dict[str, np.ndarray], device, margin: float) -
         ok = pred == b["a_v8"]
         agree += int(ok.sum())
         n += len(ok)
+        bst = b["a_v8"] >= 3
+        bst_agree += int(ok[bst].sum())
+        bst_n += int(bst.sum())
+        pred_boost += int((pred >= 3).sum())
         over = b["a_v8"] != b["a_base"]
         ov_agree += int(ok[over].sum())
         ov_n += int(over.sum())
@@ -142,6 +147,9 @@ def evaluate(net: Ego2sNet, val: Dict[str, np.ndarray], device, margin: float) -
         "n_len_gt_500": big_n,
         "agree_v8_on_veto_overrides": ov_agree / ov_n if ov_n else None,
         "n_veto_overrides": ov_n,
+        "agree_v8_on_boost_labels": bst_agree / bst_n if bst_n else None,
+        "boost_label_rate": bst_n / max(n, 1),
+        "boost_pred_rate": pred_boost / max(n, 1),
         "huber": reg / n,
         "q_r2": r2,
         "n": n,
