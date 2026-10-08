@@ -28,13 +28,15 @@ def _record(look, binding, unit, seed, world, index, control=False):
         "horizon": 5000 if control else 10000,
         "prefix_h5000": None if control else {"mass_integral": 1.0},
         "roster_member_sha256s": ["r"],
+        "hero": "h",
         "hero_checkpoint": {"path": "x", "sha256": "h"},
+        "record": {"world_identity": {"roster": ["r"]}},
     }
 
 
 def _root(tmp: Path, started1: str) -> Path:
     plan = {"plan": {"look_sizes": [1, 2]}, "plan_sha256": "p", "banks": {"0": [10, 11]},
-            "study": {"commit": "c0"}}  # fmt: skip
+            "study": {"commit": "c0", "checkpoints": {"h|s0": {"sha256": "h"}}}}  # fmt: skip
     (tmp / "plan.json").write_text(json.dumps(plan))
     (tmp / "looks").mkdir()
     r0 = tmp / "looks/look-0.json"
@@ -53,7 +55,15 @@ def _root(tmp: Path, started1: str) -> Path:
         sd = tmp / f"shards/look-{k}"
         (sd / "records").mkdir(parents=True)
         (sd / "start.json").write_text(
-            json.dumps({"binding": b, "commit": "c0", "units": [f"u{k}"], "started_utc": started})
+            json.dumps(
+                {
+                    "binding": b,
+                    "commit": "c0",
+                    "units": [f"u{k}"],
+                    "unit_worlds": {f"u{k}": [[10, 11][k]]},
+                    "started_utc": started,
+                }
+            )
         )
         w = [10, 11][k]
         (sd / "records/a.json").write_text(json.dumps(_record(k, b, f"u{k}", 0, w, k)))
@@ -78,4 +88,23 @@ def test_record_outside_its_look_fails(tmp_path):
     r = json.loads(p.read_text())
     r["world_seed"], r["world_index"] = 10, 0  # world index 0 is look 0's
     p.write_text(json.dumps(r))
+    assert v.verify(root)["verdict"] == "FAIL"
+
+
+def test_wrong_hero_sha_fails(tmp_path):
+    root = _root(tmp_path, "2026-10-08T12:30:00+00:00")
+    p = root / "shards/look-1/records/a.json"
+    r = json.loads(p.read_text())
+    r["hero_checkpoint"]["sha256"] = "other"
+    p.write_text(json.dumps(r))
+    out = v.verify(root)
+    assert out["verdict"] == "FAIL" and any("hero checkpoint" in x for x in out["problems"])
+
+
+def test_incomplete_unit_fails(tmp_path):
+    root = _root(tmp_path, "2026-10-08T12:30:00+00:00")
+    m = root / "shards/look-1/start.json"
+    st = json.loads(m.read_text())
+    st["unit_worlds"]["u1"] = [11, 99]
+    m.write_text(json.dumps(st))
     assert v.verify(root)["verdict"] == "FAIL"

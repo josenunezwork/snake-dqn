@@ -549,12 +549,18 @@ def cmd_look(args) -> int:
         "binding": binding,
         "commit": commit,
         "units": [u["unit_id"] for u in units],
+        "unit_worlds": {u["unit_id"]: [int(w) for w in u["worlds"]] for u in units},
         "started_utc": datetime.now(timezone.utc).isoformat(),
     }
     marker = sd / "start.json"
     if marker.exists():
         old = json.loads(marker.read_text())
-        if old["binding"] != binding or old["units"] != start["units"] or old["commit"] != commit:
+        if (
+            old["binding"] != binding
+            or old["units"] != start["units"]
+            or old.get("unit_worlds") != start["unit_worlds"]
+            or old["commit"] != commit
+        ):
             raise SystemExit("start marker exists with a different binding (recovery mismatch)")
     else:
         receipts.write_once(marker, start)

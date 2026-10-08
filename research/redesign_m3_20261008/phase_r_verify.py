@@ -91,13 +91,26 @@ def verify(root: Path) -> dict:
                     problems.append(f"{tag}: control not world 0 / look 0 / H5000")
             elif not (lo <= idx < hi) or r.get("horizon") != 10000 or not r.get("prefix_h5000"):
                 problems.append(f"{tag}: decision record outside the look / not nested H10000")
-            if not r.get("roster_member_sha256s") or not (r.get("hero_checkpoint") or {}).get(
-                "sha256"
-            ):
-                problems.append(f"{tag}: roster or hero checkpoint sha256 missing")
+            ck = plan["study"].get("checkpoints") or {}
+            hero_key = (
+                f"{r['hero']}|s{int(r['seed'])}"
+                if f"{r['hero']}|s{int(r['seed'])}" in ck
+                else r["hero"]
+            )
+            want_sha = (ck.get(hero_key) or {}).get("sha256")
+            if not want_sha or (r.get("hero_checkpoint") or {}).get("sha256") != want_sha:
+                problems.append(f"{tag}: hero checkpoint sha256 is not the plan's for {hero_key}")
+            roster = r.get("roster_member_sha256s") or []
+            identity = json.dumps((r.get("record") or {}).get("world_identity"), sort_keys=True)
+            if not roster or any(sha not in identity for sha in roster):
+                problems.append(f"{tag}: roster sha256s missing or not in the world identity")
+        planned = start.get("unit_worlds")
+        if planned is None:
+            problems.append(f"{sd.name}: start marker lacks unit_worlds")
+            planned = {}
         for uid in units:
-            if uid not in seen_units:
-                problems.append(f"{sd.name}: unit {uid} has no records")
+            if set(planned.get(uid, [])) != seen_units.get(uid, set()) or uid not in seen_units:
+                problems.append(f"{sd.name}: unit {uid} records do not cover its planned worlds")
     return {
         "schema": "redesign-m3-phase-r-verify/v1",
         "root": str(root),
