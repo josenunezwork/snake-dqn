@@ -493,3 +493,21 @@ def test_b_boosting_flag_clears_on_respawn_like_live():
     assert any(length == 1 and raw for length, raw, _ in flags)
     # ... and ego2s-b reports it as not boosting, as the live game does.
     assert all(not b for length, _, b in flags if length == 1)
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_b_region_kernel_equals_reference_on_dense_random_views(seed):
+    """Run-length union-find (numba) == cell BFS (Python) on random dense occupancy."""
+    import dataclasses
+
+    from src.simd_env.ego_raster_b import region_sizes
+
+    rng = np.random.default_rng(100 + seed)
+    view = _random_view(rng)
+    view = dataclasses.replace(view, boosting=rng.random(view.alive.shape) < 0.3)
+    rows = np.argwhere(view.alive)
+    a = region_sizes(view, rows, "numpy")
+    b = region_sizes(view, rows, "numba")
+    np.testing.assert_array_equal(a, b)
+    assert (a > 0).any() and (a == 0).any() and len(np.unique(a)) > 3
+    _assert_backends_equal(view, _B, where=f"b random {seed}")

@@ -492,8 +492,22 @@ def build_planes_numba(
 
 
 @njit(cache=True, nogil=True)
+def _find(parent: np.ndarray, r: int) -> int:
+    root = r
+    while parent[root] != root:
+        root = parent[root]
+    while parent[r] != root:  # path compression
+        nxt = parent[r]
+        parent[r] = root
+        r = nxt
+    return root
+
+
+@njit(cache=True, nogil=True)
 def _region_kernel(
     owner_pad: np.ndarray,  # (E, Hp, Wp) int16
+    owner_w: np.ndarray,  # (E, Hp, Wp // 4) uint64 view of owner_pad (when use_words)
+    use_words: bool,
     slot_pad: np.ndarray,  # (E, Hp, Wp) int32
     pad: int,
     H: int,
@@ -509,12 +523,18 @@ def _region_kernel(
     dys: np.ndarray,
     out: np.ndarray,  # (N, 3) int64, zeroed
 ) -> None:
-    """``ego_raster_b.region_sizes`` (4-connected free components, TTL > 1 blocks)."""
-    n = H * W
-    labels = np.empty(n, dtype=np.int64)
-    blocked = np.empty(n, dtype=np.bool_)
-    sizes = np.empty(n, dtype=np.int64)
-    queue = np.empty(n, dtype=np.int64)
+    """``ego_raster_b.region_sizes`` by run-length union-find (TTL > 1 blocks).
+
+    Each row's free cells are split into maximal runs; a run is united with every run of
+    the previous row whose column range overlaps it (4-connectivity), so the component
+    sizes equal a cell-by-cell BFS (the Python reference) at a fraction of the cost.
+    """
+    max_runs = H * (W // 2 + 1) + H
+    run_start = np.empty(max_runs, dtype=np.int64)
+    run_end = np.empty(max_runs, dtype=np.int64)
+    parent = np.empty(max_runs, dtype=np.int64)
+    total = np.empty(max_runs, dtype=np.int64)
+    row_first = np.empty(H + 1, dtype=np.int64)
     order = np.argsort(rows[:, 0], kind="mergesort")
     current = -1
     for jj in range(rows.shape[0]):
@@ -525,52 +545,61 @@ def _region_kernel(
             continue
         if e != current:
             current = e
+            nruns = 0
+            prev_first = 0
+            prev_last = 0
             for y in range(H):
-                for x in range(W):
-                    o = np.int64(owner_pad[e, y + pad, x + pad])
-                    b = False
-                    if o >= 0:
-                        k = (head_ptr[e, o] - np.int64(slot_pad[e, y + pad, x + pad])) % cap
-                        b = length[e, o] - k > 1
-                    blocked[y * W + x] = b
-                    labels[y * W + x] = -1
-            nlab = 0
-            for start in range(n):
-                if blocked[start] or labels[start] >= 0:
-                    continue
-                labels[start] = nlab
-                head = 0
-                tail = 0
-                queue[tail] = start
-                tail += 1
-                while head < tail:
-                    c = queue[head]
-                    head += 1
-                    y = c // W
-                    x = c - y * W
-                    for d in range(4):
-                        if d == 0:
-                            if y == 0:
+                row_first[y] = nruns
+                yy = y + pad
+                x = 0
+                p = prev_first
+                while x < W:
+                    # skip blocked cells
+                    while x < W:
+                        o = np.int64(owner_pad[e, yy, x + pad])
+                        if o < 0:
+                            break
+                        k = (head_ptr[e, o] - np.int64(slot_pad[e, yy, x + pad])) % cap
+                        if length[e, o] - k <= 1:
+                            break
+                        x += 1
+                    if x >= W:
+                        break
+                    start = x
+                    while x < W:
+                        # four empty cells at once (owner -1 == 0xFFFF each)
+                        if use_words and (x + pad) % 4 == 0 and x + 4 <= W:
+                            if owner_w[e, yy, (x + pad) // 4] == _FULL16:
+                                x += 4
                                 continue
-                            m = c - W
-                        elif d == 1:
-                            if y == H - 1:
-                                continue
-                            m = c + W
-                        elif d == 2:
-                            if x == 0:
-                                continue
-                            m = c - 1
-                        else:
-                            if x == W - 1:
-                                continue
-                            m = c + 1
-                        if not blocked[m] and labels[m] < 0:
-                            labels[m] = nlab
-                            queue[tail] = m
-                            tail += 1
-                sizes[nlab] = tail
-                nlab += 1
+                        o = np.int64(owner_pad[e, yy, x + pad])
+                        if o >= 0:
+                            k = (head_ptr[e, o] - np.int64(slot_pad[e, yy, x + pad])) % cap
+                            if length[e, o] - k > 1:
+                                break
+                        x += 1
+                    r = nruns
+                    nruns += 1
+                    run_start[r] = start
+                    run_end[r] = x
+                    parent[r] = r
+                    # unite with overlapping runs of the previous row
+                    while p < prev_last and run_end[p] <= start:
+                        p += 1
+                    q = p
+                    while q < prev_last and run_start[q] < x:
+                        ra = _find(parent, q)
+                        rb = _find(parent, r)
+                        if ra != rb:
+                            parent[rb] = ra
+                        q += 1
+                prev_first = row_first[y]
+                prev_last = nruns
+            row_first[H] = nruns
+            for r in range(nruns):
+                total[r] = 0
+            for r in range(nruns):
+                total[_find(parent, r)] += run_end[r] - run_start[r]
         hx = heads[e, s, 0]
         hy = heads[e, s, 1]
         for rel in range(3):
@@ -578,9 +607,10 @@ def _region_kernel(
             x = hx + dxs[d]
             y = hy + dys[d]
             if x >= 0 and x < W and y >= 0 and y < H:
-                lab = labels[y * W + x]
-                if lab >= 0:
-                    out[i, rel] = sizes[lab]
+                for r in range(row_first[y], row_first[y + 1]):
+                    if run_start[r] <= x < run_end[r]:
+                        out[i, rel] = total[_find(parent, r)]
+                        break
 
 
 def region_sizes_numba(view: EgoGridView, rows: np.ndarray) -> np.ndarray:
@@ -589,8 +619,13 @@ def region_sizes_numba(view: EgoGridView, rows: np.ndarray) -> np.ndarray:
     out = np.zeros((len(rows), 3), dtype=np.int64)
     if not len(rows):
         return out
+    owner_pad = np.ascontiguousarray(view.owner_pad)
+    food_pad = np.ascontiguousarray(view.food_pad)
+    words = word_views(owner_pad, food_pad)
     _region_kernel(
-        np.ascontiguousarray(view.owner_pad),
+        owner_pad,
+        words[0] if words is not None else np.zeros((1, 1, 1), dtype=np.uint64),
+        words is not None,
         np.ascontiguousarray(view.slot_pad),
         int(view.pad),
         int(view.grid_h),
