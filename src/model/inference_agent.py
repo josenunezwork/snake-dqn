@@ -27,6 +27,7 @@ from src.core.device_manager import DeviceManager
 from src.model.apex_network import ApexNetwork
 from src.model.obs_spec import (
     DEFAULT_OBS_SPEC,
+    EGO2S_OBS_SPECS,
     KNOWN_OBS_SPECS,
     OBS_SPEC_KEY,
     RASTER31V2,
@@ -133,6 +134,12 @@ class InferenceAgent:
 
         state_dict = cls._extract_state_dict(blob)
         obs_spec = cls._detect_obs_spec(blob)
+        if obs_spec in EGO2S_OBS_SPECS:
+            raise ValueError(
+                f"{checkpoint_path!r} is an {obs_spec} checkpoint; load it with "
+                "src.model.ego2s_network.load_ego2s_checkpoint (served by "
+                "web.backend.ego2s_policy.Ego2sServingPolicy), not InferenceAgent"
+            )
 
         if obs_spec in (RASTER31V2, RASTER31V3):
             if obs_spec == RASTER31V3:

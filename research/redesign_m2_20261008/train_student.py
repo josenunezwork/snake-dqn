@@ -97,7 +97,15 @@ def to_device(b: Dict[str, np.ndarray], device: torch.device) -> Dict[str, torch
 
 #: Optional M2b loss terms (0 = the M2 recipe): advantage regression weight, and a
 #: temperature-softened KL from the teacher's Q over the resolved mask (policy distillation).
-EXTRA = {"adv_weight": 0.0, "kl_weight": 0.0, "kl_tau": 0.05}
+EXTRA = {
+    "adv_weight": 0.0,
+    "kl_weight": 0.0,
+    "kl_tau": 0.05,
+    # Under-boosting candidates (1.0 = off): per-sample weight of the margin term on
+    # boost-labelled samples (a_v8 >= 3), and a multiplier of the margin for them.
+    "boost_weight": 1.0,
+    "boost_margin_mult": 1.0,
+}
 LAST: Dict[str, float] = {}
 
 
@@ -121,9 +129,12 @@ def losses(net: Ego2sNet, b: Dict[str, torch.Tensor], margin: float):
     a = b["a_v8"].long()
     onehot = torch.nn.functional.one_hot(a, 6).bool()
     allowed = b["mask_resolved"] | onehot
-    bonus = (~onehot).float() * margin
+    is_boost = (a >= 3).float()
+    m_row = margin * (1.0 + (EXTRA["boost_margin_mult"] - 1.0) * is_boost)
+    bonus = (~onehot).float() * m_row[:, None]
     hi = torch.where(allowed, q + bonus, torch.full_like(q, -1e9)).max(dim=1).values
-    marg = (hi - q.gather(1, a[:, None]).squeeze(1)).mean()
+    w = 1.0 + (EXTRA["boost_weight"] - 1.0) * is_boost
+    marg = (w * (hi - q.gather(1, a[:, None]).squeeze(1))).sum() / w.sum()
     return reg + LAMBDA * marg, reg, marg, q
 
 
@@ -193,8 +204,16 @@ def main() -> int:
     ap.add_argument("--adv-weight", type=float, default=0.0)
     ap.add_argument("--kl-weight", type=float, default=0.0)
     ap.add_argument("--kl-tau", type=float, default=0.05)
+    ap.add_argument("--boost-weight", type=float, default=1.0)
+    ap.add_argument("--boost-margin-mult", type=float, default=1.0)
     args = ap.parse_args()
-    EXTRA.update(adv_weight=args.adv_weight, kl_weight=args.kl_weight, kl_tau=args.kl_tau)
+    EXTRA.update(
+        adv_weight=args.adv_weight,
+        kl_weight=args.kl_weight,
+        kl_tau=args.kl_tau,
+        boost_weight=args.boost_weight,
+        boost_margin_mult=args.boost_margin_mult,
+    )
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)

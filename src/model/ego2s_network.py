@@ -18,8 +18,9 @@ import numpy as np
 import torch
 from torch import nn
 
-OBS_SPEC = "ego2s-draft"
-OBS_SPEC_B = "ego2s-b"
+from src.model.obs_spec import EGO2S_B as OBS_SPEC_B  # noqa: E402
+from src.model.obs_spec import EGO2S_DRAFT as OBS_SPEC  # noqa: E402
+
 ARCH = "ego2s-dueling-cnn/v1"
 #: obs spec -> (local channels, scalars)
 OBS_SHAPES = {OBS_SPEC: (6, 12), OBS_SPEC_B: (7, 30)}
