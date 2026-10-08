@@ -98,12 +98,14 @@ def to_device(b: Dict[str, np.ndarray], device: torch.device) -> Dict[str, torch
 #: Optional M2b loss terms (0 = the M2 recipe): advantage regression weight, and a
 #: temperature-softened KL from the teacher's Q over the resolved mask (policy distillation).
 EXTRA = {"adv_weight": 0.0, "kl_weight": 0.0, "kl_tau": 0.05}
+LAST: Dict[str, float] = {}
 
 
 def losses(net: Ego2sNet, b: Dict[str, torch.Tensor], margin: float):
     q = net(b["local"], b["global"], b["scalars"])
     qt = b["q_teacher"]
     reg = torch.nn.functional.smooth_l1_loss(q, qt)
+    LAST["plain_huber"] = float(reg.detach())
     if EXTRA["adv_weight"]:
         adv_s = q - q.mean(dim=1, keepdim=True)
         adv_t = qt - qt.mean(dim=1, keepdim=True)
@@ -130,6 +132,7 @@ def evaluate(net: Ego2sNet, val: Dict[str, np.ndarray], device, margin: float) -
     net.eval()
     agree, n, reg, ss_res, big_agree, big_n, ov_agree, ov_n = 0, 0, 0.0, 0.0, 0, 0, 0, 0
     bst_agree, bst_n, pred_boost = 0, 0, 0
+    plain = 0.0
     qs: List[np.ndarray] = []
     for start in range(0, len(val["a_v8"]), 2048):
         b = {k: v[start : start + 2048] for k, v in val.items()}
@@ -154,6 +157,7 @@ def evaluate(net: Ego2sNet, val: Dict[str, np.ndarray], device, margin: float) -
         big_agree += int(ok[big].sum())
         big_n += int(big.sum())
         reg += float(r) * len(ok)
+        plain += LAST["plain_huber"] * len(ok)
         ss_res += float(((q - b["q_teacher"]) ** 2).sum())
     qt = val["q_teacher"]
     r2 = 1.0 - ss_res / float(((qt - qt.mean()) ** 2).sum())
@@ -167,7 +171,8 @@ def evaluate(net: Ego2sNet, val: Dict[str, np.ndarray], device, margin: float) -
         "agree_v8_on_boost_labels": bst_agree / bst_n if bst_n else None,
         "boost_label_rate": bst_n / max(n, 1),
         "boost_pred_rate": pred_boost / max(n, 1),
-        "huber": reg / n,
+        "huber": reg / n,  # the regression part of the loss (incl. adv / KL terms if on)
+        "plain_q_huber": plain / n,
         "q_r2": r2,
         "n": n,
     }

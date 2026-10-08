@@ -72,6 +72,13 @@ def cmd_intent(args: argparse.Namespace) -> int:
     meta = _student_meta(args.student)
     if FINAL_ROUND not in meta.get("rounds", []):
         raise SystemExit(f"the pre-registered student is the fit on round {FINAL_ROUND}")
+    if SPEC is ni_spec_m2b:
+        from src.model.ego2s_network import OBS_SPEC_B, obs_spec_of
+
+        if list(meta.get("rounds", [])) != list(ni_spec_m2b.DATA_ROUNDS):
+            raise SystemExit(f"the M2b student must be the fit on rounds {ni_spec_m2b.DATA_ROUNDS}")
+        if obs_spec_of(args.student) != OBS_SPEC_B:
+            raise SystemExit("the M2b student must be an ego2s-b checkpoint")
     out.mkdir(parents=True, exist_ok=True)
     intent = {
         "schema_version": SPEC.SCHEMA,
@@ -257,7 +264,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
 def main() -> int:
     global SPEC, FINAL_ROUND
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--spec", choices=sorted(SPECS), default="m2")
+    ap.add_argument("--spec", choices=sorted(SPECS), required=True)
     sub = ap.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("intent")
     a.add_argument("--student", required=True)

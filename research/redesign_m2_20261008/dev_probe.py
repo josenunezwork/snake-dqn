@@ -3,8 +3,8 @@
 
 Same engine and profile as ``ni_check.py`` but on DISTILLATION-namespace worlds reserved
 for probing (``ni_spec.distill_seeds(..., round_index=50)``; no data round uses index 50)
-so the pre-registered NI worlds stay untouched. Used to decide whether a student is ready
-for the check; never reported as the check's result.
+so the pre-registered NI worlds stay untouched. Development information only: it never
+decides whether a pre-registered check runs, and is never reported as the check's result.
 
   nice -n 10 ./venv/bin/python research/redesign_m2_20261008/dev_probe.py \\
       --student S.pth --mix scripted --worlds 8 --arm student --out probe.jsonl
@@ -68,6 +68,7 @@ def main() -> int:
         opponent_specs_by_world=rows,
         mix_id=args.mix,
         vector61=True,
+        vector61_forward="rowwise",
         sim_engine="grid",
         **kwargs,
     )
