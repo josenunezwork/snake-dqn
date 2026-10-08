@@ -1,0 +1,88 @@
+{
+ "authority": "development-only identity check (not a screen, not gate evidence)",
+ "created_utc": "2026-10-08T03:48:08.798847+00:00",
+ "frames_compared": 15000,
+ "git": {
+  "commit": "8b4354995586006f81784b642be455bfa861e8f7",
+  "dirty_paths": ""
+ },
+ "grid_sim_jit": true,
+ "hero": {
+  "name": "frp3_m3_s12_u60000_20261005.pth",
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": {
+   "hero_safety_veto": "v8",
+   "hero_safety_veto_lambda": 8.0
+  }
+ },
+ "obs_version": "b",
+ "pass": true,
+ "rows_compared": 86253,
+ "schema_version": "redesign-ego2s-live-identity/v1",
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "worlds": [
+  {
+   "backends_agree": true,
+   "chain_live": "b0eefbeb48bb090b57fa3cc75425a497",
+   "chain_sim": "b0eefbeb48bb090b57fa3cc75425a497",
+   "first_differing_frame": null,
+   "frames_live": 5000,
+   "frames_sim": 5000,
+   "live_wall_seconds": 67.02865458396263,
+   "mass_integral": 528.7626,
+   "max_length_seen": 1026,
+   "mix": "frozen",
+   "obs_identical": true,
+   "record_differences": [],
+   "record_identical": true,
+   "rows_compared": 30000,
+   "scripted_rows_hunger_excluded": 0,
+   "sim_wall_seconds": 61.90658479114063,
+   "veto_diagnostics_identical": true,
+   "world_seed": 2205228030
+  },
+  {
+   "backends_agree": true,
+   "chain_live": "9094b91acf93142f6830fb49b24600a7",
+   "chain_sim": "9094b91acf93142f6830fb49b24600a7",
+   "first_differing_frame": null,
+   "frames_live": 5000,
+   "frames_sim": 5000,
+   "live_wall_seconds": 60.996008082991466,
+   "mass_integral": 106.56,
+   "max_length_seen": 445,
+   "mix": "scripted",
+   "obs_identical": true,
+   "record_differences": [],
+   "record_identical": true,
+   "rows_compared": 27168,
+   "scripted_rows_hunger_excluded": 25000,
+   "sim_wall_seconds": 54.278572499984875,
+   "veto_diagnostics_identical": true,
+   "world_seed": 2205228030
+  },
+  {
+   "backends_agree": true,
+   "chain_live": "3552b9ee4d0d4dcf504c4a3ed993a15f",
+   "chain_sim": "3552b9ee4d0d4dcf504c4a3ed993a15f",
+   "first_differing_frame": null,
+   "frames_live": 5000,
+   "frames_sim": 5000,
+   "live_wall_seconds": 61.37038933299482,
+   "mass_integral": 311.4322,
+   "max_length_seen": 715,
+   "mix": "mixed",
+   "obs_identical": true,
+   "record_differences": [],
+   "record_identical": true,
+   "rows_compared": 29085,
+   "scripted_rows_hunger_excluded": 10000,
+   "sim_wall_seconds": 59.37054262496531,
+   "veto_diagnostics_identical": true,
+   "world_seed": 2205228030
+  }
+ ]
+}
