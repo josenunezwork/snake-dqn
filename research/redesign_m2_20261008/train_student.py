@@ -95,10 +95,27 @@ def to_device(b: Dict[str, np.ndarray], device: torch.device) -> Dict[str, torch
     return {k: torch.from_numpy(np.ascontiguousarray(v)).to(device) for k, v in b.items()}
 
 
+#: Optional M2b loss terms (0 = the M2 recipe): advantage regression weight, and a
+#: temperature-softened KL from the teacher's Q over the resolved mask (policy distillation).
+EXTRA = {"adv_weight": 0.0, "kl_weight": 0.0, "kl_tau": 0.05}
+
+
 def losses(net: Ego2sNet, b: Dict[str, torch.Tensor], margin: float):
     q = net(b["local"], b["global"], b["scalars"])
     qt = b["q_teacher"]
     reg = torch.nn.functional.smooth_l1_loss(q, qt)
+    if EXTRA["adv_weight"]:
+        adv_s = q - q.mean(dim=1, keepdim=True)
+        adv_t = qt - qt.mean(dim=1, keepdim=True)
+        reg = reg + EXTRA["adv_weight"] * torch.nn.functional.smooth_l1_loss(adv_s, adv_t, beta=0.1)
+    if EXTRA["kl_weight"]:
+        legal = b["mask_resolved"].clone()
+        legal[~legal.any(dim=1), :3] = True
+        neg = torch.full_like(q, -1e9)
+        lt = torch.where(legal, qt / EXTRA["kl_tau"], neg).log_softmax(dim=1)
+        ls = torch.where(legal, q / EXTRA["kl_tau"], neg).log_softmax(dim=1)
+        kl = (lt.exp() * (lt - ls)).where(legal, torch.zeros_like(q)).sum(dim=1).mean()
+        reg = reg + EXTRA["kl_weight"] * kl
     a = b["a_v8"].long()
     onehot = torch.nn.functional.one_hot(a, 6).bool()
     allowed = b["mask_resolved"] | onehot
@@ -168,7 +185,11 @@ def main() -> int:
     ap.add_argument("--device", default="mps")
     ap.add_argument("--val-max", type=int, default=60000)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--adv-weight", type=float, default=0.0)
+    ap.add_argument("--kl-weight", type=float, default=0.0)
+    ap.add_argument("--kl-tau", type=float, default=0.05)
     args = ap.parse_args()
+    EXTRA.update(adv_weight=args.adv_weight, kl_weight=args.kl_weight, kl_tau=args.kl_tau)
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
@@ -252,6 +273,7 @@ def main() -> int:
                 "metrics": metrics,
                 "n_train": n_train,
                 "init": args.init,
+                "loss_extra": dict(EXTRA),
             }
             save_ego2s_checkpoint(args.out / "student.pth", net, meta)
     (args.out / "metrics.json").write_text(
