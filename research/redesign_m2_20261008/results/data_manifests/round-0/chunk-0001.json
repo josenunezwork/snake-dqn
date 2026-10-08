@@ -1,0 +1,93 @@
+{
+ "chunk": 1,
+ "created_utc": "2026-10-08T00:53:27.183296+00:00",
+ "decisions_per_s": 591.3177627783136,
+ "frames": 5000,
+ "git": {
+  "commit": "fcf8e179973f35bf96be0105db6042e4aeb4242e",
+  "dirty_paths": "M research/redesign_m2_20261008/gen_data.py\n M research/redesign_m2_20261008/ni_spec.py\n M src/simd_env/eval_engine.py\n M tests/test_m2_ni_spec.py\n?? research/redesign_m2_20261008/train_student.py\n?? src/simd_env/ego2s_policy.py"
+ },
+ "max_length": 1162,
+ "mix": "scripted",
+ "parts": [
+  {
+   "bytes": 4031637,
+   "file": "chunk-0001-part-00.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4875805,
+   "file": "chunk-0001-part-01.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4908709,
+   "file": "chunk-0001-part-02.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5070352,
+   "file": "chunk-0001-part-03.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5143187,
+   "file": "chunk-0001-part-04.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5214528,
+   "file": "chunk-0001-part-05.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5080951,
+   "file": "chunk-0001-part-06.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5262174,
+   "file": "chunk-0001-part-07.npz",
+   "samples": 10000
+  }
+ ],
+ "round": 0,
+ "schema_version": "redesign-m2-distill-shard/v1",
+ "stats": {
+  "decisions": 80000,
+  "hero_deaths": 10,
+  "student_acted": 0,
+  "veto_override": 131
+ },
+ "student": null,
+ "teacher": {
+  "forward": "batched",
+  "lambda": 8.0,
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": "v8"
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "wall_seconds": 135.29104829207063,
+ "world_seeds": [
+  3701209804,
+  3788811863,
+  207242882,
+  1877319634,
+  419536227,
+  3836007636,
+  53835153,
+  2213463298,
+  3013616009,
+  1628067741,
+  1402558154,
+  4223764348,
+  1278260048,
+  3895114243,
+  497204660,
+  3475697475
+ ],
+ "worlds": 16
+}

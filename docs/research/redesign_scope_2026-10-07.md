@@ -894,3 +894,76 @@ baseline it is a 27% margin, which is too loose.
    rate and compression on one shard.
 2. Commit the pre-registration with the chosen margin.
 3. Run round 0, then fit on MPS.
+
+## 16. Milestone 2 results (2026-10-08): pre-registered NI check **FAIL**
+
+Owner decisions (2026-10-08): margin −15, 48 worlds per mix, pre-register before any
+student exists; numba stays in `pyproject` on this branch; proceed with M2. Pre-registration
+`research/redesign_m2_20261008/PREREGISTRATION.md` + `ni_spec.py` committed in `1f9c8fd`
+(addendum `2813aa0`: no probe-based stopping, lineage, provenance audit). Compute: Mac CPU
+unlocked, `nice -n 10`, ≤ 2 processes × 1 thread, AC / lid / thermal guard checked before
+every chunk (no refusals); student fits on MPS; no RunPod. Raw data (1.9 GB) under
+`snake-dqn-artifacts/redesign-m2-20261008/`; manifests, fit metrics and the NI records in
+`research/redesign_m2_20261008/results/`.
+
+### 16.1 Data and fits
+
+| Round | Who acts | Decisions | Hero deaths | Max length | Rate / process |
+|---|---|---|---|---|---|
+| 0 | frp3-s12 + v8 | 2.08M (26 chunks × 16 worlds × 5000 frames) | 117 | 1287 | 541/s mean |
+| 1 | student r0 w.p. 0.5 | 1.04M | 457 | 1055 | 317–682/s |
+| 2 | student r1 w.p. 0.75 | 1.04M | 506 | 1183 | — |
+
+v8 overrode the teacher's argmax on only 0.15% of round-0 decisions, so the margin term
+mostly reinforces the teacher's own argmax. Shards compress to ~450 B/sample (≈25×).
+
+| Fit (MPS, ~25k samples/s) | Data | Held-out v8 agreement | ... at L > 500 | Q R² |
+|---|---|---|---|---|
+| r0 (6 epochs) | round 0 | 0.769 | 0.747 | 0.774 |
+| r0 probe (12 epochs) | round 0 | 0.781 | — | 0.845 |
+| r1 (warm from r0-probe, 6 epochs) | rounds 0–1 | 0.791 | 0.761 | 0.870 |
+| **r2 = student under test** (warm from r1, 6 epochs) | rounds 0–2 | **0.797** | 0.770 | 0.879 |
+
+Agreement plateaus near 0.78–0.80 with Q R² still rising: consistent with an
+**information gap** in `ego2s-draft` rather than capacity. The teacher's 61-D vector
+carries enemy headings and a stateful distance trend; the draft raster has neither (the
+"enemy next-cell" channel of §3.2 was never built). Veto-override states: 0.37 agreement
+(n = 75).
+
+### 16.2 The pre-registered check (student sha `cf9ecab7…76a6`, commit `a4a5f53`)
+
+| Mix | frp3-s12 no veto | student no veto | Δ mean | one-sided 90% LB |
+|---|---|---|---|---|
+| frozen | 99.1 | 105.2 | +6.1 | −15.5 |
+| scripted | 112.6 | 53.9 | −58.7 | −79.1 |
+| mixed | 155.0 | 119.3 | −35.8 | −66.3 |
+| **pooled (144 paired)** | 122.3 | 92.8 | **−29.5** (sd 132.8) | **−43.7 ≤ −15 → FAIL** |
+
+`verdict.json` was written by `ni_check.py decide` after its provenance audit passed (one
+fix was needed first: the audit looked for `mix_id` at the record top level; profiled
+records carry it in `world_identity`, `c68415d`). All 144 worlds completed; arms ran on one
+clean commit.
+
+Behaviour (no veto, 48 worlds per mix): both arms die mostly by self-collision (student
+123/144 deaths self, baseline 125/144); the student survives as long on frozen/mixed
+(0.40 / 0.42 vs 0.40 / 0.51) but much less on scripted (0.25 vs 0.39), and it almost never
+boosts (0.1% of frames vs 0.9%).
+
+**Reported, not gated: student + v8 vs I (frp3-s12 + v8).** 385.2 vs 392.4 pooled,
+Δ −7.2 (LB −33.9); frozen −17.6, scripted −29.7, mixed **+25.7**. The v8 veto closes most of
+the gap: what the student lacks is mostly what the veto supplies (trap avoidance), plus
+whatever it needs against scripted anchors.
+
+### 16.3 Reading and next steps (owner decision)
+
+M2's exit criterion is not met; per §10 the student does not go to M3 as is. Candidate
+next moves, cheapest first:
+
+1. **Close the information gap** (the doc's own M1-full items): add the enemy heading /
+   next-cell channel and the uncapped per-action region sizes (E0) to the featurizer,
+   re-verify live identity, regenerate data (~1.5 h on 2 Mac processes) and refit. Probe on
+   reserved worlds before any new pre-registered check (a new check needs fresh NI worlds).
+2. Train the student **with v8 in the loop** as the deployed policy (student+v8 is already
+   within ~2% of I) and move to M3 with the veto kept as a wrapper, re-registering M2's
+   criterion against I+v8 rather than against unvetoed frp3-s12.
+3. Capacity / longer fits: low expected value given the plateau.
