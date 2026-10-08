@@ -38,7 +38,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -68,7 +68,7 @@ TRANSITIONS = 20_000_000
 MAC_RATE = 1388.7248756266617  # M3-A measured end-to-end (results/m3a/summary.json)
 G2_RATE = 5600.0  # >= 4 x MAC_RATE, rounded up (approved wording: ">= 5.6k combined")
 G2_SECONDS = 1800
-CHUNK = 48 << 20
+CHUNK = 16 << 20  # the RunPod proxy cuts requests at ~100 s
 POD_NAME = "m3b-gpu-"
 MAX_HOURLY = 1.0
 PORT = 8000
@@ -78,6 +78,8 @@ UPLOAD_BUDGET_S = 3600
 SETUP_BUDGET_S = 1800
 STALL_S = 900
 NET_FAIL_BUDGET_S = 900
+G2_ROWS_GRACE_S = 600  # G2 fails if some seed has still not logged a row by then
+CREATE_SETTLE_S = 300  # a fresh pod can be missing from GET /pods for minutes
 
 
 # ----------------------------------------------------------------------------- pure parts
@@ -118,17 +120,26 @@ def pod_body(name: str, token_sha: str, deadline: float, until: float) -> Dict[s
 
 
 def g2_decision(
-    rates: Dict[int, float], elapsed: float, remaining_lifetime: float
+    rates: Dict[int, float],
+    done: Dict[int, float],
+    remaining_lifetime: float,
+    dead: Sequence[int] = (),
 ) -> Dict[str, Any]:
-    """G2 at ~30 min: combined rate >= 5.6k/s AND the projected finish fits the lifetime."""
-    combined = float(sum(rates.values()))
-    slowest = min(rates.values()) if rates else 0.0
-    need = max(0.0, TRANSITIONS / slowest - elapsed) if slowest > 0 else float("inf")
-    ok_rate = len(rates) == len(SEEDS) and combined >= G2_RATE
+    """G2 at ~30 min: all 5 seeds alive and logging, combined rate >= 5.6k/s, AND the
+    slowest seed's projected finish + 45 min fits in the remaining lifetime."""
+    live = {s: r for s, r in rates.items() if s not in dead}
+    combined = float(sum(live.values()))
+    need = 0.0
+    for s in SEEDS:
+        r = live.get(s, 0.0)
+        left = max(0.0, TRANSITIONS - float(done.get(s, 0.0)))
+        need = max(need, left / r if r > 0 else float("inf"))
+    ok_rate = not dead and len(live) == len(SEEDS) and combined >= G2_RATE
     ok_time = need + 45 * 60 <= remaining_lifetime
     return {
         "combined_rate": combined,
         "per_seed": rates,
+        "dead_seeds": list(dead),
         "ratio_vs_mac": combined / MAC_RATE,
         "projected_seconds_left": need,
         "remaining_lifetime": remaining_lifetime,
@@ -220,7 +231,13 @@ def setup_argv(demo_sha: str) -> List[str]:
             "cd /r/repo && SNAKE_CKPT_DIR=/r/in/ckpt python -c "
             '\'import sys; sys.path.insert(0, "."); '
             "from research.redesign_scope_20261007 import grid_h5000_identity as g; g._context(1); "
-            "import research.redesign_m3_20261008.train_m3'",
+            "import research.redesign_m3_20261008.train_m3; "
+            "import research.redesign_m2_20261008.gen_data; "
+            "import src.simd_env.grid_sim, src.simd_env.fast_anchors; "
+            "import src.simd_env.vector61_policy, src.simd_env.ego2s_policy; "
+            "import src.simd_env.ego_raster, src.simd_env.ego_raster_b; "
+            "import src.simd_env.ego_raster_nb, src.simd_env.grid_sim_nb; "
+            "import src.simd_env.eval_engine, src.model.ego2s_network, src.core.world_runtime'",
             "echo SETUP_OK",
         ]
     )
@@ -283,14 +300,21 @@ class Agent:
 
     def exec(self, name: str, argv: List[str], cwd: str, env: Dict[str, str]) -> None:
         body = json.dumps({"name": name, "argv": argv, "cwd": cwd, "env": env}).encode()
-        try:
-            self._req("POST", "/exec", body, {"Content-Type": "application/json"})
-        except urllib.error.HTTPError as exc:
-            if exc.code != 409:  # 409 "already running": an earlier attempt got through
-                raise
+        for attempt in range(4):
+            try:
+                self._req("POST", "/exec", body, {"Content-Type": "application/json"})
+                return
+            except urllib.error.HTTPError as exc:
+                if exc.code == 409:  # "already running": an earlier attempt got through
+                    return
+                raise  # 410 = past the deadline, 4xx = bad request: never retried
+            except OSError:
+                if attempt == 3:
+                    raise
+                time.sleep(10)
 
-    def get(self, path: str) -> bytes:
-        return self._req("GET", path, timeout=300)
+    def get(self, path: str, timeout: float = 30) -> bytes:
+        return self._req("GET", path, timeout=timeout)
 
 
 # ----------------------------------------------------------------------------- launch
@@ -312,38 +336,58 @@ def our_pods(rp) -> List[Dict[str, Any]]:
     return [p for p in rp.list_pods() if str(p.get("name", "")).startswith(POD_NAME)]
 
 
+def say(msg: str, err: bool = False) -> None:
+    """print that never raises (a closed tmux pty makes every write fail with EIO)."""
+    try:
+        print(msg, file=sys.stderr if err else sys.stdout, flush=True)
+    except (OSError, ValueError):
+        pass
+
+
 def alert(msg: str) -> None:
-    print("ALERT: " + msg, file=sys.stderr, flush=True)
+    say("ALERT: " + msg, err=True)
 
 
 def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> bool:
     """Delete our pod(s) with backoff for up to ~30 min; True iff GET /pods shows none."""
     deadline = now() + 1800
     wait = 10.0
+    clean_since: Optional[float] = None
+    deleted_known = False
+    all_ids: set = set()
     while True:
         try:
-            ids = {state.get("pod_id")} | {p.get("id") for p in our_pods(rp)}
+            ids = {p.get("id") for p in our_pods(rp)}
+            if not deleted_known:  # the bound pod once, even if GET /pods lags behind
+                ids.add(state.get("pod_id"))
             ids.discard(None)
             for pid in ids:
                 try:
                     rp.delete_pod(pid, confirm=True)
                 except Exception as exc:  # noqa: BLE001
-                    print(f"delete {pid} failed: {exc}", flush=True)
+                    say(f"delete {pid} failed: {exc}")
+            deleted_known = True
+            all_ids |= ids
             left = our_pods(rp)
-            if not left:
+            settled = now() - float(state.get("create_attempted_at") or 0) >= CREATE_SETTLE_S
+            if left:
+                clean_since = None
+            elif clean_since is None:
+                clean_since = now()
+            if not left and settled and now() - clean_since >= 60:
                 state.update(deleted=now(), delete_reason=reason, pods_left=[])
                 save_state(run_dir, state)
-                print(json.dumps({"deleted": sorted(ids), "reason": reason, "our_pods_left": []}))
+                say(json.dumps({"deleted": sorted(all_ids), "reason": reason, "our_pods_left": []}))
                 return True
             state["pods_left"] = [p.get("id") for p in left]
         except Exception as exc:  # noqa: BLE001
-            print(f"delete/verify error: {exc}", flush=True)
+            say(f"delete/verify error: {exc}")
         if now() > deadline:
             state.update(delete_reason=reason, delete_failed=True)
             save_state(run_dir, state)
             alert(f"pod(s) may still be running: {state.get('pods_left')}; run `cleanup --confirm`")
             return False
-        time.sleep(wait)
+        time.sleep(15 if (not state.get("pods_left") and clean_since) else wait)
         wait = min(120.0, wait * 2)
 
 
@@ -377,8 +421,9 @@ def spawn_watchdog(run_dir: Path, until: float) -> int:
     code = WATCHDOG.format(
         repo=str(REPO), log=str(run_dir / "watchdog.log"), fire=until + 300, prefix=POD_NAME
     )
+    caff = ["caffeinate", "-i"] if sys.platform == "darwin" else []
     proc = subprocess.Popen(
-        [sys.executable, "-c", code],
+        caff + [sys.executable, "-c", code],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -422,7 +467,7 @@ def download(agent: Agent, run_dir: Path, budget_s: float = 900) -> Dict[str, An
             continue
         for _ in range(3):
             try:
-                data = agent.get("/out/" + row["path"])
+                data = agent.get("/out/" + row["path"], timeout=300)
                 if hashlib.sha256(data).hexdigest() != row.get("sha256"):
                     raise ValueError("sha mismatch")
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -433,7 +478,23 @@ def download(agent: Agent, run_dir: Path, budget_s: float = 900) -> Dict[str, An
                 time.sleep(3)
         else:
             failed.append(row["path"])
+    logs = dest.parent / "pod_logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    for name in ["agent", "setup"] + [f"seed{s}" for s in SEEDS]:
+        try:
+            (logs / f"{name}.log").write_bytes(agent.get(f"/log/{name}"))
+        except Exception:  # noqa: BLE001
+            pass
     return {"files": got, "failed": failed}
+
+
+def download_all(agent: Agent, run_dir: Path, state: Dict[str, Any]) -> Dict[str, Any]:
+    """Retry failed files while the pod still has time (it self-deletes at ``until``)."""
+    dl = download(agent, run_dir)
+    while (dl.get("failed") or dl.get("error")) and now() < state["until"] - 300:
+        time.sleep(30)
+        dl = download(agent, run_dir, budget_s=max(60.0, state["until"] - 300 - now()))
+    return dl
 
 
 def _raise_interrupt(signum, frame):  # noqa: ARG001
@@ -496,6 +557,8 @@ def launch(args) -> int:
     outcome, rate = "unknown", MAX_HOURLY
     try:
         out = None
+        state["create_attempted_at"] = now()
+        save_state(run_dir, state)
         try:
             out = rp.create_pod(body_path, MAX_HOURLY, confirm=True)
         except Exception as exc:  # noqa: BLE001  (the POST may still have gone through)
@@ -515,11 +578,13 @@ def launch(args) -> int:
         state.update(pod_id=pod_id, rate=rate, machine=(out or {}).get("machine"))
         save_state(run_dir, state)
         ledger.bind_pod(run_id, name, pod_id, rate)
-        print(json.dumps({"pod_id": pod_id, "rate": rate, "until": until}), flush=True)
+        say(json.dumps({"pod_id": pod_id, "rate": rate, "until": until}))
         outcome = drive(Agent(pod_id, token), rp, run_dir, state, inputs, args)
     except BaseException as exc:  # noqa: BLE001  (incl. KeyboardInterrupt / SIGTERM / SIGHUP)
         outcome = f"error: {type(exc).__name__}: {exc}"
     finally:
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)  # nothing may interrupt the delete
         state["outcome"] = outcome
         save_state(run_dir, state)
         ok = delete_and_verify(rp, run_dir, state, outcome)
@@ -570,7 +635,7 @@ def drive(agent, rp, run_dir, state, inputs, args) -> str:
         row["t"] = now()
         with log.open("a") as fh:
             fh.write(json.dumps(row, default=str) + "\n")
-        print(json.dumps(row, default=str), flush=True)
+        say(json.dumps(row, default=str))
 
     # 1. agent up + host checks
     t0 = now()
@@ -599,15 +664,16 @@ def drive(agent, rp, run_dir, state, inputs, args) -> str:
             )
         },
     )
-    if not h.get("self_delete_armed"):
-        return "pod self-delete not armed (no pod-scoped credentials)"
-    mem = h.get("cgroup_memory_gb")
+    if not h.get("self_delete_armed") or h.get("self_delete_probe") != 200:
+        return f"pod self-delete not proven (probe {h.get('self_delete_probe')})"
+    mems = [m for m in (h.get("cgroup_memory_gb"), h.get("mem_total_gb")) if m is not None]
+    mem = min(mems) if mems else 0.0
     cpus = min(
         c
         for c in (h.get("cgroup_cpus"), h.get("cpus_allowed"), h.get("cpus"), 1e9)
         if c is not None
     )
-    if (mem is not None and mem < MIN_RAM_GB - 2) or cpus < MIN_VCPU:
+    if mem < MIN_RAM_GB - 2 or cpus < MIN_VCPU:
         return f"host too small (memory {mem} GB, cpus {cpus})"
     # 2. uploads (sha-verified), spend guard between files, time budget
     t0 = now()
@@ -617,14 +683,15 @@ def drive(agent, rp, run_dir, state, inputs, args) -> str:
             return stop
         if now() - t0 > UPLOAD_BUDGET_S:
             return "upload budget exceeded"
-        for attempt in range(3):
+        while True:
             try:
                 agent.put(f["dst"], f["src"], f["sha256"])
+                net.ok()
                 break
             except Exception as exc:  # noqa: BLE001
-                if attempt == 2:
+                if net.fail() or now() - t0 > UPLOAD_BUDGET_S:
                     return f"upload failed: {f['dst']}: {exc}"
-                time.sleep(10)
+                time.sleep(15)
     note(stage="uploaded", files=len(inputs["files"]), bytes=inputs["bytes"], seconds=now() - t0)
     # 3. setup (bounded)
     agent.exec("setup", setup_argv(inputs["demo_sha256"]), "/r", {})
@@ -695,17 +762,29 @@ def drive(agent, rp, run_dir, state, inputs, args) -> str:
             balance=state.get("balance_last"),
         )
         if all(rc is not None for rc in rcs.values()):
-            dl = download(agent, run_dir)
+            dl = download_all(agent, run_dir, state)
             note(stage="finished", returncodes=rcs, download=dl)
-            return "complete" if all(rc == 0 for rc in rcs.values()) else "finished with failures"
+            if not all(rc == 0 for rc in rcs.values()):
+                return "finished with failures"
+            return (
+                "complete" if not (dl.get("failed") or dl.get("error")) else "download incomplete"
+            )
         if now() - last_progress > STALL_S and any(rc is None for rc in rcs.values()):
             note(stage="stall", download=download(agent, run_dir))
             return "stalled"
         if g2 is None and now() - started >= G2_SECONDS:
-            if len(rows) < len(SEEDS):
+            dead = [s for s, rc in rcs.items() if rc is not None]
+            if (
+                not dead
+                and len(rows) < len(SEEDS)
+                and now() - started < G2_SECONDS + G2_ROWS_GRACE_S
+            ):
                 continue  # a transient GET miss: decide on the next poll
             g2 = g2_decision(
-                {s: r["rate"] for s, r in rows.items()}, now() - started, state["until"] - now()
+                {s: r["rate"] for s, r in rows.items()},
+                {s: r["transitions"] for s, r in rows.items()},
+                state["until"] - now(),  # §9: projected finish + 45 min <= lifetime left
+                dead,
             )
             state["g2"] = g2
             save_state(run_dir, state)

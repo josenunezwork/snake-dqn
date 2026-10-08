@@ -20,15 +20,23 @@ def test_pod_body_is_money_safe():
     assert gpu_run.MAX_HOURLY <= 1.0 and gpu_run.G2_RATE >= 4 * gpu_run.MAC_RATE
 
 
+def _g2(rate, left, dead=(), seeds=None):
+    seeds = gpu_run.SEEDS if seeds is None else seeds
+    rates = {s: rate for s in seeds}
+    done = {s: rate * 1800 for s in seeds}
+    return gpu_run.g2_decision(rates, done, left, dead)
+
+
 def test_g2_decision():
-    ok = gpu_run.g2_decision({s: 1500.0 for s in gpu_run.SEEDS}, 1800, 6.5 * 3600)
+    ok = _g2(1500.0, 6.5 * 3600)
     assert ok["pass"] and ok["combined_rate"] == 7500.0
-    slow = gpu_run.g2_decision({s: 1000.0 for s in gpu_run.SEEDS}, 1800, 6.5 * 3600)
+    slow = _g2(1000.0, 6.5 * 3600)
     assert not slow["pass"] and slow["reason"] == "rate"
-    late = gpu_run.g2_decision({s: 1200.0 for s in gpu_run.SEEDS}, 1800, 3 * 3600)
+    late = _g2(1200.0, 3 * 3600)
     assert not late["pass"] and late["reason"] == "lifetime"
-    missing = gpu_run.g2_decision({0: 9000.0}, 1800, 6 * 3600)
-    assert not missing["pass"]
+    assert not _g2(9000.0, 6 * 3600, seeds=(0,))["pass"]
+    dead = _g2(2000.0, 6.5 * 3600, dead=(2,))
+    assert not dead["pass"] and dead["reason"] == "rate" and dead["combined_rate"] == 8000.0
 
 
 def test_spend_cap():
@@ -43,6 +51,18 @@ def test_commands():
     setup = gpu_run.setup_argv("f" * 64)[2]
     assert "sha256sum -c" in setup and "numba==0.68.0" in setup and "SETUP_OK" in setup
     assert "torch.cuda.is_available()" in setup and "_context(1)" in setup and "tqdm" in setup
+
+
+class Clock:
+    """Patches gpu_run.now / time.sleep: sleeping advances a fake clock."""
+
+    def __init__(self, monkeypatch, t0=1_000_000.0):
+        self.t = t0
+        monkeypatch.setattr(gpu_run, "now", lambda: self.t)
+        monkeypatch.setattr(gpu_run.time, "sleep", self.sleep)
+
+    def sleep(self, s):
+        self.t += s
 
 
 class FakeRp:
@@ -77,13 +97,31 @@ class FakeRp:
 
 
 def test_delete_and_verify_retries_and_only_our_prefix(tmp_path, monkeypatch):
-    monkeypatch.setattr(gpu_run.time, "sleep", lambda s: None)
+    Clock(monkeypatch)
     rp = FakeRp(
         pods=[{"id": "p1", "name": "m3b-gpu-1"}, {"id": "other", "name": "s2-phase-r"}], sticky=2
     )
     state = {"pod_id": "p1"}
     assert gpu_run.delete_and_verify(rp, tmp_path, state, "test")
     assert rp.deleted == ["p1"] and [p["id"] for p in rp.pods] == ["other"]
+
+
+def test_delete_and_verify_waits_for_a_late_listing(tmp_path, monkeypatch):
+    """An interrupted POST: the pod shows up in GET /pods only after 2 minutes."""
+    clock = Clock(monkeypatch)
+    rp = FakeRp()
+    appear = clock.t + 120
+    real_list = rp.list_pods
+
+    def late_list():
+        if clock.t >= appear and "p9" not in rp.deleted:
+            rp.pods = [{"id": "p9", "name": "m3b-gpu-late"}]
+        return real_list()
+
+    rp.list_pods = late_list
+    state = {"create_attempted_at": clock.t}
+    assert gpu_run.delete_and_verify(rp, tmp_path, state, "interrupted create")
+    assert rp.deleted == ["p9"] and clock.t - state["create_attempted_at"] >= 300
 
 
 class FakeLedger:
@@ -118,7 +156,8 @@ def _patch_launch(monkeypatch, rp, drive_result):
     monkeypatch.setattr(ledger_mod, "SharedLedger", FakeLedger)
     monkeypatch.setattr(rp_mod, "RpClient", lambda: rp)
     monkeypatch.setattr(tls_mod, "preflight", lambda: [])
-    monkeypatch.setattr(gpu_run.time, "sleep", lambda s: None)
+    Clock(monkeypatch)
+    monkeypatch.setattr(gpu_run.signal, "signal", lambda *a: None)
     monkeypatch.setattr(gpu_run, "spawn_watchdog", lambda run_dir, until: 0)
     monkeypatch.setattr(gpu_run.subprocess, "Popen", lambda *a, **k: None)
     monkeypatch.setattr(
@@ -181,14 +220,15 @@ def test_download_confines_paths_and_checks_sha(tmp_path):
     }
 
     class A:
-        def get(self, path):
-            return files[path]
+        def get(self, path, timeout=30):
+            return files.get(path, b"log")
 
     gpu_run.time.sleep, real = (lambda s: None), gpu_run.time.sleep
     try:
         out = gpu_run.download(A(), tmp_path)
     finally:
         gpu_run.time.sleep = real
+    assert (tmp_path / "pod_logs/seed4.log").read_bytes() == b"log"
     assert out["files"] == 1 and set(out["failed"]) == {"../../escape", "m3b_seed0/bad"}
     assert (tmp_path / "out/m3b_seed0/a.pth").read_bytes() == good
     assert not (tmp_path.parent / "escape").exists()
@@ -206,10 +246,18 @@ def test_drive_refuses_unarmed_or_small_pod(tmp_path):
     state = {"deadline": gpu_run.now() + 3600, "balance0": 66.0}
     args = SimpleNamespace(spend_cap=8.0)
     inputs = {"files": [], "bytes": 0, "demo_sha256": "d", "commit": "c"}
-    h = {"self_delete_armed": False, "cgroup_memory_gb": 100, "cpus_allowed": 16}
-    assert "not armed" in gpu_run.drive(A(h), rp, tmp_path, state, inputs, args)
-    h = {"self_delete_armed": True, "cgroup_memory_gb": 48, "cpus_allowed": 16}
-    assert "too small" in gpu_run.drive(A(h), rp, tmp_path, state, inputs, args)
+    big = {"cgroup_memory_gb": 100, "mem_total_gb": 200, "cpus_allowed": 16}
+    h = dict(big, self_delete_armed=False, self_delete_probe=None)
+    assert "not proven" in gpu_run.drive(A(h), rp, tmp_path, state, inputs, args)
+    h = dict(big, self_delete_armed=True, self_delete_probe=401)
+    assert "not proven" in gpu_run.drive(A(h), rp, tmp_path, state, inputs, args)
+    ok = dict(self_delete_armed=True, self_delete_probe=200)
+    for small in (
+        dict(big, cgroup_memory_gb=48),
+        dict(big, cgroup_memory_gb=None, mem_total_gb=None),
+        dict(big, cgroup_cpus=6.0),
+    ):
+        assert "too small" in gpu_run.drive(A(dict(small, **ok)), rp, tmp_path, state, inputs, args)
 
 
 def test_guard_stops_at_deadline_and_spend_cap():
@@ -220,3 +268,101 @@ def test_guard_stops_at_deadline_and_spend_cap():
     assert (
         gpu_run.guard(rp, {"deadline": gpu_run.now() + 99, "balance0": 66.0}, args) == "spend cap"
     )
+
+
+def test_download_all_retries_then_reports_incomplete(tmp_path, monkeypatch):
+    clock = Clock(monkeypatch)
+    calls = []
+
+    def fake_download(agent, run_dir, budget_s=900):
+        calls.append(budget_s)
+        return {"files": 1, "failed": [] if len(calls) >= 3 else ["x"]}
+
+    monkeypatch.setattr(gpu_run, "download", fake_download)
+    assert gpu_run.download_all(None, tmp_path, {"until": clock.t + 3600})["failed"] == []
+    calls.clear()
+    out = gpu_run.download_all(None, tmp_path, {"until": clock.t + 200})
+    assert out["failed"] == ["x"] and len(calls) == 1
+
+
+def _agent(tmp_path, monkeypatch, **env):
+    import hashlib as _h
+    import importlib.util
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    token = "tok"
+    monkeypatch.setenv("M3_ROOT", str(tmp_path / "r"))
+    monkeypatch.setenv("M3_TOKEN_SHA256", _h.sha256(token.encode()).hexdigest())
+    for k, v in env.items():
+        monkeypatch.setenv(k, str(v))
+    spec = importlib.util.spec_from_file_location("m3_agent_test", gpu_run.AGENT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), mod.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return mod, srv, f"http://127.0.0.1:{srv.server_port}", token
+
+
+def _call(base, path, token, method="GET", data=None, headers=None):
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(base + path, data=data, method=method)
+    req.add_header("X-M3-Token", token)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+
+def test_agent_auth_upload_confinement_and_deadline(tmp_path, monkeypatch):
+    mod, srv, base, tok = _agent(tmp_path, monkeypatch, M3_DEADLINE_EPOCH=1)
+    try:
+        assert _call(base, "/health", "wrong")[0] == 403
+        code, body = _call(base, "/health", tok)
+        h = json.loads(body)
+        assert code == 200 and h["self_delete_armed"] is False and h["self_delete_probe"] is None
+        data = b"abc"
+        good = {"X-Sha256": hashlib.sha256(data).hexdigest()}
+        assert _call(base, "/in/x/a.bin", tok, "PUT", data, good)[0] == 200
+        assert (tmp_path / "r/in/x/a.bin").read_bytes() == data
+        assert _call(base, "/in/b.bin", tok, "PUT", data, {"X-Sha256": "0" * 64})[0] == 400
+        assert not (tmp_path / "r/in/b.bin").exists()
+        assert _call(base, "/in/../../evil", tok, "PUT", data, good)[0] in (400, 404)
+        assert not (tmp_path / "evil").exists()
+        assert _call(base, "/out/../in/x/a.bin", tok)[0] == 404
+        req = json.dumps({"name": "j", "argv": ["true"]}).encode()
+        assert _call(base, "/exec", tok, "POST", req)[0] == 410  # past its deadline
+    finally:
+        srv.shutdown()
+
+
+def test_agent_exec_env_and_dead_man(tmp_path, monkeypatch):
+    mod, srv, base, tok = _agent(
+        tmp_path, monkeypatch, RUNPOD_API_KEY="secret", M3_DEADMAN_SECONDS=1
+    )
+    try:
+        req = json.dumps(
+            {"name": "j", "argv": ["sh", "-c", "env; sleep 30"], "cwd": str(tmp_path)}
+        ).encode()
+        assert _call(base, "/exec", tok, "POST", req)[0] == 200
+        assert _call(base, "/exec", tok, "POST", req)[0] == 409  # already running
+        deleted = []
+        monkeypatch.setattr(mod, "self_delete", lambda: deleted.append(1))
+        mod.LAST_AUTH[0] -= 10  # the runner went silent
+        import threading
+        import time as _t
+
+        threading.Thread(target=mod.reaper, daemon=True).start()
+        for _ in range(40):
+            if deleted and mod.PROCS["j"].poll() is not None:
+                break
+            _t.sleep(0.25)
+        assert deleted and mod.PROCS["j"].poll() is not None
+        assert b"secret" not in (tmp_path / "r/logs/j.log").read_bytes()
+    finally:
+        srv.shutdown()

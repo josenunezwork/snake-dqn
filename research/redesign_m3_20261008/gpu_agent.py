@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +37,7 @@ SELF_DELETE = float(os.environ.get("M3_SELF_DELETE_EPOCH", "0"))
 DEADMAN = float(os.environ.get("M3_DEADMAN_SECONDS", "1200"))
 BOOT = time.time()
 LAST_AUTH = [time.time()]
+PROBE = [None]  # HTTP status of an authenticated GET of this pod with the pod-scoped key
 LOCK = threading.Lock()
 PROCS = {}
 for d in (IN, OUT, LOGS):
@@ -90,6 +92,40 @@ def cgroup_cpus():
         return None
 
 
+def mem_total_gb():
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1]) * 1024 / 1e9
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _runpod(method, url, body=None):
+    key = os.environ.get("RUNPOD_API_KEY", "")
+    req = urllib.request.Request(url, data=body, method=method)
+    req.add_header("Authorization", "Bearer " + key)
+    req.add_header("User-Agent", "m3-gpu-agent/1.0")
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+    except Exception as exc:  # noqa: BLE001
+        return f"{type(exc).__name__}"
+
+
+def probe_self_delete():
+    """Prove the pod-scoped key can see this pod (the runner refuses to train otherwise)."""
+    pod = os.environ.get("RUNPOD_POD_ID")
+    if pod and os.environ.get("RUNPOD_API_KEY"):
+        PROBE[0] = _runpod("GET", f"https://rest.runpod.io/v1/pods/{pod}")
+        log(f"self-delete probe: {PROBE[0]}")
+
+
 def health():
     with LOCK:
         procs = {n: {"pid": p.pid, "returncode": p.poll()} for n, p in PROCS.items()}
@@ -111,6 +147,8 @@ def health():
         "cpus_allowed": len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
         "cgroup_memory_gb": cgroup_memory_gb(),
         "cgroup_cpus": cgroup_cpus(),
+        "mem_total_gb": mem_total_gb(),
+        "self_delete_probe": PROBE[0],
         "self_delete_armed": bool(
             os.environ.get("RUNPOD_POD_ID") and os.environ.get("RUNPOD_API_KEY")
         ),
@@ -122,18 +160,16 @@ def health():
 
 
 def self_delete():
-    pod, key = os.environ.get("RUNPOD_POD_ID"), os.environ.get("RUNPOD_API_KEY")
-    if not pod or not key:
+    pod = os.environ.get("RUNPOD_POD_ID")
+    if not pod or not os.environ.get("RUNPOD_API_KEY"):
         log("self-delete: no pod-scoped credentials")
         return
-    req = urllib.request.Request(f"https://rest.runpod.io/v1/pods/{pod}", method="DELETE")
-    req.add_header("Authorization", "Bearer " + key)
-    req.add_header("User-Agent", "m3-gpu-agent/1.0")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            log(f"self-delete requested: HTTP {resp.status}")
-    except Exception as exc:  # noqa: BLE001
-        log(f"self-delete failed: {type(exc).__name__} {getattr(exc, 'code', '')}")
+    code = _runpod("DELETE", f"https://rest.runpod.io/v1/pods/{pod}")
+    log(f"self-delete REST: {code}")
+    if code not in (200, 202, 204):
+        query = 'mutation { podTerminate(input: {podId: "%s"}) }' % pod
+        body = json.dumps({"query": query}).encode()
+        log(f"self-delete GraphQL: {_runpod('POST', 'https://api.runpod.io/graphql', body)}")
 
 
 def kill_all():
@@ -258,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != "/exec":
             return self._send(404, {"error": "unknown"})
         if DEADLINE and time.time() >= DEADLINE:
-            return self._send(409, {"error": "past deadline"})
+            return self._send(410, {"error": "past deadline"})
         try:
             req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
             name = str(req["name"])
@@ -285,6 +321,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     log("agent up")
+    probe_self_delete()
     threading.Thread(target=reaper, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
 
