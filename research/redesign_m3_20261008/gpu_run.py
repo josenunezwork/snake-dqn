@@ -307,7 +307,9 @@ class Agent:
             except urllib.error.HTTPError as exc:
                 if exc.code == 409:  # "already running": an earlier attempt got through
                     return
-                raise  # 410 = past the deadline, 4xx = bad request: never retried
+                if exc.code < 500 or attempt == 3:
+                    raise  # 410 = past the deadline, 4xx = bad request: never retried
+                time.sleep(10)  # proxy 502/503/524: a duplicate would get 409
             except OSError:
                 if attempt == 3:
                     raise
@@ -364,9 +366,14 @@ def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> 
             for pid in ids:
                 try:
                     rp.delete_pod(pid, confirm=True)
+                    if pid == state.get("pod_id"):
+                        deleted_known = True
                 except Exception as exc:  # noqa: BLE001
                     say(f"delete {pid} failed: {exc}")
-            deleted_known = True
+                    if "404" in str(exc) and pid == state.get("pod_id"):
+                        deleted_known = True
+            if not state.get("pod_id"):
+                deleted_known = True
             all_ids |= ids
             left = our_pods(rp)
             settled = now() - float(state.get("create_attempted_at") or 0) >= CREATE_SETTLE_S
@@ -490,10 +497,17 @@ def download(agent: Agent, run_dir: Path, budget_s: float = 900) -> Dict[str, An
 
 def download_all(agent: Agent, run_dir: Path, state: Dict[str, Any]) -> Dict[str, Any]:
     """Retry failed files while the pod still has time (it self-deletes at ``until``)."""
+    t0 = now()
     dl = download(agent, run_dir)
-    while (dl.get("failed") or dl.get("error")) and now() < state["until"] - 300:
+    rounds = 1
+    while (dl.get("failed") or dl.get("error")) and rounds < 3:
+        if now() > min(state["until"] - 300, t0 + 1800):
+            break
         time.sleep(30)
-        dl = download(agent, run_dir, budget_s=max(60.0, state["until"] - 300 - now()))
+        dl = download(
+            agent, run_dir, budget_s=max(60.0, min(state["until"] - 300, t0 + 1800) - now())
+        )
+        rounds += 1
     return dl
 
 
@@ -689,7 +703,8 @@ def drive(agent, rp, run_dir, state, inputs, args) -> str:
                 net.ok()
                 break
             except Exception as exc:  # noqa: BLE001
-                if net.fail() or now() - t0 > UPLOAD_BUDGET_S:
+                client_error = isinstance(exc, urllib.error.HTTPError) and exc.code < 500
+                if client_error or net.fail() or now() - t0 > UPLOAD_BUDGET_S:
                     return f"upload failed: {f['dst']}: {exc}"
                 time.sleep(15)
     note(stage="uploaded", files=len(inputs["files"]), bytes=inputs["bytes"], seconds=now() - t0)
