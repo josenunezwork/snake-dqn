@@ -180,3 +180,20 @@ still SIGKILLs every job's process group at the deadline and on the 20-min dead-
 GPU idles but the pod is not deleted. Worst case if the Mac side fails entirely: the pod
 idles until the watchdog fires (≈ 7.1 h × $0.74 ≈ $5.3, inside the cap). Seeds, gates and
 the algorithm are unchanged.
+
+**M3-B launch attempt 3 (r3, commit `cc85ec2`): no pod, $0.** The create got HTTP 500
+"There are no instances currently available". The runner's no-capacity pattern did not
+match this wording, so it did not retry. The pattern now matches it, case-insensitively.
+**Capacity handling (within the approved $8 cap, secure cloud, same safety):** the runner
+polls. Every ~5 min, for up to 3 h, it makes one complete attempt with its own pod name,
+watchdog, ledger run and delete-and-verify, as long as every create try is a definite
+no-capacity refusal. Nothing is reserved between attempts, and attempts without a pod
+book $0. Results go to `<run-dir>/attemptNN/`; `<run-dir>/CURRENT_ATTEMPT` names the live
+one. **GPU fallbacks, in order, all secure:** RTX 4090, RTX 3090 Ti, RTX 3090, RTX A6000,
+A40, RTX A5000, L4. These are whole cards with ≥ 24 GB VRAM, a secure list price ≤ $0.80/h
+(checked read-only on 2026-10-08), and an architecture that torch 2.5.1 / CUDA 12.4 in the
+pinned image supports. Blackwell cards and MIG slices are excluded. Each try names exactly
+one GPU type, and rp.py refuses any try whose secure estimate is above $0.80/h. Host
+minimums (≥ 72 GB RAM, ≥ 10 vCPU) and the G2 gate (≥ 5.6k transitions/s combined at
+30 min) are unchanged, so a slower GPU simply fails G2 and M3-B falls back to the Mac. The
+GPU used is recorded in `state.json` and in the M3-B report.

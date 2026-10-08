@@ -187,7 +187,7 @@ def test_launch_deletes_on_success_and_on_interrupt(tmp_path, monkeypatch):
         args = _args(tmp_path / str(code))
         assert gpu_run.launch(args) == code
         assert rp.pods == [] and rp.deleted == ["p1"]
-        state = json.loads((tmp_path / str(code) / "run" / "state.json").read_text())
+        state = json.loads((tmp_path / str(code) / "run" / "attempt00" / "state.json").read_text())
         assert state["pods_deleted_verified"] and state["pod_id"] == "p1"
         assert [c[0] for c in FakeLedger.calls] == [
             "register",
@@ -433,7 +433,10 @@ class RefusingRp(FakeRp):
         self.bodies.append(body)
         if self.refusals:
             self.refusals -= 1
-            payload = {"http_status": 500, "error": "no instances available"}
+            payload = {
+                "http_status": 500,
+                "error": "create pod: There are no instances currently available",
+            }
             raise RunPodError(
                 "rp.py ('rest', 'POST', '/pods') exit 1: ", payload if self.definite else None
             )
@@ -446,18 +449,19 @@ def test_create_retries_definite_refusals_across_stocked_dcs(tmp_path, monkeypat
     rp = RefusingRp(refusals=2)
     body = gpu_run.pod_body("m3b-gpu-t", "a" * 64, 1.0, 2.0)
     state = {}
-    out, err = gpu_run.create_pod_retrying(rp, body, tmp_path, state)
-    assert out["id"] == "p1" and err == ""
+    out, err, no_cap = gpu_run.create_pod_retrying(rp, body, tmp_path, state)
+    assert out["id"] == "p1" and err == "" and not no_cap
     assert [b.get("dataCenterIds") for b in rp.bodies] == [None, ["EUR-IS-2"], ["EU-CZ-1"]]
-    assert "no instances available" in state["create_attempts"][0]["error"]
+    assert all(b["gpuTypeIds"] == [gpu_run.GPU] for b in rp.bodies)
+    assert "no instances currently available" in state["create_attempts"][0]["error"]
 
 
 def test_create_never_reposts_after_an_unknown_outcome(tmp_path, monkeypatch):
     Clock(monkeypatch)
     rp = RefusingRp(refusals=5, definite=False)
     body = gpu_run.pod_body("m3b-gpu-t", "a" * 64, 1.0, 2.0)
-    out, err = gpu_run.create_pod_retrying(rp, body, tmp_path, {})
-    assert out is None and len(rp.bodies) == 1 and "exit 1" in err
+    out, err, no_cap = gpu_run.create_pod_retrying(rp, body, tmp_path, {})
+    assert out is None and len(rp.bodies) == 1 and "exit 1" in err and not no_cap
 
 
 def test_definite_refusal_only_for_4xx_or_runpod_capacity():
@@ -471,6 +475,10 @@ def test_definite_refusal_only_for_4xx_or_runpod_capacity():
     assert not gpu_run.definite_refusal(e(502, {"error": "bad gateway"}))
     msg = {"error": "There are no longer any instances available with the requested specs"}
     assert gpu_run.definite_refusal(e(500, msg))
+    r3 = "create pod: There are no instances currently available"  # launch r3, verbatim
+    assert gpu_run.definite_refusal(e(500, r3))
+    assert gpu_run.definite_refusal(e(500, {"error": r3.upper()}))
+    assert not gpu_run.definite_refusal(e(500, {"error": "internal error"}))
     assert not gpu_run.definite_refusal(RunPodError("timed out"))
 
 
@@ -504,3 +512,66 @@ def test_waiver_needs_a_real_note(monkeypatch):
         sys, "argv", ["gpu_run.py", "launch", "--confirm", "--accept-no-self-delete", "ok"]
     )
     assert gpu_run.main() == 2
+
+
+def test_fallback_gpus_are_tried_per_stocked_dc(tmp_path, monkeypatch):
+    Clock(monkeypatch)
+
+    class R(RefusingRp):
+        def _call(self, *args):
+            return {
+                "dataCenters": [
+                    {
+                        "id": "EU-RO-1",
+                        "gpuAvailability": [{"gpuTypeId": "NVIDIA L4", "stockStatus": "Low"}],
+                    },
+                    {
+                        "id": "EU-SE-1",
+                        "gpuAvailability": [{"gpuTypeId": "NVIDIA A40", "stockStatus": "Low"}],
+                    },
+                    {
+                        "id": "X",
+                        "gpuAvailability": [
+                            {"gpuTypeId": "NVIDIA RTX PRO 4500 Blackwell", "stockStatus": "High"}
+                        ],
+                    },
+                ]
+            }
+
+    rp = R(refusals=99)
+    body = gpu_run.pod_body("m3b-gpu-t", "a" * 64, 1.0, 2.0)
+    state = {}
+    out, err, no_cap = gpu_run.create_pod_retrying(rp, body, tmp_path, state)
+    assert out is None and no_cap
+    tried = [(b["gpuTypeIds"][0], b.get("dataCenterIds")) for b in rp.bodies]
+    assert tried == [
+        (gpu_run.GPU, None),
+        ("NVIDIA A40", ["EU-SE-1"]),
+        ("NVIDIA L4", ["EU-RO-1"]),
+    ]  # fallback order; Blackwell is never tried
+    assert all("Blackwell" not in g and "MIG" not in g for g in gpu_run.GPU_FALLBACKS)
+
+
+def test_launch_polls_for_capacity_then_gives_up_at_zero_cost(tmp_path, monkeypatch):
+    rp = RefusingRp(refusals=10**6)
+    _patch_launch(monkeypatch, rp, "complete")
+    monkeypatch.setattr(gpu_run, "STOCK_WAIT_S", 3600)
+    args = _args(tmp_path)
+    assert gpu_run.launch(args) == 1
+    root = tmp_path / "run"
+    attempts = sorted(p.name for p in root.glob("attempt*"))
+    assert 5 <= len(attempts) <= 13  # ~ every 5 min (+ the 5-min settle) for 1 h
+    for a in attempts:
+        st = json.loads((root / a / "state.json").read_text())
+        assert st["cost_estimate"] == 0.0 and st["pods_deleted_verified"] and "pod_id" not in st
+    assert [c[0] for c in FakeLedger.calls].count("register") == len(attempts)
+
+
+def test_launch_polls_then_runs_when_capacity_appears(tmp_path, monkeypatch):
+    rp = RefusingRp(refusals=5)  # attempt00 burns 3 tries (one per plan), attempt01 2 more
+    _patch_launch(monkeypatch, rp, "complete")
+    assert gpu_run.launch(_args(tmp_path)) == 0
+    root = tmp_path / "run"
+    cur = (root / "CURRENT_ATTEMPT").read_text()
+    st = json.loads((root / cur / "state.json").read_text())
+    assert st["pod_id"] == "p1" and st["gpu"] and st["outcome"] == "complete"

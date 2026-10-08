@@ -29,6 +29,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import secrets
 import signal
 import subprocess
@@ -78,7 +79,23 @@ UPLOAD_BUDGET_S = 3600
 SETUP_BUDGET_S = 1800
 STALL_S = 900
 NET_FAIL_BUDGET_S = 900
-CREATE_TRIES = 6
+CREATE_TRIES = 12
+# Secure fallbacks, fastest first; whole cards with >= 24 GB, secure list price <= $0.80/h,
+# and an architecture the pinned image (torch 2.5.1 / CUDA 12.4) supports (no Blackwell, no
+# MIG slices). G2 is unchanged, so a slower GPU simply fails G2 and M3-B falls back to the Mac.
+GPU_FALLBACKS = (
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA GeForce RTX 3090 Ti",
+    "NVIDIA GeForce RTX 3090",
+    "NVIDIA RTX A6000",
+    "NVIDIA A40",
+    "NVIDIA RTX A5000",
+    "NVIDIA L4",
+)
+NO_CAPACITY = re.compile(r"no (longer any |more )?instances? (currently |are )?available", re.I)
+GPU_MAX_HOURLY = 0.80  # rp.py refuses any single create whose secure estimate exceeds this
+STOCK_POLL_S = 300
+STOCK_WAIT_S = 3 * 3600
 G2_ROWS_GRACE_S = 600  # G2 fails if some seed has still not logged a row by then
 CREATE_SETTLE_S = 300  # a fresh pod can be missing from GET /pods for minutes
 
@@ -481,8 +498,8 @@ def spawn_watchdog(run_dir: Path, until: float, name: str, wait_s: float = 60.0)
     raise SystemExit("refusing: the watchdog did not log 'armed'")
 
 
-def stocked_data_centers(rp) -> List[str]:
-    """Secure data centers listing RTX 4090 stock right now (read-only GraphQL)."""
+def stocked_data_centers(rp, gpu: str = GPU) -> List[str]:
+    """Secure data centers listing stock of this GPU type right now (read-only GraphQL)."""
     q = "query { dataCenters { id gpuAvailability { gpuTypeId stockStatus } } }"
     try:
         out = rp._call("gql", q)
@@ -492,7 +509,7 @@ def stocked_data_centers(rp) -> List[str]:
     hits = []
     for dc in out.get("dataCenters") or []:
         for g in dc.get("gpuAvailability") or []:
-            if g.get("gpuTypeId") == GPU and g.get("stockStatus") in rank:
+            if g.get("gpuTypeId") == gpu and g.get("stockStatus") in rank:
                 hits.append((rank[g["stockStatus"]], dc["id"]))
     return [d for _, d in sorted(hits)]
 
@@ -517,22 +534,30 @@ def definite_refusal(exc: BaseException) -> bool:
     # only RunPod's own JSON "no capacity" answer counts as definite.
     body = payload.get("error")
     text = json.dumps(body).lower() if isinstance(body, (dict, list, str)) else ""
-    return 500 <= status < 600 and "instances available" in text
+    return 500 <= status < 600 and bool(NO_CAPACITY.search(text))
+
+
+def create_plans(rp) -> List[tuple]:
+    """(gpu, data centers or None) tries: the 4090 in any DC, then every fallback GPU pinned
+    to each data center that lists its stock, in GPU_FALLBACKS order."""
+    plans: List[tuple] = [(GPU_FALLBACKS[0], None)]
+    for gpu in GPU_FALLBACKS:
+        plans += [(gpu, [d]) for d in stocked_data_centers(rp, gpu)]
+    return plans[:CREATE_TRIES]
 
 
 def create_pod_retrying(rp, body: Dict[str, Any], run_dir: Path, state: Dict[str, Any]):
-    """POST /pods; on a definite refusal (e.g. no capacity) retry pinned to the data centers
-    that list stock, adopting any pod of this name that shows up first. Returns (out, error)."""
+    """POST /pods; on a definite refusal (e.g. no capacity) retry the next (GPU, DC) plan,
+    adopting any pod of this name that shows up first. Returns (out, error, no_capacity):
+    no_capacity is True only when every try was a definite refusal (no pod can exist)."""
     attempts = state.setdefault("create_attempts", [])
-    dcs = stocked_data_centers(rp)
-    plans: List[Optional[List[str]]] = [None] + [[d] for d in dcs] + ([dcs] if dcs else [])
     err = ""
-    for i, plan_dcs in enumerate(plans[:CREATE_TRIES]):
+    for i, (gpu, plan_dcs) in enumerate(create_plans(rp)):
         if i:
             time.sleep(20)
             if [p for p in our_pods(rp) if p.get("name") == body["name"]]:
-                return None, err  # the caller adopts it by name
-        b = dict(body)
+                return None, err, False  # the caller adopts it by name
+        b = dict(body, gpuTypeIds=[gpu])
         if plan_dcs:
             b["dataCenterIds"] = plan_dcs
         path = run_dir / f"pod_body_try{i}.json"
@@ -540,18 +565,19 @@ def create_pod_retrying(rp, body: Dict[str, Any], run_dir: Path, state: Dict[str
         state["create_attempted_at"] = now()
         save_state(run_dir, state)
         try:
-            out = rp.create_pod(path, MAX_HOURLY, confirm=True)
-            attempts.append({"try": i, "dcs": plan_dcs, "ok": True})
+            out = rp.create_pod(path, GPU_MAX_HOURLY, confirm=True)
+            attempts.append({"try": i, "gpu": gpu, "dcs": plan_dcs, "ok": True})
+            state["gpu"] = gpu
             save_state(run_dir, state)
-            return out, ""
+            return out, "", False
         except Exception as exc:  # noqa: BLE001
             err = error_detail(exc)
-            attempts.append({"try": i, "dcs": plan_dcs, "error": err})
+            attempts.append({"try": i, "gpu": gpu, "dcs": plan_dcs, "error": err})
             save_state(run_dir, state)
-            say(f"create try {i} ({plan_dcs or 'any DC'}): {err}")
+            say(f"create try {i} ({gpu}, {plan_dcs or 'any DC'}): {err}")
             if not definite_refusal(exc):
-                return None, err  # unknown outcome: adopt-or-give-up, never re-POST
-    return None, err
+                return None, err, False  # unknown outcome: adopt-or-give-up, never re-POST
+    return None, err, True
 
 
 def latest_rates(agent: Agent, tries: int = 3) -> Dict[int, Dict[str, float]]:
@@ -630,26 +656,54 @@ def _raise_interrupt(signum, frame):  # noqa: ARG001
     raise KeyboardInterrupt(f"signal {signum}")
 
 
+def _install_signal_handlers() -> None:
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _raise_interrupt)
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+
+
 def launch(args) -> int:
-    from research.runpod_fanout.ledger import SharedLedger
+    """Poll for capacity: one full, self-contained attempt (own pod name, watchdog, ledger
+    run, delete-and-verify) every STOCK_POLL_S for up to STOCK_WAIT_S, while every create
+    try is a definite no-capacity refusal. Nothing is reserved between attempts."""
     from research.runpod_fanout.rp_client import RpClient
     from research.runpod_fanout.tls import preflight
 
-    for sig in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(sig, _raise_interrupt)
     if sys.platform == "darwin":  # keep the Mac awake while this process lives
         subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())], start_new_session=True)
-    policy = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
-    rp = RpClient()
-    run_dir = Path(args.run_dir)
-    if run_dir.exists():
-        print(f"refusing: {run_dir} exists", file=sys.stderr)
+    root = Path(args.run_dir)
+    if root.exists():
+        print(f"refusing: {root} exists", file=sys.stderr)
         return 2
-    run_dir.mkdir(parents=True)
+    root.mkdir(parents=True)
     problems = preflight()
     if problems:
         raise SystemExit(f"TLS preflight failed: {problems}")
-    inputs = build_inputs(run_dir / "inputs")
+    inputs = build_inputs(root / "inputs")
+    rp = RpClient()
+    t0 = now()
+    k = 0
+    while True:
+        start = now()
+        sub = root / f"attempt{k:02d}"
+        sub.mkdir()
+        (root / "CURRENT_ATTEMPT").write_text(sub.name)
+        code, no_capacity = launch_attempt(args, rp, sub, inputs)
+        if not no_capacity:
+            return code
+        if now() - t0 + STOCK_POLL_S > STOCK_WAIT_S:
+            alert(f"no capacity for {STOCK_WAIT_S / 3600:.1f} h; giving up at $0 (Mac fallback)")
+            return code
+        k += 1
+        _install_signal_handlers()  # the attempt's cleanup ignored them; nothing is live now
+        time.sleep(max(0.0, STOCK_POLL_S - (now() - start)))
+
+
+def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any]):
+    from research.runpod_fanout.ledger import SharedLedger
+
+    _install_signal_handlers()
+    policy = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
     if our_pods(rp):
         raise SystemExit("refusing: a pod of ours already exists")
     balance0 = rp.balance()
@@ -691,13 +745,13 @@ def launch(args) -> int:
     # From here on every exit path deletes whatever pod of ours exists (by name prefix).
     state["watchdog_pid"] = watchdog_pid
     save_state(run_dir, state)
-    outcome, rate = "unknown", MAX_HOURLY
+    outcome, rate, no_capacity = "unknown", MAX_HOURLY, False
     try:
-        out, err = create_pod_retrying(rp, body, run_dir, state)
+        out, err, no_capacity = create_pod_retrying(rp, body, run_dir, state)
         if err:
             outcome = f"create error: {err}"
         pod_id = out.get("id") if isinstance(out, dict) else None
-        if not pod_id:
+        if not pod_id and not no_capacity:
             for _ in range(10):  # adopt a pod created despite the error, by its unique name
                 hits = [p for p in our_pods(rp) if p.get("name") == name]
                 if hits:
@@ -706,13 +760,17 @@ def launch(args) -> int:
                 time.sleep(30)
         if not pod_id:
             outcome = outcome if outcome != "unknown" else f"create failed: {out}"
-            return 1
-        rate = float((out or {}).get("costPerHr") or args.rate)
-        state.update(pod_id=pod_id, rate=rate, machine=(out or {}).get("machine"))
-        save_state(run_dir, state)
-        ledger.bind_pod(run_id, name, pod_id, rate)
-        say(json.dumps({"pod_id": pod_id, "rate": rate, "until": until}))
-        outcome = drive(Agent(pod_id, token), rp, run_dir, state, inputs, args)
+        else:
+            rate = float((out or {}).get("costPerHr") or args.rate)
+            state.update(pod_id=pod_id, rate=rate, machine=(out or {}).get("machine"))
+            save_state(run_dir, state)
+            ledger.bind_pod(run_id, name, pod_id, rate)
+            say(
+                json.dumps(
+                    {"pod_id": pod_id, "gpu": state.get("gpu"), "rate": rate, "until": until}
+                )
+            )
+            outcome = drive(Agent(pod_id, token), rp, run_dir, state, inputs, args)
     except BaseException as exc:  # noqa: BLE001  (incl. KeyboardInterrupt / SIGTERM / SIGHUP)
         outcome = f"error: {type(exc).__name__}: {exc}"
     finally:
@@ -722,7 +780,7 @@ def launch(args) -> int:
         save_state(run_dir, state)
         ok = delete_and_verify(rp, run_dir, state, outcome)
         try:
-            cost = rate * (now() - created) / 3600.0
+            cost = rate * (now() - created) / 3600.0 if state.get("pod_id") else 0.0
             ledger.release_pod(run_id, name, cost)
             ledger.finish_run(run_id, outcome == "complete", outcome == "complete")
             state.update(cost_estimate=cost, balance_end=rp.balance())
@@ -733,7 +791,8 @@ def launch(args) -> int:
             stop_watchdog(watchdog_pid, run_dir)
             state["watchdog_stopped"] = True
         save_state(run_dir, state)
-    return 0 if outcome == "complete" and state.get("pods_deleted_verified") else 1
+    code = 0 if outcome == "complete" and state.get("pods_deleted_verified") else 1
+    return code, bool(no_capacity and not state.get("pod_id") and ok)
 
 
 def guard(rp, state, args) -> Optional[str]:
