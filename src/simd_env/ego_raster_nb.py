@@ -489,3 +489,121 @@ def build_planes_numba(
     glob = np.zeros((N, _NG, gsize * gsize), dtype=np.uint8)
     _global_kernel(counts, total, fcounts, alive, direction, heads, rows, drow, dcol, cell, glob)
     return local.reshape(N, _NL, size, size), glob.reshape(N, _NG, gsize, gsize)
+
+
+@njit(cache=True, nogil=True)
+def _region_kernel(
+    owner_pad: np.ndarray,  # (E, Hp, Wp) int16
+    slot_pad: np.ndarray,  # (E, Hp, Wp) int32
+    pad: int,
+    H: int,
+    W: int,
+    cap: int,
+    head_ptr: np.ndarray,
+    length: np.ndarray,
+    alive: np.ndarray,
+    direction: np.ndarray,
+    heads: np.ndarray,
+    rows: np.ndarray,
+    dxs: np.ndarray,
+    dys: np.ndarray,
+    out: np.ndarray,  # (N, 3) int64, zeroed
+) -> None:
+    """``ego_raster_b.region_sizes`` (4-connected free components, TTL > 1 blocks)."""
+    n = H * W
+    labels = np.empty(n, dtype=np.int64)
+    blocked = np.empty(n, dtype=np.bool_)
+    sizes = np.empty(n, dtype=np.int64)
+    queue = np.empty(n, dtype=np.int64)
+    order = np.argsort(rows[:, 0], kind="mergesort")
+    current = -1
+    for jj in range(rows.shape[0]):
+        i = order[jj]
+        e = rows[i, 0]
+        s = rows[i, 1]
+        if not alive[e, s]:
+            continue
+        if e != current:
+            current = e
+            for y in range(H):
+                for x in range(W):
+                    o = np.int64(owner_pad[e, y + pad, x + pad])
+                    b = False
+                    if o >= 0:
+                        k = (head_ptr[e, o] - np.int64(slot_pad[e, y + pad, x + pad])) % cap
+                        b = length[e, o] - k > 1
+                    blocked[y * W + x] = b
+                    labels[y * W + x] = -1
+            nlab = 0
+            for start in range(n):
+                if blocked[start] or labels[start] >= 0:
+                    continue
+                labels[start] = nlab
+                head = 0
+                tail = 0
+                queue[tail] = start
+                tail += 1
+                while head < tail:
+                    c = queue[head]
+                    head += 1
+                    y = c // W
+                    x = c - y * W
+                    for d in range(4):
+                        if d == 0:
+                            if y == 0:
+                                continue
+                            m = c - W
+                        elif d == 1:
+                            if y == H - 1:
+                                continue
+                            m = c + W
+                        elif d == 2:
+                            if x == 0:
+                                continue
+                            m = c - 1
+                        else:
+                            if x == W - 1:
+                                continue
+                            m = c + 1
+                        if not blocked[m] and labels[m] < 0:
+                            labels[m] = nlab
+                            queue[tail] = m
+                            tail += 1
+                sizes[nlab] = tail
+                nlab += 1
+        hx = heads[e, s, 0]
+        hy = heads[e, s, 1]
+        for rel in range(3):
+            d = (direction[e, s] + rel - 1) % 4
+            x = hx + dxs[d]
+            y = hy + dys[d]
+            if x >= 0 and x < W and y >= 0 and y < H:
+                lab = labels[y * W + x]
+                if lab >= 0:
+                    out[i, rel] = sizes[lab]
+
+
+def region_sizes_numba(view: EgoGridView, rows: np.ndarray) -> np.ndarray:
+    """Compiled :func:`src.simd_env.ego_raster_b.region_sizes` (bitwise equal)."""
+    rows = _i64(rows)
+    out = np.zeros((len(rows), 3), dtype=np.int64)
+    if not len(rows):
+        return out
+    _region_kernel(
+        np.ascontiguousarray(view.owner_pad),
+        np.ascontiguousarray(view.slot_pad),
+        int(view.pad),
+        int(view.grid_h),
+        int(view.grid_w),
+        int(view.cap),
+        _i64(view.head_ptr),
+        _i64(view.length),
+        np.ascontiguousarray(view.alive, dtype=np.bool_),
+        _i64(view.direction),
+        _i64(view.heads),
+        rows,
+        np.array([0, 1, 0, -1], dtype=np.int64),
+        np.array([-1, 0, 1, 0], dtype=np.int64),
+        out,
+    )
+    return out

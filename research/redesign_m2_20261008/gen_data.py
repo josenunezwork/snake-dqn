@@ -82,14 +82,15 @@ def make_teacher_class():
 
 
 class Writer:
-    def __init__(self, out: Path, chunk: int, meta: Dict[str, Any]) -> None:
+    def __init__(self, out: Path, chunk: int, meta: Dict[str, Any], fields=FIELDS) -> None:
         self.out, self.chunk, self.meta = out, chunk, meta
-        self.buf: Dict[str, List[np.ndarray]] = {k: [] for k in FIELDS}
+        self.fields = tuple(fields)
+        self.buf: Dict[str, List[np.ndarray]] = {k: [] for k in self.fields}
         self.n = 0
         self.parts: List[Dict[str, Any]] = []
 
     def add(self, **arrays: np.ndarray) -> None:
-        for k in FIELDS:
+        for k in self.fields:
             self.buf[k].append(arrays[k])
         self.n += len(arrays["a_taken"])
         if self.n >= PART:
@@ -105,7 +106,7 @@ class Writer:
         with path.open("xb") as stream:
             np.savez_compressed(stream, **data)
         self.parts.append({"file": path.name, "samples": self.n, "bytes": path.stat().st_size})
-        self.buf = {k: [] for k in FIELDS}
+        self.buf = {k: [] for k in self.fields}
         self.n = 0
 
 
@@ -114,7 +115,7 @@ def run_chunk(args: argparse.Namespace) -> Dict[str, Any]:
 
     from src.core.world_runtime import WorldRuntimeSpec
     from src.simd_env import eval_engine as ee
-    from src.simd_env.ego_raster import build_ego_raster
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
     from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
     from src.simd_env.grid_sim import GridBatchSim
     from src.simd_env.vector61_policy import Vector61Runtime, Vector61SimdPolicy
@@ -172,7 +173,9 @@ def run_chunk(args: argparse.Namespace) -> Dict[str, Any]:
     if manifest.exists():
         raise SystemExit(f"refusing: {manifest} exists (create-only)")
     meta = {"mix": mix, "round": args.round}
-    writer = Writer(out, args.chunk, meta)
+    fields = FIELDS + (("state61",) if args.record_state61 else ())
+    writer = Writer(out, args.chunk, meta, fields)
+    ego_cfg = EgoRasterConfig(version=args.obs_version)
     stats = {"decisions": 0, "veto_override": 0, "student_acted": 0, "hero_deaths": 0}
 
     def choose(prepared):
@@ -182,11 +185,11 @@ def run_chunk(args: argparse.Namespace) -> Dict[str, Any]:
         runtime.prepare(prepared)
         hero = np.argwhere(alive[:, :1])
         if len(hero):
-            obs = build_ego_raster(prepared, backend="numba", rows=hero)
+            obs = build_ego_raster(prepared, ego_cfg, backend="numba", rows=hero)
             res = masks[hero[:, 0], 0]
             a_v8 = teacher.actions(res, prepared, hero)
             q = teacher.last_q
-            _, tmask = runtime.selection(hero)
+            states61, tmask = runtime.selection(hero)
             tmask = tmask.copy()
             tmask[~tmask.any(axis=1), :3] = True  # the teacher's live fallback
             a_base = np.where(tmask, q, -np.inf).argmax(axis=1)
@@ -215,6 +218,7 @@ def run_chunk(args: argparse.Namespace) -> Dict[str, Any]:
                 length=prepared.length[hero[:, 0], 0].astype(np.int32),
                 frame=prepared.frame[hero[:, 0]].astype(np.int32),
                 world_seed=np.array([seeds[e] for e in hero[:, 0]], dtype=np.uint32),
+                state61=states61.astype(np.float32),
             )
             stats["decisions"] += len(hero)
             stats["veto_override"] += int((a_v8 != a_base).sum())
@@ -256,6 +260,8 @@ def run_chunk(args: argparse.Namespace) -> Dict[str, Any]:
             else {"path": str(args.student), "sha256": gid_sha(args.student), "beta": args.beta}
         ),
         "versions": {"numba": numba.__version__, "numpy": np.__version__},
+        "obs_version": args.obs_version,
+        "fields": list(fields),
         "wall_seconds": wall,
         "decisions_per_s": stats["decisions"] / wall,
         "stats": stats,
@@ -308,6 +314,8 @@ def main() -> int:
     ap.add_argument("--student-device", default="mps")
     ap.add_argument("--beta", type=float, default=1.0)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--obs-version", choices=("draft", "b"), default="draft")
+    ap.add_argument("--record-state61", action="store_true", help="store the teacher's 61-D input")
     args = ap.parse_args()
     problems = guard_ok()
     if problems:

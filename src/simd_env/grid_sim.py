@@ -980,4 +980,5 @@ class GridBatchSim(BatchSim):
             coarse_snake=self._csnake,
             coarse_food=self._cfood,
             coarse_cell=COARSE_CELL,
+            boosting=self.get_boosted_this_step(),
         )

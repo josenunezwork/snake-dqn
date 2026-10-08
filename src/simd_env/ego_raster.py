@@ -124,6 +124,9 @@ class EgoRasterConfig:
     global_cell: int = 8
     reach_steps: int = 24
     min_boost_length: int = 5
+    #: ``"draft"`` (``ego2s-draft``: 6 local channels, 12 scalars) or ``"b"`` (``ego2s-b``:
+    #: + the ``enemy_next`` channel and 18 enemy / region scalars, see ego_raster_b).
+    version: str = "draft"
 
 
 @dataclass(frozen=True)
@@ -157,6 +160,9 @@ class EgoGridView:
     coarse_snake: Optional[np.ndarray] = None  # (E, S, hc, wc) int32
     coarse_food: Optional[np.ndarray] = None  # (E, hc, wc) int32
     coarse_cell: int = 0
+    # Enemy boosted on its last move (BatchSim.get_boosted_this_step / live
+    # Snake.is_boosting); read by the ego2s-b features only.
+    boosting: Optional[np.ndarray] = None  # (E, S) bool
 
     @property
     def E(self) -> int:
@@ -475,6 +481,21 @@ def build_ego_raster(
         if picked is not None:
             local = local[picked[:, 0], picked[:, 1]]
             glob = glob[picked[:, 0], picked[:, 1]]
+    if cfg.version == "b":
+        from src.simd_env import ego_raster_b as eb
+
+        lead = local.shape[:-3]
+        flat = local.reshape((-1,) + local.shape[-3:])
+        extra = eb.enemy_next_plane(view, cfg, picked)
+        local = np.concatenate([flat, extra[:, None]], axis=1).reshape(
+            lead + (flat.shape[1] + 1,) + flat.shape[2:]
+        )
+        bs = eb.b_scalars(view, picked, which)
+        scalars = np.concatenate([scalars.reshape(-1, scalars.shape[-1]), bs], axis=1).reshape(
+            scalars.shape[:-1] + (scalars.shape[-1] + bs.shape[-1],)
+        )
+    elif cfg.version != "draft":
+        raise ValueError(f"unknown ego raster version {cfg.version!r}")
     out = {
         "local": local,
         "global": glob,

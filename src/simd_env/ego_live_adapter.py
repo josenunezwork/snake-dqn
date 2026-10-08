@@ -87,6 +87,7 @@ def game_state_to_ego_view(
     heads = np.zeros((1, S, 2), dtype=np.int64)
     boost_frames = np.zeros((1, S), dtype=np.int64)
     frames_since_food = np.zeros((1, S), dtype=np.int64)
+    boosting = np.zeros((1, S), dtype=bool)
     bodies = []
     for s, snake in enumerate(snakes):
         cells = np.array([cell_index(p, seg) for p in snake.segments], dtype=np.int64)
@@ -101,6 +102,7 @@ def game_state_to_ego_view(
         direction[0, s] = _heading_index(getattr(snake, "direction", (1, 0)))
         boost_frames[0, s] = int(getattr(snake, "boost_frames", 0))
         frames_since_food[0, s] = int(getattr(snake, "frames_since_food", 0))
+        boosting[0, s] = bool(getattr(snake, "is_boosting", False)) and is_alive
         if n:
             heads[0, s] = cells[0]
     cap = max([len(c) for c in bodies] + [0]) + 1
@@ -141,6 +143,7 @@ def game_state_to_ego_view(
         grid_h=grid_h,
         cap=cap,
         pad=P,
+        boosting=boosting,
         boost_length_cost_frames=(
             _boost_cost_frames() if boost_length_cost_frames is None else boost_length_cost_frames
         ),

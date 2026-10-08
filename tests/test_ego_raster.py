@@ -362,3 +362,106 @@ def test_reach_waits_for_a_vacating_tail_and_is_batch_independent():
     np.testing.assert_array_equal(alone, batched)
     assert alone[hr - 1, hc] == 5 and alone[hr - 2, hc] == 6
     np.testing.assert_array_equal(alone, _reference_reach(boxed, no_wall[0, 0], cfg))
+
+
+# ---------------------------------------------------------------------------
+# ego2s-b (M2b): enemy next-cell channel, enemy / region scalars
+# ---------------------------------------------------------------------------
+_B = EgoRasterConfig(version="b")
+
+
+def _reference_enemy_next(sim, e, s, cfg):
+    """Slow per-pixel reference (world mapping through the hand-written frame table)."""
+    from src.simd_env.batch_sim import CARDINAL
+
+    head = sim.get_bodies(e, s)[0]
+    boosting = sim.get_boosted_this_step()
+    marks = {}
+    for j in range(sim.S):
+        if j == s or not sim.alive[e, j]:
+            continue
+        hx, hy = sim.get_bodies(e, j)[0]
+        dx, dy = (int(v) for v in CARDINAL[int(sim.direction[e, j])])
+        steps = (1, 2) if boosting[e, j] else (1,)
+        for k in steps:
+            c = (hx + k * dx, hy + k * dy)
+            if 0 <= c[0] < sim.grid_w and 0 <= c[1] < sim.grid_h:
+                marks[c] = max(marks.get(c, 0), 255 if boosting[e, j] else 128)
+    size = cfg.local_size
+    out = np.zeros((size, size), dtype=np.int64)
+    for r in range(size):
+        for c in range(size):
+            w = _world(sim, e, s, r, c, cfg.local_head_row, cfg.local_head_col, 1, head)
+            out[r, c] = marks.get(w, 0)
+    return out
+
+
+@pytest.mark.parametrize("mechanics", [1, 2])
+def test_b_numba_equals_numpy_and_reference(mechanics):
+    cfg = BatchSimConfig(num_envs=3, num_snakes=6, mechanics_version=mechanics, max_capacity=1200)
+    sim = GridBatchSim(cfg, seeds=[31, 32, 33], train_mode=True, allow_respawn=True)
+    inject_serpentines([sim], [800, 400, 150, 60, 20, 5], box_height=8)
+    pol = GreedySafePolicy(5, boost_prob=0.4)
+    marked = boosting_marks = 0
+    for frame in range(120):
+        sim.step(pol.actions(sim, sim.get_action_mask()))
+        a = _assert_backends_equal(sim, _B, where=f"b frame {frame}")
+        assert a["local"].shape[-3] == 7 and a["scalars"].shape[-1] == 30
+        np.testing.assert_array_equal(a["local"][..., :6, :, :], build_ego_raster(sim)["local"])
+        if frame % 20 == 0:
+            for e in range(sim.E):
+                for s in range(sim.S):
+                    if sim.alive[e, s]:
+                        ref = _reference_enemy_next(sim, e, s, _B)
+                        np.testing.assert_array_equal(a["local"][e, s, 6], ref)
+        marked += int((a["local"][:, :, 6] > 0).any(axis=(2, 3)).sum())
+        boosting_marks += int((a["local"][:, :, 6] == 255).any(axis=(2, 3)).sum())
+    assert marked > 0 and boosting_marks > 0
+
+
+def test_b_scalars_reference_on_a_hand_built_world():
+    """Nearest enemy geometry, heading, kill flag and uncapped tail-aware regions."""
+    from src.simd_env.ego_raster_b import B_SCALAR_NAMES
+
+    cfg = BatchSimConfig(num_envs=1, num_snakes=3, game_width=200, game_height=200)
+    sim = GridBatchSim(cfg, seeds=[4], train_mode=True)
+
+    def place(s, cells, direction):
+        sim.bodies[0, s] = 0
+        sim.bodies[0, s, : len(cells)] = np.array(cells[::-1])
+        sim.head_ptr[0, s] = len(cells) - 1
+        sim.seg_count[0, s] = sim.length[0, s] = len(cells)
+        sim.alive[0, s] = True
+        sim.direction[0, s] = direction
+
+    # Observer 0 heading right at (5, 10); a wall of snake 1 at column 7 rows 0..19
+    # splits the 20x20 arena; snake 2 is two cells ahead-left, heading down.
+    place(0, [(5, 10), (4, 10), (3, 10)], 1)
+    place(1, [(7, y) for y in range(0, 20)], 2)
+    sim.length[0, 1] = 21  # pending growth: its tail (7, 19) has TTL 2, so the wall is closed
+    place(2, [(6, 8), (6, 7)], 2)
+    sim._rebuild_env_grids(0)
+    sim._boosted_this_step[...] = False
+    out = build_ego_raster(sim, _B, backend="numpy")
+    out_nb = build_ego_raster(sim, _B, backend="numba")
+    np.testing.assert_array_equal(out["scalars"], out_nb["scalars"])
+    sc = dict(zip(B_SCALAR_NAMES, out["scalars"][0, 0, 12:]))
+    # Nearest enemy = snake 2 head (6, 8): delta (1, -2) -> ahead 1, right -2 (right = down).
+    assert sc["nearest_enemy_ahead"] == pytest.approx(1 / 145)
+    assert sc["nearest_enemy_right"] == pytest.approx(-2 / 145)
+    assert sc["nearest_enemy_heading_right"] == 1.0  # heading down == my right
+    assert sc["kill_opportunity"] == 1.0  # its next cell (6, 9) is 1.4 cells away
+    # Regions: snake 1's column wall leaves columns 0..6 west of it; snake 2 and own
+    # body inside. Straight (6, 10) and left (5, 9) / right (5, 11) are all west.
+    # Tail-aware: TTL-1 tails are free: snake 2's (6, 7) and the observer's (3, 10).
+    blocked = {(7, y) for y in range(20)} | {(6, 8), (5, 10), (4, 10)}
+    west = sum(1 for x in range(7) for y in range(20) if (x, y) not in blocked)
+    assert sc["region_frac_straight"] == pytest.approx(min(west / 3, 4) / 4)
+    assert sc["region_log_left"] == pytest.approx(np.log1p(west) / np.log1p(400), rel=1e-6)
+    # Opening the wall's tail (no pending growth: TTL 1) joins the two halves.
+    sim.length[0, 1] = 20
+    sc2 = build_ego_raster(sim, _B, backend="numpy")["scalars"][0, 0, 12:]
+    whole = 400 - (len(blocked) - 1)  # every cell but the blocked ones (tail now free)
+    assert sc2[B_SCALAR_NAMES.index("region_log_left")] == pytest.approx(
+        np.log1p(whole) / np.log1p(400), rel=1e-6
+    )
