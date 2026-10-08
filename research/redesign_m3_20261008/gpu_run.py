@@ -78,6 +78,7 @@ UPLOAD_BUDGET_S = 3600
 SETUP_BUDGET_S = 1800
 STALL_S = 900
 NET_FAIL_BUDGET_S = 900
+CREATE_TRIES = 6
 G2_ROWS_GRACE_S = 600  # G2 fails if some seed has still not logged a row by then
 CREATE_SETTLE_S = 300  # a fresh pod can be missing from GET /pods for minutes
 
@@ -398,12 +399,14 @@ def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> 
         wait = min(120.0, wait * 2)
 
 
-WATCHDOG = """
-import json, sys, time
+WATCHDOG = r"""
+import json, os, sys, time
 sys.path.insert(0, {repo!r})
 from research.runpod_fanout.rp_client import RpClient
 log = open({log!r}, "a")
 t = {fire!r}
+log.write(json.dumps({{"watchdog": "armed", "pid": os.getpid(), "fire": t}}) + "\n")
+log.flush()
 while time.time() < t:  # short sleeps: a long sleep does not count macOS sleep time
     time.sleep(60)
 rp = RpClient()
@@ -424,19 +427,97 @@ while time.time() < end:
 """
 
 
-def spawn_watchdog(run_dir: Path, until: float) -> int:
-    code = WATCHDOG.format(
+def watchdog_code(run_dir: Path, until: float) -> str:
+    return WATCHDOG.format(
         repo=str(REPO), log=str(run_dir / "watchdog.log"), fire=until + 300, prefix=POD_NAME
     )
+
+
+def spawn_watchdog(run_dir: Path, until: float, wait_s: float = 60.0) -> int:
+    """Start the detached watchdog; return its pid only once it is alive and logged "armed"."""
+    compile(watchdog_code(run_dir, until), "<watchdog>", "exec")  # SyntaxError here, not later
     caff = ["caffeinate", "-i"] if sys.platform == "darwin" else []
     proc = subprocess.Popen(
-        caff + [sys.executable, "-c", code],
+        caff + [sys.executable, "-c", watchdog_code(run_dir, until)],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=open(run_dir / "watchdog.err", "a"),
     )
-    return proc.pid
+    log = run_dir / "watchdog.log"
+    t0 = time.time()
+    while time.time() - t0 < wait_s:
+        if proc.poll() is not None:
+            raise SystemExit(f"refusing: the watchdog exited ({proc.returncode}); see watchdog.err")
+        if log.exists() and '"armed"' in log.read_text():
+            return proc.pid
+        time.sleep(0.5)
+    raise SystemExit("refusing: the watchdog did not log 'armed' (it is left running harmlessly)")
+
+
+def stocked_data_centers(rp) -> List[str]:
+    """Secure data centers listing RTX 4090 stock right now (read-only GraphQL)."""
+    q = "query { dataCenters { id gpuAvailability { gpuTypeId stockStatus } } }"
+    try:
+        out = rp._call("gql", q)
+    except Exception:  # noqa: BLE001
+        return []
+    rank = {"High": 0, "Medium": 1, "Low": 2}
+    hits = []
+    for dc in out.get("dataCenters") or []:
+        for g in dc.get("gpuAvailability") or []:
+            if g.get("gpuTypeId") == GPU and g.get("stockStatus") in rank:
+                hits.append((rank[g["stockStatus"]], dc["id"]))
+    return [d for _, d in sorted(hits)]
+
+
+def error_detail(exc: BaseException) -> str:
+    """rp.py's own output for a failed call (RunPod's error body; rp.py never prints the key)."""
+    payload = getattr(exc, "payload", None)
+    text = json.dumps(payload, default=str) if payload is not None else ""
+    return f"{exc} {text}".strip()[:1500]
+
+
+def definite_refusal(exc: BaseException) -> bool:
+    """True when RunPod answered with an HTTP error (the pod was NOT created), so a retry
+    cannot duplicate a pod; a timeout or unparsable answer is never retried."""
+    payload = getattr(exc, "payload", None)
+    status = payload.get("http_status") if isinstance(payload, dict) else None
+    return isinstance(status, int) and 400 <= status < 600
+
+
+def create_pod_retrying(rp, body: Dict[str, Any], run_dir: Path, state: Dict[str, Any]):
+    """POST /pods; on a definite refusal (e.g. no capacity) retry pinned to the data centers
+    that list stock, adopting any pod of this name that shows up first. Returns (out, error)."""
+    attempts = state.setdefault("create_attempts", [])
+    dcs = stocked_data_centers(rp)
+    plans: List[Optional[List[str]]] = [None] + [[d] for d in dcs] + ([dcs] if dcs else [])
+    err = ""
+    for i, plan_dcs in enumerate(plans[:CREATE_TRIES]):
+        if i:
+            time.sleep(20)
+            if [p for p in our_pods(rp) if p.get("name") == body["name"]]:
+                return None, err  # the caller adopts it by name
+        b = dict(body)
+        if plan_dcs:
+            b["dataCenterIds"] = plan_dcs
+        path = run_dir / f"pod_body_try{i}.json"
+        path.write_text(json.dumps(b))
+        state["create_attempted_at"] = now()
+        save_state(run_dir, state)
+        try:
+            out = rp.create_pod(path, MAX_HOURLY, confirm=True)
+            attempts.append({"try": i, "dcs": plan_dcs, "ok": True})
+            save_state(run_dir, state)
+            return out, ""
+        except Exception as exc:  # noqa: BLE001
+            err = error_detail(exc)
+            attempts.append({"try": i, "dcs": plan_dcs, "error": err})
+            save_state(run_dir, state)
+            say(f"create try {i} ({plan_dcs or 'any DC'}): {err}")
+            if not definite_refusal(exc):
+                return None, err  # unknown outcome: adopt-or-give-up, never re-POST
+    return None, err
 
 
 def latest_rates(agent: Agent, tries: int = 3) -> Dict[int, Dict[str, float]]:
@@ -546,6 +627,8 @@ def launch(args) -> int:
     body = pod_body(name, hashlib.sha256(token.encode()).hexdigest(), deadline, until)
     body_path = run_dir / "pod_body.json"
     body_path.write_text(json.dumps(body))
+    # The watchdog must be alive and armed before anything can cost money.
+    watchdog_pid = spawn_watchdog(run_dir, until)
     ledger = SharedLedger(policy)
     run_id = f"m3b-gpu-{int(created)}"
     ledger.register_run(run_id, "redesign-m3b-gpu", str(run_dir), args.spend_cap, os.getpid())
@@ -566,17 +649,13 @@ def launch(args) -> int:
     }
     save_state(run_dir, state)
     # From here on every exit path deletes whatever pod of ours exists (by name prefix).
-    state["watchdog_pid"] = spawn_watchdog(run_dir, until)
+    state["watchdog_pid"] = watchdog_pid
     save_state(run_dir, state)
     outcome, rate = "unknown", MAX_HOURLY
     try:
-        out = None
-        state["create_attempted_at"] = now()
-        save_state(run_dir, state)
-        try:
-            out = rp.create_pod(body_path, MAX_HOURLY, confirm=True)
-        except Exception as exc:  # noqa: BLE001  (the POST may still have gone through)
-            outcome = f"create error: {exc}"
+        out, err = create_pod_retrying(rp, body, run_dir, state)
+        if err:
+            outcome = f"create error: {err}"
         pod_id = out.get("id") if isinstance(out, dict) else None
         if not pod_id:
             for _ in range(10):  # adopt a pod created despite the error, by its unique name

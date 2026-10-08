@@ -146,3 +146,18 @@ whatever the platform. The training device (CUDA, not MPS) is not part of the pi
 algorithm; rates and any CUDA-vs-MPS differences are reported. The launch itself
 (`gpu_run.py launch --confirm`: spend plus upload) runs only on the user's direct
 confirmation.
+
+**M3-B launch attempt 1 (2026-10-08 05:25 PT, commit `601571d`): aborted safely, no pod,
+$0.** Two runner bugs, both fixed before the relaunch (no change to the pinned algorithm,
+seeds, caps or gates): (1) the local watchdog never ran, because a literal newline in its
+generated source was a SyntaxError; the source is now a raw string that is byte-compiled
+before launch, and the runner refuses to reserve or create anything unless the watchdog
+process is alive and has logged "armed". (2) `POST /pods` failed and RunPod's error body was
+not recorded; rp.py's output is now logged (key-safe) per attempt. At the time, RTX 4090
+secure stock was "Low" and listed only in EU-CZ-1 and EUR-IS-2, with no data center pinned
+in the request. A definite HTTP refusal (the pod was not created) is now retried up to 6
+times: any data center first, then each stocked data center, checking for a pod of the
+same name before each retry. An unknown outcome is never re-POSTed. Host minimums stay at
+≥ 72 GB RAM and ≥ 10 vCPU: the cheapest secure 4090 offers list 12 vCPU and 83–100 GB, so
+the minimums do not exclude stock, and 5 trainers need about 62–65 GB (review estimate),
+so the earlier ≥ 48 GB figure would be unsafe for 5 seeds.

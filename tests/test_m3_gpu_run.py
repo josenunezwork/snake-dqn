@@ -366,3 +366,88 @@ def test_agent_exec_env_and_dead_man(tmp_path, monkeypatch):
         assert b"secret" not in (tmp_path / "r/logs/j.log").read_bytes()
     finally:
         srv.shutdown()
+
+
+def test_watchdog_compiles_starts_and_arms(tmp_path, monkeypatch):
+    import os
+    import signal
+    import sys
+
+    code = gpu_run.watchdog_code(tmp_path, gpu_run.now() + 7 * 3600)
+    compile(code, "<watchdog>", "exec")
+    assert "\\n" in code and '"armed"' in code
+    monkeypatch.setattr(sys, "platform", "linux")  # no caffeinate wrapper: the pid is python's
+    pid = gpu_run.spawn_watchdog(tmp_path, gpu_run.now() + 7 * 3600, wait_s=60)
+    try:
+        row = json.loads((tmp_path / "watchdog.log").read_text().splitlines()[0])
+        assert row["watchdog"] == "armed" and row["pid"] == pid
+        assert (tmp_path / "watchdog.err").read_text() == ""
+    finally:
+        os.killpg(pid, signal.SIGTERM)  # our own test child (its own session)
+
+
+def test_spawn_watchdog_refuses_a_broken_script(tmp_path, monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(gpu_run, "WATCHDOG", 'print("x\n")')
+    with pytest.raises(SyntaxError):
+        gpu_run.spawn_watchdog(tmp_path, gpu_run.now() + 3600)
+
+
+class RefusingRp(FakeRp):
+    def __init__(self, refusals, definite=True):
+        super().__init__()
+        self.refusals = refusals
+        self.definite = definite
+        self.bodies = []
+
+    def _call(self, *args):
+        return {
+            "dataCenters": [
+                {
+                    "id": "EU-CZ-1",
+                    "gpuAvailability": [{"gpuTypeId": gpu_run.GPU, "stockStatus": "Low"}],
+                },
+                {
+                    "id": "US-TX-3",
+                    "gpuAvailability": [{"gpuTypeId": gpu_run.GPU, "stockStatus": None}],
+                },
+                {
+                    "id": "EUR-IS-2",
+                    "gpuAvailability": [{"gpuTypeId": gpu_run.GPU, "stockStatus": "Medium"}],
+                },
+            ]
+        }
+
+    def create_pod(self, body_path, max_hourly, confirm):
+        from research.runpod_fanout.rp_client import RunPodError
+
+        body = json.loads(open(body_path).read())
+        self.bodies.append(body)
+        if self.refusals:
+            self.refusals -= 1
+            payload = {"http_status": 500, "error": "no instances available"}
+            raise RunPodError(
+                "rp.py ('rest', 'POST', '/pods') exit 1: ", payload if self.definite else None
+            )
+        self.pods.append({"id": "p1", "name": body["name"]})
+        return {"id": "p1", "costPerHr": 0.74}
+
+
+def test_create_retries_definite_refusals_across_stocked_dcs(tmp_path, monkeypatch):
+    Clock(monkeypatch)
+    rp = RefusingRp(refusals=2)
+    body = gpu_run.pod_body("m3b-gpu-t", "a" * 64, 1.0, 2.0)
+    state = {}
+    out, err = gpu_run.create_pod_retrying(rp, body, tmp_path, state)
+    assert out["id"] == "p1" and err == ""
+    assert [b.get("dataCenterIds") for b in rp.bodies] == [None, ["EUR-IS-2"], ["EU-CZ-1"]]
+    assert "no instances available" in state["create_attempts"][0]["error"]
+
+
+def test_create_never_reposts_after_an_unknown_outcome(tmp_path, monkeypatch):
+    Clock(monkeypatch)
+    rp = RefusingRp(refusals=5, definite=False)
+    body = gpu_run.pod_body("m3b-gpu-t", "a" * 64, 1.0, 2.0)
+    out, err = gpu_run.create_pod_retrying(rp, body, tmp_path, {})
+    assert out is None and len(rp.bodies) == 1 and "exit 1" in err
