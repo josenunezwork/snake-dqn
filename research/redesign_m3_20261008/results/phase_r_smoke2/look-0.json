@@ -1,0 +1,924 @@
+{
+ "action": "STOP",
+ "decision": {
+  "action": "STOP",
+  "candidate_selection": {
+   "lower": -95.26977057945501,
+   "ranking": [
+    {
+     "effect": -20.173933333333338,
+     "lower": -95.26977057945501,
+     "seed": 4
+    },
+    {
+     "effect": 49.74796666666666,
+     "lower": -119.88695388109318,
+     "seed": 2
+    },
+    {
+     "effect": -74.6887666666667,
+     "lower": -177.10139751558378,
+     "seed": 0
+    },
+    {
+     "effect": -84.27233333333334,
+     "lower": -222.27221046869184,
+     "seed": 3
+    },
+    {
+     "effect": -120.68273333333333,
+     "lower": -273.6940660415758,
+     "seed": 1
+    }
+   ],
+   "rule": "highest lower end of the seed's two-sided WS interval at the candidate confidence, on the worlds of the stopping look; ties -> lowest seed",
+   "seed": 4
+  },
+  "clauses": {
+   "c1_point": {
+    "adjusted": -60.317851871898206,
+    "estimate": -51.24953712248375,
+    "kind": "point",
+    "margin": 9.068314749414453,
+    "name": "c1_point",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 24.159124016333855,
+    "threshold": 20.0
+   },
+   "c2_scripted_mean": {
+    "adjusted": -112.8364347981884,
+    "estimate": -71.15798000000001,
+    "kind": "point",
+    "margin": 41.67845479818839,
+    "name": "c2_scripted_mean",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 35.83433508524037,
+    "threshold": 0.0
+   },
+   "c2_scripted_survival": {
+    "adjusted": -0.18570348249661295,
+    "estimate": -0.11872,
+    "kind": "point",
+    "margin": 0.06698348249661294,
+    "name": "c2_scripted_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 0.05759111196858224,
+    "threshold": -0.03
+   },
+   "c3_frozen_survival": {
+    "adjusted": -0.08723873723362467,
+    "estimate": -0.0025800000000000016,
+    "kind": "point",
+    "margin": 0.08465873723362467,
+    "name": "c3_frozen_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": true,
+    "se": 0.07278795657402551,
+    "threshold": -0.03
+   },
+   "c3_mixed_survival": {
+    "adjusted": -0.22100109770661874,
+    "estimate": -0.1252,
+    "kind": "point",
+    "margin": 0.09580109770661874,
+    "name": "c3_mixed_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 0.08236794414225854,
+    "threshold": -0.03
+   },
+   "c4_positive_seeds": {
+    "kind": "positive_seeds",
+    "min": 4,
+    "name": "c4_positive_seeds",
+    "pass": false,
+    "positive": 1,
+    "seeds": 5
+   },
+   "c5_mi10": {
+    "adjusted": -9.034952053736767,
+    "estimate": 15.11231247151543,
+    "kind": "point",
+    "margin": 24.147264525252197,
+    "name": "c5_mi10",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 64.33133106219718,
+    "threshold": 20.0
+   },
+   "c5_prefix_controls": {
+    "flag": "prefix_controls",
+    "kind": "flag",
+    "name": "c5_prefix_controls",
+    "pass": true
+   },
+   "c6_guard_point": {
+    "adjusted": -209.50953664039451,
+    "estimate": -21.007466666666687,
+    "kind": "point",
+    "margin": 188.50206997372783,
+    "name": "c6_guard_point",
+    "op": ">",
+    "pass": false,
+    "pass_point": false,
+    "se": 162.07045996325178,
+    "threshold": 0.0
+   },
+   "c6_guard_scripted_survival": {
+    "adjusted": -0.8114412904918757,
+    "estimate": -0.175,
+    "kind": "point",
+    "margin": 0.6364412904918758,
+    "name": "c6_guard_scripted_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 0.5471999999999999,
+    "threshold": -0.05
+   },
+   "c7_feasibility": {
+    "cap": 600,
+    "kind": "feasibility",
+    "mde_bound_route": -123.68001415726857,
+    "mde_shrink_route": -30.74972227349025,
+    "mde_star": -30.74972227349025,
+    "n_fixed": null,
+    "n_max": null,
+    "name": "c7_feasibility",
+    "pass": false,
+    "sd_by_mix": {
+     "frozen": 192.31569943174628,
+     "mixed": 233.86970809885577,
+     "scripted": 113.31811730704358
+    },
+    "sd_star": 233.86970809885577
+   }
+  },
+  "efficacy": {
+   "df": 4.0,
+   "estimate": -51.24953712248375,
+   "lower_bound": -123.68001415726857,
+   "pass": false,
+   "se": 24.159124016333855,
+   "seed_effects": [
+    -74.6887666666667,
+    -120.68273333333333,
+    49.74796666666666,
+    -84.27233333333334,
+    -20.173933333333338
+   ],
+   "tau2": 129.0787363144579,
+   "threshold": 0.0
+  },
+  "failed_go_clauses": [
+   "efficacy",
+   "c1_point",
+   "c2_scripted_mean",
+   "c2_scripted_survival",
+   "c3_frozen_survival",
+   "c3_mixed_survival",
+   "c4_positive_seeds",
+   "c5_mi10",
+   "c6_guard_point",
+   "c6_guard_scripted_survival",
+   "c7_feasibility"
+  ],
+  "final_look": false,
+  "final_outcomes": [],
+  "final_outcomes_holding": [],
+  "fraction": 0.5,
+  "go_nominal_p": 0.020009253716118114,
+  "history": [
+   {
+    "action": "STOP",
+    "look": 0,
+    "n_per_seed_mix": 2,
+    "status": "KILL_V4"
+   }
+  ],
+  "kill": {
+   "all_below": true,
+   "parts": [
+    {
+     "df": 4.0,
+     "estimate": -51.24953712248375,
+     "name": "kill_h5000",
+     "pass": true,
+     "se": 24.159124016333855,
+     "threshold": 20.0,
+     "upper_bound": -4.320820343004378
+    }
+   ],
+   "suppressed_by": []
+  },
+  "kill_nominal_p": 0.0620114506958277,
+  "look": 0,
+  "margin_shrink": 0.2928932188134524,
+  "margin_shrink_protective": 0.7071067811865476,
+  "method": "sequential-phase-r-obf-hk-v1",
+  "n_per_seed_mix": 2,
+  "no_go": {
+   "all_below": true,
+   "parts": [
+    {
+     "df": 4.0,
+     "estimate": -51.24953712248375,
+     "name": "no_go_h5000",
+     "pass": true,
+     "se": 24.159124016333855,
+     "threshold": 50.0,
+     "upper_bound": -4.320820343004378
+    }
+   ],
+   "suppressed_by": []
+  },
+  "plan_sha256": "ad1d758c49206b569a554377e4780d4fe34f206fa572742faa4a924f5f37935f",
+  "status": "KILL_V4",
+  "valid": true
+ },
+ "deltas_sha256": "53ae679a799b853b1feb34240061f2931e1d01654bb6c07ac5f8635acb45d3b3",
+ "extra": {
+  "analysed_utc": "2026-10-08T21:13:10.275520+00:00"
+ },
+ "flags": {
+  "prefix_controls": true
+ },
+ "look": 0,
+ "n_per_seed_mix": 2,
+ "plan_file_sha256": "8835e5feb717ee98da2889bcd55f41a0c49c042aeea5d86beba1ef38c5dcb3b3",
+ "plan_sha256": "ad1d758c49206b569a554377e4780d4fe34f206fa572742faa4a924f5f37935f",
+ "previous_receipt_sha256": null,
+ "records": [
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-1414456708.json",
+   "sha256": "4a853699ad9e9af5cc050d2b092888178a5ac84a157c6a6201a86809093ae5e8"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-646682205.json",
+   "sha256": "e924b2658968e7d374a67a0f9718e0d5e5ad4209ade09db4c7d70948f7908b0c"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-1414456708.json",
+   "sha256": "635ea18c73a83a1d641a5aef9b1d7b43b43147503e83807effa8f17007db0474"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-646682205.json",
+   "sha256": "de66780d45198c070e1b2d3ab899df8a2811b7be4d16f7978d5554eea7846b56"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-1414456708.json",
+   "sha256": "3375251a62caf377c770316dd61fc3e0a0d7523d008af5d504560a1a090e9179"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-646682205.json",
+   "sha256": "81b11bc1fb0d529b4d2134dd3c39d44404f9f54f4c381951ba7036215805e29f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-1165340403.json",
+   "sha256": "f9a3e8ab0c9b2d8b2a56163c6cc6fc3de4307cb2f742fa4775d4a40ed9e4b16b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-1763765003.json",
+   "sha256": "0a546ade7a4fd1b11dac3ee449efa3d1fe492bc00afa810b73c312bf56117128"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-1165340403.json",
+   "sha256": "22ed1ef5190e38e725cf7e4f55e3da4f99c2ff77efbbf54bb23bfb06aa876267"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-1763765003.json",
+   "sha256": "f3135777c02905af781ef3f2c9758eb97a521a9f9e9a8f2dea7264467f5a3a82"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-1165340403.json",
+   "sha256": "67782c7ac9b34fb027884c4fa93302081120f9eb229f8060b3079e98acbae7bc"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-1763765003.json",
+   "sha256": "a6219a1415a3dca0e11f42d27f93569d8c64f14c482fff285e2ba33b098f1c8e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-1933861344.json",
+   "sha256": "4b2aa60638bd05715f4d6ec2dc36733caf53562a07f638c717dbc51b5b5d24e6"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-2239723635.json",
+   "sha256": "6c3da7b4ceb547796322817bf20309eb4ad62e9008904d5a0283a69da88b1d9f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-1933861344.json",
+   "sha256": "ecda22967dfbdbe8f9933cd861bf6127c5caca3957fafe430e3e6ca23d1a0419"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-2239723635.json",
+   "sha256": "d11f0cba3c1bc19d165a7152ca911818fe3615b540f0cc35de4ba531c416a272"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-1933861344.json",
+   "sha256": "8664a0a1f7336661fbe3412f14e96215d24c2d482f33301609e6c117673c35a1"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-2239723635.json",
+   "sha256": "b7453dac1e7d45c42010ced9c05736d88749db91e211433b15b9bdc8d9f92ab7"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-1252618812.json",
+   "sha256": "85c0dab9634c1a9c69fae0baff8ec576681c2388960e62095aa0b61ed130fa65"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-3154012303.json",
+   "sha256": "c42ecb9e736264ff72568ebab407f382e4eac8b310f77fc748f9d36bb0db31b3"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-1252618812.json",
+   "sha256": "05afbd1c493560ad7dc0d9926fa44394aaeb7c3c415d23e66ab1a6702e006b53"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-3154012303.json",
+   "sha256": "0344d2144a98d2889bfa5fb1eb40ec5ae69d36ee133f43b4238ba3ead7cce28a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-1252618812.json",
+   "sha256": "30daa29ffc149afc9b5b67450eeb67f965fc8dfa6ce6d724cf4189fcdc4b204f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-3154012303.json",
+   "sha256": "12546a960fb711ca7c9b8f3106bc4362fac29f5731ffc9d048a145e87ec6ae8f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-2149834442.json",
+   "sha256": "dcbf5e44030bcb972239bc1574013460163c5c566b33e1ffdd0c7fcd9bda1e52"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-4148208495.json",
+   "sha256": "503e04ebaad4a5a0b8017c805de3971055a5ba8e7ec36fc037e54c1f68eb8225"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-2149834442.json",
+   "sha256": "79a38edabdab47db9b1db2ff4380f907ed1ee6377225563116fde9c86b33738d"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-4148208495.json",
+   "sha256": "e3ea0b27373d65bd6b5e9f59a64d3c3672db013e60926ab85a53b992a597f745"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-2149834442.json",
+   "sha256": "9800e96d13e30fa7928d68011dfbd808aab9564f75bc2b7dda3da06dcd08f35b"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-4148208495.json",
+   "sha256": "4e2723b71685e4a386c5e75afdcbd21f385f9462b39ca6bfa817b6adb5232c5d"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/champion-s0-frozen-1414456708.json",
+   "sha256": "dab29613802087006fa37cf0e2a49ad975ccb7e05af9625690583b6e827cfa67"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/champion-s0-frozen-646682205.json",
+   "sha256": "34872baf3e334724ca1a5811dff9467834e76f53788a821eaf6b6c2f8814c890"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/champion-s0-mixed-1414456708.json",
+   "sha256": "5898be7f5c52bf35ef68784f23a9befdbbffb61fea24c588045532a68f3826c0"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/champion-s0-mixed-646682205.json",
+   "sha256": "88769ca64fb304e9a5801de117b7141e77cfd44714e2508b3a2622217d96b810"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/champion-s0-scripted-1414456708.json",
+   "sha256": "d0f1fe730ddeae69c9bcd248672145dd03c79d6d535c6ee2103e010f342aa54f"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/champion-s0-scripted-646682205.json",
+   "sha256": "5f47e744aa4a9790fdbd098e8e9aaf4c1ea6ef573acd643c3bab46e79a3effd9"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s0-frozen-1414456708.json",
+   "sha256": "8a8871b3abb0d980b91744eeb59d9e1c7d550883f795d3755e5b57cecfb31ece"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s0-frozen-646682205.json",
+   "sha256": "a48be911b2f29f91a4adbe3fcf9b1db85cc854e0bb3aada0852c89935954ef84"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s0-mixed-1414456708.json",
+   "sha256": "d4d6212dfda5017854ca0c9e2998e08a8f36763d24b6ff2d25c2895815bd7f43"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s0-mixed-646682205.json",
+   "sha256": "295221ff20671be9fa457816c11b0398c5eff70a2995df5effd01340dffec601"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s0-scripted-1414456708.json",
+   "sha256": "1db073935a13c3d929484d3b3288bc4233a505f50774f2372eb219d78fd0e38a"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s0-scripted-646682205.json",
+   "sha256": "9445c97e1ab461256c0fc44a02479a1bf6d7d60c13ee3951e4150ea3496cfec5"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s1-frozen-1165340403.json",
+   "sha256": "afb2046212e39d22a59652f99f4200251e6c794dea23c80cb0e10e50852a4fe3"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s1-frozen-1763765003.json",
+   "sha256": "90f7e8cb06adadd03b9dbe368dd4f9082d7f8320d1108553af7489d1af2d5875"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s1-mixed-1165340403.json",
+   "sha256": "6bbdb8a9500f4c5b5bb3a1d130644850e4f3bf5c2b6d5689de625cfb2196b4c2"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s1-mixed-1763765003.json",
+   "sha256": "fee246d72cd43fb1a871fc111a476dda638ac63997613832bcd05f4bf335dcd7"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s1-scripted-1165340403.json",
+   "sha256": "96feccf3e5e743ea14eac95b67ccb398fbe4695df7694222e615eaf7d275ad5b"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s1-scripted-1763765003.json",
+   "sha256": "c80b0896bc6ec54e8562638ed5a4c884845e6e0b6c32a5150c4d9dcac4b1885a"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s2-frozen-1933861344.json",
+   "sha256": "dc42832158875e7a6e959e06acdbbcc24815d1fd76f6f59d5a48b970ff42819b"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s2-frozen-2239723635.json",
+   "sha256": "2b11c3598191964138e43bf2e164d5339b25f98e2dd5a97bf8eade90184db280"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s2-mixed-1933861344.json",
+   "sha256": "5e2ae1d78bbae697277ccfefd4b9493bc74377f1eb027a8571c9d2f0ec86dcd7"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s2-mixed-2239723635.json",
+   "sha256": "bd5367d759b1db159e693cf1c86fea1366b92a6ac5c6746f36d4281e7d9613ac"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s2-scripted-1933861344.json",
+   "sha256": "64c5849ea6e8a54317c555ac89721209aa4122e1d78582188eec7f5323b00996"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s2-scripted-2239723635.json",
+   "sha256": "829aaad7bef7b833533e2319e020e222a9ab01efa1ac91741c973d8aa288a42a"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s3-frozen-1252618812.json",
+   "sha256": "7768fb2145d0b3aa30f667752dc7261b2b660ca53d8f4903318af5882c2d0ed5"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s3-frozen-3154012303.json",
+   "sha256": "d5899faa67eafbe178c7f88240a4e6ef794092b9c14bd0863ffdf4031dca0175"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s3-mixed-1252618812.json",
+   "sha256": "df312151adb218828bae78df464363cb0227674f7f2506f436639f5f3df0d913"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s3-mixed-3154012303.json",
+   "sha256": "8d452eaa2cc3a4e840d02d87769ab9176fd644d1233d63f24444767fd3e1ad06"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s3-scripted-1252618812.json",
+   "sha256": "a5c5ca5e51b305e0d0c8c179fcbbc377b6550ee1fc066cd76896e8ef1f44438c"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s3-scripted-3154012303.json",
+   "sha256": "025387f3f55e7b0471d4894e12c2165bceb3cf7e43816bde342f322997bca206"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s4-frozen-2149834442.json",
+   "sha256": "d20d85570eafe6fd9bd427aba23d77ef335a036239f2d09d83eda1367d76df49"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s4-frozen-4148208495.json",
+   "sha256": "c03f79ee800f117621eee32b685787bbe3ddaf675be5a7a5221db95334372c76"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s4-mixed-2149834442.json",
+   "sha256": "9694d8f21bd02c70229be35161b7dd9a1f30830cd0ee61dadd310d51e44baa1f"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s4-mixed-4148208495.json",
+   "sha256": "e9eb7890d9c13b8cdc4c0bb97e6977f9792f7224e5b7119979205eb1c6c16ee7"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s4-scripted-2149834442.json",
+   "sha256": "0241567b291c2755fe85ea8c44fe15f409761ba854bc8189d1e8ca02095155d5"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008/shards/look-0/records/incumbent-s4-scripted-4148208495.json",
+   "sha256": "bfb75bcd92bf4959e77939410d77223cbf53e9e4168a91b6b58b8ac66aa9dfc2"
+  }
+ ],
+ "records_sha256": "89aa5f3c28bafb8f71f4fdc88c4082ef9a1499da03cb367354cc49f8399e52ed",
+ "schema": "sequential-phase-r-look/v1"
+}
