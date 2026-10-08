@@ -67,11 +67,16 @@ def ni_seeds() -> List[int]:
     return dev_screen.screen_seeds(WORLDS_PER_MIX, NAMESPACE, NAMESPACE_KEY)
 
 
-def distill_seeds(count: int, offset: int = 0) -> List[int]:
-    """Distillation world seeds (disjoint from :func:`ni_seeds`; checked by tests)."""
+def distill_seeds(count: int, offset: int = 0, round_index: int = 0) -> List[int]:
+    """Distillation world seeds (disjoint from :func:`ni_seeds`; checked by tests).
+
+    Round 0 uses key ``worlds``; DAgger round ``r > 0`` uses ``worlds-r<r>`` (one key per
+    round keeps each list short enough that the namespace's collision check never trips).
+    """
     from research.apex_safety_20260926 import dev_screen
 
-    return dev_screen.screen_seeds(offset + count, DISTILL_NAMESPACE, NAMESPACE_KEY)[offset:]
+    key = NAMESPACE_KEY if round_index == 0 else f"{NAMESPACE_KEY}-r{round_index}"
+    return dev_screen.screen_seeds(offset + count, DISTILL_NAMESPACE, key)[offset:]
 
 
 def lower_bound(deltas: Sequence[float], confidence: float = CONFIDENCE) -> Dict[str, Any]:

@@ -11,7 +11,10 @@ def test_seeds_are_pinned_and_disjoint():
     seeds = ni_spec.ni_seeds()
     assert len(seeds) == 48 and len(set(seeds)) == 48
     assert seeds[:3] == [2643297547, 2781215250, 3530758914]
-    assert not set(seeds) & set(ni_spec.distill_seeds(5000))
+    distill = set()
+    for r in range(3):
+        distill |= set(ni_spec.distill_seeds(3000, round_index=r))
+    assert len(distill) == 9000 and not set(seeds) & distill
 
 
 def test_rule_constants():

@@ -17,7 +17,7 @@ still labels. Without ``--student`` the teacher + v8 acts (round 0).
 
 Shards: ``<out>/<round>/chunk-<k>-part-<j>.npz`` (``np.savez_compressed``, 10k samples) and
 ``chunk-<k>.json`` (provenance). Create-only. Never gate evidence. Seeds:
-``ni_spec.distill_seeds`` at offset ``round * 100000 + chunk * E``.
+``ni_spec.distill_seeds(E, offset=chunk * E, round_index=round)``.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def run_chunk(args: argparse.Namespace) -> Dict[str, Any]:
     profile = ctx["profile"]
     E = args.worlds
     mix = ("frozen", "scripted", "mixed")[args.chunk % 3] if args.mix == "cycle" else args.mix
-    seeds = ni_spec.distill_seeds(E, offset=args.round * 100000 + args.chunk * E)
+    seeds = ni_spec.distill_seeds(E, offset=args.chunk * E, round_index=args.round)
     base = ee._config_from_game_config(6, 0.99, profile)
     cap = WorldRuntimeSpec.source_exact(profile).body_storage_capacity
     cfg = replace(base, num_envs=E, body_storage_capacity=cap)

@@ -495,7 +495,9 @@ def _dispatch_actions(
     def dispatch(policy: SimdPolicy, env: int, slot: int) -> None:
         # Vector61 policies are stateless per call: their per-row state was
         # prepared by the shared Vector61Runtime before dispatch.
-        if isinstance(policy, (NetworkSimdPolicy, Vector61SimdPolicy)):
+        if isinstance(policy, (NetworkSimdPolicy, Vector61SimdPolicy)) or getattr(
+            policy, "batched_rows", False
+        ):
             network_rows.setdefault(policy, []).append((env, slot))
             return
         result = policy.actions(
@@ -642,6 +644,7 @@ def run_simd_eval(
     hero_safety_veto_lambda: float | None = None,
     hero_safety_veto_reference_lambda: float | None = None,
     sim_engine: str = "batch",
+    hero_ego2s: str | None = None,
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -690,6 +693,11 @@ def run_simd_eval(
             bit-exact grid-backed :class:`~src.simd_env.grid_sim.GridBatchSim`).
             Records are byte-identical across engines (development check, not a
             governance input; gate packages keep the default).
+        hero_ego2s: Redesign M2 (development only): an ``ego2s-draft`` student
+            checkpoint that plays slot 0 instead of ``hero_spec``'s network. Needs
+            ``sim_engine="grid"`` and ``vector61=True``; ``hero_spec`` must be a vector61
+            checkpoint, used only as the vector61 carrier of the optional veto (the
+            student's Q replaces the carrier's). Records gain ``ego2s_hero``.
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -703,6 +711,8 @@ def run_simd_eval(
     if frames <= 0:
         raise ValueError(f"frames must be positive, got {frames}")
     sim_class = _terminal_hero_sim_class(sim_engine)
+    if hero_ego2s is not None and (sim_engine != "grid" or not vector61):
+        raise ValueError("hero_ego2s needs sim_engine='grid' and vector61=True")
     if frame_observer is not None and not callable(frame_observer):
         raise TypeError("frame_observer must be callable")
     if frame_observer is not None and profile is None:
@@ -833,7 +843,25 @@ def run_simd_eval(
         {hero_spec[1]: solo_checkpoint_policy} if solo_checkpoint_policy is not None else {}
     )
 
+    ego2s_cache: Dict[str, object] = {}
+
     def policy_for(spec: AgentSpec, seed: int, *, hero: bool = False) -> SimdPolicy:
+        if hero and hero_ego2s is not None:
+            if "hero" not in ego2s_cache:
+                from src.simd_env.ego2s_policy import Ego2sSimdPolicy, Ego2sV8Policy
+
+                if veto_spec is None:
+                    ego2s_cache["hero"] = Ego2sSimdPolicy(hero_ego2s)
+                else:
+                    ego2s_cache["hero"] = Ego2sV8Policy(
+                        hero_ego2s,
+                        spec[1],
+                        vector61_runtime,
+                        veto_variant=veto_spec.variant,
+                        veto_lambda=veto_spec.lam,
+                        veto_reference_lambda=veto_spec.reference_lambda,
+                    )
+            return ego2s_cache["hero"]
         if vector61_runtime is not None and spec[0] == "checkpoint":
             if is_vector61(spec[1]):
                 # The hero's veto must never reach a same-checkpoint opponent,
@@ -1046,6 +1074,12 @@ def run_simd_eval(
                     record["veto_diagnostics"] = hero_policy.veto_diagnostics(int(e))
             if vector61_record is not None:
                 record["vector61_policy"] = dict(vector61_record)
+            if hero_ego2s is not None:
+                record["ego2s_hero"] = {
+                    "checkpoint": str(hero_ego2s),
+                    "sha256": hashlib.sha256(Path(hero_ego2s).read_bytes()).hexdigest(),
+                    "veto": None if veto_spec is None else veto_spec.method,
+                }
             records.append(record)
             continue
         af = int(alive_frames[e])
