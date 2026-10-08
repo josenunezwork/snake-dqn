@@ -1,0 +1,922 @@
+{
+ "action": "STOP",
+ "decision": {
+  "action": "STOP",
+  "candidate_selection": {
+   "lower": -95.26977057945501,
+   "ranking": [
+    {
+     "effect": -20.173933333333338,
+     "lower": -95.26977057945501,
+     "seed": 4
+    },
+    {
+     "effect": 49.74796666666666,
+     "lower": -119.88695388109318,
+     "seed": 2
+    },
+    {
+     "effect": -74.6887666666667,
+     "lower": -177.10139751558378,
+     "seed": 0
+    },
+    {
+     "effect": -84.27233333333334,
+     "lower": -222.27221046869184,
+     "seed": 3
+    },
+    {
+     "effect": -120.68273333333333,
+     "lower": -273.6940660415758,
+     "seed": 1
+    }
+   ],
+   "rule": "highest lower end of the seed's two-sided WS interval at the candidate confidence, on the worlds of the stopping look; ties -> lowest seed",
+   "seed": 4
+  },
+  "clauses": {
+   "c1_point": {
+    "adjusted": -60.317851871898206,
+    "estimate": -51.24953712248375,
+    "kind": "point",
+    "margin": 9.068314749414453,
+    "name": "c1_point",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 24.159124016333855,
+    "threshold": 20.0
+   },
+   "c2_scripted_mean": {
+    "adjusted": -112.8364347981884,
+    "estimate": -71.15798000000001,
+    "kind": "point",
+    "margin": 41.67845479818839,
+    "name": "c2_scripted_mean",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 35.83433508524037,
+    "threshold": 0.0
+   },
+   "c2_scripted_survival": {
+    "adjusted": -0.18570348249661295,
+    "estimate": -0.11872,
+    "kind": "point",
+    "margin": 0.06698348249661294,
+    "name": "c2_scripted_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 0.05759111196858224,
+    "threshold": -0.03
+   },
+   "c3_frozen_survival": {
+    "adjusted": -0.08723873723362467,
+    "estimate": -0.0025800000000000016,
+    "kind": "point",
+    "margin": 0.08465873723362467,
+    "name": "c3_frozen_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": true,
+    "se": 0.07278795657402551,
+    "threshold": -0.03
+   },
+   "c3_mixed_survival": {
+    "adjusted": -0.22100109770661874,
+    "estimate": -0.1252,
+    "kind": "point",
+    "margin": 0.09580109770661874,
+    "name": "c3_mixed_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 0.08236794414225854,
+    "threshold": -0.03
+   },
+   "c4_positive_seeds": {
+    "kind": "positive_seeds",
+    "min": 4,
+    "name": "c4_positive_seeds",
+    "pass": false,
+    "positive": 1,
+    "seeds": 5
+   },
+   "c5_mi10": {
+    "adjusted": -9.034952053736767,
+    "estimate": 15.11231247151543,
+    "kind": "point",
+    "margin": 24.147264525252197,
+    "name": "c5_mi10",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 64.33133106219718,
+    "threshold": 20.0
+   },
+   "c5_prefix_controls": {
+    "flag": "prefix_controls",
+    "kind": "flag",
+    "name": "c5_prefix_controls",
+    "pass": true
+   },
+   "c6_guard_point": {
+    "adjusted": -209.50953664039451,
+    "estimate": -21.007466666666687,
+    "kind": "point",
+    "margin": 188.50206997372783,
+    "name": "c6_guard_point",
+    "op": ">",
+    "pass": false,
+    "pass_point": false,
+    "se": 162.07045996325178,
+    "threshold": 0.0
+   },
+   "c6_guard_scripted_survival": {
+    "adjusted": -0.8114412904918757,
+    "estimate": -0.175,
+    "kind": "point",
+    "margin": 0.6364412904918758,
+    "name": "c6_guard_scripted_survival",
+    "op": ">=",
+    "pass": false,
+    "pass_point": false,
+    "se": 0.5471999999999999,
+    "threshold": -0.05
+   },
+   "c7_feasibility": {
+    "cap": 600,
+    "kind": "feasibility",
+    "mde_bound_route": -123.68001415726857,
+    "mde_shrink_route": -30.74972227349025,
+    "mde_star": -30.74972227349025,
+    "n_fixed": null,
+    "n_max": null,
+    "name": "c7_feasibility",
+    "pass": false,
+    "sd_by_mix": {
+     "frozen": 192.31569943174628,
+     "mixed": 233.86970809885577,
+     "scripted": 113.31811730704358
+    },
+    "sd_star": 233.86970809885577
+   }
+  },
+  "efficacy": {
+   "df": 4.0,
+   "estimate": -51.24953712248375,
+   "lower_bound": -123.68001415726857,
+   "pass": false,
+   "se": 24.159124016333855,
+   "seed_effects": [
+    -74.6887666666667,
+    -120.68273333333333,
+    49.74796666666666,
+    -84.27233333333334,
+    -20.173933333333338
+   ],
+   "tau2": 129.0787363144579,
+   "threshold": 0.0
+  },
+  "failed_go_clauses": [
+   "efficacy",
+   "c1_point",
+   "c2_scripted_mean",
+   "c2_scripted_survival",
+   "c3_frozen_survival",
+   "c3_mixed_survival",
+   "c4_positive_seeds",
+   "c5_mi10",
+   "c6_guard_point",
+   "c6_guard_scripted_survival",
+   "c7_feasibility"
+  ],
+  "final_look": false,
+  "final_outcomes": [],
+  "final_outcomes_holding": [],
+  "fraction": 0.5,
+  "go_nominal_p": 0.020009253716118114,
+  "history": [
+   {
+    "action": "STOP",
+    "look": 0,
+    "n_per_seed_mix": 2,
+    "status": "KILL_V4"
+   }
+  ],
+  "kill": {
+   "all_below": true,
+   "parts": [
+    {
+     "df": 4.0,
+     "estimate": -51.24953712248375,
+     "name": "kill_h5000",
+     "pass": true,
+     "se": 24.159124016333855,
+     "threshold": 20.0,
+     "upper_bound": -4.320820343004378
+    }
+   ],
+   "suppressed_by": []
+  },
+  "kill_nominal_p": 0.0620114506958277,
+  "look": 0,
+  "margin_shrink": 0.2928932188134524,
+  "margin_shrink_protective": 0.7071067811865476,
+  "method": "sequential-phase-r-obf-hk-v1",
+  "n_per_seed_mix": 2,
+  "no_go": {
+   "all_below": true,
+   "parts": [
+    {
+     "df": 4.0,
+     "estimate": -51.24953712248375,
+     "name": "no_go_h5000",
+     "pass": true,
+     "se": 24.159124016333855,
+     "threshold": 50.0,
+     "upper_bound": -4.320820343004378
+    }
+   ],
+   "suppressed_by": []
+  },
+  "plan_sha256": "ad1d758c49206b569a554377e4780d4fe34f206fa572742faa4a924f5f37935f",
+  "status": "KILL_V4",
+  "valid": true
+ },
+ "deltas_sha256": "53ae679a799b853b1feb34240061f2931e1d01654bb6c07ac5f8635acb45d3b3",
+ "extra": {},
+ "flags": {
+  "prefix_controls": true
+ },
+ "look": 0,
+ "n_per_seed_mix": 2,
+ "plan_file_sha256": "6191165249d4a7025e2326a61d8ecf0b01bced8a11664d32ba15cac39cd2b99b",
+ "plan_sha256": "ad1d758c49206b569a554377e4780d4fe34f206fa572742faa4a924f5f37935f",
+ "previous_receipt_sha256": null,
+ "records": [
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-1414456708.json",
+   "sha256": "6af3bf0db7de52f8e2e61b14c7ba118759db154392261bd66091566041c520b6"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "frozen",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-frozen-646682205.json",
+   "sha256": "25bd93c00afd49cd58b4af3292eea96044e3442de9f698ff21b0d228666fb719"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-1414456708.json",
+   "sha256": "04818b7a21c409b234ce76133208815485dea8b97283916a36977378ec8009e6"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "mixed",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-mixed-646682205.json",
+   "sha256": "3e7ec2e47d5c8f031bc41b1d1d7aec6695b633c80e99501d944ca5998f26702e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-1414456708.json",
+   "sha256": "767acf37efb603a5e4543fa5795193a81ec1e16af90f86104f11674182136682"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    0,
+    "scripted",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s0-scripted-646682205.json",
+   "sha256": "d96a43c817a9a7143d95c045beb68f0996e408e6151766df225e19a4e48fd62f"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-1165340403.json",
+   "sha256": "53ce0fb6137e88ebbc2bc1e898e458df9ae9a93e2d2d924daf4967d2efe8cb07"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "frozen",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-frozen-1763765003.json",
+   "sha256": "5dd87901540720b9a322c8c194c472e40c4c64be35179bcb7f8383f67f537668"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-1165340403.json",
+   "sha256": "646da32fbff458bf3ce3bce4dac0b8068cf024a8f9b4dfd658c3301ef41e0e30"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "mixed",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-mixed-1763765003.json",
+   "sha256": "d7c25ee228f3b4a29f66b4c5d06472546004dc13a2c4a8b7bbc4d9a0c844f476"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-1165340403.json",
+   "sha256": "07bd1e1667c74f82649cbd6e3cb97911831d947e88aaa8b57c7d2eccc89f43a7"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    1,
+    "scripted",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s1-scripted-1763765003.json",
+   "sha256": "969f1d0d504483da837be7eec7e4d6a3d833cd2db8ae2ec8031815fa00835f1a"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-1933861344.json",
+   "sha256": "74c8e7ec0da84e0379c1efed669e2b1515113c97756f2054678d46995bc31868"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "frozen",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-frozen-2239723635.json",
+   "sha256": "0c41a7785ff3185df555979df8eecbe84a7a7649c91b2c5c3f3298dd32eb400e"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-1933861344.json",
+   "sha256": "e89c20fc302ecf7ae535b6de6afce69a52d30ba9720b9785ca123a8ffaef0948"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "mixed",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-mixed-2239723635.json",
+   "sha256": "9d7ba3b25dbc13ab4c3a26af807ecd141101dfdc9c38617a652ee30f3a2a1ae1"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-1933861344.json",
+   "sha256": "8d4715b30fc21e7fa4c475716006867d7f0ae306214901060dfeea6d4dfaa186"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    2,
+    "scripted",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s2-scripted-2239723635.json",
+   "sha256": "3765af713f8b423303eff60eb62dc85bfba3e66496d68e987cc2d091e1ae4eac"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-1252618812.json",
+   "sha256": "fb009e164b09413328dc4b083ecf4c0dbc591c3ae8cf97ea91bd47ea5c72dad0"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "frozen",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-frozen-3154012303.json",
+   "sha256": "005c7083bb6d9a8b7c42b8c959ae2d3df2570450bd44a971e57ce7553a305385"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-1252618812.json",
+   "sha256": "0c8ec67a7e68b735cd68b90140dd15f35ea7a01cae6a615d15068262bd1310e8"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "mixed",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-mixed-3154012303.json",
+   "sha256": "e54a3654ddc2a74f7b78435f82ceb6f0a4c2e8bcad2da0a10d379bd15863f0b4"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-1252618812.json",
+   "sha256": "67e775a67b26ed2966914fc1c64cc346ae45dff971e124b91c8134b768e0e375"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    3,
+    "scripted",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s3-scripted-3154012303.json",
+   "sha256": "8338936a84b597f58685fa21ad76aa857c18a35442feaa7022ff032cb6ddf621"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-2149834442.json",
+   "sha256": "ce3304f66e466778f78468dee16cbe94274ca5da50fa202eebbe3ac750b751d1"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "frozen",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-frozen-4148208495.json",
+   "sha256": "15e3aa839f61cced990ac4bff21ac4bf93bd1b411c79dd645d2b1c4573ea5404"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-2149834442.json",
+   "sha256": "93ae638dfbd4c25e3d15ec8038e0b0647b5627b5871268d638b860b1ba9fa7b8"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "mixed",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-mixed-4148208495.json",
+   "sha256": "445c43cecb449d56f575652837210eaf60ffccb12d0ecff8946e97b425d2012d"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-2149834442.json",
+   "sha256": "de15238b0817e1802241d35a56cc1ee55621da5e65588802e5a355a4319a35ff"
+  },
+  {
+   "key": [
+    "M3-ego2s-b@20M+v8",
+    4,
+    "scripted",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/M3-ego2s-b-u20Mpv8-s4-scripted-4148208495.json",
+   "sha256": "297fd9a40276e21065597e142163510fdb56cc2ebf41068350bca0d96c04383a"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/champion-s0-frozen-1414456708.json",
+   "sha256": "238a21bf5b950bfcc7afd697bb6bb9a575ac543e1ca00cc82f424717f050299c"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "frozen",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/champion-s0-frozen-646682205.json",
+   "sha256": "3cb22c801e1717f660f8d9d7e00682eedef0014c8e3dd898fb5098a237b0f0d5"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/champion-s0-mixed-1414456708.json",
+   "sha256": "1cfca969c6ca50404371f7187f91b8934c2604a6d23a0fe1fc69fc6487fbb5d5"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "mixed",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/champion-s0-mixed-646682205.json",
+   "sha256": "8ab40489a581004ca95b386d1dca27eb28ddd69bedaa39be84dc5c26c59924c2"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/champion-s0-scripted-1414456708.json",
+   "sha256": "cec4bc176d8d467cbd8c2772af15730da96c6439ef1680529c24392d5b65fae6"
+  },
+  {
+   "key": [
+    "champion",
+    0,
+    "scripted",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/champion-s0-scripted-646682205.json",
+   "sha256": "a4bf104be99bc8b5fe93ca6e68d2c57fc70d6e751c42a44810c7766ab4910063"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s0-frozen-1414456708.json",
+   "sha256": "cb0804f3039f1acc1e15b916fafc62d04437865e27dd8df68dc5f4d729cc8c3f"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "frozen",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s0-frozen-646682205.json",
+   "sha256": "9977b7ecc751f3fcde782fd2d57c1e220dfd7607aed4b8b16340763d7cbce83d"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s0-mixed-1414456708.json",
+   "sha256": "f08dac9cd4c3e31a1e88f3932408bcb92a47135685c7d9188a39e9a15d66fe6d"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "mixed",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s0-mixed-646682205.json",
+   "sha256": "ee6740d70dfca6b2e203175022ae2722052c49bba1259fddb8d351a1bad613de"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    1414456708
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s0-scripted-1414456708.json",
+   "sha256": "f5b175ef0ec3023bafd8f385950a4ce650d6cf93814d5f728a5f4cf384bc19ad"
+  },
+  {
+   "key": [
+    "incumbent",
+    0,
+    "scripted",
+    646682205
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s0-scripted-646682205.json",
+   "sha256": "0a11250981142491b7d4c102278edbb072edcc8809526463e5b08f8e02bfd259"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s1-frozen-1165340403.json",
+   "sha256": "480f3e763dfdebc5fbc6e6ce1eeefdb31d57faab1e61b154790b4be74f4a2f6e"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "frozen",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s1-frozen-1763765003.json",
+   "sha256": "ee4f154708bb4ccd8d84cea55ccc295bb686f2220b16922daf75913e49ea25b6"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s1-mixed-1165340403.json",
+   "sha256": "2bfe7939d0807df43c68bd47307df73410255be4302f0f3f6d196a1c4b54d99e"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "mixed",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s1-mixed-1763765003.json",
+   "sha256": "32e5897af59ab967620487e324eed4cf1bac9fa0c959c42d817154697cb59250"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    1165340403
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s1-scripted-1165340403.json",
+   "sha256": "2814fc82522c2520c32c534d978278205e1fe5ec52ce4d6dfe834bf41e4333dd"
+  },
+  {
+   "key": [
+    "incumbent",
+    1,
+    "scripted",
+    1763765003
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s1-scripted-1763765003.json",
+   "sha256": "7c7e761fd989281ed56008da35ce47a963a0e34af6a83d2cb046c3d180a2a33f"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s2-frozen-1933861344.json",
+   "sha256": "a519ff45c4816706751c70de8cf1e35afd3599b3b4ff2f149ee28577395df33e"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "frozen",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s2-frozen-2239723635.json",
+   "sha256": "57f48005c9a4372758b98c183993c4b120b3329fec2d536df84864e437732659"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s2-mixed-1933861344.json",
+   "sha256": "a9cf961df6045ee03a260d035931bfd639ce7dfa34b8e2f9b61051e0463e508b"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "mixed",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s2-mixed-2239723635.json",
+   "sha256": "2d6c43367ada64ea03a2d98e061b30c0ad299595363c731674e624a17ad34809"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    1933861344
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s2-scripted-1933861344.json",
+   "sha256": "670b82ec5e07c19db33014e9f5a167c34ad681f9857cb358eac6ec39f7754563"
+  },
+  {
+   "key": [
+    "incumbent",
+    2,
+    "scripted",
+    2239723635
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s2-scripted-2239723635.json",
+   "sha256": "f0904595e2bd07dd60e7970c3d775222f5103e3e6fc466651e71827f7381f1a3"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s3-frozen-1252618812.json",
+   "sha256": "79724e4d095537ed311965d577c79aa8d49aa9791dbabb663f9b2ff6eb5f7b2f"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "frozen",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s3-frozen-3154012303.json",
+   "sha256": "62f5620999ac7f2dbf234be18275ceda4998a3b81c5c1655f673fdcaf0bdf8a5"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s3-mixed-1252618812.json",
+   "sha256": "6a5da22a89e8a2060399a18f1aeb49a474aac8bc75fb25728f747fd0ef76fa36"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "mixed",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s3-mixed-3154012303.json",
+   "sha256": "61300cc1f03b4800a526b59fc3e4bdf48ea3e80b0e694ea221e0bb9809507f60"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    1252618812
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s3-scripted-1252618812.json",
+   "sha256": "a1c8b160a651c6691ab3c30df8518f3a96f32d247937143922fd8fce6c14dbe2"
+  },
+  {
+   "key": [
+    "incumbent",
+    3,
+    "scripted",
+    3154012303
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s3-scripted-3154012303.json",
+   "sha256": "6502db07e20f50240d8b02210aabe452216c16859d680f6e40623d65cbc9d900"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s4-frozen-2149834442.json",
+   "sha256": "de107420e331a215475beea4a3b836e2a83f8dbc5bb62fd9ce2b969f2152105f"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "frozen",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s4-frozen-4148208495.json",
+   "sha256": "e87c05b8fb40a9a8f5882e29a53eb5a4d91c796e877b4b439f938f667018b5b0"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s4-mixed-2149834442.json",
+   "sha256": "fdfcfc476dd7beb5d647252f2b357e4e88341d848aeb940cd3993fd5a6b550cf"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "mixed",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s4-mixed-4148208495.json",
+   "sha256": "b9cadf46e67d500a34829554448e8d7e98fe084c80a05b664d61dd2bc9eed5da"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    2149834442
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s4-scripted-2149834442.json",
+   "sha256": "3c0dae049961131f20ebdd7054a00f9918334a1b420c8f8435528432dbecc6c0"
+  },
+  {
+   "key": [
+    "incumbent",
+    4,
+    "scripted",
+    4148208495
+   ],
+   "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008/shards/look-0/records/incumbent-s4-scripted-4148208495.json",
+   "sha256": "204cb030f8349cde0211d7e8b06a0c82e3d0f2da5bd8374a5c3d6a9061511bc3"
+  }
+ ],
+ "records_sha256": "ba66a351e0ce33005cdce000b02db6b290f79ec9a007607f2014ddc8d4b43deb",
+ "schema": "sequential-phase-r-look/v1"
+}

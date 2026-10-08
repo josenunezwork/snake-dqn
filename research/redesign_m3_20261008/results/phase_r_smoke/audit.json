@@ -1,0 +1,20 @@
+{
+ "controls_checked": 33,
+ "final_status": "KILL_V4",
+ "looks": [
+  {
+   "action": "STOP",
+   "audit_status": "KILL_V4",
+   "look": 0,
+   "problems": [],
+   "status": "KILL_V4"
+  }
+ ],
+ "problems": [],
+ "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE-20261008",
+ "schema": "sequential-phase-r-audit/v1",
+ "unaudited": [
+  "shard start markers (the look_gate binding) are written by the study's runner and are not read here; the study's own audit must check them"
+ ],
+ "verdict": "PASS"
+}
