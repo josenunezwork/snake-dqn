@@ -33,7 +33,9 @@ IN, OUT, LOGS = ROOT / "in", ROOT / "out", ROOT / "logs"
 TOKEN_SHA = os.environ.get("M3_TOKEN_SHA256", "")
 DEADLINE = float(os.environ.get("M3_DEADLINE_EPOCH", "0"))
 SELF_DELETE = float(os.environ.get("M3_SELF_DELETE_EPOCH", "0"))
+DEADMAN = float(os.environ.get("M3_DEADMAN_SECONDS", "1200"))
 BOOT = time.time()
+LAST_AUTH = [time.time()]
 LOCK = threading.Lock()
 PROCS = {}
 for d in (IN, OUT, LOGS):
@@ -69,6 +71,25 @@ def gpu():
         return f"n/a ({type(exc).__name__})"
 
 
+def cgroup_memory_gb():
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+            if raw and raw != "max":
+                return int(raw) / 1e9
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def cgroup_cpus():
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()[:2]
+        return None if quota == "max" else int(quota) / int(period)
+    except (OSError, ValueError):
+        return None
+
+
 def health():
     with LOCK:
         procs = {n: {"pid": p.pid, "returncode": p.poll()} for n, p in PROCS.items()}
@@ -87,6 +108,13 @@ def health():
         "disk_free_gb": du.free / 1e9,
         "meminfo": mem,
         "cpus": os.cpu_count(),
+        "cpus_allowed": len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
+        "cgroup_memory_gb": cgroup_memory_gb(),
+        "cgroup_cpus": cgroup_cpus(),
+        "self_delete_armed": bool(
+            os.environ.get("RUNPOD_POD_ID") and os.environ.get("RUNPOD_API_KEY")
+        ),
+        "last_auth_age": time.time() - LAST_AUTH[0],
         "gpu": gpu(),
         "procs": procs,
         "inputs": sorted(str(p.relative_to(IN)) for p in IN.rglob("*") if p.is_file())[:200],
@@ -102,10 +130,20 @@ def self_delete():
     req.add_header("Authorization", "Bearer " + key)
     req.add_header("User-Agent", "m3-gpu-agent/1.0")
     try:
-        urllib.request.urlopen(req, timeout=30).read()
-        log("self-delete requested")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            log(f"self-delete requested: HTTP {resp.status}")
     except Exception as exc:  # noqa: BLE001
-        log(f"self-delete failed: {type(exc).__name__}")
+        log(f"self-delete failed: {type(exc).__name__} {getattr(exc, 'code', '')}")
+
+
+def kill_all():
+    with LOCK:
+        for p in PROCS.values():
+            if p.poll() is None:
+                try:
+                    p.kill()
+                except OSError:
+                    pass
 
 
 def reaper():
@@ -113,6 +151,14 @@ def reaper():
     while True:
         time.sleep(5)
         now = time.time()
+        # Dead-man switch: the local runner polls every minute; if it is gone, stop paying.
+        if DEADMAN and now - LAST_AUTH[0] > DEADMAN:
+            kill_all()
+            if now - tried > 600:
+                tried = now
+                log("dead-man: no runner contact; self-deleting")
+                self_delete()
+            continue
         if DEADLINE and now >= DEADLINE:
             with LOCK:
                 for p in PROCS.values():
@@ -137,6 +183,8 @@ class Handler(BaseHTTPRequestHandler):
         )
         if not ok:
             self._send(403, {"error": "forbidden"})
+        else:
+            LAST_AUTH[0] = time.time()
         return ok
 
     def _send(self, code, payload, raw=None):
@@ -154,11 +202,16 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/health":
                 return self._send(200, health())
             if self.path == "/ls/out":
-                rows = [
-                    {"path": str(p.relative_to(OUT)), "bytes": p.stat().st_size}
-                    for p in OUT.rglob("*")
-                    if p.is_file()
-                ]
+                rows = []
+                for p in OUT.rglob("*"):
+                    if p.is_file():
+                        rows.append(
+                            {
+                                "path": str(p.relative_to(OUT)),
+                                "bytes": p.stat().st_size,
+                                "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+                            }
+                        )
                 return self._send(200, rows)
             if self.path.startswith("/log/"):
                 path = safe(LOGS, self.path[5:] + ".log")

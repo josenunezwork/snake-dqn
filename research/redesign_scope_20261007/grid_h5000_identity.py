@@ -340,7 +340,12 @@ def _git() -> Dict[str, Any]:
             ["git", *args], cwd=REPO, capture_output=True, text=True, check=True
         ).stdout.strip()
 
-    return {"commit": run("rev-parse", "HEAD"), "dirty_paths": run("status", "--porcelain")}
+    try:
+        return {"commit": run("rev-parse", "HEAD"), "dirty_paths": run("status", "--porcelain")}
+    except (OSError, subprocess.CalledProcessError):
+        # A tree without .git (e.g. a ``git archive`` on a RunPod pod): the runner passes the
+        # archived commit in ``M3_COMMIT``.
+        return {"commit": os.environ.get("M3_COMMIT", "unknown"), "dirty_paths": "<no .git>"}
 
 
 def cmd_run(args: argparse.Namespace) -> int:

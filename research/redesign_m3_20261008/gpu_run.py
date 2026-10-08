@@ -30,10 +30,12 @@ import hashlib
 import json
 import os
 import secrets
+import signal
 import subprocess
 import sys
 import tarfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -59,6 +61,7 @@ PIP = [
     "PyYAML==6.0.3",
     "psutil==5.9.8",
     "openskill==6.2.0",
+    "tqdm",
 ]
 SEEDS = (0, 1, 2, 3, 4)
 TRANSITIONS = 20_000_000
@@ -69,6 +72,12 @@ CHUNK = 48 << 20
 POD_NAME = "m3b-gpu-"
 MAX_HOURLY = 1.0
 PORT = 8000
+MIN_RAM_GB = 72  # 5 trainers x ~12 GB RSS (+ CUDA / numba / page cache)
+MIN_VCPU = 10  # 5 single-thread trainers + prefetch threads + the agent
+UPLOAD_BUDGET_S = 3600
+SETUP_BUDGET_S = 1800
+STALL_S = 900
+NET_FAIL_BUDGET_S = 900
 
 
 # ----------------------------------------------------------------------------- pure parts
@@ -96,8 +105,8 @@ def pod_body(name: str, token_sha: str, deadline: float, until: float) -> Dict[s
         "imageName": IMAGE,
         "containerDiskInGb": 40,
         "volumeInGb": 0,
-        "minRAMPerGPU": 64,
-        "minVCPUPerGPU": 8,
+        "minRAMPerGPU": MIN_RAM_GB,
+        "minVCPUPerGPU": MIN_VCPU,
         "ports": [f"{PORT}/http"],
         "env": {
             "M3_TOKEN_SHA256": token_sha,
@@ -206,8 +215,12 @@ def setup_argv(demo_sha: str) -> List[str]:
             "tar -xf /r/demo.tar -C /r/demo",
             "rm /r/demo.tar",
             "pip install -q --no-cache-dir " + " ".join(PIP),
-            "python -c 'import torch, numba, numpy; print(torch.__version__, "
-            "torch.cuda.is_available(), numba.__version__, numpy.__version__)'",
+            "python -c 'import torch, numba, numpy; assert torch.cuda.is_available(); "
+            "print(torch.__version__, numba.__version__, numpy.__version__)'",
+            "cd /r/repo && SNAKE_CKPT_DIR=/r/in/ckpt python -c "
+            '\'import sys; sys.path.insert(0, "."); '
+            "from research.redesign_scope_20261007 import grid_h5000_identity as g; g._context(1); "
+            "import research.redesign_m3_20261008.train_m3'",
             "echo SETUP_OK",
         ]
     )
@@ -234,6 +247,17 @@ def train_argv(seed: int) -> List[str]:
 
 
 # ----------------------------------------------------------------------------- agent client
+_SSL = []
+
+
+def _ssl():
+    if not _SSL:
+        from research.runpod_fanout.tls import ssl_context
+
+        _SSL.append(ssl_context())
+    return _SSL[0]
+
+
 class Agent:
     def __init__(self, pod_id: str, token: str) -> None:
         self.base = f"https://{pod_id}-{PORT}.proxy.runpod.net"
@@ -245,7 +269,7 @@ class Agent:
         req.add_header("User-Agent", "m3-gpu-runner/1.0")
         for k, v in (headers or {}).items():
             req.add_header(k, v)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=_ssl()) as resp:
             return resp.read()
 
     def health(self) -> Dict[str, Any]:
@@ -259,7 +283,11 @@ class Agent:
 
     def exec(self, name: str, argv: List[str], cwd: str, env: Dict[str, str]) -> None:
         body = json.dumps({"name": name, "argv": argv, "cwd": cwd, "env": env}).encode()
-        self._req("POST", "/exec", body, {"Content-Type": "application/json"})
+        try:
+            self._req("POST", "/exec", body, {"Content-Type": "application/json"})
+        except urllib.error.HTTPError as exc:
+            if exc.code != 409:  # 409 "already running": an earlier attempt got through
+                raise
 
     def get(self, path: str) -> bytes:
         return self._req("GET", path, timeout=300)
@@ -284,57 +312,143 @@ def our_pods(rp) -> List[Dict[str, Any]]:
     return [p for p in rp.list_pods() if str(p.get("name", "")).startswith(POD_NAME)]
 
 
-def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> None:
-    pod_id = state.get("pod_id")
-    if pod_id:
-        for _ in range(5):
-            try:
-                rp.delete_pod(pod_id, confirm=True)
-                break
-            except Exception as exc:  # noqa: BLE001
-                print(f"delete failed ({exc}); retrying", flush=True)
-                time.sleep(10)
-    left = our_pods(rp)
-    state.update(deleted=now(), delete_reason=reason, pods_left=[p.get("id") for p in left])
-    save_state(run_dir, state)
-    print(json.dumps({"deleted": pod_id, "reason": reason, "our_pods_left": state["pods_left"]}))
+def alert(msg: str) -> None:
+    print("ALERT: " + msg, file=sys.stderr, flush=True)
 
 
-def spawn_watchdog(run_dir: Path, pod_id: str, until: float) -> int:
-    code = (
-        "import sys,time,json;sys.path.insert(0,%r);"
-        "from research.runpod_fanout.rp_client import RpClient;"
-        "time.sleep(max(0,%f-time.time()));rp=RpClient();"
-        "ids=[p.get('id') for p in rp.list_pods()];"
-        "rp.delete_pod(%r,confirm=True) if %r in ids else None;"
-        "open(%r,'a').write(json.dumps({'watchdog':'fired','t':time.time()})+'\\n')"
-    ) % (str(REPO), until + 300, pod_id, pod_id, str(run_dir / "watchdog.log"))
+def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> bool:
+    """Delete our pod(s) with backoff for up to ~30 min; True iff GET /pods shows none."""
+    deadline = now() + 1800
+    wait = 10.0
+    while True:
+        try:
+            ids = {state.get("pod_id")} | {p.get("id") for p in our_pods(rp)}
+            ids.discard(None)
+            for pid in ids:
+                try:
+                    rp.delete_pod(pid, confirm=True)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"delete {pid} failed: {exc}", flush=True)
+            left = our_pods(rp)
+            if not left:
+                state.update(deleted=now(), delete_reason=reason, pods_left=[])
+                save_state(run_dir, state)
+                print(json.dumps({"deleted": sorted(ids), "reason": reason, "our_pods_left": []}))
+                return True
+            state["pods_left"] = [p.get("id") for p in left]
+        except Exception as exc:  # noqa: BLE001
+            print(f"delete/verify error: {exc}", flush=True)
+        if now() > deadline:
+            state.update(delete_reason=reason, delete_failed=True)
+            save_state(run_dir, state)
+            alert(f"pod(s) may still be running: {state.get('pods_left')}; run `cleanup --confirm`")
+            return False
+        time.sleep(wait)
+        wait = min(120.0, wait * 2)
+
+
+WATCHDOG = """
+import json, sys, time
+sys.path.insert(0, {repo!r})
+from research.runpod_fanout.rp_client import RpClient
+log = open({log!r}, "a")
+t = {fire!r}
+while time.time() < t:  # short sleeps: a long sleep does not count macOS sleep time
+    time.sleep(60)
+rp = RpClient()
+end = time.time() + 1800
+while time.time() < end:
+    try:
+        pods = [p for p in rp.list_pods() if str(p.get("name", "")).startswith({prefix!r})]
+        if not pods:
+            log.write(json.dumps({{"watchdog": "clean", "t": time.time()}}) + "\n")
+            break
+        for p in pods:
+            rp.delete_pod(p["id"], confirm=True)
+            log.write(json.dumps({{"watchdog": "deleted", "id": p["id"], "t": time.time()}}) + "\n")
+    except Exception as exc:
+        log.write(json.dumps({{"watchdog": "error", "error": repr(exc), "t": time.time()}}) + "\n")
+    log.flush()
+    time.sleep(60)
+"""
+
+
+def spawn_watchdog(run_dir: Path, until: float) -> int:
+    code = WATCHDOG.format(
+        repo=str(REPO), log=str(run_dir / "watchdog.log"), fire=until + 300, prefix=POD_NAME
+    )
     proc = subprocess.Popen(
         [sys.executable, "-c", code],
         start_new_session=True,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=open(run_dir / "watchdog.err", "a"),
     )
     return proc.pid
 
 
-def latest_rates(agent: Agent) -> Dict[int, float]:
-    rates = {}
+def latest_rates(agent: Agent, tries: int = 3) -> Dict[int, Dict[str, float]]:
+    rows = {}
     for s in SEEDS:
-        try:
-            lines = agent.get(f"/out/m3b_seed{s}/log.jsonl").decode().strip().splitlines()
-            row = json.loads(lines[-1])
-            rates[s] = float(row["transitions"]) / float(row["wall"])
-        except Exception:  # noqa: BLE001
+        for _ in range(tries):
+            try:
+                lines = agent.get(f"/out/m3b_seed{s}/log.jsonl").decode().strip().splitlines()
+                row = json.loads(lines[-1])
+                rows[s] = {
+                    "rate": float(row["transitions"]) / float(row["wall"]),
+                    "transitions": float(row["transitions"]),
+                }
+                break
+            except Exception:  # noqa: BLE001
+                time.sleep(2)
+    return rows
+
+
+def download(agent: Agent, run_dir: Path, budget_s: float = 900) -> Dict[str, Any]:
+    """Best effort, time-bounded, per-file retries, paths confined, sha-checked."""
+    dest = (run_dir / "out").resolve()
+    t0, got, failed = now(), 0, []
+    try:
+        listing = json.loads(agent.get("/ls/out"))
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"ls failed: {exc}"}
+    for row in listing:
+        if now() - t0 > budget_s:
+            failed.append("<budget>")
+            break
+        path = (dest / row["path"]).resolve()
+        if dest not in path.parents:
+            failed.append(row["path"])
             continue
-    return rates
+        for _ in range(3):
+            try:
+                data = agent.get("/out/" + row["path"])
+                if hashlib.sha256(data).hexdigest() != row.get("sha256"):
+                    raise ValueError("sha mismatch")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                got += 1
+                break
+            except Exception:  # noqa: BLE001
+                time.sleep(3)
+        else:
+            failed.append(row["path"])
+    return {"files": got, "failed": failed}
+
+
+def _raise_interrupt(signum, frame):  # noqa: ARG001
+    raise KeyboardInterrupt(f"signal {signum}")
 
 
 def launch(args) -> int:
     from research.runpod_fanout.ledger import SharedLedger
     from research.runpod_fanout.rp_client import RpClient
+    from research.runpod_fanout.tls import preflight
 
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, _raise_interrupt)
+    if sys.platform == "darwin":  # keep the Mac awake while this process lives
+        subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())], start_new_session=True)
     policy = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
     rp = RpClient()
     run_dir = Path(args.run_dir)
@@ -342,6 +456,9 @@ def launch(args) -> int:
         print(f"refusing: {run_dir} exists", file=sys.stderr)
         return 2
     run_dir.mkdir(parents=True)
+    problems = preflight()
+    if problems:
+        raise SystemExit(f"TLS preflight failed: {problems}")
     inputs = build_inputs(run_dir / "inputs")
     if our_pods(rp):
         raise SystemExit("refusing: a pod of ours already exists")
@@ -350,19 +467,20 @@ def launch(args) -> int:
     created = now()
     until = created + args.lifetime_hours * 3600
     deadline = until - 15 * 60
-    name = POD_NAME + time.strftime("%m%d%H%M")
+    name = POD_NAME + time.strftime("%m%d%H%M%S")
     body = pod_body(name, hashlib.sha256(token.encode()).hexdigest(), deadline, until)
     body_path = run_dir / "pod_body.json"
     body_path.write_text(json.dumps(body))
     ledger = SharedLedger(policy)
     run_id = f"m3b-gpu-{int(created)}"
     ledger.register_run(run_id, "redesign-m3b-gpu", str(run_dir), args.spend_cap, os.getpid())
-    refusal = ledger.reserve_pod(run_id, "gpu0", args.rate, until, balance0)
+    refusal = ledger.reserve_pod(run_id, name, MAX_HOURLY, until, balance0)
     if refusal:
         ledger.finish_run(run_id, False, False)
         raise SystemExit(f"ledger refused: {refusal}")
     state: Dict[str, Any] = {
         "run_id": run_id,
+        "name": name,
         "balance0": balance0,
         "created": created,
         "until": until,
@@ -372,42 +490,57 @@ def launch(args) -> int:
         "token_sha256": body["env"]["M3_TOKEN_SHA256"],
     }
     save_state(run_dir, state)
-    out = rp.create_pod(body_path, MAX_HOURLY, confirm=True)
-    pod_id = out.get("id") if isinstance(out, dict) else None
-    if not pod_id:
-        ledger.finish_run(run_id, False, False)
-        raise SystemExit(f"pod create failed: {out}")
-    rate = float(out.get("costPerHr") or args.rate)
-    ledger.bind_pod(run_id, "gpu0", pod_id, rate)
-    state.update(pod_id=pod_id, rate=rate, machine=out.get("machine"))
-    state["watchdog_pid"] = spawn_watchdog(run_dir, pod_id, until)
+    # From here on every exit path deletes whatever pod of ours exists (by name prefix).
+    state["watchdog_pid"] = spawn_watchdog(run_dir, until)
     save_state(run_dir, state)
-    print(json.dumps({"pod_id": pod_id, "rate": rate, "until": until}), flush=True)
-    agent = Agent(pod_id, token)
-    outcome = "unknown"
+    outcome, rate = "unknown", MAX_HOURLY
     try:
-        outcome = drive(agent, rp, run_dir, state, inputs, balance0, args)
-    except BaseException as exc:  # noqa: BLE001  (incl. KeyboardInterrupt: always clean up)
+        out = None
+        try:
+            out = rp.create_pod(body_path, MAX_HOURLY, confirm=True)
+        except Exception as exc:  # noqa: BLE001  (the POST may still have gone through)
+            outcome = f"create error: {exc}"
+        pod_id = out.get("id") if isinstance(out, dict) else None
+        if not pod_id:
+            for _ in range(10):  # adopt a pod created despite the error, by its unique name
+                hits = [p for p in our_pods(rp) if p.get("name") == name]
+                if hits:
+                    pod_id = hits[0]["id"]
+                    break
+                time.sleep(30)
+        if not pod_id:
+            outcome = outcome if outcome != "unknown" else f"create failed: {out}"
+            return 1
+        rate = float((out or {}).get("costPerHr") or args.rate)
+        state.update(pod_id=pod_id, rate=rate, machine=(out or {}).get("machine"))
+        save_state(run_dir, state)
+        ledger.bind_pod(run_id, name, pod_id, rate)
+        print(json.dumps({"pod_id": pod_id, "rate": rate, "until": until}), flush=True)
+        outcome = drive(Agent(pod_id, token), rp, run_dir, state, inputs, args)
+    except BaseException as exc:  # noqa: BLE001  (incl. KeyboardInterrupt / SIGTERM / SIGHUP)
         outcome = f"error: {type(exc).__name__}: {exc}"
-        raise
     finally:
         state["outcome"] = outcome
         save_state(run_dir, state)
-        delete_and_verify(rp, run_dir, state, outcome)
-        cost = rate * (now() - created) / 3600.0
-        ledger.release_pod(run_id, "gpu0", cost)
-        ledger.finish_run(run_id, outcome == "complete", outcome == "complete")
-        state.update(cost_estimate=cost, balance_end=rp.balance())
+        ok = delete_and_verify(rp, run_dir, state, outcome)
+        try:
+            cost = rate * (now() - created) / 3600.0
+            ledger.release_pod(run_id, name, cost)
+            ledger.finish_run(run_id, outcome == "complete", outcome == "complete")
+            state.update(cost_estimate=cost, balance_end=rp.balance())
+        except Exception as exc:  # noqa: BLE001
+            alert(f"ledger/balance bookkeeping failed: {exc}")
+        state["pods_deleted_verified"] = ok
         save_state(run_dir, state)
-    return 0 if outcome == "complete" else 1
+    return 0 if outcome == "complete" and state.get("pods_deleted_verified") else 1
 
 
 def guard(rp, state, args) -> Optional[str]:
-    if now() >= state["until"]:
+    if now() >= state["deadline"]:  # the agent kills jobs here; download before self-delete
         return "lifetime"
     try:
         bal = rp.balance()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  (the lifetime already bounds the spend)
         return None
     state["balance_last"] = bal
     if spend_exceeded(state["balance0"], bal, args.spend_cap):
@@ -415,16 +548,31 @@ def guard(rp, state, args) -> Optional[str]:
     return None
 
 
-def drive(agent, rp, run_dir, state, inputs, balance0, args) -> str:
+class NetBudget:
+    """Consecutive network failures are tolerated up to NET_FAIL_BUDGET_S."""
+
+    def __init__(self) -> None:
+        self.first_fail: Optional[float] = None
+
+    def ok(self) -> None:
+        self.first_fail = None
+
+    def fail(self) -> bool:
+        self.first_fail = self.first_fail or now()
+        return now() - self.first_fail > NET_FAIL_BUDGET_S
+
+
+def drive(agent, rp, run_dir, state, inputs, args) -> str:
     log = run_dir / "progress.jsonl"
+    net = NetBudget()
 
     def note(**row):
         row["t"] = now()
         with log.open("a") as fh:
-            fh.write(json.dumps(row) + "\n")
-        print(json.dumps(row), flush=True)
+            fh.write(json.dumps(row, default=str) + "\n")
+        print(json.dumps(row, default=str), flush=True)
 
-    # 1. agent up
+    # 1. agent up + host checks
     t0 = now()
     while True:
         stop = guard(rp, state, args)
@@ -432,14 +580,43 @@ def drive(agent, rp, run_dir, state, inputs, balance0, args) -> str:
             return stop
         try:
             h = agent.health()
-            note(stage="agent_up", gpu=h.get("gpu"), cpus=h.get("cpus"), mem=h.get("meminfo"))
             break
         except Exception:  # noqa: BLE001
             if now() - t0 > 1200:
                 return "agent never came up"
             time.sleep(15)
-    # 2. uploads (sha-verified by the agent)
+    note(
+        stage="agent_up",
+        **{
+            k: h.get(k)
+            for k in (
+                "gpu",
+                "cpus",
+                "cpus_allowed",
+                "cgroup_cpus",
+                "cgroup_memory_gb",
+                "self_delete_armed",
+            )
+        },
+    )
+    if not h.get("self_delete_armed"):
+        return "pod self-delete not armed (no pod-scoped credentials)"
+    mem = h.get("cgroup_memory_gb")
+    cpus = min(
+        c
+        for c in (h.get("cgroup_cpus"), h.get("cpus_allowed"), h.get("cpus"), 1e9)
+        if c is not None
+    )
+    if (mem is not None and mem < MIN_RAM_GB - 2) or cpus < MIN_VCPU:
+        return f"host too small (memory {mem} GB, cpus {cpus})"
+    # 2. uploads (sha-verified), spend guard between files, time budget
+    t0 = now()
     for f in inputs["files"]:
+        stop = guard(rp, state, args)
+        if stop:
+            return stop
+        if now() - t0 > UPLOAD_BUDGET_S:
+            return "upload budget exceeded"
         for attempt in range(3):
             try:
                 agent.put(f["dst"], f["src"], f["sha256"])
@@ -447,77 +624,111 @@ def drive(agent, rp, run_dir, state, inputs, balance0, args) -> str:
             except Exception as exc:  # noqa: BLE001
                 if attempt == 2:
                     return f"upload failed: {f['dst']}: {exc}"
-                time.sleep(5)
-    note(stage="uploaded", files=len(inputs["files"]), bytes=inputs["bytes"])
-    # 3. setup
+                time.sleep(10)
+    note(stage="uploaded", files=len(inputs["files"]), bytes=inputs["bytes"], seconds=now() - t0)
+    # 3. setup (bounded)
     agent.exec("setup", setup_argv(inputs["demo_sha256"]), "/r", {})
+    t0 = now()
     while True:
         stop = guard(rp, state, args)
         if stop:
             return stop
-        procs = agent.health()["procs"]
+        if now() - t0 > SETUP_BUDGET_S:
+            return "setup timeout"
+        time.sleep(20)
+        try:
+            procs = agent.health()["procs"]
+            net.ok()
+        except Exception:  # noqa: BLE001
+            if net.fail():
+                return "lost the agent during setup"
+            continue
         rc = procs.get("setup", {}).get("returncode")
         if rc is not None:
-            tail = agent.get("/log/setup").decode(errors="replace")[-800:]
+            tail = agent.get("/log/setup").decode(errors="replace")[-1200:]
             note(stage="setup_done", returncode=rc, tail=tail)
             if rc != 0 or "SETUP_OK" not in tail:
                 return "setup failed"
             break
-        time.sleep(20)
-    # 4. trainers
-    env = {"SNAKE_CKPT_DIR": "/r/in/ckpt", "OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
+    # 4. trainers; a failing seed does not stop the others
+    env = {
+        "SNAKE_CKPT_DIR": "/r/in/ckpt",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "M3_COMMIT": inputs["commit"],
+    }
     for s in SEEDS:
         agent.exec(f"seed{s}", train_argv(s), "/r/repo", env)
     started = now()
     note(stage="trainers_started")
-    g2 = None
+    g2, last_progress, best, uptime = None, now(), {}, 0.0
     while True:
         stop = guard(rp, state, args)
         if stop:
+            note(stage="stopping", reason=stop, download=download(agent, run_dir))
             return stop
         time.sleep(60)
-        h = agent.health()
-        rcs = {s: h["procs"].get(f"seed{s}", {}).get("returncode") for s in SEEDS}
-        rates = latest_rates(agent)
-        note(stage="running", returncodes=rcs, rates=rates, balance=state.get("balance_last"))
-        if any(rc not in (None, 0) for rc in rcs.values()):
-            for s, rc in rcs.items():
-                if rc not in (None, 0):
-                    tail = agent.get(f"/log/seed{s}").decode(errors="replace")[-1500:]
-                    note(stage="trainer_failed", seed=s, returncode=rc, tail=tail)
-            return "trainer failed"
+        try:
+            h = agent.health()
+            net.ok()
+        except Exception:  # noqa: BLE001
+            if net.fail():
+                return "lost the agent"
+            continue
+        if h.get("uptime", 0) < uptime:  # container restarted: /r is gone
+            return "pod container restarted"
+        uptime = h.get("uptime", 0)
+        procs = h.get("procs", {})
+        if any(f"seed{s}" not in procs for s in SEEDS):
+            return "trainer process missing"
+        rcs = {s: procs[f"seed{s}"].get("returncode") for s in SEEDS}
+        rows = latest_rates(agent)
+        for s, r in rows.items():
+            if r["transitions"] > best.get(s, -1):
+                best[s] = r["transitions"]
+                last_progress = now()
+        note(
+            stage="running",
+            returncodes=rcs,
+            rates={s: r["rate"] for s, r in rows.items()},
+            transitions=best,
+            balance=state.get("balance_last"),
+        )
+        if all(rc is not None for rc in rcs.values()):
+            dl = download(agent, run_dir)
+            note(stage="finished", returncodes=rcs, download=dl)
+            return "complete" if all(rc == 0 for rc in rcs.values()) else "finished with failures"
+        if now() - last_progress > STALL_S and any(rc is None for rc in rcs.values()):
+            note(stage="stall", download=download(agent, run_dir))
+            return "stalled"
         if g2 is None and now() - started >= G2_SECONDS:
-            g2 = g2_decision(rates, now() - started, state["until"] - now())
+            if len(rows) < len(SEEDS):
+                continue  # a transient GET miss: decide on the next poll
+            g2 = g2_decision(
+                {s: r["rate"] for s, r in rows.items()}, now() - started, state["until"] - now()
+            )
             state["g2"] = g2
             save_state(run_dir, state)
             note(stage="G2", **{k: v for k, v in g2.items() if k != "per_seed"})
             if not g2["pass"]:
-                download(agent, run_dir)
+                note(stage="g2_fail", download=download(agent, run_dir))
                 return f"G2 fail ({g2['reason']})"
-        if all(rc == 0 for rc in rcs.values()):
-            download(agent, run_dir)
-            return "complete"
-
-
-def download(agent: Agent, run_dir: Path) -> None:
-    dest = run_dir / "out"
-    for row in json.loads(agent.get("/ls/out")):
-        path = dest / row["path"]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(agent.get("/out/" + row["path"]))
 
 
 def cleanup(args) -> int:
     from research.runpod_fanout.rp_client import RpClient
 
     run_dir = Path(args.run_dir)
-    state = json.loads(state_path(run_dir).read_text())
+    sp = state_path(run_dir)
+    state = json.loads(sp.read_text()) if sp.exists() else {}
     rp = RpClient()
     if not args.confirm:
-        print(json.dumps({"would_delete": state.get("pod_id"), "our_pods": our_pods(rp)}))
+        print(
+            json.dumps({"would_delete": [p.get("id") for p in our_pods(rp)] or state.get("pod_id")})
+        )
         return 0
-    delete_and_verify(rp, run_dir, state, "manual cleanup")
-    return 0
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return 0 if delete_and_verify(rp, run_dir, state, "manual cleanup") else 1
 
 
 def plan(args) -> int:

@@ -126,3 +126,23 @@ non-bit-reproducible; training never sees the "mixed" mix.
 **RATIFIED 2026-10-08 by the research loop owner** (owner decisions (a)–(d) above), effective
 at this file's commit. M3-A may start; M3-B's platform and any pod spend are decided after
 M3-A; Phase R needs M3-B's slope gate and the candidate P2 re-run.
+
+**Platform decision (d), recorded 2026-10-08 after M3-A** (relayed by the research loop as
+the user's in-chat approval). M3-B uses 5 seeds (0–4) × 20M transitions on ONE RTX 4090
+pod, secure cloud (≈ $0.74/h), run by `gpu_run.py` / `gpu_agent.py` at a clean commit;
+everything else in §2 and §6 is unchanged. It uploads the committed tree, the sha-pinned
+M2b student (`36a92948…c48f`), the pinned pool checkpoints and the M2b demonstration
+rounds 10–12 (≈ 2.2 GB, sha-checked part by part). Money safety: a hard spend cap of $8
+(stop when the account balance has fallen by ≥ $7.50 since launch); a 7 h pod lifetime,
+with jobs killed 15 min before it; pod self-delete at the lifetime and a dead-man switch
+(20 min without runner contact); a detached local watchdog; delete-and-verify (`GET /pods`
+shows none of ours) on every exit; the shared ledger reservation (project cap). **Gate G2**
+(the per-step 4× rule): after 30 min of training the 5 seeds' combined rate must be
+≥ 5.6k transitions/s (≥ 4 × the M3-A rate of 1.39k/s), and the projected finish plus
+45 min must fit in the remaining lifetime. Otherwise the pod is deleted and M3-B falls
+back to the Mac (≈ 20 h, 2 processes), with the same seeds, budget and slope gate. The
+learning-slope gate (§6) is evaluated on the Mac (`dev_probe`, round index 52, veto v8)
+whatever the platform. The training device (CUDA, not MPS) is not part of the pinned
+algorithm; rates and any CUDA-vs-MPS differences are reported. The launch itself
+(`gpu_run.py launch --confirm`: spend plus upload) runs only on the user's direct
+confirmation.
