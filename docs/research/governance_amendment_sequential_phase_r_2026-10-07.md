@@ -1,4 +1,4 @@
-# Governance amendment (DRAFT, for the owner to ratify): sequential Phase R for Tier-1 screens
+# Governance amendment (RATIFIED 2026-10-08, see section 5): sequential Phase R for Tier-1 screens
 
 * **Date:** 2026-10-07.
 * **Branch:** `seq-phaser`.
