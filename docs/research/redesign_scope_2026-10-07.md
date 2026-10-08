@@ -1141,3 +1141,63 @@ region kernel. A re-review of rev. 2 returned GO for the pre-M3 code and GO-with
 the draft as a decision basis (ratifiable only once P1, P2, `train_m3.py` and the rule pin
 exist); its remaining points (demonstration stream coverage, live-fallback cost bound,
 prefix-control count, anchor decay start at 8M, empty-dispatch logging) are folded in.
+
+## 19. M3: prerequisites, ratification, and the M3-A smoke (2026-10-08)
+
+**Owner decisions** (relayed): the ratified sequential Phase R applies to this architecture
+and replaces doc §10's intermediate screen; pod gate = "≥ 4× the measured Mac smoke-run rate
+end-to-end" (pod spend still needs the user's approval); NO_GO at G = 50; the 5-seed platform
+is decided after M3-A; boosting is left to RL.
+
+**Built (each tested):**
+* **P1:** the live student + v8 player: `tournament_eval` serves an ego2s hero via
+  `Ego2sServingPolicy(forward="rowwise")`, and the vetoes accept ego2s heroes (`8e4799a`).
+* **P2:** grid-vs-live record parity with the student acting (`student_record_parity.py`).
+  **Student + v8: 9/9 worlds identical** → Phase R runs on the SIMD grid engine; P2 is
+  repeated on the real candidates (with H10000 worlds) before Phase R. Without the veto, 6/9
+  worlds differ by exactly +1 boost frame on the trapped death frame: SIMD's
+  `Ego2sSimdPolicy` uses the resolved mask (whose last-resort fallback includes boost),
+  live uses the advisory mask with a normal-only fallback. No Phase R arm uses that path.
+* **`train_m3.py`:** the synchronous DQN + anchor of the pre-registration. The review
+  recomputed all 19,936 replay entries of a logged smoke exactly.
+* **Rule spec + plan pinned** (`rule_spec.py`, `rule_spec_m3.json`,
+  `tests/test_m3_rule_spec.py`); namespace disjointness test (`tests/test_m3_namespaces.py`).
+* **Pre-registration** `research/redesign_m3_20261008/PREREGISTRATION_M3.md`. Pre-ratification
+  review GO-with-fixes (all folded in). **RATIFIED** (`db578d6`).
+
+### 19.1 M3-A (seed 0, 5M transitions, Mac: 1 process + MPS; probes in the second process)
+
+| Item | Result |
+|---|---|
+| Wall / rate | 60.0 min, **1.39k transitions/s** end-to-end (1.8k/s without the concurrent probe process); env ≈ 49% of wall, learner ≈ 51% |
+| Tripwires | no HALT, no FLAG (max \|Q\| 99 vs a 5× demo bound of 450; hold-out v8 agreement 0.82 → 0.85 → 0.82) |
+| TD / anchor loss | 0.15 → 0.26–0.34 (γ anneal from 2M) / 0.70 → 0.54 |
+| Greedy boost rate | 0.3–0.5% throughout (teacher labels 1.4%): RL has not changed boosting yet |
+| Hero deaths per 1k decisions (incl. ε) | 0.44 → 0.32 |
+| Schedules at 5M | γ 0.9937 (anneal ends at 6M), λ_anchor 1.0 (decay starts at 8M): M3-A is still the anchored phase |
+
+**Dev probes** (16 round-52 worlds per mix, grid engine, same worlds at every checkpoint;
+`results/m3a/m3a_report.json`):
+
+| Checkpoint | student + v8 | student alone |
+|---|---|---|
+| 0 (M2b student) | 408.0 | 134.7 |
+| 2.5M | 442.5 (Δ +34.5 ± 45.5 SE) | 114.9 (Δ −19.8 ± 23.0) |
+| 5M | 431.0 (Δ +23.1 ± 46.9) | 114.1 (Δ −20.6 ± 17.2) |
+| single-seed slope (diagnostic) | +4.6 / M (bootstrap SE 8.8) | −4.1 / M (SE 3.4) |
+
+Reading: no collapse (the pre-registered FLAG is a drop of more than 50; none). With v8, the
+point estimates rise and the noise is large; without the veto, a small decline (~1.2 SE).
+One seed and 48 worlds cannot show a learning slope; that is M3-B's 5-seed gate. Under the
+pre-registration M3-B may proceed.
+
+### 19.2 Proposal for the 5-seed run (M3-B), for the user's decision
+
+| Option | Wall time | Cost | Notes |
+|---|---|---|---|
+| **Mac only** | 100M / 1.39k/s ≈ **20 h** (seeds serial) + gate probes (960 H5000 v8 episodes ≈ 3.2 h, in the second process, concurrent) | $0 | uses 1 CPU process + the GPU continuously; fits the current rules (≤ 2 unlocked processes) while FRP-v5 Phase R holds the slots |
+| **One RTX 4090 pod**, 5 seed trainers in parallel (one process each, shared GPU) | ≈ 3–4 h (projected ≈ 8–10k/s aggregate: env ≈ 3.6k/s per fast-EPYC vCPU process, the 4090 shared at ≈ 10 ms per update) | secure $0.74/h → **≈ $3** incl. a 30-min G2 smoke; community $0.34/h → ≈ $1.5 | needs ≥ 8 vCPU and ≥ 48 GB RAM (replay 300k per seed); **G2:** proceed only if the 30-min smoke measures ≥ 5.6k/s aggregate (4 × 1.39k); uploading the 1.9 GB demonstration shards and the M2b student needs the user's approval; slow hosts (~10× slower vCPUs) would fail G2 |
+
+`train_m3.py` runs unchanged on CUDA (`--device cuda`). Recommendation: the pod, if the user
+approves ≈ $3 and the upload (≈ 5× faster; the Mac stays free for the FRP-v5 Phase R and
+the slope probes); otherwise the Mac run is free and finishes in about a day.
