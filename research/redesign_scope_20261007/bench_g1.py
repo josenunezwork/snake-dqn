@@ -124,11 +124,12 @@ def build(args: argparse.Namespace, seed_offset: int) -> Dict[str, Any]:
         runtime.bind(sim, controlled)
     net = None
     if args.hero_forward != "none":
-        from research.redesign_scope_20261007.bench_network import Ego2sNet
+        from src.model.ego2s_network import OBS_SHAPES, Ego2sNet
 
         device = torch.device(args.hero_forward)
         torch.manual_seed(0)
-        net = Ego2sNet().to(device).eval()
+        lc, ns = OBS_SHAPES["ego2s-b" if args.obs_version == "b" else "ego2s-draft"]
+        net = Ego2sNet(local_channels=lc, n_scalars=ns).to(device).eval()
     return {
         "sim": sim,
         "groups": {k: np.array(v, dtype=np.int64) for k, v in groups.items()},
@@ -142,7 +143,7 @@ def build(args: argparse.Namespace, seed_offset: int) -> Dict[str, Any]:
 def run_round(args: argparse.Namespace, world: Dict[str, Any], seconds: float, max_frames: int):
     import torch
 
-    from src.simd_env.ego_raster import build_ego_raster
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 
     sim = world["sim"]
     rng = world["rng"]
@@ -162,7 +163,12 @@ def run_round(args: argparse.Namespace, world: Dict[str, Any], seconds: float, m
         alive = prepared.get_alive()
         actions = np.ones((E, prepared.S), dtype=np.int64)
         hero_rows = np.argwhere(alive[:, :1])
-        obs = build_ego_raster(prepared, backend=args.featurizer, rows=hero_rows)
+        obs = build_ego_raster(
+            prepared,
+            EgoRasterConfig(version=args.obs_version),
+            backend=args.featurizer,
+            rows=hero_rows,
+        )
         t = timer.add("hero_obs", t)
         hm = masks[hero_rows[:, 0], 0]
         if net is not None and len(hero_rows):
@@ -255,6 +261,7 @@ def run_cell(args: argparse.Namespace) -> Dict[str, Any]:
         "featurizer": args.featurizer,
         "hero_forward": args.hero_forward,
         "sim_jit": args.sim_jit,
+        "obs_version": args.obs_version,
         "median_hero_steps_per_s": med,
         "g1_met": med >= 20000,
         "rounds": rounds,
@@ -273,6 +280,7 @@ def main() -> int:
     ap.add_argument("--featurizer", choices=("numpy", "numba"), default="numba")
     ap.add_argument("--hero-forward", choices=("none", "cpu", "mps"), default="none")
     ap.add_argument("--sim-jit", choices=("on", "off"), default="on")
+    ap.add_argument("--obs-version", choices=("draft", "b"), default="draft")
     ap.add_argument("--seconds", type=float, default=15.0)
     ap.add_argument("--rounds", type=int, default=2)
     ap.add_argument("--big-frames", type=int, default=60)
