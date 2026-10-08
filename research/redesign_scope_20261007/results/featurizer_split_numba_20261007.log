@@ -1,0 +1,9 @@
+{"scenario": "fresh", "backend": "numpy", "rows": "all", "us_per_agent": 130.79373364549963, "n_rows": 383, "mean_length": 15.321148825065274}
+{"scenario": "fresh", "backend": "numpy", "rows": "hero", "us_per_agent": 739.5789263740419, "n_rows": 63, "mean_length": 15.321148825065274}
+{"scenario": "fresh", "backend": "numba", "rows": "all", "us_per_agent": 7.959682327428521, "n_rows": 383, "mean_length": 15.321148825065274}
+{"scenario": "fresh", "backend": "numba", "rows": "hero", "us_per_agent": 9.037345455634215, "n_rows": 63, "mean_length": 15.321148825065274}
+{"scenario": "big", "backend": "numpy", "rows": "all", "us_per_agent": 115.63758683526733, "n_rows": 384, "mean_length": 416.6666666666667}
+{"scenario": "big", "backend": "numpy", "rows": "hero", "us_per_agent": 758.9042967689844, "n_rows": 64, "mean_length": 416.6666666666667}
+{"scenario": "big", "backend": "numba", "rows": "all", "us_per_agent": 6.032233755427619, "n_rows": 384, "mean_length": 416.6666666666667}
+{"scenario": "big", "backend": "numba", "rows": "hero", "us_per_agent": 6.388997402003346, "n_rows": 64, "mean_length": 416.6666666666667}
+{"loadavg": [7.75048828125, 9.44482421875, 10.3818359375]}

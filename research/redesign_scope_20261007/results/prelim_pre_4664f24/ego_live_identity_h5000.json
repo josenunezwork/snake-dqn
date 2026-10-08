@@ -1,0 +1,86 @@
+{
+ "authority": "development-only identity check (not a screen, not gate evidence)",
+ "created_utc": "2026-10-07T23:55:03.601179+00:00",
+ "frames_compared": 15000,
+ "git": {
+  "commit": "0131b45d66d947a0fe96f04d450db21fc2268771",
+  "dirty_paths": "M pyproject.toml\n M requirements-gpu.txt\n M requirements.txt\n M src/simd_env/ego_raster.py\n M src/simd_env/eval_engine.py\n M src/simd_env/grid_sim.py\n M tests/test_ego_raster.py\n?? research/redesign_scope_20261007/bench_g1.py\n?? research/redesign_scope_20261007/ego_live_identity.py\n?? research/redesign_scope_20261007/grid_h5000_identity.py\n?? research/redesign_scope_20261007/results/ego_live_identity_h5000_v0_strict_all_rows.json\n?? research/redesign_scope_20261007/results/grid_identity_h5000/\n?? src/simd_env/ego_live_adapter.py\n?? src/simd_env/ego_raster_nb.py\n?? src/simd_env/fast_anchors.py\n?? tests/test_ego_live_identity.py\n?? tests/test_fast_anchors.py"
+ },
+ "hero": {
+  "name": "frp3_m3_s12_u60000_20261005.pth",
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": {
+   "hero_safety_veto": "v8",
+   "hero_safety_veto_lambda": 8.0
+  }
+ },
+ "pass": true,
+ "rows_compared": 90000,
+ "schema_version": "redesign-ego2s-live-identity/v1",
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "worlds": [
+  {
+   "backends_agree": true,
+   "chain_live": "2f5c3b0e50212b9b5c6dd694e4f126ef",
+   "chain_sim": "2f5c3b0e50212b9b5c6dd694e4f126ef",
+   "first_differing_frame": null,
+   "frames_live": 5000,
+   "frames_sim": 5000,
+   "live_wall_seconds": 30.940542333060876,
+   "mass_integral": 410.7722,
+   "max_length_seen": 853,
+   "mix": "frozen",
+   "obs_identical": true,
+   "record_differences": [],
+   "record_identical": true,
+   "rows_compared": 30000,
+   "scripted_rows_hunger_excluded": 0,
+   "sim_wall_seconds": 24.06799858319573,
+   "veto_diagnostics_identical": true,
+   "world_seed": 1311796276
+  },
+  {
+   "backends_agree": true,
+   "chain_live": "1ae40e753c857dddd3bb16b1ccee7931",
+   "chain_sim": "1ae40e753c857dddd3bb16b1ccee7931",
+   "first_differing_frame": null,
+   "frames_live": 5000,
+   "frames_sim": 5000,
+   "live_wall_seconds": 25.22129933303222,
+   "mass_integral": 525.2902,
+   "max_length_seen": 995,
+   "mix": "scripted",
+   "obs_identical": true,
+   "record_differences": [],
+   "record_identical": true,
+   "rows_compared": 30000,
+   "scripted_rows_hunger_excluded": 25000,
+   "sim_wall_seconds": 23.691133540822193,
+   "veto_diagnostics_identical": true,
+   "world_seed": 1311796276
+  },
+  {
+   "backends_agree": true,
+   "chain_live": "b2d450960c370fa8f68d0be9a30f02e6",
+   "chain_sim": "b2d450960c370fa8f68d0be9a30f02e6",
+   "first_differing_frame": null,
+   "frames_live": 5000,
+   "frames_sim": 5000,
+   "live_wall_seconds": 26.299882541876286,
+   "mass_integral": 472.2436,
+   "max_length_seen": 920,
+   "mix": "mixed",
+   "obs_identical": true,
+   "record_differences": [],
+   "record_identical": true,
+   "rows_compared": 30000,
+   "scripted_rows_hunger_excluded": 10000,
+   "sim_wall_seconds": 23.703182250028476,
+   "veto_diagnostics_identical": true,
+   "world_seed": 1311796276
+  }
+ ]
+}

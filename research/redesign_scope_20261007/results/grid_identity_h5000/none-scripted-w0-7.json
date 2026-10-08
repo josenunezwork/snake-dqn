@@ -1,0 +1,1910 @@
+{
+ "arm": "none",
+ "arm_kwargs": {
+  "hero_safety_veto": false
+ },
+ "authority": "development-only identity check (not a screen, not gate evidence)",
+ "compared": 8,
+ "created_utc": "2026-10-08T00:19:06.071246+00:00",
+ "frames": 5000,
+ "git": {
+  "commit": "a3ade590a314459ac76312ae4691f5a678542bb5",
+  "dirty_paths": "?? research/redesign_scope_20261007/results/bench_g1_20261007.jsonl\n?? research/redesign_scope_20261007/results/featurizer_split_numba_20261007.log\n?? research/redesign_scope_20261007/results/grid_identity_h5000/\n?? research/redesign_scope_20261007/results/prelim_pre_4664f24/"
+ },
+ "grid_sim_jit": true,
+ "hero": {
+  "name": "frp3_m3_s12_u60000_20261005.pth",
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+ },
+ "identical": 8,
+ "mix": "scripted",
+ "records": {
+  "batch": [
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 3137,
+     "boost_executed_frames": 28,
+     "decision_frames": 3138,
+     "food_event_frames": 696,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 17,
+    "mass_integral": 219.8254,
+    "max_mass": 689.0,
+    "mean_mass_alive": 350.37519923493784,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.008922880815806247,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 696,
+     "kill_opportunity_count": null,
+     "peak_length": 689.0
+    },
+    "seed": 1311796276,
+    "survival_fraction": 0.6274,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 1311796276,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 1543,
+     "boost_executed_frames": 17,
+     "decision_frames": 1544,
+     "food_event_frames": 330,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 2,
+    "mass_integral": 54.1026,
+    "max_mass": 326.0,
+    "mean_mass_alive": 175.3162670123137,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.011010362694300517,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 330,
+     "kill_opportunity_count": null,
+     "peak_length": 326.0
+    },
+    "seed": 2205228030,
+    "survival_fraction": 0.3086,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 2205228030,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 709,
+     "boost_executed_frames": 6,
+     "decision_frames": 710,
+     "food_event_frames": 155,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 0,
+    "mass_integral": 10.4116,
+    "max_mass": 155.0,
+    "mean_mass_alive": 73.42454160789845,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.008450704225352112,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 155,
+     "kill_opportunity_count": null,
+     "peak_length": 155.0
+    },
+    "seed": 2520953396,
+    "survival_fraction": 0.1418,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 2520953396,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 1381,
+     "boost_executed_frames": 10,
+     "decision_frames": 1382,
+     "food_event_frames": 244,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 4,
+    "mass_integral": 35.8232,
+    "max_mass": 244.0,
+    "mean_mass_alive": 129.70021723388848,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.00723589001447178,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 244,
+     "kill_opportunity_count": null,
+     "peak_length": 244.0
+    },
+    "seed": 3774263336,
+    "survival_fraction": 0.2762,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 3774263336,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 1559,
+     "boost_executed_frames": 13,
+     "decision_frames": 1560,
+     "food_event_frames": 355,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 8,
+    "mass_integral": 54.8202,
+    "max_mass": 355.0,
+    "mean_mass_alive": 175.81847338037204,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.008333333333333333,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 355,
+     "kill_opportunity_count": null,
+     "peak_length": 355.0
+    },
+    "seed": 1139566760,
+    "survival_fraction": 0.3118,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 1139566760,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 2578,
+     "boost_executed_frames": 43,
+     "decision_frames": 2579,
+     "food_event_frames": 632,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 9,
+    "mass_integral": 171.8644,
+    "max_mass": 620.0,
+    "mean_mass_alive": 333.3289371605896,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.016673129119813883,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 632,
+     "kill_opportunity_count": null,
+     "peak_length": 620.0
+    },
+    "seed": 1616545425,
+    "survival_fraction": 0.5156,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 1616545425,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 1750,
+     "boost_executed_frames": 10,
+     "decision_frames": 1751,
+     "food_event_frames": 402,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 4,
+    "mass_integral": 66.0352,
+    "max_mass": 400.0,
+    "mean_mass_alive": 188.672,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.0057110222729868645,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 402,
+     "kill_opportunity_count": null,
+     "peak_length": 400.0
+    },
+    "seed": 74473122,
+    "survival_fraction": 0.35,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 74473122,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 73,
+     "boost_executed_frames": 0,
+     "decision_frames": 74,
+     "food_event_frames": 18,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 0,
+    "mass_integral": 0.1602,
+    "max_mass": 19.0,
+    "mean_mass_alive": 10.972602739726028,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.0,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 18,
+     "kill_opportunity_count": null,
+     "peak_length": 19.0
+    },
+    "seed": 2273549284,
+    "survival_fraction": 0.0146,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 2273549284,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   }
+  ],
+  "grid": [
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 3137,
+     "boost_executed_frames": 28,
+     "decision_frames": 3138,
+     "food_event_frames": 696,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 17,
+    "mass_integral": 219.8254,
+    "max_mass": 689.0,
+    "mean_mass_alive": 350.37519923493784,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.008922880815806247,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 696,
+     "kill_opportunity_count": null,
+     "peak_length": 689.0
+    },
+    "seed": 1311796276,
+    "survival_fraction": 0.6274,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 1311796276,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 1543,
+     "boost_executed_frames": 17,
+     "decision_frames": 1544,
+     "food_event_frames": 330,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 2,
+    "mass_integral": 54.1026,
+    "max_mass": 326.0,
+    "mean_mass_alive": 175.3162670123137,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.011010362694300517,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 330,
+     "kill_opportunity_count": null,
+     "peak_length": 326.0
+    },
+    "seed": 2205228030,
+    "survival_fraction": 0.3086,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 2205228030,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 709,
+     "boost_executed_frames": 6,
+     "decision_frames": 710,
+     "food_event_frames": 155,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 0,
+    "mass_integral": 10.4116,
+    "max_mass": 155.0,
+    "mean_mass_alive": 73.42454160789845,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.008450704225352112,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 155,
+     "kill_opportunity_count": null,
+     "peak_length": 155.0
+    },
+    "seed": 2520953396,
+    "survival_fraction": 0.1418,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 2520953396,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 1381,
+     "boost_executed_frames": 10,
+     "decision_frames": 1382,
+     "food_event_frames": 244,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 4,
+    "mass_integral": 35.8232,
+    "max_mass": 244.0,
+    "mean_mass_alive": 129.70021723388848,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.00723589001447178,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 244,
+     "kill_opportunity_count": null,
+     "peak_length": 244.0
+    },
+    "seed": 3774263336,
+    "survival_fraction": 0.2762,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 3774263336,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 1559,
+     "boost_executed_frames": 13,
+     "decision_frames": 1560,
+     "food_event_frames": 355,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 8,
+    "mass_integral": 54.8202,
+    "max_mass": 355.0,
+    "mean_mass_alive": 175.81847338037204,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.008333333333333333,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 355,
+     "kill_opportunity_count": null,
+     "peak_length": 355.0
+    },
+    "seed": 1139566760,
+    "survival_fraction": 0.3118,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 1139566760,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 2578,
+     "boost_executed_frames": 43,
+     "decision_frames": 2579,
+     "food_event_frames": 632,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 9,
+    "mass_integral": 171.8644,
+    "max_mass": 620.0,
+    "mean_mass_alive": 333.3289371605896,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.016673129119813883,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 632,
+     "kill_opportunity_count": null,
+     "peak_length": 620.0
+    },
+    "seed": 1616545425,
+    "survival_fraction": 0.5156,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 1616545425,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 1750,
+     "boost_executed_frames": 10,
+     "decision_frames": 1751,
+     "food_event_frames": 402,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 4,
+    "mass_integral": 66.0352,
+    "max_mass": 400.0,
+    "mean_mass_alive": 188.672,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.0057110222729868645,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 402,
+     "kill_opportunity_count": null,
+     "peak_length": 400.0
+    },
+    "seed": 74473122,
+    "survival_fraction": 0.35,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 74473122,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   },
+   {
+    "deaths": 1,
+    "denominators": {
+     "alive_frames": 73,
+     "boost_executed_frames": 0,
+     "decision_frames": 74,
+     "food_event_frames": 18,
+     "scored_frames": 5000
+    },
+    "evaluation_profile": {
+     "anchor_version": "scripted-anchor/v1",
+     "evaluator_version": "promotion-v2-evaluator/v1",
+     "learn": false,
+     "legacy_diagnostic": false,
+     "metric_version": "logical-mass/v1",
+     "name": "promotion-v2-watch-rect",
+     "observation_progress_horizon": 5000,
+     "runtime": {
+      "hero_terminal": true,
+      "mode": "watch",
+      "population_floor": false,
+      "reset_strategy": "manual",
+      "respawn": true,
+      "training": false
+     },
+     "runtime_digest": "792362a0960c05eaa66df12a377979a22c8f416566c5f55863c7b264eb35090a",
+     "scored_horizon": 5000,
+     "world": {
+      "arena_center_x": 0,
+      "arena_center_y": 0,
+      "arena_radius": 400,
+      "arena_type": "rectangular",
+      "boost_length_cost_frames": 3,
+      "death_value": -3.0,
+      "frame_rate": 1,
+      "height": 830,
+      "initial_food": 300,
+      "kill_scale": 0.3,
+      "max_capacity": 10400,
+      "max_food": 300,
+      "max_frames": 5000,
+      "max_length": 150,
+      "mechanics_version": 2,
+      "min_boost_length": 5,
+      "normalization": {
+       "max_frames": 5000.0,
+       "max_length": 150.0,
+       "starvation_max": 500.0
+      },
+      "num_snakes": 6,
+      "segment_size": 10,
+      "starvation_max_frames": 500,
+      "wall_thickness": 10,
+      "width": 1450
+     },
+     "world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+    "kills": 0,
+    "mass_integral": 0.1602,
+    "max_mass": 19.0,
+    "mean_mass_alive": 10.972602739726028,
+    "probe_unavailable_reasons": {
+     "entrapment_event": "temporal probe is not integrated into this accumulator",
+     "kill_opportunity_count": "not supplied by this transition adapter"
+    },
+    "probes": {
+     "boost_frame_fraction": 0.0,
+     "death_cause": "self",
+     "entrapment_event": null,
+     "food_eaten": 18,
+     "kill_opportunity_count": null,
+     "peak_length": 19.0
+    },
+    "seed": 2273549284,
+    "survival_fraction": 0.0146,
+    "vector61_policy": {
+     "bit_exact_forward": true,
+     "engine": "simd",
+     "forward": "rowwise",
+     "hero_safety_veto": false,
+     "policy": "Vector61SimdPolicy"
+    },
+    "world_identity": {
+     "mix_id": "scripted",
+     "ordered_slot_content_hashes": [
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41",
+      "e1202f168b09b1b5ca94dbdcfafb511206595f834b9af8110afaee06de78dd41"
+     ],
+     "roster_id": "3c7cfb6705300ddde6da66adc0a13f0f0eb403daba2d4167a052728dc23a5cf4",
+     "seed": 2273549284,
+     "seed_namespace": "evaluation-world/v1"
+    },
+    "world_runtime_spec": {
+     "body_storage_capacity": 10400,
+     "body_storage_model": "fixed_ring",
+     "capacity_policy": "source_exact_v1",
+     "engine": "simd",
+     "evaluation_profile_digest": "d396d3ed93e3a264d050674887eb47e59de67d3c6696c2c41fa5f8b145ea0e8b",
+     "schema_version": "world-runtime/v1",
+     "scored_horizon": 5000,
+     "source_body_capacity": 10400,
+     "source_world_digest": "ee08708ac9fba8b02662183b6ab7ac0ced368711f35bf56914bab8a9a45e75c6"
+    },
+    "world_runtime_spec_digest": "24f8c76f8327626263177f4469a093f2191c4bec525064554dbdd473594f65e1"
+   }
+  ]
+ },
+ "schema_version": "redesign-grid-h5000-identity/v1",
+ "threads": {
+  "OMP_NUM_THREADS": "1",
+  "torch": 1
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4",
+  "python": "3.12.3",
+  "torch": "2.9.1"
+ },
+ "wall_seconds": {
+  "batch": 74.1194480410777,
+  "grid": 45.99925887491554
+ },
+ "world_seeds": [
+  1311796276,
+  2205228030,
+  2520953396,
+  3774263336,
+  1139566760,
+  1616545425,
+  74473122,
+  2273549284
+ ],
+ "worlds": [
+  {
+   "deaths": 1,
+   "first_differing_frame": null,
+   "frames_compared": 5000,
+   "identical": true,
+   "mass_integral": 219.8254,
+   "peak_length": 689.0,
+   "record_differences": [],
+   "record_identical": true,
+   "survival_fraction": 0.6274,
+   "world_chain_batch": "09aa4bd577afeff06c88fc521e24056f",
+   "world_chain_grid": "09aa4bd577afeff06c88fc521e24056f",
+   "world_seed": 1311796276
+  },
+  {
+   "deaths": 1,
+   "first_differing_frame": null,
+   "frames_compared": 5000,
+   "identical": true,
+   "mass_integral": 54.1026,
+   "peak_length": 326.0,
+   "record_differences": [],
+   "record_identical": true,
+   "survival_fraction": 0.3086,
+   "world_chain_batch": "a9f19c295c97d2f8c6b66ac577f565a7",
+   "world_chain_grid": "a9f19c295c97d2f8c6b66ac577f565a7",
+   "world_seed": 2205228030
+  },
+  {
+   "deaths": 1,
+   "first_differing_frame": null,
+   "frames_compared": 5000,
+   "identical": true,
+   "mass_integral": 10.4116,
+   "peak_length": 155.0,
+   "record_differences": [],
+   "record_identical": true,
+   "survival_fraction": 0.1418,
+   "world_chain_batch": "d8a6480effb26c0bf4d00229a2318457",
+   "world_chain_grid": "d8a6480effb26c0bf4d00229a2318457",
+   "world_seed": 2520953396
+  },
+  {
+   "deaths": 1,
+   "first_differing_frame": null,
+   "frames_compared": 5000,
+   "identical": true,
+   "mass_integral": 35.8232,
+   "peak_length": 244.0,
+   "record_differences": [],
+   "record_identical": true,
+   "survival_fraction": 0.2762,
+   "world_chain_batch": "0614733e04a6f2ad6dafaaec7fbbe5cf",
+   "world_chain_grid": "0614733e04a6f2ad6dafaaec7fbbe5cf",
+   "world_seed": 3774263336
+  },
+  {
+   "deaths": 1,
+   "first_differing_frame": null,
+   "frames_compared": 5000,
+   "identical": true,
+   "mass_integral": 54.8202,
+   "peak_length": 355.0,
+   "record_differences": [],
+   "record_identical": true,
+   "survival_fraction": 0.3118,
+   "world_chain_batch": "9c1106df54bf4c5c85fd7b150a826d06",
+   "world_chain_grid": "9c1106df54bf4c5c85fd7b150a826d06",
+   "world_seed": 1139566760
+  },
+  {
+   "deaths": 1,
+   "first_differing_frame": null,
+   "frames_compared": 5000,
+   "identical": true,
+   "mass_integral": 171.8644,
+   "peak_length": 620.0,
+   "record_differences": [],
+   "record_identical": true,
+   "survival_fraction": 0.5156,
+   "world_chain_batch": "05f0c8243e0c1cdac64905b726cafb76",
+   "world_chain_grid": "05f0c8243e0c1cdac64905b726cafb76",
+   "world_seed": 1616545425
+  },
+  {
+   "deaths": 1,
+   "first_differing_frame": null,
+   "frames_compared": 5000,
+   "identical": true,
+   "mass_integral": 66.0352,
+   "peak_length": 400.0,
+   "record_differences": [],
+   "record_identical": true,
+   "survival_fraction": 0.35,
+   "world_chain_batch": "293fbfcfa20e4dce2a00949533ebae76",
+   "world_chain_grid": "293fbfcfa20e4dce2a00949533ebae76",
+   "world_seed": 74473122
+  },
+  {
+   "deaths": 1,
+   "first_differing_frame": null,
+   "frames_compared": 5000,
+   "identical": true,
+   "mass_integral": 0.1602,
+   "peak_length": 19.0,
+   "record_differences": [],
+   "record_identical": true,
+   "survival_fraction": 0.0146,
+   "world_chain_batch": "d1e13e21245d96faf9b81de5db98a502",
+   "world_chain_grid": "d1e13e21245d96faf9b81de5db98a502",
+   "world_seed": 2273549284
+  }
+ ]
+}

@@ -1,0 +1,78 @@
+{
+ "authority": "development-only identity check (not a screen, not gate evidence)",
+ "by_arm_mix": {
+  "none/frozen": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 962
+  },
+  "none/mixed": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 595
+  },
+  "none/scripted": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 689
+  },
+  "v2/frozen": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 962
+  },
+  "v2/mixed": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 955
+  },
+  "v2/scripted": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 689
+  },
+  "v8/frozen": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 1046
+  },
+  "v8/mixed": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 1065
+  },
+  "v8/scripted": {
+   "compared": 8,
+   "frames": 40000,
+   "identical": 8,
+   "max_peak": 1152
+  }
+ },
+ "chunks": [
+  "none-frozen-w0-7.json",
+  "none-mixed-w0-7.json",
+  "none-scripted-w0-7.json",
+  "v2-frozen-w0-7.json",
+  "v2-mixed-w0-7.json",
+  "v2-scripted-w0-7.json",
+  "v8-frozen-w0-7.json",
+  "v8-mixed-w0-7.json",
+  "v8-scripted-w0-7.json"
+ ],
+ "compared": 72,
+ "identical": 72,
+ "pass": true,
+ "schema_version": "redesign-grid-h5000-identity/v1",
+ "wall_seconds": {
+  "batch": 889.3814140425529,
+  "grid": 639.7479364599567
+ }
+}

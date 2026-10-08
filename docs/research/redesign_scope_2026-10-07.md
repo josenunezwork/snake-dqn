@@ -196,8 +196,8 @@ Gaps in this draft, left for M1-full:
   need a connected-component pass. Pure NumPy has no efficient labeling, and
   scipy and numba are not in the venv. See §5.
 - **Enemy next-cell prediction**, including boost.
-- **Live adapter** (GameState → the same grids) and its identity test.
-- Incremental coarse grids.
+- ~~Live adapter (GameState → the same grids) and its identity test.~~ Done in M1 (§14).
+- ~~Incremental coarse grids.~~ Done in M1 (§14).
 
 ### 3.3 Measured throughput (Mac, one slot)
 
@@ -355,6 +355,10 @@ is** (§3.3). Options, cheapest first:
 - treat (d) as an owner decision, needed only if uncapped region-size features
   must run on Mac CPU for serving.
 
+**Closed in M1 (2026-10-07):** the owner approved (d) (numba, pinned 0.68.0 /
+llvmlite 0.50.0, redesign branch). Together with (b) it brings the featurizer to
+6–9 µs/agent on one CPU thread (§14.3), so (c) is no longer needed for the Mac.
+
 ## 6. Learner: keep vectorized DQN; PQN deferred
 
 **Recommendation: a synchronous, single-process vectorized DQN.** This is the
@@ -473,10 +477,10 @@ end-to-end numbers):
   including opponent rows and forwards and the learner. This is measured in a
   30-minute smoke test. The 4× rule is checked against the Mac's measured
   M2/M3 rate.
-- **Where we stand on G1 today:** the sim does 190–420k agent-steps/s per core;
-  the NumPy featurizer does 10–15k (§3.3). G1 therefore needs option (b), plus
-  either the reach flood moved to the network device, or option (c). M1-full
-  closes this or reports the gap.
+- **Where we stand on G1 (M1, §14.4):** met for the scripted (training) mix,
+  26.9–27.9k hero steps/s at E=256 (was 0.74k with the M1-proto code). Not met
+  for the gate's frozen / mixed mixes (1.8–4.1k): their vector61 opponent rows
+  cost 200–530 µs per world-frame.
 
 **Storage.** One ego2s observation is 6·31² + 4·37² ≈ 11.2 KB. 5M teacher
 samples stored raw would be about 56 GB, so do not store observations. Because
@@ -536,7 +540,7 @@ strict-on-RunPod, and LH-1.
 | # | Days | Deliverable | Exit criterion |
 |---|---|---|---|
 | **M1-proto** | done | `GridBatchSim`, `ego2s-draft`, parity tests, benches, this doc | Bit-exact CI green; throughput measured (§3.3) |
-| **M1-full** | 1–5 | (b) incremental coarse grids. Enemy next-cell channel. Region-size-per-action decision (§5). **`run_simd_eval` on `GridBatchSim`**, a one-line engine swap. `game_state_to_grids` live adapter plus an identity test. Register the `ego2s` obs spec. | **First measurable milestone (3–5 days):** (i) H5000 records for frp3-s12+v2 veto are byte-identical on `GridBatchSim` vs `BatchSim` (48/48, the existing `simd_parity_h5000_check` harness), and the same for v8 when simd-v7v8 lands; (ii) G1 met; (iii) live-vs-sim ego2s obs identical over 10k frames. |
+| **M1-full** | M1 exit criteria met 2026-10-07 (§14); enemy next-cell channel, region-size decision and the `ego2s` obs-spec registration are still open | (b) incremental coarse grids. Enemy next-cell channel. Region-size-per-action decision (§5). **`run_simd_eval` on `GridBatchSim`**, a one-line engine swap. `game_state_to_grids` live adapter plus an identity test. Register the `ego2s` obs spec. | **First measurable milestone (3–5 days):** (i) H5000 records for frp3-s12+v2 veto are byte-identical on `GridBatchSim` vs `BatchSim` (48/48, the existing `simd_parity_h5000_check` harness), and the same for v8 when simd-v7v8 lands; (ii) G1 met; (iii) live-vs-sim ego2s obs identical over 10k frames. |
 | **M2** | 5–9 | Batched teacher labelling, DAgger loop, student fit on MPS | Pre-registered **non-inferiority**: the distilled student without veto vs **frp3-s12 without veto**, dev H5000, n=32 per mix, pooled one-sided 90% LB > −30 (about 8% of 399). The student+v8 vs I check is reported, not gated. |
 | **M3** | 8–14 | Synchronous vectorized DQN with anchor; γ/n-step per FRP-v5-H; a 30-minute pod smoke test (G2) after owner approval of the spend | A dev H5000 learning slope > 0 across 3 seeds; then a Tier-1 screen vs I with pooled UB > 0. The big-body hazard ratio is reported. |
 | **M4** | 14–21+ | Phase R (pre-registered, separate spend approval); optional PQN or larger-net arm if M3 is env-bound | Per §9 step 4 |
@@ -608,8 +612,285 @@ done with the 14 findings:
 
 ## 13. Files
 
+M1 additions (§14): `src/simd_env/ego_raster_nb.py`, `grid_sim_nb.py`,
+`ego_live_adapter.py`, `fast_anchors.py`; `tests/test_ego_live_identity.py`,
+`test_grid_sim_nb.py`, `test_fast_anchors.py`, `test_grid_eval_engine.py`;
+`research/redesign_scope_20261007/grid_h5000_identity.py`, `ego_live_identity.py`,
+`bench_g1.py`, `summarize_g1.py`, and `results/`.
+
 - `src/simd_env/grid_sim.py`: `GridBatchSim`
 - `src/simd_env/ego_raster.py`: the `ego2s-draft` featurizer
 - `src/simd_env/grid_scenarios.py`: serpentine injection and the greedy-safe policy
 - `tests/test_grid_sim_parity.py`, `tests/test_ego_raster.py`
 - `research/redesign_scope_20261007/bench_throughput.py`, `bench_network.py`, `results/`
+
+## 14. Milestone 1 results (2026-10-07)
+
+**Commits:** code `4664f24`, harness fixes `a3ade59`. All evidence below was
+produced on `a3ade59` (the only dirty paths were the untracked result files), with
+the grid engine's compiled kernels on (`grid_sim_jit: true`). Development checks
+only, not gate evidence.
+
+**Compute:** one Mac CPU thread per process under `nice -n 10`, no slot locks, at
+most two processes of ours at a time. The host was loaded the whole time
+(FRP-v5-H Phase R and an S2 identity run; load average 8–25). No RunPod spend; MPS
+was used only for the acting-forward cell.
+
+### 14.1 What M1 built
+
+| Piece | Where | Parity pin |
+|---|---|---|
+| numba pin `numba==0.68.0`, `llvmlite==0.50.0` (Python 3.12.3, numpy 1.26.4) | `requirements.txt`, `requirements-gpu.txt`, `pyproject.toml` | — |
+| ego2s featurizer reads an `EgoGridView`, so the sim and the live game feed one function. numba backend: local planes, bucket-queue reach flood, global planes from the sim-maintained coarse counts (a word scan when counts are absent). Row subsets, for example hero-only. | `ego_raster.py`, `ego_raster_nb.py` | bitwise == the NumPy reference: played, big-body, paused, random-view and row-subset tests (`test_ego_raster.py`) |
+| Reach flood redefined per agent: `arrival = max(min_n arrival(n)+1, ttl, 1)` | `ego_raster.py` | The draft stopped the WHOLE batch at the first stalled step, so one agent's plane depended on its batch, and it cut off pockets a vacating tail opens later. Regression test added. |
+| `GridBatchSim`: aligned padded rows; coarse 8×8 counts maintained at every owner/food write; optional numba kernels for the action mask and collision detection (`jit` defaults on when numba imports) | `grid_sim.py`, `grid_sim_nb.py` | The 48 lockstep parity tests now run on both paths (96/96). A per-call kernel == NumPy check runs on paused and big-body worlds. `check_grid_invariants` covers the counts. |
+| `game_state_to_ego_view` live adapter | `ego_live_adapter.py` | `test_ego_live_identity.py`: `PyRefGame` lockstep, both backends, 4 configs × 750 frames |
+| `run_simd_eval(sim_engine="grid")` | `eval_engine.py` (`_TerminalHeroMixin`) | `test_grid_eval_engine.py` plus the H5000 check below |
+| `FastProfileAnchorSimdPolicy`: decision-identical `scripted-anchor/v1`, exact ring search for the nearest pellet | `fast_anchors.py` | `test_fast_anchors.py` (every frame, shuffled row order) |
+
+Mutation checks on the sim kernels:
+- Dropping half of the head-swap condition is caught by the parity suite.
+- Changing the other-snake tail bound is caught by the kernel test.
+- Two changes are provably unobservable: self-hit `k_post>=3` vs `>=4` (the grid is
+  bipartite, so a self contact needs an even offset) and own-normal `k>=2` vs `>=3`
+  (a 180° turn).
+
+### 14.2 M1(i): H5000 records, GridBatchSim vs BatchSim
+
+Harness: `grid_h5000_identity.py`. Each episode runs on both engines through the
+same `run_simd_eval` profiled Watch path:
+- pinned deployment config, `promotion-v2-watch-rect`, H5000;
+- strict balanced rosters;
+- frp3-s12 hero, vector61 rowwise forwards.
+
+Per world it compares:
+- the canonical record, with `veto_diagnostics` minus wall-clock keys;
+- a per-frame digest of the whole world: ordered bodies, all counters, the three
+  masks, rewards and events, the food list, the corpse set and the per-env RNG
+  state.
+
+Seeds come from namespace `redesign-grid-identity/v1`.
+
+| Arm (frp3-s12 +) | frozen | scripted | mixed | Peak length | Mean H5000 mass |
+|---|---|---|---|---|---|
+| v8 (λ 8, served) | 8/8 | 8/8 | 8/8 | 1152 | 421.9 |
+| v2 (the doc's original arm) | 8/8 | 8/8 | 8/8 | 962 | 132.7 |
+| none (the M2 comparator) | 8/8 | 8/8 | 8/8 | 962 | 113.0 |
+
+**Result: 72/72 identical, 360,000 world-frames.** The grid engine was 1.4×
+faster than BatchSim (640 s vs 889 s wall), because the vector61 opponents and
+the v8 hook dominate. Files: `results/grid_identity_h5000/` and `summary.json`.
+
+Runs on code before `4664f24`, with the kernels off, are kept in
+`results/prelim_pre_4664f24/`; they gave 48/48.
+
+### 14.3 M1(iii): live GameState ego2s == sim ego2s
+
+Harness: `ego_live_identity.py`. A real `GameState` runs
+`tournament_eval.rollout` (frp3-s12 + v8), hooked at `GameState.update` step 6
+(`prepare_frame`: after respawns, before any move). It is compared with
+`run_simd_eval(sim_engine="grid")`, hooked inside `step_with_policy`.
+
+At every decision frame, for every living snake, the harness digests the local
+planes, global planes and scalars from both backends. The episode records and
+veto diagnostics must match as well.
+
+**Result: 9 worlds (3 seeds × 3 mixes), 45,000 frames, 264,104 rows, all
+identical.** Peak length was 1046, and all 9 records matched.
+Files: `results/ego_live_identity_h5000_w{0,1,2}.json`.
+
+**One field is excluded: the own-hunger scalar of scripted rows.** The first
+strict run (`prelim_pre_4664f24/ego_live_identity_h5000_v0_strict_all_rows.json`)
+diverged at frame 1 on the scripted and mixed mixes, because:
+- the live game advances `frames_since_food` only in reward bookkeeping, which
+  `ScriptedSnake` never runs;
+- the sim advances it for every slot.
+
+A row's hunger scalar appears only in its own observation, and scripted anchors
+never read ego2s, so no policy input is excluded. The frozen mix (all rows
+learned) is strict. The adapter docstring records the caveat.
+
+**Featurizer cost per agent** (`results/featurizer_split_numba_20261007.log`;
+64 gate-size worlds, one thread, loaded host):
+
+| | NumPy reference | numba |
+|---|---|---|
+| all rows, fresh | 130.8 µs | 8.0 µs |
+| all rows, big (mean L 417) | 115.6 µs | 6.0 µs |
+| hero rows only, fresh / big | 740 / 759 µs (it featurizes all 6 rows) | 9.0 / 6.4 µs |
+
+### 14.4 M1(ii): Gate G1
+
+Harness: `bench_g1.py`; raw data in `results/bench_g1_20261007.jsonl`, tabulated
+by `summarize_g1.py`. Setup:
+- one process, one thread, `nice -n 10`, on a loaded host;
+- the gate world, in Watch food mode with respawn;
+- E worlds in lockstep on `GridBatchSim`;
+- the hero is slot 0, featurized with ego2s and taking a uniform legal action;
+- opponents fill slots 1–5 by the strict roster of the mix, and their policy cost
+  is included;
+- 2–3 rounds per cell; medians shown.
+
+The cost columns are µs per world-frame.
+
+| Opponents | Scenario | E | Code | Hero steps/s | sim | hero obs | opponents |
+|---|---|---|---|---|---|---|---|
+| scripted | fresh | 256 | M1-proto (NumPy featurizer, Python anchors, NumPy sim) | **741** | 39.0 | 668 | 663 |
+| scripted | fresh | 256 | numba featurizer only | 1,431 | 32.7 | 9.4 | 664 |
+| scripted | fresh | 256 | **M1** | **27,923** | 24.6 | 9.2 | 2.1 |
+| scripted | warm (1500 frames, mean L 47) | 256 | M1 | **26,874** | 27.1 | 9.2 | 2.1 |
+| scripted | big, 300 frames (injected L 150–900; mean L falls to ~77) | 256 | M1 | **21,329** | 36.7 | 8.3 | 1.8 |
+| scripted | big, first 60 frames (mass die-off, 3.7% deaths per world-frame) | 256 | M1 | 13,257 | 63.2 | 8.4 | 1.9 |
+| scripted | big, M1-proto | 256 | M1-proto | 684 | 87.5 | 644 | 713 |
+| random | fresh | 256 | M1 (sim + hero floor) | 36,265 | 15.9 | 10.8 | 0.6 |
+| **frozen** (gate) | fresh / warm | 64 | M1 | **2,796 / 1,819** | 33 | 13 | 325 / 533 |
+| **mixed** (gate) | fresh / warm | 64 | M1 | **4,077 / 2,595** | 23 / 29 | 11 / 12 | 206 / 342 |
+| scripted + draft Ego2sNet acting forward on **MPS** (synchronous) | fresh | 256 | M1 | 13,968 | 25 | 9.9 | 2.6 (+34 forward) |
+| scripted + acting forward on 1 CPU thread | fresh | 256 | M1 | 2,011 | 19 | 8.3 | 2.2 (+468 forward) |
+
+**Verdict: G1 is met for scripted opponents with short-to-medium bodies.** It is
+37× the M1-proto rate on fresh worlds.
+
+Where G1 is not met:
+- **Long bodies.** It is not met in the injected die-off window (13.3k); over 300
+  frames from L 150–900 it is 21.3k. "warm" here is a mean length of 47, while
+  gate worlds reach about 1000. The sim cost grows mildly with deaths and corpses
+  (24.6 → 36.7 µs). Each death of a long snake is still a scalar Python corpse
+  drop.
+- **The gate's vector61 mixes,** at 5–15× short of 20k. Opponent featurization
+  (`Vector61Runtime` prepare plus post-step capture) is the whole gap.
+
+This **pins the M3 training opponent mix** to opponents that are cheap per row:
+- scripted anchors (the FRP-v3 precedent);
+- later, distilled ego2s students that share the hero's batched forward.
+
+The gate mixes are kept for evaluation only. If vector61 opponents are wanted in
+training, the next lever is a numba port of `vector61_featurizer`.
+
+**Acting forward:** synchronous MPS halves the rate (34 µs per world-frame). An
+asynchronous double-buffered forward should hide most of it; that is M3 work. CPU
+acting is not viable.
+
+Measurement caveats:
+- The host was loaded, and P- vs E-core placement was not controlled.
+- The reviewer's checks overlapped the random / frozen / mixed cells.
+- The Watch per-eat food branch is the slower one, so the figures are conservative.
+
+**Main suite with numba installed** (`a3ade59`, single process, `OMP_NUM_THREADS=1`,
+202 files in 8 chunks of ≤ 4.5 min): **5,759 passed, 10 skipped, 1 failed.** The one
+failure is `test_web_control.py::TestRewardContractOverride::test_load_in_train_mode_enforces_and_overrides`.
+It fails identically on the parent commit `0131b45` in a clean worktree, and the
+test does not touch numba, so it is pre-existing.
+
+### 14.5 Independent review
+
+A read-only adversarial review of `4664f24` returned **GO-with-fixes**. It found
+no correctness bug.
+
+It reran the suites: 96/96 parity and 42/42 for the new tests. It also fuzzed 18
+configs for 300 frames each, comparing BatchSim, Grid with the kernels and Grid
+without them in lockstep:
+- mechanics v1/v2;
+- train / respawn / watch modes;
+- ring wrap;
+- `min_boost` 3/5;
+- boost cost 1–3;
+- 20% random pausing, `reset_envs`, and 5% fatal actions;
+- about 2,100 deaths.
+
+All of it matched. It also ran one extra v8 H5000 world, which was identical.
+
+What was done with its findings:
+
+| Finding | Resolution |
+|---|---|
+| The identity evidence predated the committed kernels | Everything was rerun on `a3ade59` with `grid_sim_jit` recorded (§14.2, §14.3) |
+| "G1 met" was worded too broadly | Narrowed above; the training mix is pinned to cheap opponents; long-body and gate-mix numbers are reported |
+| warm is not long-body; the 60-frame big cell is noisy | Added a 300-frame, 3-round big cell; caveat stated |
+| Uncontrolled host load | Stated. Rerun on a quiet host before quoting outside this doc |
+| Criterion (i) named the v2 arm | v2 arm added (24/24) |
+| Silent hunger default in the adapter | Documented in the adapter; revisit when ego2s is registered as an obs spec |
+| Live check thin (1 seed per mix, no masks) | 3 seeds per mix. Masks are pinned by the live ≡ BatchSim ≡ Grid dynamics parity CI, not by this harness |
+| numba is in the core `dependencies` | Intended on this branch (owner approval). **Merging to main makes numba a hard dependency**, which is an owner decision at merge time |
+| `bench_throughput.py` silently used numba | Pinned to `backend="numpy"` |
+| No fallback if JIT compilation fails | Accepted with the exact pin |
+| The other M1-full deliverables are open | Stated in §10 |
+
+## 15. M2 plan: distil frp3-s12(+v8) into an ego2s student on MPS
+
+### 15.1 Data generation (CPU, 1–3 slots, never gate evidence)
+
+- **Engine.** `GridBatchSim` in the gate world (profile `promotion-v2-watch-rect`,
+  Watch food, respawn), E = 32–64 worlds per process.
+  - Seeds come from a new namespace, `redesign-m2-distill/v1`.
+  - Rosters are the strict balanced rosters, all three mixes, so the student sees
+    vector61 opponents.
+- **Teacher:** frp3-s12 through `Vector61SimdPolicy`, with `forward="batched"` for
+  throughput. Labels need not be bit-exact; record parity was shown in §14.2.
+  - Per hero decision, record: the ego2s observation (numba, hero rows); the
+    teacher's raw Q(6) **before** the veto; the v8-chosen action; the resolved
+    and advisory masks; and the length, frame, world seed and mix.
+  - This needs one small hook: a decision observer on `Vector61SimdPolicy` that
+    exposes `q` and the post-veto action.
+- **Who acts (DAgger):**
+  - Round 0: teacher+v8 acts.
+  - Rounds 1–2: the student acts with probability 1−β (β = 0.5, then 0.25); the
+    teacher still labels.
+  - The student's forward is batched on MPS. This puts big-body states where the
+    teacher+v8 would have died into the data.
+- **Volume and cost.** Measured identity rate: H5000 v8 worlds at about 11–12 s of
+  grid wall per world, which is roughly 400–450 hero decisions/s per process with
+  rowwise forwards; batched forwards should be faster.
+  - Target 2M decisions in round 0 and 1M per DAgger round: about 1.5–2.5 h on 3
+    slots, gated by the 4× rule against a 32-vCPU pod. Opponent rows, not the
+    featurizer, are the cost (§14.4).
+- **Storage.** Shards of uint8 local/global planes plus float32 scalars/Q, with
+  `np.savez_compressed` per 50k samples. Measure the compression ratio in the
+  first shard (an observation is 11.2 KB raw).
+  - The audit record per shard: seeds, git commit, numba version, teacher sha.
+
+### 15.2 Student fit (MPS)
+
+- **Network:** the draft `Ego2sNet` (1.6M params; 20k updates/s measured on MPS),
+  dueling head.
+- **Loss** = Huber(Q_s(o,·) − Q_T(o,·)) over the legal actions, on the teacher's
+  **raw** scale, plus λ·DQfD margin
+  `max_a[Q_s(o,a) + m·1(a≠a_v8)] − Q_s(o,a_v8)`.
+  - λ = 1.
+  - m = 0.1 × the median per-state teacher Q range, measured on round-0 data and
+    then frozen.
+- **Training:** Adam 3e-4, batch 1024, cosine decay, at most 6 epochs per round.
+  - Hold out 10% of the data by world seed.
+  - Stop early on held-out v8-action agreement.
+  - Report: agreement overall and for L > 500; Q R²; the decided-by-veto subset.
+
+### 15.3 Pre-registered non-inferiority check (to be committed before any student exists)
+
+**Finding from §14.2 that changes the bar.** On the 24 identity worlds:
+- frp3-s12 **without** a veto averages **113.0** H5000 (sd 112);
+- with v8 it averages 421.9.
+
+The §10 margin of −30 was written as 8% of the *vetoed* 399. Against the unvetoed
+baseline it is a 27% margin, which is too loose.
+
+**Proposed rule (owner decision; the alternative is keeping −30):**
+- **Hypothesis:** student (no veto) vs frp3-s12 (no veto), dev H5000, profile
+  `promotion-v2-watch-rect`.
+- **Engine:** the SIMD grid engine. Student via the ego2s numba featurizer;
+  teacher via vector61 rowwise.
+- **Design:** paired worlds from the fresh namespace `redesign-m2-ni/v1`, **48
+  worlds per mix** (144 pairs).
+- **PASS** if the pooled paired-delta one-sided 90% t lower bound is **> −15**
+  (13% of 113).
+  - Assuming a paired sd of about 100, the standard error is about 8.3, which
+    gives roughly 70% power at a true Δ of 0.
+  - Per-mix deltas are reported.
+- **Reported, not gated:** student+v8 vs I (frp3-s12+v8); the big-body death
+  share; v8 veto activation on the student.
+- **Cost:** 288 H5000 episodes on 1–3 Mac slots, about 1–1.5 h.
+
+**Next actions:**
+1. Add the decision-observer hook and the shard writer, and measure the labelling
+   rate and compression on one shard.
+2. Commit the pre-registration with the chosen margin.
+3. Run round 0, then fit on MPS.
