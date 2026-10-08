@@ -98,3 +98,16 @@ def test_default_session_is_unchanged():
     sess = GameSession()
     assert not isinstance(sess.policy, Ego2sServingPolicy)
     assert sess.obs_spec == "vector61"
+
+
+def test_reset_clears_the_served_cache(ego_ckpt):
+    """A reset at frame 1 must not serve the previous game's frame-1 Q rows."""
+    sess = GameSession(checkpoint=ego_ckpt)
+    sess.step()
+    old = sess.policy._q.copy() if sess.policy._q is not None else None
+    sess.reset_game()
+    assert sess.policy._q is None and sess.policy._frame is None
+    sess.step()
+    assert sess.policy._q is not None
+    if old is not None and old.shape == sess.policy._q.shape:
+        assert not np.array_equal(old, sess.policy._q) or sess.game.frame != 1

@@ -1,185 +1,211 @@
-# M3 pre-registration DRAFT: RL fine-tune of the M2b ego2s-b student
+# M3 pre-registration DRAFT (rev. 2): RL fine-tune of the M2b ego2s-b student
 
-**Status: DRAFT for the owner (2026-10-08).** Nothing here runs until the owner ratifies it
-and approves any pod spend. When ratified, the frozen parts (§7 rule spec, §6 seeds and
-namespaces) are committed with a sha256 pinned by test BEFORE the first training step, as
-for every pre-registration in this program. Development / Tier-1 only: nothing here
-promotes. A Phase R GO still buys LH-1, the strict sequential gate and Mac serving
-qualification, exactly as for the FRP family.
+**Status: DRAFT for the owner (2026-10-08).** Rev. 2 folds in the independent review of
+rev. 1 (NO-GO as written; every finding addressed in §11). Nothing here runs until the
+owner ratifies it and approves any pod spend. At ratification the frozen parts (§7 rule
+spec JSON + plan, §6 seeds and namespaces, §3 schedules) are committed with sha256 pinned by
+test BEFORE the first training step. Development / Tier-1 only: nothing here promotes; a
+Phase R GO still buys LH-1, the strict sequential gate and Mac serving qualification.
 
 Inputs: doc `docs/research/redesign_scope_2026-10-07.md` §6–§10, §14–§18; M2b PASS
 (`research/redesign_m2_20261008/results_m2b/ni_check/verdict.json`); the ratified
-sequential Phase R amendment (`docs/research/governance_amendment_sequential_phase_r_2026-10-07.md`,
-design `docs/research/sequential_phase_r_design_2026-10-07.md`, code
-`src/evaluation/sequential_phase_r.py`, on main since `22ba10b`).
+sequential Phase R amendment and design on main (`22ba10b`).
 
 ## 1. Question
 
-Does reinforcement learning in the gate world, starting from the distilled ego2s-b
-student and anchored to its teacher, produce a policy that (wrapped in the served v8 veto)
-beats the served champion **I = frp3-s12 + v8** on Tier-1 H5000?
+Does reinforcement learning in the gate world, starting from the distilled ego2s-b student
+and anchored to its teacher, produce a policy that, wrapped in the served v8 veto, beats
+the served champion **I = frp3-s12 + v8** on Tier-1 H5000?
 
 ## 2. Starting point
 
-* **Student:** `student_m2b_final.pth`, sha `36a92948ff82618b1944431675414301ef27f22bc15c7e12329bf75fc7cac48f`
-  (M2b NI PASS: +52.4 vs frp3-s12 without veto; +11.1 with v8 on both, reported).
-* **Optional boost-fixed variant (owner choice at ratification):** the same student
-  fine-tuned 2 epochs with boost-label weighting (doc §18.3). Chosen only on held-out
-  distillation metrics; never on any evaluation world.
+`student_m2b_final.pth`, sha `36a92948ff82618b1944431675414301ef27f22bc15c7e12329bf75fc7cac48f`
+(M2b NI PASS +52.4 vs frp3-s12 without veto; +11.1 with v8 on both, reported). No boost
+reweighting (doc §18.3: it raises overall teacher-Q regret); the boost rate is an M3
+diagnostic.
 
-## 3. Algorithm (DQN family; the doc's §6 recommendation)
+## 3. Algorithm (DQN family; doc §6). All schedules are in TRANSITIONS.
 
-* **Learner:** synchronous vectorized Double DQN, dueling `Ego2sNet` (ego2s-b, 1.6M params),
-  **n-step 5**, Huber TD, Adam 1e-4, batch 512, grad-norm clip 10, target sync every 1000
-  updates, no PER in the first run (added only if M3-A shows sample starvation).
-* **Discount:** **γ 0.995** (the doc's horizon choice, matching the FRP-v5-H arm), reached
-  through a **value re-bootstrap**: the teacher's Q is a γ 0.99 value, so the first 200k
-  updates run at γ 0.99 with the policy held by the anchor (below), then γ anneals
-  linearly to 0.995 over the next 400k updates. γ 0.997 only if FRP-v5-H wins.
-* **Replay:** 1M agent transitions (uint8 obs ≈ 12.8 KB each: ~13 GB host RAM) + the M2b
-  **teacher demonstration set** (4.16M labelled decisions, data rounds 10–12, already on disk)
-  sampled at **25% of every batch** (DQfD style).
-* **Anchor (kept):** on demonstration samples only, `λ_anchor(t) · (advantage-Huber ×10 + KL
-  τ 0.05 to the teacher Q + DQfD margin to the v8 action)` (the M2b distillation loss);
-  `λ_anchor` = 1.0 for the first 600k updates (re-bootstrap + γ anneal), then decays
-  exponentially to a floor of 0.1 by 2M updates and stays there.
-* **Replay ratio:** 4 sampled transitions per new agent transition (≈ 1 update of 512 per
-  128 transitions).
-* **Exploration:** ε-greedy over the resolved mask, ε 0.05 → 0.01 over 5M transitions (the
-  student is already competent; no exploration from scratch).
-* **Reward:** the champion's contract (`GridBatchSim` reward v2: potential-based length term
-  at the learner's γ, death −3, kill credit 0.3 × victim length), so the training objective
-  matches the frp3 line's.
-* **Episodes:** hero death is terminal for the TD target (no bootstrap); the hero respawns
-  into a new episode; world reset every 5000 frames is a truncation (bootstrap).
-* **Tripwires (halt-and-flag):** NaN/inf, max |Q| > 50, action collapse (one action > 90% of
-  a 100k-decision window), held-out v8 agreement on the demonstration hold-out < 0.6.
+* **Learner:** synchronous vectorized Double DQN, dueling `Ego2sNet` (ego2s-b), **n-step 5**,
+  Huber TD, Adam 1e-4, batch 512, grad-norm clip 10, target sync every 1000 updates, no PER
+  in the first run.
+* **Replay ratio 4:** one update of 512 per 128 new agent transitions (20M transitions =
+  156k updates).
+* **Discount (γ 0.995 via a value re-bootstrap):** γ 0.99 for the first **2M** transitions
+  (the teacher's Q is a γ 0.99 value), then linear to **0.995 by 6M**; γ 0.997 only if
+  FRP-v5-H wins. The reward's potential term uses the learner's current γ (policy-invariant
+  shaping; the reward drifts slightly during the anneal, accepted and disclosed).
+* **Anchor (kept), demonstrations anchor-only:** the M2b demonstrations have no reward or
+  next state, so they take **no TD loss**. On them: `λ_anchor · (advantage-Huber ×10 + KL
+  τ 0.05 to the teacher Q + DQfD margin to the v8 action)`; the raw-Q regression term is
+  **dropped** (it would fight γ 0.995 forever). Demonstrations are 25% of every batch.
+  `λ_anchor` = 1 until 6M transitions, then decays exponentially to a floor of 0.1 at 15M.
+* **Memory (Mac, 64 GB, shared with the Phase R jobs):** agent replay 500k transitions
+  (uint8 obs 12.4 KB → ~6.2 GB); demonstrations streamed from the compressed shards (1.9 GB
+  on disk) by a background decompress thread into a rotating 300k-sample buffer (~3.7 GB),
+  one shard swapped per 20k updates; total ≤ 12 GB.
+* **Exploration:** ε-greedy over the resolved mask, ε 0.05 → 0.01 by 5M.
+* **Reward:** the champion's contract (`GridBatchSim` reward v2: potential length term, death
+  −3, kill credit 0.3 × victim length).
+* **Episodes:** hero death is terminal (no bootstrap); the hero respawns into a new episode;
+  the world resets every 5000 frames (truncation: bootstrap).
+* **Tripwires:** HALT on NaN/inf or action collapse (one action > 90% of a 100k-decision
+  window). FLAG only (reported, no halt): max |Q| above 5× the demonstrations' max |Q|
+  (kills legitimately pay up to +0.3 × victim length), held-out v8 agreement on the
+  demonstration hold-out below 0.6.
 
 ## 4. Opponents
 
-* **Training mix:** 75% of worlds scripted (`scripted-anchor/v1`, the fast decision-identical
-  policy) and 25% frozen-pool worlds (the strict rosters' checkpoint pool: champion and the
-  three older pool members, vector61 batched forwards). Gate mixes stay evaluation-only.
-  Rationale (doc §14.4, §18.2): frozen-pool rows cost 240–590 µs per world-frame against
-  ~2 µs for scripted rows; FRP-v3 showed scripted opponents in training help.
-* frp3-s12 is NOT an opponent in training (it is the incumbent being evaluated against).
+* **Training worlds:** 75% scripted (`scripted-anchor/v1`, decision-identical fast policy),
+  25% frozen-pool (the strict rosters' checkpoint pool: champion_a5 and the three older pool
+  members, vector61 batched forwards). frp3-s12 never trains against itself.
+* Training world seeds: namespace `redesign-m3-train/v1` (disjoint from every NI, probe,
+  distillation and Phase R namespace; tested at ratification).
 
-## 5. Compute plan (measured numbers; Mac CPU rules as 2026-10-08)
+## 5. Compute plan
 
-Measured on the Mac (§18.2; one thread per process, loaded host):
+Measured on the Mac (doc §14.4, §18.2; one thread per process, loaded host):
 
 | Quantity | Value |
 |---|---|
-| Actor, scripted worlds, ego2s-b, MPS acting (E = 256) | 12.1k hero transitions/s |
-| Actor, frozen-pool worlds (E = 64), no acting forward | 1.6k–2.7k/s (+31 µs/world-frame acting) |
-| Training mix 75/25 (per world-frame ≈ 0.75 × 83 µs + 0.25 × 500 µs) | **≈ 5.3k transitions/s per actor process** |
-| Learner, `Ego2sNet` DQN update on MPS (batch 512) | ≈ 20k samples/s (M1 network probe) |
-| Learner capacity at replay ratio 4 | ≈ 5k transitions/s |
+| Env, scripted worlds, ego2s-b, MPS acting (E = 256) | 12.1k hero transitions/s |
+| Env, frozen-pool worlds, ego2s-b (E = 64) | 1.6k–2.7k/s (+31 µs acting) |
+| **Env, training mix 75/25** (0.75 × 83 µs + 0.25 × 500 µs ≈ 187 µs per world-frame) | **≈ 5.3k transitions/s** (this is also G1 for the training mix: **not met**, 4× below 20k) |
+| Learner, `Ego2sNet` DQN update on MPS, batch 512 | ≈ 20k samples/s ≈ 200 µs per 128 transitions at ratio 4 |
 
-**Mac (GPU free; CPU limited to ≤ 2 processes × 1 thread while FRP-v5-H then FRP-v5-S2
-Phase R hold the slot locks, ~20 h):** one actor process + one learner process (MPS):
-**≈ 5k transitions/s, balanced** (actor ≈ learner).
+**Mac design: one synchronous process (doc §6), MPS for every forward and update.** Per 128
+transitions: env ≈ 128 × 187 µs ≈ 24 ms + update ≈ 26 ms (incl. ~1–2 ms CPU batch
+gathering) → **≈ 2.6k transitions/s**. M3-A (5M) ≈ **32 min**; M3-B (5 seeds × 20M =
+100M) ≈ **10.7 h**. The second allowed CPU process runs the dev probes (§6) concurrently.
+A two-process actor/learner split (shared-memory replay) would roughly double the rate; it
+needs new code and its own review, so it is not assumed.
 
-* M3-A smoke (1 seed × 5M transitions): **≈ 17 min**.
-* M3-B (5 seeds × 20M transitions): **≈ 5.6 h** serially (one seed at a time; the GPU is
-  shared), free.
+**Pod (owner's spend decision).** One 4090-class pod (vCPU count and price to be verified
+with the runpod skill; unverified here): env actors in 20 processes ≈ 20 × 5.3k × 0.78
+(fast EPYC 9655P vCPU ≈ 0.78× a Mac slot; slow hosts ~10× slower are refused by the
+identity pre-check) ≈ 83k/s; the 4090 learner is unmeasured (at batch 2048, if ≥ 80k
+samples/s → ≈ 20k transitions/s, learner-bound). That needs the multi-process actor code too.
 
-**Pod (needs the owner's spend approval; the ≥ 4× per-step rule applies):** one 4090-class
-pod with ≥ 24 vCPU.
+* **G2 as defined in doc §8 is ≥ 50k transitions/s end-to-end AND the ≥ 4× rule.** The
+  projection (≈ 20k/s) would fail the 50k clause; ≥ 4× the Mac (2.6k/s) would pass easily.
+  **Owner decision:** keep G2 at 50k (likely no pod for M3-B), or amend G2 to "≥ 4× the
+  measured Mac M3-A rate". Cost if a pod runs: 100M / 20k/s ≈ 1.4 h + 0.5 h smoke ≈ 2 h ×
+  ~$0.7–1.2/h ≈ **$1.5–2.5**.
+* The Mac↔pod float-tie finding (argmax ties resolving differently across CPU models)
+  affects only cross-platform identity checks, not training validity.
 
-* Actors: 20 processes. Per-vCPU speed depends on the host: a fast EPYC 9655P vCPU ran the
-  gate world at ≈ 0.78× a Mac slot (0.0054 vs 0.0042 s per frame-world); slow hosts were
-  ~10× slower and are refused by the identity pre-check. On a fast host: ≈ 20 × 5.3k × 0.78 ≈
-  **80k transitions/s** of env.
-* Learner: unmeasured on a 4090. At batch 2048 a 4090 is expected to do several times MPS;
-  if it reaches ≥ 80k samples/s the run is learner-bound at **≈ 20k transitions/s ≈ 4× the
-  Mac**, i.e. the 4× rule is marginal and **G2 (30-min smoke) decides**: proceed on the pod
-  only if the measured end-to-end rate is ≥ 4× the Mac's measured M3-A rate.
-* Cost (if G2 passes): M3-B 100M transitions / 20k/s ≈ 1.4 h + smoke 0.5 h ≈ 2 h ×
-  ~$0.7–1.2/h (4090 secure, vCPUs included) ≈ **$1.5–2.5**. Verify current prices with the
-  runpod skill before any request; the $50 budget is untouched otherwise.
-* The Mac↔pod float-tie finding (argmax ties resolving differently across CPU models) affects
-  only cross-platform identity checks, not training validity: training runs are not
-  replayed bit-for-bit, and evaluation (§7) is platform-pinned per world.
+**Recommendation:** M3-A on the Mac now (≈ 32 min, free); decide M3-B's platform after
+M3-A's measured rate and the owner's G2 ruling.
 
-**Recommendation:** run M3-A on the Mac now (free, 17 min of GPU + 2 CPU processes); decide
-the pod only on the measured M3-A rate and G2.
+## 6. Stages and the learning-slope criterion
 
-## 6. Stages and checkpoints
+* **M3-A (Mac smoke):** 1 seed, 5M transitions; dev probes at 0 / 2.5M / 5M on reserved
+  distillation-namespace worlds (round index 52, 16 per mix, student + v8 and student
+  alone). HALT only on a §3 tripwire; the probe trend is FLAGGED if the 5M student + v8 mean
+  is below the 0M mean by more than 50 (≈ 2 SE on 48 worlds) and the owner decides.
+* **M3-B:** 5 training seeds (0–4), 20M transitions each, checkpoints every 2.5M.
+* **Learning slope (doc §10 M3 exit, part 1):** per seed s, the dev H5000 mass of student +
+  v8 at checkpoints 0, 5, 10, 15, 20M on the same 48 round-52 worlds; per world, the
+  mix-stratified per-checkpoint mean; **one slope per seed** = OLS slope of the per-checkpoint
+  world-paired means on transitions; then a **one-sided 90% Student-t lower bound across the
+  5 seed slopes (df 4) > 0** → proceed to Phase R. Otherwise stop and report.
+* **Dev probe cost:** 5 checkpoints × 48 worlds × 5 seeds ≈ 1200 H5000 v8 episodes ≈ 4 h
+  on one thread (+ ≈ 0.3 h for M3-A), run in the second CPU process alongside training.
+* **Phase R candidates:** each seed's final (20M) checkpoint, fixed in advance.
 
-* **M3-A (Mac smoke):** 1 seed (seed 0), 5M transitions; dev probe at 0 / 2.5M / 5M on
-  reserved distillation-namespace worlds (round index 52, 16 per mix; student without veto
-  and with v8). Continue to M3-B iff no tripwire fired and the 5M probe (student + v8)
-  is ≥ the 0M probe − 15 (non-collapse; not an efficacy claim).
-* **M3-B:** 5 training seeds (seeds 0–4; seed 0 continues from M3-A's checkpoint only if
-  the run is bit-identical in config, otherwise restarts), 20M transitions each,
-  checkpoints every 2.5M.
-* **Learning-slope criterion (doc §10 M3 exit, part 1):** dev H5000 of student + v8 on the
-  round-52 worlds at checkpoints 0, 5, 10, 15, 20M per seed; OLS slope of mass on
-  transitions pooled over the 5 seeds with a per-seed intercept; **one-sided 90% lower bound
-  > 0** → proceed to Phase R. Otherwise stop and report (no Phase R).
-* **Candidates for Phase R:** each seed's **final (20M) checkpoint**, fixed in advance (no
-  selection on the dev probes, which would bias Phase R).
+## 7. Tier-1: sequential Phase R vs I (method `sequential-phase-r-obf-hk-v1`)
 
-## 7. Tier-1 evaluation: sequential Phase R vs I (method `sequential-phase-r-obf-hk-v1`)
+**Owner rulings needed first:** (i) the ratified amendment covers "future FRP-family Tier-1
+screens"; applying it to a new architecture needs an explicit ruling; (ii) doc §10's
+intermediate Tier-1 screen (pooled UB > 0) is replaced by this sequential Phase R, whose
+KILL / NO_GO stops play that role.
 
-* **Arms:** candidate C = M3 student (seed s, 20M) + v8 (λ 8, served variant; `Ego2sV8Policy`)
-  vs incumbent I = frp3-s12 + v8. Reported-only control arm: the M2b student + v8 (the RL
-  contribution).
-* **Worlds:** fresh namespace `redesign-m3-phase-r/v1`, **N = 32 worlds per (seed, mix)**,
-  3 mixes (frozen / scripted / mixed, strict rosters), the same world bank across seeds as
-  the FRP family's bank discipline, H10000 records carrying their exact H5000 prefixes.
-* **Looks:** 1/3, 2/3, 1 → 11 / 22 / 32 worlds per (seed, mix), look-major schedule, prefix
-  identity controls in look 0, create-only plan and look receipts, look gate per shard,
-  independent `python -I` audit must PASS.
-* **GO (full rule, judged at the stopping look):**
-  1. pooled H5000 point ≥ +20 AND HK pooled lower bound > 0 with **O'Brien-Fleming spending
-     of one-sided 0.10** (N = 32, df 4: nominal 0.0050 / 0.0457 / 0.0860);
-  2. scripted mean ≥ 0 AND scripted survival ≥ −0.03;
-  3. frozen and mixed survival ≥ −0.03;
-  4. ≥ 4 of 5 seeds positive;
-  5. prefix identity controls pass AND pooled MI10 point ≥ +20;
-  6. champion guard: C vs champion + v8 point > 0 and scripted survival ≥ −0.05 on the
-     reference seed's 96 episodes;
-  7. gate feasibility (N_max ≤ cap at the strict gate's design).
-  Interim looks use the ratified margins (protective clauses at √(1−t), z 1.645; other points
-  (1−√t), z 1.2816).
-* **KILL:** Pocock-type repeated HK upper bound < +20 at any look (spending 0.10;
-  non-binding for GO; followed by protocol).
-* **NO_GO (gate futility):** **opt in, G = 50** (the ratified default): repeated upper bound
-  < 50 → stop. Saves ~46–61% of evaluation compute near the null (design doc §9).
-* **Final-only labels:** GO_UNGATEABLE / PARTIAL with the fixed rule's precedence;
-  INCOMPLETE / INVALID_ANALYSIS first.
-* **OC report:** this design matches the simulated FRP family (5 seeds, N = 32, same
-  thresholds), so the committed OC table applies; any change re-runs `simulate.py` before
-  ratification.
-* **Engine:** the SIMD grid engine (`run_simd_eval(sim_engine="grid", vector61=True,
-  hero_ego2s=..., hero_safety_veto="v8")`). The governance precondition for counting SIMD
-  Tier-1 numbers of a new architecture (doc §9 step 1: serving harness + live identity) is
-  met for ego2s-b (§17.1, §18.1). Pre-registered live-replay check: 2 worlds per mix of look 0
-  replayed on the live engine through the web serving policy on the same platform; records
-  must be identical (an argmax float-tie flip is reported and, if it occurs, the affected
-  worlds' live records are the ones used).
-* **Compute:** per H10000 world with v8 ≈ 25–30 s on one Mac thread (from the M2b v8 arms:
-  10–13 s per H5000 world in 48-world batches). Fixed maximum: 5 × 3 × 32 × 2 arms ≈ 960
-  episodes + controls (+15%) ≈ **9 h on one thread → ≈ 4.5 h on 2 Mac processes**; expected
-  ≈ 2–2.5 h with NO_GO near the null. On a fast 32-vCPU CPU pod (≥ 4× the 2 Mac processes):
-  ≈ 20–25 min, ≈ **$0.3–0.5**.
+* **Arms:** C = M3 student (seed s, 20M) + v8 (λ 8) vs I = frp3-s12 + v8. Reported-only:
+  the M2b student + v8 control on seed 0's bank only (96 episodes, the RL contribution).
+* **Worlds:** **one 32-world bank per training seed** (FRP-v3 practice: 160 distinct
+  worlds), each bank played in all 3 mixes (strict rosters), from the fresh namespace
+  `redesign-m3-phase-r/v1`; H10000 records carrying their exact H5000 prefixes.
+* **Looks:** 11 / 22 / 32 worlds per (seed, mix), look-major schedule; the prefix identity
+  controls run in look 0; create-only `plan.json` before any shard; a look receipt before
+  any look-k+1 work; the independent `python -I research/sequential_phase_r/audit.py` must
+  PASS.
+* **Rule spec:** the FRP v4 spec of `research/sequential_phase_r/example_rules.py`
+  (`sequential-phase-r-rule/v1`) with: N 32, 5 seeds, GO OBF one-sided 0.10 on the HK
+  pooled lower bound (nominal 0.0050 / 0.0457 / 0.0860 at df 4); KILL Pocock repeated HK
+  upper bound < +20 (spending 0.10; non-binding for GO); NO_GO opt-in **G = 50**; the
+  ratified margins (protective clauses √(1−t) at z 1.645; other points (1−√t) at z 1.2816).
+  Its JSON and sha256 are pinned in the ratified pre-registration (condition 1).
+* **GO (full rule at the stopping look):** (1) pooled H5000 point ≥ +20 AND the OBF HK lower
+  bound > 0; (2) scripted mean ≥ 0 AND scripted survival ≥ −0.03; (3) frozen / mixed
+  survival ≥ −0.03; (4) ≥ 4 of 5 seeds positive; (5) prefix identity controls pass AND
+  pooled MI10 point ≥ +20; (6) champion guard: C vs **champion_a5 + v8** (the pre-frp3
+  served champion, FRP's reference) point > 0 and scripted survival ≥ −0.05 on the reference
+  seed's 96 episodes; (7) gate feasibility (N_max ≤ cap). GO_UNGATEABLE / PARTIAL are
+  final-only, with the fixed rule's precedence; INCOMPLETE / INVALID_ANALYSIS first.
+* **Amendment conditions quoted (binding):** stops are final (a GO, KILL or NO_GO at an
+  interim look ends the study; an override is a recorded protocol deviation; no resume,
+  rerun or relabel of a look); a HALT ends the analysis and the owner decides; an incomplete
+  look is never analysed (INCOMPLETE); the audit must PASS (UNCLOSED / HALTED / FAIL →
+  INVALID_ANALYSIS); after an early stop the report states that point estimates are biased
+  upward and descriptive, final-only labels are unresolved, and candidate selection used the
+  stopping look's worlds.
+* **OC applicability:** the design matches the simulated FRP v4 family (5 seeds, N 32, the
+  same thresholds), so the committed OC table applies. The variance is comparable: per-world
+  SD of (student + v8 − I) on the M2b NI worlds was 192–318 per mix vs the pool's SD* ≈ 290.
+* **Engine and its prerequisites (code to write and review before ratification):**
+  * **P1 — live ego2s + v8 policy:** a `tournament_eval` agent spec for ego2s checkpoints
+    and a live v8 wrapper around the ego2s serving policy (the web serving policy is
+    deliberately unwrapped). LH-1, the strict gate and serving qualification need it anyway.
+  * **P2 — record identity with the student acting:** M1/M2b established observation
+    identity with the teacher acting; before ratification, ≥ 3 worlds per mix of C + v8 must
+    give identical records on the SIMD grid engine and on the live engine (same platform).
+  * **Engine rule fixed in advance:** if P2 passes, Phase R runs on the SIMD grid engine;
+    if any world differs, the WHOLE study runs on the live engine. No per-world substitution.
+* **Platform:** Mac only. Pod Phase R needs D4 (the per-look gate in
+  `research/pod_phaser`), which is deferred, so the CPU-pod option is not available until
+  that reviewed change lands.
+* **Compute:** per H10000 v8 world ≈ 25–30 s on one Mac thread. Fixed maximum: 960 (C, I) +
+  96 (control) + 96 (champion guard) + 15 (prefix controls) ≈ 1170 episodes ≈ **9.2 h on one
+  thread → ≈ 4.6 h on 2 Mac processes**; ≈ 2–2.5 h expected near the null with NO_GO. Doc §8's
+  "≥ $35" was a pod Phase R of the vector61 line on the live engine; this Mac plan is free.
 
-## 8. Decision rule (what each outcome buys)
+## 8. Decision rule
 
 | Outcome | Next step |
 |---|---|
-| M3-A tripwire or collapse | stop; diagnose (owner) |
-| Learning slope LB ≤ 0 | stop M3; report; candidates do not go to Phase R |
-| Phase R **GO** | pre-declared candidate = the seed with the highest per-seed lower bound (FRP-v3 practice) → LH-1 → strict sequential gate (live engine, 2 Mac slots or the strict-RunPod amendment) → Mac serving qualification (25 Watch + 25 Play, parity, ≤ 8 ms for 12 snakes) |
-| **KILL** or **NO_GO** | stop the M3 line as specified; report; owner decides between capacity/horizon changes or retiring |
+| M3-A HALT (tripwire) | stop; diagnose (owner) |
+| M3-A probe FLAG | owner decides whether to run M3-B |
+| Learning-slope LB ≤ 0 | stop M3; report; no Phase R |
+| Phase R **GO** | pre-declared candidate = the seed with the highest per-seed lower bound (FRP-v3 practice) → LH-1 → strict sequential gate (live engine; 2 Mac slots or the strict-RunPod amendment) → Mac serving qualification (25 Watch + 25 Play, parity, ≤ 8 ms for 12 snakes with v8) |
+| **KILL** / **NO_GO** | stop the M3 line; report; owner decides between capacity / horizon changes and retiring |
 | PARTIAL / GO_UNGATEABLE | owner decision |
 
-## 9. What the owner decides at ratification
+## 9. Owner decisions at ratification
 
-1. Mac-only (≈ 5.6 h, free) vs pod for M3-B (G2 decides the 4× rule; ≈ $1.5–2.5).
-2. Starting student: M2b final vs the boost-weighted variant (§18.3).
-3. NO_GO opt-in (recommended) and G.
-4. Phase R platform: Mac (≈ 4.5 h max on 2 processes, after FRP-v5 Phase R frees the
-   slots) or a CPU pod (≈ $0.5).
+1. Apply the sequential Phase R amendment to this new architecture; replace doc §10's
+   intermediate screen with it.
+2. G2: keep 50k (no pod for M3-B) or amend to "≥ 4× the measured Mac M3-A rate" (pod ≈ $1.5–2.5,
+   needs the multi-process actor code).
+3. NO_GO opt-in (recommended) and G = 50.
+4. M3-B platform after M3-A (Mac ≈ 10.7 h free vs pod).
+
+## 10. Work before ratification (code, Mac-only)
+
+The synchronous DQN trainer for ego2s-b (`train_m3.py`) with the §3 schedules and the
+streamed demonstration buffer; P1 and P2 (§7); the rule-spec JSON + test pin; tests and an
+independent review.
+
+## 11. Review of rev. 1 (2026-10-08): findings and resolutions
+
+| Finding | Severity | Resolution |
+|---|---|---|
+| Schedules in updates never reached in 20M transitions (γ never annealed, anchor never relaxed) | blocker | All schedules now in transitions (§3) |
+| Live-replay check / post-GO path need a live ego2s + v8 policy that does not exist; precondition overstated; post-hoc per-world substitution | major | P1/P2 prerequisites; whole-study engine rule fixed in advance (§7) |
+| G2 quietly redefined | major | Doc §8 G2 restated; amendment is an explicit owner decision (§5, §9) |
+| Replay/demo memory and IPC undefined; demos have no TD targets; single-process rate is ~2.6k/s, not 5k | major | Anchor-only demos, streamed buffer, memory budget, single-process rates and run times (§3, §5) |
+| Same world bank across seeds contradicts FRP practice and DL/HK independence | major | One bank per training seed (§7) |
+| Amendment scope (new architecture), D4 (no pod Phase R), missing rule-spec JSON, conditions not quoted, variance comparison | major | Owner ruling listed; Mac-only; spec named and pinned at ratification; conditions quoted; SD comparison stated (§7) |
+| Learning-slope OLS anti-conservative; unit undefined | major | Per-seed slopes, df 4 t bound, per-world unit (§6) |
+| Dev-probe and Phase R extras not budgeted; $35 vs $0.5 | major | Budgeted (§6, §7); reconciled |
+| |Q| > 50 halt mis-calibrated; agreement halt; weak non-collapse test | minor | Flags with scale-relative rule; probe flag at ~2 SE (§3, §6) |
+| Raw-Q anchor fights γ 0.995; γ in the shaping; "champion" in clause 6; training namespace; skipped intermediate screen | minor | Raw-Q term dropped; shaping γ stated; champion_a5 + v8; namespace named; owner ruling (§3, §4, §7) |

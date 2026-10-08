@@ -511,3 +511,25 @@ def test_b_region_kernel_equals_reference_on_dense_random_views(seed):
     np.testing.assert_array_equal(a, b)
     assert (a > 0).any() and (a == 0).any() and len(np.unique(a)) > 3
     _assert_backends_equal(view, _B, where=f"b random {seed}")
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_b_region_kernel_word_path_equals_reference(seed):
+    """Aligned padded rows (W + 2 * pad multiple of 8) exercise the 4-cell word skips."""
+    import dataclasses
+
+    from src.simd_env.ego_raster_b import region_sizes
+    from src.simd_env.ego_raster_nb import word_views
+
+    rng = np.random.default_rng(300 + seed)
+    view = _random_view(rng, W=48, H=33)
+    assert word_views(view.owner_pad, view.food_pad) is not None
+    sparse = rng.random(view.owner_pad.shape) < 0.6  # open regions -> long empty runs
+    owner = np.where(sparse, -1, view.owner_pad).astype(np.int16)
+    view = dataclasses.replace(
+        view, owner_pad=owner, boosting=np.zeros(view.alive.shape, dtype=bool)
+    )
+    rows = np.argwhere(view.alive)
+    np.testing.assert_array_equal(
+        region_sizes(view, rows, "numpy"), region_sizes(view, rows, "numba")
+    )

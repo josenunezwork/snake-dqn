@@ -81,6 +81,10 @@ class Ego2sServingPolicy:
     def prepare_frame(self) -> None:
         self._ensure_frame()
 
+    def _invalidate_cache(self) -> None:
+        """The name ``GameSession.reset_game`` calls (as on the raster serving policy)."""
+        self._invalidate()
+
     def _invalidate(self) -> None:
         self._frame: Optional[int] = None
         self._q: Optional[np.ndarray] = None  # (S, 6), rows in game.snakes order

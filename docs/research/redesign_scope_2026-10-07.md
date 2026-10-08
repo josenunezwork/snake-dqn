@@ -1091,8 +1091,9 @@ vs 22–25 µs alone):
 | mixed (gate) | fresh / warm | 64 | 3.7k / 2.7k |
 
 **G1 (20k) is NOT met with ego2s-b** (15–17k for scripted opponents; draft was 28–30k).
-It does not bind M3 on the Mac: the learner at replay ratio 4 caps the Mac at ~5k
-transitions/s anyway (M3 draft §5). Remaining levers if needed: fuse the numpy ego2s-b
+For the M3 draft's actual training mix (75% scripted / 25% frozen-pool worlds) the env rate
+is ≈ 5.3k/s, **4× below the bar**. It does not bind M3 on the Mac: a synchronous Mac
+learner at replay ratio 4 runs at ≈ 2.6k transitions/s anyway (M3 draft §5). Remaining levers if needed: fuse the numpy ego2s-b
 extras into the numba kernel (~5 µs), and the sim's per-eat Python food path.
 
 ### 18.3 Under-boosting: diagnosis and a fix candidate (held-out distillation worlds only)
@@ -1119,11 +1120,21 @@ rate as an M3 diagnostic. (Weight 10 is the least harmful option if the owner wa
 
 ### 18.4 M3 plan
 
-`research/redesign_m3_20261008/PREREGISTRATION_M3_DRAFT.md` (owner ratifies; pod spend is
-the owner's decision): DQN family (Double, dueling, n-step 5, γ 0.99 → 0.995 via a value
-re-bootstrap, target sync 1000), anchor kept (M2b distillation loss on the teacher
-demonstrations at 25% of each batch, λ 1 → 0.1), scripted 75% / frozen-pool 25% training
-worlds; Mac ≈ 5k transitions/s (M3-A smoke 17 min; 5 seeds × 20M ≈ 5.6 h, free) vs a
-4090 pod (G2 decides the 4× rule; ≈ $1.5–2.5); learning-slope gate; sequential Phase R vs
-frp3-s12+v8 (OBF GO, Pocock KILL, NO_GO G = 50, N = 32 per (seed, mix), SIMD grid engine
-with a live-replay check; ≈ 4.5 h max on 2 Mac processes or ≈ $0.3–0.5 on a CPU pod).
+`research/redesign_m3_20261008/PREREGISTRATION_M3_DRAFT.md`, **rev. 2** (owner ratifies; pod
+spend is the owner's decision). Rev. 1 was reviewed independently: NO-GO as written (one
+blocker: anchor/γ schedules stated in updates were never reached within 20M transitions;
+majors on the live ego2s + v8 prerequisite, G2's definition, replay memory/IPC, the world
+bank per seed, the amendment's scope and D4, the slope statistic, and unbudgeted probes).
+Rev. 2 resolves each (its §11). In short: DQN family (Double, dueling, n-step 5; γ 0.99 for
+2M transitions then → 0.995 by 6M; target sync 1000; replay ratio 4), anchor kept on
+anchor-only demonstrations (25% of batches; λ 1 until 6M → 0.1 by 15M; raw-Q term dropped),
+75/25 scripted / frozen-pool training worlds; **Mac synchronous ≈ 2.6k transitions/s**:
+M3-A smoke ≈ 32 min, M3-B 5 seeds × 20M ≈ 10.7 h, free; a pod needs multi-process actor
+code and the owner's G2 ruling (doc §8's G2 is ≥ 50k end-to-end; the projection is ≈ 20k);
+learning-slope gate = per-seed slopes, df-4 t bound; sequential Phase R vs frp3-s12 + v8 on
+one 32-world bank per seed (OBF GO, Pocock KILL, NO_GO G = 50), Mac only until D4, SIMD
+grid engine only if a student-acting record-identity check (P2) passes, ≈ 4.6 h max on 2
+Mac processes. The same review found one serving bug (a reset at frame 1 could reuse the
+previous game's cached Q rows for one frame: `GameSession.reset_game` calls
+`_invalidate_cache`); fixed with a regression test, and a word-path test was added for the
+region kernel.
