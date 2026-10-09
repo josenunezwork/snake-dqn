@@ -126,3 +126,6 @@ events.out.tfevents.*
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Local-only agent operational notes (never publish; see docs/STATUS.md for shared state)
+docs/agent_notes/
