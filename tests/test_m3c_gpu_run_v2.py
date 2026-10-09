@@ -643,3 +643,12 @@ def test_queue_is_seed_major_and_truncated_by_the_lifetime(tmp_path, monkeypatch
     out2, state2 = _drive(tmp_path / "t", monkeypatch, agent2, plan)
     assert out2 == "finished partially (queue truncated by the lifetime)", out2
     assert 1 <= len(state2["runs"]) < 4
+
+
+def test_probe_watch_reads_every_attempt_of_a_run_root(tmp_path):
+    for k, run in ((0, "A_s0"), (1, "B_s0")):
+        d = tmp_path / f"attempt{k:02d}"
+        d.mkdir()
+        (d / "landed.jsonl").write_text(json.dumps({"run": run, "file": "final.pth", "path": "/p"}))
+    rows = pw.landed_rows(tmp_path, [])
+    assert sorted(r["run"] for r in rows) == ["A_s0", "B_s0"]

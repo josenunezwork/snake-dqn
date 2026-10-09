@@ -52,7 +52,11 @@ def scheduled(file: str, schedule: Sequence[str]) -> bool:
 
 def landed_rows(landed: Optional[Path], watch_dirs: Sequence[Path]) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
-    if landed and landed.exists():
+    # A runner root directory: every attempt's landed.jsonl (attempt00/, attempt01/, ...).
+    files = sorted(landed.glob("*/landed.jsonl")) if landed and landed.is_dir() else [landed]
+    for landed in files:
+        if not landed or not landed.exists():
+            continue
         for line in landed.read_text().splitlines():
             try:
                 r = json.loads(line)
