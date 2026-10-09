@@ -573,7 +573,7 @@ class TestScreenLivePlumbing:
 
         opponents = [("scripted", "random_safe"), ("scripted", "greedy_food")]
         with dev_screen.hero_veto_installer(_screen().install_v3):
-            with pytest.raises(ValueError, match="vector61 checkpoint hero"):
+            with pytest.raises(ValueError, match="vector61 (or ego2s )?checkpoint hero"):
                 rollout(("scripted", "greedy_food"), opponents, 5, 0, hero_safety_veto=True)
 
 

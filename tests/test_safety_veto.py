@@ -310,7 +310,7 @@ class TestRolloutHook:
     def test_veto_rejects_scripted_hero(self, tiny_live):
         from src.scripts.tournament_eval import rollout
 
-        with pytest.raises(ValueError, match="vector61 checkpoint hero"):
+        with pytest.raises(ValueError, match="vector61 (or ego2s )?checkpoint hero"):
             rollout(("scripted", "greedy_food"), self.OPPONENTS, 5, 0, hero_safety_veto=True)
 
 
