@@ -1311,7 +1311,8 @@ def main_multi(args) -> int:
     replay = Replay(args.replay)
     tel = Telemetry(args.out, args)
     # Rings: each actor holds 1.5x its share of the replay plus the in-flight frames (ingest is
-    # round-robin, so actor shares stay near 1/K; an overrun only drops rows, counted).
+    # round-robin, so actor shares stay near 1/K; an overrun only drops rows, counted). With
+    # the defaults (replay 500k, K = 2, 64 worlds): 2 x ~377k rows x 12.2 KB = ~9.3 GB per run.
     margin_rows = args.worlds * 16
     ring_cap = (
         int(1.5 * args.replay / K) + args.worlds * (args.actor_queue_frames + 8) + margin_rows

@@ -131,16 +131,26 @@ def test_phase_r_refuses_unratified_or_unselected(tmp_path):
     cand.write_text(json.dumps({"arm": "B", "paths": paths}))
     sel = tmp_path / "sel.json"
     good = {
+        "checkpoint": "final",
         "primary": {"arm": "B", "enter": True},
         "secondary": {},
         "target_transitions": pr.TRAINING_TRANSITIONS,
-        "scores": {"B": {"eligible": [0, 1, 2, 3, 4]}},
+        "scores": {
+            "B": {
+                "eligible": [0, 1, 2, 3, 4],
+                "final_sha256": {
+                    str(s): pr.sha256_file(runs / f"B_s{s}" / "final.pth") for s in range(5)
+                },
+            }
+        },
     }
     sel.write_text(json.dumps(good))
     assert pr.check_selection("nv", sel, cand)["gate"]["arm"] == "B"
     for bad in (
         dict(good, target_transitions=None),  # made without the eligibility check
-        dict(good, scores={"B": {"eligible": [0, 1, 2, 4]}}),  # a seed missing
+        dict(good, scores={"B": dict(good["scores"]["B"], eligible=[0, 1, 2, 4])}),
+        dict(good, checkpoint="ckpt_15000k"),
+        dict(good, scores={"B": dict(good["scores"]["B"], final_sha256={})}),  # sha tie
     ):
         sel.write_text(json.dumps(bad))
         with pytest.raises(SystemExit):
@@ -154,6 +164,7 @@ def test_phase_r_refuses_unratified_or_unselected(tmp_path):
     with pytest.raises(SystemExit):
         pr.check_selection("nv", sel, cand)  # another arm was selected
     sel.write_text(json.dumps(good))
+    (runs / "B_s2" / "ckpt_5000k.pth").write_bytes(b"x")  # same bytes, not the final
     paths["2"] = str(runs / "B_s2" / "ckpt_5000k.pth")
     cand.write_text(json.dumps({"arm": "B", "paths": paths}))
     with pytest.raises(SystemExit):

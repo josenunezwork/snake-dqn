@@ -30,6 +30,7 @@ def _plan(n=4, **kw):
         "max_hourly": 0.95,
         "vram_per_run_gb": 2.0,
         "disk_per_run_gb": 12.0,
+        "ring_gb_per_run": 9.3,
         "fill_beyond_guaranteed_vcpu": True,
         "runs": [{"name": f"B_s{i}", "seed": i, "extra": ["--reward", "mass"]} for i in range(n)],
     }
@@ -91,10 +92,18 @@ def test_fill_decision():
         "cpus": 32,
         "disk_free_gb": 50.0,
     }
-    assert gr.fill_decision(plan, tel, 5, 3, 0.0, 10_000.0)
-    assert gr.fill_decision(plan, tel, 5, 3, 9_500.0, 10_000.0) is None  # too soon
-    assert gr.fill_decision(plan, tel, 8, 3, 0.0, 10_000.0) is None  # at the cap
-    assert gr.fill_decision(plan, tel, 5, 0, 0.0, 10_000.0) is None  # nothing queued
+
+    def fd(t=tel, running=5, queued=3, last=0.0, now=10_000.0, **kw):
+        kw.setdefault("per_run_rate", 1000.0)
+        return gr.fill_decision(
+            plan if "p" not in kw else kw.pop("p"), t, running, queued, last, now, **kw
+        )
+
+    assert fd()
+    assert fd(last=9_800.0) is None  # too soon
+    assert fd(running=8) is None  # at the cap
+    assert fd(queued=0) is None  # nothing queued
+    assert fd(per_run_rate=None) is None  # no rate known yet
     bad = {
         "busy gpu": dict(tel, gpu=[dict(tel["gpu"][0], util_pct=90.0)]),
         # the cgroup is what counts, not the host's MemAvailable
@@ -105,18 +114,28 @@ def test_fill_decision():
         "no gpu": dict(tel, gpu=[]),
     }
     for why, t in bad.items():
-        assert gr.fill_decision(plan, t, 5, 3, 0.0, 10_000.0) is None, why
-    # the last fill lowered the per-run rate by > 15%: stop filling
-    assert gr.fill_decision(plan, tel, 5, 3, 0.0, 10_000.0, 800.0, 1000.0) is None
-    assert gr.fill_decision(plan, tel, 5, 3, 0.0, 10_000.0, 900.0, 1000.0)
+        assert fd(t=t) is None, why
+    # the last fill lowered the per-run rate by > 15%, or did not add >= 3% combined
+    assert fd(per_run_rate=800.0, per_run_rate_at_last_fill=1000.0) is None
+    assert fd(per_run_rate=900.0, per_run_rate_at_last_fill=1000.0)
+    assert fd(combined_rate=5100.0, combined_at_last_fill=5000.0) is None
+    assert fd(combined_rate=5200.0, combined_at_last_fill=5000.0)
+    # young runs rings are reserved: 43 GB headroom - 3 x 9.3 < 13 + 8
+    assert fd(young_runs=3) is None and fd(young_runs=2)
+    # a cgroup CPU quota caps concurrency and idle CPU comes from the jobs' measured use
+    q = dict(tel, cgroup_cpus=12.0, jobs={"a": {"cpu_pct": 300.0}, "b": {"cpu_pct": 300.0}})
+    assert fd(t=q, running=2)  # 3 x 1.5 <= 12, idle 6 >= 2.5
+    assert fd(t=q, running=8) is None
+    busyq = dict(q, jobs={"a": {"cpu_pct": 1100.0}})
+    assert fd(t=busyq, running=2) is None  # idle 1 < 2.5
     # within the guaranteed vCPUs only, unless the plan opts in
     strict = dict(plan, fill_beyond_guaranteed_vcpu=False)  # 16 / 1.5 -> at most 10 runs
-    assert gr.fill_decision(strict, tel, 5, 3, 0.0, 10_000.0)
-    assert gr.fill_decision(dict(strict, min_vcpu=8), tel, 5, 3, 0.0, 10_000.0) is None
+    assert fd(p=strict)
+    assert fd(p=dict(strict, min_vcpu=8)) is None
     host_only = {k: v for k, v in tel.items() if not k.startswith("cgroup")}
     assert gr.mem_headroom_gb(host_only) is None and gr.mem_headroom_gb(tel) == 43.0
     assert gr.mem_headroom_gb(dict(tel, mem_total_gb=143.0, cgroup_memory_gb=9.2e9)) is None
-    assert gr.fill_decision(plan, host_only, 5, 3, 0.0, 10_000.0) is None
+    assert fd(t=host_only) is None
 
 
 def test_g2_decision():
@@ -372,6 +391,9 @@ def test_drive_runs_the_queue_with_bounded_concurrency_and_pulls(tmp_path, monke
     assert out == "complete", out
     assert agent.max_running == 2 and set(state["runs"]) == {f"B_s{i}" for i in range(5)}
     assert state["g2"]["pass"] and state["speed_probe"]["rate"] == 500.0
+    # G2 measured runner-side over the >= 10 min freeze window, not since-start averages
+    assert 600 <= state["g2"]["window_seconds"] <= 900
+    assert abs(state["g2"]["combined_rate"] - 2 * 50.0) < 15
     landed = [json.loads(x) for x in (tmp_path / "landed.jsonl").read_text().splitlines()]
     assert sorted(r["run"] for r in landed) == [f"B_s{i}" for i in range(5)]
     tel = [json.loads(x) for x in (tmp_path / "telemetry.jsonl").read_text().splitlines()]
@@ -390,7 +412,12 @@ def test_drive_adaptive_fill_when_gpu_is_idle(tmp_path, monkeypatch):
     # RAM sizing allows 2 at first ((143 - 8) // 60); the idle GPU + free RAM adds more later
     assert agent.max_running >= 3
     stages = [json.loads(x) for x in (tmp_path / "progress.jsonl").read_text().splitlines()]
-    assert any("adaptive fill" in (r.get("reason") or "") for r in stages)
+    fills = [r for r in stages if "adaptive fill" in (r.get("reason") or "")]
+    assert fills
+    g2_t = [r["t"] for r in stages if r["stage"] == "G2"][0]
+    first = [r["t"] for r in stages if r["stage"] == "run_started"][0]
+    # no fill inside the freeze window [G2_SECONDS - 600, G2 decision]
+    assert not [f for f in fills if first + gr.G2_SECONDS - 600 <= f["t"] <= g2_t]
 
 
 def test_drive_refuses_slow_host_unwaived_pod_and_slow_g2(tmp_path, monkeypatch):

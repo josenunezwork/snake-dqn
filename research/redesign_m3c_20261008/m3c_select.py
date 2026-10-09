@@ -123,6 +123,16 @@ def t_interval(xs: Sequence[float]) -> Dict[str, float]:
     return {"mean": m, "se": se, "lb90": m - t * se, "ub90": m + t * se, "n": n}
 
 
+def _sha(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with Path(path).open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def seed_eligible(runs: Path, run: str, target: int) -> Tuple[bool, str]:
     path = runs / run / "summary.json"
     if not path.exists():
@@ -167,6 +177,11 @@ def select(
     for arm in arms:
         row: Dict[str, object] = {
             "seeds": {s: elig[(arm, s)][1] for s in SEEDS},
+            "final_sha256": {
+                s: _sha(runs / f"{arm}_s{s}" / "final.pth")
+                for s in SEEDS
+                if (runs / f"{arm}_s{s}" / "final.pth").exists()
+            },
             "eligible": [s for s in SEEDS if probed[(arm, s)]],
         }
         for veto in ("none", "v8"):

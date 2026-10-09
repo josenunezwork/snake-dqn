@@ -1,0 +1,24 @@
+{
+ "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-phase-r-smoke-nv-20261008",
+ "study": "redesign-m3c-phase-r-nv-SMOKE",
+ "namespace": "redesign-m3c-phase-r-smoke/v1 (N=4)",
+ "commit": "9411231c61475cf417e40a0b19bfc698a496a8c3",
+ "stand_in_candidates": "M3-B finals (seeds 0-4)",
+ "look0": {
+  "status": "KILL_V4",
+  "action": "STOP",
+  "valid": true
+ },
+ "prefix_controls": true,
+ "n_controls": 33,
+ "records": {
+  "champion|nested|v8|None|10000": 6,
+  "M2b-student|nested|None|advisory|10000": 6,
+  "M3C-selected-noveto|control|None|advisory|5000": 15,
+  "incumbent|nested|v8|None|10000": 30,
+  "M3C-selected-noveto|nested|None|advisory|10000": 30,
+  "incumbent|control|v8|None|5000": 15,
+  "champion|control|v8|None|5000": 3
+ },
+ "audit_verdict": "PASS"
+}

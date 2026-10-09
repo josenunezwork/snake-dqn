@@ -1,0 +1,294 @@
+{
+ "schema": "m3c-gpu-plan/v1",
+ "study": "redesign-m3c (ratified, PREREGISTRATION_M3C.md)",
+ "transitions": 20000000,
+ "actors": 2,
+ "mac_rate": 2943.0,
+ "g2_factor": 4,
+ "ram_per_run_gb": 19,
+ "vcpu_per_run": 3.2,
+ "max_concurrent_cap": 10,
+ "min_ram_gb": 96,
+ "min_vcpu": 12,
+ "speed_floor": 1500.0,
+ "cuda_mps": false,
+ "runs": [
+  {
+   "name": "A_s0",
+   "seed": 0,
+   "extra": [
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "A_s1",
+   "seed": 1,
+   "extra": [
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "A_s2",
+   "seed": 2,
+   "extra": [
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "A_s3",
+   "seed": 3,
+   "extra": [
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "A_s4",
+   "seed": 4,
+   "extra": [
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "B_s0",
+   "seed": 0,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "B_s1",
+   "seed": 1,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "B_s2",
+   "seed": 2,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "B_s3",
+   "seed": 3,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "B_s4",
+   "seed": 4,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000"
+   ]
+  },
+  {
+   "name": "D_s0",
+   "seed": 0,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000",
+    "--frozen-frac",
+    "0.34",
+    "--mixed-frac",
+    "0.33",
+    "--segment-frames",
+    "10000"
+   ]
+  },
+  {
+   "name": "D_s1",
+   "seed": 1,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000",
+    "--frozen-frac",
+    "0.34",
+    "--mixed-frac",
+    "0.33",
+    "--segment-frames",
+    "10000"
+   ]
+  },
+  {
+   "name": "D_s2",
+   "seed": 2,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000",
+    "--frozen-frac",
+    "0.34",
+    "--mixed-frac",
+    "0.33",
+    "--segment-frames",
+    "10000"
+   ]
+  },
+  {
+   "name": "D_s3",
+   "seed": 3,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000",
+    "--frozen-frac",
+    "0.34",
+    "--mixed-frac",
+    "0.33",
+    "--segment-frames",
+    "10000"
+   ]
+  },
+  {
+   "name": "D_s4",
+   "seed": 4,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0",
+    "--anchor-hold",
+    "2000000",
+    "--anchor-floor-at",
+    "6000000",
+    "--frozen-frac",
+    "0.34",
+    "--mixed-frac",
+    "0.33",
+    "--segment-frames",
+    "10000"
+   ]
+  },
+  {
+   "name": "L_s0",
+   "seed": 0,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0"
+   ]
+  },
+  {
+   "name": "L_s1",
+   "seed": 1,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0"
+   ]
+  },
+  {
+   "name": "L_s2",
+   "seed": 2,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0"
+   ]
+  },
+  {
+   "name": "L_s3",
+   "seed": 3,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0"
+   ]
+  },
+  {
+   "name": "L_s4",
+   "seed": 4,
+   "extra": [
+    "--reward",
+    "mass",
+    "--mass-kappa",
+    "1.0"
+   ]
+  }
+ ],
+ "ring_dir": "/r/rings",
+ "notes": "mac_rate = best measured Mac end-to-end rate for this job (production settings, 2026-10-08: 2 sync processes 2,943/s total; learner + 2 actors 2,915/s). G2 = 4x on rate and on wall clock incl. upload/setup. max_hourly 0.95 covers the RTX 4090 secure list price ($0.89 on 2026-10-08) and needs the user's approval; lifetime x max_hourly <= spend cap is enforced. L = mass reward with M3's long anchor (8M hold, floor at 15M). Owner decision 2026-10-08: fill beyond the guaranteed vCPUs only while the container memory / VRAM / disk / per-run-rate guards allow (fill_beyond_guaranteed_vcpu true, cap 10). min_vcpu 12 (cheapest secure 4090 offers list 12 vCPU): the run starts with 3 and fills every 5 min, also before G2.",
+ "max_hourly": 0.95,
+ "vram_per_run_gb": 2.5,
+ "disk_per_run_gb": 12.0,
+ "fill_beyond_guaranteed_vcpu": true,
+ "ring_gb_per_run": 9.3
+}

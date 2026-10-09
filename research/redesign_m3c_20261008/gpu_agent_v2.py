@@ -214,6 +214,7 @@ def telemetry():
         "mem_total_gb": mem_total_gb(),
         "cgroup_memory_gb": cgroup_memory_gb(),
         "cgroup_memory_used_gb": cgroup_memory_used_gb(),
+        "cgroup_cpus": cgroup_cpus(),
         "disk_free_gb": shutil.disk_usage(str(ROOT)).free / 1e9,
         "jobs": jobs,
     }

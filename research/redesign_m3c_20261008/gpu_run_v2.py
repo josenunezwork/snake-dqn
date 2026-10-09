@@ -103,7 +103,7 @@ STOCK_WAIT_S = 3 * 3600
 CREATE_SETTLE_S = 300
 POLL_S = 60
 LOG_PULL_S = 300
-FILL_EVERY_S = 600
+FILL_EVERY_S = 300  # each fill is judged on >= 5 min of the per-run rate
 FILL_GPU_UTIL = 85.0
 RAM_RESERVE_GB = 8.0
 PLAN_SCHEMA = "m3c-gpu-plan/v1"
@@ -235,6 +235,9 @@ def fill_decision(
     t: float,
     per_run_rate: Optional[float] = None,
     per_run_rate_at_last_fill: Optional[float] = None,
+    combined_rate: Optional[float] = None,
+    combined_at_last_fill: Optional[float] = None,
+    young_runs: int = 0,
 ) -> Optional[str]:
     """Start one more queued run? Returns the reason it is OK, or None.
 
@@ -242,17 +245,27 @@ def fill_decision(
     GPU < FILL_GPU_UTIL %; container memory headroom >= one run + reserve; VRAM headroom >=
     ``vram_per_run_gb``; disk >= ``disk_per_run_gb``; idle CPUs for one run; within the
     GUARANTEED vCPUs unless ``fill_beyond_guaranteed_vcpu``; and the last fill did not lower
-    the per-run rate by more than 15% (adding runs must still add throughput).
+    the per-run rate by more than 15% and raised the combined rate by >= 3% (adding runs must
+    still add throughput). A known rate is required. Runs younger than 10 min still fill their
+    observation rings: their ring bytes are reserved out of the memory headroom. With a cgroup
+    CPU quota, concurrency is capped at quota / vcpu_per_run and idle CPU is the quota minus
+    the jobs' measured CPU.
     """
     if queued <= 0 or running >= int(plan["max_concurrent_cap"]) or t - last_fill < FILL_EVERY_S:
         return None
-    if per_run_rate is not None and per_run_rate_at_last_fill:
-        if per_run_rate < 0.85 * per_run_rate_at_last_fill:
-            return None
+    if per_run_rate is None:
+        return None
+    if per_run_rate_at_last_fill and per_run_rate < 0.85 * per_run_rate_at_last_fill:
+        return None
+    if combined_at_last_fill and (combined_rate or 0.0) < 1.03 * combined_at_last_fill:
+        return None
     vcpu = float(plan["vcpu_per_run"])
     if not plan.get("fill_beyond_guaranteed_vcpu"):
         if (running + 1) * vcpu > float(plan.get("min_vcpu", 0)):
             return None
+    quota = tel.get("cgroup_cpus")
+    if quota and (running + 1) * vcpu > float(quota):
+        return None
     gpus = [g for g in tel.get("gpu") or [] if g.get("util_pct") is not None]
     util = max((g["util_pct"] for g in gpus), default=None)
     vram = min(
@@ -264,12 +277,18 @@ def fill_decision(
         default=None,
     )
     mem = mem_headroom_gb(tel)
+    if mem is not None:
+        mem -= young_runs * float(plan.get("ring_gb_per_run", 9.3))
     cpu = tel.get("host_cpu_pct")
     ncpu = tel.get("cpus") or 0
     disk = tel.get("disk_free_gb")
     if None in (util, vram, mem, cpu, disk):
         return None
-    idle_cpus = (1.0 - cpu / 100.0) * ncpu
+    if quota:
+        busy = sum((j.get("cpu_pct") or 0.0) for j in (tel.get("jobs") or {}).values()) / 100.0
+        idle_cpus = float(quota) - busy
+    else:
+        idle_cpus = (1.0 - cpu / 100.0) * ncpu
     if (
         util < FILL_GPU_UTIL
         and mem >= float(plan["ram_per_run_gb"]) + RAM_RESERVE_GB
@@ -604,8 +623,10 @@ def append_jsonl(path: Path, row: Dict[str, Any]) -> None:
 
 # ----------------------------------------------------------------------------- delete / watchdog
 def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> bool:
-    """Delete our pod(s) with backoff for up to ~30 min; True iff GET /pods shows none."""
-    deadline = now() + 1800
+    """Delete our pod(s) with backoff until GET /pods shows none (pod self-delete is not
+    available, so this never gives up early: alerts every 30 min, stops trying after 24 h)."""
+    deadline = now() + 24 * 3600
+    next_alert = now() + 1800
     wait = 10.0
     clean_since: Optional[float] = None
     deleted_known = False
@@ -642,13 +663,16 @@ def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> 
             state["pods_left"] = [p.get("id") for p in left]
         except Exception as exc:  # noqa: BLE001
             say(f"delete/verify error: {exc}")
+        if now() > next_alert:
+            next_alert = now() + 1800
+            alert(f"pod(s) still listed: {state.get('pods_left')}; still deleting (until 24 h)")
         if now() > deadline:
             state.update(delete_reason=reason, delete_failed=True)
             save_state(run_dir, state)
             alert(f"pod(s) may still be running: {state.get('pods_left')}; run `cleanup --confirm`")
             return False
         time.sleep(15 if (not state.get("pods_left") and clean_since) else wait)
-        wait = min(120.0, wait * 2)
+        wait = min(600.0, wait * 2)
 
 
 WATCHDOG = r"""
@@ -667,7 +691,8 @@ while time.time() < t:  # short sleeps: a long sleep does not count macOS sleep 
         sys.exit(0)
     time.sleep(2)
 rp = RpClient()
-end = time.time() + 1800
+end = time.time() + 24 * 3600  # no pod self-delete: keep trying until a clean listing
+wait = 60
 while time.time() < end:
     try:
         pods = [p for p in rp.list_pods() if p.get("name") == {name!r}]
@@ -680,7 +705,8 @@ while time.time() < end:
     except Exception as exc:
         log.write(json.dumps({{"watchdog": "error", "error": repr(exc), "t": time.time()}}) + "\n")
     log.flush()
-    time.sleep(60)
+    time.sleep(wait)
+    wait = min(600, wait * 2)
 """
 
 
@@ -1261,6 +1287,9 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
     first_start = now()
     g2, last_progress, best, uptime = None, now(), {}, 0.0
     last_fill, rate_at_fill, no_new_starts = now(), None, False
+    combined_at_fill: Optional[float] = None
+    last_per_run: Optional[float] = None
+    freeze: Optional[Tuple[float, Dict[str, float]]] = None  # (t, best) when fills froze
     while True:
         stop = guard(rp, state, args)
         if stop:
@@ -1316,7 +1345,14 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
         puller.logs(started)
         recent = [v.get("recent_rate", v["rate"]) for v in rates.values()]
         per_run = sum(recent) / len(recent) if recent else None
+        if per_run:
+            last_per_run = per_run  # sticky: a poll without rows does not unknow the rate
         combined = sum(recent) if recent else 0.0
+        # Fills freeze from G2_SECONDS - 600 s until G2 is decided: G2 then measures a fixed
+        # layout over >= 10 min (runner-side progress, not the runs' since-start averages).
+        frozen = g2 is None and now() - first_start >= G2_SECONDS - 600
+        if frozen and freeze is None:
+            freeze = (now(), dict(best))
         left = {r["name"]: float(plan["transitions"]) for r in queue_}
         for r in running:
             left[r] = max(0.0, float(plan["transitions"]) - best.get(r, 0.0))
@@ -1344,21 +1380,40 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
         # Per-run start decision (every poll, after G2): start a queued run only if it alone can
         # finish (at 1.1 x the current per-run time) 45 min before the deadline. Once none can,
         # no new run starts; running runs continue to the deadline.
-        if g2 is not None and per_run and queue_ and not no_new_starts:
-            need_one = float(plan["transitions"]) / per_run * 1.1
-            if now() + need_one + 45 * 60 > state["deadline"]:
-                no_new_starts = True
-                note(stage="no_new_starts", per_run_seconds=need_one, queued=len(queue_))
-        if not no_new_starts:
+        hold = False
+        if g2 is not None and queue_ and not no_new_starts:
+            if last_per_run is None:
+                hold = True  # no rate known yet: start nothing this poll
+            else:
+                need_one = float(plan["transitions"]) / last_per_run * 1.1
+                if now() + need_one + 45 * 60 > state["deadline"]:
+                    no_new_starts = True
+                    note(stage="no_new_starts", per_run_seconds=need_one, queued=len(queue_))
+        if not no_new_starts and not hold:
             while queue_ and len(running) < state["max_concurrent"]:
                 start_next("slot freed")
                 running.append("<new>")
-            why = fill_decision(
-                plan, tel, len(running), len(queue_), last_fill, now(), per_run, rate_at_fill
-            )
-            if why and g2 is not None:  # only after G2 has measured the initial layout
+            young = sum(1 for r in running if r in status and now() - status[r]["started"] < 600)
+            why = None
+            if not frozen:
+                why = fill_decision(
+                    plan,
+                    tel,
+                    len(running),
+                    len(queue_),
+                    last_fill,
+                    now(),
+                    per_run,
+                    rate_at_fill,
+                    combined,
+                    combined_at_fill,
+                    young,
+                )
+            # The fill also runs before G2 (until the freeze): G2 then measures the layout the
+            # guards allow (the guaranteed-vCPU start alone cannot reach 4x the Mac).
+            if why:
                 state["max_concurrent"] = len(running) + 1
-                last_fill, rate_at_fill = now(), per_run
+                last_fill, rate_at_fill, combined_at_fill = now(), per_run, combined
                 start_next(f"adaptive fill: {why}")
         done = set(rcs) == set(status) and all(rc is not None for rc in rcs.values())
         if done and (not queue_ or no_new_starts):
@@ -1388,8 +1443,11 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
                 and now() - first_start < G2_SECONDS + G2_ROWS_GRACE_S
             ):
                 continue
+            t0, b0 = freeze if freeze else (first_start, {})
+            window = max(1.0, now() - t0)
+            g2_rates = {r: (best.get(r, 0.0) - b0.get(r, 0.0)) / window for r in running}
             g2 = g2_decision(
-                {r: v["rate"] for r, v in rates.items()},
+                g2_rates,
                 left,
                 float(plan["mac_rate"]),
                 float(plan["g2_factor"]),
@@ -1398,6 +1456,7 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
                 elapsed=now() - float(state["created"]),
                 total=total,
             )
+            g2["window_seconds"] = window
             state["g2"] = g2
             save_state(run_dir, state)
             note(stage="G2", **{k: v for k, v in g2.items() if k != "per_run"})

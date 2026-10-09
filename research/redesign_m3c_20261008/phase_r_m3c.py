@@ -126,7 +126,14 @@ def check_selection(key: str, selection: Optional[Path], candidates: Path) -> Di
     arm_row = sel["scores"][cand["arm"]]
     if sorted(arm_row.get("eligible", [])) != list(rs.TRAINING_SEEDS):
         raise SystemExit(f"refusing: arm {cand['arm']} does not have 5 eligible seeds")
+    if sel.get("checkpoint") != "final":
+        raise SystemExit("refusing: the selection was not made on the final checkpoints")
+    shas = {str(k): v for k, v in arm_row.get("final_sha256", {}).items()}
     for s, path in load_candidates(candidates).items():
+        if shas.get(str(s)) != sha256_file(Path(path)):
+            raise SystemExit(
+                f"refusing: seed {s} candidate is not the checkpoint the selection probed"
+            )
         if Path(path).name != "final.pth" or Path(path).parent.name != f"{cand['arm']}_s{s}":
             raise SystemExit(
                 f"refusing: seed {s} candidate {path} is not {cand['arm']}_s{s}/final.pth"
