@@ -42,6 +42,15 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--round-index", type=int, default=PROBE_ROUND_INDEX, help="M2b: 51; M3: 52")
     ap.add_argument("--veto", choices=("none", "v8"), default="none")
+    ap.add_argument(
+        "--ego2s-forward", choices=("batched", "rowwise"), default="batched", help="M3-C: rowwise"
+    )
+    ap.add_argument(
+        "--ego2s-mask",
+        choices=("resolved", "advisory"),
+        default="resolved",
+        help="no-veto student only; M3-C: advisory (the live selection rule, as Phase R)",
+    )
     args = ap.parse_args()
     import torch
 
@@ -59,6 +68,10 @@ def main() -> int:
         if r["mix"] == args.mix
     }
     kwargs = {"hero_ego2s": args.student} if args.arm == "student" else {}
+    if args.arm == "student":
+        kwargs["ego2s_forward"] = args.ego2s_forward
+        if args.veto == "none":
+            kwargs["ego2s_mask"] = args.ego2s_mask
     if args.veto == "v8":
         kwargs.update(hero_safety_veto="v8", hero_safety_veto_lambda=8.0)
     t0 = time.perf_counter()
@@ -79,6 +92,8 @@ def main() -> int:
         "arm": args.arm,
         "veto": args.veto,
         "round_index": args.round_index,
+        "ego2s_forward": args.ego2s_forward if args.arm == "student" else None,
+        "ego2s_mask": args.ego2s_mask if args.arm == "student" and args.veto == "none" else None,
         "student": args.student,
         "mix": args.mix,
         "wall": time.perf_counter() - t0,

@@ -1,0 +1,1642 @@
+#!/usr/bin/env python3
+"""M3-C trainer: the M3 vectorized Double DQN fine-tune, plus opt-in M3-C changes.
+
+**Defaults reproduce M3 / M3-B exactly** (``research/redesign_m3_20261008/train_m3.py``; the
+equivalence is tested bitwise on checkpoint weights and summary values in
+``tests/test_m3c_trainer.py``), with one deliberate exception: a run that HALTs writes its
+last weights as ``aborted.pth`` instead of ``final.pth`` (selection reads finals only).
+Everything new is behind a flag:
+
+* ``--reward mass --mass-kappa K``: the metric-aligned reward. Each hero decision gains
+  ``K * (1 - gamma) * Phi(L_after)`` while the hero is alive after the step (``Phi = L / 10``,
+  0 on the death frame), on top of the v2 reward. Over an infinite discounted horizon this
+  adds ``K * Phi`` for a snake that keeps its size, so a death costs about ``K * Phi(L)``
+  (the mass it destroys) instead of the v2 reward's size-independent 3, and growth has value.
+  (Under v2 alone the PBRS potential telescopes away: ``Q = -Phi(L) + U`` with ``U`` = the
+  discounted death penalty and kill rewards; see the M3-C design doc, section 2.)
+* ``--anchor-boost-weight W``: demonstration rows whose label ``a_v8`` is a boost action get
+  row weight ``W`` in the anchor loss (``W = 1``: the M3 anchor, unchanged code path).
+* Schedules: ``--gamma-hold/--gamma-anneal-end``, ``--anchor-hold/--anchor-floor-at/
+  --anchor-floor``, ``--eps-end-at`` (defaults = M3).
+* ``--namespace``: the training-world namespace (default M3's ``redesign-m3-train/v1``).
+* ``--mixed-frac F``: a share of the worlds gets the strict *mixed* roster (M3 trains on 75%
+  scripted / 25% frozen and never sees "mixed"); with ``--frozen-frac`` and
+  ``--segment-frames`` this gives eval-matched worlds (default 0: the M3 world list).
+* ``--actors K`` (K >= 1): K actor processes per learner (``actor_main``). Each actor runs
+  its own lockstep worlds (segments ``j, j+K, ...``: the same worlds sync mode visits),
+  acts with a copy of the online network refreshed every ``--actor-sync-updates`` updates,
+  builds the n-step transitions itself and writes observations into its own shared-memory
+  ring; the learner keeps the replay index, does one update per 128 ingested transitions
+  (replay ratio 4, as M3) and back-pressures the actors through bounded queues. Not
+  bit-reproducible (policy lag, scheduling); ``--actors 0`` (default) is the M3 trainer.
+
+Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
+``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
+calibration) and ``manifest.jsonl`` (one row per completed checkpoint with its sha256, for
+incremental pulls). Checkpoints are written to a temporary name and renamed (atomic).
+Development run; not evidence.
+"""
+
+from __future__ import annotations
+
+import os
+
+os.environ.setdefault("SNAKE_DQN_DEVICE", "cpu")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+import argparse  # noqa: E402
+import hashlib  # noqa: E402
+import json  # noqa: E402
+import math  # noqa: E402
+import queue  # noqa: E402
+import sys  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from collections import deque  # noqa: E402
+from dataclasses import dataclass, replace  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Any, Dict, List, Optional, Sequence  # noqa: E402
+
+import numpy as np  # noqa: E402
+
+REPO = Path(__file__).resolve().parents[2]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from research.redesign_scope_20261007 import grid_h5000_identity as gid  # noqa: E402
+
+SCHEMA = "redesign-m3-train/v1"  # unchanged: the default run IS an M3 run
+SCHEMA_M3C = "redesign-m3c-train/v1"
+TRAIN_NAMESPACE = "redesign-m3-train/v1"
+LOCAL = (7, 31, 31)
+GLOBAL = (4, 37, 37)
+NSCAL = 30
+PHI_DIV = 10.0  # Phi(L) = L / 10 (src.core.reward_events.phi)
+N_STEP = 5
+UPDATE_EVERY = 128
+
+
+# ----------------------------------------------------------------------------- schedules
+@dataclass(frozen=True)
+class Schedules:
+    gamma_start: float = 0.99
+    gamma_end: float = 0.995
+    gamma_hold: int = 2_000_000
+    gamma_anneal_end: int = 6_000_000
+    anchor_hold: int = 8_000_000
+    anchor_floor_at: int = 15_000_000
+    anchor_floor: float = 0.1
+    eps_start: float = 0.05
+    eps_end: float = 0.01
+    eps_end_at: int = 5_000_000
+
+    def gamma(self, t: int) -> float:
+        if t <= self.gamma_hold:
+            return self.gamma_start
+        if t >= self.gamma_anneal_end:
+            return self.gamma_end
+        f = (t - self.gamma_hold) / (self.gamma_anneal_end - self.gamma_hold)
+        return self.gamma_start + f * (self.gamma_end - self.gamma_start)
+
+    def anchor(self, t: int) -> float:
+        if t <= self.anchor_hold:
+            return 1.0
+        if t >= self.anchor_floor_at:
+            return self.anchor_floor
+        f = (t - self.anchor_hold) / (self.anchor_floor_at - self.anchor_hold)
+        return math.exp(f * math.log(self.anchor_floor))
+
+    def eps(self, t: int) -> float:
+        f = min(1.0, t / self.eps_end_at)
+        return self.eps_start + f * (self.eps_end - self.eps_start)
+
+
+def schedules_from_args(args) -> Schedules:
+    return Schedules(
+        gamma_hold=args.gamma_hold,
+        gamma_anneal_end=args.gamma_anneal_end,
+        anchor_hold=args.anchor_hold,
+        anchor_floor_at=args.anchor_floor_at,
+        anchor_floor=args.anchor_floor,
+        eps_end_at=args.eps_end_at,
+    )
+
+
+# ----------------------------------------------------------------------------- reward
+def mass_term(lengths: np.ndarray, alive_after: np.ndarray, gamma: float, kappa: float):
+    """``kappa * (1 - gamma) * Phi(L)`` for heroes alive after the step, else 0 (float64)."""
+    phi = np.asarray(lengths, dtype=np.float64) / PHI_DIV
+    return np.where(np.asarray(alive_after, dtype=bool), kappa * (1.0 - gamma) * phi, 0.0)
+
+
+# ----------------------------------------------------------------------------- replay
+class ObsRing:
+    """uint8 observation ring (+ scalars, resolved mask) addressed by a monotone counter."""
+
+    def __init__(self, capacity: int) -> None:
+        self.cap = int(capacity)
+        self.local = np.zeros((capacity,) + LOCAL, dtype=np.uint8)
+        self.glob = np.zeros((capacity,) + GLOBAL, dtype=np.uint8)
+        self.scal = np.zeros((capacity, NSCAL), dtype=np.float32)
+        self.mask = np.zeros((capacity, 6), dtype=bool)
+        self.count = 0
+
+    def add(self, obs: Dict[str, np.ndarray], mask: np.ndarray) -> np.ndarray:
+        n = len(mask)
+        ids = np.arange(self.count, self.count + n, dtype=np.int64)
+        pos = ids % self.cap
+        self.local[pos] = obs["local"]
+        self.glob[pos] = obs["global"]
+        self.scal[pos] = obs["scalars"]
+        self.mask[pos] = mask
+        self.count += n
+        return ids
+
+    def valid(self, ids: np.ndarray) -> np.ndarray:
+        return (ids >= 0) & (ids > self.count - self.cap)
+
+    def get(self, ids: np.ndarray):
+        pos = ids % self.cap
+        return self.local[pos], self.glob[pos], self.scal[pos], self.mask[pos]
+
+
+class Replay:
+    """n-step transitions referencing the observation ring."""
+
+    def __init__(self, capacity: int) -> None:
+        self.cap = int(capacity)
+        self.s = np.zeros(capacity, dtype=np.int64)
+        self.a = np.zeros(capacity, dtype=np.int64)
+        self.R = np.zeros(capacity, dtype=np.float32)
+        self.disc = np.zeros(capacity, dtype=np.float32)  # gamma**k, 0 when terminal
+        self.nxt = np.full(capacity, -1, dtype=np.int64)
+        self.size = 0
+        self.ptr = 0
+        self.added = 0
+
+    def add(self, s: int, a: int, R: float, disc: float, nxt: int) -> None:
+        i = self.ptr
+        self.s[i], self.a[i], self.R[i], self.disc[i], self.nxt[i] = s, a, R, disc, nxt
+        self.ptr = (self.ptr + 1) % self.cap
+        self.size = min(self.size + 1, self.cap)
+        self.added += 1
+
+    def sample(self, rng: np.random.Generator, n: int, ring) -> np.ndarray:
+        idx = rng.integers(0, self.size, size=n * 2)
+        ok = ring.valid(self.s[idx]) & ((self.nxt[idx] < 0) | ring.valid(self.nxt[idx]))
+        idx = idx[ok][:n]
+        return idx
+
+
+# ----------------------------------------------------------------------------- multi-actor ring
+RING_FIELDS = (
+    ("local", LOCAL, np.uint8),
+    ("global", GLOBAL, np.uint8),
+    ("scalars", (NSCAL,), np.float32),
+    ("mask", (6,), np.bool_),
+)
+
+
+class Block:
+    """A shared byte block: POSIX shared memory (``shm:<name>``) or a memory-mapped file
+    (``file:<path>``; for hosts whose /dev/shm is small, e.g. Docker's 64 MB default)."""
+
+    def __init__(self, desc: str, buf, closer, unlinker) -> None:
+        self.desc, self.buf, self._close, self._unlink = desc, buf, closer, unlinker
+
+    @classmethod
+    def create(cls, nbytes: int, directory: Optional[str] = None, tag: str = "blk") -> "Block":
+        nbytes = int(nbytes)
+        if directory:
+            import mmap
+            import tempfile
+
+            fd, path = tempfile.mkstemp(prefix=f"m3c-{tag}-", suffix=".bin", dir=directory)
+            os.ftruncate(fd, nbytes)
+            mm = mmap.mmap(fd, nbytes)
+            os.close(fd)
+            return cls(f"file:{path}", mm, mm.close, lambda: os.unlink(path))
+        from multiprocessing import shared_memory
+
+        sm = shared_memory.SharedMemory(create=True, size=nbytes)
+        return cls(f"shm:{sm.name}", sm.buf, sm.close, sm.unlink)
+
+    @classmethod
+    def attach(cls, desc: str) -> "Block":
+        kind, ref = desc.split(":", 1)
+        if kind == "file":
+            import mmap
+
+            fd = os.open(ref, os.O_RDWR)
+            mm = mmap.mmap(fd, os.fstat(fd).st_size)
+            os.close(fd)
+            return cls(desc, mm, mm.close, lambda: None)
+        from multiprocessing import shared_memory
+
+        sm = shared_memory.SharedMemory(name=ref)
+        return cls(desc, sm.buf, sm.close, lambda: None)
+
+    def close(self) -> None:
+        try:
+            self._close()
+        except (BufferError, OSError, ValueError):
+            pass
+
+    def unlink(self) -> None:
+        if getattr(self, "_unlinked", False):
+            return
+        self._unlinked = True
+        try:
+            self._unlink()
+        except (FileNotFoundError, OSError):
+            pass
+
+
+def ring_nbytes(capacity: int) -> int:
+    total = 8  # the int64 publish counter
+    for _, shape, dtype in RING_FIELDS:
+        total += int(capacity) * int(np.prod(shape)) * np.dtype(dtype).itemsize
+    return total
+
+
+class SharedObsRing:
+    """One actor's observation ring in a shared block (anything with a ``.buf``).
+
+    The actor writes rows at ``id % cap`` and then publishes ``count``; the learner only
+    reads ids it has received in a transition message (so ``id < count``) that are at least
+    ``margin`` rows away from being overwritten (``id >= count - cap + margin``).
+    """
+
+    def __init__(self, shm, capacity: int, margin: int) -> None:
+        self.shm = shm
+        self.cap = int(capacity)
+        self.margin = int(margin)
+        off = 8
+        self.arrays: Dict[str, np.ndarray] = {}
+        self._count = np.ndarray((1,), dtype=np.int64, buffer=shm.buf, offset=0)
+        for name, shape, dtype in RING_FIELDS:
+            arr = np.ndarray((self.cap,) + tuple(shape), dtype=dtype, buffer=shm.buf, offset=off)
+            self.arrays[name] = arr
+            off += arr.nbytes
+
+    @property
+    def count(self) -> int:
+        return int(self._count[0])
+
+    def add(self, obs: Dict[str, np.ndarray], mask: np.ndarray) -> np.ndarray:
+        n = len(mask)
+        c = self.count
+        ids = np.arange(c, c + n, dtype=np.int64)
+        pos = ids % self.cap
+        self.arrays["local"][pos] = obs["local"]
+        self.arrays["global"][pos] = obs["global"]
+        self.arrays["scalars"][pos] = obs["scalars"]
+        self.arrays["mask"][pos] = mask
+        self._count[0] = c + n  # publish after the rows are written
+        return ids
+
+    def valid(self, ids: np.ndarray) -> np.ndarray:
+        return (ids >= 0) & (ids >= self.count - self.cap + self.margin)
+
+    def get(self, ids: np.ndarray):
+        pos = ids % self.cap
+        a = self.arrays
+        return a["local"][pos], a["global"][pos], a["scalars"][pos], a["mask"][pos]
+
+
+class MultiRing:
+    """K shared rings behind one id space: global id = local id * K + actor."""
+
+    def __init__(self, rings: Sequence[SharedObsRing]) -> None:
+        self.rings = list(rings)
+        self.k = len(self.rings)
+
+    def encode(self, actor: int, local_ids: np.ndarray) -> np.ndarray:
+        local_ids = np.asarray(local_ids, dtype=np.int64)
+        return np.where(local_ids < 0, -1, local_ids * self.k + actor)
+
+    def valid(self, ids: np.ndarray) -> np.ndarray:
+        ids = np.asarray(ids, dtype=np.int64)
+        out = np.zeros(ids.shape, dtype=bool)
+        actor, local = ids % self.k, ids // self.k
+        for j, ring in enumerate(self.rings):
+            sel = (actor == j) & (ids >= 0)
+            out[sel] = ring.valid(local[sel])
+        return out
+
+    def get(self, ids: np.ndarray):
+        ids = np.asarray(ids, dtype=np.int64)
+        n = len(ids)
+        out_l = np.empty((n,) + LOCAL, dtype=np.uint8)
+        out_g = np.empty((n,) + GLOBAL, dtype=np.uint8)
+        out_s = np.empty((n, NSCAL), dtype=np.float32)
+        out_m = np.empty((n, 6), dtype=bool)
+        actor, local = ids % self.k, ids // self.k
+        for j, ring in enumerate(self.rings):
+            sel = np.flatnonzero(actor == j)
+            if len(sel):
+                l_, g_, s_, m_ = ring.get(local[sel])
+                out_l[sel], out_g[sel], out_s[sel], out_m[sel] = l_, g_, s_, m_
+        return out_l, out_g, out_s, out_m
+
+
+class NStepBuilder:
+    """Per-world n-step windows, arithmetic identical to the M3 sync loop (tested).
+
+    ``step`` takes one frame's hero rows; it returns the completed transitions as arrays
+    ``(s, a, R, disc, nxt)`` (``nxt = -1`` and ``disc = 0`` on a terminal flush).
+    """
+
+    def __init__(self, n_worlds: int, n_step: int = N_STEP) -> None:
+        self.n = int(n_step)
+        self.pend: List[deque] = [deque() for _ in range(n_worlds)]
+        self.last_obs = np.full(n_worlds, -1, dtype=np.int64)
+        self.out: List[tuple] = []
+
+    def _flush(self, e: int, bootstrap: int, gamma_now: float) -> None:
+        while self.pend[e]:
+            R, g = 0.0, 1.0
+            for _, _, r in self.pend[e]:
+                R += g * r
+                g *= gamma_now
+            s0, a0, _ = self.pend[e].popleft()
+            self.out.append((s0, a0, R, 0.0 if bootstrap < 0 else g, bootstrap))
+
+    def step(self, worlds, ids, acts, reward, done, gamma_now: float) -> int:
+        """Add one frame; returns the number of deaths (terminal flushes)."""
+        deaths = 0
+        for j, e in enumerate(worlds):
+            e = int(e)
+            if len(self.pend[e]) == self.n:
+                R, g = 0.0, 1.0
+                for _, _, r in self.pend[e]:
+                    R += g * r
+                    g *= gamma_now
+                s0, a0, _ = self.pend[e].popleft()
+                self.out.append((s0, a0, R, g, int(ids[j])))
+            self.pend[e].append((int(ids[j]), int(acts[j]), float(reward[e])))
+            self.last_obs[e] = ids[j]
+            if done[e]:
+                self._flush(e, -1, gamma_now)
+                deaths += 1
+        return deaths
+
+    def end_segment(self, gamma_end: float) -> None:
+        for e in range(len(self.pend)):
+            if self.pend[e]:
+                self.pend[e].pop()
+                self._flush(e, int(self.last_obs[e]), gamma_end)
+
+    def take(self):
+        rows, self.out = self.out, []
+        if not rows:
+            z = np.zeros(0, dtype=np.int64)
+            return z, z, np.zeros(0, np.float32), np.zeros(0, np.float32), z
+        s, a, R, d, nx = zip(*rows)
+        return (
+            np.asarray(s, dtype=np.int64),
+            np.asarray(a, dtype=np.int64),
+            np.asarray(R, dtype=np.float32),
+            np.asarray(d, dtype=np.float32),
+            np.asarray(nx, dtype=np.int64),
+        )
+
+
+# ----------------------------------------------------------------------------- demonstrations
+DEMO_KEYS = ("local", "global", "scalars", "q_teacher", "a_v8", "mask_resolved")
+
+
+class DemoStream:
+    """Rotating buffer of M2b teacher demonstrations (hold-out worlds excluded)."""
+
+    def __init__(self, data: Path, rounds: List[int], capacity: int, seed: int) -> None:
+        paths: List[Path] = []
+        for r in rounds:
+            paths += sorted((data / f"round-{r}").glob("chunk-*-part-*.npz"))
+        if not paths:
+            raise SystemExit("no demonstration shards")
+        rng = np.random.default_rng([seed, 991])
+        self.order = [paths[i] for i in rng.permutation(len(paths))]
+        self.cap = int(capacity)
+        self.buf = {
+            "local": np.zeros((capacity,) + LOCAL, dtype=np.uint8),
+            "global": np.zeros((capacity,) + GLOBAL, dtype=np.uint8),
+            "scalars": np.zeros((capacity, NSCAL), dtype=np.float32),
+            "q_teacher": np.zeros((capacity, 6), dtype=np.float32),
+            "a_v8": np.zeros(capacity, dtype=np.int64),
+            "mask_resolved": np.zeros((capacity, 6), dtype=bool),
+        }
+        self.size = 0
+        self.write = 0
+        self.next_shard = 0
+        self.loaded = 0
+        self.distinct = 0
+        self._q: "queue.Queue[Optional[Dict[str, np.ndarray]]]" = queue.Queue(maxsize=2)
+        self._thread: Optional[threading.Thread] = None
+
+    @staticmethod
+    def load(path: Path, held_out: bool = False) -> Dict[str, np.ndarray]:
+        with np.load(path) as z:
+            keep = (z["world_seed"] % 10 == 0) == held_out
+            return {k: z[k][keep] for k in DEMO_KEYS}
+
+    def _put(self, part: Dict[str, np.ndarray]) -> None:
+        n = len(part["a_v8"])
+        idx = (self.write + np.arange(n)) % self.cap
+        for k in DEMO_KEYS:
+            self.buf[k][idx] = part[k]
+        self.write = int((self.write + n) % self.cap)
+        self.size = min(self.cap, self.size + n)
+        self.loaded += 1
+        self.distinct += n
+
+    def fill_initial(self, shards: int) -> None:
+        for _ in range(shards):
+            self._put(self.load(self.order[self.next_shard % len(self.order)]))
+            self.next_shard += 1
+
+    def prefetch(self) -> None:
+        """Start decompressing the next shard in the background."""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        path = self.order[self.next_shard % len(self.order)]
+        self.next_shard += 1
+        self._thread = threading.Thread(target=lambda: self._q.put(self.load(path)), daemon=True)
+        self._thread.start()
+
+    def swap_if_ready(self) -> bool:
+        try:
+            part = self._q.get_nowait()
+        except queue.Empty:
+            return False
+        self._put(part)
+        return True
+
+    def sample(self, rng: np.random.Generator, n: int) -> Dict[str, np.ndarray]:
+        idx = rng.integers(0, self.size, size=n)
+        return {k: v[idx] for k, v in self.buf.items()}
+
+
+# ----------------------------------------------------------------------------- losses
+def anchor_loss(torch, q, b, margin: float):
+    """advantage-Huber ×10 + KL τ 0.05 + DQfD margin (the M2b loss without raw-Q)."""
+    qt = b["q_teacher"]
+    adv_s = q - q.mean(dim=1, keepdim=True)
+    adv_t = qt - qt.mean(dim=1, keepdim=True)
+    adv = torch.nn.functional.smooth_l1_loss(adv_s, adv_t, beta=0.1)
+    legal = b["mask_resolved"].clone()
+    legal[~legal.any(dim=1), :3] = True
+    neg = torch.full_like(q, -1e9)
+    lt = torch.where(legal, qt / 0.05, neg).log_softmax(dim=1)
+    ls = torch.where(legal, q / 0.05, neg).log_softmax(dim=1)
+    kl = (lt.exp() * (lt - ls)).where(legal, torch.zeros_like(q)).sum(dim=1).mean()
+    a = b["a_v8"].long()
+    onehot = torch.nn.functional.one_hot(a, 6).bool()
+    allowed = b["mask_resolved"] | onehot
+    hi = torch.where(allowed, q + (~onehot).float() * margin, neg).max(dim=1).values
+    marg = (hi - q.gather(1, a[:, None]).squeeze(1)).mean()
+    return 10.0 * adv + kl + marg
+
+
+def anchor_loss_weighted(torch, q, b, margin: float, boost_weight: float):
+    """The same three terms with row weight ``boost_weight`` on boost-labelled rows.
+
+    Weighted means (``sum(w * x) / sum(w)``), so ``boost_weight = 1`` equals
+    :func:`anchor_loss` up to float summation order; the trainer calls :func:`anchor_loss`
+    itself when the weight is 1 (bit-for-bit M3).
+    """
+    qt = b["q_teacher"]
+    a = b["a_v8"].long()
+    w = torch.where(a >= 3, torch.full_like(qt[:, 0], boost_weight), torch.ones_like(qt[:, 0]))
+    wsum = w.sum()
+    adv_s = q - q.mean(dim=1, keepdim=True)
+    adv_t = qt - qt.mean(dim=1, keepdim=True)
+    adv_rows = torch.nn.functional.smooth_l1_loss(adv_s, adv_t, beta=0.1, reduction="none")
+    adv = (adv_rows.mean(dim=1) * w).sum() / wsum
+    legal = b["mask_resolved"].clone()
+    legal[~legal.any(dim=1), :3] = True
+    neg = torch.full_like(q, -1e9)
+    lt = torch.where(legal, qt / 0.05, neg).log_softmax(dim=1)
+    ls = torch.where(legal, q / 0.05, neg).log_softmax(dim=1)
+    kl_rows = (lt.exp() * (lt - ls)).where(legal, torch.zeros_like(q)).sum(dim=1)
+    kl = (kl_rows * w).sum() / wsum
+    onehot = torch.nn.functional.one_hot(a, 6).bool()
+    allowed = b["mask_resolved"] | onehot
+    hi = torch.where(allowed, q + (~onehot).float() * margin, neg).max(dim=1).values
+    marg = ((hi - q.gather(1, a[:, None]).squeeze(1)) * w).sum() / wsum
+    return 10.0 * adv + kl + marg
+
+
+# ----------------------------------------------------------------------------- worlds
+def build_segment(args, ctx, segment: int, gamma: float):
+    from src.core.world_runtime import WorldRuntimeSpec
+    from src.simd_env import eval_engine as ee
+    from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
+    from src.simd_env.grid_sim import GridBatchSim
+    from src.simd_env.vector61_policy import Vector61Runtime, Vector61SimdPolicy
+
+    E = args.worlds
+    from research.apex_safety_20260926 import dev_screen
+
+    namespace = getattr(args, "namespace", TRAIN_NAMESPACE)
+    seeds = dev_screen.screen_seeds((segment + 1) * E, namespace, f"seed{args.seed}")[segment * E :]
+    base = ee._config_from_game_config(6, gamma, ctx["profile"])
+    cap = WorldRuntimeSpec.source_exact(ctx["profile"]).body_storage_capacity
+    sim = GridBatchSim(
+        replace(base, num_envs=E, body_storage_capacity=cap),
+        seeds=seeds,
+        train_mode=False,
+        allow_respawn=True,
+    )
+    n_frozen = int(round(E * args.frozen_frac))
+    n_mixed = int(round(E * getattr(args, "mixed_frac", 0.0)))
+    if n_frozen + n_mixed > E:
+        raise ValueError("frozen + mixed fractions exceed 1")
+    mix_of = ["scripted"] * (E - n_frozen - n_mixed) + ["frozen"] * n_frozen + ["mixed"] * n_mixed
+    rows = {(int(r["world_seed"]), r["mix"]): r for r in dev_screen._design_rows(seeds)}
+    lookup = ctx["lookup"]
+    groups: Dict[Any, List[tuple]] = {}
+    for e, seed in enumerate(seeds):
+        for slot, member in enumerate(rows[(int(seed), mix_of[e])]["slots"], start=1):
+            groups.setdefault(lookup[member["member_sha256"]], []).append((e, slot))
+    runtime = Vector61Runtime()
+    controlled = np.zeros((E, 6), dtype=bool)
+    policies: Dict[Any, Any] = {}
+    for spec, cells in groups.items():
+        if spec[0] == "scripted":
+            policies[spec] = FastProfileAnchorSimdPolicy(spec[1], seeds)
+        else:
+            policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="batched")
+            for e, s in cells:
+                controlled[e, s] = True
+    runtime.bind(sim, controlled)
+    groups_arr = {k: np.array(v, dtype=np.int64) for k, v in groups.items()}
+    return sim, runtime, policies, groups_arr
+
+
+# ----------------------------------------------------------------------------- helpers
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with Path(path).open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def save_checkpoint_atomic(path: Path, net, meta: Dict[str, Any], manifest: Path) -> None:
+    """Write to ``<name>.tmp``, rename, then append ``{file, sha256, ...}`` to the manifest.
+
+    The manifest row is the "complete" signal incremental pulls wait for.
+    """
+    from src.model.ego2s_network import save_ego2s_checkpoint
+
+    tmp = path.with_name(path.name + ".tmp")
+    save_ego2s_checkpoint(tmp, net, meta)
+    os.replace(tmp, path)
+    row = {
+        "file": path.name,
+        "sha256": sha256_file(path),
+        "bytes": path.stat().st_size,
+        "transitions": meta.get("transitions"),
+        "t": time.time(),
+    }
+    with manifest.open("a") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
+def rss_gb() -> float:
+    import resource
+
+    r = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return r / 1e9 if sys.platform == "darwin" else r * 1024 / 1e9
+
+
+def m3c_flags(args) -> Dict[str, Any]:
+    """The non-default M3-C options in effect (empty for an M3-identical run)."""
+    d = default_args()
+    out = {}
+    for k in (
+        "reward",
+        "mass_kappa",
+        "anchor_boost_weight",
+        "gamma_hold",
+        "gamma_anneal_end",
+        "anchor_hold",
+        "anchor_floor_at",
+        "anchor_floor",
+        "eps_end_at",
+        "namespace",
+        "mixed_frac",
+        "actors",
+    ):
+        if getattr(args, k) != getattr(d, k):
+            out[k] = getattr(args, k)
+    return out
+
+
+# ----------------------------------------------------------------------------- CLI
+def build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--seed", type=int, required=True)
+    ap.add_argument("--init", required=True)
+    ap.add_argument("--demo-data", type=Path, required=True)
+    ap.add_argument("--demo-rounds", default="10,11,12")
+    ap.add_argument("--transitions", type=int, default=5_000_000)
+    ap.add_argument("--worlds", type=int, default=64)
+    ap.add_argument("--frozen-frac", type=float, default=0.25)
+    ap.add_argument("--segment-frames", type=int, default=5000)
+    ap.add_argument("--replay", type=int, default=500_000)
+    ap.add_argument("--demo-capacity", type=int, default=300_000)
+    ap.add_argument("--demo-initial-shards", type=int, default=30)
+    ap.add_argument("--warmup", type=int, default=20_000)
+    ap.add_argument("--checkpoint-every", type=int, default=2_500_000)
+    ap.add_argument("--device", default="mps")
+    ap.add_argument("--out", type=Path, required=True)
+    # --- M3-C options (defaults = M3) ---
+    ap.add_argument("--reward", choices=("v2", "mass"), default="v2")
+    ap.add_argument("--mass-kappa", type=float, default=1.0)
+    ap.add_argument("--anchor-boost-weight", type=float, default=1.0)
+    ap.add_argument("--gamma-hold", type=int, default=Schedules.gamma_hold)
+    ap.add_argument("--gamma-anneal-end", type=int, default=Schedules.gamma_anneal_end)
+    ap.add_argument("--anchor-hold", type=int, default=Schedules.anchor_hold)
+    ap.add_argument("--anchor-floor-at", type=int, default=Schedules.anchor_floor_at)
+    ap.add_argument("--anchor-floor", type=float, default=Schedules.anchor_floor)
+    ap.add_argument("--eps-end-at", type=int, default=Schedules.eps_end_at)
+    ap.add_argument("--namespace", default=TRAIN_NAMESPACE)
+    ap.add_argument(
+        "--mixed-frac", type=float, default=0.0, help="share of worlds with the strict mixed roster"
+    )
+    ap.add_argument("--actors", type=int, default=0, help="0 = the synchronous M3 trainer")
+    ap.add_argument("--actor-device", default=None, help="default: --device")
+    ap.add_argument("--actor-sync-updates", type=int, default=25)
+    ap.add_argument("--actor-queue-frames", type=int, default=8)
+    ap.add_argument(
+        "--ring-dir", default=None, help="file-backed observation rings here (default: /dev/shm)"
+    )
+    ap.add_argument("--no-guard", action="store_true", help="tests only: skip the Mac guard")
+    return ap
+
+
+def default_args():
+    return build_parser().parse_args(
+        ["--seed", "0", "--init", "x", "--demo-data", ".", "--out", "x"]
+    )
+
+
+# ----------------------------------------------------------------------------- main loop
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.actors < 0:
+        raise SystemExit("--actors must be >= 0")
+    if args.reward == "v2" and args.mass_kappa != 1.0:
+        raise SystemExit("--mass-kappa needs --reward mass")
+    if args.actors:
+        return main_multi(args)
+    return main_sync(args)
+
+
+def main_sync(args) -> int:
+    import torch
+
+    from research.redesign_m2_20261008.gen_data import guard_ok
+    from src.model.ego2s_network import load_ego2s_checkpoint
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+
+    if args.no_guard:
+
+        def guard_ok():  # noqa: F811
+            return []
+
+    if args.out.exists():
+        print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
+        return 2
+    problems = guard_ok()
+    if problems:
+        print(json.dumps({"refused": problems}), flush=True)
+        return 3
+    args.out.mkdir(parents=True)
+    torch.set_num_threads(1)
+    torch.manual_seed(args.seed)
+    rng = np.random.default_rng([args.seed, 17])
+    device = torch.device(args.device)
+    sched = schedules_from_args(args)
+    ctx = gid._context(1)
+    B = EgoRasterConfig(version="b")
+
+    online = load_ego2s_checkpoint(args.init, device).train()
+    target = load_ego2s_checkpoint(args.init, device).eval()
+    opt = torch.optim.Adam(online.parameters(), lr=1e-4)
+    margin = json.loads((args.demo_data / "margin.json").read_text())["margin"]
+    demos = DemoStream(
+        args.demo_data, [int(r) for r in args.demo_rounds.split(",")], args.demo_capacity, args.seed
+    )
+    demos.fill_initial(args.demo_initial_shards)
+    demo_qmax = float(np.abs(demos.buf["q_teacher"][: demos.size]).max())
+    holdout = DemoStream.load(
+        sorted((args.demo_data / "round-12").glob("chunk-*-part-*.npz"))[0], held_out=True
+    )
+    ring = ObsRing(args.replay + 4 * args.worlds * 8)
+    replay = Replay(args.replay)
+    mass = args.reward == "mass"
+    tel = Telemetry(args.out, args)
+
+    def to_dev(x, dtype=None):
+        t = torch.from_numpy(np.ascontiguousarray(x)).to(device)
+        return t if dtype is None else t.to(dtype)
+
+    def masked_argmax(q, m):
+        m = m.clone()
+        m[~m.any(dim=1), :3] = True
+        return torch.where(m, q, torch.full_like(q, -1e9)).argmax(dim=1)
+
+    @torch.no_grad()
+    def holdout_agreement() -> float:
+        online.eval()
+        q = online(to_dev(holdout["local"]), to_dev(holdout["global"]), to_dev(holdout["scalars"]))
+        pred = masked_argmax(q, to_dev(holdout["mask_resolved"])).cpu().numpy()
+        online.train()
+        tel.calibration(q.cpu().numpy(), holdout)
+        return float((pred == holdout["a_v8"]).mean())
+
+    log_path = args.out / "log.jsonl"
+    manifest = args.out / "manifest.jsonl"
+    state = {
+        "transitions": 0,
+        "updates": 0,
+        "flags": [],
+        "halt": None,
+        "since_update": 0,
+        "td": [],
+        "anc": [],
+        "qmax": 0.0,
+        "env_s": 0.0,
+        "learn_s": 0.0,
+        "decisions": 0,
+        "boost": 0,
+        "greedy_boost": 0,
+        "deaths": 0,
+        "action_window": deque(maxlen=100_000),
+    }
+    started = time.perf_counter()
+    meta_base = {
+        "schema": SCHEMA,
+        "seed": args.seed,
+        "init": args.init,
+        "init_sha256": hashlib.sha256(Path(args.init).read_bytes()).hexdigest(),
+    }
+    flags = m3c_flags(args)
+    if flags:
+        meta_base.update(schema=SCHEMA_M3C, m3c=flags)
+
+    def update(gamma_now: float, lam: float) -> None:
+        t0 = time.perf_counter()
+        idx = replay.sample(rng, 384, ring)
+        if len(idx) < 64:
+            return
+        sl, sg, ss, _ = ring.get(replay.s[idx])
+        nxt = replay.nxt[idx]
+        has_next = nxt >= 0
+        nl, ng, ns, nm = ring.get(np.where(has_next, nxt, replay.s[idx]))
+        a = to_dev(replay.a[idx])
+        R = to_dev(replay.R[idx])
+        disc = to_dev(replay.disc[idx])
+        d = demos.sample(rng, 128)
+        n_agent = len(idx)
+        # One online forward for the agent and demonstration rows (shared graph).
+        q_all = online(
+            to_dev(np.concatenate([sl, d["local"]])),
+            to_dev(np.concatenate([sg, d["global"]])),
+            to_dev(np.concatenate([ss, d["scalars"]])),
+        )
+        q, qd = q_all[:n_agent], q_all[n_agent:]
+        qa = q.gather(1, a[:, None]).squeeze(1)
+        with torch.no_grad():
+            nlt, ngt, nst, nmt = to_dev(nl), to_dev(ng), to_dev(ns), to_dev(nm)
+            a_star = masked_argmax(online(nlt, ngt, nst), nmt)
+            q_next = target(nlt, ngt, nst).gather(1, a_star[:, None]).squeeze(1)
+            y = R + disc * q_next
+        td = torch.nn.functional.smooth_l1_loss(qa, y)
+        db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
+        if args.anchor_boost_weight == 1.0:
+            anc = anchor_loss(torch, qd, db, margin)
+        else:
+            anc = anchor_loss_weighted(torch, qd, db, margin, args.anchor_boost_weight)
+        loss = td + lam * anc
+        if not torch.isfinite(loss):
+            state["halt"] = "non-finite loss"
+            return
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
+        opt.step()
+        state["updates"] += 1
+        state["td"].append(float(td.detach()))
+        state["anc"].append(float(anc.detach()))
+        state["qmax"] = max(state["qmax"], float(q.detach().abs().max()))
+        if state["updates"] % 1000 == 0:
+            target.load_state_dict(online.state_dict())
+            demos.prefetch()
+        demos.swap_if_ready()
+        state["learn_s"] += time.perf_counter() - t0
+
+    next_log = 100_000
+    next_ckpt = args.checkpoint_every
+    segment = 0
+    n_step = N_STEP
+    while state["transitions"] < args.transitions and state["halt"] is None:
+        problems = guard_ok()
+        if problems:
+            state["flags"].append({"t": state["transitions"], "guard": problems})
+            time.sleep(60)
+            continue
+        gamma_seg = sched.gamma(state["transitions"])
+        sim, runtime, policies, groups = build_segment(args, ctx, segment, gamma_seg)
+        E = sim.E
+        pend: List[deque] = [deque() for _ in range(E)]  # per world: (obs_id, a, reward)
+        last_obs = np.full(E, -1, dtype=np.int64)
+
+        def flush(e: int, bootstrap: int, gamma_now: float) -> None:
+            while pend[e]:
+                R, g = 0.0, 1.0
+                for _, _, r in pend[e]:
+                    R += g * r
+                    g *= gamma_now
+                s0, a0, _ = pend[e].popleft()
+                replay.add(s0, a0, R, 0.0 if bootstrap < 0 else g, bootstrap)
+                state["since_update"] += 1
+
+        for _frame in range(args.segment_frames):
+            t_env = time.perf_counter()
+            t = state["transitions"]
+            eps, gamma_now = sched.eps(t), sched.gamma(t)
+            chosen: Dict[str, Any] = {}
+
+            def choose(prepared):
+                masks = prepared.get_resolved_action_mask()
+                alive = prepared.get_alive()
+                actions = np.ones((E, prepared.S), dtype=np.int64)
+                runtime.prepare(prepared)
+                hero = np.argwhere(alive[:, :1])
+                if len(hero):
+                    t_f = time.perf_counter()
+                    obs = build_ego_raster(prepared, B, backend="numba", rows=hero)
+                    m = masks[hero[:, 0], 0]
+                    t_q = time.perf_counter()
+                    with torch.no_grad():
+                        q = online(
+                            to_dev(obs["local"]), to_dev(obs["global"]), to_dev(obs["scalars"])
+                        )
+                        greedy = masked_argmax(q, to_dev(m)).cpu().numpy()
+                    tel.add("featurizer_s", t_q - t_f)
+                    tel.add("forward_s", time.perf_counter() - t_q)
+                    mm = m.copy()
+                    mm[~mm.any(axis=1), :3] = True
+                    rand = np.array([rng.choice(np.flatnonzero(r)) for r in mm])
+                    act = np.where(rng.random(len(hero)) < eps, rand, greedy)
+                    actions[hero[:, 0], 0] = act
+                    chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
+                t_o = time.perf_counter()
+                for spec, cells in groups.items():
+                    live = cells[alive[cells[:, 0], cells[:, 1]]]
+                    if len(live):
+                        mk = masks[live[:, 0], live[:, 1]]
+                        actions[live[:, 0], live[:, 1]] = policies[spec].actions(mk, prepared, live)
+                tel.add("opponents_s", time.perf_counter() - t_o)
+                return actions
+
+            sim.step_with_policy(choose)
+            runtime.observe_step(sim)
+            reward = sim.get_reward()[:, 0]
+            done = sim.get_done()[:, 0]
+            if mass:
+                alive_after = sim.get_alive()[:, 0] & ~done
+                # the sim's shaping gamma (segment start), so Phi terms cancel exactly
+                reward = reward + mass_term(
+                    sim.get_lengths()[:, 0], alive_after, gamma_seg, args.mass_kappa
+                )
+            if chosen:
+                hero = chosen["hero"][:, 0]
+                ids = ring.add(chosen["obs"], chosen["mask"])
+                for j, e in enumerate(hero):
+                    e = int(e)
+                    if len(pend[e]) == n_step:  # the oldest item's n-step window is complete
+                        R, g = 0.0, 1.0
+                        for _, _, r in pend[e]:
+                            R += g * r
+                            g *= gamma_now
+                        s0, a0, _ = pend[e].popleft()
+                        replay.add(s0, a0, R, g, int(ids[j]))
+                        state["since_update"] += 1
+                    pend[e].append((int(ids[j]), int(chosen["act"][j]), float(reward[e])))
+                    last_obs[e] = ids[j]
+                    if done[e]:
+                        flush(e, -1, gamma_now)
+                        state["deaths"] += 1
+                acts = chosen["act"]
+                state["decisions"] += len(acts)
+                state["boost"] += int((acts >= 3).sum())
+                state["greedy_boost"] += int((chosen["greedy"] >= 3).sum())
+                state["action_window"].extend(acts.tolist())
+                state["transitions"] += len(acts)
+            state["env_s"] += time.perf_counter() - t_env
+            if replay.size >= args.warmup:
+                while state["since_update"] >= 128 and state["halt"] is None:
+                    state["since_update"] -= 128
+                    update(gamma_now, sched.anchor(state["transitions"]))
+            if len(state["action_window"]) == state["action_window"].maxlen:
+                counts = np.bincount(np.asarray(state["action_window"]), minlength=6)
+                if counts.max() > 0.9 * counts.sum():
+                    state["halt"] = f"action collapse {counts.tolist()}"
+            if state["halt"] or state["transitions"] >= args.transitions:
+                break
+            if state["transitions"] >= next_log:
+                next_log += 100_000
+                wall = time.perf_counter() - started
+                row = {
+                    "transitions": state["transitions"],
+                    "updates": state["updates"],
+                    "wall": wall,
+                    "rate": state["transitions"] / wall,
+                    "env_s": state["env_s"],
+                    "learn_s": state["learn_s"],
+                    "eps": eps,
+                    "gamma": gamma_now,
+                    "lambda": sched.anchor(state["transitions"]),
+                    "td": float(np.mean(state["td"])) if state["td"] else None,
+                    "anchor": float(np.mean(state["anc"])) if state["anc"] else None,
+                    "qmax": state["qmax"],
+                    "boost_rate": state["boost"] / max(1, state["decisions"]),
+                    "greedy_boost_rate": state["greedy_boost"] / max(1, state["decisions"]),
+                    "deaths_per_1k": 1000 * state["deaths"] / max(1, state["decisions"]),
+                    "demo_shards_loaded": demos.loaded,
+                    "demo_distinct": demos.distinct,
+                }
+                if state["transitions"] % 500_000 < 100_000:
+                    row["holdout_agreement"] = holdout_agreement()
+                    if row["holdout_agreement"] < 0.6:
+                        state["flags"].append(
+                            {"t": state["transitions"], "agreement": row["holdout_agreement"]}
+                        )
+                if state["qmax"] > 5 * demo_qmax:
+                    state["flags"].append({"t": state["transitions"], "qmax": state["qmax"]})
+                state.update(
+                    td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0
+                )
+                with log_path.open("a") as stream:
+                    stream.write(json.dumps(row) + "\n")
+                print(json.dumps(row), flush=True)
+                tel.write(row, replay_size=replay.size)
+            if state["transitions"] >= next_ckpt:
+                save_checkpoint_atomic(
+                    args.out / f"ckpt_{next_ckpt // 1000}k.pth",
+                    online,
+                    {**meta_base, "transitions": state["transitions"], "updates": state["updates"]},
+                    manifest,
+                )
+                next_ckpt += args.checkpoint_every
+        # Segment end: truncation, bootstrap from each world's last observation.
+        for e in range(E):
+            if pend[e]:
+                # The last decision has no observed successor: drop it; the earlier ones
+                # bootstrap from it (truncation).
+                pend[e].pop()
+                flush(e, int(last_obs[e]), sched.gamma(state["transitions"]))
+        segment += 1
+
+    # A HALTed run's last weights are "aborted.pth" (never "final.pth": selection reads
+    # final checkpoints only).
+    save_checkpoint_atomic(
+        args.out / ("aborted.pth" if state["halt"] else "final.pth"),
+        online,
+        {**meta_base, "transitions": state["transitions"], "updates": state["updates"]},
+        manifest,
+    )
+    summary = {
+        "schema": SCHEMA if not flags else SCHEMA_M3C,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "git": gid._git(),
+        "args": {k: str(v) for k, v in vars(args).items()},
+        "transitions": state["transitions"],
+        "updates": state["updates"],
+        "wall_seconds": time.perf_counter() - started,
+        "rate": state["transitions"] / (time.perf_counter() - started),
+        "halt": state["halt"],
+        "flags": state["flags"],
+        "demo_qmax": demo_qmax,
+        "demo_distinct": demos.distinct,
+        "holdout_agreement_final": holdout_agreement(),
+        "m3c": flags,
+    }
+    (args.out / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
+    print(json.dumps({k: summary[k] for k in ("transitions", "rate", "halt", "flags")}))
+    return 1 if state["halt"] else 0
+
+
+# ----------------------------------------------------------------------------- telemetry
+class Telemetry:
+    """Side-channel diagnostics (``telemetry.jsonl``); never touches the training state."""
+
+    def __init__(self, out: Path, args) -> None:
+        self.path = out / "telemetry.jsonl"
+        self.kappa = args.mass_kappa if args.reward == "mass" else 0.0
+        self.acc: Dict[str, float] = {}
+        self.cal: Dict[str, float] = {}
+        self.t0 = time.time()
+
+    def add(self, key: str, seconds: float) -> None:
+        self.acc[key] = self.acc.get(key, 0.0) + seconds
+
+    def calibration(self, q: np.ndarray, holdout: Dict[str, np.ndarray]) -> None:
+        """Held-out Q calibration: greedy Q, U = Q + Phi(L) (the v2 'unshaped' value)."""
+        m = holdout["mask_resolved"].copy()
+        m[~m.any(axis=1), :3] = True
+        qg = np.where(m, q, -np.inf).max(axis=1)
+        phi = holdout["scalars"][:, 1].astype(np.float64) * 1000.0 / PHI_DIV
+        u = qg + phi
+        self.cal = {
+            "holdout_q_greedy_mean": float(qg.mean()),
+            "holdout_u_mean": float(u.mean()),
+            "holdout_u_p99": float(np.quantile(u, 0.99)),
+            "holdout_u_minus_kappa_phi_mean": float((u - self.kappa * phi).mean()),
+            "holdout_greedy_boost_rate": float(
+                (np.where(m, q, -np.inf).argmax(axis=1) >= 3).mean()
+            ),
+        }
+
+    def write(self, row: Dict[str, Any], **extra: Any) -> None:
+        out = {
+            "transitions": row["transitions"],
+            "t": time.time(),
+            "rss_gb_max": rss_gb(),
+            **{k: round(v, 3) for k, v in self.acc.items()},
+            **self.cal,
+            **extra,
+        }
+        self.cal = {}
+        with self.path.open("a") as fh:
+            fh.write(json.dumps(out) + "\n")
+
+
+# ----------------------------------------------------------------------------- multi-actor
+def _weights_spec(net):
+    sd = net.state_dict()
+    return [(k, tuple(v.shape), v.numel()) for k, v in sd.items()]
+
+
+def _publish_weights(net, wbuf: np.ndarray, wver: np.ndarray) -> None:
+    import torch
+
+    flat = torch.cat([v.detach().float().reshape(-1).cpu() for v in net.state_dict().values()])
+    wver[0] += 1  # odd: writing
+    wbuf[:-1] = flat.numpy()
+    wbuf[-1] = float(flat.double().sum())
+    wver[0] += 1  # even: stable
+
+
+def _read_weights(net, spec, wbuf: np.ndarray, wver: np.ndarray, last: int) -> int:
+    """Copy published weights into ``net`` if a newer stable version exists (seqlock)."""
+    import torch
+
+    v1 = int(wver[0])
+    if v1 % 2 or v1 <= last:
+        return last
+    flat = wbuf[:-1].copy()
+    check = float(wbuf[-1])
+    if int(wver[0]) != v1 or abs(float(flat.astype(np.float64).sum()) - check) > 1e-3 * (
+        1 + abs(check)
+    ):
+        return last  # torn read: try again next frame
+    sd, off = {}, 0
+    for k, shape, n in spec:
+        sd[k] = torch.from_numpy(flat[off : off + n].reshape(shape))
+        off += n
+    net.load_state_dict(sd)
+    return v1
+
+
+def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt) -> None:
+    """One actor process: worlds, acting, n-step windows, observation ring writes."""
+    os.environ["OMP_NUM_THREADS"] = "1"
+    import torch
+
+    from src.model.ego2s_network import load_ego2s_checkpoint
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+
+    torch.set_num_threads(1)
+    args = argparse.Namespace(**cfg["args"])
+    K = int(cfg["K"])
+    shm_ring = Block.attach(names[f"ring{j}"])
+    shm_w = Block.attach(names["weights"])
+    shm_p = Block.attach(names["progress"])
+    try:
+        ring = SharedObsRing(shm_ring, cfg["ring_cap"], cfg["ring_margin"])
+        nw = cfg["n_weights"]
+        wver = np.ndarray((1,), dtype=np.int64, buffer=shm_w.buf, offset=0)
+        wbuf = np.ndarray((nw + 1,), dtype=np.float64, buffer=shm_w.buf, offset=8)
+        progress = np.ndarray((4,), dtype=np.int64, buffer=shm_p.buf, offset=0)
+        device = torch.device(cfg["actor_device"])
+        net = load_ego2s_checkpoint(args.init, "cpu").eval()
+        spec = _weights_spec(net)
+        last = _read_weights(net, spec, wbuf, wver, -1)
+        net = net.to(device)
+        rng = np.random.default_rng([args.seed, 17, 1000 + j])
+        sched = schedules_from_args(args)
+        ctx = gid._context(1)
+        B = EgoRasterConfig(version="b")
+        mass = args.reward == "mass"
+        segment = j
+        while not stop_evt.is_set():
+            t_glob = int(progress[0])
+            gamma_seg = sched.gamma(t_glob)
+            sim, runtime, policies, groups = build_segment(args, ctx, segment, gamma_seg)
+            E = sim.E
+            nsb = NStepBuilder(E)
+            for _frame in range(args.segment_frames):
+                if stop_evt.is_set():
+                    break
+                while progress[1] and not stop_evt.is_set():  # learner paused (Mac guard)
+                    time.sleep(1.0)
+                if int(wver[0]) > last:
+                    cpu_net = net.to("cpu")
+                    last = _read_weights(cpu_net, spec, wbuf, wver, last)
+                    net = cpu_net.to(device)
+                t0 = time.perf_counter()
+                t_glob = int(progress[0])
+                eps, gamma_now = sched.eps(t_glob), sched.gamma(t_glob)
+                chosen: Dict[str, Any] = {}
+                timing = {"featurizer_s": 0.0, "forward_s": 0.0, "opponents_s": 0.0}
+
+                def choose(prepared):
+                    masks = prepared.get_resolved_action_mask()
+                    alive = prepared.get_alive()
+                    actions = np.ones((E, prepared.S), dtype=np.int64)
+                    runtime.prepare(prepared)
+                    hero = np.argwhere(alive[:, :1])
+                    if len(hero):
+                        t_f = time.perf_counter()
+                        obs = build_ego_raster(prepared, B, backend="numba", rows=hero)
+                        m = masks[hero[:, 0], 0]
+                        t_q = time.perf_counter()
+                        with torch.no_grad():
+                            q = net(
+                                *[
+                                    torch.from_numpy(np.ascontiguousarray(obs[k])).to(device)
+                                    for k in ("local", "global", "scalars")
+                                ]
+                            )
+                            mt = torch.from_numpy(m.copy()).to(device)
+                            mt[~mt.any(dim=1), :3] = True
+                            greedy = (
+                                torch.where(mt, q, torch.full_like(q, -1e9))
+                                .argmax(dim=1)
+                                .cpu()
+                                .numpy()
+                            )
+                        timing["featurizer_s"] += t_q - t_f
+                        timing["forward_s"] += time.perf_counter() - t_q
+                        mm = m.copy()
+                        mm[~mm.any(axis=1), :3] = True
+                        rand = np.array([rng.choice(np.flatnonzero(r)) for r in mm])
+                        act = np.where(rng.random(len(hero)) < eps, rand, greedy)
+                        actions[hero[:, 0], 0] = act
+                        chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
+                    t_o = time.perf_counter()
+                    for spec_, cells in groups.items():
+                        live = cells[alive[cells[:, 0], cells[:, 1]]]
+                        if len(live):
+                            mk = masks[live[:, 0], live[:, 1]]
+                            actions[live[:, 0], live[:, 1]] = policies[spec_].actions(
+                                mk, prepared, live
+                            )
+                    timing["opponents_s"] += time.perf_counter() - t_o
+                    return actions
+
+                sim.step_with_policy(choose)
+                runtime.observe_step(sim)
+                reward = sim.get_reward()[:, 0]
+                done = sim.get_done()[:, 0]
+                if mass:
+                    alive_after = sim.get_alive()[:, 0] & ~done
+                    reward = reward + mass_term(
+                        sim.get_lengths()[:, 0], alive_after, gamma_seg, args.mass_kappa
+                    )
+                deaths = 0
+                stats = {"decisions": 0, "boost": 0, "greedy_boost": 0}
+                acts = np.zeros(0, dtype=np.int64)
+                if chosen:
+                    ids = ring.add(chosen["obs"], chosen["mask"])
+                    deaths = nsb.step(
+                        chosen["hero"][:, 0], ids, chosen["act"], reward, done, gamma_now
+                    )
+                    acts = chosen["act"]
+                    stats = {
+                        "decisions": int(len(acts)),
+                        "boost": int((acts >= 3).sum()),
+                        "greedy_boost": int((chosen["greedy"] >= 3).sum()),
+                    }
+                last_frame = _frame == args.segment_frames - 1
+                if last_frame:
+                    nsb.end_segment(sched.gamma(int(progress[0])))
+                s, a, R, d, nx = nsb.take()
+                msg = {
+                    "j": j,
+                    "s": s,
+                    "a": a,
+                    "R": R,
+                    "disc": d,
+                    "nxt": nx,
+                    "acts": acts.astype(np.int8),
+                    "deaths": deaths,
+                    "env_s": time.perf_counter() - t0,
+                    "timing": timing,
+                    "weights_version": last,
+                    **stats,
+                }
+                while not stop_evt.is_set():
+                    try:
+                        tx.put(msg, timeout=1.0)  # bounded: back-pressure from the learner
+                        break
+                    except queue.Full:
+                        continue
+            segment += K
+    finally:
+        shm_ring.close()
+        shm_w.close()
+        shm_p.close()
+
+
+def main_multi(args) -> int:
+    """Learner process with ``args.actors`` actor processes (see the module docstring)."""
+    import multiprocessing as mp
+
+    import torch
+
+    from research.redesign_m2_20261008.gen_data import guard_ok
+    from src.model.ego2s_network import load_ego2s_checkpoint
+
+    if args.no_guard:
+
+        def guard_ok():  # noqa: F811
+            return []
+
+    if args.out.exists():
+        print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
+        return 2
+    problems = guard_ok()
+    if problems:
+        print(json.dumps({"refused": problems}), flush=True)
+        return 3
+    args.out.mkdir(parents=True)
+    K = int(args.actors)
+    torch.set_num_threads(1)
+    torch.manual_seed(args.seed)
+    rng = np.random.default_rng([args.seed, 17])
+    device = torch.device(args.device)
+    sched = schedules_from_args(args)
+
+    online = load_ego2s_checkpoint(args.init, device).train()
+    target = load_ego2s_checkpoint(args.init, device).eval()
+    opt = torch.optim.Adam(online.parameters(), lr=1e-4)
+    margin = json.loads((args.demo_data / "margin.json").read_text())["margin"]
+    demos = DemoStream(
+        args.demo_data, [int(r) for r in args.demo_rounds.split(",")], args.demo_capacity, args.seed
+    )
+    demos.fill_initial(args.demo_initial_shards)
+    demo_qmax = float(np.abs(demos.buf["q_teacher"][: demos.size]).max())
+    holdout = DemoStream.load(
+        sorted((args.demo_data / "round-12").glob("chunk-*-part-*.npz"))[0], held_out=True
+    )
+    replay = Replay(args.replay)
+    tel = Telemetry(args.out, args)
+    # Rings: each actor holds 1.5x its share of the replay plus the in-flight frames (ingest is
+    # round-robin, so actor shares stay near 1/K; an overrun only drops rows, counted).
+    margin_rows = args.worlds * 16
+    ring_cap = (
+        int(1.5 * args.replay / K) + args.worlds * (args.actor_queue_frames + 8) + margin_rows
+    )
+    spec = _weights_spec(online)
+    n_weights = int(sum(n for _, _, n in spec))
+    shms: List[Any] = []
+
+    def new_shm(nbytes: int, directory: Optional[str] = None, tag: str = "blk"):
+        s = Block.create(nbytes, directory, tag)
+        shms.append(s)
+        return s
+
+    names: Dict[str, str] = {}
+    rings = []
+    for j in range(K):
+        s = new_shm(ring_nbytes(ring_cap), args.ring_dir, f"ring{j}")
+        names[f"ring{j}"] = s.desc
+        rings.append(SharedObsRing(s, ring_cap, margin_rows))
+    s_w = new_shm(8 + 8 * (n_weights + 1), args.ring_dir, "weights")
+    names["weights"] = s_w.desc
+    wver = np.ndarray((1,), dtype=np.int64, buffer=s_w.buf, offset=0)
+    wver[0] = 0
+    wbuf = np.ndarray((n_weights + 1,), dtype=np.float64, buffer=s_w.buf, offset=8)
+    s_p = new_shm(32, args.ring_dir, "progress")
+    names["progress"] = s_p.desc
+    progress = np.ndarray((4,), dtype=np.int64, buffer=s_p.buf, offset=0)
+    progress[:] = 0
+    _publish_weights(online, wbuf, wver)  # version 2 = publish #1
+    multi = MultiRing(rings)
+
+    ctx_mp = mp.get_context("spawn")
+    stop_evt = ctx_mp.Event()
+    txs = [ctx_mp.Queue(maxsize=args.actor_queue_frames) for _ in range(K)]
+    cfg = {
+        "args": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
+        "K": K,
+        "ring_cap": ring_cap,
+        "ring_margin": margin_rows,
+        "n_weights": n_weights,
+        "actor_device": args.actor_device or args.device,
+    }
+    cfg["args"]["demo_data"] = str(args.demo_data)
+    procs = [
+        ctx_mp.Process(target=actor_main, args=(j, cfg, names, txs[j], stop_evt), daemon=True)
+        for j in range(K)
+    ]
+    for p in procs:
+        p.start()
+
+    def to_dev(x):
+        return torch.from_numpy(np.ascontiguousarray(x)).to(device)
+
+    def masked_argmax(q, m):
+        m = m.clone()
+        m[~m.any(dim=1), :3] = True
+        return torch.where(m, q, torch.full_like(q, -1e9)).argmax(dim=1)
+
+    @torch.no_grad()
+    def holdout_agreement() -> float:
+        online.eval()
+        q = online(to_dev(holdout["local"]), to_dev(holdout["global"]), to_dev(holdout["scalars"]))
+        pred = masked_argmax(q, to_dev(holdout["mask_resolved"])).cpu().numpy()
+        online.train()
+        tel.calibration(q.cpu().numpy(), holdout)
+        return float((pred == holdout["a_v8"]).mean())
+
+    log_path = args.out / "log.jsonl"
+    manifest = args.out / "manifest.jsonl"
+    st = {
+        "transitions": 0,
+        "updates": 0,
+        "flags": [],
+        "halt": None,
+        "since_update": 0,
+        "td": [],
+        "anc": [],
+        "qmax": 0.0,
+        "env_s": 0.0,
+        "learn_s": 0.0,
+        "wait_s": 0.0,
+        "ring_overrun_rows": 0,
+        "decisions": 0,
+        "boost": 0,
+        "greedy_boost": 0,
+        "deaths": 0,
+        "lag": [],
+        "action_window": deque(maxlen=100_000),
+    }
+    meta_base = {
+        "schema": SCHEMA_M3C,
+        "seed": args.seed,
+        "init": args.init,
+        "init_sha256": hashlib.sha256(Path(args.init).read_bytes()).hexdigest(),
+        "m3c": m3c_flags(args),
+    }
+    started = time.perf_counter()
+    next_log, next_ckpt, next_guard = 100_000, args.checkpoint_every, 0
+    published = 1  # the initial publish (weights version 2 * published)
+
+    def update(lam: float) -> None:
+        t0 = time.perf_counter()
+        idx = replay.sample(rng, 384, multi)
+        if len(idx) < 64:
+            return
+        sl, sg, ss, _ = multi.get(replay.s[idx])
+        nxt = replay.nxt[idx]
+        nl, ng, ns, nm = multi.get(np.where(nxt >= 0, nxt, replay.s[idx]))
+        # Re-check after copying: an overwrite during the gather invalidates the row.
+        ok = multi.valid(replay.s[idx]) & ((nxt < 0) | multi.valid(nxt))
+        if not ok.all():
+            st["ring_overrun_rows"] += int((~ok).sum())
+            keep = np.flatnonzero(ok)
+            idx, sl, sg, ss = idx[keep], sl[keep], sg[keep], ss[keep]
+            nl, ng, ns, nm = nl[keep], ng[keep], ns[keep], nm[keep]
+            if len(idx) < 64:
+                return
+        a = to_dev(replay.a[idx])
+        R = to_dev(replay.R[idx])
+        disc = to_dev(replay.disc[idx])
+        d = demos.sample(rng, 128)
+        n_agent = len(idx)
+        q_all = online(
+            to_dev(np.concatenate([sl, d["local"]])),
+            to_dev(np.concatenate([sg, d["global"]])),
+            to_dev(np.concatenate([ss, d["scalars"]])),
+        )
+        q, qd = q_all[:n_agent], q_all[n_agent:]
+        qa = q.gather(1, a[:, None]).squeeze(1)
+        with torch.no_grad():
+            nlt, ngt, nst, nmt = to_dev(nl), to_dev(ng), to_dev(ns), to_dev(nm)
+            a_star = masked_argmax(online(nlt, ngt, nst), nmt)
+            q_next = target(nlt, ngt, nst).gather(1, a_star[:, None]).squeeze(1)
+            y = R + disc * q_next
+        td = torch.nn.functional.smooth_l1_loss(qa, y)
+        db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
+        if args.anchor_boost_weight == 1.0:
+            anc = anchor_loss(torch, qd, db, margin)
+        else:
+            anc = anchor_loss_weighted(torch, qd, db, margin, args.anchor_boost_weight)
+        loss = td + lam * anc
+        if not torch.isfinite(loss):
+            st["halt"] = "non-finite loss"
+            return
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
+        opt.step()
+        st["updates"] += 1
+        st["td"].append(float(td.detach()))
+        st["anc"].append(float(anc.detach()))
+        st["qmax"] = max(st["qmax"], float(q.detach().abs().max()))
+        if st["updates"] % 1000 == 0:
+            target.load_state_dict(online.state_dict())
+            demos.prefetch()
+        demos.swap_if_ready()
+        st["learn_s"] += time.perf_counter() - t0
+
+    code = 0
+    rr = 0
+    attached: set = set()
+    try:
+        while st["transitions"] < args.transitions and st["halt"] is None:
+            if st["transitions"] >= next_guard:
+                next_guard += 320_000
+                problems = guard_ok()
+                progress[1] = 1 if problems else 0
+                if problems:
+                    st["flags"].append({"t": st["transitions"], "guard": problems})
+                    time.sleep(60)
+                    next_guard = st["transitions"]
+                    continue
+            for p in procs:
+                if not p.is_alive():
+                    raise RuntimeError(f"actor {procs.index(p)} died ({p.exitcode})")
+            got = False
+            t_w = time.perf_counter()
+            first, rr = rr, (rr + 1) % K  # fair round-robin start
+            for j in [(first + i) % K for i in range(K)]:
+                try:
+                    msg = txs[j].get(timeout=0.05 if not got else 0.0)
+                except queue.Empty:
+                    continue
+                got = True
+                if j not in attached:
+                    attached.add(j)
+                    if len(attached) == K:  # every actor mapped its blocks: unlink the names
+                        for blk in shms:  # (the mappings live on; nothing leaks on a crash)
+                            blk.unlink()
+                gs = multi.encode(j, msg["s"])
+                gn = multi.encode(j, msg["nxt"])
+                for i in range(len(gs)):
+                    replay.add(
+                        int(gs[i]),
+                        int(msg["a"][i]),
+                        float(msg["R"][i]),
+                        float(msg["disc"][i]),
+                        int(gn[i]),
+                    )
+                st["since_update"] += len(gs)
+                st["transitions"] += msg["decisions"]
+                st["decisions"] += msg["decisions"]
+                st["boost"] += msg["boost"]
+                st["greedy_boost"] += msg["greedy_boost"]
+                st["deaths"] += msg["deaths"]
+                st["env_s"] += msg["env_s"]
+                st["lag"].append(published - msg["weights_version"] // 2)
+                st["action_window"].extend(msg["acts"].tolist())
+                for k_, v_ in msg["timing"].items():
+                    tel.add(k_, v_)
+            st["wait_s"] += time.perf_counter() - t_w
+            progress[0] = st["transitions"]
+            if replay.size >= args.warmup:
+                while st["since_update"] >= UPDATE_EVERY and st["halt"] is None:
+                    st["since_update"] -= UPDATE_EVERY
+                    update(sched.anchor(st["transitions"]))
+                    if st["updates"] % args.actor_sync_updates == 0:
+                        _publish_weights(online, wbuf, wver)
+                        published += 1
+            if len(st["action_window"]) == st["action_window"].maxlen:
+                counts = np.bincount(np.asarray(st["action_window"]), minlength=6)
+                if counts.max() > 0.9 * counts.sum():
+                    st["halt"] = f"action collapse {counts.tolist()}"
+            if st["transitions"] >= next_log:
+                next_log += 100_000
+                wall = time.perf_counter() - started
+                t = st["transitions"]
+                row = {
+                    "transitions": t,
+                    "updates": st["updates"],
+                    "wall": wall,
+                    "rate": t / wall,
+                    "env_s": st["env_s"],
+                    "learn_s": st["learn_s"],
+                    "eps": sched.eps(t),
+                    "gamma": sched.gamma(t),
+                    "lambda": sched.anchor(t),
+                    "td": float(np.mean(st["td"])) if st["td"] else None,
+                    "anchor": float(np.mean(st["anc"])) if st["anc"] else None,
+                    "qmax": st["qmax"],
+                    "boost_rate": st["boost"] / max(1, st["decisions"]),
+                    "greedy_boost_rate": st["greedy_boost"] / max(1, st["decisions"]),
+                    "deaths_per_1k": 1000 * st["deaths"] / max(1, st["decisions"]),
+                    "demo_shards_loaded": demos.loaded,
+                    "demo_distinct": demos.distinct,
+                    "actors": K,
+                }
+                if t % 500_000 < 100_000:
+                    row["holdout_agreement"] = holdout_agreement()
+                    if row["holdout_agreement"] < 0.6:
+                        st["flags"].append({"t": t, "agreement": row["holdout_agreement"]})
+                if st["qmax"] > 5 * demo_qmax:
+                    st["flags"].append({"t": t, "qmax": st["qmax"]})
+                lag = st["lag"]
+                tel.write(
+                    row,
+                    replay_size=replay.size,
+                    learner_wait_s=round(st["wait_s"], 3),
+                    policy_lag_mean=float(np.mean(lag)) if lag else None,
+                    ring_overrun_rows=st["ring_overrun_rows"],
+                    queue_depth=[q_.qsize() if sys.platform != "darwin" else None for q_ in txs],
+                    ring_counts=[r.count for r in rings],
+                )
+                st.update(td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0)
+                st["lag"] = []
+                with log_path.open("a") as stream:
+                    stream.write(json.dumps(row) + "\n")
+                print(json.dumps(row), flush=True)
+            if st["transitions"] >= next_ckpt:
+                save_checkpoint_atomic(
+                    args.out / f"ckpt_{next_ckpt // 1000}k.pth",
+                    online,
+                    {**meta_base, "transitions": st["transitions"], "updates": st["updates"]},
+                    manifest,
+                )
+                next_ckpt += args.checkpoint_every
+    except BaseException as exc:  # noqa: BLE001
+        st["halt"] = st["halt"] or f"{type(exc).__name__}: {exc}"
+        code = 1
+    finally:
+        stop_evt.set()
+        for q_ in txs:  # drain so blocked actors can exit
+            try:
+                while True:
+                    q_.get_nowait()
+            except Exception:  # noqa: BLE001
+                pass
+        for p in procs:
+            p.join(timeout=30)
+            if p.is_alive():
+                p.terminate()
+                p.join(timeout=10)
+        for blk in shms:  # idempotent; covers a crash before every actor attached
+            blk.unlink()
+    save_checkpoint_atomic(
+        args.out / ("aborted.pth" if st["halt"] else "final.pth"),
+        online,
+        {**meta_base, "transitions": st["transitions"], "updates": st["updates"]},
+        manifest,
+    )
+    summary = {
+        "schema": SCHEMA_M3C,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "git": gid._git(),
+        "args": {k: str(v) for k, v in vars(args).items()},
+        "transitions": st["transitions"],
+        "updates": st["updates"],
+        "wall_seconds": time.perf_counter() - started,
+        "rate": st["transitions"] / (time.perf_counter() - started),
+        "halt": st["halt"],
+        "flags": st["flags"][:200],
+        "demo_qmax": demo_qmax,
+        "demo_distinct": demos.distinct,
+        "holdout_agreement_final": holdout_agreement(),
+        "m3c": m3c_flags(args),
+        "actors": K,
+        "actor_exitcodes": [p.exitcode for p in procs],
+        "ring_overrun_rows": st["ring_overrun_rows"],
+    }
+    (args.out / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
+    print(json.dumps({k: summary[k] for k in ("transitions", "rate", "halt", "flags")}))
+    for s in shms:  # views may still exist: close() tolerates that (names already unlinked)
+        s.close()
+    return 1 if (st["halt"] or code) else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

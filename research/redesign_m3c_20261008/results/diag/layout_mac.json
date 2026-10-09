@@ -1,0 +1,150 @@
+{
+ "host": "Mac (M-series, MPS), 1 thread per process, nice 10, loaded host (M3 Phase R / probes running)",
+ "date": "2026-10-08",
+ "settings": "replay 200k, demo cap 100k (memory only), worlds 64, mass/anchor M3 defaults",
+ "sync_1_process": {
+  "rate_end_to_end": 1449.3355252763313,
+  "transitions": 400000,
+  "updates": 3122,
+  "wall": 275.98853845801204,
+  "last_row": {
+   "transitions": 300032,
+   "wall": 211.21573770791292,
+   "env_s": 102.5286303954199,
+   "learn_s": 100.16340808826499
+  },
+  "halt": null
+ },
+ "learner_plus_2_actors": {
+  "rate_end_to_end": 2628.407597438901,
+  "transitions": 500096,
+  "updates": 3902,
+  "wall": 190.26577137503773,
+  "last_row": {
+   "transitions": 500096,
+   "wall": 189.74163258401677,
+   "env_s": 202.55579656921327,
+   "learn_s": 175.36340916645713
+  },
+  "halt": null
+ },
+ "sync_2_processes": [
+  {
+   "rate_end_to_end": 1285.9980624335822,
+   "transitions": 300032,
+   "updates": 2341,
+   "wall": 233.30672625009902,
+   "last_row": {
+    "transitions": 200000,
+    "wall": 146.50823779194616,
+    "env_s": 69.59056566096842,
+    "learn_s": 72.20147292409092
+   },
+   "halt": null
+  },
+  {
+   "rate_end_to_end": 1294.2500549925085,
+   "transitions": 300032,
+   "updates": 2341,
+   "wall": 231.81919025001116,
+   "last_row": {
+    "transitions": 200000,
+    "wall": 146.219467750052,
+    "env_s": 66.79280927823856,
+    "learn_s": 74.7253785901703
+   },
+   "halt": null
+  }
+ ],
+ "totals": {
+  "sync_1": 1449.3355252763313,
+  "multi2_3_processes": 2628.407597438901,
+  "sync_2_processes": 2580.2481174260906
+ },
+ "production_settings": {
+  "note": "2026-10-08 evening, M3 Phase R finished (Mac slots free; queue2 done); replay 500k, demo 300k/30 shards, mass reward + short anchor, 1.2M transitions, MPS, 1 thread/process, nice 10",
+  "sync_2_processes": [
+   {
+    "rate_end_to_end": 1482.4310117927967,
+    "transitions": 1200000,
+    "updates": 9371,
+    "wall": 809.4811755830888,
+    "halt": null,
+    "last_row": {
+     "transitions": 1100032,
+     "wall": 738.1304602921009,
+     "env_s": 333.223171440186,
+     "learn_s": 365.65458299126476
+    },
+    "telemetry_last": {
+     "transitions": 1100032,
+     "t": 1791505294.266616,
+     "rss_gb_max": 12.136546304,
+     "featurizer_s": 29.862,
+     "forward_s": 68.412,
+     "opponents_s": 16.642,
+     "replay_size": 500000
+    }
+   },
+   {
+    "rate_end_to_end": 1460.6782019769669,
+    "transitions": 1200000,
+    "updates": 9371,
+    "wall": 821.5361827090383,
+    "halt": null,
+    "last_row": {
+     "transitions": 1100032,
+     "wall": 749.90208179201,
+     "env_s": 337.80235584964976,
+     "learn_s": 374.56270331982523
+    },
+    "telemetry_last": {
+     "transitions": 1100032,
+     "t": 1791505306.038354,
+     "rss_gb_max": 12.139036672,
+     "featurizer_s": 30.074,
+     "forward_s": 67.565,
+     "opponents_s": 18.115,
+     "replay_size": 500000
+    }
+   }
+  ],
+  "learner_plus_2_actors": {
+   "rate_end_to_end": 2914.568885181883,
+   "transitions": 1200000,
+   "updates": 9369,
+   "wall": 411.7246993749868,
+   "halt": null,
+   "last_row": {
+    "transitions": 1200000,
+    "wall": 411.3360260829795,
+    "env_s": 434.18298685201444,
+    "learn_s": 382.89990247087553
+   },
+   "telemetry_last": {
+    "transitions": 1200000,
+    "t": 1791505792.2741172,
+    "rss_gb_max": 14.266793984,
+    "featurizer_s": 36.534,
+    "forward_s": 86.915,
+    "opponents_s": 25.883,
+    "replay_size": 500000,
+    "learner_wait_s": 4.733,
+    "policy_lag_mean": 0.35723431498079383,
+    "ring_overrun_rows": 0,
+    "queue_depth": [
+     null,
+     null
+    ],
+    "ring_counts": [
+     600576,
+     600576
+    ]
+   }
+  },
+  "totals": {
+   "sync_2_processes": 2943.1092137697633,
+   "multi2": 2914.568885181883
+  }
+ }
+}
