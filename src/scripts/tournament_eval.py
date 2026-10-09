@@ -403,6 +403,22 @@ def _attach_agent(
         from web.backend.raster_policy import RasterServingPolicy
 
         obs_spec = checkpoint_obs_spec(ref)
+        from src.model.obs_spec import EGO2S_OBS_SPECS
+
+        if obs_spec in EGO2S_OBS_SPECS:
+            # Redesign M3: an ego2s student plays the hero only (its serving policy
+            # dispatches Q rows positionally, like the raster policy), with batch-1
+            # forwards so its records are comparable with the SIMD grid engine's.
+            if slot != 0:
+                raise ValueError("live ego2s checkpoints are supported only as the hero (slot 0)")
+            from web.backend.ego2s_policy import Ego2sServingPolicy
+
+            if ref not in policy_cache:
+                policy_cache[ref] = Ego2sServingPolicy(ref, forward="rowwise")
+            snake.policy = policy_cache[ref]
+            snake.ai = snake.policy
+            snake.policy.attach_game(gs)
+            return
         if obs_spec == RASTER31V2 and slot != 0:
             raise ValueError(
                 "live raster checkpoints are supported only as the hero (slot 0); "
@@ -641,9 +657,13 @@ def _install_hero_safety_veto(hero: Any, hero_spec: AgentSpec) -> Any:
     from src.evaluation.safety_veto import install_free_space_veto
     from src.model.obs_spec import VECTOR61
 
+    from src.model.obs_spec import EGO2S_OBS_SPECS
+
     kind, ref = hero_spec
-    if kind != "checkpoint" or checkpoint_obs_spec(ref) != VECTOR61:
-        raise ValueError("the safety veto applies only to a vector61 checkpoint hero")
+    # The vetoes are policy-agnostic (masked Q + the game's free-space features); ego2s
+    # students (redesign M3) take them too.
+    if kind != "checkpoint" or checkpoint_obs_spec(ref) not in (VECTOR61, *EGO2S_OBS_SPECS):
+        raise ValueError("the safety veto applies only to a vector61 or ego2s checkpoint hero")
     return install_free_space_veto(hero)
 
 

@@ -1,0 +1,108 @@
+{
+ "baseline": {
+  "name": "frp3_m3_s12_u60000_20261005.pth",
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+ },
+ "created_utc": "2026-10-08T06:25:29.131522+00:00",
+ "git": {
+  "commit": "2582fc26aa78a665be857fdea35fc105f9cc62a9",
+  "dirty_paths": ""
+ },
+ "grid_sim_jit": true,
+ "ni_seeds": [
+  3164041651,
+  4141238111,
+  204061964,
+  33637903,
+  1228292106,
+  2696956172,
+  3282727875,
+  2362057815,
+  3263769439,
+  1511535566,
+  4268329473,
+  4001174293,
+  2648040147,
+  3170224095,
+  1324176925,
+  3934441092,
+  1386652364,
+  3988869141,
+  2943223853,
+  2019394313,
+  2129224094,
+  1197374338,
+  2193385724,
+  1721329721,
+  2080499425,
+  1472806171,
+  2114795252,
+  4113853551,
+  209599607,
+  1653382227,
+  2781611891,
+  3211837048,
+  1617340331,
+  1636361242,
+  2629675781,
+  906386485,
+  3740870281,
+  217765884,
+  3461310473,
+  133402883,
+  1043037759,
+  1614631142,
+  2182942577,
+  494048688,
+  4174054809,
+  3177005560,
+  1081196905,
+  2981648687
+ ],
+ "rule": {
+  "confidence": 0.9,
+  "margin": -15.0,
+  "mixes": [
+   "frozen",
+   "scripted",
+   "mixed"
+  ],
+  "namespace": "redesign-m2b-ni/v1",
+  "worlds_per_mix": 48
+ },
+ "schema_version": "redesign-m2b-ni/v1",
+ "student": {
+  "meta": {
+   "epoch": 6,
+   "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/fits/r11/student.pth",
+   "loss_extra": {
+    "adv_weight": 10.0,
+    "kl_tau": 0.05,
+    "kl_weight": 1.0
+   },
+   "margin": 0.06319992542266846,
+   "metrics": {
+    "agree_v8": 0.809,
+    "agree_v8_len_gt_500": 0.7782435129740519,
+    "agree_v8_on_boost_labels": 0.16799091940976163,
+    "agree_v8_on_veto_overrides": 0.3333333333333333,
+    "boost_label_rate": 0.014683333333333333,
+    "boost_pred_rate": 0.0056,
+    "huber": 0.9056836549123128,
+    "n": 60000,
+    "n_len_gt_500": 20040,
+    "n_veto_overrides": 87,
+    "plain_q_huber": 0.1182658962170283,
+    "q_r2": 0.90602309612008
+   },
+   "n_train": 3725000,
+   "rounds": [
+    10,
+    11,
+    12
+   ]
+  },
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+  "sha256": "36a92948ff82618b1944431675414301ef27f22bc15c7e12329bf75fc7cac48f"
+ }
+}

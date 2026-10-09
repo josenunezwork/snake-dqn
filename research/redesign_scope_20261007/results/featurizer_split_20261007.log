@@ -1,0 +1,6 @@
+holding ['/Users/josenunez/Projects/ml/snake-dqn-artifacts/pqn-followup-20260909/cpu-slot-3.lock']
+local 34.9 us/agent
+global 42.23 us/agent
+coarse 13.72 us/agent
+scalars 0.13 us/agent
+reach 34.01 us/agent

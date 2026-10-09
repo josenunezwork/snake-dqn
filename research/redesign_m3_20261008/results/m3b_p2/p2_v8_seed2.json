@@ -1,0 +1,109 @@
+{
+ "arm": "v8",
+ "compared": 9,
+ "created_utc": "2026-10-08T20:34:32.527241+00:00",
+ "git": {
+  "commit": "ecc813e520a3286e14d42d54f3858312bb18ab35",
+  "dirty_paths": "?? tests/test_m3_phase_r.py"
+ },
+ "identical": 9,
+ "pass": true,
+ "schema_version": "redesign-m3-student-record-parity/v1",
+ "sim_wall_seconds": 119.81518066697754,
+ "student": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r4/attempt01/out/m3b_seed2/final.pth",
+  "sha256": "4b41265da8abdca3398b16c3aa8b6f2b17c8cf7999d479991b6d91367ba0d8ff"
+ },
+ "worlds": [
+  {
+   "deaths": 0,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 37.993436333024874,
+   "mass_integral": 519.3546,
+   "mix": "frozen",
+   "record_differences": [],
+   "world_seed": 575618937
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 28.66420920798555,
+   "mass_integral": 191.1472,
+   "mix": "frozen",
+   "record_differences": [],
+   "world_seed": 643519331
+  },
+  {
+   "deaths": 0,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 34.12296937499195,
+   "mass_integral": 498.078,
+   "mix": "frozen",
+   "record_differences": [],
+   "world_seed": 3305189242
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 27.854474333114922,
+   "mass_integral": 402.7436,
+   "mix": "scripted",
+   "record_differences": [],
+   "world_seed": 575618937
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 24.03120091604069,
+   "mass_integral": 297.0468,
+   "mix": "scripted",
+   "record_differences": [],
+   "world_seed": 643519331
+  },
+  {
+   "deaths": 0,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 32.119155041873455,
+   "mass_integral": 620.5826,
+   "mix": "scripted",
+   "record_differences": [],
+   "world_seed": 3305189242
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 21.830815125023946,
+   "mass_integral": 35.6016,
+   "mix": "mixed",
+   "record_differences": [],
+   "world_seed": 575618937
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 28.555587082868442,
+   "mass_integral": 396.2094,
+   "mix": "mixed",
+   "record_differences": [],
+   "world_seed": 643519331
+  },
+  {
+   "deaths": 0,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 31.381508958060294,
+   "mass_integral": 470.5192,
+   "mix": "mixed",
+   "record_differences": [],
+   "world_seed": 3305189242
+  }
+ ]
+}

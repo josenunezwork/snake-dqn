@@ -1,0 +1,175 @@
+{
+ "arm": "none",
+ "compared": 9,
+ "created_utc": "2026-10-08T08:15:26.875875+00:00",
+ "git": {
+  "commit": "76f2cb13eba0306bb2b307fc8e2d3244d7dfebe0",
+  "dirty_paths": ""
+ },
+ "identical": 3,
+ "pass": false,
+ "schema_version": "redesign-m3-student-record-parity/v1",
+ "sim_wall_seconds": 65.02614354179241,
+ "student": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+  "sha256": "36a92948ff82618b1944431675414301ef27f22bc15c7e12329bf75fc7cac48f"
+ },
+ "worlds": [
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": false,
+   "live_wall": 31.23111787508242,
+   "mass_integral": 107.302,
+   "mix": "frozen",
+   "record_differences": [
+    {
+     "live": 2,
+     "path": "denominators.boost_executed_frames",
+     "sim": 3
+    },
+    {
+     "live": 0.0008496176720475786,
+     "path": "probes.boost_frame_fraction",
+     "sim": 0.001274426508071368
+    }
+   ],
+   "world_seed": 575618937
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": false,
+   "live_wall": 30.27782570803538,
+   "mass_integral": 185.1594,
+   "mix": "frozen",
+   "record_differences": [
+    {
+     "live": 12,
+     "path": "denominators.boost_executed_frames",
+     "sim": 13
+    },
+    {
+     "live": 0.004329004329004329,
+     "path": "probes.boost_frame_fraction",
+     "sim": 0.00468975468975469
+    }
+   ],
+   "world_seed": 643519331
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": false,
+   "live_wall": 27.314259249949828,
+   "mass_integral": 75.9314,
+   "mix": "frozen",
+   "record_differences": [
+    {
+     "live": 6,
+     "path": "denominators.boost_executed_frames",
+     "sim": 7
+    },
+    {
+     "live": 0.003189792663476874,
+     "path": "probes.boost_frame_fraction",
+     "sim": 0.003721424774056353
+    }
+   ],
+   "world_seed": 3305189242
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 21.205533874919638,
+   "mass_integral": 78.6438,
+   "mix": "scripted",
+   "record_differences": [],
+   "world_seed": 575618937
+  },
+  {
+   "deaths": 0,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 30.074853249825537,
+   "mass_integral": 595.243,
+   "mix": "scripted",
+   "record_differences": [],
+   "world_seed": 643519331
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": true,
+   "live_wall": 17.71805087500252,
+   "mass_integral": 1.445,
+   "mix": "scripted",
+   "record_differences": [],
+   "world_seed": 3305189242
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": false,
+   "live_wall": 25.715976333944127,
+   "mass_integral": 150.9514,
+   "mix": "mixed",
+   "record_differences": [
+    {
+     "live": 10,
+     "path": "denominators.boost_executed_frames",
+     "sim": 11
+    },
+    {
+     "live": 0.0037243947858473,
+     "path": "probes.boost_frame_fraction",
+     "sim": 0.00409683426443203
+    }
+   ],
+   "world_seed": 575618937
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": false,
+   "live_wall": 21.718173125060275,
+   "mass_integral": 48.1342,
+   "mix": "mixed",
+   "record_differences": [
+    {
+     "live": 6,
+     "path": "denominators.boost_executed_frames",
+     "sim": 7
+    },
+    {
+     "live": 0.0037313432835820895,
+     "path": "probes.boost_frame_fraction",
+     "sim": 0.004353233830845771
+    }
+   ],
+   "world_seed": 643519331
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "identical": false,
+   "live_wall": 24.37795012514107,
+   "mass_integral": 58.5776,
+   "mix": "mixed",
+   "record_differences": [
+    {
+     "live": 3,
+     "path": "denominators.boost_executed_frames",
+     "sim": 4
+    },
+    {
+     "live": 0.0016778523489932886,
+     "path": "probes.boost_frame_fraction",
+     "sim": 0.0022371364653243847
+    }
+   ],
+   "world_seed": 3305189242
+  }
+ ]
+}

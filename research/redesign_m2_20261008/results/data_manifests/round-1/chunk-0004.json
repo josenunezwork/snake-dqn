@@ -1,0 +1,97 @@
+{
+ "chunk": 4,
+ "created_utc": "2026-10-08T01:44:04.540568+00:00",
+ "decisions_per_s": 528.6197268211533,
+ "frames": 5000,
+ "git": {
+  "commit": "6a2470a06bfaa04952618b883b7213a67e716273",
+  "dirty_paths": ""
+ },
+ "max_length": 722,
+ "mix": "scripted",
+ "parts": [
+  {
+   "bytes": 4018495,
+   "file": "chunk-0004-part-00.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4858044,
+   "file": "chunk-0004-part-01.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4851174,
+   "file": "chunk-0004-part-02.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4775766,
+   "file": "chunk-0004-part-03.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4800066,
+   "file": "chunk-0004-part-04.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4806623,
+   "file": "chunk-0004-part-05.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4694385,
+   "file": "chunk-0004-part-06.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4843306,
+   "file": "chunk-0004-part-07.npz",
+   "samples": 10000
+  }
+ ],
+ "round": 1,
+ "schema_version": "redesign-m2-distill-shard/v1",
+ "stats": {
+  "decisions": 80000,
+  "hero_deaths": 36,
+  "student_acted": 40053,
+  "veto_override": 131
+ },
+ "student": {
+  "beta": 0.5,
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2-20261008/fits/r0/student.pth",
+  "sha256": "007cc64ea73b488e1d89366da2f88fcf3269b2fbf461adc1f86f37171c7edae5"
+ },
+ "teacher": {
+  "forward": "batched",
+  "lambda": 8.0,
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": "v8"
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "wall_seconds": 151.33752287505195,
+ "world_seeds": [
+  1925845390,
+  4203850086,
+  862977762,
+  4111396354,
+  3201810091,
+  3667108362,
+  3617687487,
+  1796155130,
+  1741657123,
+  3860249604,
+  1159111966,
+  3726296142,
+  1695947262,
+  1471719011,
+  101266127,
+  323852661
+ ],
+ "worlds": 16
+}

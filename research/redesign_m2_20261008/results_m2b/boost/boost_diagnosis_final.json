@@ -1,0 +1,73 @@
+{
+ "n": 435000,
+ "boost_label_rate": 0.0142,
+ "boost_legal_rate": 0.9876919540229885,
+ "boost_labels": {
+  "n": 6177,
+  "agree": 0.1614052128865145,
+  "pred_boost": 0.16577626679617938,
+  "teacher_boost_gap_median": 0.059290409088134766,
+  "student_boost_gap_median": -0.08521270751953125,
+  "student_gap_positive": 0.16577626679617938,
+  "regret_mean": 0.12722712755203247
+ },
+ "normal_labels_boost_legal": {
+  "n": 423469,
+  "agree": 0.8193043646642375,
+  "pred_boost": 0.00340048504140799,
+  "teacher_boost_gap_median": -0.19652271270751953,
+  "student_boost_gap_median": -0.1840229034423828,
+  "student_gap_positive": 0.00340048504140799,
+  "regret_mean": 0.016294173896312714
+ },
+ "by_length": {
+  "0-50": {
+   "boost_label_rate": 0.002943718267257211,
+   "boost_labels": {
+    "n": 109,
+    "agree": 0.027522935779816515,
+    "pred_boost": 0.027522935779816515,
+    "teacher_boost_gap_median": 0.01978302001953125,
+    "student_boost_gap_median": -0.06972694396972656,
+    "student_gap_positive": 0.027522935779816515,
+    "regret_mean": 0.04696851596236229
+   }
+  },
+  "50-200": {
+   "boost_label_rate": 0.004829430870146687,
+   "boost_labels": {
+    "n": 455,
+    "agree": 0.0967032967032967,
+    "pred_boost": 0.0989010989010989,
+    "teacher_boost_gap_median": 0.036823272705078125,
+    "student_boost_gap_median": -0.08470821380615234,
+    "student_gap_positive": 0.0989010989010989,
+    "regret_mean": 0.07860108464956284
+   }
+  },
+  "200-500": {
+   "boost_label_rate": 0.013315832524872073,
+   "boost_labels": {
+    "n": 2100,
+    "agree": 0.1519047619047619,
+    "pred_boost": 0.15523809523809523,
+    "teacher_boost_gap_median": 0.059714555740356445,
+    "student_boost_gap_median": -0.08390402793884277,
+    "student_gap_positive": 0.15523809523809523,
+    "regret_mean": 0.1367257535457611
+   }
+  },
+  "500-1000000": {
+   "boost_label_rate": 0.024053241675852956,
+   "boost_labels": {
+    "n": 3513,
+    "agree": 0.17961855963563905,
+    "pred_boost": 0.18502704241389126,
+    "teacher_boost_gap_median": 0.06606531143188477,
+    "student_boost_gap_median": -0.08699178695678711,
+    "student_gap_positive": 0.18502704241389126,
+    "regret_mean": 0.13033728301525116
+   }
+  }
+ }
+}

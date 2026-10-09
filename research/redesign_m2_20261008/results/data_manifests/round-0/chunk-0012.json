@@ -1,0 +1,93 @@
+{
+ "chunk": 12,
+ "created_utc": "2026-10-08T01:11:06.068488+00:00",
+ "decisions_per_s": 429.6510957418255,
+ "frames": 5000,
+ "git": {
+  "commit": "6a2470a06bfaa04952618b883b7213a67e716273",
+  "dirty_paths": ""
+ },
+ "max_length": 1077,
+ "mix": "frozen",
+ "parts": [
+  {
+   "bytes": 3853886,
+   "file": "chunk-0012-part-00.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4809268,
+   "file": "chunk-0012-part-01.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5145298,
+   "file": "chunk-0012-part-02.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5157382,
+   "file": "chunk-0012-part-03.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5425480,
+   "file": "chunk-0012-part-04.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5369924,
+   "file": "chunk-0012-part-05.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5480922,
+   "file": "chunk-0012-part-06.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5480130,
+   "file": "chunk-0012-part-07.npz",
+   "samples": 10000
+  }
+ ],
+ "round": 0,
+ "schema_version": "redesign-m2-distill-shard/v1",
+ "stats": {
+  "decisions": 80000,
+  "hero_deaths": 3,
+  "student_acted": 0,
+  "veto_override": 107
+ },
+ "student": null,
+ "teacher": {
+  "forward": "batched",
+  "lambda": 8.0,
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": "v8"
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "wall_seconds": 186.1975933329668,
+ "world_seeds": [
+  4157280258,
+  3387285485,
+  3993963276,
+  3880842007,
+  285504424,
+  4164678311,
+  3052292423,
+  2988577058,
+  1928623518,
+  1379356444,
+  1120789743,
+  3828276480,
+  3055334686,
+  1189401599,
+  3963911768,
+  127941598
+ ],
+ "worlds": 16
+}

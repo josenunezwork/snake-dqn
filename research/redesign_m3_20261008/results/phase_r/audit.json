@@ -1,0 +1,27 @@
+{
+ "controls_checked": 33,
+ "final_status": "NO_GO_EARLY",
+ "looks": [
+  {
+   "action": "CONTINUE",
+   "audit_status": "CONTINUE",
+   "look": 0,
+   "problems": [],
+   "status": "CONTINUE"
+  },
+  {
+   "action": "STOP",
+   "audit_status": "NO_GO_EARLY",
+   "look": 1,
+   "problems": [],
+   "status": "NO_GO_EARLY"
+  }
+ ],
+ "problems": [],
+ "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-20261008",
+ "schema": "sequential-phase-r-audit/v1",
+ "unaudited": [
+  "shard start markers (the look_gate binding) are written by the study's runner and are not read here; the study's own audit must check them"
+ ],
+ "verdict": "PASS"
+}

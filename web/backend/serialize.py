@@ -30,7 +30,12 @@ def _architecture_label(obs_spec: str) -> str:
         return "Raster Dueling (raster31v2)"
     if obs_spec == "raster31v3":
         return "Raster Dueling (raster31v3)"
+    if obs_spec in _EGO2S_SPECS:
+        return f"Ego2s Dueling CNN ({obs_spec})"
     return "Apex DQN (vector61)"
+
+
+_EGO2S_SPECS = {"ego2s-draft", "ego2s-b"}
 
 
 # Inspector grouping for the ``raster31v2`` scalar band. Mirrors the per-index
@@ -69,6 +74,8 @@ def _inspector_groups(input_size: int, obs_spec: str) -> List[Dict[str, object]]
     """
     if obs_spec in {"raster31v2", "raster31v3"}:
         groups = [dict(g) for g in RASTER31V2_SCALAR_GROUPS]
+    elif obs_spec in _EGO2S_SPECS:
+        groups = [{"name": f"{obs_spec} scalars", "start": 0, "end": input_size}]
     else:
         groups = state_groups(input_size)
     return [g for g in groups if int(g["end"]) <= input_size]
@@ -189,7 +196,7 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
     others = [s for s in game.snakes if s is not hero]
 
     obs_spec = str(getattr(session, "obs_spec", "vector61"))
-    if obs_spec in {"raster31v2", "raster31v3"}:
+    if obs_spec in {"raster31v2", "raster31v3"} | _EGO2S_SPECS:
         bundle = _raster_activations(session, hero)
     else:
         bundle = _vector_activations(session, hero, others, game.food)
@@ -251,7 +258,11 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
         "input_label": (
             "Scalars (26 of raster input)"
             if obs_spec in {"raster31v2", "raster31v3"}
-            else "Input (state)"
+            else (
+                f"Scalars ({input_size} of {obs_spec} input)"
+                if obs_spec in _EGO2S_SPECS
+                else "Input (state)"
+            )
         ),
         "hidden_sample": _downsample(hidden, HIDDEN_DISPLAY_BUCKETS),
         "hidden_count": int(hidden.size),

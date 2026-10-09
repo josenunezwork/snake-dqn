@@ -31,7 +31,13 @@ from src.core.runtime_contract import (
 )
 from src.data.score_store import compute_score
 from src.game.game_state import GameState
-from src.model.obs_spec import DEFAULT_OBS_SPEC, RASTER31V2, RASTER31V3, VECTOR61
+from src.model.obs_spec import (
+    DEFAULT_OBS_SPEC,
+    EGO2S_OBS_SPECS,
+    RASTER31V2,
+    RASTER31V3,
+    VECTOR61,
+)
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
 from web.backend.safety_veto_serving import (
@@ -569,9 +575,16 @@ class GameSession:
         if obs_spec in (RASTER31V2, RASTER31V3) and mode == MODE_TRAIN:
             mode = MODE_WATCH
             self.last_error = "Raster checkpoints are served forward-only; dropped to watch mode."
+        if obs_spec in EGO2S_OBS_SPECS and mode == MODE_TRAIN:
+            mode = MODE_WATCH
+            self.last_error = "ego2s students are served forward-only; dropped to watch mode."
         training = mode == MODE_TRAIN
         human = mode == MODE_PLAY
-        input_size = _input_size_from_blob(checkpoint_blob) if checkpoint_blob else 61
+        input_size = (
+            _input_size_from_blob(checkpoint_blob)
+            if checkpoint_blob and obs_spec not in EGO2S_OBS_SPECS
+            else 61  # ego2s students play the 61-D champions' (mechanics v2) world
+        )
         config_path = _config_for(input_size)
         if v3_metadata is not None:
             world = EffectiveWorldConfig(**v3_metadata["effective_world"])
@@ -600,6 +613,10 @@ class GameSession:
                     v3_metadata["_normalization_args"] if v3_metadata is not None else None
                 ),
             )
+        elif obs_spec in EGO2S_OBS_SPECS:
+            from web.backend.ego2s_policy import Ego2sServingPolicy
+
+            policy = Ego2sServingPolicy(checkpoint)
         else:
             policy = ApexPolicy(
                 input_size=GameConfig.INPUT_SIZE,
@@ -638,7 +655,7 @@ class GameSession:
 
         # The raster policy reads the live game each frame to build observations
         # through the shared featurizer; give it the game it now serves.
-        if obs_spec in (RASTER31V2, RASTER31V3):
+        if obs_spec in (RASTER31V2, RASTER31V3, *EGO2S_OBS_SPECS):
             policy.attach_game(game)
 
         self.policy = policy
@@ -1028,7 +1045,7 @@ class GameSession:
         with self._lock:
             if mode == self.mode:
                 return
-            if mode == MODE_TRAIN and self.obs_spec in (RASTER31V2, RASTER31V3):
+            if mode == MODE_TRAIN and self.obs_spec in (RASTER31V2, RASTER31V3, *EGO2S_OBS_SPECS):
                 # Forward-only checkpoint: the rebuild would coerce back to
                 # watch, destroying the current game for nothing. Skip it and
                 # surface the reason through the existing error pipeline.

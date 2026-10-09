@@ -1,0 +1,11 @@
+{
+ "schema": "redesign-m3-phase-r-verify/v1",
+ "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-phase-r-SMOKE2-20261008",
+ "shards": [
+  "look-0"
+ ],
+ "records_checked": 105,
+ "problems": [],
+ "n_problems": 0,
+ "verdict": "PASS"
+}

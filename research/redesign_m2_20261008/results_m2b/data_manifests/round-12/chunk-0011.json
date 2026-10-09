@@ -1,0 +1,112 @@
+{
+ "chunk": 11,
+ "created_utc": "2026-10-08T06:07:29.513004+00:00",
+ "decisions_per_s": 473.89560978367126,
+ "fields": [
+  "local",
+  "global",
+  "scalars",
+  "q_teacher",
+  "a_base",
+  "a_v8",
+  "a_taken",
+  "mask_resolved",
+  "mask_teacher",
+  "length",
+  "frame",
+  "world_seed"
+ ],
+ "frames": 5000,
+ "git": {
+  "commit": "2582fc26aa78a665be857fdea35fc105f9cc62a9",
+  "dirty_paths": ""
+ },
+ "max_length": 957,
+ "mix": "mixed",
+ "obs_version": "b",
+ "parts": [
+  {
+   "bytes": 3978447,
+   "file": "chunk-0011-part-00.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 4809765,
+   "file": "chunk-0011-part-01.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5126266,
+   "file": "chunk-0011-part-02.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5013194,
+   "file": "chunk-0011-part-03.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5149616,
+   "file": "chunk-0011-part-04.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5172984,
+   "file": "chunk-0011-part-05.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5100404,
+   "file": "chunk-0011-part-06.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5328826,
+   "file": "chunk-0011-part-07.npz",
+   "samples": 10000
+  }
+ ],
+ "round": 12,
+ "schema_version": "redesign-m2-distill-shard/v1",
+ "stats": {
+  "decisions": 80000,
+  "hero_deaths": 20,
+  "student_acted": 59889,
+  "veto_override": 84
+ },
+ "student": {
+  "beta": 0.25,
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/fits/r11/student.pth",
+  "sha256": "b3e87a717b4cc7dd76d587f0154836831e08e96da46fd0d49797ec64b4e4d82f"
+ },
+ "teacher": {
+  "forward": "batched",
+  "lambda": 8.0,
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": "v8"
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "wall_seconds": 168.8135495421011,
+ "world_seeds": [
+  2031293657,
+  773191014,
+  1319067519,
+  2717235839,
+  3625846500,
+  3763153259,
+  4245038043,
+  3509112991,
+  2514390978,
+  1616478575,
+  3627491088,
+  1805475057,
+  868021833,
+  3784996537,
+  2298741875,
+  1322996809
+ ],
+ "worlds": 16
+}

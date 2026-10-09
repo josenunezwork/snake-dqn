@@ -1,0 +1,762 @@
+{
+ "binding": {
+  "look": 0,
+  "plan_file_sha256": "64ee770b377a8fe545e4736812eb4f0026c8122be5bbaeaedbefd365bb64e1cf",
+  "plan_sha256": "5d1ee49d0ce8ce0f764f61909ad1803b542e825c70a08c01c12b83636651304e",
+  "previous_receipt_sha256": null,
+  "world_index_range": [
+   0,
+   11
+  ]
+ },
+ "commit": "aeffbdd6748063fd3291d23095287d9db1f1a648",
+ "started_utc": "2026-10-08T21:15:51.236416+00:00",
+ "unit_worlds": {
+  "L0|M2b-student+v8|s0|frozen|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|M2b-student+v8|s0|frozen|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|M2b-student+v8|s0|mixed|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|M2b-student+v8|s0|mixed|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|M2b-student+v8|s0|scripted|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|M2b-student+v8|s0|scripted|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|M3-ego2s-b@20M+v8|s0|frozen|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|M3-ego2s-b@20M+v8|s0|frozen|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|M3-ego2s-b@20M+v8|s0|mixed|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|M3-ego2s-b@20M+v8|s0|mixed|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|M3-ego2s-b@20M+v8|s0|scripted|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|M3-ego2s-b@20M+v8|s0|scripted|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|M3-ego2s-b@20M+v8|s1|frozen|0": [
+   1205217914,
+   853488431,
+   3023168831,
+   2647839194,
+   1111486103,
+   3186501795
+  ],
+  "L0|M3-ego2s-b@20M+v8|s1|frozen|6": [
+   2242629975,
+   2487963060,
+   3134653090,
+   275424692,
+   331437354
+  ],
+  "L0|M3-ego2s-b@20M+v8|s1|mixed|0": [
+   1205217914,
+   853488431,
+   3023168831,
+   2647839194,
+   1111486103,
+   3186501795
+  ],
+  "L0|M3-ego2s-b@20M+v8|s1|mixed|6": [
+   2242629975,
+   2487963060,
+   3134653090,
+   275424692,
+   331437354
+  ],
+  "L0|M3-ego2s-b@20M+v8|s1|scripted|0": [
+   1205217914,
+   853488431,
+   3023168831,
+   2647839194,
+   1111486103,
+   3186501795
+  ],
+  "L0|M3-ego2s-b@20M+v8|s1|scripted|6": [
+   2242629975,
+   2487963060,
+   3134653090,
+   275424692,
+   331437354
+  ],
+  "L0|M3-ego2s-b@20M+v8|s2|frozen|0": [
+   1200803570,
+   2292911079,
+   4082616132,
+   902422845,
+   2569396910,
+   2463635294
+  ],
+  "L0|M3-ego2s-b@20M+v8|s2|frozen|6": [
+   2246799338,
+   445497591,
+   4210514136,
+   3997245026,
+   1569660064
+  ],
+  "L0|M3-ego2s-b@20M+v8|s2|mixed|0": [
+   1200803570,
+   2292911079,
+   4082616132,
+   902422845,
+   2569396910,
+   2463635294
+  ],
+  "L0|M3-ego2s-b@20M+v8|s2|mixed|6": [
+   2246799338,
+   445497591,
+   4210514136,
+   3997245026,
+   1569660064
+  ],
+  "L0|M3-ego2s-b@20M+v8|s2|scripted|0": [
+   1200803570,
+   2292911079,
+   4082616132,
+   902422845,
+   2569396910,
+   2463635294
+  ],
+  "L0|M3-ego2s-b@20M+v8|s2|scripted|6": [
+   2246799338,
+   445497591,
+   4210514136,
+   3997245026,
+   1569660064
+  ],
+  "L0|M3-ego2s-b@20M+v8|s3|frozen|0": [
+   3427005134,
+   1484917668,
+   1523590507,
+   4038672200,
+   996680166,
+   3658667311
+  ],
+  "L0|M3-ego2s-b@20M+v8|s3|frozen|6": [
+   4056492983,
+   3480367604,
+   1267663816,
+   3775292584,
+   3814835873
+  ],
+  "L0|M3-ego2s-b@20M+v8|s3|mixed|0": [
+   3427005134,
+   1484917668,
+   1523590507,
+   4038672200,
+   996680166,
+   3658667311
+  ],
+  "L0|M3-ego2s-b@20M+v8|s3|mixed|6": [
+   4056492983,
+   3480367604,
+   1267663816,
+   3775292584,
+   3814835873
+  ],
+  "L0|M3-ego2s-b@20M+v8|s3|scripted|0": [
+   3427005134,
+   1484917668,
+   1523590507,
+   4038672200,
+   996680166,
+   3658667311
+  ],
+  "L0|M3-ego2s-b@20M+v8|s3|scripted|6": [
+   4056492983,
+   3480367604,
+   1267663816,
+   3775292584,
+   3814835873
+  ],
+  "L0|M3-ego2s-b@20M+v8|s4|frozen|0": [
+   4104003196,
+   253566765,
+   2538303743,
+   551178938,
+   1442395548,
+   3762373708
+  ],
+  "L0|M3-ego2s-b@20M+v8|s4|frozen|6": [
+   2027229472,
+   296229515,
+   345491551,
+   2825833181,
+   3810523406
+  ],
+  "L0|M3-ego2s-b@20M+v8|s4|mixed|0": [
+   4104003196,
+   253566765,
+   2538303743,
+   551178938,
+   1442395548,
+   3762373708
+  ],
+  "L0|M3-ego2s-b@20M+v8|s4|mixed|6": [
+   2027229472,
+   296229515,
+   345491551,
+   2825833181,
+   3810523406
+  ],
+  "L0|M3-ego2s-b@20M+v8|s4|scripted|0": [
+   4104003196,
+   253566765,
+   2538303743,
+   551178938,
+   1442395548,
+   3762373708
+  ],
+  "L0|M3-ego2s-b@20M+v8|s4|scripted|6": [
+   2027229472,
+   296229515,
+   345491551,
+   2825833181,
+   3810523406
+  ],
+  "L0|champion|s0|frozen|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|champion|s0|frozen|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|champion|s0|mixed|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|champion|s0|mixed|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|champion|s0|scripted|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|champion|s0|scripted|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s0|frozen": [
+   3276743559
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s0|mixed": [
+   3276743559
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s0|scripted": [
+   3276743559
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s1|frozen": [
+   1205217914
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s1|mixed": [
+   1205217914
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s1|scripted": [
+   1205217914
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s2|frozen": [
+   1200803570
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s2|mixed": [
+   1200803570
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s2|scripted": [
+   1200803570
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s3|frozen": [
+   3427005134
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s3|mixed": [
+   3427005134
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s3|scripted": [
+   3427005134
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s4|frozen": [
+   4104003196
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s4|mixed": [
+   4104003196
+  ],
+  "L0|control|M3-ego2s-b@20M+v8|s4|scripted": [
+   4104003196
+  ],
+  "L0|control|champion|s0|frozen": [
+   3276743559
+  ],
+  "L0|control|champion|s0|mixed": [
+   3276743559
+  ],
+  "L0|control|champion|s0|scripted": [
+   3276743559
+  ],
+  "L0|control|incumbent|s0|frozen": [
+   3276743559
+  ],
+  "L0|control|incumbent|s0|mixed": [
+   3276743559
+  ],
+  "L0|control|incumbent|s0|scripted": [
+   3276743559
+  ],
+  "L0|control|incumbent|s1|frozen": [
+   1205217914
+  ],
+  "L0|control|incumbent|s1|mixed": [
+   1205217914
+  ],
+  "L0|control|incumbent|s1|scripted": [
+   1205217914
+  ],
+  "L0|control|incumbent|s2|frozen": [
+   1200803570
+  ],
+  "L0|control|incumbent|s2|mixed": [
+   1200803570
+  ],
+  "L0|control|incumbent|s2|scripted": [
+   1200803570
+  ],
+  "L0|control|incumbent|s3|frozen": [
+   3427005134
+  ],
+  "L0|control|incumbent|s3|mixed": [
+   3427005134
+  ],
+  "L0|control|incumbent|s3|scripted": [
+   3427005134
+  ],
+  "L0|control|incumbent|s4|frozen": [
+   4104003196
+  ],
+  "L0|control|incumbent|s4|mixed": [
+   4104003196
+  ],
+  "L0|control|incumbent|s4|scripted": [
+   4104003196
+  ],
+  "L0|incumbent|s0|frozen|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|incumbent|s0|frozen|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|incumbent|s0|mixed|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|incumbent|s0|mixed|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|incumbent|s0|scripted|0": [
+   3276743559,
+   2506114760,
+   2685325467,
+   127914920,
+   3814607135,
+   1374822683
+  ],
+  "L0|incumbent|s0|scripted|6": [
+   95850668,
+   1214446203,
+   681204125,
+   1664884884,
+   2782577213
+  ],
+  "L0|incumbent|s1|frozen|0": [
+   1205217914,
+   853488431,
+   3023168831,
+   2647839194,
+   1111486103,
+   3186501795
+  ],
+  "L0|incumbent|s1|frozen|6": [
+   2242629975,
+   2487963060,
+   3134653090,
+   275424692,
+   331437354
+  ],
+  "L0|incumbent|s1|mixed|0": [
+   1205217914,
+   853488431,
+   3023168831,
+   2647839194,
+   1111486103,
+   3186501795
+  ],
+  "L0|incumbent|s1|mixed|6": [
+   2242629975,
+   2487963060,
+   3134653090,
+   275424692,
+   331437354
+  ],
+  "L0|incumbent|s1|scripted|0": [
+   1205217914,
+   853488431,
+   3023168831,
+   2647839194,
+   1111486103,
+   3186501795
+  ],
+  "L0|incumbent|s1|scripted|6": [
+   2242629975,
+   2487963060,
+   3134653090,
+   275424692,
+   331437354
+  ],
+  "L0|incumbent|s2|frozen|0": [
+   1200803570,
+   2292911079,
+   4082616132,
+   902422845,
+   2569396910,
+   2463635294
+  ],
+  "L0|incumbent|s2|frozen|6": [
+   2246799338,
+   445497591,
+   4210514136,
+   3997245026,
+   1569660064
+  ],
+  "L0|incumbent|s2|mixed|0": [
+   1200803570,
+   2292911079,
+   4082616132,
+   902422845,
+   2569396910,
+   2463635294
+  ],
+  "L0|incumbent|s2|mixed|6": [
+   2246799338,
+   445497591,
+   4210514136,
+   3997245026,
+   1569660064
+  ],
+  "L0|incumbent|s2|scripted|0": [
+   1200803570,
+   2292911079,
+   4082616132,
+   902422845,
+   2569396910,
+   2463635294
+  ],
+  "L0|incumbent|s2|scripted|6": [
+   2246799338,
+   445497591,
+   4210514136,
+   3997245026,
+   1569660064
+  ],
+  "L0|incumbent|s3|frozen|0": [
+   3427005134,
+   1484917668,
+   1523590507,
+   4038672200,
+   996680166,
+   3658667311
+  ],
+  "L0|incumbent|s3|frozen|6": [
+   4056492983,
+   3480367604,
+   1267663816,
+   3775292584,
+   3814835873
+  ],
+  "L0|incumbent|s3|mixed|0": [
+   3427005134,
+   1484917668,
+   1523590507,
+   4038672200,
+   996680166,
+   3658667311
+  ],
+  "L0|incumbent|s3|mixed|6": [
+   4056492983,
+   3480367604,
+   1267663816,
+   3775292584,
+   3814835873
+  ],
+  "L0|incumbent|s3|scripted|0": [
+   3427005134,
+   1484917668,
+   1523590507,
+   4038672200,
+   996680166,
+   3658667311
+  ],
+  "L0|incumbent|s3|scripted|6": [
+   4056492983,
+   3480367604,
+   1267663816,
+   3775292584,
+   3814835873
+  ],
+  "L0|incumbent|s4|frozen|0": [
+   4104003196,
+   253566765,
+   2538303743,
+   551178938,
+   1442395548,
+   3762373708
+  ],
+  "L0|incumbent|s4|frozen|6": [
+   2027229472,
+   296229515,
+   345491551,
+   2825833181,
+   3810523406
+  ],
+  "L0|incumbent|s4|mixed|0": [
+   4104003196,
+   253566765,
+   2538303743,
+   551178938,
+   1442395548,
+   3762373708
+  ],
+  "L0|incumbent|s4|mixed|6": [
+   2027229472,
+   296229515,
+   345491551,
+   2825833181,
+   3810523406
+  ],
+  "L0|incumbent|s4|scripted|0": [
+   4104003196,
+   253566765,
+   2538303743,
+   551178938,
+   1442395548,
+   3762373708
+  ],
+  "L0|incumbent|s4|scripted|6": [
+   2027229472,
+   296229515,
+   345491551,
+   2825833181,
+   3810523406
+  ]
+ },
+ "units": [
+  "L0|M3-ego2s-b@20M+v8|s0|frozen|0",
+  "L0|M3-ego2s-b@20M+v8|s0|frozen|6",
+  "L0|M3-ego2s-b@20M+v8|s0|mixed|0",
+  "L0|M3-ego2s-b@20M+v8|s0|mixed|6",
+  "L0|M3-ego2s-b@20M+v8|s0|scripted|0",
+  "L0|M3-ego2s-b@20M+v8|s0|scripted|6",
+  "L0|M3-ego2s-b@20M+v8|s1|frozen|0",
+  "L0|M3-ego2s-b@20M+v8|s1|frozen|6",
+  "L0|M3-ego2s-b@20M+v8|s1|mixed|0",
+  "L0|M3-ego2s-b@20M+v8|s1|mixed|6",
+  "L0|M3-ego2s-b@20M+v8|s1|scripted|0",
+  "L0|M3-ego2s-b@20M+v8|s1|scripted|6",
+  "L0|M3-ego2s-b@20M+v8|s2|frozen|0",
+  "L0|M3-ego2s-b@20M+v8|s2|frozen|6",
+  "L0|M3-ego2s-b@20M+v8|s2|mixed|0",
+  "L0|M3-ego2s-b@20M+v8|s2|mixed|6",
+  "L0|M3-ego2s-b@20M+v8|s2|scripted|0",
+  "L0|M3-ego2s-b@20M+v8|s2|scripted|6",
+  "L0|M3-ego2s-b@20M+v8|s3|frozen|0",
+  "L0|M3-ego2s-b@20M+v8|s3|frozen|6",
+  "L0|M3-ego2s-b@20M+v8|s3|mixed|0",
+  "L0|M3-ego2s-b@20M+v8|s3|mixed|6",
+  "L0|M3-ego2s-b@20M+v8|s3|scripted|0",
+  "L0|M3-ego2s-b@20M+v8|s3|scripted|6",
+  "L0|M3-ego2s-b@20M+v8|s4|frozen|0",
+  "L0|M3-ego2s-b@20M+v8|s4|frozen|6",
+  "L0|M3-ego2s-b@20M+v8|s4|mixed|0",
+  "L0|M3-ego2s-b@20M+v8|s4|mixed|6",
+  "L0|M3-ego2s-b@20M+v8|s4|scripted|0",
+  "L0|M3-ego2s-b@20M+v8|s4|scripted|6",
+  "L0|incumbent|s0|frozen|0",
+  "L0|incumbent|s0|frozen|6",
+  "L0|incumbent|s0|mixed|0",
+  "L0|incumbent|s0|mixed|6",
+  "L0|incumbent|s0|scripted|0",
+  "L0|incumbent|s0|scripted|6",
+  "L0|incumbent|s1|frozen|0",
+  "L0|incumbent|s1|frozen|6",
+  "L0|incumbent|s1|mixed|0",
+  "L0|incumbent|s1|mixed|6",
+  "L0|incumbent|s1|scripted|0",
+  "L0|incumbent|s1|scripted|6",
+  "L0|incumbent|s2|frozen|0",
+  "L0|incumbent|s2|frozen|6",
+  "L0|incumbent|s2|mixed|0",
+  "L0|incumbent|s2|mixed|6",
+  "L0|incumbent|s2|scripted|0",
+  "L0|incumbent|s2|scripted|6",
+  "L0|incumbent|s3|frozen|0",
+  "L0|incumbent|s3|frozen|6",
+  "L0|incumbent|s3|mixed|0",
+  "L0|incumbent|s3|mixed|6",
+  "L0|incumbent|s3|scripted|0",
+  "L0|incumbent|s3|scripted|6",
+  "L0|incumbent|s4|frozen|0",
+  "L0|incumbent|s4|frozen|6",
+  "L0|incumbent|s4|mixed|0",
+  "L0|incumbent|s4|mixed|6",
+  "L0|incumbent|s4|scripted|0",
+  "L0|incumbent|s4|scripted|6",
+  "L0|champion|s0|frozen|0",
+  "L0|champion|s0|frozen|6",
+  "L0|champion|s0|mixed|0",
+  "L0|champion|s0|mixed|6",
+  "L0|champion|s0|scripted|0",
+  "L0|champion|s0|scripted|6",
+  "L0|M2b-student+v8|s0|frozen|0",
+  "L0|M2b-student+v8|s0|frozen|6",
+  "L0|M2b-student+v8|s0|mixed|0",
+  "L0|M2b-student+v8|s0|mixed|6",
+  "L0|M2b-student+v8|s0|scripted|0",
+  "L0|M2b-student+v8|s0|scripted|6",
+  "L0|control|M3-ego2s-b@20M+v8|s0|frozen",
+  "L0|control|M3-ego2s-b@20M+v8|s0|mixed",
+  "L0|control|M3-ego2s-b@20M+v8|s0|scripted",
+  "L0|control|M3-ego2s-b@20M+v8|s1|frozen",
+  "L0|control|M3-ego2s-b@20M+v8|s1|mixed",
+  "L0|control|M3-ego2s-b@20M+v8|s1|scripted",
+  "L0|control|M3-ego2s-b@20M+v8|s2|frozen",
+  "L0|control|M3-ego2s-b@20M+v8|s2|mixed",
+  "L0|control|M3-ego2s-b@20M+v8|s2|scripted",
+  "L0|control|M3-ego2s-b@20M+v8|s3|frozen",
+  "L0|control|M3-ego2s-b@20M+v8|s3|mixed",
+  "L0|control|M3-ego2s-b@20M+v8|s3|scripted",
+  "L0|control|M3-ego2s-b@20M+v8|s4|frozen",
+  "L0|control|M3-ego2s-b@20M+v8|s4|mixed",
+  "L0|control|M3-ego2s-b@20M+v8|s4|scripted",
+  "L0|control|incumbent|s0|frozen",
+  "L0|control|incumbent|s0|mixed",
+  "L0|control|incumbent|s0|scripted",
+  "L0|control|incumbent|s1|frozen",
+  "L0|control|incumbent|s1|mixed",
+  "L0|control|incumbent|s1|scripted",
+  "L0|control|incumbent|s2|frozen",
+  "L0|control|incumbent|s2|mixed",
+  "L0|control|incumbent|s2|scripted",
+  "L0|control|incumbent|s3|frozen",
+  "L0|control|incumbent|s3|mixed",
+  "L0|control|incumbent|s3|scripted",
+  "L0|control|incumbent|s4|frozen",
+  "L0|control|incumbent|s4|mixed",
+  "L0|control|incumbent|s4|scripted",
+  "L0|control|champion|s0|frozen",
+  "L0|control|champion|s0|mixed",
+  "L0|control|champion|s0|scripted"
+ ]
+}

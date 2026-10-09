@@ -1,0 +1,53 @@
+{
+ "arm": "v8",
+ "compared": 3,
+ "created_utc": "2026-10-08T20:32:31.671342+00:00",
+ "git": {
+  "commit": "ecc813e520a3286e14d42d54f3858312bb18ab35",
+  "dirty_paths": "?? tests/test_m3_phase_r.py"
+ },
+ "horizon": 10000,
+ "identical": 3,
+ "pass": true,
+ "profile_digest": "c882e07fb7179c01feed5380aeae228113975442bb10ab8840bc58a0011f5b15",
+ "schema_version": "redesign-m3-student-record-parity-h10000/v1",
+ "student": {
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-gpu-20261008-r4/attempt01/out/m3b_seed2/final.pth",
+  "sha256": "4b41265da8abdca3398b16c3aa8b6f2b17c8cf7999d479991b6d91367ba0d8ff"
+ },
+ "worlds": [
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "horizon": 10000,
+   "identical": true,
+   "live_wall": 80.6603891251143,
+   "mass_integral": 697.5416,
+   "mix": "frozen",
+   "record_differences": [],
+   "world_seed": 575618937
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "horizon": 10000,
+   "identical": true,
+   "live_wall": 45.55729579203762,
+   "mass_integral": 201.3718,
+   "mix": "scripted",
+   "record_differences": [],
+   "world_seed": 575618937
+  },
+  {
+   "deaths": 1,
+   "diagnostics_differences": [],
+   "horizon": 10000,
+   "identical": true,
+   "live_wall": 42.7390098341275,
+   "mass_integral": 17.8008,
+   "mix": "mixed",
+   "record_differences": [],
+   "world_seed": 575618937
+  }
+ ]
+}

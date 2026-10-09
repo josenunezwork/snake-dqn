@@ -495,7 +495,9 @@ def _dispatch_actions(
     def dispatch(policy: SimdPolicy, env: int, slot: int) -> None:
         # Vector61 policies are stateless per call: their per-row state was
         # prepared by the shared Vector61Runtime before dispatch.
-        if isinstance(policy, (NetworkSimdPolicy, Vector61SimdPolicy)):
+        if isinstance(policy, (NetworkSimdPolicy, Vector61SimdPolicy)) or getattr(
+            policy, "batched_rows", False
+        ):
             network_rows.setdefault(policy, []).append((env, slot))
             return
         result = policy.actions(
@@ -519,13 +521,15 @@ def _dispatch_actions(
         actions[slots[:, 0], slots[:, 1]] = policy.actions(selected_masks, sim, slots)
 
 
-class _TerminalHeroBatchSim(BatchSim):
+class _TerminalHeroMixin:
     """Eval sim where arena slot 0 is terminal but opponents still respawn.
 
     The live gate makes the hero terminal per-snake (``hero.auto_respawn = False``,
     honoured by :meth:`~src.game.game_state.GameState.update`). :class:`BatchSim`
     only exposes the sim-wide ``allow_respawn``, so slot 0 is exempted from the
-    respawn sweep here instead.
+    respawn sweep here instead. Mixed into both engines (``BatchSim`` and the
+    grid-backed ``GridBatchSim``), whose ``_respawn_dead`` both skip a row whose
+    timer is above zero before any RNG draw.
     """
 
     # Parked into a terminal hero's respawn timer: large enough that the base
@@ -542,6 +546,34 @@ class _TerminalHeroBatchSim(BatchSim):
             super()._respawn_dead()
         finally:
             self.respawn_timer[:, 0] = hero_timer
+
+
+class _TerminalHeroBatchSim(_TerminalHeroMixin, BatchSim):
+    """The default SIMD eval engine: :class:`BatchSim` with a terminal hero."""
+
+
+#: ``run_simd_eval(sim_engine=...)`` choices. ``"grid"`` is the redesign's
+#: :class:`~src.simd_env.grid_sim.GridBatchSim` (bit-exact with BatchSim; CI-pinned in
+#: ``tests/test_grid_sim_parity.py`` and the H5000 record check of
+#: ``research/redesign_scope_20261007/grid_h5000_identity.py``).
+SIM_ENGINES = ("batch", "grid")
+_TERMINAL_HERO_GRID_SIM: type | None = None  # built lazily (grid_sim imports stay optional)
+
+
+def _terminal_hero_sim_class(sim_engine: str) -> type:
+    """The terminal-hero eval sim class for ``sim_engine`` (``"batch"`` or ``"grid"``)."""
+    if sim_engine == "batch":
+        return _TerminalHeroBatchSim
+    if sim_engine == "grid":
+        global _TERMINAL_HERO_GRID_SIM
+        if _TERMINAL_HERO_GRID_SIM is None:
+            from src.simd_env.grid_sim import GridBatchSim
+
+            _TERMINAL_HERO_GRID_SIM = type(
+                "_TerminalHeroGridBatchSim", (_TerminalHeroMixin, GridBatchSim), {}
+            )
+        return _TERMINAL_HERO_GRID_SIM
+    raise ValueError(f"sim_engine must be one of {SIM_ENGINES}, got {sim_engine!r}")
 
 
 def _readonly_array(value: np.ndarray) -> np.ndarray:
@@ -611,6 +643,9 @@ def run_simd_eval(
     vector61_trace: Callable[[Mapping[str, object]], None] | None = None,
     hero_safety_veto_lambda: float | None = None,
     hero_safety_veto_reference_lambda: float | None = None,
+    sim_engine: str = "batch",
+    hero_ego2s: str | None = None,
+    ego2s_forward: str = "batched",
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -655,6 +690,17 @@ def run_simd_eval(
         hero_safety_veto_lambda: v7/v8 only (required there): the live ``lambda``.
         hero_safety_veto_reference_lambda: v8 only (optional): the live
             diagnostic-only ``reference_lambda`` (the v8 screens set it to 4.0).
+        sim_engine: ``"batch"`` (default, :class:`BatchSim`) or ``"grid"`` (the
+            bit-exact grid-backed :class:`~src.simd_env.grid_sim.GridBatchSim`).
+            Records are byte-identical across engines (development check, not a
+            governance input; gate packages keep the default).
+        hero_ego2s: Redesign M2 (development only): an ``ego2s-draft`` student
+            checkpoint that plays slot 0 instead of ``hero_spec``'s network. Needs
+            ``sim_engine="grid"`` and ``vector61=True``; ``hero_spec`` must be a vector61
+            checkpoint, used only as the vector61 carrier of the optional veto (the
+            student's Q replaces the carrier's). Records gain ``ego2s_hero``.
+        ego2s_forward: ``"batched"`` (default; the M2/M2b checks) or ``"rowwise"`` (one
+            batch-1 forward per hero row: comparable with the live engine's records).
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -667,6 +713,9 @@ def run_simd_eval(
     """
     if frames <= 0:
         raise ValueError(f"frames must be positive, got {frames}")
+    sim_class = _terminal_hero_sim_class(sim_engine)
+    if hero_ego2s is not None and (sim_engine != "grid" or not vector61):
+        raise ValueError("hero_ego2s needs sim_engine='grid' and vector61=True")
     if frame_observer is not None and not callable(frame_observer):
         raise TypeError("frame_observer must be callable")
     if frame_observer is not None and profile is None:
@@ -788,7 +837,7 @@ def run_simd_eval(
     # opponents to respawn — so run in eval (non-train) mode, where only slot 0
     # is held terminal (withholding a dead hero's actions would NOT do it: the
     # non-train respawn sweep resurrects any dead slot).
-    sim = _TerminalHeroBatchSim(cfg, seeds=seeds, train_mode=False)
+    sim = sim_class(cfg, seeds=seeds, train_mode=False)
 
     # Build one policy per (spec, env-seed) for scripted agents: their RNGs must
     # remain per world/slot.  A checkpoint model is stateless at evaluation time,
@@ -797,7 +846,26 @@ def run_simd_eval(
         {hero_spec[1]: solo_checkpoint_policy} if solo_checkpoint_policy is not None else {}
     )
 
+    ego2s_cache: Dict[str, object] = {}
+
     def policy_for(spec: AgentSpec, seed: int, *, hero: bool = False) -> SimdPolicy:
+        if hero and hero_ego2s is not None:
+            if "hero" not in ego2s_cache:
+                from src.simd_env.ego2s_policy import Ego2sSimdPolicy, Ego2sV8Policy
+
+                if veto_spec is None:
+                    ego2s_cache["hero"] = Ego2sSimdPolicy(hero_ego2s, forward=ego2s_forward)
+                else:
+                    ego2s_cache["hero"] = Ego2sV8Policy(
+                        hero_ego2s,
+                        spec[1],
+                        vector61_runtime,
+                        veto_variant=veto_spec.variant,
+                        veto_lambda=veto_spec.lam,
+                        veto_reference_lambda=veto_spec.reference_lambda,
+                        ego2s_forward=ego2s_forward,
+                    )
+            return ego2s_cache["hero"]
         if vector61_runtime is not None and spec[0] == "checkpoint":
             if is_vector61(spec[1]):
                 # The hero's veto must never reach a same-checkpoint opponent,
@@ -1010,6 +1078,13 @@ def run_simd_eval(
                     record["veto_diagnostics"] = hero_policy.veto_diagnostics(int(e))
             if vector61_record is not None:
                 record["vector61_policy"] = dict(vector61_record)
+            if hero_ego2s is not None:
+                record["ego2s_hero"] = {
+                    "checkpoint": str(hero_ego2s),
+                    "sha256": hashlib.sha256(Path(hero_ego2s).read_bytes()).hexdigest(),
+                    "veto": None if veto_spec is None else veto_spec.method,
+                    "forward": ego2s_forward,
+                }
             records.append(record)
             continue
         af = int(alive_frames[e])

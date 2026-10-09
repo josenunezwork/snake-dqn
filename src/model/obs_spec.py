@@ -32,6 +32,9 @@ __all__ = [
     "RASTER31V2",
     "RASTER31V3",
     "RASTER_OBS_SPECS",
+    "EGO2S_DRAFT",
+    "EGO2S_B",
+    "EGO2S_OBS_SPECS",
     "DEFAULT_OBS_SPEC",
     "KNOWN_OBS_SPECS",
     "RasterObsShapes",
@@ -59,11 +62,19 @@ DEFAULT_OBS_SPEC = VECTOR61
 #: All obs_spec strings this build understands.
 RASTER_OBS_SPECS = (RASTER31V2, RASTER31V3)
 
+#: Redesign ego rasters built from occupancy grids (``src/simd_env/ego_raster.py``),
+#: consumed by ``src.model.ego2s_network.Ego2sNet``. ``ego2s-b`` adds the enemy
+#: next-cell channel and enemy / region scalars (``ego_raster_b``). Served forward-only
+#: through ``web.backend.ego2s_policy.Ego2sServingPolicy`` (never through InferenceAgent).
+EGO2S_DRAFT = "ego2s-draft"
+EGO2S_B = "ego2s-b"
+EGO2S_OBS_SPECS = (EGO2S_DRAFT, EGO2S_B)
+
 # A recognized v3 descriptor is not, by itself, a serving guarantee. The
 # loader validates its semantic metadata before construction and Session adds
 # the deployment-world gate. Keeping recognition here lets failures be precise
 # instead of silently treating a v3 checkpoint as a vector model.
-KNOWN_OBS_SPECS = (VECTOR61, *RASTER_OBS_SPECS)
+KNOWN_OBS_SPECS = (VECTOR61, *RASTER_OBS_SPECS, *EGO2S_OBS_SPECS)
 
 
 @dataclass(frozen=True)

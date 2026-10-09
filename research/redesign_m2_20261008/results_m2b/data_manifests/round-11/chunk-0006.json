@@ -1,0 +1,112 @@
+{
+ "chunk": 6,
+ "created_utc": "2026-10-08T05:23:10.564267+00:00",
+ "decisions_per_s": 365.21277671126154,
+ "fields": [
+  "local",
+  "global",
+  "scalars",
+  "q_teacher",
+  "a_base",
+  "a_v8",
+  "a_taken",
+  "mask_resolved",
+  "mask_teacher",
+  "length",
+  "frame",
+  "world_seed"
+ ],
+ "frames": 5000,
+ "git": {
+  "commit": "30fc34f65d2fb553809002c8022fb5bc138540f1",
+  "dirty_paths": ""
+ },
+ "max_length": 1146,
+ "mix": "frozen",
+ "obs_version": "b",
+ "parts": [
+  {
+   "bytes": 4162616,
+   "file": "chunk-0006-part-00.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5185714,
+   "file": "chunk-0006-part-01.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5301352,
+   "file": "chunk-0006-part-02.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5418603,
+   "file": "chunk-0006-part-03.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5283572,
+   "file": "chunk-0006-part-04.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5572719,
+   "file": "chunk-0006-part-05.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5445087,
+   "file": "chunk-0006-part-06.npz",
+   "samples": 10000
+  },
+  {
+   "bytes": 5611197,
+   "file": "chunk-0006-part-07.npz",
+   "samples": 10000
+  }
+ ],
+ "round": 11,
+ "schema_version": "redesign-m2-distill-shard/v1",
+ "stats": {
+  "decisions": 80000,
+  "hero_deaths": 16,
+  "student_acted": 39779,
+  "veto_override": 121
+ },
+ "student": {
+  "beta": 0.5,
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/fits/exp_adv/student.pth",
+  "sha256": "d49e1003855164adfa706860c5279c626f42ad9c29d41c20f6aa60b9e584b238"
+ },
+ "teacher": {
+  "forward": "batched",
+  "lambda": 8.0,
+  "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+  "veto": "v8"
+ },
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4"
+ },
+ "wall_seconds": 219.0503867920488,
+ "world_seeds": [
+  2892789596,
+  1328492975,
+  1163660680,
+  966309719,
+  2864516665,
+  2545470595,
+  2029442513,
+  2328415980,
+  3123503532,
+  3103924029,
+  1173624598,
+  4115181662,
+  593267558,
+  2331303261,
+  3935804288,
+  1023222517
+ ],
+ "worlds": 16
+}

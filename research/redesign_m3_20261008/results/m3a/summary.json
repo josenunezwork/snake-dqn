@@ -1,0 +1,34 @@
+{
+ "schema": "redesign-m3-train/v1",
+ "created_utc": "2026-10-08T09:33:44.447900+00:00",
+ "git": {
+  "commit": "db578d6ae52d304cdcd7d4c4f601b8ea80ebaa42",
+  "dirty_paths": "?? research/redesign_m3_20261008/m3a_report.py"
+ },
+ "args": {
+  "seed": "0",
+  "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+  "demo_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+  "demo_rounds": "10,11,12",
+  "transitions": "5000000",
+  "worlds": "64",
+  "frozen_frac": "0.25",
+  "segment_frames": "5000",
+  "replay": "500000",
+  "demo_capacity": "300000",
+  "demo_initial_shards": "30",
+  "warmup": "20000",
+  "checkpoint_every": "2500000",
+  "device": "mps",
+  "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3-20261008/m3a_seed0"
+ },
+ "transitions": 5000000,
+ "updates": 39052,
+ "wall_seconds": 3600.4251723750494,
+ "rate": 1388.7248756266617,
+ "halt": null,
+ "flags": [],
+ "demo_qmax": 90.03890228271484,
+ "demo_distinct": 616875,
+ "holdout_agreement_final": 0.8208
+}
