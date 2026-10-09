@@ -66,6 +66,18 @@ def load_probe(path: Path) -> Probe:
     return out
 
 
+def probe_shas(path: Path) -> set:
+    """The checkpoint sha256s a probe file's rows were made with (dev_probe ``student_sha256``)."""
+    out = set()
+    if path.exists():
+        for line in path.read_text().splitlines():
+            try:
+                out.add(json.loads(line).get("student_sha256"))
+            except ValueError:
+                continue
+    return out
+
+
 def common_worlds(probes: Sequence[Probe]) -> Dict[str, List[str]]:
     """Per mix, the worlds shared by every probe that HAS that mix (a probe missing a mix
     makes its seed incomplete; it does not empty the mix for everyone)."""
@@ -161,6 +173,17 @@ def select(
             elig[(arm, s)] = seed_eligible(runs, f"{arm}_s{s}", target)
             for veto in ("none", "v8"):
                 files[(arm, s, veto)] = load_probe(probes_dir / f"{arm}_s{s}__{ckpt}__{veto}.jsonl")
+    # a probe made with another checkpoint than the run's final.pth makes the seed ineligible
+    for arm in arms:
+        for s_ in SEEDS:
+            final = runs / f"{arm}_s{s_}" / "final.pth"
+            if not elig[(arm, s_)][0] or not final.exists():
+                continue
+            want = _sha(final)
+            for veto in ("none", "v8"):
+                got = probe_shas(probes_dir / f"{arm}_s{s_}__{ckpt}__{veto}.jsonl") - {None}
+                if got and got != {want}:
+                    elig[(arm, s_)] = (False, f"probe {veto} made with another checkpoint")
     inc = load_probe(probes_dir / "incumbent__dev__v8.jsonl")
     usable = [p for (a, s, _), p in files.items() if p and elig[(a, s)][0]]
     worlds = common_worlds([inc] + usable) if inc else {m: [] for m in MIXES}

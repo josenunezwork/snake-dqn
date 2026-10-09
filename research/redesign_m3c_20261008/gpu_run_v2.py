@@ -264,8 +264,16 @@ def fill_decision(
         if (running + 1) * vcpu > float(plan.get("min_vcpu", 0)):
             return None
     quota = tel.get("cgroup_cpus")
-    if quota and (running + 1) * vcpu > float(quota):
-        return None
+    if quota:
+        # the jobs' measured CPU (median, cores) if known; the plan's constant only before that
+        used = sorted(
+            j["cpu_pct"] / 100.0
+            for j in (tel.get("jobs") or {}).values()
+            if j.get("cpu_pct") is not None and j.get("processes")
+        )
+        per_job = used[len(used) // 2] if used else vcpu
+        if (running + 1) * per_job > float(quota):
+            return None
     gpus = [g for g in tel.get("gpu") or [] if g.get("util_pct") is not None]
     util = max((g["util_pct"] for g in gpus), default=None)
     vram = min(
@@ -359,7 +367,11 @@ def run_rate(rows: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
     if not rows:
         return None
     last = rows[-1]
-    out = {"transitions": float(last["transitions"]), "rate": last["transitions"] / last["wall"]}
+    out = {
+        "transitions": float(last["transitions"]),
+        "wall": float(last["wall"]),
+        "rate": last["transitions"] / last["wall"],
+    }
     if len(rows) >= 2:
         first = rows[max(0, len(rows) - 6)]
         dt = last["wall"] - first["wall"]
@@ -1289,7 +1301,8 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
     last_fill, rate_at_fill, no_new_starts = now(), None, False
     combined_at_fill: Optional[float] = None
     last_per_run: Optional[float] = None
-    freeze: Optional[Tuple[float, Dict[str, float]]] = None  # (t, best) when fills froze
+    # (t, {run: (transitions, wall) of its first log row inside the freeze window})
+    freeze: Optional[Tuple[float, Dict[str, Tuple[float, float]]]] = None
     while True:
         stop = guard(rp, state, args)
         if stop:
@@ -1352,7 +1365,10 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
         # layout over >= 10 min (runner-side progress, not the runs' since-start averages).
         frozen = g2 is None and now() - first_start >= G2_SECONDS - 600
         if frozen and freeze is None:
-            freeze = (now(), dict(best))
+            freeze = (now(), {})
+        if frozen:  # each run's first row inside the window is its G2 baseline
+            for r, v in rates.items():
+                freeze[1].setdefault(r, (v["transitions"], v["wall"]))
         left = {r["name"]: float(plan["transitions"]) for r in queue_}
         for r in running:
             left[r] = max(0.0, float(plan["transitions"]) - best.get(r, 0.0))
@@ -1389,13 +1405,15 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
                 if now() + need_one + 45 * 60 > state["deadline"]:
                     no_new_starts = True
                     note(stage="no_new_starts", per_run_seconds=need_one, queued=len(queue_))
+        started_now = False
         if not no_new_starts and not hold:
             while queue_ and len(running) < state["max_concurrent"]:
+                started_now = True
                 start_next("slot freed")
                 running.append("<new>")
-            young = sum(1 for r in running if r in status and now() - status[r]["started"] < 600)
+            young = sum(1 for r in running if r == "<new>" or now() - status[r]["started"] < 600)
             why = None
-            if not frozen:
+            if not frozen and not started_now:
                 why = fill_decision(
                     plan,
                     tel,
@@ -1443,9 +1461,14 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
                 and now() - first_start < G2_SECONDS + G2_ROWS_GRACE_S
             ):
                 continue
+            # exact per-run rates: latest row vs the run's first row inside the window (runs
+            # without two rows in the window are excluded; the window is >= 10 min)
             t0, b0 = freeze if freeze else (first_start, {})
             window = max(1.0, now() - t0)
-            g2_rates = {r: (best.get(r, 0.0) - b0.get(r, 0.0)) / window for r in running}
+            g2_rates = {}
+            for r, v in rates.items():
+                if r in b0 and v["wall"] > b0[r][1]:
+                    g2_rates[r] = (v["transitions"] - b0[r][0]) / (v["wall"] - b0[r][1])
             g2 = g2_decision(
                 g2_rates,
                 left,

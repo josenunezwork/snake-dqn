@@ -95,6 +95,11 @@ def main() -> int:
         "ego2s_forward": args.ego2s_forward if args.arm == "student" else None,
         "ego2s_mask": args.ego2s_mask if args.arm == "student" and args.veto == "none" else None,
         "student": args.student,
+        "student_sha256": (
+            __import__("hashlib").sha256(Path(args.student).read_bytes()).hexdigest()
+            if args.student
+            else None
+        ),
         "mix": args.mix,
         "wall": time.perf_counter() - t0,
         "mass": {int(r["seed"]): r["mass_integral"] for r in recs},

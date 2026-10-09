@@ -126,6 +126,10 @@ def test_fill_decision():
     q = dict(tel, cgroup_cpus=12.0, jobs={"a": {"cpu_pct": 300.0}, "b": {"cpu_pct": 300.0}})
     assert fd(t=q, running=2)  # 3 x 1.5 <= 12, idle 6 >= 2.5
     assert fd(t=q, running=8) is None
+    # measured per-job CPU (1 core each) instead of the plan's 1.5: 8 + 1 jobs fit a quota of 12
+    meas = dict(q, jobs={k: {"cpu_pct": 100.0, "processes": 3} for k in "abcdefg"})
+    big = dict(plan, max_concurrent_cap=20)
+    assert fd(t=meas, running=8, p=big) and not fd(t=meas, running=12, p=big)
     busyq = dict(q, jobs={"a": {"cpu_pct": 1100.0}})
     assert fd(t=busyq, running=2) is None  # idle 1 < 2.5
     # within the guaranteed vCPUs only, unless the plan opts in

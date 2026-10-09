@@ -98,3 +98,17 @@ def test_partial_probe_file_does_not_empty_a_mix(tmp_path):
     assert both["seeds_used"] == []  # C never has "mixed" without the veto: nothing selected
     missing = sel.select(tmp_path / "nowhere", ["B"], tmp_path / "runs", 100)
     assert not missing["primary"]["enter"] and "incumbent" in missing["primary"]["reason"]
+
+
+def test_probe_of_another_checkpoint_makes_the_seed_ineligible(tmp_path):
+    for arm in ("B", "C"):
+        for s in sel.SEEDS:
+            _both(tmp_path, arm, s, 380, 380)
+    _write(tmp_path / "incumbent__dev__v8.jsonl", 400)
+    _runs(tmp_path, ["B", "C"])
+    f = tmp_path / "B_s2__final__none.jsonl"
+    rows = [dict(json.loads(x), student_sha256="0" * 64) for x in f.read_text().splitlines()]
+    f.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    out = sel.select(tmp_path, ["B", "C"], tmp_path / "runs", 100)
+    assert out["scores"]["B"]["seeds"][2] == "probe none made with another checkpoint"
+    assert out["seeds_used"] == [0, 1, 3, 4]
