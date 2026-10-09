@@ -177,3 +177,31 @@ fallbacks ≤ $0.95/h), spend cap $10, lifetime 10 h, Mac-side stop
 per-checkpoint pulls + telemetry + Mac probes as checkpoints land.
 
 **RATIFIED 2026-10-08 by the research loop owner**, effective at this file's commit.
+
+## 12. Amendment A1 (2026-10-08, after pod attempt 1) — arm D dropped from the pod run
+
+**Attempt 1** (`redesign-m3c-gpu-20261008`, commit `9787915`, pod `bw0513netz7bef`, secure RTX
+4090, EUR-IS-2, AMD EPYC 7452, cgroup quota 13.6 CPUs, 125 GB): upload 15 min, setup and speed
+probe OK (3.3k/s), 4 runs at once (3 + 1 fill; the CPU quota allowed no more: ~2.7 cores per
+run). Per-run rates A_s0 2.66k/s, B_s0 2.60k/s, L_s0 2.34k/s, **D_s0 0.82k/s**. **G2 FAIL
+(rate):** 9,069/s over a 626 s fixed window = 3.08× the Mac (bar 4×); projected queue 11.8 h vs
+9.2 h of lifetime left. The pod was deleted and verified gone (`GET /pods` empty); cost
+≈ $0.75 (balance 62.31 → 61.61). No training result is used.
+
+**Deviation (user decision 2026-10-08, in chat, relayed by the research loop):** arm **D is
+dropped from the pod run**. Two thirds of D's worlds use frozen / mixed rosters whose vector61
+opponents run their forwards on the pod's CPU, which costs ~3× per transition; D's question
+(train/eval world mismatch) is deferred to a later Mac or pod test. Arms A / B / L × 5 seeds
+× 20M are unchanged; selection, entry gates, contrasts (B − A, B − L) and both Phase R studies
+are otherwise unchanged and now range over A / B / L. Plan `plans/m3c_pod_plan_a1.json`
+(15 runs). Same caps: spend cap $10 for the relaunch, lifetime ≤ 10 h, ≤ $0.95/h incl. the
+fallbacks, Mac-side stop.
+
+Sizing changes for the relaunch (runner only; the algorithm is untouched): the pod request
+asks for ≥ 20 vCPU (`min_vcpu` 20, was 12) and, under a cgroup CPU quota, the adaptive fill
+compares idle CPU with the jobs' measured per-job CPU + 0.5 (was the plan's 3.2 + 1, which
+stopped attempt 1 at 4 runs although 5 fit). Projection with the measured A/B/L rates
+(≈ 2.5k/s per run): G2 needs ≥ 5 runs (12.5k/s ≥ 11.8k/s); with 6–7 runs (20 vCPU) ≈ 15–17k/s →
+300M in ≈ 5–5.6 h + ≈ 0.6 h upload / setup ≈ 6.2 h, inside the wall clause (Mac 300M / 2.94k/s
+= 28.3 h; / 4 = 7.1 h) and the 10 h lifetime. If no secure offer has ≥ 20 vCPU, the create is
+refused at $0 and the decision returns to the user.

@@ -295,14 +295,16 @@ def fill_decision(
     if quota:
         busy = sum((j.get("cpu_pct") or 0.0) for j in (tel.get("jobs") or {}).values()) / 100.0
         idle_cpus = float(quota) - busy
+        need_cpu = per_job + 0.5  # the jobs' measured CPU (A1: was the plan's vcpu + 1)
     else:
         idle_cpus = (1.0 - cpu / 100.0) * ncpu
+        need_cpu = vcpu + 1.0
     if (
         util < FILL_GPU_UTIL
         and mem >= float(plan["ram_per_run_gb"]) + RAM_RESERVE_GB
         and vram >= float(plan.get("vram_per_run_gb", 2.0))
         and disk >= float(plan.get("disk_per_run_gb", 12.0))
-        and idle_cpus >= vcpu + 1.0
+        and idle_cpus >= need_cpu
     ):
         return (
             f"gpu {util:.0f}% < {FILL_GPU_UTIL:.0f}%, mem headroom {mem:.0f} GB, "
