@@ -20,6 +20,7 @@ re-running skips (run, ckpt, veto, mix) rows already written.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -39,6 +40,11 @@ MIXES = ("frozen", "scripted", "mixed")
 MAX_FAILURES = 2  # a probe that failed twice is logged and skipped
 
 Job = Tuple[str, str, str, str, str]  # run, ckpt stem, path, veto, mix
+_CHECKPOINT_HASHES: Dict[Path, Tuple[int, int, str]] = {}
+
+
+class ProbeIdentityError(ValueError):
+    """A public probe output name would conflate incompatible checkpoints."""
 
 
 def ckpt_stem(file: str) -> str:
@@ -62,7 +68,10 @@ def landed_rows(landed: Optional[Path], watch_dirs: Sequence[Path]) -> List[Dict
                 r = json.loads(line)
             except ValueError:
                 continue
-            rows.append({"run": r["run"], "file": r["file"], "path": r["path"]})
+            row = {"run": r["run"], "file": r["file"], "path": r["path"]}
+            if r.get("sha256"):
+                row["sha256"] = r["sha256"]
+            rows.append(row)
     for d in watch_dirs:
         for man in sorted(Path(d).glob("*/manifest.jsonl")):
             for line in man.read_text().splitlines():
@@ -70,9 +79,14 @@ def landed_rows(landed: Optional[Path], watch_dirs: Sequence[Path]) -> List[Dict
                     r = json.loads(line)
                 except ValueError:
                     continue
-                rows.append(
-                    {"run": man.parent.name, "file": r["file"], "path": str(man.parent / r["file"])}
-                )
+                row = {
+                    "run": man.parent.name,
+                    "file": r["file"],
+                    "path": str(man.parent / r["file"]),
+                }
+                if r.get("sha256"):
+                    row["sha256"] = r["sha256"]
+                rows.append(row)
     return rows
 
 
@@ -80,14 +94,79 @@ def result_path(out: Path, run: str, stem: str, veto: str) -> Path:
     return out / f"{run}__{stem}__{veto}.jsonl"
 
 
-def done_mixes(path: Path) -> set:
+def _sha256_file(path: Path) -> str:
+    """Hash a checkpoint, reusing the digest while its size and mtime are unchanged."""
+    stat = path.stat()
+    cached = _CHECKPOINT_HASHES.get(path)
+    marker = (stat.st_size, stat.st_mtime_ns)
+    if cached and cached[:2] == marker:
+        return cached[2]
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(block)
+    value = digest.hexdigest()
+    _CHECKPOINT_HASHES[path] = marker + (value,)
+    return value
+
+
+def checkpoint_sha(row: Dict[str, str]) -> str:
+    """Return the selected local checkpoint identity, checking its manifest witness."""
+    path = Path(row["path"])
+    declared = row.get("sha256")
+    if declared and not re.fullmatch(r"[0-9a-f]{64}", declared):
+        raise ProbeIdentityError(f"invalid manifest sha256 for {path}: {declared!r}")
+    if path.exists():
+        actual = _sha256_file(path)
+        if declared and declared != actual:
+            raise ProbeIdentityError(
+                f"checkpoint {path} no longer matches its landed manifest sha256; "
+                "do not reuse or append this probe output"
+            )
+        return actual
+    if declared:
+        # Puller validates landed sha256 before writing the row. A manifest-only watcher
+        # may reach this branch briefly, but the witness is still enough to detect a
+        # competing attempt before the local file lands.
+        return declared
+    raise ProbeIdentityError(f"cannot establish checkpoint identity for {path}: missing sha256")
+
+
+def done_mixes(path: Path, student_sha256: str, veto: str, round_index: int) -> set:
+    """Completed mixes, only when every existing row matches this exact probe contract."""
     got = set()
     if path.exists():
         for line in path.read_text().splitlines():
             try:
-                got.add(json.loads(line)["mix"])
-            except (ValueError, KeyError):
-                continue
+                row = json.loads(line)
+                mix = row["mix"]
+                if row.get("student_sha256") != student_sha256:
+                    raise ProbeIdentityError(
+                        f"{path} was made with another checkpoint; "
+                        "choose a distinct --out directory"
+                    )
+                if row.get("veto") != veto or row.get("round_index") != round_index:
+                    raise ProbeIdentityError(
+                        f"{path} has incompatible probe settings; choose a distinct --out directory"
+                    )
+                if row.get("ego2s_forward") != "rowwise":
+                    raise ProbeIdentityError(
+                        f"{path} lacks the required rowwise forward setting; "
+                        "choose a distinct --out directory"
+                    )
+                expected_mask = "advisory" if veto == "none" else None
+                if row.get("ego2s_mask") != expected_mask:
+                    raise ProbeIdentityError(
+                        f"{path} has incompatible ego2s mask settings; "
+                        "choose a distinct --out directory"
+                    )
+                got.add(mix)
+            except (ValueError, KeyError, TypeError) as exc:
+                if isinstance(exc, ProbeIdentityError):
+                    raise
+                raise ProbeIdentityError(
+                    f"{path} has an invalid existing probe row; choose a distinct --out directory"
+                ) from exc
     return got
 
 
@@ -97,10 +176,24 @@ def pending_jobs(
     schedule: Sequence[str],
     vetoes: Sequence[str],
     running: set,
+    round_index: int = 52,
 ) -> List[Job]:
     """Every scheduled (run, ckpt, veto, mix) not yet written or running; no-veto first."""
     seen = set()
     jobs: List[Job] = []
+    identities = {}
+    for r in rows:
+        if scheduled(r["file"], schedule) and re.fullmatch(r"[A-Za-z0-9_\-]{1,40}", r["run"]):
+            stem = ckpt_stem(r["file"])
+            output = (r["run"], stem)
+            sha = checkpoint_sha(r)
+            prior = identities.setdefault(output, sha)
+            if prior != sha:
+                raise ProbeIdentityError(
+                    f"{result_path(out, r['run'], stem, 'none').parent / (r['run'] + '__' + stem)} "
+                    "would combine checkpoints from different attempts; "
+                    "choose a distinct --out directory"
+                )
     for veto in vetoes:
         for r in rows:
             if not scheduled(r["file"], schedule):
@@ -108,7 +201,12 @@ def pending_jobs(
             if not re.fullmatch(r"[A-Za-z0-9_\-]{1,40}", r["run"]):
                 continue
             stem = ckpt_stem(r["file"])
-            have = done_mixes(result_path(out, r["run"], stem, veto))
+            have = done_mixes(
+                result_path(out, r["run"], stem, veto),
+                identities[(r["run"], stem)],
+                veto,
+                round_index,
+            )
             for mix in MIXES:
                 key = (r["run"], stem, veto, mix)
                 if mix in have or key in running or key in seen:
@@ -182,7 +280,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 del live[key]
         rows = landed_rows(args.landed, args.watch_dir)
         given_up = {k for k, n in failures.items() if n >= MAX_FAILURES}
-        jobs = pending_jobs(rows, args.out, schedule, vetoes, set(live) | given_up)
+        jobs = pending_jobs(
+            rows, args.out, schedule, vetoes, set(live) | given_up, round_index=args.round_index
+        )
         while jobs and len(live) < args.procs:
             problems = [] if args.slots else guard_ok()  # slotrun.py checks it itself
             if problems:

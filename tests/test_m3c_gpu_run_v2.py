@@ -224,6 +224,102 @@ def test_puller_confines_checks_sha_and_is_incremental(tmp_path, monkeypatch):
         p.checkpoints("../x")
 
 
+def test_puller_uses_one_budget_and_defers_failed_downloads(tmp_path, monkeypatch):
+    clock = Clock(monkeypatch)
+    payload = b"checkpoint"
+    sha = hashlib.sha256(payload).hexdigest()
+    calls = []
+
+    class A:
+        def __init__(self):
+            self.fail_once = True
+
+        def get(self, path, timeout=30):
+            calls.append((path, timeout))
+            if path.endswith("manifest.jsonl"):
+                return json.dumps({"file": "final.pth", "sha256": sha}).encode()
+            if path.endswith("final.pth") and self.fail_once:
+                self.fail_once = False
+                clock.t += 25  # a proxy can overrun its requested timeout
+                raise OSError("temporary proxy failure")
+            return payload
+
+    agent = A()
+    p = gr.Puller(agent, tmp_path, {})
+    budget = gr.PullBudget(clock.t + 3600, seconds=20)
+    assert p.checkpoints("B_s0", budget) == []
+    # The exhausted aggregate budget starts no second request or retry this poll.
+    assert [path for path, _ in calls].count("/out/B_s0/final.pth") == 1
+    assert all(timeout <= 20 for _, timeout in calls)
+    assert p.logs(["B_s0"], budget) is None
+    # A later poll retries the unlanded manifest entry and preserves sha verification.
+    landed = p.checkpoints("B_s0", gr.PullBudget(clock.t + 3600, seconds=20))
+    assert [r["file"] for r in landed] == ["final.pth"]
+    assert (tmp_path / "out/B_s0/final.pth").read_bytes() == payload
+    assert p.state["pull_failures"][-1]["path"].endswith("final.pth")
+    assert gr.PullBudget(clock.t + 7, seconds=45).timeout(300) == 7
+
+
+def test_puller_rotates_starved_runs_and_leaves_logs_due(tmp_path, monkeypatch):
+    clock = Clock(monkeypatch)
+    payload = b"B final"
+    sha = hashlib.sha256(payload).hexdigest()
+    calls = []
+
+    class A:
+        def get(self, path, timeout=30):
+            calls.append(path)
+            if path.endswith("manifest.jsonl"):
+                return json.dumps({"file": "final.pth", "sha256": sha}).encode()
+            if path == "/out/A_s0/final.pth":
+                clock.t += timeout
+                raise OSError("A remains slow")
+            if path == "/out/B_s0/final.pth":
+                return payload
+            return b"{}"
+
+    p = gr.Puller(A(), tmp_path, {})
+    first = gr.PullBudget(clock.t + 3600, seconds=20)
+    for run in p.rotate(["A_s0", "B_s0"], "checkpoints"):
+        p.checkpoints(run, first)
+    # No pull was possible for logs, so they remain due rather than being delayed for 5 min.
+    p.logs(["A_s0", "B_s0"], first)
+    assert p.last_logs == 0.0
+    second = gr.PullBudget(clock.t + 3600, seconds=20)
+    for run in p.rotate(["A_s0", "B_s0"], "checkpoints"):
+        p.checkpoints(run, second)
+    assert (tmp_path / "out/B_s0/final.pth").read_bytes() == payload
+    p.logs(["A_s0", "B_s0"], gr.PullBudget(clock.t + 3600, seconds=20))
+    assert any(path.endswith("log.jsonl") for path in calls)
+
+
+def test_puller_log_cursor_does_not_phase_lock_after_exhausted_polls(tmp_path, monkeypatch):
+    clock = Clock(monkeypatch)
+    requested = []
+
+    class A:
+        def get(self, path, timeout=30):
+            requested.append(path)
+            if path.endswith("log.jsonl"):
+                # One whole allowance per request: only the cursor's first run can be tried.
+                # This would expose the old odd-slot phase lock.
+                gr.time.sleep(timeout)
+                raise TimeoutError("slow log proxy")
+            return b"{}"
+
+    p = gr.Puller(A(), tmp_path, {})
+    runs = [f"R_s{i}" for i in range(6)]
+    # Checkpoint-first polls exhaust their allowance before logs.  They must not move the
+    # log cursor; subsequent log-first polls should then visit every run, not only odd slots.
+    for _ in range(6):
+        exhausted = gr.PullBudget(clock.t, seconds=0)
+        p.logs(runs, exhausted)
+        p.logs(runs, gr.PullBudget(clock.t + 60, seconds=20))
+        p.last_logs = 0.0
+    seen = {path.split("/")[2] for path in requested if path.endswith("log.jsonl")}
+    assert seen == set(runs)
+
+
 def test_delete_and_verify_only_our_prefix(tmp_path, monkeypatch):
     Clock(monkeypatch)
 
@@ -599,17 +695,34 @@ def test_agent_v2_keeps_deadline_and_deadman(tmp_path, monkeypatch):
 
 # ----------------------------------------------------------------------------- probe watcher
 def test_probe_watch_jobs_order_and_idempotence(tmp_path):
+    paths = []
+    for name, body in (("a", b"a"), ("b", b"b"), ("c", b"c"), ("d", b"d")):
+        path = tmp_path / f"{name}.pth"
+        path.write_bytes(body)
+        paths.append((str(path), hashlib.sha256(body).hexdigest()))
     rows = [
-        {"run": "B_s0", "file": "ckpt_5000k.pth", "path": "/x/a.pth"},
-        {"run": "B_s0", "file": "ckpt_2500k.pth", "path": "/x/b.pth"},
-        {"run": "B_s0", "file": "final.pth", "path": "/x/c.pth"},
-        {"run": "../evil", "file": "final.pth", "path": "/x/d.pth"},
+        {"run": "B_s0", "file": "ckpt_5000k.pth", "path": paths[0][0], "sha256": paths[0][1]},
+        {"run": "B_s0", "file": "ckpt_2500k.pth", "path": paths[1][0], "sha256": paths[1][1]},
+        {"run": "B_s0", "file": "final.pth", "path": paths[2][0], "sha256": paths[2][1]},
+        {"run": "../evil", "file": "final.pth", "path": paths[3][0], "sha256": paths[3][1]},
     ]
     jobs = pw.pending_jobs(rows, tmp_path, ["5000k", "final"], ["none", "v8"], set())
     assert len(jobs) == 2 * 2 * 3
     assert [j[3] for j in jobs[:6]] == ["none"] * 6  # no-veto first
     assert {j[1] for j in jobs} == {"ckpt_5000k", "final"}
-    (tmp_path / "B_s0__final__none.jsonl").write_text(json.dumps({"mix": "frozen"}) + "\n")
+    (tmp_path / "B_s0__final__none.jsonl").write_text(
+        json.dumps(
+            {
+                "mix": "frozen",
+                "student_sha256": paths[2][1],
+                "veto": "none",
+                "round_index": 52,
+                "ego2s_forward": "rowwise",
+                "ego2s_mask": "advisory",
+            }
+        )
+        + "\n"
+    )
     jobs2 = pw.pending_jobs(rows, tmp_path, ["5000k", "final"], ["none", "v8"], set())
     assert len(jobs2) == 11 and ("B_s0", "final", "/x/c.pth", "none", "frozen") not in jobs2
     argv = pw.probe_argv(jobs2[0], tmp_path, 16, 52, slots=False)
@@ -653,6 +766,43 @@ def test_drive_kills_a_stalled_run_and_reports_it(tmp_path, monkeypatch):
     out, state = _drive(tmp_path, monkeypatch, agent, _plan(n=3, transitions=2400 * 50))
     assert agent.killed == ["B_s1"] and state["runs"]["B_s1"]["killed"].startswith("stalled")
     assert out in ("finished with failures", "complete")
+
+
+def test_drive_does_not_turn_a_slow_checkpoint_pull_into_a_stall(tmp_path, monkeypatch):
+    class SlowCheckpoint(FakeAgent):
+        def __init__(self):
+            super().__init__(polls=2, rate=50.0)
+            self.slow = True
+
+        def get(self, path, timeout=30):
+            if path.endswith("manifest.jsonl"):
+                run = path.split("/")[2]
+                return json.dumps(
+                    {"file": "final.pth", "sha256": hashlib.sha256(run.encode()).hexdigest()}
+                ).encode()
+            if path.endswith("final.pth") and self.slow:
+                self.slow = False
+                gr.time.sleep(gr.STALL_S + 1)  # a proxy body read can overrun its timeout
+            return super().get(path, timeout)
+
+    out, state = _drive(
+        tmp_path, monkeypatch, SlowCheckpoint(), _plan(n=1, max_concurrent_cap=1, transitions=100)
+    )
+    assert out == "complete"
+    assert "g2" not in state  # it completed before the 30-minute throughput gate
+
+
+def test_drive_reports_lost_progress_observations_without_killing_a_live_run(tmp_path, monkeypatch):
+    class UnreadableLogs(FakeAgent):
+        def get(self, path, timeout=30):
+            if path.endswith("log.jsonl"):
+                raise OSError("temporary proxy failure")
+            return super().get(path, timeout)
+
+    agent = UnreadableLogs(polls=10_000)
+    out, _ = _drive(tmp_path, monkeypatch, agent, _plan(n=1, max_concurrent_cap=1))
+    assert out == "lost progress observations"
+    assert not getattr(agent, "killed", [])
 
 
 def test_queue_is_seed_major_and_truncated_by_the_lifetime(tmp_path, monkeypatch):

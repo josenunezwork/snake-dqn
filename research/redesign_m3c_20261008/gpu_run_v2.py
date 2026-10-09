@@ -103,6 +103,7 @@ STOCK_WAIT_S = 3 * 3600
 CREATE_SETTLE_S = 300
 POLL_S = 60
 LOG_PULL_S = 300
+PULL_BUDGET_S = 45
 FILL_EVERY_S = 300  # each fill is judged on >= 5 min of the per-run rate
 FILL_GPU_UTIL = 85.0
 RAM_RESERVE_GB = 8.0
@@ -853,6 +854,23 @@ def create_pod_retrying(
 
 
 # ----------------------------------------------------------------------------- pulls
+class PullBudget:
+    """One bounded artifact-transfer allowance for a control-loop poll.
+
+    Control observations happen before this budget is created.  A slow checkpoint must
+    therefore never postpone the next health/progress observation long enough to look
+    like a trainer stall.  The HTTP client cannot interrupt DNS/body reads already in
+    progress, but it never starts another request once this allowance is exhausted.
+    """
+
+    def __init__(self, deadline: float, seconds: float = PULL_BUDGET_S) -> None:
+        self.ends_at = min(now() + seconds, deadline)
+
+    def timeout(self, cap: float) -> Optional[float]:
+        remaining = self.ends_at - now()
+        return min(cap, remaining) if remaining > 0 else None
+
+
 class Puller:
     """Incremental, sha-checked pulls of completed checkpoints (manifest rows) and logs."""
 
@@ -864,19 +882,43 @@ class Puller:
         self.pulled = state.setdefault("pulled", {})  # run -> [file, ...]
         self.last_logs = 0.0
 
+    def _failure(self, path: str, started: float, exc: Exception) -> None:
+        """Keep bounded, non-secret diagnostics for deferred artifact pulls."""
+        failures = self.state.setdefault("pull_failures", [])
+        failures.append(
+            {"t": now(), "path": path, "seconds": now() - started, "error": type(exc).__name__}
+        )
+        del failures[:-20]
+
+    def rotate(self, runs: Sequence[str], cursor: str) -> List[str]:
+        """Give every run first pull position on successive polls."""
+        ordered = list(runs)
+        if not ordered:
+            return ordered
+        key = f"pull_cursor_{cursor}"
+        start = int(self.state.get(key, 0)) % len(ordered)
+        self.state[key] = start + 1
+        return ordered[start:] + ordered[:start]
+
     def _confined(self, rel: str) -> Path:
         path = (self.dest / rel).resolve()
         if self.dest not in path.parents:
             raise ValueError(f"path escapes the output dir: {rel}")
         return path
 
-    def checkpoints(self, run: str) -> List[Dict[str, Any]]:
+    def checkpoints(self, run: str, budget: Optional[PullBudget] = None) -> List[Dict[str, Any]]:
         """Pull every manifest row of ``run`` not yet pulled; returns the new landed rows."""
         if not re.fullmatch(r"[A-Za-z0-9_\-]{1,40}", run):
             raise ValueError(run)
+        budget = budget or PullBudget(float("inf"))
+        started = now()
         try:
-            rows = parse_jsonl(self.agent.get(f"/out/{run}/manifest.jsonl"))
-        except Exception:  # noqa: BLE001  (no manifest yet / transient)
+            timeout = budget.timeout(30.0)
+            if timeout is None:
+                return []
+            rows = parse_jsonl(self.agent.get(f"/out/{run}/manifest.jsonl", timeout=timeout))
+        except Exception as exc:  # noqa: BLE001  (no manifest yet / transient)
+            self._failure(f"/out/{run}/manifest.jsonl", started, exc)
             return []
         done = self.pulled.setdefault(run, [])
         new = []
@@ -885,19 +927,20 @@ class Puller:
             if name in done or not re.fullmatch(r"[A-Za-z0-9_.\-]{1,80}\.pth", name):
                 continue
             path = self._confined(f"{run}/{name}")
-            for _ in range(3):
-                try:
-                    data = self.agent.get(f"/out/{run}/{name}", timeout=300)
-                    if hashlib.sha256(data).hexdigest() != row.get("sha256"):
-                        raise ValueError("sha mismatch")
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    tmp = path.with_name(path.name + ".part")
-                    tmp.write_bytes(data)
-                    tmp.replace(path)
-                    break
-                except Exception:  # noqa: BLE001
-                    time.sleep(3)
-            else:
+            timeout = budget.timeout(300.0)
+            if timeout is None:
+                break
+            started = now()
+            try:
+                data = self.agent.get(f"/out/{run}/{name}", timeout=timeout)
+                if hashlib.sha256(data).hexdigest() != row.get("sha256"):
+                    raise ValueError("sha mismatch")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(path.name + ".part")
+                tmp.write_bytes(data)
+                tmp.replace(path)
+            except Exception as exc:  # noqa: BLE001
+                self._failure(f"/out/{run}/{name}", started, exc)
                 continue  # retried on the next poll
             done.append(name)
             landed = {
@@ -912,19 +955,36 @@ class Puller:
             new.append(landed)
         return new
 
-    def logs(self, runs: Sequence[str], force: bool = False) -> None:
+    def logs(
+        self, runs: Sequence[str], budget: Optional[PullBudget] = None, force: bool = False
+    ) -> None:
+        budget = budget or PullBudget(float("inf"))
         if not force and now() - self.last_logs < LOG_PULL_S:
             return
-        self.last_logs = now()
-        for run in runs:
+        # Do not advance the fairness cursor until a request can actually start.  Otherwise
+        # checkpoint-first polls can phase-lock log-first polls onto only half the run list.
+        if budget.timeout(120.0) is None:
+            return
+        attempted = False
+        for run in self.rotate(runs, "logs"):
             for name in ("log.jsonl", "telemetry.jsonl", "summary.json"):
+                timeout = budget.timeout(120.0)
+                if timeout is None:
+                    if attempted:
+                        self.last_logs = now()
+                    return
+                attempted = True
+                started = now()
                 try:
-                    data = self.agent.get(f"/out/{run}/{name}", timeout=120)
-                except Exception:  # noqa: BLE001
+                    data = self.agent.get(f"/out/{run}/{name}", timeout=timeout)
+                except Exception as exc:  # noqa: BLE001
+                    self._failure(f"/out/{run}/{name}", started, exc)
                     continue
                 path = self._confined(f"{run}/{name}")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(data)
+        if attempted:
+            self.last_logs = now()
 
 
 def download_rest(agent: Agent, run_dir: Path, budget_s: float = 900) -> Dict[str, Any]:
@@ -1291,6 +1351,9 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
         note(stage="run_started", run=run["name"], reason=reason)
 
     run_progress: Dict[str, float] = {}
+    # A missing log is an observation failure, not evidence that a live trainer stalled.
+    # Sustained loss of every affected observation gets its own bounded failure path below.
+    log_read_failed: Dict[str, float] = {}
 
     def dl_budget() -> float:
         """Never download past the job-kill deadline + 10 min (the pod is deleted by `until`)."""
@@ -1329,11 +1392,21 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
         rcs = {r: procs[r].get("returncode") for r in started}
         running = [r for r, rc in rcs.items() if rc is None]
         rates: Dict[str, Dict[str, float]] = {}
+        observed_logs = set()
         for r in running:
+            started_read = now()
             try:
-                rr = run_rate(parse_jsonl(agent.get(f"/out/{r}/log.jsonl")))
+                remaining = state["deadline"] - now()
+                if remaining <= 0:
+                    return "lifetime"
+                rr = run_rate(
+                    parse_jsonl(agent.get(f"/out/{r}/log.jsonl", timeout=min(30.0, remaining)))
+                )
+                observed_logs.add(r)
+                log_read_failed.pop(r, None)
             except Exception:  # noqa: BLE001
                 rr = None
+                log_read_failed.setdefault(r, started_read)
             if rr:
                 rates[r] = rr
                 if rr["transitions"] > best.get(r, -1):
@@ -1346,18 +1419,40 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
                 status[r].update(finished=now(), returncode=rcs[r])
                 note(stage="run_finished", run=r, returncode=rcs[r])
                 last_progress = now()
+        unreadable = [r for r in running if r not in observed_logs]
+        if unreadable and any(now() - log_read_failed[r] > NET_FAIL_BUDGET_S for r in unreadable):
+            note(stage="progress_observation_lost", runs=unreadable)
+            return "lost progress observations"
         # per-run stall: a run without progress for STALL_S is killed (its slot is freed)
         for r in running:
-            if now() - run_progress.get(r, now()) > STALL_S and not status[r].get("killed"):
+            if (
+                r in observed_logs
+                and now() - run_progress.get(r, now()) > STALL_S
+                and not status[r].get("killed")
+            ):
                 try:
                     agent.post_kill(r)
                     status[r]["killed"] = f"stalled {STALL_S}s"
                     note(stage="run_killed", run=r, reason="stalled")
                 except Exception as exc:  # noqa: BLE001
                     note(stage="run_kill_failed", run=r, error=str(exc))
-        for r in started:
-            puller.checkpoints(r)
-        puller.logs(started)
+        # Evaluate stalls from this fresh control observation before any bounded artifact work.
+        # A slow or failing pull is deferred to a later poll and cannot age a healthy run.
+        if now() - last_progress > STALL_S and running and not unreadable:
+            note(stage="stall", download=download_rest(agent, run_dir, dl_budget()))
+            return "stalled"
+        pull_budget = PullBudget(state["deadline"])
+        # Alternate first access between logs and manifests.  Together with the rotating
+        # manifest order this prevents one persistently slow run from starving every later
+        # run's checkpoints or the diagnostic logs.
+        logs_first = bool(state.get("pull_logs_first", False))
+        state["pull_logs_first"] = not logs_first
+        if logs_first:
+            puller.logs(started, pull_budget)
+        for r in puller.rotate(started, "checkpoints"):
+            puller.checkpoints(r, pull_budget)
+        if not logs_first:
+            puller.logs(started, pull_budget)
         recent = [v.get("recent_rate", v["rate"]) for v in rates.values()]
         per_run = sum(recent) / len(recent) if recent else None
         if per_run:
@@ -1438,7 +1533,7 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
         done = set(rcs) == set(status) and all(rc is not None for rc in rcs.values())
         if done and (not queue_ or no_new_starts):
             dl = download_rest(agent, run_dir, dl_budget())
-            puller.logs(started, force=True)
+            puller.logs(started, PullBudget(state["deadline"] + 600), force=True)
             note(
                 stage="finished",
                 returncodes=rcs,
@@ -1452,9 +1547,6 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
             return (
                 "complete" if not (dl.get("failed") or dl.get("error")) else "download incomplete"
             )
-        if now() - last_progress > STALL_S and running:
-            note(stage="stall", download=download_rest(agent, run_dir, dl_budget()))
-            return "stalled"
         if g2 is None and now() - first_start >= G2_SECONDS:
             dead = [r for r in started if rcs[r] not in (None, 0)]
             if (
