@@ -37,6 +37,13 @@ Everything new is behind a flag:
   scalars, so it needs ``--onpolicy-labels --label-frac 1.0 --anchor-mode v8margin``: no
   demonstration rows, the anchor term starts once 10k labels are buffered (TD only before),
   and there is no held-out agreement.
+* perf-actor (2026-10-13), throughput only, no training-semantics change:
+  ``--v61-backend numba`` (or env ``M3C_V61_BACKEND``) featurizes the vector61 opponent /
+  hero rows with the compiled :mod:`src.simd_env.vector61_nb` (float32-identical, default
+  ``python``); ``--actor-impl`` ``vectorized`` (default) / ``reference`` selects the actor's
+  n-step builder and eps sampling (vectorized = transition- and RNG-identical, tested in
+  ``tests/test_perf_actor.py``; it also runs the opponents while an asynchronous hero
+  forward is in flight). Benchmark: ``research/perf_actor_20261013/bench_actor.py``.
 
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
@@ -212,6 +219,22 @@ class Replay:
         self.size = min(self.size + 1, self.cap)
         self.added += 1
 
+    def add_many(self, s, a, R, disc, nxt) -> None:
+        """``add`` for each row in order (same slots, same stored values; vectorized)."""
+        n = len(s)
+        if not n:
+            return
+        pos = (self.ptr + np.arange(n, dtype=np.int64)) % self.cap
+        keep = slice(max(0, n - self.cap), n)  # a wrap within one call: the last write wins
+        self.s[pos[keep]] = np.asarray(s, dtype=np.int64)[keep]
+        self.a[pos[keep]] = np.asarray(a, dtype=np.int64)[keep]
+        self.R[pos[keep]] = np.asarray(R, dtype=np.float64)[keep]
+        self.disc[pos[keep]] = np.asarray(disc, dtype=np.float64)[keep]
+        self.nxt[pos[keep]] = np.asarray(nxt, dtype=np.int64)[keep]
+        self.ptr = int((self.ptr + n) % self.cap)
+        self.size = min(self.size + n, self.cap)
+        self.added += n
+
     def sample(self, rng: np.random.Generator, n: int, ring) -> np.ndarray:
         idx = rng.integers(0, self.size, size=n * 2)
         ok = ring.valid(self.s[idx]) & ((self.nxt[idx] < 0) | ring.valid(self.nxt[idx]))
@@ -380,8 +403,11 @@ class MultiRing:
         return out_l, out_g, out_s, out_m
 
 
-class NStepBuilder:
+class NStepBuilderRef:
     """Per-world n-step windows, arithmetic identical to the M3 sync loop (tested).
+
+    The reference (per-row deque) implementation; :class:`NStepBuilder` is the vectorized
+    one, transition-for-transition identical (``tests/test_perf_actor.py``).
 
     ``step`` takes one frame's hero rows; it returns the completed transitions as arrays
     ``(s, a, R, disc, nxt)`` (``nxt = -1`` and ``disc = 0`` on a terminal flush).
@@ -440,6 +466,164 @@ class NStepBuilder:
             np.asarray(d, dtype=np.float32),
             np.asarray(nx, dtype=np.int64),
         )
+
+
+class NStepBuilder:
+    """Vectorized :class:`NStepBuilderRef`: the same transitions, in the same order, with
+    bit-identical ``R`` / ``disc`` (the same float64 accumulation order, one float32 cast).
+
+    Each world keeps a ring of its last ``n`` hero rows ``(obs id, action, reward)``. Output
+    order is the reference's: worlds in row order; within a world the full-window
+    transition first, then a terminal flush oldest-first; ``end_segment`` flushes worlds in
+    ascending order.
+    """
+
+    def __init__(self, n_worlds: int, n_step: int = N_STEP) -> None:
+        self.n = int(n_step)
+        E = int(n_worlds)
+        self.ids = np.zeros((E, self.n), dtype=np.int64)
+        self.acts = np.zeros((E, self.n), dtype=np.int64)
+        self.rew = np.zeros((E, self.n), dtype=np.float64)
+        self.head = np.zeros(E, dtype=np.int64)  # ring slot of the oldest pending row
+        self.cnt = np.zeros(E, dtype=np.int64)
+        self._chunks: List[tuple] = []  # (s, a, R float64, disc float64, nxt) array chunks
+
+    @property
+    def out(self) -> List[tuple]:
+        """Pending transitions as ``(s, a, R, disc, nxt)`` Python tuples (float64 R / disc),
+        the reference's ``out`` list (for tests; the actor uses :meth:`take`)."""
+        rows: List[tuple] = []
+        for c in self._chunks:
+            rows.extend(zip(*(x.tolist() for x in c)))
+        return rows
+
+    @out.setter
+    def out(self, value: List[tuple]) -> None:
+        if value:
+            raise ValueError("NStepBuilder.out can only be cleared")
+        self._chunks = []
+
+    @property
+    def last_obs(self) -> np.ndarray:
+        """Newest pending obs id per world (-1 when nothing is pending)."""
+        newest = self.ids[np.arange(len(self.cnt)), (self.head + self.cnt - 1) % self.n]
+        return np.where(self.cnt > 0, newest, -1)
+
+    def _returns(self, w: np.ndarray, start: np.ndarray, k: np.ndarray, gamma: float):
+        """``(R, g)`` over pending entries ``start .. start+k-1`` (oldest-relative) of worlds
+        ``w``, accumulated oldest first like the reference (``R += g * r; g *= gamma``)."""
+        R = np.zeros(len(w), dtype=np.float64)
+        g = np.ones(len(w), dtype=np.float64)
+        for t in range(self.n):
+            live = t < k
+            if not live.any():
+                break
+            r = self.rew[w, (self.head[w] + start + t) % self.n]
+            R = np.where(live, R + g * r, R)
+            g = np.where(live, g * gamma, g)
+        return R, g
+
+    def _flush_rows(self, w: np.ndarray, k: np.ndarray, gamma: float, boot: np.ndarray):
+        """Transitions for entries ``0..k-1`` of each world (row-major: world, then oldest
+        first); ``boot`` < 0 means terminal (``disc = 0``)."""
+        rep = np.repeat(np.arange(len(w)), k)
+        i = np.arange(len(rep)) - np.repeat(np.cumsum(k) - k, k)
+        ww = w[rep]
+        R, g = self._returns(ww, i, k[rep] - i, gamma)
+        pos = (self.head[ww] + i) % self.n
+        b = boot[rep]
+        return rep, i, self.ids[ww, pos], self.acts[ww, pos], R, np.where(b < 0, 0.0, g), b
+
+    def step(self, worlds, ids, acts, reward, done, gamma_now: float) -> int:
+        """Add one frame; returns the number of deaths (terminal flushes)."""
+        w = np.asarray(worlds, dtype=np.int64).reshape(-1)
+        m = len(w)
+        if not m:
+            return 0
+        ids = np.asarray(ids, dtype=np.int64).reshape(-1)
+        acts = np.asarray(acts).astype(np.int64).reshape(-1)
+        r_new = np.asarray(reward)[w].astype(np.float64)
+        done_w = np.asarray(done, dtype=bool)[w]
+        n = self.n
+        keys_j, keys_sub, parts = [], [], []
+        full = np.flatnonzero(self.cnt[w] == n)
+        if len(full):
+            fw = w[full]
+            R, g = self._returns(fw, np.zeros(len(fw), np.int64), np.full(len(fw), n), gamma_now)
+            h = self.head[fw]
+            keys_j.append(full)
+            keys_sub.append(np.zeros(len(full), dtype=np.int64))
+            parts.append((self.ids[fw, h], self.acts[fw, h], R, g, ids[full]))
+            self.head[fw] = (h + 1) % n
+            self.cnt[fw] -= 1
+        pos = (self.head[w] + self.cnt[w]) % n
+        self.ids[w, pos] = ids
+        self.acts[w, pos] = acts
+        self.rew[w, pos] = r_new
+        self.cnt[w] += 1
+        dead = np.flatnonzero(done_w)
+        if len(dead):
+            dw = w[dead]
+            k = self.cnt[dw].copy()
+            rep, i, s0, a0, R, d, b = self._flush_rows(dw, k, gamma_now, np.full(len(dw), -1))
+            keys_j.append(dead[rep])
+            keys_sub.append(1 + i)
+            parts.append((s0, a0, R, d, b))
+            self.cnt[dw] = 0
+            self.head[dw] = 0
+        if parts:
+            kj = np.concatenate(keys_j)
+            ks = np.concatenate(keys_sub)
+            order = np.lexsort((ks, kj))
+            cols = [np.concatenate([p[c] for p in parts])[order] for c in range(5)]
+            self._chunks.append(tuple(cols))
+        return int(len(dead))
+
+    def end_segment(self, gamma_end: float) -> None:
+        w = np.flatnonzero(self.cnt > 0)
+        if not len(w):
+            return
+        boot = self.ids[w, (self.head[w] + self.cnt[w] - 1) % self.n]  # the newest row
+        self.cnt[w] -= 1  # dropped: it has no successor observation
+        k = self.cnt[w].copy()
+        keep = k > 0
+        w, k, boot = w[keep], k[keep], boot[keep]
+        if len(w):
+            _, _, s0, a0, R, d, b = self._flush_rows(w, k, gamma_end, boot)
+            self._chunks.append((s0, a0, R, d, b))
+        self.cnt[:] = 0
+        self.head[:] = 0
+
+    def take(self):
+        rows, self._chunks = self._chunks, []
+        if not rows:
+            z = np.zeros(0, dtype=np.int64)
+            return z, z, np.zeros(0, np.float32), np.zeros(0, np.float32), z
+        s, a, R, d, nx = (np.concatenate([r[c] for r in rows]) for c in range(5))
+        return (
+            s.astype(np.int64),
+            a.astype(np.int64),
+            R.astype(np.float32),
+            d.astype(np.float32),
+            nx.astype(np.int64),
+        )
+
+
+def sample_legal_ref(rng: np.random.Generator, mm: np.ndarray) -> np.ndarray:
+    """A uniform legal action per row: the reference per-row ``rng.choice`` loop."""
+    return np.array([rng.choice(np.flatnonzero(r)) for r in mm])
+
+
+def sample_legal(rng: np.random.Generator, mm: np.ndarray) -> np.ndarray:
+    """Vectorized :func:`sample_legal_ref`: one ``rng.integers(0, counts)`` call draws the
+    same variates in the same order as the per-row ``choice`` calls (both are bounded
+    ``int64`` draws of ``[0, count)``), so the actions and the generator state after the
+    call are identical (pinned by ``tests/test_perf_actor.py``). Rows need >= 1 legal action."""
+    mm = np.asarray(mm, dtype=bool)
+    if not len(mm):
+        return np.zeros(0, dtype=np.int64)
+    k = rng.integers(0, mm.sum(axis=1, dtype=np.int64))
+    return (np.cumsum(mm, axis=1) <= k[:, None]).sum(axis=1).astype(np.int64)
 
 
 # ----------------------------------------------------------------------------- demonstrations
@@ -577,6 +761,11 @@ class LabelBuffer:
 
 V8_BACKENDS = ("python", "numba")
 V8_BACKEND_ENV = "M3C_V8_BACKEND"
+#: Vector61Runtime featurizer backends (``src.simd_env.vector61_nb``; float32-identical).
+V61_BACKENDS = ("python", "numba")
+V61_BACKEND_ENV = "M3C_V61_BACKEND"
+#: Actor bookkeeping implementations (``NStepBuilder`` / ``NStepBuilderRef``, eps sampling).
+ACTOR_IMPLS = ("vectorized", "reference")
 
 
 def load_init(args, device):
@@ -718,7 +907,8 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
     for e, seed in enumerate(seeds):
         for slot, member in enumerate(rows[(int(seed), mix_of[e])]["slots"], start=1):
             groups.setdefault(lookup[member["member_sha256"]], []).append((e, slot))
-    runtime = Vector61Runtime()
+    v61 = getattr(args, "v61_backend", None) or os.environ.get(V61_BACKEND_ENV) or "python"
+    runtime = Vector61Runtime(backend=v61)
     controlled = np.zeros((E, 6), dtype=bool)
     if hero_v61:  # M4-A shield / labels: the v8 veto reads the hero's vector61 rows
         controlled[:, 0] = True
@@ -801,6 +991,8 @@ def m3c_flags(args) -> Dict[str, Any]:
         "label_frac",
         "v8_backend",
         "obs_version",
+        "v61_backend",
+        "actor_impl",
     ):
         if getattr(args, k) != getattr(d, k):
             out[k] = getattr(args, k)
@@ -860,6 +1052,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--v8-backend", choices=("python", "numba"), default=None, help="default: env, else python"
+    )
+    ap.add_argument(
+        "--v61-backend",
+        choices=V61_BACKENDS,
+        default=None,
+        help="opponent/hero vector61 featurizer (default: env M3C_V61_BACKEND, else python)",
+    )
+    ap.add_argument(
+        "--actor-impl",
+        choices=ACTOR_IMPLS,
+        default="vectorized",
+        help="actor-side bookkeeping: vectorized (default; transition- and RNG-identical to "
+        "reference, tested) or reference (the per-row loops)",
     )
     ap.add_argument("--label-frac", type=float, default=0.5, help="on-policy share of anchor rows")
     ap.add_argument("--label-capacity", type=int, default=300_000)
@@ -1370,6 +1575,8 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             from research.redesign_m2_20261008 import ni_spec
 
             carrier = ctx["lookup"][ni_spec.FRP3_S12[1]][1]
+        fast = getattr(args, "actor_impl", "vectorized") == "vectorized"
+        sample = sample_legal if fast else sample_legal_ref
         segment = j
         while not stop_evt.is_set():
             t_glob = int(progress[0])
@@ -1391,7 +1598,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
 
                 check_live_rule_config(sim)
             E = sim.E
-            nsb = NStepBuilder(E)
+            nsb = NStepBuilder(E) if fast else NStepBuilderRef(E)
             for _frame in range(args.segment_frames):
                 if stop_evt.is_set():
                     break
@@ -1412,16 +1619,33 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     else 0.0
                 )
 
+                def opponents(prepared, masks, alive, actions):
+                    t_o = time.perf_counter()
+                    for spec_, cells in groups.items():
+                        live = cells[alive[cells[:, 0], cells[:, 1]]]
+                        if len(live):
+                            mk = masks[live[:, 0], live[:, 1]]
+                            actions[live[:, 0], live[:, 1]] = policies[spec_].actions(
+                                mk, prepared, live
+                            )
+                    timing["opponents_s"] += time.perf_counter() - t_o
+
                 def choose(prepared):
                     masks = prepared.get_resolved_action_mask()
                     alive = prepared.get_alive()
                     actions = np.ones((E, prepared.S), dtype=np.int64)
                     runtime.prepare(prepared)
                     hero = np.argwhere(alive[:, :1])
+                    # vectorized: the opponents (no actor RNG, read-only runtime state, disjoint
+                    # action cells) run while an asynchronous (MPS / CUDA) hero forward is in
+                    # flight; the hero's decisions and RNG draws are unchanged.
+                    overlap = fast and len(hero) > 0
                     if len(hero):
                         t_f = time.perf_counter()
                         obs = build_ego_raster(prepared, B, backend="numba", rows=hero)
                         m = masks[hero[:, 0], 0]
+                        mm = m.copy()
+                        mm[~mm.any(axis=1), :3] = True  # the normal-only fallback
                         dt_v8 = 0.0
                         if bv8:
                             # Every stored hero observation gets its v8 features here, from
@@ -1442,19 +1666,21 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                                     for k in ("local", "global", "scalars")
                                 ]
                             )
-                            mt = torch.from_numpy(m.copy()).to(device)
-                            mt[~mt.any(dim=1), :3] = True
-                            greedy = (
-                                torch.where(mt, q, torch.full_like(q, -1e9))
-                                .argmax(dim=1)
-                                .cpu()
-                                .numpy()
-                            )
+                            if fast:  # the same mask, built on the host
+                                mt = torch.from_numpy(mm).to(device)
+                            else:
+                                mt = torch.from_numpy(m.copy()).to(device)
+                                mt[~mt.any(dim=1), :3] = True
+                            greedy_t = torch.where(mt, q, torch.full_like(q, -1e9)).argmax(dim=1)
+                            dt_opp = 0.0
+                            if overlap:
+                                t_o = time.perf_counter()
+                                opponents(prepared, masks, alive, actions)
+                                dt_opp = time.perf_counter() - t_o
+                            greedy = greedy_t.cpu().numpy()
                         timing["featurizer_s"] += t_q - t_f - dt_v8
-                        timing["forward_s"] += time.perf_counter() - t_q
-                        mm = m.copy()
-                        mm[~mm.any(axis=1), :3] = True
-                        rand = np.array([rng.choice(np.flatnonzero(r)) for r in mm])
+                        timing["forward_s"] += time.perf_counter() - t_q - dt_opp
+                        rand = sample(rng, mm)
                         explore = rng.random(len(hero)) < eps
                         policy_act = greedy
                         if shield is not None or bv8:
@@ -1472,15 +1698,8 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         act = np.where(explore, rand, policy_act)
                         actions[hero[:, 0], 0] = act
                         chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
-                    t_o = time.perf_counter()
-                    for spec_, cells in groups.items():
-                        live = cells[alive[cells[:, 0], cells[:, 1]]]
-                        if len(live):
-                            mk = masks[live[:, 0], live[:, 1]]
-                            actions[live[:, 0], live[:, 1]] = policies[spec_].actions(
-                                mk, prepared, live
-                            )
-                    timing["opponents_s"] += time.perf_counter() - t_o
+                    if not overlap:
+                        opponents(prepared, masks, alive, actions)
                     return actions
 
                 sim.step_with_policy(choose)
@@ -1847,14 +2066,7 @@ def main_multi(args) -> int:
                             blk.unlink()
                 gs = multi.encode(j, msg["s"])
                 gn = multi.encode(j, msg["nxt"])
-                for i in range(len(gs)):
-                    replay.add(
-                        int(gs[i]),
-                        int(msg["a"][i]),
-                        float(msg["R"][i]),
-                        float(msg["disc"][i]),
-                        int(gn[i]),
-                    )
+                replay.add_many(gs, msg["a"], msg["R"], msg["disc"], gn)
                 st["since_update"] += len(gs)
                 if labels is not None and len(msg["lab_ids"]):
                     labels.add(multi.encode(j, msg["lab_ids"]), msg["lab_a"].astype(np.int64))
