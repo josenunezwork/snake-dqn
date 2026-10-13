@@ -198,3 +198,24 @@ all five C finals are probed; nothing in this file changes after the selection i
   `rule_spec_m4.TRAINING_SEEDS`). Fixed to `rule_spec_m4.TRAINING_SEEDS`; the selection was
   re-run on all five seeds. No rule, threshold or probe changed. The 3-seed output is kept as
   `selection-3seed-bug.json` for the record.
+
+## 14. Amendment B (2026-10-13, ~06:00 PT) — arm B8 may enter
+
+**Ratified 2026-10-13** (standing decision authority), recorded **before any final checkpoint
+of B8 seeds 1–4 exists** (they are training on the Mac; only B8_s0 has been probed).
+
+Why (disclosed): (i) the five-seed selection did not enter arm C — score +82.6 over I but the
+survival guard fails on the scripted mix (C 0.49 vs I 0.66); (ii) B8_s0's dev probe (one seed)
+held scripted survival at 0.66 with higher mass; (iii) live bv8 serving now exists
+(branch `m4b-live`, `src/simd_env/ego_live_bv8.py`) and P2 passed on B8_s0 (9/9 H5000, 3/3
+H10000), so section 6's reason for option (a) no longer holds.
+
+Changes: (1) section 6 option (a) is replaced: **a bv8 candidate may enter with full P2**
+(per seed, `p2_noveto` + `p2_noveto_h10000`, no `--bv8-simd-only`); (2) arm B8 is trained to
+five seeds (s0 Mac, s1–s4 Mac, same commit `8b5f5af` and flags; outputs
+`redesign-m4b-mac-20261013/B8_s<seed>/`); (3) P2 evidence lives per arm in
+`redesign-m4-p2-candidates/<arm>/` (C's existing files moved to `C/`). Everything else —
+selection rules (score bar, survival guard, seed-eligibility), Phase R rule, banks, pins — is
+unchanged. Selection is re-run over arms {C, B8} once all B8 finals are probed; C's selection
+result above stands as computed. The selection over two arms is the max of two (disclosed in
+section 4).

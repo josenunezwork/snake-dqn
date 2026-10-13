@@ -46,7 +46,7 @@ import sys  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 from types import ModuleType  # noqa: E402
-from typing import Mapping  # noqa: E402
+from typing import Mapping, Optional  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -151,7 +151,13 @@ def bv8_live() -> bool:
     return EGO2S_BV8 in EGO2S_OBS_SPECS and EGO2S_BV8 not in EGO2S_SIMD_ONLY_SPECS
 
 
-def p2_for(key: str, candidates: Mapping[int, Path], obs_spec: str, bv8_simd_only: bool):
+def p2_for(
+    key: str,
+    candidates: Mapping[int, Path],
+    obs_spec: str,
+    bv8_simd_only: bool,
+    arm: Optional[str] = None,
+):
     """P2 evidence (M3-C's checks, M4's directory), or the recorded bv8 SIMD-only exception.
 
     A bv8 candidate takes the same P2 evidence as ego2s-b once the build serves bv8 live;
@@ -177,6 +183,8 @@ def p2_for(key: str, candidates: Mapping[int, Path], obs_spec: str, bv8_simd_onl
         )
     if bv8_simd_only:
         raise SystemExit("refusing: --bv8-simd-only given for a non-bv8 candidate")
+    # Per-arm evidence directory (<P2_DIR>/<arm>/), so arms' per-seed files never collide.
+    base.P2_DIR = P2_DIR / arm if arm else P2_DIR
     return base.p2_evidence(key, candidates)
 
 
@@ -218,7 +226,11 @@ def cmd_plan(args) -> int:
         "base_harness": {"path": str(BASE_PATH.relative_to(REPO)), "sha256": BASE_SHA256},
         "rule_sha256": receipts.canonical_sha(STUDIES[key]["rule"]()),
         "checkpoints": base.checkpoints(key, candidates),
-        "p2": None if args.smoke else p2_for(key, candidates, obs_spec, args.bv8_simd_only),
+        "p2": (
+            None
+            if args.smoke
+            else p2_for(key, candidates, obs_spec, args.bv8_simd_only, cand.get("arm"))
+        ),
         "engine": {
             "sim_engine": base.SIM_ENGINE,
             "vector61_forward": base.VECTOR61_FORWARD,
