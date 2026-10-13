@@ -448,6 +448,7 @@ def build_ego_raster(
     *,
     backend: str = "auto",
     rows: Optional[np.ndarray] = None,
+    v8_source: Any = None,
 ) -> Dict[str, np.ndarray]:
     """Build local + global ego planes and scalars.
 
@@ -459,6 +460,9 @@ def build_ego_raster(
             Bitwise identical outputs.
         rows: Optional ``(N, 2)`` ``(env, snake)`` rows to featurize (e.g. hero
             slots only). Outputs are then ``(N, ...)`` instead of ``(E, S, ...)``.
+        v8_source: ``bv8`` only: the v8 feature source for an :class:`EgoGridView` ``source``
+            (serving: :func:`src.simd_env.ego_live_bv8.game_state_to_v8_source` of the same
+            live frame). A simulator ``source`` is its own v8 source.
 
     Returns:
         ``{"local": (...,6,31,31) uint8, "global": (...,4,37,37) uint8,
@@ -499,9 +503,12 @@ def build_ego_raster(
         if cfg.version == "bv8":
             from src.simd_env.ego_raster_bv8 import v8_scalars
 
-            if isinstance(source, EgoGridView):
-                raise TypeError("ego2s-bv8 needs a GridBatchSim source (the v8 features)")
-            vs, _ = v8_scalars(source, picked)
+            v8_src = source if v8_source is None else v8_source
+            if isinstance(v8_src, EgoGridView):
+                raise TypeError(
+                    "ego2s-bv8 needs a GridBatchSim source or a v8_source (the v8 features)"
+                )
+            vs, _ = v8_scalars(v8_src, picked)
             scalars = np.concatenate([scalars.reshape(-1, scalars.shape[-1]), vs], axis=1).reshape(
                 scalars.shape[:-1] + (scalars.shape[-1] + vs.shape[-1],)
             )

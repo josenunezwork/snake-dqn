@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from src.core.game_config import GameConfig
+from src.model.obs_spec import EGO2S_BV8, EGO2S_OBS_SPECS
 from web.backend.state_labels import ACTION_LABELS, state_groups
 
 # Bump when the frame shape changes incompatibly; the client warns on unknown
@@ -35,7 +36,7 @@ def _architecture_label(obs_spec: str) -> str:
     return "Apex DQN (vector61)"
 
 
-_EGO2S_SPECS = {"ego2s-draft", "ego2s-b"}
+_EGO2S_SPECS = set(EGO2S_OBS_SPECS)
 
 
 # Inspector grouping for the ``raster31v2`` scalar band. Mirrors the per-index
@@ -74,6 +75,11 @@ def _inspector_groups(input_size: int, obs_spec: str) -> List[Dict[str, object]]
     """
     if obs_spec in {"raster31v2", "raster31v3"}:
         groups = [dict(g) for g in RASTER31V2_SCALAR_GROUPS]
+    elif obs_spec == EGO2S_BV8:
+        groups = [
+            {"name": "ego2s-b scalars", "start": 0, "end": 30},
+            {"name": "v8 veto features (5 per action)", "start": 30, "end": input_size},
+        ]
     elif obs_spec in _EGO2S_SPECS:
         groups = [{"name": f"{obs_spec} scalars", "start": 0, "end": input_size}]
     else:

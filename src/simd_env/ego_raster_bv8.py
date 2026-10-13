@@ -9,8 +9,9 @@ landing_ok, v5-eligible, spacious), 60 scalars in all, every extra in ``[0, 1]``
 The features are evaluated eagerly (``features=True``), so they do not depend on Q (zeros
 are passed); they do depend on the hard mask, which is the sim's advisory (exact safe-action)
 mask, the same mask the v8 shield reads from ``Vector61Runtime.selection``. They need a
-:class:`~src.simd_env.grid_sim.GridBatchSim` (the bodies), never an ``EgoGridView``, so a
-bv8 student is evaluated on the SIMD grid engine only (no live serving path yet).
+:class:`~src.simd_env.grid_sim.GridBatchSim` (the bodies), never an ``EgoGridView``; live
+serving passes :class:`~src.simd_env.ego_live_bv8.LiveV8Source` (the same fields from the live
+snakes, the live advisory mask), which yields bitwise the same features.
 Dead rows observe zeros, as every other scalar.
 """
 

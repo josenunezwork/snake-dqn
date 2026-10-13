@@ -111,3 +111,74 @@ def test_reset_clears_the_served_cache(ego_ckpt):
     assert sess.policy._q is not None
     if old is not None and old.shape == sess.policy._q.shape:
         assert not np.array_equal(old, sess.policy._q) or sess.game.frame != 1
+
+
+# ----------------------------------------------------------------------------- ego2s-bv8
+@pytest.fixture()
+def bv8_ckpt(tmp_path):
+    torch.manual_seed(1)
+    path = tmp_path / "student_bv8.pth"
+    save_ego2s_checkpoint(path, Ego2sNet(local_channels=7, n_scalars=60), {"note": "test"})
+    return str(path)
+
+
+def test_bv8_watch_and_play_serve_the_student(bv8_ckpt):
+    from src.model.obs_spec import EGO2S_BV8
+
+    sess = GameSession(checkpoint=bv8_ckpt)
+    assert isinstance(sess.policy, Ego2sServingPolicy)
+    assert sess.obs_spec == EGO2S_BV8 and sess.mode == MODE_WATCH
+    assert sess.policy.ego_cfg.version == "bv8"
+    for _ in range(30):
+        sess.step()
+    frame = sess.snapshot()
+    assert frame["obs_spec"] == EGO2S_BV8
+    if frame["inspector"] is not None:  # the hero may be dead on this frame
+        assert frame["inspector"]["input_size"] == 60
+    sess.set_mode(MODE_PLAY)
+    assert sess.mode == MODE_PLAY and isinstance(sess.policy, Ego2sServingPolicy)
+    for _ in range(20):
+        sess.step()
+
+
+def test_bv8_served_rows_are_the_driven_snakes_with_live_v8_features(bv8_ckpt):
+    """Only the snakes the policy drives are featurized; their rows equal a direct featurize
+    with the live v8 source (the 30 v8 scalars included)."""
+    from src.game.ai_snake import AISnake
+    from src.simd_env.ego_live_adapter import game_state_to_ego_view
+    from src.simd_env.ego_live_bv8 import game_state_to_v8_source
+    from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
+
+    sess = GameSession(checkpoint=bv8_ckpt)
+    for _ in range(5):
+        sess.step()
+    pol = sess.policy
+    pol._invalidate()
+    pol.prepare_frame()
+    snakes = sess.game.snakes
+    driven = [
+        i
+        for i, s in enumerate(snakes)
+        if isinstance(s, AISnake) and s.is_alive and getattr(s, "policy", None) is pol
+    ]
+    assert driven and list(pol._obs["rows"]) == driven
+    view = game_state_to_ego_view(sess.game)
+    rows = np.array([[0, i] for i in driven])
+    obs = build_ego_raster(
+        view,
+        EgoRasterConfig(version="bv8"),
+        backend="numpy",
+        rows=rows,
+        v8_source=game_state_to_v8_source(sess.game),
+    )
+    assert obs["scalars"].shape == (len(driven), 60)
+    assert np.array_equal(obs["scalars"], pol._obs["scalars"])
+    with torch.no_grad():
+        q = pol.net(
+            *[
+                torch.from_numpy(np.ascontiguousarray(obs[k]))
+                for k in ("local", "global", "scalars")
+            ]
+        )
+    for i, s in enumerate(driven):
+        np.testing.assert_allclose(pol.q_for(snakes[s].id), q[i].numpy(), rtol=1e-5)

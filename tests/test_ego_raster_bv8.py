@@ -61,9 +61,13 @@ def drive(frames: int, seed: int, visit, worlds: int = 8, grow_to: int = 1200):
 
 
 # ----------------------------------------------------------------------------- contract
-def test_obs_spec_registered_but_not_served():
+def test_obs_spec_registered_and_served():
+    from src.model.obs_spec import EGO2S_SIMD_ONLY_SPECS
+
     assert OBS_SHAPES[EGO2S_BV8] == (7, 60)
-    assert EGO2S_BV8 not in EGO2S_OBS_SPECS and EGO2S_BV8 not in KNOWN_OBS_SPECS
+    # served live since the live v8 source (tests/test_ego_live_bv8.py, P2)
+    assert EGO2S_BV8 in EGO2S_OBS_SPECS and EGO2S_BV8 in KNOWN_OBS_SPECS
+    assert EGO2S_BV8 not in EGO2S_SIMD_ONLY_SPECS
     from src.simd_env.ego2s_policy import ego_config_for
 
     assert spec_for(Ego2sNet(7, 60)) == EGO2S_BV8

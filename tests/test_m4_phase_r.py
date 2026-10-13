@@ -117,7 +117,7 @@ def test_ratification_line(tmp_path):
     assert pr.ratified(pr.PREREG)  # ratified 2026-10-13
 
 
-def test_obs_spec_binding_and_bv8_p2_rule(tmp_path):
+def test_obs_spec_binding_and_bv8_p2_rule(tmp_path, monkeypatch):
     import torch
 
     paths = {}
@@ -125,10 +125,19 @@ def test_obs_spec_binding_and_bv8_p2_rule(tmp_path):
         paths[s] = tmp_path / f"s{s}.pth"
         torch.save({"obs_spec": spec}, paths[s])
     assert pr.candidate_obs_spec(paths) == "ego2s-bv8"
-    with pytest.raises(SystemExit, match="no live path"):
+    # bv8 is served live: without the flag it needs the ordinary P2 evidence (none here)
+    assert pr.bv8_live()
+    monkeypatch.setattr(pr, "P2_DIR", tmp_path / "no-p2")
+    monkeypatch.setattr(pr.base, "P2_DIR", tmp_path / "no-p2")
+    with pytest.raises(SystemExit, match="P2 evidence missing"):
         pr.p2_for("nv", paths, "ego2s-bv8", bv8_simd_only=False)
     rec = pr.p2_for("v8", paths, "ego2s-bv8", bv8_simd_only=True)
-    assert rec["status"] == "not_applicable"
+    assert rec["status"] == "not_applicable" and rec["bv8_live_path"] is True
+    # a build without the live path still refuses a bv8 plan without the flag
+    monkeypatch.setattr(pr, "bv8_live", lambda: False)
+    with pytest.raises(SystemExit, match="no live path"):
+        pr.p2_for("nv", paths, "ego2s-bv8", bv8_simd_only=False)
+    assert pr.p2_for("nv", paths, "ego2s-bv8", bv8_simd_only=True)["bv8_live_path"] is False
     with pytest.raises(SystemExit):
         pr.p2_for("nv", paths, "ego2s-b", bv8_simd_only=True)
     torch.save({"obs_spec": "ego2s-b"}, paths[1])

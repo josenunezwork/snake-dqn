@@ -18,10 +18,11 @@ engine, profiles, records, look logic -- is M3-C's code, byte for byte.
 
 ``plan`` is this module's own (M3-C's plus): the candidates' observation version comes from
 the checkpoint (``obs_spec`` key: ``ego2s-b`` or ``ego2s-bv8``; all three seeds must agree) and
-is bound into ``plan.json``. ``ego2s-bv8`` has NO live path (``EGO2S_SIMD_ONLY_SPECS``), so its
-P2 (grid == live) cannot run, let alone pass: a real bv8 plan refuses unless
-``--bv8-simd-only`` is given (owner decision, PREREGISTRATION_M4 section 6), which records
-"P2 not applicable" in the plan. The SIMD Phase R itself plays bv8 (the hero's featurizer
+is bound into ``plan.json``. ``ego2s-bv8`` is served live since 2026-10-13
+(``src/simd_env/ego_live_bv8.py``), so a bv8 plan takes the same P2 evidence as ego2s-b
+(``p2_noveto`` / ``p2_noveto_h10000`` per seed in ``P2_DIR``). ``--bv8-simd-only`` (owner
+decision, PREREGISTRATION_M4 section 6) still records "P2 not applicable" instead; on a build
+without the live path it is required. The SIMD Phase R itself plays bv8 (the hero's featurizer
 version is read from the network, ``ego_config_for``).
 
   ./venv/bin/python research/redesign_m4_20261013/phase_r_m4.py plan --study nv \\
@@ -143,20 +144,37 @@ def candidate_obs_spec(candidates: Mapping[int, Path]) -> str:
     return spec
 
 
+def bv8_live() -> bool:
+    """Whether this build serves ``ego2s-bv8`` live (``src/simd_env/ego_live_bv8.py``)."""
+    from src.model.obs_spec import EGO2S_OBS_SPECS, EGO2S_SIMD_ONLY_SPECS
+
+    return EGO2S_BV8 in EGO2S_OBS_SPECS and EGO2S_BV8 not in EGO2S_SIMD_ONLY_SPECS
+
+
 def p2_for(key: str, candidates: Mapping[int, Path], obs_spec: str, bv8_simd_only: bool):
-    """P2 evidence (M3-C's checks, M4's directory), or the recorded bv8 exception."""
-    if obs_spec == EGO2S_BV8:
-        if not bv8_simd_only:
-            raise SystemExit(
-                "refusing: ego2s-bv8 has no live path, so P2 (grid == live) cannot pass; "
-                "a SIMD-only Phase R needs --bv8-simd-only (PREREGISTRATION_M4 section 6)"
-            )
+    """P2 evidence (M3-C's checks, M4's directory), or the recorded bv8 SIMD-only exception.
+
+    A bv8 candidate takes the same P2 evidence as ego2s-b once the build serves bv8 live;
+    ``--bv8-simd-only`` still records the owner's SIMD-only exception instead."""
+    if obs_spec == EGO2S_BV8 and bv8_simd_only:
+        live = bv8_live()
         return {
             "status": "not_applicable",
-            "reason": "ego2s-bv8 is SIMD-only (src/model/obs_spec.py EGO2S_SIMD_ONLY_SPECS); "
-            "no live serving / tournament path, so grid == live parity cannot be checked",
+            "reason": (
+                "--bv8-simd-only: P2 (grid == live) not run for this plan (owner decision, "
+                "PREREGISTRATION_M4 section 6)"
+                if live
+                else "ego2s-bv8 is SIMD-only (src/model/obs_spec.py EGO2S_SIMD_ONLY_SPECS); "
+                "no live serving / tournament path, so grid == live parity cannot be checked"
+            ),
+            "bv8_live_path": live,
             "consequence": "Tier-1 SIMD evidence only; live bv8 serving + P2 before LH-1",
         }
+    if obs_spec == EGO2S_BV8 and not bv8_live():
+        raise SystemExit(
+            "refusing: ego2s-bv8 has no live path, so P2 (grid == live) cannot pass; "
+            "a SIMD-only Phase R needs --bv8-simd-only (PREREGISTRATION_M4 section 6)"
+        )
     if bv8_simd_only:
         raise SystemExit("refusing: --bv8-simd-only given for a non-bv8 candidate")
     return base.p2_evidence(key, candidates)
@@ -236,7 +254,7 @@ def main(argv=None) -> int:
     p.add_argument(
         "--bv8-simd-only",
         action="store_true",
-        help="ego2s-bv8 candidates: run without P2 (no live path); recorded in plan.json",
+        help="ego2s-bv8 candidates: run without P2 (SIMD-only); recorded in plan.json",
     )
     q = sub.add_parser("look")
     q.add_argument("--root", type=Path, required=True)
