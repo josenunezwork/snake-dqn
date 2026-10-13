@@ -1,0 +1,143 @@
+{
+  "created_at": "2026-10-09T20:21:19.735739+00:00",
+  "experiment_status": "CLOSED",
+  "primary_status": "NOT_ENTERED",
+  "secondary_status": "NOT_ENTERED",
+  "source_worktree": "/Users/josenunez/.codex/worktrees/m3c/snake-dqn",
+  "source_commit": "62804c013afedb8ea565f8f0b8c845673e354256",
+  "preregistration_sha256": "ed003cc9804d86513b7b007e044d8c4fbafa5a3d079142375cb0bbe5e2a37ce8",
+  "recovery_plan_sha256": "0057c39e9c5e72c8ca0ea5f7bb9d63f02cfb828bcbd95909cc82c5447ebdcd7e",
+  "selection": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-probes-20261008-recovery/selection-final.json",
+    "sha256": "e5aba47503f779e8c8b0033a894c0c106b2f1d56f69316fae7f09779a3e95d6f",
+    "primary": {
+      "arm": "L",
+      "score": 184.59038583333333,
+      "incumbent_v8": 434.92648125,
+      "delta": -250.33609541666667,
+      "survival": {
+        "frozen": 0.0375,
+        "scripted": 0.00625,
+        "mixed": 0.10625
+      },
+      "incumbent_survival": {
+        "frozen": 0.625,
+        "scripted": 0.65625,
+        "mixed": 0.75
+      },
+      "score_ok": false,
+      "survival_ok": false,
+      "seeds_used": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "enter": false
+    },
+    "secondary": {
+      "arm": "B",
+      "score": 447.7264683333334,
+      "incumbent_v8": 434.92648125,
+      "delta": 12.799987083333406,
+      "survival": {
+        "frozen": 0.60625,
+        "scripted": 0.55625,
+        "mixed": 0.7375
+      },
+      "incumbent_survival": {
+        "frozen": 0.625,
+        "scripted": 0.65625,
+        "mixed": 0.75
+      },
+      "score_ok": false,
+      "survival_ok": true,
+      "seeds_used": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "enter": false
+    },
+    "common_seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "audit": {
+    "training_runs": 15,
+    "transitions_each": 20000000,
+    "final_probe_files": 30,
+    "final_probe_rows": 90,
+    "worlds_per_mix": 32,
+    "mixes": 3,
+    "intermediate_probe_files": 45,
+    "completed_probe_jobs": 225,
+    "failed_probe_jobs": 0,
+    "checkpoint_identity_modes_world_keys": "PASS",
+    "independent_probe_verifier": "PASS",
+    "independent_selection_recomputation": "PASS; every score/survival/entry/contrast matches within1e-12"
+  },
+  "cleanup": {
+    "pod_id": "nhsxpzpn666h1x",
+    "fresh_provider_listing": [],
+    "recovery_pod_absent": true,
+    "all_recorded_processes_exited": true,
+    "process_snapshot": "  PID ELAPSED  %CPU STAT\n",
+    "stop_marker": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-recovery/PROBES_STOP"
+  },
+  "cost": {
+    "estimated_usd": 5.46183201892972,
+    "attempt_cap_usd": 8.3,
+    "basis": "runner elapsed lifetime at $0.89/hour, not final provider invoice"
+  },
+  "final_probe_hashes": {
+    "A_s0__final__none.jsonl": "7f9cdff758d04558c6a8c17e68888d6908c1c7a6b0f58eb8635824af0ff31fed",
+    "A_s0__final__v8.jsonl": "6d4f9f3f6b5ebd06aab2ca8a97f5e813c645d08b378b99eb957b40de28a32a77",
+    "A_s1__final__none.jsonl": "61990f3de8f0e7667c1c5343e66348f77a5fa2e712c25eaad9acaeaa61f1fab8",
+    "A_s1__final__v8.jsonl": "795c4461e2103a3ca243ea05db3ba85982238fc9ceae3b8903f79aeab6729703",
+    "A_s2__final__none.jsonl": "540344aceb724da98425955f2a5ba557c7fd4ceb1d51af5dc1cbbff7c7c6e546",
+    "A_s2__final__v8.jsonl": "426c6a99d7fd853c98b8421d29e12cc776227cf65a8a23658a0df17a41551306",
+    "A_s3__final__none.jsonl": "82c2ab660d73b438a583143b24f99a660d57622643af467283d7ccbad6124b37",
+    "A_s3__final__v8.jsonl": "74d72d5c640866fabdcb75435368198450fc14fc0c70b6cd21813c451863fdb5",
+    "A_s4__final__none.jsonl": "cb68e4a26118cabd1cccac770804ca96a6003303a62ee9c4c0553389f061d6eb",
+    "A_s4__final__v8.jsonl": "e1b3aa24d7e8c16bb739e3dfc6c852f1bea872587e5967984b9e0550daaf2d1a",
+    "B_s0__final__none.jsonl": "1a41145370c85401013d2fdd6a1fe0758b5d9008ec53f97854817c2c2a5dd798",
+    "B_s0__final__v8.jsonl": "8a944ddecfa3212edb35650db525ff7f48ce1449c33fbf7a28130b90f4ffaf53",
+    "B_s1__final__none.jsonl": "9b7c864fcfd865682b52c445de639ec3e9e325de8fc86a0dc5764416e0ee3d36",
+    "B_s1__final__v8.jsonl": "02ec20a8c3d6d72c74e8798ccea5647958106da9cab7276dd716500292e716a5",
+    "B_s2__final__none.jsonl": "ea2c3eade050898ae8f1484a082a24ad3f8f351024154eac61ab1087a33f1a6d",
+    "B_s2__final__v8.jsonl": "d049d1dedf720044e5e9390663b6b50f17d2d7ae8bd7547ee65503092284036e",
+    "B_s3__final__none.jsonl": "7587fa9a9bdeb5116a5927a6f01b4917d6384bff5a98441437ab6a43cd26bfc6",
+    "B_s3__final__v8.jsonl": "b800a75d6eaeb5035da08c8ffc6d211ccf46bd19181b0df0450cd7b8eac7f9ea",
+    "B_s4__final__none.jsonl": "df6abe1766e2a6199b601f962f5ad669868b5a121475d5886862ad33c800e4ad",
+    "B_s4__final__v8.jsonl": "9e387d147e164f7828dc1eca864e989e81f9ea9116acc6e33b8ce80d79269b26",
+    "L_s0__final__none.jsonl": "026d8c4774a1f98b1d50e4df019b632c3d9b882434d3c99d1b1f80258f1b7b4b",
+    "L_s0__final__v8.jsonl": "47d9f3a613ab3667ae6541f9121f07d0fc0a8460eba31ae1a2f38c4be3f0019b",
+    "L_s1__final__none.jsonl": "7fa25fcb2662b53776a725f0822f10c8a62fd041a36e6e2522900d2084eb596c",
+    "L_s1__final__v8.jsonl": "1eb7f5844890527602c78b4dc945b12e6d46ed6ffd7c037dbe710c2a9ecfb1c0",
+    "L_s2__final__none.jsonl": "94607d7ca3a92228f89b31ae61ef4ff4aace6eeabaadcb10bb00eaf2f08dce7b",
+    "L_s2__final__v8.jsonl": "97ce18a0f2e783387c53b3c2a2cbb8a2ebee87fed7f1646c01c04b2e64581c34",
+    "L_s3__final__none.jsonl": "3ae591a3ba84ac17561ab2d2d8be4453309c30126bc34897a99d4a7ccb3bfa58",
+    "L_s3__final__v8.jsonl": "3c4bbb501b053fc423982e07b002d4288c32c4fab5d8621db6197b3571d9f601",
+    "L_s4__final__none.jsonl": "88ce97efebde31f7c955dd8aa76cdff12d71b1f21c63c2e0d9ba042c5cd0f627",
+    "L_s4__final__v8.jsonl": "5fc8c3ff6b5a358060ca48aa6ec8c7bec944cb9d850eae69d1eeb12efbbf8047"
+  },
+  "baseline_probe_sha256": "ecd1a6678cdd4fc91a979f8b2c731ec9d171086a5af68cc2f37ea07b600a9317",
+  "watch_log_sha256": "22ffdefdb41b88d8474306eeea85d5b69178bdc865d6edf3c9ecbb7a49cea76b",
+  "next_mac_evaluation": {
+    "status": "NO_ENTERING_CANDIDATE",
+    "p2_required_now": false,
+    "phase_r_may_launch": false,
+    "reason": "PREREGISTRATION sections6-9 and phase_r_m3c check_selection require entry; both paths have enter=false",
+    "later_design": "M3-D design from completed arm contrasts and diagnostics; no new experiment authorized or launched"
+  },
+  "promotion": "NONE",
+  "monitor_disposition": "Pause after saving this closeout; scheduling state is recorded separately"
+}

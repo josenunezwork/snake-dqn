@@ -1,0 +1,90 @@
+{
+  "observed_at": "2026-10-09T12:34:59.727719+00:00",
+  "status": "DESCRIPTIVE_NO_VETO_COMPLETE; formal selection waits for v8 probes",
+  "worlds_per_mix": 32,
+  "mixes": [
+    "frozen",
+    "mixed",
+    "scripted"
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "incumbent_v8": 434.92648125,
+  "registered_no_veto_score_bar": 384.92648125,
+  "arms": {
+    "A": {
+      "per_seed": [
+        163.805875,
+        167.02319583333332,
+        197.10592291666666,
+        196.0509,
+        162.98730208333333
+      ],
+      "mean": 177.39463916666665,
+      "delta_vs_incumbent_v8": -257.53184208333334,
+      "score_bar_met": false,
+      "survival": {
+        "scripted": 0.0125,
+        "mixed": 0.0875,
+        "frozen": 0.04375
+      }
+    },
+    "B": {
+      "per_seed": [
+        182.59325833333332,
+        168.83193125,
+        196.47809583333333,
+        187.97428958333333,
+        128.79887708333334
+      ],
+      "mean": 172.93529041666667,
+      "delta_vs_incumbent_v8": -261.99119083333335,
+      "score_bar_met": false,
+      "survival": {
+        "scripted": 0.03125,
+        "mixed": 0.08125,
+        "frozen": 0.04375
+      }
+    },
+    "L": {
+      "per_seed": [
+        198.75823958333334,
+        166.365525,
+        208.25401250000002,
+        168.8192875,
+        180.75486458333333
+      ],
+      "mean": 184.59038583333333,
+      "delta_vs_incumbent_v8": -250.33609541666667,
+      "score_bar_met": false,
+      "survival": {
+        "scripted": 0.00625,
+        "mixed": 0.10625,
+        "frozen": 0.0375
+      }
+    }
+  },
+  "probe_file_sha256": {
+    "A_s0__final__none.jsonl": "7f9cdff758d04558c6a8c17e68888d6908c1c7a6b0f58eb8635824af0ff31fed",
+    "A_s1__final__none.jsonl": "61990f3de8f0e7667c1c5343e66348f77a5fa2e712c25eaad9acaeaa61f1fab8",
+    "A_s2__final__none.jsonl": "540344aceb724da98425955f2a5ba557c7fd4ceb1d51af5dc1cbbff7c7c6e546",
+    "A_s3__final__none.jsonl": "82c2ab660d73b438a583143b24f99a660d57622643af467283d7ccbad6124b37",
+    "A_s4__final__none.jsonl": "cb68e4a26118cabd1cccac770804ca96a6003303a62ee9c4c0553389f061d6eb",
+    "B_s0__final__none.jsonl": "1a41145370c85401013d2fdd6a1fe0758b5d9008ec53f97854817c2c2a5dd798",
+    "B_s1__final__none.jsonl": "9b7c864fcfd865682b52c445de639ec3e9e325de8fc86a0dc5764416e0ee3d36",
+    "B_s2__final__none.jsonl": "ea2c3eade050898ae8f1484a082a24ad3f8f351024154eac61ab1087a33f1a6d",
+    "B_s3__final__none.jsonl": "7587fa9a9bdeb5116a5927a6f01b4917d6384bff5a98441437ab6a43cd26bfc6",
+    "B_s4__final__none.jsonl": "df6abe1766e2a6199b601f962f5ad669868b5a121475d5886862ad33c800e4ad",
+    "L_s0__final__none.jsonl": "026d8c4774a1f98b1d50e4df019b632c3d9b882434d3c99d1b1f80258f1b7b4b",
+    "L_s1__final__none.jsonl": "7fa25fcb2662b53776a725f0822f10c8a62fd041a36e6e2522900d2084eb596c",
+    "L_s2__final__none.jsonl": "94607d7ca3a92228f89b31ae61ef4ff4aace6eeabaadcb10bb00eaf2f08dce7b",
+    "L_s3__final__none.jsonl": "3ae591a3ba84ac17561ab2d2d8be4453309c30126bc34897a99d4a7ccb3bfa58",
+    "L_s4__final__none.jsonl": "88ce97efebde31f7c955dd8aa76cdff12d71b1f21c63c2e0d9ba042c5cd0f627"
+  },
+  "process_snapshot": "  PID  ELAPSED  %CPU STAT\n33436 06:32:37   0.0 Ss  \n"
+}

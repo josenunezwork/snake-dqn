@@ -1,0 +1,91 @@
+{
+  "recorded_at": "2026-10-09T07:50:35.246897+00:00",
+  "status": "DESCRIPTIVE_ONLY",
+  "checkpoint_and_probe_identity_checks": "PASS",
+  "paired_world_key_checks": "PASS",
+  "worlds_per_mix": 16,
+  "mixes": 3,
+  "runs": [
+    {
+      "run": "A_s0",
+      "arm": "A",
+      "seed": 0,
+      "mean_5M": 129.26744583333334,
+      "mean_10M": 152.91527083333332,
+      "delta": 23.647824999999983
+    },
+    {
+      "run": "A_s1",
+      "arm": "A",
+      "seed": 1,
+      "mean_5M": 190.62652916666664,
+      "mean_10M": 189.11330833333332,
+      "delta": -1.513220833333321
+    },
+    {
+      "run": "B_s0",
+      "arm": "B",
+      "seed": 0,
+      "mean_5M": 177.03333750000002,
+      "mean_10M": 223.98935833333334,
+      "delta": 46.956020833333326
+    },
+    {
+      "run": "B_s1",
+      "arm": "B",
+      "seed": 1,
+      "mean_5M": 126.70834583333334,
+      "mean_10M": 200.11214166666664,
+      "delta": 73.4037958333333
+    },
+    {
+      "run": "L_s0",
+      "arm": "L",
+      "seed": 0,
+      "mean_5M": 150.16695,
+      "mean_10M": 142.64727916666666,
+      "delta": -7.51967083333335
+    },
+    {
+      "run": "L_s1",
+      "arm": "L",
+      "seed": 1,
+      "mean_5M": 129.58066250000002,
+      "mean_10M": 116.37432083333334,
+      "delta": -13.206341666666674
+    }
+  ],
+  "arms": [
+    {
+      "arm": "A",
+      "seeds": [
+        0,
+        1
+      ],
+      "mean_5M": 159.94698749999998,
+      "mean_10M": 171.01428958333332,
+      "delta": 11.067302083333331
+    },
+    {
+      "arm": "B",
+      "seeds": [
+        0,
+        1
+      ],
+      "mean_5M": 151.87084166666668,
+      "mean_10M": 212.05075,
+      "delta": 60.179908333333316
+    },
+    {
+      "arm": "L",
+      "seeds": [
+        0,
+        1
+      ],
+      "mean_5M": 139.87380625000003,
+      "mean_10M": 129.51080000000002,
+      "delta": -10.363006250000012
+    }
+  ],
+  "limitations": "Only seeds 0 and 1 at 10M; neither arm selection nor promotion evidence. Await registered 20M finals and all five seeds."
+}
