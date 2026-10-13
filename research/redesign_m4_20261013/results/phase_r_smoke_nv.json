@@ -1,0 +1,35 @@
+{
+ "root": "/private/tmp/m4_phase_r_smoke_nv",
+ "study": "redesign-m4-phase-r-nv-SMOKE",
+ "namespace": "redesign-m4-phase-r-smoke/v1 (N=4, look 0 = 2 worlds per seed x mix)",
+ "commit": "6afd249",
+ "plan_sha256": "3d4d9a682ed60c102d6b80bbc49517f69f26b21b7277a5a10052559067bf323c",
+ "stand_in_candidates": "M4-A C_s0 ckpt_5000k.pth (sha 948cffb8...) as seeds 0, 1, 2 (ego2s-b)",
+ "procs": 2,
+ "wall_minutes": 11.0,
+ "unit_hours": 0.34,
+ "look0": {"status": "KILL_V4", "action": "STOP", "valid": true},
+ "prefix_controls": true,
+ "n_controls": 21,
+ "records": {
+  "M4-selected-noveto|nested|None|advisory|10000": 18,
+  "M4-selected-noveto|control|None|advisory|5000": 9,
+  "incumbent|nested|v8|None|10000": 18,
+  "incumbent|control|v8|None|5000": 9,
+  "champion|nested|v8|None|10000": 6,
+  "champion|control|v8|None|5000": 3,
+  "M2b-student|nested|None|advisory|10000": 6
+ },
+ "seconds_per_world": {
+  "candidate_nested": 16.3,
+  "candidate_control": 10.4,
+  "incumbent_nested": 25.2,
+  "incumbent_control": 13.8,
+  "champion_nested": 23.3,
+  "champion_control": 10.1,
+  "m2b_nested": 12.9
+ },
+ "record_schema": "redesign-m4-phase-r-record/v1",
+ "audit_verdict": "PASS",
+ "note": "dev only: 2 worlds per cell and a 5M stand-in; the KILL_V4 says nothing about M4"
+}

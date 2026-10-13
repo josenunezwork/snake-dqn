@@ -180,7 +180,16 @@ owner may instead require more seeds before ratifying.
 
 ## 10. Harness smoke (DRAFT evidence, not a decision)
 
-SMOKE_PLACEHOLDER
+2026-10-12/13, commit `6afd249`, `results/phase_r_smoke_nv.json`: `phase_r_m4.py plan --study
+nv --smoke` (bank `redesign-m4-phase-r-smoke/v1`, N = 4) with M4-A C_s0 `ckpt_5000k.pth`
+(ego2s-b) standing in for all 3 seeds, then look 0 on 2 slots: 45 units, 69 records (schema
+`redesign-m4-phase-r-record/v1`; candidate and M2b control without a veto and with the advisory
+mask; incumbent and champion with v8), prefix controls 21 / 21 identical, decision KILL_V4
+(dev only: 2 worlds per cell and a 5M stand-in), `python -I` audit **PASS**. Wall 11 min for
+0.34 unit-h. Measured s / world (H10000): candidate 16.3, incumbent 25.2, champion 23.3, M2b
+12.9; H5000 controls 10.1–13.8. With these, the nv study is ≈ 1.5 unit-h per look, 4.4 to the
+final look: ≈ 2.4 h on 2 slots, ≈ 1.5 h on 3 (final-checkpoint students that live longer cost
+more; section 5's range).
 
 ## 11. Pinned code
 
