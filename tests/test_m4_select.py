@@ -5,7 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 
+import pytest
+
 from research.redesign_m4_20261013 import m4_select as sel
+from research.redesign_m4_20261013 import rule_spec_m4 as rs
+
+
+def test_selection_seeds_are_the_phase_r_seeds():
+    assert tuple(sel.SEEDS) == tuple(rs.TRAINING_SEEDS) == (0, 1, 2, 3, 4)
+
+
+@pytest.fixture(autouse=True)
+def _three_seed_fixtures(monkeypatch, request):
+    """The synthetic-data logic tests below were written for three seeds; the rule logic does
+    not depend on the count (the real seed list is pinned by the test above)."""
+    if request.node.name != "test_selection_seeds_are_the_phase_r_seeds":
+        monkeypatch.setattr(sel, "SEEDS", (0, 1, 2))
+
 
 N_WORLDS = 32
 

@@ -190,3 +190,11 @@ no Phase R for B8; (4) 2 slots.
 
 **RATIFIED 2026-10-13** under the standing decision authority above. Selection runs only after
 all five C finals are probed; nothing in this file changes after the selection is computed.
+
+## 13. Deviations (recorded after ratification)
+
+* **2026-10-13, before any Phase R shard:** the first `m4_select.py` run used a leftover
+  `SEEDS = (0, 1, 2)` from the 3-seed draft (contradicting section 2's five seeds and
+  `rule_spec_m4.TRAINING_SEEDS`). Fixed to `rule_spec_m4.TRAINING_SEEDS`; the selection was
+  re-run on all five seeds. No rule, threshold or probe changed. The 3-seed output is kept as
+  `selection-3seed-bug.json` for the record.

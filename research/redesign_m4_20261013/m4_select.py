@@ -61,9 +61,10 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from research.redesign_m3c_20261008 import m3c_select as base  # noqa: E402
+from research.redesign_m4_20261013 import rule_spec_m4 as rs  # noqa: E402
 
 MIXES = base.MIXES
-SEEDS = (0, 1, 2)
+SEEDS = rs.TRAINING_SEEDS  # the Phase R seeds (five; PREREGISTRATION_M4.md section 2)
 ARMS = ("C", "D", "S", "B8")
 G = base.G
 SECONDARY_MARGIN = base.SECONDARY_MARGIN
