@@ -14,10 +14,10 @@ from research.redesign_scope_20261007 import grid_h5000_identity as gid
 from research.sequential_phase_r.example_rules import frp_v4_like
 from src.evaluation.sequential_phase_r import _sha
 
-PRIMARY_RULE_SHA256 = "67dfe274de90858e4e0cd8d2e3b9bd6e81873bae919e7c838a513a6aeaedf08c"
-SECONDARY_RULE_SHA256 = "e842a5237f756d17780aaa899e41c4dde80e4a0314df5728b03d6816cae86fe8"
-PRIMARY_PLAN_SHA256 = "c8f3595f029d11c91ccbddf69087ca2cc32bb41544a02610df7a411f4da7c36a"
-SECONDARY_PLAN_SHA256 = "c4d8095d3e358b8703c32b713abd9e3899318af54938e1bcc58ef058ee907a39"
+PRIMARY_RULE_SHA256 = "f614b80639e1b9b29f32a08ad38426e8b87644d5720cfe54a89d943a66f5e6b4"
+SECONDARY_RULE_SHA256 = "e53691a6907e37294f9b720e7959d3e13650539f1501dd0a78d36bf92f865c46"
+PRIMARY_PLAN_SHA256 = "72097708d03e81b4d4b56bc2ea013df4736b9b9f6c0c727ef2a1bb938f6f42d2"
+SECONDARY_PLAN_SHA256 = "85d20b3a67de87ad24fbeca9cd4c2f3fe9888e14c5bb2e6fab30c6a53d22b5ea"
 M3_TRAIN = "redesign-m3-train/v1"  # M3, M3-C and M4-A training worlds (keys seed0..)
 M3_PHASE_R = "redesign-m3-phase-r/v1"
 M4_SMOKE = "redesign-m4-phase-r-smoke/v1"
@@ -47,35 +47,23 @@ def test_rules_match_the_draft():
         (rs.secondary_rule(), rs.secondary_plan(), rs.HERO_V8),
     ):
         assert plan.n_worlds == 32 and plan.look_sizes == (11, 22, 32)
-        assert rule["seeds"] == [0, 1, 2]
+        assert rule["seeds"] == [0, 1, 2, 3, 4]
         assert rule["no_go"]["all_of"][0]["upper_below"] == 50.0
         assert rule["kill"]["all_of"][0]["upper_below"] == 20.0
         assert rule["cells"]["primary"] == {
             "hero": hero,
             "baseline": "incumbent",
-            "seeds": [0, 1, 2],
+            "seeds": [0, 1, 2, 3, 4],
         }
         assert rule["cells"]["guard"] == {"hero": hero, "baseline": "champion", "seeds": [0]}
         names = {c["name"] for c in rule["go_clauses"]}
         assert {"c5_mi10", "c3_frozen_survival", "c2_scripted_survival"} <= names
         c4 = [c for c in rule["go_clauses"] if c["name"] == "c4_positive_seeds"]
-        assert c4 == [
-            {
-                "name": "c4_positive_seeds",
-                "kind": "positive_seeds",
-                "cell": "primary",
-                "metric": "mi5",
-                "min": 3,
-            }
-        ]
-        # the ONLY departure from frp_v4_like is clause (4)'s count (6 there: unreachable)
+        assert [c["min"] for c in c4] == [4]  # frp_v4_like's 4 of 5
+        # no departure from frp_v4_like at its native five seeds
         base = frp_v4_like(
-            seeds=(0, 1, 2), hero=hero, cap=600, no_go=50.0, study_id=rule["study_id"]
+            seeds=(0, 1, 2, 3, 4), hero=hero, cap=600, no_go=50.0, study_id=rule["study_id"]
         )
-        assert [c for c in base["go_clauses"] if c["name"] == "c4_positive_seeds"][0]["min"] == 6
-        for c in base["go_clauses"]:
-            if c["name"] == "c4_positive_seeds":
-                c["min"] = 3
         assert base == rule
     assert rs.primary_rule()["study_id"] != rs.secondary_rule()["study_id"]
     assert rs.PRIMARY_ID not in (rule_spec_m3c.PRIMARY_ID, rule_spec_m3c.SECONDARY_ID)
@@ -104,7 +92,7 @@ def test_phase_r_banks_are_fresh_and_disjoint():
         for study, ns in rs.BANK_NS.items():
             banks[study] |= set(dev_screen.screen_seeds(rs.N_WORLDS, ns, f"seed{s}"))
     nv, v8 = banks[rs.PRIMARY_ID], banks[rs.SECONDARY_ID]
-    assert len(nv) == len(v8) == 96
+    assert len(nv) == len(v8) == 160
     for bank in (nv, v8):
         assert not bank & used and not bank & train and not bank & earlier_banks
         assert not bank & smoke

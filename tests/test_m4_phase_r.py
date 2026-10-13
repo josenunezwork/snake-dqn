@@ -27,12 +27,12 @@ def test_base_copy_is_rebound_and_m3c_is_untouched():
     assert m3c.SCHEMA == "redesign-m3c-phase-r-record/v1"
     assert Path(m3c.__file__).name == "phase_r_m3c.py"
     assert pr.heroes("nv") == [
-        {"hero": rs.HERO_NV, "seeds": [0, 1, 2], "tier": 1},
-        {"hero": "incumbent", "seeds": [0, 1, 2], "tier": 1},
+        {"hero": rs.HERO_NV, "seeds": [0, 1, 2, 3, 4], "tier": 1},
+        {"hero": "incumbent", "seeds": [0, 1, 2, 3, 4], "tier": 1},
         {"hero": "champion", "seeds": [0], "tier": 1},
         {"hero": "M2b-student", "seeds": [0], "tier": 2},
     ]
-    assert pr.base.make_banks(4, pr.SMOKE_NS).keys() == {0, 1, 2}
+    assert pr.base.make_banks(4, pr.SMOKE_NS).keys() == {0, 1, 2, 3, 4}
 
 
 def test_hero_calls(tmp_path):
@@ -45,7 +45,7 @@ def test_hero_calls(tmp_path):
         hero = pr.STUDIES[key]["hero"]
         study = {
             "study_id": pr.STUDIES[key]["id"],
-            "checkpoints": {f"{hero}|s{s}": {"path": str(ck), "sha256": sha} for s in range(3)},
+            "checkpoints": {f"{hero}|s{s}": {"path": str(ck), "sha256": sha} for s in range(5)},
         }
         spec, extra = pr.hero_call(hero, 2, ctx, study)
         assert spec == ("checkpoint", "frp3")
@@ -59,10 +59,10 @@ def test_hero_calls(tmp_path):
         pr.study_key({"study_id": "redesign-m3c-phase-r-nv"})  # an M3-C plan is not M4's
 
 
-def _selection(tmp_path, arm="C", eligible=(0, 1, 2)):
+def _selection(tmp_path, arm="C", eligible=(0, 1, 2, 3, 4)):
     runs = tmp_path / "runs"
     paths = {}
-    for s in range(3):
+    for s in range(5):
         d = runs / f"{arm}_s{s}"
         d.mkdir(parents=True, exist_ok=True)
         (d / "final.pth").write_bytes(f"{arm}{s}".encode())
@@ -78,7 +78,7 @@ def _selection(tmp_path, arm="C", eligible=(0, 1, 2)):
             arm: {
                 "eligible": list(eligible),
                 "final_sha256": {
-                    str(s): pr.sha256_file(runs / f"{arm}_s{s}" / "final.pth") for s in range(3)
+                    str(s): pr.sha256_file(runs / f"{arm}_s{s}" / "final.pth") for s in range(5)
                 },
             }
         },
@@ -88,7 +88,7 @@ def _selection(tmp_path, arm="C", eligible=(0, 1, 2)):
     return sel, cand, good
 
 
-def test_selection_check_with_three_seeds(tmp_path):
+def test_selection_check_with_five_seeds(tmp_path):
     sel, cand, good = _selection(tmp_path, "B8")
     assert pr.check_selection("nv", sel, cand)["gate"]["arm"] == "B8"
     with pytest.raises(SystemExit):
@@ -102,7 +102,7 @@ def test_selection_check_with_three_seeds(tmp_path):
     with pytest.raises(SystemExit):
         pr.check_selection("nv", sel, cand)
     data = json.loads(cand.read_text())
-    data["paths"]["3"] = data["paths"]["2"]  # M3-C's five seeds are not M4's three
+    del data["paths"]["4"]  # all five seeds are required
     cand.write_text(json.dumps(data))
     with pytest.raises(SystemExit):
         pr.load_candidates(cand)
@@ -172,7 +172,7 @@ def test_smoke_plan_binds_m4(tmp_path):
     if not ck.exists() or not pr.base.M2B.exists():
         pytest.skip("artifacts not on this machine")
     cand = tmp_path / "cand.json"
-    cand.write_text(json.dumps({"arm": "C", "paths": {str(s): str(ck) for s in range(3)}}))
+    cand.write_text(json.dumps({"arm": "C", "paths": {str(s): str(ck) for s in range(5)}}))
     root = tmp_path / "root"
     assert (
         pr.main(
@@ -185,8 +185,8 @@ def test_smoke_plan_binds_m4(tmp_path):
     assert (
         st["study_id"] == "redesign-m4-phase-r-nv-SMOKE" and st["candidate_obs_spec"] == "ego2s-b"
     )
-    assert st["namespace"] == pr.SMOKE_NS and sorted(plan["banks"]) == ["0", "1", "2"]
+    assert st["namespace"] == pr.SMOKE_NS and sorted(plan["banks"]) == ["0", "1", "2", "3", "4"]
     assert st["base_harness"]["sha256"] == pr.BASE_SHA256
     assert {h["hero"] for h in st["heroes"]} == {rs.HERO_NV, "incumbent", "champion", "M2b-student"}
     units = pr.base.units_for(root, 0)
-    assert {u["seed"] for u in units} == {0, 1, 2}
+    assert {u["seed"] for u in units} == {0, 1, 2, 3, 4}
