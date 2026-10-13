@@ -13,8 +13,8 @@
  "speed_floor": 1500.0,
  "cuda_mps": false,
  "ring_dir": "/r/rings",
- "notes": "Pod 1 (M4-A) D/S runs ran at 400-650/s (Python v8 slows with body length) and cannot reach 20M in its lifetime; this pod reruns D/S with the parity-tested numba v8 (0 mismatches / 157k rows) and adds B8 = bv8 obs (v8 features as inputs, init widened in memory, label-only anchor). Science of D/S unchanged. mac_rate 2,800/s: measured Mac (MPS learner + 2 actors, 64 worlds) S-numba 2,585/s and B8 2,592/s under probe contention, C 3,080/s uncontended; rounded up (conservative for G2). Attempt 1 (2026-10-12 22:15) G2 FAIL 1.56x ($0.74): numba path still featurized the hero in Python (vector61 runtime) and RAM fit only 6 runs. Fixed: compiled paths read the sim's advisory mask (0/57,600 mismatches vs the runtime selection; test) and skip hero featurization -> Mac S-numba 3,105/s, B8 3,096/s (C 3,080/s): mac_rate 3,100. min_ram_gb 180 / min_vcpu 32 so all 9 runs fit at ~19 GB each.",
- "max_hourly": 0.95,
+ "notes": "Pod 1 (M4-A) D/S runs ran at 400-650/s (Python v8 slows with body length) and cannot reach 20M in its lifetime; this pod reruns D/S with the parity-tested numba v8 (0 mismatches / 157k rows) and adds B8 = bv8 obs (v8 features as inputs, init widened in memory, label-only anchor). Science of D/S unchanged. mac_rate 2,800/s: measured Mac (MPS learner + 2 actors, 64 worlds) S-numba 2,585/s and B8 2,592/s under probe contention, C 3,080/s uncontended; rounded up (conservative for G2). Attempt 1 (2026-10-12 22:15) G2 FAIL 1.56x ($0.74): numba path still featurized the hero in Python (vector61 runtime) and RAM fit only 6 runs. Fixed: compiled paths read the sim's advisory mask (0/57,600 mismatches vs the runtime selection; test) and skip hero featurization -> Mac S-numba 3,105/s, B8 3,096/s (C 3,080/s): mac_rate 3,100. min_ram_gb 180 / min_vcpu 32 so all 9 runs fit at ~19 GB each. Attempt 2 (00:18 PT 10-13): no 1-GPU host with >=180 GB for 1 h ($0). Attempt 3: 2x RTX 4090 pod (gpu_count 2; RAM/vCPU minimums are pod totals), max_hourly 1.9; all runs share cuda:0 (GPU util was 12-48% on one card).",
+ "max_hourly": 1.9,
  "vram_per_run_gb": 2.5,
  "disk_per_run_gb": 12.0,
  "fill_beyond_guaranteed_vcpu": true,
@@ -306,5 +306,6 @@
     "1.0"
    ]
   }
- ]
+ ],
+ "gpu_count": 2
 }

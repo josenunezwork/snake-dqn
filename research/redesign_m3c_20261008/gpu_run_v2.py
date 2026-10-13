@@ -143,8 +143,11 @@ def validate_plan(plan: Dict[str, Any]) -> List[str]:
     if plan.get("g2_factor", 0) < 4:
         p.append("g2_factor < 4 (the per-step 4x rule)")
     mh = plan.get("max_hourly")
-    if not isinstance(mh, (int, float)) or not 0 < mh <= MAX_HOURLY:
-        p.append(f"max_hourly must be in (0, {MAX_HOURLY}]")
+    gpus = int(plan.get("gpu_count", 1))
+    if gpus not in (1, 2):
+        p.append("gpu_count must be 1 or 2")
+    if not isinstance(mh, (int, float)) or not 0 < mh <= MAX_HOURLY * max(1, gpus):
+        p.append(f"max_hourly must be in (0, {MAX_HOURLY} x gpu_count]")
     if int(plan.get("max_concurrent_cap", 0)) < 1:
         p.append("max_concurrent_cap")
     return p
@@ -166,7 +169,10 @@ def pod_body(
     until: float,
     min_ram_gb: int = 96,
     min_vcpu: int = 16,
+    gpu_count: int = 1,
 ) -> Dict[str, Any]:
+    """``min_ram_gb`` / ``min_vcpu`` are pod totals (split per GPU for the request)."""
+    gpu_count = max(1, int(gpu_count))
     blob = base64.b64encode(gzip.compress(AGENT.read_bytes(), mtime=0)).decode()
     start = (
         "mkdir -p /r && echo "
@@ -177,13 +183,13 @@ def pod_body(
         "name": name,
         "computeType": "GPU",
         "gpuTypeIds": [GPU],
-        "gpuCount": 1,
+        "gpuCount": gpu_count,
         "cloudType": "SECURE",
         "imageName": IMAGE,
         "containerDiskInGb": 120,  # code, demos (2.2 GB), file-backed rings (~7.6 GB per run)
         "volumeInGb": 0,
-        "minRAMPerGPU": int(min_ram_gb),
-        "minVCPUPerGPU": int(min_vcpu),
+        "minRAMPerGPU": -(-int(min_ram_gb) // gpu_count),
+        "minVCPUPerGPU": -(-int(min_vcpu) // gpu_count),
         "ports": [f"{PORT}/http"],
         "env": {
             "M3_TOKEN_SHA256": token_sha,
@@ -1106,6 +1112,7 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any], plan: Dict[s
         until,
         int(plan.get("min_ram_gb", 96)),
         int(plan.get("min_vcpu", 16)),
+        int(plan.get("gpu_count", 1)),
     )
     (run_dir / "pod_body.json").write_text(json.dumps(body))
     watchdog_pid = spawn_watchdog(run_dir, until, name)
@@ -1620,6 +1627,7 @@ def plan_cmd(args) -> int:
         until,
         int(plan.get("min_ram_gb", 96)),
         int(plan.get("min_vcpu", 16)),
+        int(plan.get("gpu_count", 1)),
     )
     (work / "pod_body.json").write_text(json.dumps(body))
     rp = RpClient()
