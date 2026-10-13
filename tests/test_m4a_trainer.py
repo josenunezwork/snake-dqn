@@ -83,3 +83,47 @@ def test_m4a_flags_recorded_only_when_set():
     flags = T.m3c_flags(args)
     assert flags["kill_scale"] == 0.0 and flags["shield"] == "v8"
     assert flags["anchor_mode"] == "v8margin"
+
+
+def test_hero_selection_mask_equals_vector61_runtime_selection():
+    from types import SimpleNamespace
+
+    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+
+    ctx = gid._context(1)
+    args = SimpleNamespace(
+        worlds=8,
+        seed=0,
+        frozen_frac=0.25,
+        mixed_frac=0.25,
+        namespace=T.TRAIN_NAMESPACE,
+        kill_scale=None,
+        death_value=None,
+    )
+    sim, rt, pol, groups = T.build_segment(args, ctx, 0, 0.99, hero_v61=True)
+    rng = np.random.default_rng(0)
+    checked = []
+
+    def choose(p):
+        masks, alive = p.get_resolved_action_mask(), p.get_alive()
+        acts = np.ones((sim.E, p.S), np.int64)
+        rt.prepare(p)
+        hero = np.argwhere(alive[:, :1])
+        if len(hero):
+            _, sel = rt.selection(hero)
+            assert np.array_equal(sel, T.hero_selection_mask(p, hero))
+            checked.append(len(hero))
+            m = masks[hero[:, 0], 0].copy()
+            m[~m.any(1), :3] = True
+            acts[hero[:, 0], 0] = [rng.choice(np.flatnonzero(r)) for r in m]
+        for spec, cells in groups.items():
+            live = cells[alive[cells[:, 0], cells[:, 1]]]
+            if len(live):
+                mk = masks[live[:, 0], live[:, 1]]
+                acts[live[:, 0], live[:, 1]] = pol[spec].actions(mk, p, live)
+        return acts
+
+    for _ in range(200):
+        sim.step_with_policy(choose)
+        rt.observe_step(sim)
+    assert sum(checked) > 1000
