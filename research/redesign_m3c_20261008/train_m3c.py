@@ -1339,7 +1339,6 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
     os.environ["OMP_NUM_THREADS"] = "1"
     import torch
 
-    from src.model.ego2s_network import load_ego2s_checkpoint
     from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 
     torch.set_num_threads(1)
@@ -1556,7 +1555,6 @@ def main_multi(args) -> int:
     import torch
 
     from research.redesign_m2_20261008.gen_data import guard_ok
-    from src.model.ego2s_network import load_ego2s_checkpoint
 
     if args.no_guard:
 
