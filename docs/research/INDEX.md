@@ -96,6 +96,7 @@ M1/M2 use the memory record's **2026-10-08** date rather than dates embedded in 
 | 2026-10-08 | Redesign M3 Phase R | `NO_GO_EARLY` at look 1: candidate+v8 vs frp3-s12+v8 +11.4, SE 13.7, NO_GO upper bound +40.5 < 50; verify and audit passed | `redesign-scope:research/redesign_m3_20261008/results/phase_r/look-1.json` |
 | 2026-10-08 | Standing decisions | vector61 frozen; redesign is the sole main line; goal is to beat frp3-s12+v8 without a veto; M3-C next; no spend without OK | Claude memory `standing-decisions-2026-10-08.md` record |
 | 2026-10-12 | Redesign M3-C result + M3-D diagnostics | M3-C no selection entered Phase R (best no-veto arm L 184.6 vs incumbent+v8 434.9; with v8 all arms ~435-448); M3-D ~70 diagnostics all negative/inconclusive; no promotion | `main:docs/research/m3c_m3d_learnings_2026-10-12.md` | Distilled learnings; branch archived as tag `archive/m3d-autonomous-20261010`. |
+| 2026-10-13 | M4 Phase R (B8, no veto) | `PARTIAL`: +128.7 mass vs frp3-s12 + v8 (LB +101.5, 5/5 seeds), survival vs incumbent OK on all mixes; failed only guard scripted survival vs champion_a5 + v8 (−0.156 vs −0.05); audit PASS | `main:docs/research/m4_phase_r_result_2026-10-13.md` | First no-veto learned policy to beat the served hero on mass at Tier 1; arm C (no v8 inputs) failed scripted survival at selection. |
 
 **Namespace labels are not dates.** The `20261009` suffix in `frp_v5s_20261009`,
 `frp_v5s2_20261009`, `frp-v5s-20261009` and `frp-v5s2-20261009` is a namespace label fixed
