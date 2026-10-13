@@ -1112,7 +1112,9 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any], plan: Dict[s
     ledger = SharedLedger(policy)
     run_id = f"m3c-gpu-{int(created)}"
     try:
-        ledger.register_run(run_id, "redesign-m3c-gpu", str(run_dir), args.spend_cap, os.getpid())
+        ledger.register_run(
+            run_id, plan.get("job_id", "redesign-m3c-gpu"), str(run_dir), args.spend_cap, os.getpid()
+        )
         refusal = ledger.reserve_pod(run_id, name, float(plan["max_hourly"]), until, balance0)
     except BaseException:
         stop_watchdog(watchdog_pid, run_dir)
