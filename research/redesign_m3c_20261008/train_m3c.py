@@ -45,6 +45,13 @@ Everything new is behind a flag:
   ``tests/test_perf_actor.py``; it also runs the opponents while an asynchronous hero
   forward is in flight). Benchmark: ``research/perf_actor_20261013/bench_actor.py``.
 
+* perf-learner (2026-10-13; multi-actor only; defaults = the previous update, verbatim, in
+  :mod:`research.redesign_m3c_20261008.learner_m3c`): ``--learner-fast`` (T1: pipelined
+  update, one staged upload, device-side stats, fused Adam - same math, bitwise on CPU with
+  plain Adam), ``--learner-precision fp16|bf16`` (T2: autocast, numerics change),
+  ``--batch-scale K`` / ``--lr-scale`` (T3: K x larger batches at the same replay ratio -
+  CHANGES the training dynamics). Benchmark: ``research/perf_learner_20261013``.
+
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
 calibration) and ``manifest.jsonl`` (one row per completed checkpoint with its sha256, for
@@ -993,6 +1000,10 @@ def m3c_flags(args) -> Dict[str, Any]:
         "obs_version",
         "v61_backend",
         "actor_impl",
+        "learner_fast",
+        "learner_precision",
+        "batch_scale",
+        "lr_scale",
     ):
         if getattr(args, k) != getattr(d, k):
             out[k] = getattr(args, k)
@@ -1074,6 +1085,32 @@ def build_parser() -> argparse.ArgumentParser:
         default="b",
         help="M4-B: bv8 = ego2s-b + 30 v8 feature scalars (needs an ego2s-bv8 --init)",
     )
+    # --- perf-learner options (multi-actor trainer only; see learner_m3c.py) ---
+    ap.add_argument(
+        "--learner-fast",
+        action="store_true",
+        help="T1: pipelined update, one staged upload, device-side stats, fused Adam "
+        "(same math; bitwise on CPU without fused Adam, tested)",
+    )
+    ap.add_argument(
+        "--learner-precision",
+        choices=("fp32", "fp16", "bf16"),
+        default="fp32",
+        help="T2 (needs --learner-fast): autocast forwards; fp16 adds a dynamic GradScaler",
+    )
+    ap.add_argument(
+        "--batch-scale",
+        type=int,
+        default=1,
+        help="T3 (CHANGES training dynamics): K x the batch rows, one update per K x 128 "
+        "transitions; target-sync / weight-publish intervals divided by K",
+    )
+    ap.add_argument(
+        "--lr-scale",
+        choices=("none", "linear", "sqrt"),
+        default="none",
+        help="T3: Adam lr x K (linear) or x sqrt(K) with --batch-scale K",
+    )
     ap.add_argument("--no-guard", action="store_true", help="tests only: skip the Mac guard")
     return ap
 
@@ -1115,6 +1152,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit(
             "--obs-version bv8 needs --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin"
         )
+    perf_learner = (
+        args.learner_fast
+        or args.learner_precision != "fp32"
+        or args.batch_scale != 1
+        or args.lr_scale != "none"
+    )
+    if perf_learner and not args.actors:
+        raise SystemExit("the perf-learner options need the multi-actor trainer (--actors >= 1)")
+    if perf_learner:
+        from research.redesign_m3c_20261008.learner_m3c import LearnerOpts
+
+        try:
+            LearnerOpts.from_args(args)
+        except ValueError as exc:
+            raise SystemExit(str(exc))
     if args.actors:
         return main_multi(args)
     return main_sync(args)
@@ -1807,7 +1859,10 @@ def main_multi(args) -> int:
             f"{spec_for(online)} (widen with research/redesign_m4b_20261012/widen_bv8.py)"
         )
     target = load_init(args, device).eval()
-    opt = torch.optim.Adam(online.parameters(), lr=1e-4)
+    from research.redesign_m3c_20261008.learner_m3c import Learner, LearnerOpts, make_optimizer
+
+    lopts = LearnerOpts.from_args(args)
+    opt = make_optimizer(torch, online, lopts, device)  # default: Adam(lr=1e-4), as before
     margin = json.loads((args.demo_data / "margin.json").read_text())["margin"]
     holdout = DemoStream.load(
         sorted((args.demo_data / "round-12").glob("chunk-*-part-*.npz"))[0], held_out=True
@@ -1937,101 +1992,23 @@ def main_multi(args) -> int:
     next_log, next_ckpt, next_guard = 100_000, args.checkpoint_every, 0
     published = 1  # the initial publish (weights version 2 * published)
 
-    def update(lam: float) -> None:
-        t0 = time.perf_counter()
-        idx = replay.sample(rng, 384, multi)
-        if len(idx) < 64:
-            return
-        sl, sg, ss, _ = multi.get(replay.s[idx])
-        nxt = replay.nxt[idx]
-        nl, ng, ns, nm = multi.get(np.where(nxt >= 0, nxt, replay.s[idx]))
-        # Re-check after copying: an overwrite during the gather invalidates the row.
-        ok = multi.valid(replay.s[idx]) & ((nxt < 0) | multi.valid(nxt))
-        if not ok.all():
-            st["ring_overrun_rows"] += int((~ok).sum())
-            keep = np.flatnonzero(ok)
-            idx, sl, sg, ss = idx[keep], sl[keep], sg[keep], ss[keep]
-            nl, ng, ns, nm = nl[keep], ng[keep], ns[keep], nm[keep]
-            if len(idx) < 64:
-                return
-        a = to_dev(replay.a[idx])
-        R = to_dev(replay.R[idx])
-        disc = to_dev(replay.disc[idx])
-        n_lab = 0
-        if labels is not None and labels.size >= LABEL_ANCHOR_MIN_ROWS:
-            n_lab = int(round(128 * args.label_frac))
-        if demos is None:  # bv8: label rows only (TD only until LABEL_ANCHOR_MIN_ROWS labels)
-            d = {
-                "local": np.zeros((0,) + LOCAL, dtype=np.uint8),
-                "global": np.zeros((0,) + GLOBAL, dtype=np.uint8),
-                "scalars": np.zeros((0, nscal), dtype=np.float32),
-                "a_v8": np.zeros(0, dtype=np.int64),
-                "mask_resolved": np.zeros((0, 6), dtype=bool),
-                "q_teacher": np.zeros((0, 6), dtype=np.float32),
-            }
-        else:
-            d = demos.sample(rng, 128 - n_lab)
-        if n_lab:
-            li = labels.sample(rng, n_lab, multi)
-            lids = labels.ids[li]
-            ll, lg, ls_, lm = multi.get(lids)
-            keep = np.flatnonzero(multi.valid(lids))  # re-check after the gather
-            ll, lg, ls_, lm, la = ll[keep], lg[keep], ls_[keep], lm[keep], labels.a[li][keep]
-            n_lab = len(keep)
-            d = {
-                "local": np.concatenate([d["local"], ll]),
-                "global": np.concatenate([d["global"], lg]),
-                "scalars": np.concatenate([d["scalars"], ls_]),
-                "a_v8": np.concatenate([d["a_v8"], la]),
-                "mask_resolved": np.concatenate([d["mask_resolved"], lm]),
-                "q_teacher": d["q_teacher"],  # demo rows only (unused by v8margin)
-            }
-        st["label_rows"].append(n_lab)
-        n_agent = len(idx)
-        q_all = online(
-            to_dev(np.concatenate([sl, d["local"]])),
-            to_dev(np.concatenate([sg, d["global"]])),
-            to_dev(np.concatenate([ss, d["scalars"]])),
-        )
-        q, qd = q_all[:n_agent], q_all[n_agent:]
-        qa = q.gather(1, a[:, None]).squeeze(1)
-        with torch.no_grad():
-            nlt, ngt, nst, nmt = to_dev(nl), to_dev(ng), to_dev(ns), to_dev(nm)
-            a_star = masked_argmax(online(nlt, ngt, nst), nmt)
-            q_next = target(nlt, ngt, nst).gather(1, a_star[:, None]).squeeze(1)
-            y = R + disc * q_next
-        td = torch.nn.functional.smooth_l1_loss(qa, y)
-        db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
-        has_anchor = qd.shape[0] > 0
-        if not has_anchor:  # bv8 before enough on-policy labels: TD only
-            anc = torch.zeros((), device=q.device)
-        elif args.anchor_mode == "v8margin":
-            anc = anchor_loss_margin(torch, qd, db["a_v8"], db["mask_resolved"], margin)
-        elif args.anchor_boost_weight == 1.0:
-            anc = anchor_loss(torch, qd, db, margin)
-        else:
-            anc = anchor_loss_weighted(torch, qd, db, margin, args.anchor_boost_weight)
-        loss = td + lam * anc
-        if not torch.isfinite(loss):
-            st["halt"] = "non-finite loss"
-            return
-        opt.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
-        opt.step()
-        st["updates"] += 1
-        st["td"].append(float(td.detach()))
-        if has_anchor:
-            st["anc"].append(float(anc.detach()))
-            st["anchor_updates"] += 1
-        st["qmax"] = max(st["qmax"], float(q.detach().abs().max()))
-        if st["updates"] % 1000 == 0:
-            target.load_state_dict(online.state_dict())
-            if demos is not None:
-                demos.prefetch()
-        if demos is not None:
-            demos.swap_if_ready()
-        st["learn_s"] += time.perf_counter() - t0
+    learner = Learner(
+        torch,
+        online=online,
+        target=target,
+        opt=opt,
+        replay=replay,
+        multi=multi,
+        demos=demos,
+        labels=labels,
+        rng=rng,
+        st=st,
+        args=args,
+        nscal=nscal,
+        margin=margin,
+        device=device,
+        opts=lopts,
+    )
 
     code = 0
     rr = 0
@@ -2084,10 +2061,11 @@ def main_multi(args) -> int:
             st["wait_s"] += time.perf_counter() - t_w
             progress[0] = st["transitions"]
             if replay.size >= args.warmup:
-                while st["since_update"] >= UPDATE_EVERY and st["halt"] is None:
-                    st["since_update"] -= UPDATE_EVERY
-                    update(sched.anchor(st["transitions"]))
-                    if st["updates"] % args.actor_sync_updates == 0:
+                while st["since_update"] >= learner.update_every and st["halt"] is None:
+                    st["since_update"] -= learner.update_every
+                    before = st["updates"]
+                    learner.update(sched.anchor(st["transitions"]))
+                    if learner.publish_due(before):
                         _publish_weights(online, wbuf, wver)
                         published += 1
             if len(st["action_window"]) == st["action_window"].maxlen:
@@ -2096,6 +2074,7 @@ def main_multi(args) -> int:
                     st["halt"] = f"action collapse {counts.tolist()}"
             if st["transitions"] >= next_log:
                 next_log += 100_000
+                learner.flush()  # fast learner: apply the pending step, sync device stats
                 wall = time.perf_counter() - started
                 t = st["transitions"]
                 row = {
@@ -2154,6 +2133,7 @@ def main_multi(args) -> int:
                     stream.write(json.dumps(row) + "\n")
                 print(json.dumps(row), flush=True)
             if st["transitions"] >= next_ckpt:
+                learner.flush()
                 save_checkpoint_atomic(
                     args.out / f"ckpt_{next_ckpt // 1000}k.pth",
                     online,
@@ -2179,6 +2159,11 @@ def main_multi(args) -> int:
                 p.join(timeout=10)
         for blk in shms:  # idempotent; covers a crash before every actor attached
             blk.unlink()
+    try:
+        learner.flush()  # fast learner: the last pipelined step belongs to the final weights
+    except Exception as exc:  # noqa: BLE001
+        st["halt"] = st["halt"] or f"flush: {type(exc).__name__}: {exc}"
+        code = 1
     save_checkpoint_atomic(
         args.out / ("aborted.pth" if st["halt"] else "final.pth"),
         online,
