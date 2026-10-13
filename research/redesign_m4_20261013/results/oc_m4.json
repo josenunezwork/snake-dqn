@@ -1,0 +1,5201 @@
+{
+ "n_worlds": 32,
+ "no_go_threshold": 50.0,
+ "plan_sha256": "c8f3595f029d11c91ccbddf69087ca2cc32bb41544a02610df7a411f4da7c36a",
+ "pool": "variance_pool_20261007.json",
+ "reps": 10000,
+ "rows": [
+  {
+   "GO_R": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "KILL_V4": {
+    "mc_se": 0.00407308237088326,
+    "p": 0.79
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.00407094473064914,
+    "p": 0.2097
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0002235508890610816,
+    "p": 0.0005
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0002235508890610816,
+    "p": 0.0005
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0002235508890610816,
+    "p": 0.0005
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": -20.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "KILL_V4": {
+    "mc_se": 0.004999974399934463,
+    "p": 0.5016
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004999963899869678,
+    "p": 0.4981
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "efficacy_ever": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "expected_fraction": {
+    "mc_se": 0.0020109789315160167,
+    "mean": 0.8822625
+   },
+   "reps": 10000,
+   "saving": 0.11773750000000005,
+   "scenario": {
+    "effect": -20.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0776,
+    0.2138,
+    0.7086
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": -0.2884,
+     "paired_se": 0.004602679922202566
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "KILL_V4": {
+    "mc_se": 0.0036190468358395142,
+    "p": 0.155
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.004606610901736764,
+    "p": 0.6944
+   },
+   "PARTIAL": {
+    "mc_se": 0.003573652333397864,
+    "p": 0.1503
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "efficacy_ever": {
+    "mc_se": 0.00017317909804592468,
+    "p": 0.0003
+   },
+   "expected_fraction": {
+    "mc_se": 0.002366927448418739,
+    "mean": 0.595221875
+   },
+   "reps": 10000,
+   "saving": 0.404778125,
+   "scenario": {
+    "effect": -20.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.4139,
+    0.4261,
+    0.16
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": -0.635,
+     "paired_se": 0.004872358154671999
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0013931245457603565,
+    "p": 0.0198
+   },
+   "KILL_V4": {
+    "mc_se": 0.004532513541071885,
+    "p": 0.2889
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004619570434575059,
+    "p": 0.6913
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.001585381972901168,
+    "p": 0.0258
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.001585381972901168,
+    "p": 0.0258
+   },
+   "efficacy_ever": {
+    "mc_se": 0.001585381972901168,
+    "p": 0.0258
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 0.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0011154030661603904,
+    "p": 0.0126
+   },
+   "KILL_V4": {
+    "mc_se": 0.0029001156873476614,
+    "p": 0.0927
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0030693958688966785,
+    "p": 0.8947
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0012470108259353646,
+    "p": 0.0158
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.001239219108955313,
+    "p": 0.0156
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0012470108259353646,
+    "p": 0.0158
+   },
+   "expected_fraction": {
+    "mc_se": 0.0009178710052681594,
+    "mean": 0.98098125
+   },
+   "reps": 10000,
+   "saving": 0.019018749999999973,
+   "scenario": {
+    "effect": 0.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0126,
+    0.0344,
+    0.953
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": -0.1962,
+     "paired_se": 0.004061059617947274
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0011066273085370702,
+    "p": 0.0124
+   },
+   "KILL_V4": {
+    "mc_se": 0.0016582855604509136,
+    "p": 0.0283
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.004992972561510828,
+    "p": 0.4735
+   },
+   "PARTIAL": {
+    "mc_se": 0.004997983193249053,
+    "p": 0.4858
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0012470108259353646,
+    "p": 0.0158
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.001231374841386651,
+    "p": 0.0154
+   },
+   "efficacy_ever": {
+    "mc_se": 0.001239219108955313,
+    "p": 0.0156
+   },
+   "expected_fraction": {
+    "mc_se": 0.002407115917814913,
+    "mean": 0.78795625
+   },
+   "reps": 10000,
+   "saving": 0.21204374999999998,
+   "scenario": {
+    "effect": 0.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.1624,
+    0.3375,
+    0.5001
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": -0.2606,
+     "paired_se": 0.004462146913259082
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0002998649696113236,
+    "p": 0.0009
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004132965521269201,
+    "p": 0.2186
+   },
+   "KILL_V4": {
+    "mc_se": 0.0015366964566888284,
+    "p": 0.0242
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004293137663760621,
+    "p": 0.7563
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004524556994889113,
+    "p": 0.2872
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004524556994889113,
+    "p": 0.2872
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004524556994889113,
+    "p": 0.2872
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 20.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0006543324842921984,
+    "p": 0.0043
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.003803088744691609,
+    "p": 0.1754
+   },
+   "KILL_V4": {
+    "mc_se": 0.0006543324842921984,
+    "p": 0.0043
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0038748419322599476,
+    "p": 0.816
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004170543849427793,
+    "p": 0.2242
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004162583332499183,
+    "p": 0.223
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004170543849427793,
+    "p": 0.2242
+   },
+   "expected_fraction": {
+    "mc_se": 0.0003245041620589124,
+    "mean": 0.997403125
+   },
+   "reps": 10000,
+   "saving": 0.002596875000000054,
+   "scenario": {
+    "effect": 20.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0011,
+    0.006,
+    0.9929
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0034,
+     "paired_se": 0.0005821321909916845
+    },
+    "KILL_V4": {
+     "diff": -0.0199,
+     "paired_se": 0.0014527938811153152
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0006543324842921984,
+    "p": 0.0043
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0037996710383926655,
+    "p": 0.175
+   },
+   "KILL_V4": {
+    "mc_se": 0.00041195994950965806,
+    "p": 0.0017
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0033173662746220833,
+    "p": 0.1259
+   },
+   "PARTIAL": {
+    "mc_se": 0.0046120753463056085,
+    "p": 0.6931
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004170543849427793,
+    "p": 0.2242
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004159251735588987,
+    "p": 0.2225
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004167233014843302,
+    "p": 0.2237
+   },
+   "expected_fraction": {
+    "mc_se": 0.0014708643609185246,
+    "mean": 0.946971875
+   },
+   "reps": 10000,
+   "saving": 0.05302812499999998,
+   "scenario": {
+    "effect": 20.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0349,
+    0.0964,
+    0.8687
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0034,
+     "paired_se": 0.0005821321909916845
+    },
+    "KILL_V4": {
+     "diff": -0.0225,
+     "paired_se": 0.0015164448425498537
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.001028859076841916,
+    "p": 0.0107
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004905205296417267,
+    "p": 0.4031
+   },
+   "KILL_V4": {
+    "mc_se": 0.0005377350648786073,
+    "p": 0.0029
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004930122817942775,
+    "p": 0.5833
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004978237037345651,
+    "p": 0.5466
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004978237037345651,
+    "p": 0.5466
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004978237037345651,
+    "p": 0.5466
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 30.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0013475069573104252,
+    "p": 0.0185
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0047929348003076366,
+    "p": 0.3576
+   },
+   "KILL_V4": {
+    "mc_se": 0.0001999599959991998,
+    "p": 0.0004
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0048450773987625834,
+    "p": 0.6235
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004994332387817215,
+    "p": 0.4762
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004992541537133167,
+    "p": 0.4727
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004994332387817215,
+    "p": 0.4762
+   },
+   "expected_fraction": {
+    "mc_se": 0.00035121831413014045,
+    "mean": 0.99615
+   },
+   "reps": 10000,
+   "saving": 0.00385000000000002,
+   "scenario": {
+    "effect": 30.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0002,
+    0.0119,
+    0.9879
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0078,
+     "paired_se": 0.0009241219617236751
+    },
+    "KILL_V4": {
+     "diff": -0.0025,
+     "paired_se": 0.0005379627685946672
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0013475069573104252,
+    "p": 0.0185
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004791744567482704,
+    "p": 0.3572
+   },
+   "KILL_V4": {
+    "mc_se": 0.00014140721339450828,
+    "p": 0.0002
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.002116388433156825,
+    "p": 0.047
+   },
+   "PARTIAL": {
+    "mc_se": 0.004940198275373166,
+    "p": 0.5771
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004994332387817215,
+    "p": 0.4762
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004992209831327205,
+    "p": 0.4721
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004994042851237863,
+    "p": 0.4756
+   },
+   "expected_fraction": {
+    "mc_se": 0.0009925999876256703,
+    "mean": 0.976784375
+   },
+   "reps": 10000,
+   "saving": 0.023215624999999962,
+   "scenario": {
+    "effect": 30.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0139,
+    0.0451,
+    0.941
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0078,
+     "paired_se": 0.0009241219617236751
+    },
+    "KILL_V4": {
+     "diff": -0.0027,
+     "paired_se": 0.0005561491977815119
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0021794494717703367,
+    "p": 0.05
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004992041265855081,
+    "p": 0.5282
+   },
+   "KILL_V4": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004938310541065639,
+    "p": 0.4217
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004070231443050874,
+    "p": 0.7904
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004070231443050874,
+    "p": 0.7904
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004070231443050874,
+    "p": 0.7904
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 40.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0024967530915170604,
+    "p": 0.0668
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004998039615689336,
+    "p": 0.486
+   },
+   "KILL_V4": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004971937147631695,
+    "p": 0.4471
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004448873565297175,
+    "p": 0.7282
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004460089685196925,
+    "p": 0.726
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004448873565297175,
+    "p": 0.7282
+   },
+   "expected_fraction": {
+    "mc_se": 0.0005841976224572005,
+    "mean": 0.988746875
+   },
+   "reps": 10000,
+   "saving": 0.011253124999999975,
+   "scenario": {
+    "effect": 40.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0001,
+    0.0358,
+    0.9641
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0168,
+     "paired_se": 0.001480538820673052
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.00014142842783549566
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0024967530915170604,
+    "p": 0.0668
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004997897057763395,
+    "p": 0.4855
+   },
+   "KILL_V4": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0011707600095664354,
+    "p": 0.0139
+   },
+   "PARTIAL": {
+    "mc_se": 0.004955848161515846,
+    "p": 0.4337
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004448873565297175,
+    "p": 0.7282
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004466653221372799,
+    "p": 0.7247
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004455517815024422,
+    "p": 0.7269
+   },
+   "expected_fraction": {
+    "mc_se": 0.0007913543116869966,
+    "mean": 0.982684375
+   },
+   "reps": 10000,
+   "saving": 0.017315624999999946,
+   "scenario": {
+    "effect": 40.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0051,
+    0.0447,
+    0.9502
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0168,
+     "paired_se": 0.001480538820673052
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.00014142842783549566
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0037510483867846866,
+    "p": 0.1694
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004998811758808287,
+    "p": 0.5109
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004663602791833798,
+    "p": 0.3197
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0027020642109320796,
+    "p": 0.9207
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0027020642109320796,
+    "p": 0.9207
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0027020642109320796,
+    "p": 0.9207
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 50.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0039174674216896814,
+    "p": 0.1893
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004995545916113673,
+    "p": 0.4789
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004708595969076132,
+    "p": 0.3318
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.003165927984019851,
+    "p": 0.887
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0031950405318242826,
+    "p": 0.8846
+   },
+   "efficacy_ever": {
+    "mc_se": 0.003165927984019851,
+    "p": 0.887
+   },
+   "expected_fraction": {
+    "mc_se": 0.0008492833371804907,
+    "mean": 0.97490625
+   },
+   "reps": 10000,
+   "saving": 0.025093750000000026,
+   "scenario": {
+    "effect": 50.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0803,
+    0.9197
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0199,
+     "paired_se": 0.0018468189066628597
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0039174674216896814,
+    "p": 0.1893
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004995461039784015,
+    "p": 0.4787
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0004467661580737735,
+    "p": 0.002
+   },
+   "PARTIAL": {
+    "mc_se": 0.004702127178203499,
+    "p": 0.33
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.003165927984019851,
+    "p": 0.887
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.003203447986154918,
+    "p": 0.8839
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0031744654668148468,
+    "p": 0.8863
+   },
+   "expected_fraction": {
+    "mc_se": 0.0008823921019269675,
+    "mean": 0.973834375
+   },
+   "reps": 10000,
+   "saving": 0.02616562499999997,
+   "scenario": {
+    "effect": 50.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0013,
+    0.081,
+    0.9177
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0199,
+     "paired_se": 0.0018468189066628597
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004999153528348574,
+    "p": 0.5092
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0044095976006887526,
+    "p": 0.2643
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004185663029915332,
+    "p": 0.2265
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004998230786988532,
+    "p": 0.5133
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004375892937447168,
+    "p": 0.2581
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004199309943312115,
+    "p": 0.2286
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.001365247230357931,
+    "p": 0.981
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0013965668619869236,
+    "p": 0.9801
+   },
+   "efficacy_ever": {
+    "mc_se": 0.001365247230357931,
+    "p": 0.981
+   },
+   "expected_fraction": {
+    "mc_se": 0.0011517529681245489,
+    "mean": 0.94934375
+   },
+   "reps": 10000,
+   "saving": 0.05065624999999996,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.1621,
+    0.8379
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0041,
+     "paired_se": 0.0015127947166702685
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004998230786988532,
+    "p": 0.5133
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004375892937447168,
+    "p": 0.2581
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "PARTIAL": {
+    "mc_se": 0.004198663477822436,
+    "p": 0.2285
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.001365247230357931,
+    "p": 0.981
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0013965668619869236,
+    "p": 0.9801
+   },
+   "efficacy_ever": {
+    "mc_se": 0.001365247230357931,
+    "p": 0.981
+   },
+   "expected_fraction": {
+    "mc_se": 0.0011520394215728408,
+    "mean": 0.9493125
+   },
+   "reps": 10000,
+   "saving": 0.050687499999999996,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.1622,
+    0.8378
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0041,
+     "paired_se": 0.0015127947166702685
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004674331503006606,
+    "p": 0.3225
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0025749182511295384,
+    "p": 0.0714
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004886131291727639,
+    "p": 0.6061
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.00105699148530156,
+    "p": 0.9887
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.00105699148530156,
+    "p": 0.9887
+   },
+   "efficacy_ever": {
+    "mc_se": 0.00105699148530156,
+    "p": 0.9887
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.05",
+    "survival_harm": {
+     "scripted": -0.05
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004665147264556607,
+    "p": 0.3201
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0026451750414670104,
+    "p": 0.0757
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004890218400030821,
+    "p": 0.6042
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.001466833323864713,
+    "p": 0.978
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0014765740753514532,
+    "p": 0.9777
+   },
+   "efficacy_ever": {
+    "mc_se": 0.001466833323864713,
+    "p": 0.978
+   },
+   "expected_fraction": {
+    "mc_se": 0.0006567016754606351,
+    "mean": 0.98553125
+   },
+   "reps": 10000,
+   "saving": 0.01446875000000003,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.05",
+    "survival_harm": {
+     "scripted": -0.05
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0463,
+    0.9537
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0024,
+     "paired_se": 0.0010195724362669285
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004665147264556607,
+    "p": 0.3201
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0026451750414670104,
+    "p": 0.0757
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.00014140721339450828,
+    "p": 0.0002
+   },
+   "PARTIAL": {
+    "mc_se": 0.00489064412935556,
+    "p": 0.604
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.001466833323864713,
+    "p": 0.978
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0014798053926107979,
+    "p": 0.9776
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0014700880925985356,
+    "p": 0.9779
+   },
+   "expected_fraction": {
+    "mc_se": 0.000658049498714212,
+    "mean": 0.98546875
+   },
+   "reps": 10000,
+   "saving": 0.014531249999999996,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.05",
+    "survival_harm": {
+     "scripted": -0.05
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0465,
+    0.9535
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0024,
+     "paired_se": 0.0010195724362669285
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004056608312371309,
+    "p": 0.2077
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.001620833119108812,
+    "p": 0.027
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004238111725757121,
+    "p": 0.7653
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.07",
+    "survival_harm": {
+     "scripted": -0.07
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004046483782248485,
+    "p": 0.2063
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0016920328011004987,
+    "p": 0.0295
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004244977738457529,
+    "p": 0.7642
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0014438251279154267,
+    "p": 0.9787
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0014700880925985356,
+    "p": 0.9779
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0014438251279154267,
+    "p": 0.9787
+   },
+   "expected_fraction": {
+    "mc_se": 0.0004594255007863922,
+    "mean": 0.99309375
+   },
+   "reps": 10000,
+   "saving": 0.006906250000000003,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.07",
+    "survival_harm": {
+     "scripted": -0.07
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0221,
+    0.9779
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0014,
+     "paired_se": 0.0006781223967680908
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004046483782248485,
+    "p": 0.2063
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0016920328011004987,
+    "p": 0.0295
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.00014140721339450828,
+    "p": 0.0002
+   },
+   "PARTIAL": {
+    "mc_se": 0.004246221850068599,
+    "p": 0.764
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0014438251279154267,
+    "p": 0.9787
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0014700880925985356,
+    "p": 0.9779
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0014438251279154267,
+    "p": 0.9787
+   },
+   "expected_fraction": {
+    "mc_se": 0.0004685113695689162,
+    "mean": 0.9929625
+   },
+   "reps": 10000,
+   "saving": 0.00703750000000003,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.07",
+    "survival_harm": {
+     "scripted": -0.07
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0002,
+    0.0221,
+    0.9777
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0014,
+     "paired_se": 0.0006781223967680908
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.002512303922697252,
+    "p": 0.0677
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0004685253461660319,
+    "p": 0.0022
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.002549784108508012,
+    "p": 0.9301
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0012234770124526244,
+    "p": 0.9848
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0012234770124526244,
+    "p": 0.9848
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0012234770124526244,
+    "p": 0.9848
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.10",
+    "survival_harm": {
+     "scripted": -0.1
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0025208879388025165,
+    "p": 0.0682
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0004790313142165134,
+    "p": 0.0023
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0025598779267769784,
+    "p": 0.9295
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.001499033021650958,
+    "p": 0.977
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0015211281997254554,
+    "p": 0.9763
+   },
+   "efficacy_ever": {
+    "mc_se": 0.001499033021650958,
+    "p": 0.977
+   },
+   "expected_fraction": {
+    "mc_se": 0.00022261095920386706,
+    "mean": 0.99840625
+   },
+   "reps": 10000,
+   "saving": 0.0015937499999999494,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.10",
+    "survival_harm": {
+     "scripted": -0.1
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0051,
+    0.9949
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0005,
+     "paired_se": 0.00029997332948087236
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0025208879388025165,
+    "p": 0.0682
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0004790313142165134,
+    "p": 0.0023
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0001999599959991998,
+    "p": 0.0004
+   },
+   "PARTIAL": {
+    "mc_se": 0.0025665772928162513,
+    "p": 0.9291
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.001499033021650958,
+    "p": 0.977
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0015273765089197893,
+    "p": 0.9761
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0015053823434596275,
+    "p": 0.9768
+   },
+   "expected_fraction": {
+    "mc_se": 0.0002582505623015039,
+    "mean": 0.99814375
+   },
+   "reps": 10000,
+   "saving": 0.0018562500000000037,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.10",
+    "survival_harm": {
+     "scripted": -0.1
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0004,
+    0.0051,
+    0.9945
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0005,
+     "paired_se": 0.00029997332948087236
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004121339466726807,
+    "p": 0.2169
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.001880242271623527,
+    "p": 0.0367
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004350713045007681,
+    "p": 0.7464
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0011110243021644466,
+    "p": 0.9875
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_frozen-0.07",
+    "survival_harm": {
+     "frozen": -0.07
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004116522318656854,
+    "p": 0.2162
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0019287900352293404,
+    "p": 0.0387
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004358049907929005,
+    "p": 0.7451
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0014371774420717856,
+    "p": 0.9789
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0014471364828515648,
+    "p": 0.9786
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0014371774420717856,
+    "p": 0.9789
+   },
+   "expected_fraction": {
+    "mc_se": 0.0005164588079544981,
+    "mean": 0.99121875
+   },
+   "reps": 10000,
+   "saving": 0.008781249999999963,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_frozen-0.07",
+    "survival_harm": {
+     "frozen": -0.07
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0281,
+    0.9719
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0007,
+     "paired_se": 0.0007416238943022669
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004116522318656854,
+    "p": 0.2162
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0019287900352293404,
+    "p": 0.0387
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.00014140721339450828,
+    "p": 0.0002
+   },
+   "PARTIAL": {
+    "mc_se": 0.004359174119027594,
+    "p": 0.7449
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0014371774420717856,
+    "p": 0.9789
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0014504395885385909,
+    "p": 0.9785
+   },
+   "efficacy_ever": {
+    "mc_se": 0.001440505466841414,
+    "p": 0.9788
+   },
+   "expected_fraction": {
+    "mc_se": 0.0005245108095015092,
+    "mean": 0.9910875
+   },
+   "reps": 10000,
+   "saving": 0.00891249999999999,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_frozen-0.07",
+    "survival_harm": {
+     "frozen": -0.07
+    },
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0002,
+    0.0281,
+    0.9717
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0007,
+     "paired_se": 0.0007416238943022669
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004551384404771805,
+    "p": 0.293
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0033881663182317363,
+    "p": 0.1323
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004943884201718321,
+    "p": 0.5747
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0010977777552856492,
+    "p": 0.9878
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0010977777552856492,
+    "p": 0.9878
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0010977777552856492,
+    "p": 0.9878
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "guard_harm": {
+     "scripted": -0.1
+    },
+    "label": "harm_guard_scripted-0.10",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004551384404771805,
+    "p": 0.293
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.003390335529118025,
+    "p": 0.1325
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004944185979511693,
+    "p": 0.5745
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0014237805308403414,
+    "p": 0.9793
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0014438251279154267,
+    "p": 0.9787
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0014237805308403414,
+    "p": 0.9793
+   },
+   "expected_fraction": {
+    "mc_se": 0.0007088019751834798,
+    "mean": 0.983
+   },
+   "reps": 10000,
+   "saving": 0.017000000000000015,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "guard_harm": {
+     "scripted": -0.1
+    },
+    "label": "harm_guard_scripted-0.10",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0544,
+    0.9456
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0011832751218551838
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004551384404771805,
+    "p": 0.293
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.003390335529118025,
+    "p": 0.1325
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "PARTIAL": {
+    "mc_se": 0.00494433655812385,
+    "p": 0.5744
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0014237805308403414,
+    "p": 0.9793
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0014471364828515648,
+    "p": 0.9786
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0014271425997425778,
+    "p": 0.9792
+   },
+   "expected_fraction": {
+    "mc_se": 0.0007116767056285254,
+    "mean": 0.982934375
+   },
+   "reps": 10000,
+   "saving": 0.017065624999999973,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "guard_harm": {
+     "scripted": -0.1
+    },
+    "label": "harm_guard_scripted-0.10",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0001,
+    0.0544,
+    0.9455
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0011832751218551838
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0005092386473943233,
+    "p": 0.0026
+   },
+   "KILL_V4": {
+    "mc_se": 0.004882629516971363,
+    "p": 0.6077
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004876595533771485,
+    "p": 0.3896
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.00063118935352238,
+    "p": 0.004
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.00063118935352238,
+    "p": 0.004
+   },
+   "efficacy_ever": {
+    "mc_se": 0.00063118935352238,
+    "p": 0.004
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": -20.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0004238820590683215,
+    "p": 0.0018
+   },
+   "KILL_V4": {
+    "mc_se": 0.004887214339478063,
+    "p": 0.3944
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004891281120524561,
+    "p": 0.6037
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0005092386473943233,
+    "p": 0.0026
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0005092386473943233,
+    "p": 0.0026
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0005092386473943233,
+    "p": 0.0026
+   },
+   "expected_fraction": {
+    "mc_se": 0.0021140606685267948,
+    "mean": 0.883565625
+   },
+   "reps": 10000,
+   "saving": 0.11643437499999998,
+   "scenario": {
+    "effect": -20.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0969,
+    0.1691,
+    0.734
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": -0.2133,
+     "paired_se": 0.004280437269055747
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0004238820590683215,
+    "p": 0.0018
+   },
+   "KILL_V4": {
+    "mc_se": 0.0036370646131186615,
+    "p": 0.1569
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.00498316164698678,
+    "p": 0.541
+   },
+   "PARTIAL": {
+    "mc_se": 0.004583448047049295,
+    "p": 0.3002
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0005092386473943233,
+    "p": 0.0026
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0005092386473943233,
+    "p": 0.0026
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0005092386473943233,
+    "p": 0.0026
+   },
+   "expected_fraction": {
+    "mc_se": 0.00271041845879619,
+    "mean": 0.655615625
+   },
+   "reps": 10000,
+   "saving": 0.34438437499999996,
+   "scenario": {
+    "effect": -20.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.3743,
+    0.316,
+    0.3097
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": -0.4508,
+     "paired_se": 0.0051029932445580805
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0002235508890610816,
+    "p": 0.0005
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.001778502459936449,
+    "p": 0.0327
+   },
+   "KILL_V4": {
+    "mc_se": 0.0043658940665114625,
+    "p": 0.2563
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.00453530318721913,
+    "p": 0.7105
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0021856328602947016,
+    "p": 0.0503
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0021856328602947016,
+    "p": 0.0503
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0021856328602947016,
+    "p": 0.0503
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 0.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0002448754785600224,
+    "p": 0.0006
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0015913516267626084,
+    "p": 0.026
+   },
+   "KILL_V4": {
+    "mc_se": 0.003197446481178379,
+    "p": 0.1156
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.00349255150284144,
+    "p": 0.8578
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0019239997401247226,
+    "p": 0.0385
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0019046970887781605,
+    "p": 0.0377
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0019239997401247226,
+    "p": 0.0385
+   },
+   "expected_fraction": {
+    "mc_se": 0.0011428460906294968,
+    "mean": 0.971046875
+   },
+   "reps": 10000,
+   "saving": 0.028953125000000024,
+   "scenario": {
+    "effect": 0.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0215,
+    0.0475,
+    0.931
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0001,
+     "paired_se": 0.0001
+    },
+    "KILL_V4": {
+     "diff": -0.1407,
+     "paired_se": 0.003640285176688327
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0002448754785600224,
+    "p": 0.0006
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0015763803475050049,
+    "p": 0.0255
+   },
+   "KILL_V4": {
+    "mc_se": 0.0020013185653463567,
+    "p": 0.0418
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.004855343860119487,
+    "p": 0.3806
+   },
+   "PARTIAL": {
+    "mc_se": 0.0049734067800653505,
+    "p": 0.5515
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0019239997401247226,
+    "p": 0.0385
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0018900685172765562,
+    "p": 0.0371
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0019095441864486929,
+    "p": 0.0379
+   },
+   "expected_fraction": {
+    "mc_se": 0.002467886757228672,
+    "mean": 0.8113
+   },
+   "reps": 10000,
+   "saving": 0.18869999999999998,
+   "scenario": {
+    "effect": 0.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.1664,
+    0.2544,
+    0.5792
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0001,
+     "paired_se": 0.0001
+    },
+    "KILL_V4": {
+     "diff": -0.2145,
+     "paired_se": 0.004227382414237872
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0010477017705435073,
+    "p": 0.0111
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0037659632233998253,
+    "p": 0.1711
+   },
+   "KILL_V4": {
+    "mc_se": 0.0022243012385915716,
+    "p": 0.0522
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004236232288248604,
+    "p": 0.7656
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.00440262421744123,
+    "p": 0.263
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.00440262421744123,
+    "p": 0.263
+   },
+   "efficacy_ever": {
+    "mc_se": 0.00440262421744123,
+    "p": 0.263
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 20.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0011994515413304534,
+    "p": 0.0146
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0034986877540014913,
+    "p": 0.1428
+   },
+   "KILL_V4": {
+    "mc_se": 0.0011872451305438149,
+    "p": 0.0143
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0037711949034755546,
+    "p": 0.8283
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004121339466726807,
+    "p": 0.2169
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004107529549498092,
+    "p": 0.2149
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004121339466726807,
+    "p": 0.2169
+   },
+   "expected_fraction": {
+    "mc_se": 0.00047708847881194845,
+    "mean": 0.994571875
+   },
+   "reps": 10000,
+   "saving": 0.005428125000000006,
+   "scenario": {
+    "effect": 20.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0027,
+    0.0117,
+    0.9856
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0035,
+     "paired_se": 0.0006235494217687471
+    },
+    "KILL_V4": {
+     "diff": -0.0379,
+     "paired_se": 0.001976549942442006
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0011994515413304534,
+    "p": 0.0146
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.003496644677401466,
+    "p": 0.1426
+   },
+   "KILL_V4": {
+    "mc_se": 0.0007328601503697688,
+    "p": 0.0054
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0034447966558274526,
+    "p": 0.1376
+   },
+   "PARTIAL": {
+    "mc_se": 0.004583448047049295,
+    "p": 0.6998
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004121339466726807,
+    "p": 0.2169
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004102662062612518,
+    "p": 0.2142
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004116522318656854,
+    "p": 0.2162
+   },
+   "expected_fraction": {
+    "mc_se": 0.0016176171930905312,
+    "mean": 0.93735625
+   },
+   "reps": 10000,
+   "saving": 0.06264375,
+   "scenario": {
+    "effect": 20.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0466,
+    0.1026,
+    0.8508
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0035,
+     "paired_se": 0.0006235494217687471
+    },
+    "KILL_V4": {
+     "diff": -0.0468,
+     "paired_se": 0.002163664517529102
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.001882704437770305,
+    "p": 0.0368
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004482608057816343,
+    "p": 0.2785
+   },
+   "KILL_V4": {
+    "mc_se": 0.0012776713192366807,
+    "p": 0.0166
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004708953068358188,
+    "p": 0.6681
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004958612305877522,
+    "p": 0.4358
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004958612305877522,
+    "p": 0.4358
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004958612305877522,
+    "p": 0.4358
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 30.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0020195355901790886,
+    "p": 0.0426
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004273871196000179,
+    "p": 0.2405
+   },
+   "KILL_V4": {
+    "mc_se": 0.00063118935352238,
+    "p": 0.004
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004524086537633868,
+    "p": 0.7129
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004852128502008166,
+    "p": 0.3793
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004841487271490033,
+    "p": 0.3751
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004852128502008166,
+    "p": 0.3793
+   },
+   "expected_fraction": {
+    "mc_se": 0.00044499538417037916,
+    "mean": 0.99413125
+   },
+   "reps": 10000,
+   "saving": 0.005868749999999978,
+   "scenario": {
+    "effect": 30.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0008,
+    0.0171,
+    0.9821
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0058,
+     "paired_se": 0.0009147238227832467
+    },
+    "KILL_V4": {
+     "diff": -0.0126,
+     "paired_se": 0.0011420395901379885
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0020195355901790886,
+    "p": 0.0426
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0042732638579895815,
+    "p": 0.2404
+   },
+   "KILL_V4": {
+    "mc_se": 0.00036032069049667407,
+    "p": 0.0013
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0024687843162171943,
+    "p": 0.0652
+   },
+   "PARTIAL": {
+    "mc_se": 0.004768120698975646,
+    "p": 0.6505
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004852128502008166,
+    "p": 0.3793
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004840970873698788,
+    "p": 0.3749
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004851630550649956,
+    "p": 0.3791
+   },
+   "expected_fraction": {
+    "mc_se": 0.0011891560139079644,
+    "mean": 0.966915625
+   },
+   "reps": 10000,
+   "saving": 0.033084375000000055,
+   "scenario": {
+    "effect": 30.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0217,
+    0.0603,
+    0.918
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0058,
+     "paired_se": 0.0009147238227832467
+    },
+    "KILL_V4": {
+     "diff": -0.0153,
+     "paired_se": 0.0012516979167384904
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0029417938404993644,
+    "p": 0.0957
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.00478361526462988,
+    "p": 0.3545
+   },
+   "KILL_V4": {
+    "mc_se": 0.00063118935352238,
+    "p": 0.004
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004978979413494296,
+    "p": 0.5458
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004876595533771485,
+    "p": 0.6104
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004876595533771485,
+    "p": 0.6104
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004876595533771485,
+    "p": 0.6104
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 40.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.00305390225776792,
+    "p": 0.1041
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004636336484768982,
+    "p": 0.3128
+   },
+   "KILL_V4": {
+    "mc_se": 0.0003160696125855822,
+    "p": 0.001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0049321353387756905,
+    "p": 0.5821
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0049727818170517,
+    "p": 0.5521
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004976226582461855,
+    "p": 0.5487
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0049727818170517,
+    "p": 0.5521
+   },
+   "expected_fraction": {
+    "mc_se": 0.0005938744204598119,
+    "mean": 0.98843125
+   },
+   "reps": 10000,
+   "saving": 0.011568750000000017,
+   "scenario": {
+    "effect": 40.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0002,
+    0.0366,
+    0.9632
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0084,
+     "paired_se": 0.0012542333555327786
+    },
+    "KILL_V4": {
+     "diff": -0.003,
+     "paired_se": 0.0005649176162869407
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.00305390225776792,
+    "p": 0.1041
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004635932592262316,
+    "p": 0.3127
+   },
+   "KILL_V4": {
+    "mc_se": 0.0001999599959991998,
+    "p": 0.0004
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0015763803475050049,
+    "p": 0.0255
+   },
+   "PARTIAL": {
+    "mc_se": 0.004967058586326519,
+    "p": 0.5573
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0049727818170517,
+    "p": 0.5521
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004976421907354721,
+    "p": 0.5485
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004972990951127902,
+    "p": 0.5519
+   },
+   "expected_fraction": {
+    "mc_se": 0.000918100311209589,
+    "mean": 0.9776375
+   },
+   "reps": 10000,
+   "saving": 0.022362499999999952,
+   "scenario": {
+    "effect": 40.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0086,
+    0.0535,
+    0.9379
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0084,
+     "paired_se": 0.0012542333555327786
+    },
+    "KILL_V4": {
+     "diff": -0.0036,
+     "paired_se": 0.0006154200794477043
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004080891936819694,
+    "p": 0.2111
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004789053246728418,
+    "p": 0.3563
+   },
+   "KILL_V4": {
+    "mc_se": 0.00026448251359967073,
+    "p": 0.0007
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004953406807440714,
+    "p": 0.4319
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0042671728345592,
+    "p": 0.7606
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0042671728345592,
+    "p": 0.7606
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0042671728345592,
+    "p": 0.7606
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 50.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004160585415539501,
+    "p": 0.2227
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004657385425321808,
+    "p": 0.3181
+   },
+   "KILL_V4": {
+    "mc_se": 0.00014140721339450828,
+    "p": 0.0002
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.00498316164698678,
+    "p": 0.459
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004519840262664158,
+    "p": 0.7138
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004535767189792704,
+    "p": 0.7104
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004519840262664158,
+    "p": 0.7138
+   },
+   "expected_fraction": {
+    "mc_se": 0.0008144048082680446,
+    "mean": 0.977184375
+   },
+   "reps": 10000,
+   "saving": 0.022815625000000006,
+   "scenario": {
+    "effect": 50.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0001,
+    0.0728,
+    0.9271
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0116,
+     "paired_se": 0.001451466387990968
+    },
+    "KILL_V4": {
+     "diff": -0.0005,
+     "paired_se": 0.00026454110871435466
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004160585415539501,
+    "p": 0.2227
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004657385425321808,
+    "p": 0.3181
+   },
+   "KILL_V4": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0009444045743218317,
+    "p": 0.009
+   },
+   "PARTIAL": {
+    "mc_se": 0.0049750375877977045,
+    "p": 0.4501
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.004519840262664158,
+    "p": 0.7138
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.004536230924456999,
+    "p": 0.7103
+   },
+   "efficacy_ever": {
+    "mc_se": 0.004520313152868946,
+    "p": 0.7137
+   },
+   "expected_fraction": {
+    "mc_se": 0.0009138900798791723,
+    "mean": 0.97330625
+   },
+   "reps": 10000,
+   "saving": 0.02669374999999996,
+   "scenario": {
+    "effect": 50.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0032,
+    0.0787,
+    0.9181
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0116,
+     "paired_se": 0.001451466387990968
+    },
+    "KILL_V4": {
+     "diff": -0.0006,
+     "paired_se": 0.0002827932057170398
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004982244373773731,
+    "p": 0.4579
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.004375892937447168,
+    "p": 0.2581
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004509368026675135,
+    "p": 0.284
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.002914108954723553,
+    "p": 0.9063
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.002914108954723553,
+    "p": 0.9063
+   },
+   "efficacy_ever": {
+    "mc_se": 0.002914108954723553,
+    "p": 0.9063
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004985691125611373,
+    "p": 0.4622
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0042393630417788,
+    "p": 0.2349
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004595123393337768,
+    "p": 0.3029
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.00332524344973417,
+    "p": 0.8734
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0033464570817507873,
+    "p": 0.8715
+   },
+   "efficacy_ever": {
+    "mc_se": 0.00332524344973417,
+    "p": 0.8734
+   },
+   "expected_fraction": {
+    "mc_se": 0.0010482435637564846,
+    "mean": 0.959625
+   },
+   "reps": 10000,
+   "saving": 0.04037500000000005,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.1292,
+    0.8708
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0043,
+     "paired_se": 0.0015389567371384674
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004985691125611373,
+    "p": 0.4622
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0042393630417788,
+    "p": 0.2349
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0003160696125855822,
+    "p": 0.001
+   },
+   "PARTIAL": {
+    "mc_se": 0.004590821168375,
+    "p": 0.3019
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.00332524344973417,
+    "p": 0.8734
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0033464570817507873,
+    "p": 0.8715
+   },
+   "efficacy_ever": {
+    "mc_se": 0.00332524344973417,
+    "p": 0.8734
+   },
+   "expected_fraction": {
+    "mc_se": 0.0010574726709683727,
+    "mean": 0.959175
+   },
+   "reps": 10000,
+   "saving": 0.040825,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0004,
+    0.1298,
+    0.8698
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0043,
+     "paired_se": 0.0015389567371384674
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004525497099767052,
+    "p": 0.2874
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0029973314798333534,
+    "p": 0.0998
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0048711000810905125,
+    "p": 0.6128
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0029459124223235145,
+    "p": 0.904
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0029459124223235145,
+    "p": 0.904
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0029459124223235145,
+    "p": 0.904
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.05",
+    "survival_harm": {
+     "scripted": -0.05
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.00451652244542192,
+    "p": 0.2855
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0029404190177592035,
+    "p": 0.0956
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004856570703696179,
+    "p": 0.6189
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.003330849591320509,
+    "p": 0.8729
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.003351999403341236,
+    "p": 0.871
+   },
+   "efficacy_ever": {
+    "mc_se": 0.003330849591320509,
+    "p": 0.8729
+   },
+   "expected_fraction": {
+    "mc_se": 0.0006094602790036184,
+    "mean": 0.987625
+   },
+   "reps": 10000,
+   "saving": 0.012375000000000025,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.05",
+    "survival_harm": {
+     "scripted": -0.05
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0396,
+    0.9604
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0019,
+     "paired_se": 0.0010439099457316614
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.00451652244542192,
+    "p": 0.2855
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.002939043211659196,
+    "p": 0.0955
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0003160696125855822,
+    "p": 0.001
+   },
+   "PARTIAL": {
+    "mc_se": 0.004858765275252551,
+    "p": 0.618
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.003330849591320509,
+    "p": 0.8729
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0033542116808573663,
+    "p": 0.8708
+   },
+   "efficacy_ever": {
+    "mc_se": 0.003333087307587366,
+    "p": 0.8727
+   },
+   "expected_fraction": {
+    "mc_se": 0.0006272128542978531,
+    "mean": 0.987175
+   },
+   "reps": 10000,
+   "saving": 0.012824999999999975,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.05",
+    "survival_harm": {
+     "scripted": -0.05
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0004,
+    0.0402,
+    0.9594
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0019,
+     "paired_se": 0.0010439099457316614
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0038756572345861546,
+    "p": 0.1841
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.002073041244162788,
+    "p": 0.045
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004202537209829319,
+    "p": 0.7709
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.002959577672574247,
+    "p": 0.903
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.002959577672574247,
+    "p": 0.903
+   },
+   "efficacy_ever": {
+    "mc_se": 0.002959577672574247,
+    "p": 0.903
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.07",
+    "survival_harm": {
+     "scripted": -0.07
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0038600927449997883,
+    "p": 0.1822
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.002035315945989713,
+    "p": 0.0433
+   },
+   "KILL_V4": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004179768414637347,
+    "p": 0.7744
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0033630343441600472,
+    "p": 0.87
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0033957473404244904,
+    "p": 0.867
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0033630343441600472,
+    "p": 0.87
+   },
+   "expected_fraction": {
+    "mc_se": 0.00042167315375572263,
+    "mean": 0.994278125
+   },
+   "reps": 10000,
+   "saving": 0.005721874999999987,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.07",
+    "survival_harm": {
+     "scripted": -0.07
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0001,
+    0.0181,
+    0.9818
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0019,
+     "paired_se": 0.0007547820676175077
+    },
+    "KILL_V4": {
+     "diff": 0.0001,
+     "paired_se": 0.00010000000000000003
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0038600927449997883,
+    "p": 0.1822
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.002035315945989713,
+    "p": 0.0433
+   },
+   "KILL_V4": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.0004577761461675346,
+    "p": 0.0021
+   },
+   "PARTIAL": {
+    "mc_se": 0.004193479581445461,
+    "p": 0.7723
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0033630343441600472,
+    "p": 0.87
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.003396827784860457,
+    "p": 0.8669
+   },
+   "efficacy_ever": {
+    "mc_se": 0.003364134212542656,
+    "p": 0.8699
+   },
+   "expected_fraction": {
+    "mc_se": 0.00045898617412917965,
+    "mean": 0.993484375
+   },
+   "reps": 10000,
+   "saving": 0.006515625000000025,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.07",
+    "survival_harm": {
+     "scripted": -0.07
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0005,
+    0.0198,
+    0.9797
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0019,
+     "paired_se": 0.0007547820676175077
+    },
+    "KILL_V4": {
+     "diff": 0.0001,
+     "paired_se": 0.00010000000000000003
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.002493279767695555,
+    "p": 0.0666
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0010240917927607856,
+    "p": 0.0106
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.002669085236555776,
+    "p": 0.9228
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.002912714198132045,
+    "p": 0.9064
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.002912714198132045,
+    "p": 0.9064
+   },
+   "efficacy_ever": {
+    "mc_se": 0.002912714198132045,
+    "p": 0.9064
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.10",
+    "survival_harm": {
+     "scripted": -0.1
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0024897999919672262,
+    "p": 0.0664
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0009800974441350207,
+    "p": 0.0097
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0026515804720958396,
+    "p": 0.9239
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0033652334242961508,
+    "p": 0.8698
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.003392502173912347,
+    "p": 0.8673
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0033652334242961508,
+    "p": 0.8698
+   },
+   "expected_fraction": {
+    "mc_se": 0.0002247715278320908,
+    "mean": 0.998375
+   },
+   "reps": 10000,
+   "saving": 0.0016249999999999876,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.10",
+    "survival_harm": {
+     "scripted": -0.1
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0052,
+    0.9948
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0002,
+     "paired_se": 0.00040001500121885427
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0024897999919672262,
+    "p": 0.0664
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0009800974441350207,
+    "p": 0.0097
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.00041195994950965806,
+    "p": 0.0017
+   },
+   "PARTIAL": {
+    "mc_se": 0.002678566034280282,
+    "p": 0.9222
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0033652334242961508,
+    "p": 0.8698
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0033979075914450647,
+    "p": 0.8668
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0033707196560971964,
+    "p": 0.8693
+   },
+   "expected_fraction": {
+    "mc_se": 0.0003266413504149927,
+    "mean": 0.99743125
+   },
+   "reps": 10000,
+   "saving": 0.0025687500000000085,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_scripted-0.10",
+    "survival_harm": {
+     "scripted": -0.1
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0012,
+    0.0057,
+    0.9931
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0002,
+     "paired_se": 0.00040001500121885427
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.00392063655545882,
+    "p": 0.1897
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0023487451969083405,
+    "p": 0.0586
+   },
+   "KILL_V4": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004320849916393764,
+    "p": 0.7516
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0029554882845310012,
+    "p": 0.9033
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0029554882845310012,
+    "p": 0.9033
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0029554882845310012,
+    "p": 0.9033
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_frozen-0.07",
+    "survival_harm": {
+     "frozen": -0.07
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.003907920035005835,
+    "p": 0.1881
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0023069252263565026,
+    "p": 0.0564
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004297903558713248,
+    "p": 0.7555
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.003357525130211239,
+    "p": 0.8705
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.003392502173912347,
+    "p": 0.8673
+   },
+   "efficacy_ever": {
+    "mc_se": 0.003357525130211239,
+    "p": 0.8705
+   },
+   "expected_fraction": {
+    "mc_se": 0.0004480977164987043,
+    "mean": 0.9934375
+   },
+   "reps": 10000,
+   "saving": 0.006562500000000027,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_frozen-0.07",
+    "survival_harm": {
+     "frozen": -0.07
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.021,
+    0.979
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0016,
+     "paired_se": 0.0008365488517702595
+    },
+    "KILL_V4": {
+     "diff": -0.0001,
+     "paired_se": 0.0001
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.003907920035005835,
+    "p": 0.1881
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0023069252263565026,
+    "p": 0.0564
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.00033148001448051134,
+    "p": 0.0011
+   },
+   "PARTIAL": {
+    "mc_se": 0.0043044237709593605,
+    "p": 0.7544
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.003357525130211239,
+    "p": 0.8705
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.003394666257528124,
+    "p": 0.8671
+   },
+   "efficacy_ever": {
+    "mc_se": 0.003359730792786827,
+    "p": 0.8703
+   },
+   "expected_fraction": {
+    "mc_se": 0.0004734993175857018,
+    "mean": 0.99295625
+   },
+   "reps": 10000,
+   "saving": 0.007043750000000015,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "label": "harm_frozen-0.07",
+    "survival_harm": {
+     "frozen": -0.07
+    },
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0004,
+    0.0217,
+    0.9779
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0016,
+     "paired_se": 0.0008365488517702595
+    },
+    "KILL_V4": {
+     "diff": -0.0001,
+     "paired_se": 0.0001
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.00441386440661695,
+    "p": 0.2651
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.003330849591320509,
+    "p": 0.1271
+   },
+   "KILL_V4": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004882629516971363,
+    "p": 0.6077
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.002895897788251513,
+    "p": 0.9076
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.002895897788251513,
+    "p": 0.9076
+   },
+   "efficacy_ever": {
+    "mc_se": 0.002895897788251513,
+    "p": 0.9076
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "guard_harm": {
+     "scripted": -0.1
+    },
+    "label": "harm_guard_scripted-0.10",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004405848839894533,
+    "p": 0.2636
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.003271702767673127,
+    "p": 0.1219
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004867132112445685,
+    "p": 0.6145
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0032531201945209458,
+    "p": 0.8797
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0032797749922822456,
+    "p": 0.8774
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0032531201945209458,
+    "p": 0.8797
+   },
+   "expected_fraction": {
+    "mc_se": 0.0006175130845453467,
+    "mean": 0.98728125
+   },
+   "reps": 10000,
+   "saving": 0.012718750000000001,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "guard_harm": {
+     "scripted": -0.1
+    },
+    "label": "harm_guard_scripted-0.10",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.0407,
+    0.9593
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0015,
+     "paired_se": 0.000994924111376712
+    },
+    "KILL_V4": {
+     "diff": -0.0001,
+     "paired_se": 0.00010000000000000003
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004405848839894533,
+    "p": 0.2636
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0032705467432831473,
+    "p": 0.1218
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 0.00036032069049667407,
+    "p": 0.0013
+   },
+   "PARTIAL": {
+    "mc_se": 0.004869939527345283,
+    "p": 0.6133
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0032531201945209458,
+    "p": 0.8797
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.003282074953440278,
+    "p": 0.8772
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0032554531174630672,
+    "p": 0.8795
+   },
+   "expected_fraction": {
+    "mc_se": 0.0006421882408355176,
+    "mean": 0.98666875
+   },
+   "reps": 10000,
+   "saving": 0.013331250000000017,
+   "scenario": {
+    "effect": 65.0,
+    "family": "v4",
+    "guard_harm": {
+     "scripted": -0.1
+    },
+    "label": "harm_guard_scripted-0.10",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0006,
+    0.0414,
+    0.958
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0015,
+     "paired_se": 0.000994924111376712
+    },
+    "KILL_V4": {
+     "diff": -0.0001,
+     "paired_se": 0.00010000000000000003
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004251804205275685,
+    "p": 0.7631
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0021835741343036647,
+    "p": 0.0502
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0038967051466591617,
+    "p": 0.1867
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.00036032069049666963,
+    "p": 0.9987
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.00036032069049666963,
+    "p": 0.9987
+   },
+   "efficacy_ever": {
+    "mc_se": 0.00036032069049666963,
+    "p": 0.9987
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 80.0,
+    "family": "m4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004265950773274347,
+    "p": 0.7608
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.002246310530625719,
+    "p": 0.0533
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0038902595029123702,
+    "p": 0.1859
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0004893097178679326,
+    "p": 0.9976
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0005092386473943279,
+    "p": 0.9974
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0004893097178679326,
+    "p": 0.9976
+   },
+   "expected_fraction": {
+    "mc_se": 0.0013111362087196666,
+    "mean": 0.92875
+   },
+   "reps": 10000,
+   "saving": 0.07125000000000004,
+   "scenario": {
+    "effect": 80.0,
+    "family": "m4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.228,
+    0.772
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0023,
+     "paired_se": 0.0008182529888704225
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004265950773274347,
+    "p": 0.7608
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.002246310530625719,
+    "p": 0.0533
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0038902595029123702,
+    "p": 0.1859
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0004893097178679326,
+    "p": 0.9976
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0005092386473943279,
+    "p": 0.9974
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0004893097178679326,
+    "p": 0.9976
+   },
+   "expected_fraction": {
+    "mc_se": 0.0013111362087196666,
+    "mean": 0.92875
+   },
+   "reps": 10000,
+   "saving": 0.07125000000000004,
+   "scenario": {
+    "effect": 80.0,
+    "family": "m4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.228,
+    0.772
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0023,
+     "paired_se": 0.0008182529888704225
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.003357525130211239,
+    "p": 0.8705
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0002998649696113236,
+    "p": 0.0009
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0033475668775993107,
+    "p": 0.1286
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 9.999499987498824e-05,
+    "p": 0.9999
+   },
+   "efficacy_at_stop": {
+    "mc_se": 9.999499987498824e-05,
+    "p": 0.9999
+   },
+   "efficacy_ever": {
+    "mc_se": 9.999499987498824e-05,
+    "p": 0.9999
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 100.0,
+    "family": "m4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.003343123689007034,
+    "p": 0.8718
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.00033148001448051134,
+    "p": 0.0011
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.003330849591320509,
+    "p": 0.1271
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0001414072133945005,
+    "p": 0.9998
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0001414072133945005,
+    "p": 0.9998
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0001414072133945005,
+    "p": 0.9998
+   },
+   "expected_fraction": {
+    "mc_se": 0.001450310880038699,
+    "mean": 0.90190625
+   },
+   "reps": 10000,
+   "saving": 0.09809374999999998,
+   "scenario": {
+    "effect": 100.0,
+    "family": "m4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.3139,
+    0.6861
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0013,
+     "paired_se": 0.00041212617582298737
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.003343123689007034,
+    "p": 0.8718
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.00033148001448051134,
+    "p": 0.0011
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.003330849591320509,
+    "p": 0.1271
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0001414072133945005,
+    "p": 0.9998
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0001414072133945005,
+    "p": 0.9998
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0001414072133945005,
+    "p": 0.9998
+   },
+   "expected_fraction": {
+    "mc_se": 0.001450310880038699,
+    "mean": 0.90190625
+   },
+   "reps": 10000,
+   "saving": 0.09809374999999998,
+   "scenario": {
+    "effect": 100.0,
+    "family": "m4",
+    "tau2": 0.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.3139,
+    0.6861
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0013,
+     "paired_se": 0.00041212617582298737
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004639156712162244,
+    "p": 0.6865
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.003074532647411635,
+    "p": 0.1057
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.00405732867783718,
+    "p": 0.2078
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0017837485809384694,
+    "p": 0.9671
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0017837485809384694,
+    "p": 0.9671
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0017837485809384694,
+    "p": 0.9671
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 80.0,
+    "family": "m4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004647940511667507,
+    "p": 0.6843
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0029906439105985188,
+    "p": 0.0993
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.004117900435901772,
+    "p": 0.2164
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.002127057827140578,
+    "p": 0.9525
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.002156589668898561,
+    "p": 0.9511
+   },
+   "efficacy_ever": {
+    "mc_se": 0.002127057827140578,
+    "p": 0.9525
+   },
+   "expected_fraction": {
+    "mc_se": 0.0012446391806514654,
+    "mean": 0.93821875
+   },
+   "reps": 10000,
+   "saving": 0.06178125000000001,
+   "scenario": {
+    "effect": 80.0,
+    "family": "m4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0,
+    0.1977,
+    0.8023
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0022,
+     "paired_se": 0.0012246084952329292
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.004647940511667507,
+    "p": 0.6843
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0029893035978301036,
+    "p": 0.0992
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 9.999499987499375e-05,
+    "p": 0.0001
+   },
+   "PARTIAL": {
+    "mc_se": 0.004117900435901772,
+    "p": 0.2164
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.002127057827140578,
+    "p": 0.9525
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0021586801523152993,
+    "p": 0.951
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0021291838812089476,
+    "p": 0.9524
+   },
+   "expected_fraction": {
+    "mc_se": 0.0012460426841145937,
+    "mean": 0.938153125
+   },
+   "reps": 10000,
+   "saving": 0.06184687499999997,
+   "scenario": {
+    "effect": 80.0,
+    "family": "m4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0001,
+    0.1977,
+    0.8022
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0022,
+     "paired_se": 0.0012246084952329292
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0036332870792162844,
+    "p": 0.8435
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.0012234770124526246,
+    "p": 0.0152
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.003483307479967854,
+    "p": 0.1413
+   },
+   "design": "fixed",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0006766712643522,
+    "p": 0.9954
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0006766712643522,
+    "p": 0.9954
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0006766712643522,
+    "p": 0.9954
+   },
+   "expected_fraction": {
+    "mc_se": 0.0,
+    "mean": 1.0
+   },
+   "reps": 10000,
+   "saving": 0.0,
+   "scenario": {
+    "effect": 100.0,
+    "family": "m4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    1.0
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0036474100400146954,
+    "p": 0.842
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.001239219108955313,
+    "p": 0.0156
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0034945992617180016,
+    "p": 0.1424
+   },
+   "design": "sequential",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0008570437561758421,
+    "p": 0.9926
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0008684607072286029,
+    "p": 0.9924
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0008570437561758421,
+    "p": 0.9926
+   },
+   "expected_fraction": {
+    "mc_se": 0.00140385759361046,
+    "mean": 0.912528125
+   },
+   "reps": 10000,
+   "saving": 0.08747187499999998,
+   "scenario": {
+    "effect": 100.0,
+    "family": "m4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0001,
+    0.2797,
+    0.7202
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0015,
+     "paired_se": 0.0005914473611388421
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  },
+  {
+   "GO_R": {
+    "mc_se": 0.0036474100400146954,
+    "p": 0.842
+   },
+   "GO_R_UNGATEABLE": {
+    "mc_se": 0.001239219108955313,
+    "p": 0.0156
+   },
+   "KILL_V4": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "NO_GO_EARLY": {
+    "mc_se": 1e-08,
+    "p": 0.0
+   },
+   "PARTIAL": {
+    "mc_se": 0.0034945992617180016,
+    "p": 0.1424
+   },
+   "design": "sequential+NO_GO(50)",
+   "efficacy_any_look_nonbinding": {
+    "mc_se": 0.0008570437561758421,
+    "p": 0.9926
+   },
+   "efficacy_at_stop": {
+    "mc_se": 0.0008684607072286029,
+    "p": 0.9924
+   },
+   "efficacy_ever": {
+    "mc_se": 0.0008570437561758421,
+    "p": 0.9926
+   },
+   "expected_fraction": {
+    "mc_se": 0.00140385759361046,
+    "mean": 0.912528125
+   },
+   "reps": 10000,
+   "saving": 0.08747187499999998,
+   "scenario": {
+    "effect": 100.0,
+    "family": "m4",
+    "tau2": 500.0
+   },
+   "stop_by_look": [
+    0.0001,
+    0.2797,
+    0.7202
+   ],
+   "vs_fixed": {
+    "GO_R": {
+     "diff": -0.0015,
+     "paired_se": 0.0005914473611388421
+    },
+    "KILL_V4": {
+     "diff": 0.0,
+     "paired_se": 0.0
+    }
+   }
+  }
+ ],
+ "rule_sha256": "67dfe274de90858e4e0cd8d2e3b9bd6e81873bae919e7c838a513a6aeaedf08c",
+ "schema": "sequential-phase-r-oc/v1",
+ "seed": 20261013,
+ "study": "redesign-m4 (3 seeds, clause 4 = 3 of 3)"
+}
