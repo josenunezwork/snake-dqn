@@ -1113,7 +1113,11 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any], plan: Dict[s
     run_id = f"m3c-gpu-{int(created)}"
     try:
         ledger.register_run(
-            run_id, plan.get("job_id", "redesign-m3c-gpu"), str(run_dir), args.spend_cap, os.getpid()
+            run_id,
+            plan.get("job_id", "redesign-m3c-gpu"),
+            str(run_dir),
+            args.spend_cap,
+            os.getpid(),
         )
         refusal = ledger.reserve_pod(run_id, name, float(plan["max_hourly"]), until, balance0)
     except BaseException:
@@ -1653,7 +1657,17 @@ def main() -> int:
     ap.add_argument("--accept-no-self-delete", metavar="NOTE", default=None)
     ap.add_argument("--gpu-fallbacks", action="store_true")
     ap.add_argument("--stock-wait-hours", type=float, default=0.0)
+    ap.add_argument(
+        "--pod-prefix",
+        default=POD_NAME,
+        help="pod name prefix: this runner only sees, guards and deletes pods with it "
+        "(distinct prefixes let independent runs share the account concurrently)",
+    )
     args = ap.parse_args()
+    if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*-", args.pod_prefix):
+        print("--pod-prefix must look like 'name-' (lowercase, ends with '-')", file=sys.stderr)
+        return 2
+    globals()["POD_NAME"] = args.pod_prefix
     if args.accept_no_self_delete is not None and len(args.accept_no_self_delete.strip()) < 10:
         print("--accept-no-self-delete needs a real note (who decided, when)", file=sys.stderr)
         return 2
