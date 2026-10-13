@@ -1,0 +1,110 @@
+{
+ "created_utc": "2026-10-13T22:45:09.859371+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "loadavg_start": [
+  5.21728515625,
+  5.30859375,
+  5.0810546875
+ ],
+ "argv": [
+  "--drift",
+  "--devices",
+  "mps",
+  "--drift-updates",
+  "200",
+  "--out",
+  "research/perf_learner_20261013/results/drift_mps_20261013_noisy.json"
+ ],
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "mode": "bv8",
+ "note": "NOISY: measured while other training jobs shared the CPU and the MPS GPU",
+ "drift": [
+  {
+   "device": "mps",
+   "variant": "reference_fp32",
+   "vs": "t1_fp32",
+   "updates": 200,
+   "halt": null,
+   "param_max_abs_diff": 0.002905920147895813,
+   "param_diff_over_update_norm": 0.04071987567051802,
+   "q_mean_abs_diff": 0.007908133789896965,
+   "q_max_abs_diff": 0.036429643630981445,
+   "q_scale_mean_abs": 1.7577699422836304,
+   "greedy_agreement": 0.91796875,
+   "td_mean_rel_diff": 0.001384283713299154,
+   "grad_scale_final": null,
+   "bitwise_equal_to_reference_fp32": true
+  },
+  {
+   "device": "mps",
+   "variant": "t1_fp32",
+   "vs": "t1_fp32",
+   "updates": 200,
+   "halt": null,
+   "param_max_abs_diff": 0.0,
+   "param_diff_over_update_norm": 0.0,
+   "q_mean_abs_diff": 0.0,
+   "q_max_abs_diff": 0.0,
+   "q_scale_mean_abs": 1.7577699422836304,
+   "greedy_agreement": 1.0,
+   "td_mean_rel_diff": 0.0,
+   "grad_scale_final": null,
+   "bitwise_equal_to_reference_fp32": false
+  },
+  {
+   "device": "mps",
+   "variant": "t1_fp32_plain_adam",
+   "vs": "t1_fp32",
+   "updates": 200,
+   "halt": null,
+   "param_max_abs_diff": 0.002905920147895813,
+   "param_diff_over_update_norm": 0.04071987567051802,
+   "q_mean_abs_diff": 0.007908133789896965,
+   "q_max_abs_diff": 0.036429643630981445,
+   "q_scale_mean_abs": 1.7577699422836304,
+   "greedy_agreement": 0.91796875,
+   "td_mean_rel_diff": 0.001384283713299154,
+   "grad_scale_final": null,
+   "bitwise_equal_to_reference_fp32": true
+  },
+  {
+   "device": "mps",
+   "variant": "t1_bf16",
+   "vs": "t1_fp32",
+   "updates": 200,
+   "halt": null,
+   "param_max_abs_diff": 0.0046717943623661995,
+   "param_diff_over_update_norm": 0.06753837145203817,
+   "q_mean_abs_diff": 0.015562418848276138,
+   "q_max_abs_diff": 0.05855320394039154,
+   "q_scale_mean_abs": 1.7577699422836304,
+   "greedy_agreement": 0.908203125,
+   "td_mean_rel_diff": 0.0021017607229131285,
+   "grad_scale_final": null,
+   "bitwise_equal_to_reference_fp32": false
+  },
+  {
+   "device": "mps",
+   "variant": "t1_fp16",
+   "vs": "t1_fp32",
+   "updates": 200,
+   "halt": null,
+   "param_max_abs_diff": 0.0035373084247112274,
+   "param_diff_over_update_norm": 0.060006226436397365,
+   "q_mean_abs_diff": 0.0369761623442173,
+   "q_max_abs_diff": 0.07511293888092041,
+   "q_scale_mean_abs": 1.7577699422836304,
+   "greedy_agreement": 0.919921875,
+   "td_mean_rel_diff": 0.0015769828246217639,
+   "grad_scale_final": 1024.0,
+   "bitwise_equal_to_reference_fp32": false
+  }
+ ],
+ "loadavg_end": [
+  5.181640625,
+  5.38623046875,
+  5.1455078125
+ ]
+}
