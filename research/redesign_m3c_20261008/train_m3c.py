@@ -549,11 +549,26 @@ class LabelBuffer:
         return idx
 
 
-def make_shield(carrier: str, runtime):
-    """frp3-s12's v8 veto (lambda 8) applied to externally supplied Q (the online student)."""
+V8_BACKENDS = ("python", "numba")
+V8_BACKEND_ENV = "M3C_V8_BACKEND"
+
+
+def make_shield(carrier: str, runtime, backend: Optional[str] = None):
+    """frp3-s12's v8 veto (lambda 8) applied to externally supplied Q (the online student).
+
+    ``backend`` (default: env ``M3C_V8_BACKEND``, else ``"python"``): ``"python"`` runs the
+    live v8 hook per row (the reference); ``"numba"`` runs :func:`src.simd_env.v8_nb.v8_decide`
+    on the same Q and the same runtime selection mask, decision-identical (pinned by
+    ``tests/test_v8_nb.py``) and ~50-90x faster, but it does not update the live hook's
+    per-episode counters (``veto_record`` / ``last_veto``), which the trainer never reads.
+    """
     import torch
 
-    from src.simd_env.vector61_policy import Vector61SimdPolicy
+    from src.simd_env.vector61_policy import Vector61SimdPolicy, check_live_rule_config
+
+    backend = backend or os.environ.get(V8_BACKEND_ENV) or "python"
+    if backend not in V8_BACKENDS:
+        raise ValueError(f"v8 shield backend must be one of {V8_BACKENDS}, got {backend!r}")
 
     class InjectedQV8(Vector61SimdPolicy):
         def __init__(self) -> None:
@@ -567,13 +582,29 @@ def make_shield(carrier: str, runtime):
             )
             self.network = None  # never run: Q comes from the student
             self._q = None
+            self.backend = backend
 
         def act(self, q: np.ndarray, masks, sim, slots) -> np.ndarray:
+            if self.backend == "numba":
+                return self._act_numba(q, sim, slots)
             self._q = torch.from_numpy(np.ascontiguousarray(q, dtype=np.float32))
             try:
                 return self.actions(masks, sim, slots)
             finally:
                 self._q = None
+
+        def _act_numba(self, q: np.ndarray, sim, slots) -> np.ndarray:
+            """``actions()`` with the compiled v8: same mask, base argmax and veto rows."""
+            from src.simd_env.v8_nb import v8_decide
+
+            if getattr(self, "_rule_config_checked", None) is not sim:
+                check_live_rule_config(sim)
+                self._rule_config_checked = sim
+            slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
+            _, mask = self.runtime.selection(slots)
+            res = v8_decide(sim, slots, q, mask, self.veto_spec.lam)
+            vetoed = np.isin(slots[:, 1], list(self.veto_slots))
+            return np.where(vetoed, res.action, res.base).astype(np.int64)
 
         def q_values(self, states):
             if self._q is None:
