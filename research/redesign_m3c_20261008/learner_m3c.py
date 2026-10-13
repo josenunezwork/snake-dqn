@@ -31,6 +31,13 @@ pre-perf-learner update, moved here verbatim (``_update_reference``):
   dynamics (K x fewer, larger-batch optimizer steps for the same data): it is a new recipe,
   not a speed-up of the old one, and needs its own evaluation.
 
+* **perf-compile** (``--compile-learner MODE``, needs ``fast``; 2026-10-13): the T1 update's
+  forwards and losses (:func:`loss_terms`, scope ``loss``) or only the network forwards
+  (scope ``forward``) under ``torch.compile(mode=MODE, dynamic=False)``, for *canonical*
+  batches (all agent rows, empty or full anchor block); other batches run :func:`loss_terms`
+  eagerly. Float reassociation only (not bitwise; bounded in ``tests/test_perf_compile.py``).
+  See :mod:`research.redesign_m3c_20261008.compile_m3c`.
+
 Not done (measured on MPS, 2026-10-13, see ``research/perf_learner_20261013``): one forward
 for online(next) and online(current + anchor) - the backward would then run over the 384
 no-grad rows too, which costs more than the saved forward; ``torch.func.vmap`` over the
@@ -41,12 +48,14 @@ stacked online/target parameters (grouped convolutions: ~4x slower on MPS);
 from __future__ import annotations
 
 import math
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
 
+from research.redesign_m3c_20261008.compile_m3c import COMPILE_MODES, LEARNER_SCOPES
 from research.redesign_m3c_20261008.train_m3c import (
     GLOBAL,
     LABEL_ANCHOR_MIN_ROWS,
@@ -59,6 +68,13 @@ from research.redesign_m3c_20261008.train_m3c import (
 
 PRECISIONS = ("fp32", "fp16", "bf16")
 LR_SCALES = ("none", "linear", "sqrt")
+COMPILE_SCOPES = LEARNER_SCOPES
+#: perf-compile: the first VERIFY_CALLS compiled steps per batch shape are checked against
+#: eager (loss terms and per-parameter gradients, relative L2 error); above the tolerance
+#: the learner falls back to eager. fp32 reassociation is ~1e-6; autocast adds rounding.
+VERIFY_CALLS = 3
+VERIFY_TOL = 1e-3
+VERIFY_TOL_AMP = 5e-2
 AGENT_ROWS = 384
 ANCHOR_ROWS = 128
 MIN_ROWS = 64
@@ -74,6 +90,8 @@ class LearnerOpts:
     batch_scale: int = 1  # T3
     lr_scale: str = "none"  # T3
     channels_last: bool = False  # bench only
+    compile: str = "off"  # perf-compile (needs fast): a torch.compile mode
+    compile_scope: str = "loss"  # perf-compile: "loss" (forwards + losses) or "forward"
 
     def __post_init__(self) -> None:
         if self.precision not in PRECISIONS:
@@ -86,6 +104,12 @@ class LearnerOpts:
             raise ValueError("--batch-scale must be >= 1")
         if self.lr_scale != "none" and self.batch_scale == 1:
             raise ValueError("--lr-scale needs --batch-scale > 1")
+        if self.compile not in COMPILE_MODES:
+            raise ValueError(f"--compile-learner must be one of {COMPILE_MODES}")
+        if self.compile_scope not in COMPILE_SCOPES:
+            raise ValueError(f"--compile-learner-scope must be one of {COMPILE_SCOPES}")
+        if self.compile != "off" and not self.fast:
+            raise ValueError("--compile-learner needs --learner-fast")
 
     @classmethod
     def from_args(cls, args) -> "LearnerOpts":
@@ -94,6 +118,8 @@ class LearnerOpts:
             precision=getattr(args, "learner_precision", "fp32"),
             batch_scale=int(getattr(args, "batch_scale", 1)),
             lr_scale=getattr(args, "lr_scale", "none"),
+            compile=getattr(args, "compile_learner", "off"),
+            compile_scope=getattr(args, "compile_learner_scope", "loss"),
         )
 
     @property
@@ -119,6 +145,75 @@ def _masked_argmax(torch, q, m):
     m = m.clone()
     m[~m.any(dim=1), :3] = True
     return torch.where(m, q, torch.full_like(q, -1e9)).argmax(dim=1)
+
+
+def loss_terms(
+    torch,
+    online,
+    target,
+    L,
+    G,
+    S,
+    a,
+    R,
+    disc,
+    nmask,
+    q_teacher,
+    a_v8,
+    mask_resolved,
+    *,
+    n: int,
+    m: int,
+    n_demo: int,
+    amp_dtype,
+    dev_type: str,
+    anchor_mode: str,
+    boost_weight: float,
+    margin: float,
+):
+    """The T1 update's forwards and loss terms on one uploaded staging batch.
+
+    ``L``/``G``/``S`` hold the obs rows ``[next (n) | current (n) | anchor (m)]``; ``a``,
+    ``R``, ``disc``, ``nmask`` the agent rows (first ``n``), ``a_v8``/``mask_resolved`` the
+    anchor rows (first ``m``) and ``q_teacher`` the demonstration rows (first ``n_demo``).
+    ``online`` / ``target`` are the networks or (``--compile-learner-scope forward``) their
+    compiled forwards. Returns ``(td, anc, qmax)``. The eager T1 update calls exactly this;
+    ``--compile-learner`` (scope ``loss``) calls ``torch.compile(loss_terms)``.
+    """
+    a, R, disc = a[:n], R[:n], disc[:n]
+    cur = slice(n, 2 * n + m)
+    nxt = slice(0, n)
+    amp = amp_dtype is not None
+    with torch.autocast(dev_type, dtype=amp_dtype, enabled=amp):
+        q_all = online(L[cur], G[cur], S[cur])
+    if amp:
+        q_all = q_all.float()
+    q, qd = q_all[:n], q_all[n:]
+    qa = q.gather(1, a[:, None]).squeeze(1)
+    with torch.no_grad():
+        with torch.autocast(dev_type, dtype=amp_dtype, enabled=amp):
+            qn_online = online(L[nxt], G[nxt], S[nxt])
+            qn_target = target(L[nxt], G[nxt], S[nxt])
+        if amp:
+            qn_online, qn_target = qn_online.float(), qn_target.float()
+        a_star = _masked_argmax(torch, qn_online, nmask[:n])
+        q_next = qn_target.gather(1, a_star[:, None]).squeeze(1)
+        y = R + disc * q_next
+    td = torch.nn.functional.smooth_l1_loss(qa, y)
+    db = {
+        "q_teacher": q_teacher[:n_demo],
+        "a_v8": a_v8[:m],
+        "mask_resolved": mask_resolved[:m],
+    }
+    if m == 0:
+        anc = torch.zeros((), device=q.device)
+    elif anchor_mode == "v8margin":
+        anc = anchor_loss_margin(torch, qd, db["a_v8"], db["mask_resolved"], margin)
+    elif boost_weight == 1.0:
+        anc = anchor_loss(torch, qd, db, margin)
+    else:
+        anc = anchor_loss_weighted(torch, qd, db, margin, boost_weight)
+    return td, anc, q.detach().abs().max()
 
 
 class _Staging:
@@ -236,6 +331,61 @@ class Learner:
             # init 2**10 (not 2**16): fewer skipped (overflowed) steps at the start
             self.scaler = torch.amp.GradScaler(self.device.type, init_scale=2.0**10)
         self._amp_dtype = {"fp16": torch.float16, "bf16": torch.bfloat16}.get(self.opts.precision)
+        # perf-compile state (compile "off": never touched)
+        self._loss_c = None
+        self._fwd_c = None
+        self._cstat: Optional[dict] = None
+        if self.opts.compile != "off":
+            self._setup_compile()
+
+    # ------------------------------------------------------------------ perf-compile
+    def _setup_compile(self) -> None:
+        from research.redesign_m3c_20261008 import compile_m3c as cm
+
+        torch, mode = self.torch, self.opts.compile
+        self._cudagraphs = cm.uses_cudagraphs(mode, self.device)
+        self._cstat = {
+            "mode": mode,
+            "scope": self.opts.compile_scope,
+            "device": str(self.device),
+            "compiled_calls": 0,
+            "verify_calls": 0,
+            "eager_calls": 0,
+            "fallback": None,
+            "first_call_s": None,
+            "verify_worst_rel_err": None,
+        }
+        self._verified: dict = {}
+        self._verify_tol = VERIFY_TOL_AMP if self._amp_dtype is not None else VERIFY_TOL
+        if self.opts.compile_scope == "loss":
+            self._loss_c = cm.compile_fn(torch, loss_terms, mode)
+        else:
+            self._fwd_c = (
+                cm.compile_fn(torch, self.online, mode),
+                cm.compile_fn(torch, self.target, mode),
+            )
+
+    def _canonical(self, n: int, m: int) -> bool:
+        """A batch with every agent row and an empty or full anchor block (static shapes)."""
+        return n == self.a_rows and m in (0, self.d_rows)
+
+    def _compile_fallback(self, exc: BaseException) -> None:
+        from research.redesign_m3c_20261008 import compile_m3c as cm
+
+        self._cstat["fallback"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+        print(cm.fallback_message("learner", self.device, self.opts.compile, exc), file=sys.stderr)
+        self._loss_c = None
+        self._fwd_c = None
+
+    def compile_status(self) -> Optional[dict]:
+        """Compile counters for telemetry (``None`` when compile is off)."""
+        if self._cstat is None:
+            return None
+        from research.redesign_m3c_20261008 import compile_m3c as cm
+
+        out = {**self._cstat, **cm.dynamo_counters()}
+        out["recompile_storm"] = out["graphs"] > cm.GRAPH_WARN
+        return out
 
     # ------------------------------------------------------------------ public
     def update(self, lam: float) -> None:
@@ -501,6 +651,89 @@ class Learner:
             self.st["anc"].extend(torch.stack(self._anc).cpu().tolist())
             self._anc = []
 
+    def _backward(self, td, anc, lam: float):
+        """``loss = td + lam * anc``; zero the gradients, backward (scaled under fp16).
+        Returns the device-side finite-loss flag."""
+        loss = td + lam * anc
+        finite = self.torch.isfinite(loss)
+        self.opt.zero_grad(set_to_none=True)
+        if self.scaler is not None:
+            self.scaler.scale(loss).backward()
+        else:
+            loss.backward()
+        return finite
+
+    def _compiled_step(self, tensors, kw: dict, lam: float):
+        """The compiled forward/loss + backward for a canonical batch, else ``None`` (the
+        caller then runs the eager update). A compile / run failure falls back to eager for
+        the rest of the run (the failing batch is recomputed eagerly by the caller)."""
+        torch, cs = self.torch, self._cstat
+        if (self._loss_c is None and self._fwd_c is None) or not self._canonical(kw["n"], kw["m"]):
+            cs["eager_calls"] += 1
+            return None
+        t0 = time.perf_counter() if cs["first_call_s"] is None else None
+        try:
+            if self._cudagraphs:
+                torch.compiler.cudagraph_mark_step_begin()
+            if self._loss_c is not None:
+                td, anc, qmax = self._loss_c(torch, self.online, self.target, *tensors, **kw)
+            else:
+                td, anc, qmax = loss_terms(torch, *self._fwd_c, *tensors, **kw)
+            finite = self._backward(td, anc, lam)
+        except Exception as exc:  # noqa: BLE001
+            self.opt.zero_grad(set_to_none=True)
+            self._compile_fallback(exc)
+            cs["eager_calls"] += 1
+            return None
+        if t0 is not None:
+            cs["first_call_s"] = round(time.perf_counter() - t0, 3)
+        if self._cudagraphs:  # CUDA-graph outputs are overwritten by the next replay
+            td, anc, qmax = td.detach().clone(), anc.detach().clone(), qmax.clone()
+        key = (kw["n"], kw["m"], kw["n_demo"])
+        if self._verified.get(key, 0) < VERIFY_CALLS:
+            return self._verify(key, tensors, kw, lam, (td, anc, qmax))
+        cs["compiled_calls"] += 1
+        return td, anc, qmax, finite
+
+    def _verify(self, key, tensors, kw: dict, lam: float, compiled_out):
+        """Check one compiled step against eager on the same batch: the loss terms and every
+        parameter gradient (relative L2 error per tensor <= ``verify_tol``). The step then
+        uses the EAGER result; a mismatch falls back to eager for the rest of the run (torch
+        2.9.1's MPS inductor, for one, returns wrong conv-bias gradients here)."""
+        torch, cs = self.torch, self._cstat
+        named = [(k, p) for k, p in self.online.named_parameters()]
+        g_c = [None if p.grad is None else p.grad.detach().float().clone() for _, p in named]
+        o_c = [x.detach().float().reshape(()) for x in compiled_out]
+        td, anc, qmax = loss_terms(torch, self.online, self.target, *tensors, **kw)
+        finite = self._backward(td, anc, lam)  # zeroes the compiled gradients first
+        cs["verify_calls"] += 1
+        g_e = [None if p.grad is None else p.grad.detach().float() for _, p in named]
+        if not all(g is None or bool(torch.isfinite(g).all()) for g in g_e):
+            return td, anc, qmax, finite  # fp16 overflow / bad batch: verify a later step
+        worst, where = 0.0, ""
+        for name, x, y in zip(("td", "anchor", "qmax"), o_c, (td, anc, qmax)):
+            err = float((x - y.detach().float()).abs()) / (1e-6 + float(y.detach().abs()))
+            if not err <= worst:  # (NaN-safe)
+                worst, where = err, name
+        for (name, _), x, y in zip(named, g_c, g_e):
+            if x is None or y is None:
+                err = 0.0 if x is None and y is None else float("inf")
+            else:
+                err = float((x - y).norm()) / (1e-12 + float(y.norm()))
+            if not err <= worst:
+                worst, where = err, f"grad {name}"
+        cs["verify_worst_rel_err"] = max(cs.get("verify_worst_rel_err") or 0.0, worst)
+        if not worst <= self._verify_tol:
+            self._compile_fallback(
+                RuntimeError(
+                    f"compiled step disagrees with eager: {where} relative error {worst:.3g} "
+                    f"> {self._verify_tol:g} (shape key {key})"
+                )
+            )
+        else:
+            self._verified[key] = self._verified.get(key, 0) + 1
+        return td, anc, qmax, finite
+
     def _update_fast(self, lam: float) -> None:
         torch, st, args = self.torch, self.st, self.args
         online, target, opt, margin = self.online, self.target, self.opt, self.margin
@@ -513,56 +746,46 @@ class Learner:
         self._which ^= 1  # double buffer: the next gather never touches an in-flight upload
         n, m, n_demo = batch["n"], batch["m"], batch["n_demo"]
         dv = batch["stage"].upload(torch, self.device, self._non_blocking)
-        L, G, S = dv["local"], dv["global"], dv["scalars"]
-        a, R, disc = dv["a"][:n], dv["R"][:n], dv["disc"][:n]
-        cur = slice(n, 2 * n + m)
-        nxt = slice(0, n)
-        amp = self._amp_dtype is not None
-        with torch.autocast(self.device.type, dtype=self._amp_dtype, enabled=amp):
-            q_all = online(L[cur], G[cur], S[cur])
-        if amp:
-            q_all = q_all.float()
-        q, qd = q_all[:n], q_all[n:]
-        qa = q.gather(1, a[:, None]).squeeze(1)
-        with torch.no_grad():
-            with torch.autocast(self.device.type, dtype=self._amp_dtype, enabled=amp):
-                qn_online = online(L[nxt], G[nxt], S[nxt])
-                qn_target = target(L[nxt], G[nxt], S[nxt])
-            if amp:
-                qn_online, qn_target = qn_online.float(), qn_target.float()
-            a_star = _masked_argmax(torch, qn_online, dv["nmask"][:n])
-            q_next = qn_target.gather(1, a_star[:, None]).squeeze(1)
-            y = R + disc * q_next
-        td = torch.nn.functional.smooth_l1_loss(qa, y)
-        db = {
-            "q_teacher": dv["q_teacher"][:n_demo],
-            "a_v8": dv["a_v8"][:m],
-            "mask_resolved": dv["mask_resolved"][:m],
-        }
+        tensors = (
+            dv["local"],
+            dv["global"],
+            dv["scalars"],
+            dv["a"],
+            dv["R"],
+            dv["disc"],
+            dv["nmask"],
+            dv["q_teacher"],
+            dv["a_v8"],
+            dv["mask_resolved"],
+        )
+        kw = dict(
+            n=n,
+            m=m,
+            n_demo=n_demo,
+            amp_dtype=self._amp_dtype,
+            dev_type=self.device.type,
+            anchor_mode=args.anchor_mode,
+            boost_weight=float(args.anchor_boost_weight),
+            margin=margin,
+        )
         has_anchor = m > 0
-        if not has_anchor:
-            anc = torch.zeros((), device=q.device)
-        elif args.anchor_mode == "v8margin":
-            anc = anchor_loss_margin(torch, qd, db["a_v8"], db["mask_resolved"], margin)
-        elif args.anchor_boost_weight == 1.0:
-            anc = anchor_loss(torch, qd, db, margin)
+        out = None
+        if self._cstat is not None:
+            out = self._compiled_step(tensors, kw, lam)
+        if out is None:  # the T1 update (compile off, a non-canonical batch, or a fallback)
+            td, anc, qmax = loss_terms(torch, online, target, *tensors, **kw)
+            finite = self._backward(td, anc, lam)
         else:
-            anc = anchor_loss_weighted(torch, qd, db, margin, args.anchor_boost_weight)
-        loss = td + lam * anc
-        finite = torch.isfinite(loss)
-        opt.zero_grad(set_to_none=True)
+            td, anc, qmax, finite = out
         if self.scaler is not None:
-            self.scaler.scale(loss).backward()
             self.scaler.unscale_(opt)
-        else:
-            loss.backward()
         torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
         self._pending = {
             "finite": finite,
             "td": td.detach(),
             "anc": anc.detach(),
             "has_anchor": has_anchor,
-            "qmax": q.detach().abs().max(),
+            "qmax": qmax,
         }
         if self.demos is not None:
             self.demos.swap_if_ready()
@@ -580,4 +803,7 @@ def learner_flags(args) -> dict:
         out["batch_scale"] = int(args.batch_scale)
     if getattr(args, "lr_scale", "none") != "none":
         out["lr_scale"] = args.lr_scale
+    if getattr(args, "compile_learner", "off") != "off":
+        out["compile_learner"] = args.compile_learner
+        out["compile_learner_scope"] = getattr(args, "compile_learner_scope", "loss")
     return out

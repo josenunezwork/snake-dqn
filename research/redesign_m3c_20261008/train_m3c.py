@@ -51,6 +51,14 @@ Everything new is behind a flag:
   plain Adam), ``--learner-precision fp16|bf16`` (T2: autocast, numerics change),
   ``--batch-scale K`` / ``--lr-scale`` (T3: K x larger batches at the same replay ratio -
   CHANGES the training dynamics). Benchmark: ``research/perf_learner_20261013``.
+* perf-compile (2026-10-13; multi-actor only; default ``off`` = no ``torch.compile`` call):
+  ``--compile-learner MODE`` (needs ``--learner-fast``; ``--compile-learner-scope
+  loss|forward``) and ``--compile-actor MODE`` (the hero forward, padded to ``--worlds``
+  rows), MODE in ``default|reduce-overhead|max-autotune-no-cudagraphs``. Static shapes,
+  first steps checked against eager, eager fallback with a message on any failure or
+  mismatch (torch 2.9.1's MPS inductor returns wrong conv-bias gradients: the learner falls
+  back there). Float reassociation, not bitwise. See
+  :mod:`research.redesign_m3c_20261008.compile_m3c`.
 
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
@@ -87,6 +95,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+from research.redesign_m3c_20261008.compile_m3c import COMPILE_MODES  # noqa: E402
 from research.redesign_scope_20261007 import grid_h5000_identity as gid  # noqa: E402
 
 SCHEMA = "redesign-m3-train/v1"  # unchanged: the default run IS an M3 run
@@ -1004,6 +1013,9 @@ def m3c_flags(args) -> Dict[str, Any]:
         "learner_precision",
         "batch_scale",
         "lr_scale",
+        "compile_learner",
+        "compile_learner_scope",
+        "compile_actor",
     ):
         if getattr(args, k) != getattr(d, k):
             out[k] = getattr(args, k)
@@ -1111,6 +1123,28 @@ def build_parser() -> argparse.ArgumentParser:
         default="none",
         help="T3: Adam lr x K (linear) or x sqrt(K) with --batch-scale K",
     )
+    # --- perf-compile options (multi-actor trainer only; see compile_m3c.py) ---
+    ap.add_argument(
+        "--compile-learner",
+        choices=COMPILE_MODES,
+        default="off",
+        help="torch.compile mode for the learner update (needs --learner-fast); canonical "
+        "batches only, checked against eager on the first steps, eager fallback on failure "
+        "(float reassociation, not bitwise)",
+    )
+    ap.add_argument(
+        "--compile-learner-scope",
+        choices=("loss", "forward"),
+        default="loss",
+        help="loss: forwards + TD/anchor losses (and their backward); forward: the networks only",
+    )
+    ap.add_argument(
+        "--compile-actor",
+        choices=COMPILE_MODES,
+        default="off",
+        help="torch.compile mode for the actors' hero forward (padded to --worlds rows; "
+        "probe-checked against eager, eager fallback on failure)",
+    )
     ap.add_argument("--no-guard", action="store_true", help="tests only: skip the Mac guard")
     return ap
 
@@ -1157,7 +1191,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         or args.learner_precision != "fp32"
         or args.batch_scale != 1
         or args.lr_scale != "none"
+        or args.compile_learner != "off"
     )
+    if args.compile_learner_scope != "loss" and args.compile_learner == "off":
+        raise SystemExit("--compile-learner-scope needs --compile-learner")
+    if args.compile_actor != "off" and not args.actors:
+        raise SystemExit("--compile-actor needs the multi-actor trainer (--actors >= 1)")
     if perf_learner and not args.actors:
         raise SystemExit("the perf-learner options need the multi-actor trainer (--actors >= 1)")
     if perf_learner:
@@ -1616,6 +1655,14 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         spec = _weights_spec(net)
         last = _read_weights(net, spec, wbuf, wver, -1)
         net = net.to(device)
+        hero_fwd = None  # perf-compile (--compile-actor): the compiled, padded hero forward
+        if getattr(args, "compile_actor", "off") != "off":
+            from research.redesign_m3c_20261008.compile_m3c import HeroForward
+
+            hero_fwd = HeroForward(
+                torch, net, device, args.compile_actor, args.worlds, nscal_for(args), LOCAL, GLOBAL
+            )
+            print(json.dumps({"actor": j, "compile_actor": hero_fwd.status()}), flush=True)
         rng = np.random.default_rng([args.seed, 17, 1000 + j])
         sched = schedules_from_args(args)
         ctx = gid._context(1)
@@ -1657,9 +1704,12 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 while progress[1] and not stop_evt.is_set():  # learner paused (Mac guard)
                     time.sleep(1.0)
                 if int(wver[0]) > last:
-                    cpu_net = net.to("cpu")
-                    last = _read_weights(cpu_net, spec, wbuf, wver, last)
-                    net = cpu_net.to(device)
+                    if hero_fwd is not None:  # in place: the compiled forward keeps its storage
+                        last = _read_weights(net, spec, wbuf, wver, last)
+                    else:
+                        cpu_net = net.to("cpu")
+                        last = _read_weights(cpu_net, spec, wbuf, wver, last)
+                        net = cpu_net.to(device)
                 t0 = time.perf_counter()
                 t_glob = int(progress[0])
                 eps, gamma_now = sched.eps(t_glob), sched.gamma(t_glob)
@@ -1712,12 +1762,15 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                             timing["v8_s"] += dt_v8
                         t_q = time.perf_counter()
                         with torch.no_grad():
-                            q = net(
-                                *[
-                                    torch.from_numpy(np.ascontiguousarray(obs[k])).to(device)
-                                    for k in ("local", "global", "scalars")
-                                ]
-                            )
+                            if hero_fwd is not None:
+                                q = hero_fwd(obs)
+                            else:
+                                q = net(
+                                    *[
+                                        torch.from_numpy(np.ascontiguousarray(obs[k])).to(device)
+                                        for k in ("local", "global", "scalars")
+                                    ]
+                                )
                             if fast:  # the same mask, built on the host
                                 mt = torch.from_numpy(mm).to(device)
                             else:
@@ -2125,6 +2178,11 @@ def main_multi(args) -> int:
                     ring_overrun_rows=st["ring_overrun_rows"],
                     queue_depth=[q_.qsize() if sys.platform != "darwin" else None for q_ in txs],
                     ring_counts=[r.count for r in rings],
+                    **(
+                        {"compile_learner": learner.compile_status()}
+                        if lopts.compile != "off"
+                        else {}
+                    ),
                 )
                 st.update(td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0)
                 st.update(v8_override=0, label_rows=[])
@@ -2192,6 +2250,8 @@ def main_multi(args) -> int:
         "anchor_updates": st["anchor_updates"],
         "label_buffer": labels.size if labels is not None else 0,
     }
+    if lopts.compile != "off":
+        summary["compile_learner"] = learner.compile_status()
     (args.out / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
     print(json.dumps({k: summary[k] for k in ("transitions", "rate", "halt", "flags")}))
     for s in shms:  # views may still exist: close() tolerates that (names already unlinked)
