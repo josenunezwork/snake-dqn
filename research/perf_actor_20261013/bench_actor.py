@@ -17,11 +17,24 @@ n-step transition) and the actor's own per-frame timing split (``msg["timing"]``
 ``env_s``). ``--grow-to L`` raises every snake's target length at segment start (bodies
 then grow one cell per frame), to look at long-body cost.
 
+perf-compile: ``--compile-actor MODE[,MODE]`` (``off`` = eager, ``default``,
+``reduce-overhead``, ``max-autotune-no-cudagraphs``) runs every cell once per mode with
+``train_m3c --compile-actor MODE`` (hero forward padded to ``--worlds`` rows). Compilation and
+the eager probe happen before the first frame (outside the timed frames); the row carries
+the actor's compile status (``compile_s``, probe max |dQ| / argmax flip rate, graphs,
+``fallback``: a cell that fell back is timing eager code). The hero forward is
+``timing_ms_per_frame["forward_s"]``.
+
 Usage (re-run on a quiet machine; numbers taken while other jobs run are noisy)::
 
     ./venv/bin/python research/perf_actor_20261013/bench_actor.py \\
         --worlds 64,128,256 --devices cpu,mps --frames 150 --warm 30 \\
         --out research/perf_actor_20261013/results/bench_actor.json
+
+    # CUDA pod: eager vs compiled hero forward (perf-compile)
+    python research/perf_actor_20261013/bench_actor.py --configs numba --worlds 64,128,256 \\
+        --devices cuda --compile-actor off,default,reduce-overhead --frames 300 --warm 30 \\
+        --out bench_actor_cuda_compile.json
 
     # one cell under cProfile (top functions by own time)
     ./venv/bin/python research/perf_actor_20261013/bench_actor.py --profile \\
@@ -37,6 +50,8 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 import argparse  # noqa: E402
+import contextlib  # noqa: E402
+import io  # noqa: E402
 import json  # noqa: E402
 import platform  # noqa: E402
 import subprocess  # noqa: E402
@@ -132,6 +147,7 @@ def run_cell(
     frozen_frac: float,
     seed: int,
     profile: bool = False,
+    compile_actor: str = "off",
 ) -> Dict[str, Any]:
     """One in-process ``actor_main`` run; returns rates and the timing split."""
     from research.redesign_m3c_20261008 import train_m3c as T
@@ -160,6 +176,8 @@ def run_cell(
         impl,
         "--v61-backend",
         v61,
+        "--compile-actor",
+        compile_actor,
     ]
     args = T.build_parser().parse_args(argv)
     if grow_to:
@@ -207,8 +225,10 @@ def run_cell(
         prof = cProfile.Profile()
     stop = _Stop()
     sink = _Sink(warm, frames, stop, prof)
+    captured = io.StringIO()
     try:
-        T.actor_main(0, cfg, names, sink, stop)
+        with contextlib.redirect_stdout(captured):  # the actor prints its compile status
+            T.actor_main(0, cfg, names, sink, stop)
     finally:
         for b in blocks:
             b.unlink()
@@ -232,9 +252,12 @@ def run_cell(
         "emitted_transitions": sink.transitions,
         "env_ms_per_frame": 1e3 * sink.env_s / n,
         "timing_ms_per_frame": {k: 1e3 * v / n for k, v in sink.timing.items()},
+        "compile_actor": compile_actor,
     }
+    for line in captured.getvalue().splitlines():
+        if '"compile_actor"' in line:
+            row["compile_status"] = json.loads(line)["compile_actor"]
     if prof is not None:
-        import io
         import pstats
 
         s = io.StringIO()
@@ -256,11 +279,18 @@ def main() -> int:
     ap.add_argument("--init", default=None)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--profile", action="store_true", help="cProfile one in-process cell")
+    ap.add_argument(
+        "--compile-actor",
+        default="off",
+        help="perf-compile: comma list of hero-forward compile modes (off = eager)",
+    )
+    ap.add_argument("--note", default="", help="provenance note (e.g. quiet / noisy)")
     ap.add_argument("--cell", default=None, help=argparse.SUPPRESS)  # internal: one cell
     a = ap.parse_args()
     init = a.init or default_init()
     if a.cell or a.profile:
-        config, worlds, device = (a.cell or f"{a.configs},{a.worlds},{a.devices}").split(",")
+        cell = a.cell or f"{a.configs},{a.worlds},{a.devices},{a.compile_actor}"
+        config, worlds, device, cmode = cell.split(",")
         row = run_cell(
             config,
             int(worlds),
@@ -272,6 +302,7 @@ def main() -> int:
             a.frozen_frac,
             a.seed,
             profile=a.profile,
+            compile_actor=cmode,
         )
         if a.profile:
             print(row.pop("profile_tottime"))
@@ -285,46 +316,54 @@ def main() -> int:
             if not torch.backends.mps.is_available():
                 print("mps unavailable: skipped", flush=True)
                 continue
-        for worlds in [int(w) for w in a.worlds.split(",")]:
-            for config in a.configs.split(","):
-                cmd = [
-                    sys.executable,
-                    str(Path(__file__).resolve()),
-                    "--cell",
-                    f"{config},{worlds},{device}",
-                    "--frames",
-                    str(a.frames),
-                    "--warm",
-                    str(a.warm),
-                    "--grow-to",
-                    str(a.grow_to),
-                    "--frozen-frac",
-                    str(a.frozen_frac),
-                    "--seed",
-                    str(a.seed),
-                    "--init",
-                    init,
-                ]
-                r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
-                line = [x for x in r.stdout.splitlines() if x.startswith("CELL ")]
-                if r.returncode or not line:
-                    row = {"config": config, "worlds": worlds, "device": device, "error": True}
-                    row["stderr"] = r.stderr[-1500:]
-                else:
-                    row = json.loads(line[-1][5:])
-                rows.append(row)
-                print(
-                    json.dumps({k: row.get(k) for k in ("config", "worlds", "device")})
-                    + f" -> {row.get('frames_per_s', float('nan')):.1f} frames/s, "
-                    f"{row.get('hero_transitions_per_s', float('nan')):.0f} hero tr/s",
-                    flush=True,
-                )
+        for worlds, config, cmode in [
+            (int(w), c, m)
+            for w in a.worlds.split(",")
+            for c in a.configs.split(",")
+            for m in a.compile_actor.split(",")
+        ]:
+            cmd = [
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "--cell",
+                f"{config},{worlds},{device},{cmode}",
+                "--frames",
+                str(a.frames),
+                "--warm",
+                str(a.warm),
+                "--grow-to",
+                str(a.grow_to),
+                "--frozen-frac",
+                str(a.frozen_frac),
+                "--seed",
+                str(a.seed),
+                "--init",
+                init,
+            ]
+            r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
+            line = [x for x in r.stdout.splitlines() if x.startswith("CELL ")]
+            if r.returncode or not line:
+                row = {"config": config, "worlds": worlds, "device": device, "error": True}
+                row["compile_actor"] = cmode
+                row["stderr"] = r.stderr[-1500:]
+            else:
+                row = json.loads(line[-1][5:])
+                if "[perf-compile]" in r.stderr:  # an eager fallback (message on stderr)
+                    row["compile_stderr"] = r.stderr[-1500:]
+            rows.append(row)
+            print(
+                json.dumps({k: row.get(k) for k in ("config", "worlds", "device", "compile_actor")})
+                + f" -> {row.get('frames_per_s', float('nan')):.1f} frames/s, "
+                f"{row.get('hero_transitions_per_s', float('nan')):.0f} hero tr/s",
+                flush=True,
+            )
     result = {
         "schema": "perf-actor-bench/v1",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "host": platform.node(),
         "machine": platform.machine(),
-        "note": "single actor process, in-process sink (no learner); noisy if the host is busy",
+        "note": "single actor process, in-process sink (no learner); noisy if the host is busy"
+        + (f"; {a.note}" if a.note else ""),
         "init": init,
         "rows": rows,
     }

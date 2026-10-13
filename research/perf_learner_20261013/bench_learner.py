@@ -13,6 +13,16 @@ fresh transitions ingested between updates as in ``main_multi``. Configs:
 * ``t1_k2`` / ``t1_k4``      ``--learner-fast --batch-scale 2|4`` (changes the training
   dynamics; reported per ingested transition, which is what bounds the trainer)
 * ``t1_bf16_k2`` / ``t1_fp16_k2``, ``t1_cl`` (channels_last; bench only)
+* perf-compile: ``t1_c`` / ``t1_c_ro`` / ``t1_c_ma`` (``--compile-learner default`` /
+  ``reduce-overhead`` / ``max-autotune-no-cudagraphs``, scope ``loss``), ``t1_c_fwd``
+  (scope ``forward``), ``t1_bf16_c``, ``t1_fp16_c``, ``t1_k2_c``, ``t1_bf16_k2_c``,
+  ``t1_bf16_c_ro``.
+  Or ``--compile MODE[,MODE]`` (``--compile-scope loss|forward``): adds a compiled twin
+  ``<config>@<mode>[/<scope>]`` of every listed ``--learner-fast`` config. Each compiled cell
+  reports its compile status (first-call seconds incl. compilation, graphs, fallback, the
+  first-steps check error); a cell whose compile FELL BACK is timing eager code. Warm-up is
+  at least ``VERIFY_CALLS + 3`` updates so compilation, the eager check and CUDA-graph
+  recording stay out of the timed rounds.
 
 Rounds are interleaved (config order rotated each round) and the median round is reported,
 because the Mac GPU is usually shared: treat single numbers as noisy. ``updates_per_s`` is
@@ -25,6 +35,14 @@ parameter / Q drift relative to fp32 (and the fp32 reference-vs-fast difference,
 reassociation noise floor).
 
 Usage (re-run on a quiet machine for clean numbers)::
+
+    # CUDA pod (the target of perf-compile): eager vs compiled, fp32 / bf16 / K=2
+    python research/perf_learner_20261013/bench_learner.py --devices cuda \\
+        --configs baseline,t1,t1_bf16,t1_k2 \\
+        --compile default,reduce-overhead,max-autotune-no-cudagraphs \\
+        --updates 100 --rounds 7 --note quiet-cuda --out bench_learner_cuda_compile.json
+    python research/perf_learner_20261013/bench_learner.py --drift --devices cuda \\
+        --compile default,reduce-overhead --note quiet-cuda --out drift_cuda_compile.json
 
     ./venv/bin/python research/perf_learner_20261013/bench_learner.py \\
         --devices mps,cpu --out research/perf_learner_20261013/results/bench_learner.json
@@ -76,6 +94,16 @@ CONFIGS: Dict[str, Dict[str, Any]] = {
     "t1_fp16_k2": {"fast": True, "precision": "fp16", "batch_scale": 2},
     "t1_bf16_k2": {"fast": True, "precision": "bf16", "batch_scale": 2},
     "t1_cl": {"fast": True, "channels_last": True},
+    # perf-compile
+    "t1_c": {"fast": True, "compile": "default"},
+    "t1_c_ro": {"fast": True, "compile": "reduce-overhead"},
+    "t1_c_ma": {"fast": True, "compile": "max-autotune-no-cudagraphs"},
+    "t1_c_fwd": {"fast": True, "compile": "default", "compile_scope": "forward"},
+    "t1_bf16_c": {"fast": True, "precision": "bf16", "compile": "default"},
+    "t1_fp16_c": {"fast": True, "precision": "fp16", "compile": "default"},
+    "t1_bf16_c_ro": {"fast": True, "precision": "bf16", "compile": "reduce-overhead"},
+    "t1_k2_c": {"fast": True, "batch_scale": 2, "compile": "default"},
+    "t1_bf16_k2_c": {"fast": True, "precision": "bf16", "batch_scale": 2, "compile": "default"},
 }
 DEFAULT_CONFIGS = "baseline,t1,t1_fp16,t1_bf16,t1_k2,t1_k4"
 N_ACTORS = 2
@@ -176,6 +204,37 @@ def new_st() -> Dict[str, Any]:
     }
 
 
+def with_compile_twins(names: List[str], modes: str, scopes: str) -> List[str]:
+    """``names`` plus ``<name>@<mode>[/<scope>]`` for each fast config (registered in CONFIGS)."""
+    out = list(names)
+    for mode in [m for m in modes.split(",") if m]:
+        for scope in scopes.split(","):
+            for name in names:
+                cfg = CONFIGS[name]
+                if not cfg.get("fast") or cfg.get("compile", "off") != "off":
+                    continue
+                twin = f"{name}@{mode}" + ("" if scope == "loss" else f"/{scope}")
+                CONFIGS[twin] = {**cfg, "compile": mode, "compile_scope": scope}
+                out.append(twin)
+    return out
+
+
+def _eager_key(flags: Dict[str, Any]) -> tuple:
+    """A config's flags without the compile options (finds a compiled cell's eager twin)."""
+    return tuple(sorted((k, v) for k, v in flags.items() if k not in ("compile", "compile_scope")))
+
+
+def compile_limits() -> None:
+    """Many compiled learners share one process here (one per cell): raise dynamo's
+    per-code-object recompile limit so no cell silently runs eager (the trainer has one
+    learner per process and at most three shape keys)."""
+    import torch._dynamo.config as dcfg
+
+    for k in ("recompile_limit", "cache_size_limit", "accumulated_recompile_limit"):
+        if hasattr(dcfg, k):
+            setattr(dcfg, k, max(int(getattr(dcfg, k)), 256))
+
+
 def make_learner(cfg, device, mode, nscal, net0, multi, world, seed):
     opts = lm.LearnerOpts(**cfg)
     online = copy.deepcopy(net0).to(device).train()
@@ -226,9 +285,12 @@ def bench(ns) -> Dict[str, Any]:
     id_hi = ns.ring_rows * N_ACTORS
     net0 = init_net(nscal)
     out: Dict[str, Any] = {"cells": []}
+    names_all = with_compile_twins(ns.configs.split(","), ns.compile, ns.compile_scope)
+    if any(CONFIGS[n].get("compile", "off") != "off" for n in names_all):
+        compile_limits()
     for device in ns.devices.split(","):
         torch.set_num_threads(ns.threads)
-        names = ns.configs.split(",")
+        names = names_all
         upd = ns.updates_cpu if device == "cpu" else ns.updates
         rounds = ns.rounds_cpu if device == "cpu" else ns.rounds
         learners = {}
@@ -240,6 +302,8 @@ def bench(ns) -> Dict[str, Any]:
             )
             feeds[name] = np.random.default_rng(5)
             warm = ns.warm_cpu if device == "cpu" else ns.warm
+            if CONFIGS[name].get("compile", "off") != "off":  # compile + check + CUDA graphs
+                warm = max(warm, lm.VERIFY_CALLS + 3)
             run_updates(learners[name], warm, feeds[name], id_hi, device)  # warm-up
         times: Dict[str, List[float]] = {n: [] for n in names}
         for rnd in range(rounds):
@@ -267,11 +331,27 @@ def bench(ns) -> Dict[str, Any]:
             }
             if lr.scaler is not None:
                 cell["grad_scale_final"] = float(lr.scaler.get_scale())
+            if lr.compile_status() is not None:
+                cell["compile"] = lr.compile_status()
             if name == "baseline":
                 base = cell["transitions_per_s"]
             if base:
                 cell["speedup_vs_baseline"] = round(cell["transitions_per_s"] / base, 3)
             out["cells"].append(cell)
+        eager = {
+            _eager_key(c["flags"]): c
+            for c in out["cells"]
+            if c["device"] == device and c["flags"].get("compile", "off") == "off"
+        }
+        for cell in out["cells"]:
+            if cell["device"] != device:
+                continue
+            twin = eager.get(_eager_key(cell["flags"]))
+            if cell["flags"].get("compile", "off") != "off" and twin is not None:
+                cell["eager_twin"] = twin["config"]
+                cell["speedup_vs_eager_twin"] = round(
+                    cell["transitions_per_s"] / twin["transitions_per_s"], 3
+                )
             print(json.dumps({k: cell[k] for k in cell if k != "round_seconds"}), flush=True)
         del learners
     return out
@@ -306,6 +386,21 @@ def drift(ns) -> Dict[str, Any]:
             "t1_bf16": {"fast": True, "precision": "bf16"},
             "t1_fp16": {"fast": True, "precision": "fp16"},
         }
+        for cmode in [m for m in ns.compile.split(",") if m]:  # perf-compile drift vs t1_fp32
+            compile_limits()
+            for scope in ns.compile_scope.split(","):
+                sfx = "" if scope == "loss" else f"_{scope}"
+                variants[f"t1_fp32_compile_{cmode}{sfx}"] = {
+                    "fast": True,
+                    "compile": cmode,
+                    "compile_scope": scope,
+                }
+                variants[f"t1_bf16_compile_{cmode}{sfx}"] = {
+                    "fast": True,
+                    "precision": "bf16",
+                    "compile": cmode,
+                    "compile_scope": scope,
+                }
         theta0 = torch.cat([p.detach().reshape(-1) for p in net0.parameters()])
         for name, cfg in variants.items():
             world = build_world(ns.mode, nscal, id_hi, 0)
@@ -318,6 +413,7 @@ def drift(ns) -> Dict[str, Any]:
                 "updates": lr.st["updates"],
                 "halt": lr.st["halt"],
                 "grad_scale": float(lr.scaler.get_scale()) if lr.scaler is not None else None,
+                "compile": lr.compile_status(),
             }
         ref = runs["t1_fp32"]
         step = float((ref["theta"] - theta0).norm())
@@ -343,6 +439,8 @@ def drift(ns) -> Dict[str, Any]:
                     torch.equal(r["theta"], runs["reference_fp32"]["theta"])
                 ),
             }
+            if r["compile"] is not None:
+                row["compile"] = r["compile"]
             out["drift"].append(row)
             print(json.dumps(row), flush=True)
     return out
@@ -363,10 +461,27 @@ def main(argv=None) -> int:
     ap.add_argument("--threads", type=int, default=1, help="torch threads (trainer: 1)")
     ap.add_argument("--drift", action="store_true")
     ap.add_argument("--drift-updates", type=int, default=200)
+    ap.add_argument(
+        "--compile",
+        default="",
+        help="perf-compile: comma list of torch.compile modes; adds compiled twins of the "
+        "fast configs (bench) or compiled drift variants (--drift)",
+    )
+    ap.add_argument("--compile-scope", default="loss", help="loss,forward (comma list)")
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument(
+        "--note",
+        default="NOISY: measured while other training jobs shared the CPU and the MPS GPU",
+        help="free-text provenance note stored in the output (say 'quiet' when it was)",
+    )
     ns = ap.parse_args(argv)
     if any(n not in CONFIGS for n in ns.configs.split(",")):
         ap.error(f"configs: {sorted(CONFIGS)}")
+    for m in [m for m in ns.compile.split(",") if m]:
+        if m not in lm.COMPILE_MODES or m == "off":
+            ap.error(f"--compile modes: {lm.COMPILE_MODES[1:]}")
+    if any(s not in lm.COMPILE_SCOPES for s in ns.compile_scope.split(",")):
+        ap.error(f"--compile-scope: {lm.COMPILE_SCOPES}")
     meta = {
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "platform": platform.platform(),
@@ -376,7 +491,7 @@ def main(argv=None) -> int:
         "argv": sys.argv[1:],
         "init": str(STUDENT) if STUDENT.exists() else "random",
         "mode": ns.mode,
-        "note": "NOISY: measured while other training jobs shared the CPU and the MPS GPU",
+        "note": ns.note,
     }
     res = drift(ns) if ns.drift else bench(ns)
     res = {**meta, **res, "loadavg_end": os.getloadavg()}

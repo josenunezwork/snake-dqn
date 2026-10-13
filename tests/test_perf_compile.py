@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -373,3 +375,50 @@ def test_mps_compile_is_checked():
         q = hf(obs).cpu()
         ref = net(*[torch.from_numpy(obs[k]).to("mps") for k in ("local", "global", "scalars")])
     assert float((q - ref.cpu()).abs().max()) < Q_ATOL
+
+
+# ----------------------------------------------------------------------------- actor e2e
+@pytest.mark.slow
+def test_actor_compiled_hero_forward_end_to_end(tmp_path, monkeypatch, capsys):
+    """``actor_main`` on CPU: the default run never calls torch.compile; with
+    ``--compile-actor default`` (hero rows padded to --worlds, weights loaded in place) the
+    frame messages and ring rows are identical here (no greedy flip in 100 frames: Q gaps
+    >> the ~1e-7 reassociation noise; a near-tie could flip one on another platform)."""
+    from tests.test_perf_actor import HAVE_CKPT, _run_actor
+
+    if not HAVE_CKPT:
+        pytest.skip("needs the pinned frp3-s12 checkpoints")
+    from src.model.ego2s_network import save_ego2s_checkpoint
+
+    monkeypatch.setattr(m3c.Schedules, "eps", lambda self, t: 0.3)
+    torch.manual_seed(0)
+    init = tmp_path / "init.pth"
+    save_ego2s_checkpoint(init, Ego2sNet(7, 30))
+    frames = 100
+    real_compile = torch.compile
+
+    def boom(*a, **k):
+        raise AssertionError("torch.compile called with --compile-actor off")
+
+    monkeypatch.setattr(torch, "compile", boom)
+    (tmp_path / "eager").mkdir()
+    ref_msgs, ref_ring = _run_actor(tmp_path / "eager", init, "vectorized", "numba", frames)
+    monkeypatch.setattr(torch, "compile", real_compile)
+    (tmp_path / "comp").mkdir()
+    extra = ("--compile-actor", "default")
+    msgs, ring = _run_actor(tmp_path / "comp", init, "vectorized", "numba", frames, extra)
+    assert len(msgs) == len(ref_msgs) == frames
+    out = capsys.readouterr().out
+    status = [json.loads(x)["compile_actor"] for x in out.splitlines() if "compile_actor" in x]
+    assert len(status) == 1 and status[0]["compiled"] and status[0]["fallback"] is None
+    for f, (a, b) in enumerate(zip(ref_msgs, msgs)):
+        for k in a:
+            if k in ("env_s", "timing", "j"):
+                continue
+            x, y = a[k], b[k]
+            if isinstance(x, np.ndarray):
+                assert x.dtype == y.dtype and np.array_equal(x, y), (f, k)
+            else:
+                assert x == y, (f, k)
+    for k in ref_ring:
+        assert np.array_equal(ref_ring[k], ring[k]), k
