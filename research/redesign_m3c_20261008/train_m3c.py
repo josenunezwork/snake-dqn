@@ -579,6 +579,19 @@ V8_BACKENDS = ("python", "numba")
 V8_BACKEND_ENV = "M3C_V8_BACKEND"
 
 
+def load_init(args, device):
+    """The ``--init`` network; an ego2s-b checkpoint is widened in memory for ``bv8`` runs
+    (zero new fuse columns: Q unchanged, see ``widen_bv8.py``)."""
+    from src.model.ego2s_network import OBS_SPEC_B, load_ego2s_checkpoint, spec_for
+
+    net = load_ego2s_checkpoint(args.init, "cpu")
+    if getattr(args, "obs_version", "b") == "bv8" and spec_for(net) == OBS_SPEC_B:
+        from research.redesign_m4b_20261012.widen_bv8 import widen_net
+
+        net = widen_net(net)
+    return net.to(device)
+
+
 def make_shield(carrier: str, runtime, backend: Optional[str] = None):
     """frp3-s12's v8 veto (lambda 8) applied to externally supplied Q (the online student).
 
@@ -786,6 +799,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "shield_off_at",
         "onpolicy_labels",
         "label_frac",
+        "v8_backend",
         "obs_version",
     ):
         if getattr(args, k) != getattr(d, k):
@@ -843,6 +857,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--shield-off-at", type=int, default=16_000_000)
     ap.add_argument(
         "--onpolicy-labels", action="store_true", help="v8 labels on the student's own states"
+    )
+    ap.add_argument(
+        "--v8-backend", choices=("python", "numba"), default=None, help="default: env, else python"
     )
     ap.add_argument("--label-frac", type=float, default=0.5, help="on-policy share of anchor rows")
     ap.add_argument("--label-capacity", type=int, default=300_000)
@@ -1339,7 +1356,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         wbuf = np.ndarray((nw + 1,), dtype=np.float64, buffer=shm_w.buf, offset=8)
         progress = np.ndarray((4,), dtype=np.int64, buffer=shm_p.buf, offset=0)
         device = torch.device(cfg["actor_device"])
-        net = load_ego2s_checkpoint(args.init, "cpu").eval()
+        net = load_init(args, "cpu").eval()
         spec = _weights_spec(net)
         last = _read_weights(net, spec, wbuf, wver, -1)
         net = net.to(device)
@@ -1363,7 +1380,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             )
             # bv8: one compiled v8 evaluation per frame (features=True) serves both the
             # observation's feature scalars and the shield / label action (v8_redecide).
-            shield = make_shield(carrier, runtime) if use_v8 and not bv8 else None
+            shield = (
+                make_shield(carrier, runtime, backend=args.v8_backend)
+                if use_v8 and not bv8
+                else None
+            )
             if bv8:
                 from src.simd_env.ego_raster_bv8 import v8_scalars
                 from src.simd_env.v8_nb import v8_redecide
@@ -1561,14 +1582,14 @@ def main_multi(args) -> int:
 
     bv8 = args.obs_version == "bv8"
     nscal = nscal_for(args)
-    online = load_ego2s_checkpoint(args.init, device).train()
+    online = load_init(args, device).train()
     want_spec = OBS_SPEC_BV8 if bv8 else OBS_SPEC_B
     if spec_for(online) != want_spec:
         raise SystemExit(
             f"--obs-version {args.obs_version} needs a {want_spec} --init, got "
             f"{spec_for(online)} (widen with research/redesign_m4b_20261012/widen_bv8.py)"
         )
-    target = load_ego2s_checkpoint(args.init, device).eval()
+    target = load_init(args, device).eval()
     opt = torch.optim.Adam(online.parameters(), lr=1e-4)
     margin = json.loads((args.demo_data / "margin.json").read_text())["margin"]
     holdout = DemoStream.load(
