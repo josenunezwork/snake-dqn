@@ -113,8 +113,20 @@ class Schedules:
         return self.eps_start + f * (self.eps_end - self.eps_start)
 
 
+def shield_prob(t: int, full_until: int, off_at: int) -> float:
+    """M4-A: probability the v8 shield's action is executed (1 until ``full_until``, linear
+    to 0 at ``off_at``, 0 after)."""
+    if t <= full_until:
+        return 1.0
+    if t >= off_at:
+        return 0.0
+    return 1.0 - (t - full_until) / (off_at - full_until)
+
+
 def schedules_from_args(args) -> Schedules:
     return Schedules(
+        gamma_start=getattr(args, "gamma_start", Schedules.gamma_start),
+        gamma_end=getattr(args, "gamma_end", Schedules.gamma_end),
         gamma_hold=args.gamma_hold,
         gamma_anneal_end=args.gamma_anneal_end,
         anchor_hold=args.anchor_hold,
@@ -500,6 +512,77 @@ def anchor_loss(torch, q, b, margin: float):
     return 10.0 * adv + kl + marg
 
 
+def anchor_loss_margin(torch, q, a, mask, margin: float):
+    """M4-A ``--anchor-mode v8margin``: the DQfD large-margin term toward the v8 label only.
+
+    No advantage-Huber / KL toward the teacher's *unvetoed* Q (whose ranking conflicts with
+    the vetoed label, and whose scale is the teacher's reward, not the student's)."""
+    a = a.long()
+    neg = torch.full_like(q, -1e9)
+    onehot = torch.nn.functional.one_hot(a, 6).bool()
+    allowed = mask | onehot
+    hi = torch.where(allowed, q + (~onehot).float() * margin, neg).max(dim=1).values
+    return (hi - q.gather(1, a[:, None]).squeeze(1)).mean()
+
+
+class LabelBuffer:
+    """M4-A on-policy v8 labels: global observation-ring ids + the v8 action (ring order)."""
+
+    def __init__(self, capacity: int) -> None:
+        self.cap = int(capacity)
+        self.ids = np.full(capacity, -1, dtype=np.int64)
+        self.a = np.zeros(capacity, dtype=np.int64)
+        self.size = 0
+        self.ptr = 0
+
+    def add(self, ids: np.ndarray, a: np.ndarray) -> None:
+        n = len(ids)
+        pos = (self.ptr + np.arange(n)) % self.cap
+        self.ids[pos] = ids
+        self.a[pos] = a
+        self.ptr = int((self.ptr + n) % self.cap)
+        self.size = min(self.cap, self.size + n)
+
+    def sample(self, rng: np.random.Generator, n: int, ring) -> np.ndarray:
+        idx = rng.integers(0, self.size, size=n * 2)
+        idx = idx[ring.valid(self.ids[idx])][:n]
+        return idx
+
+
+def make_shield(carrier: str, runtime):
+    """frp3-s12's v8 veto (lambda 8) applied to externally supplied Q (the online student)."""
+    import torch
+
+    from src.simd_env.vector61_policy import Vector61SimdPolicy
+
+    class InjectedQV8(Vector61SimdPolicy):
+        def __init__(self) -> None:
+            super().__init__(
+                carrier,
+                runtime,
+                veto_slots=(0,),
+                forward="batched",
+                veto_variant="v8",
+                veto_lambda=8.0,
+            )
+            self.network = None  # never run: Q comes from the student
+            self._q = None
+
+        def act(self, q: np.ndarray, masks, sim, slots) -> np.ndarray:
+            self._q = torch.from_numpy(np.ascontiguousarray(q, dtype=np.float32))
+            try:
+                return self.actions(masks, sim, slots)
+            finally:
+                self._q = None
+
+        def q_values(self, states):
+            if self._q is None:
+                raise RuntimeError("InjectedQV8.q_values outside act()")
+            return self._q
+
+    return InjectedQV8()
+
+
 def anchor_loss_weighted(torch, q, b, margin: float, boost_weight: float):
     """The same three terms with row weight ``boost_weight`` on boost-labelled rows.
 
@@ -530,7 +613,7 @@ def anchor_loss_weighted(torch, q, b, margin: float, boost_weight: float):
 
 
 # ----------------------------------------------------------------------------- worlds
-def build_segment(args, ctx, segment: int, gamma: float):
+def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False):
     from src.core.world_runtime import WorldRuntimeSpec
     from src.simd_env import eval_engine as ee
     from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
@@ -543,6 +626,10 @@ def build_segment(args, ctx, segment: int, gamma: float):
     namespace = getattr(args, "namespace", TRAIN_NAMESPACE)
     seeds = dev_screen.screen_seeds((segment + 1) * E, namespace, f"seed{args.seed}")[segment * E :]
     base = ee._config_from_game_config(6, gamma, ctx["profile"])
+    if getattr(args, "kill_scale", None) is not None:
+        base = replace(base, kill_scale=float(args.kill_scale))
+    if getattr(args, "death_value", None) is not None:
+        base = replace(base, death_value=float(args.death_value))
     cap = WorldRuntimeSpec.source_exact(ctx["profile"]).body_storage_capacity
     sim = GridBatchSim(
         replace(base, num_envs=E, body_storage_capacity=cap),
@@ -563,6 +650,8 @@ def build_segment(args, ctx, segment: int, gamma: float):
             groups.setdefault(lookup[member["member_sha256"]], []).append((e, slot))
     runtime = Vector61Runtime()
     controlled = np.zeros((E, 6), dtype=bool)
+    if hero_v61:  # M4-A shield / labels: the v8 veto reads the hero's vector61 rows
+        controlled[:, 0] = True
     policies: Dict[Any, Any] = {}
     for spec, cells in groups.items():
         if spec[0] == "scripted":
@@ -630,6 +719,16 @@ def m3c_flags(args) -> Dict[str, Any]:
         "namespace",
         "mixed_frac",
         "actors",
+        "kill_scale",
+        "death_value",
+        "gamma_start",
+        "gamma_end",
+        "anchor_mode",
+        "shield",
+        "shield_full_until",
+        "shield_off_at",
+        "onpolicy_labels",
+        "label_frac",
     ):
         if getattr(args, k) != getattr(d, k):
             out[k] = getattr(args, k)
@@ -675,6 +774,20 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--ring-dir", default=None, help="file-backed observation rings here (default: /dev/shm)"
     )
+    # --- M4-A options (defaults = M3-C; multi-actor trainer only) ---
+    ap.add_argument("--kill-scale", type=float, default=None, help="reward per victim length")
+    ap.add_argument("--death-value", type=float, default=None, help="reward on death")
+    ap.add_argument("--gamma-start", type=float, default=Schedules.gamma_start)
+    ap.add_argument("--gamma-end", type=float, default=Schedules.gamma_end)
+    ap.add_argument("--anchor-mode", choices=("m3", "v8margin"), default="m3")
+    ap.add_argument("--shield", choices=("none", "v8"), default="none")
+    ap.add_argument("--shield-full-until", type=int, default=8_000_000)
+    ap.add_argument("--shield-off-at", type=int, default=16_000_000)
+    ap.add_argument(
+        "--onpolicy-labels", action="store_true", help="v8 labels on the student's own states"
+    )
+    ap.add_argument("--label-frac", type=float, default=0.5, help="on-policy share of anchor rows")
+    ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument("--no-guard", action="store_true", help="tests only: skip the Mac guard")
     return ap
 
@@ -692,6 +805,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--actors must be >= 0")
     if args.reward == "v2" and args.mass_kappa != 1.0:
         raise SystemExit("--mass-kappa needs --reward mass")
+    m4a = (
+        args.shield != "none"
+        or args.onpolicy_labels
+        or args.anchor_mode != "m3"
+        or args.kill_scale is not None
+        or args.death_value is not None
+        or args.gamma_start != Schedules.gamma_start
+        or args.gamma_end != Schedules.gamma_end
+    )
+    if m4a and not args.actors:
+        raise SystemExit("the M4-A options need the multi-actor trainer (--actors >= 1)")
+    if args.onpolicy_labels and args.anchor_mode != "v8margin":
+        raise SystemExit("--onpolicy-labels needs --anchor-mode v8margin")
+    if not args.shield_full_until <= args.shield_off_at:
+        raise SystemExit("--shield-full-until must be <= --shield-off-at")
     if args.actors:
         return main_multi(args)
     return main_sync(args)
@@ -1146,11 +1274,20 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         ctx = gid._context(1)
         B = EgoRasterConfig(version="b")
         mass = args.reward == "mass"
+        use_v8 = args.shield != "none" or args.onpolicy_labels
+        carrier = None
+        if use_v8:
+            from research.redesign_m2_20261008 import ni_spec
+
+            carrier = ctx["lookup"][ni_spec.FRP3_S12[1]][1]
         segment = j
         while not stop_evt.is_set():
             t_glob = int(progress[0])
             gamma_seg = sched.gamma(t_glob)
-            sim, runtime, policies, groups = build_segment(args, ctx, segment, gamma_seg)
+            sim, runtime, policies, groups = build_segment(
+                args, ctx, segment, gamma_seg, hero_v61=use_v8
+            )
+            shield = make_shield(carrier, runtime) if use_v8 else None
             E = sim.E
             nsb = NStepBuilder(E)
             for _frame in range(args.segment_frames):
@@ -1166,7 +1303,12 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 t_glob = int(progress[0])
                 eps, gamma_now = sched.eps(t_glob), sched.gamma(t_glob)
                 chosen: Dict[str, Any] = {}
-                timing = {"featurizer_s": 0.0, "forward_s": 0.0, "opponents_s": 0.0}
+                timing = {"featurizer_s": 0.0, "forward_s": 0.0, "opponents_s": 0.0, "v8_s": 0.0}
+                p_shield = (
+                    shield_prob(t_glob, args.shield_full_until, args.shield_off_at)
+                    if args.shield != "none"
+                    else 0.0
+                )
 
                 def choose(prepared):
                     masks = prepared.get_resolved_action_mask()
@@ -1199,7 +1341,17 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         mm = m.copy()
                         mm[~mm.any(axis=1), :3] = True
                         rand = np.array([rng.choice(np.flatnonzero(r)) for r in mm])
-                        act = np.where(rng.random(len(hero)) < eps, rand, greedy)
+                        explore = rng.random(len(hero)) < eps
+                        policy_act = greedy
+                        if shield is not None:
+                            t_v = time.perf_counter()
+                            a_v8 = shield.act(q.float().cpu().numpy(), m, prepared, hero)
+                            timing["v8_s"] += time.perf_counter() - t_v
+                            chosen["a_v8"] = a_v8
+                            if p_shield > 0.0:
+                                shielded = rng.random(len(hero)) < p_shield
+                                policy_act = np.where(shielded, a_v8, greedy)
+                        act = np.where(explore, rand, policy_act)
                         actions[hero[:, 0], 0] = act
                         chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
                     t_o = time.perf_counter()
@@ -1223,10 +1375,14 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         sim.get_lengths()[:, 0], alive_after, gamma_seg, args.mass_kappa
                     )
                 deaths = 0
-                stats = {"decisions": 0, "boost": 0, "greedy_boost": 0}
+                stats = {"decisions": 0, "boost": 0, "greedy_boost": 0, "v8_override": 0}
                 acts = np.zeros(0, dtype=np.int64)
+                lab_ids = np.zeros(0, dtype=np.int64)
+                lab_a = np.zeros(0, dtype=np.int8)
                 if chosen:
                     ids = ring.add(chosen["obs"], chosen["mask"])
+                    if "a_v8" in chosen and args.onpolicy_labels:
+                        lab_ids, lab_a = ids, chosen["a_v8"].astype(np.int8)
                     deaths = nsb.step(
                         chosen["hero"][:, 0], ids, chosen["act"], reward, done, gamma_now
                     )
@@ -1235,6 +1391,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         "decisions": int(len(acts)),
                         "boost": int((acts >= 3).sum()),
                         "greedy_boost": int((chosen["greedy"] >= 3).sum()),
+                        "v8_override": (
+                            int((chosen["a_v8"] != chosen["greedy"]).sum())
+                            if "a_v8" in chosen
+                            else 0
+                        ),
                     }
                 last_frame = _frame == args.segment_frames - 1
                 if last_frame:
@@ -1248,6 +1409,8 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     "disc": d,
                     "nxt": nx,
                     "acts": acts.astype(np.int8),
+                    "lab_ids": lab_ids,
+                    "lab_a": lab_a,
                     "deaths": deaths,
                     "env_s": time.perf_counter() - t0,
                     "timing": timing,
@@ -1309,6 +1472,7 @@ def main_multi(args) -> int:
         sorted((args.demo_data / "round-12").glob("chunk-*-part-*.npz"))[0], held_out=True
     )
     replay = Replay(args.replay)
+    labels = LabelBuffer(args.label_capacity) if args.onpolicy_labels else None
     tel = Telemetry(args.out, args)
     # Rings: each actor holds 1.5x its share of the replay plus the in-flight frames (ingest is
     # round-robin, so actor shares stay near 1/K; an overrun only drops rows, counted). With
@@ -1399,6 +1563,8 @@ def main_multi(args) -> int:
         "boost": 0,
         "greedy_boost": 0,
         "deaths": 0,
+        "v8_override": 0,
+        "label_rows": [],
         "lag": [],
         "action_window": deque(maxlen=100_000),
     }
@@ -1433,7 +1599,26 @@ def main_multi(args) -> int:
         a = to_dev(replay.a[idx])
         R = to_dev(replay.R[idx])
         disc = to_dev(replay.disc[idx])
-        d = demos.sample(rng, 128)
+        n_lab = 0
+        if labels is not None and labels.size >= 10_000:
+            n_lab = int(round(128 * args.label_frac))
+        d = demos.sample(rng, 128 - n_lab)
+        if n_lab:
+            li = labels.sample(rng, n_lab, multi)
+            lids = labels.ids[li]
+            ll, lg, ls_, lm = multi.get(lids)
+            keep = np.flatnonzero(multi.valid(lids))  # re-check after the gather
+            ll, lg, ls_, lm, la = ll[keep], lg[keep], ls_[keep], lm[keep], labels.a[li][keep]
+            n_lab = len(keep)
+            d = {
+                "local": np.concatenate([d["local"], ll]),
+                "global": np.concatenate([d["global"], lg]),
+                "scalars": np.concatenate([d["scalars"], ls_]),
+                "a_v8": np.concatenate([d["a_v8"], la]),
+                "mask_resolved": np.concatenate([d["mask_resolved"], lm]),
+                "q_teacher": d["q_teacher"],  # demo rows only (unused by v8margin)
+            }
+        st["label_rows"].append(n_lab)
         n_agent = len(idx)
         q_all = online(
             to_dev(np.concatenate([sl, d["local"]])),
@@ -1449,7 +1634,9 @@ def main_multi(args) -> int:
             y = R + disc * q_next
         td = torch.nn.functional.smooth_l1_loss(qa, y)
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
-        if args.anchor_boost_weight == 1.0:
+        if args.anchor_mode == "v8margin":
+            anc = anchor_loss_margin(torch, qd, db["a_v8"], db["mask_resolved"], margin)
+        elif args.anchor_boost_weight == 1.0:
             anc = anchor_loss(torch, qd, db, margin)
         else:
             anc = anchor_loss_weighted(torch, qd, db, margin, args.anchor_boost_weight)
@@ -1513,6 +1700,9 @@ def main_multi(args) -> int:
                         int(gn[i]),
                     )
                 st["since_update"] += len(gs)
+                if labels is not None and len(msg["lab_ids"]):
+                    labels.add(multi.encode(j, msg["lab_ids"]), msg["lab_a"].astype(np.int64))
+                st["v8_override"] += msg["v8_override"]
                 st["transitions"] += msg["decisions"]
                 st["decisions"] += msg["decisions"]
                 st["boost"] += msg["boost"]
@@ -1560,6 +1750,16 @@ def main_multi(args) -> int:
                     "demo_distinct": demos.distinct,
                     "actors": K,
                 }
+                if args.shield != "none" or labels is not None:
+                    row["v8_override_rate"] = st["v8_override"] / max(1, st["decisions"])
+                    row["shield_p"] = (
+                        shield_prob(t, args.shield_full_until, args.shield_off_at)
+                        if args.shield != "none"
+                        else 0.0
+                    )
+                    row["label_rows_mean"] = (
+                        float(np.mean(st["label_rows"])) if st["label_rows"] else 0.0
+                    )
                 if t % 500_000 < 100_000:
                     row["holdout_agreement"] = holdout_agreement()
                     if row["holdout_agreement"] < 0.6:
@@ -1577,6 +1777,7 @@ def main_multi(args) -> int:
                     ring_counts=[r.count for r in rings],
                 )
                 st.update(td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0)
+                st.update(v8_override=0, label_rows=[])
                 st["lag"] = []
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")
