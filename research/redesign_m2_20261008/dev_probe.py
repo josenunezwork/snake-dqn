@@ -51,6 +51,9 @@ def main() -> int:
         default="resolved",
         help="no-veto student only; M3-C: advisory (the live selection rule, as Phase R)",
     )
+    ap.add_argument(
+        "--frames", type=int, default=None, help="default: the NI horizon (smoke tests only)"
+    )
     args = ap.parse_args()
     import torch
 
@@ -58,6 +61,10 @@ def main() -> int:
 
     torch.set_num_threads(1)
     ctx = gid._context(1)
+    if args.frames:
+        import dataclasses
+
+        ctx["profile"] = dataclasses.replace(ctx["profile"], scored_horizon=args.frames)
     from research.redesign_m2_20261008 import ni_spec_m2b
 
     seeds = ni_spec.distill_seeds(args.worlds, round_index=args.round_index)
@@ -78,7 +85,7 @@ def main() -> int:
     recs = ee.run_simd_eval(
         ctx["lookup"][ni_spec.FRP3_S12[1]],
         rows[seeds[0]],
-        ni_spec.HORIZON,
+        args.frames or ni_spec.HORIZON,
         seeds,
         profile=ctx["profile"],
         opponent_specs_by_world=rows,
@@ -92,6 +99,7 @@ def main() -> int:
         "arm": args.arm,
         "veto": args.veto,
         "round_index": args.round_index,
+        "frames": args.frames or ni_spec.HORIZON,
         "ego2s_forward": args.ego2s_forward if args.arm == "student" else None,
         "ego2s_mask": args.ego2s_mask if args.arm == "student" and args.veto == "none" else None,
         "student": args.student,

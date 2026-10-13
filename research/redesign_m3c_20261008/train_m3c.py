@@ -29,6 +29,14 @@ Everything new is behind a flag:
   ring; the learner keeps the replay index, does one update per 128 ingested transitions
   (replay ratio 4, as M3) and back-pressures the actors through bounded queues. Not
   bit-reproducible (policy lag, scheduling); ``--actors 0`` (default) is the M3 trainer.
+* ``--obs-version bv8`` (M4-B; multi-actor only): the ``ego2s-bv8`` observation (``ego2s-b``
+  plus the v8 veto's 30 per-action features as scalars 30..59; ``--init`` must be an
+  ``ego2s-bv8`` checkpoint, e.g. from ``research/redesign_m4b_20261012/widen_bv8.py``). The
+  actor runs the compiled v8 once per frame for the hero rows (``features=True``) and reuses
+  it for the shield / label action (``v8_redecide``). The demonstration shards have only 30
+  scalars, so it needs ``--onpolicy-labels --label-frac 1.0 --anchor-mode v8margin``: no
+  demonstration rows, the anchor term starts once 10k labels are buffered (TD only before),
+  and there is no held-out agreement.
 
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
@@ -72,7 +80,11 @@ SCHEMA_M3C = "redesign-m3c-train/v1"
 TRAIN_NAMESPACE = "redesign-m3-train/v1"
 LOCAL = (7, 31, 31)
 GLOBAL = (4, 37, 37)
-NSCAL = 30
+NSCAL = 30  # ego2s-b scalars (the demonstration shards); a run's width: nscal_for(args)
+OBS_VERSIONS = ("b", "bv8")
+#: M4-B: scalars per observation version (bv8 = b ++ the 30 v8 feature scalars)
+OBS_NSCAL = {"b": NSCAL, "bv8": 60}
+LABEL_ANCHOR_MIN_ROWS = 10_000  # on-policy labels needed before the anchor term is used
 PHI_DIV = 10.0  # Phi(L) = L / 10 (src.core.reward_events.phi)
 N_STEP = 5
 UPDATE_EVERY = 128
@@ -137,6 +149,11 @@ def schedules_from_args(args) -> Schedules:
 
 
 # ----------------------------------------------------------------------------- reward
+def nscal_for(args) -> int:
+    """The run's scalar width (30 for ``--obs-version b``, 60 for ``bv8``)."""
+    return OBS_NSCAL[getattr(args, "obs_version", "b")]
+
+
 def mass_term(lengths: np.ndarray, alive_after: np.ndarray, gamma: float, kappa: float):
     """``kappa * (1 - gamma) * Phi(L)`` for heroes alive after the step, else 0 (float64)."""
     phi = np.asarray(lengths, dtype=np.float64) / PHI_DIV
@@ -147,11 +164,11 @@ def mass_term(lengths: np.ndarray, alive_after: np.ndarray, gamma: float, kappa:
 class ObsRing:
     """uint8 observation ring (+ scalars, resolved mask) addressed by a monotone counter."""
 
-    def __init__(self, capacity: int) -> None:
+    def __init__(self, capacity: int, nscal: int = NSCAL) -> None:
         self.cap = int(capacity)
         self.local = np.zeros((capacity,) + LOCAL, dtype=np.uint8)
         self.glob = np.zeros((capacity,) + GLOBAL, dtype=np.uint8)
-        self.scal = np.zeros((capacity, NSCAL), dtype=np.float32)
+        self.scal = np.zeros((capacity, nscal), dtype=np.float32)
         self.mask = np.zeros((capacity, 6), dtype=bool)
         self.count = 0
 
@@ -203,12 +220,17 @@ class Replay:
 
 
 # ----------------------------------------------------------------------------- multi-actor ring
-RING_FIELDS = (
-    ("local", LOCAL, np.uint8),
-    ("global", GLOBAL, np.uint8),
-    ("scalars", (NSCAL,), np.float32),
-    ("mask", (6,), np.bool_),
-)
+def ring_fields(nscal: int = NSCAL):
+    """``(name, per-row shape, dtype)`` of a ring with ``nscal`` scalars per row."""
+    return (
+        ("local", LOCAL, np.uint8),
+        ("global", GLOBAL, np.uint8),
+        ("scalars", (int(nscal),), np.float32),
+        ("mask", (6,), np.bool_),
+    )
+
+
+RING_FIELDS = ring_fields(NSCAL)
 
 
 class Block:
@@ -266,9 +288,9 @@ class Block:
             pass
 
 
-def ring_nbytes(capacity: int) -> int:
+def ring_nbytes(capacity: int, nscal: int = NSCAL) -> int:
     total = 8  # the int64 publish counter
-    for _, shape, dtype in RING_FIELDS:
+    for _, shape, dtype in ring_fields(nscal):
         total += int(capacity) * int(np.prod(shape)) * np.dtype(dtype).itemsize
     return total
 
@@ -281,14 +303,15 @@ class SharedObsRing:
     ``margin`` rows away from being overwritten (``id >= count - cap + margin``).
     """
 
-    def __init__(self, shm, capacity: int, margin: int) -> None:
+    def __init__(self, shm, capacity: int, margin: int, nscal: int = NSCAL) -> None:
         self.shm = shm
         self.cap = int(capacity)
         self.margin = int(margin)
+        self.nscal = int(nscal)
         off = 8
         self.arrays: Dict[str, np.ndarray] = {}
         self._count = np.ndarray((1,), dtype=np.int64, buffer=shm.buf, offset=0)
-        for name, shape, dtype in RING_FIELDS:
+        for name, shape, dtype in ring_fields(self.nscal):
             arr = np.ndarray((self.cap,) + tuple(shape), dtype=dtype, buffer=shm.buf, offset=off)
             self.arrays[name] = arr
             off += arr.nbytes
@@ -324,6 +347,9 @@ class MultiRing:
     def __init__(self, rings: Sequence[SharedObsRing]) -> None:
         self.rings = list(rings)
         self.k = len(self.rings)
+        self.nscal = self.rings[0].nscal
+        if any(r.nscal != self.nscal for r in self.rings):
+            raise ValueError("rings disagree on the scalar width")
 
     def encode(self, actor: int, local_ids: np.ndarray) -> np.ndarray:
         local_ids = np.asarray(local_ids, dtype=np.int64)
@@ -343,7 +369,7 @@ class MultiRing:
         n = len(ids)
         out_l = np.empty((n,) + LOCAL, dtype=np.uint8)
         out_g = np.empty((n,) + GLOBAL, dtype=np.uint8)
-        out_s = np.empty((n, NSCAL), dtype=np.float32)
+        out_s = np.empty((n, self.nscal), dtype=np.float32)
         out_m = np.empty((n, 6), dtype=bool)
         actor, local = ids % self.k, ids // self.k
         for j, ring in enumerate(self.rings):
@@ -760,6 +786,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "shield_off_at",
         "onpolicy_labels",
         "label_frac",
+        "obs_version",
     ):
         if getattr(args, k) != getattr(d, k):
             out[k] = getattr(args, k)
@@ -819,6 +846,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--label-frac", type=float, default=0.5, help="on-policy share of anchor rows")
     ap.add_argument("--label-capacity", type=int, default=300_000)
+    ap.add_argument(
+        "--obs-version",
+        choices=OBS_VERSIONS,
+        default="b",
+        help="M4-B: bv8 = ego2s-b + 30 v8 feature scalars (needs an ego2s-bv8 --init)",
+    )
     ap.add_argument("--no-guard", action="store_true", help="tests only: skip the Mac guard")
     return ap
 
@@ -844,6 +877,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         or args.death_value is not None
         or args.gamma_start != Schedules.gamma_start
         or args.gamma_end != Schedules.gamma_end
+        or args.obs_version != "b"
     )
     if m4a and not args.actors:
         raise SystemExit("the M4-A options need the multi-actor trainer (--actors >= 1)")
@@ -851,6 +885,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--onpolicy-labels needs --anchor-mode v8margin")
     if not args.shield_full_until <= args.shield_off_at:
         raise SystemExit("--shield-full-until must be <= --shield-off-at")
+    if args.obs_version == "bv8" and not (
+        args.onpolicy_labels and args.label_frac == 1.0 and args.anchor_mode == "v8margin"
+    ):
+        # The demonstration shards carry only the 30 ego2s-b scalars: every anchor row must
+        # be an on-policy label (observed with the v8 features by the actor).
+        raise SystemExit(
+            "--obs-version bv8 needs --onpolicy-labels --label-frac 1.0 --anchor-mode v8margin"
+        )
     if args.actors:
         return main_multi(args)
     return main_sync(args)
@@ -1290,7 +1332,8 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
     shm_w = Block.attach(names["weights"])
     shm_p = Block.attach(names["progress"])
     try:
-        ring = SharedObsRing(shm_ring, cfg["ring_cap"], cfg["ring_margin"])
+        bv8 = getattr(args, "obs_version", "b") == "bv8"
+        ring = SharedObsRing(shm_ring, cfg["ring_cap"], cfg["ring_margin"], nscal_for(args))
         nw = cfg["n_weights"]
         wver = np.ndarray((1,), dtype=np.int64, buffer=shm_w.buf, offset=0)
         wbuf = np.ndarray((nw + 1,), dtype=np.float64, buffer=shm_w.buf, offset=8)
@@ -1318,7 +1361,15 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             sim, runtime, policies, groups = build_segment(
                 args, ctx, segment, gamma_seg, hero_v61=use_v8
             )
-            shield = make_shield(carrier, runtime) if use_v8 else None
+            # bv8: one compiled v8 evaluation per frame (features=True) serves both the
+            # observation's feature scalars and the shield / label action (v8_redecide).
+            shield = make_shield(carrier, runtime) if use_v8 and not bv8 else None
+            if bv8:
+                from src.simd_env.ego_raster_bv8 import v8_scalars
+                from src.simd_env.v8_nb import v8_redecide
+                from src.simd_env.vector61_policy import check_live_rule_config
+
+                check_live_rule_config(sim)
             E = sim.E
             nsb = NStepBuilder(E)
             for _frame in range(args.segment_frames):
@@ -1351,6 +1402,18 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         t_f = time.perf_counter()
                         obs = build_ego_raster(prepared, B, backend="numba", rows=hero)
                         m = masks[hero[:, 0], 0]
+                        dt_v8 = 0.0
+                        if bv8:
+                            # Every stored hero observation gets its v8 features here, from
+                            # the same selection mask the shield / labels decide with.
+                            t_v = time.perf_counter()
+                            _, sel_mask = runtime.selection(hero)
+                            v8s, v8res = v8_scalars(prepared, hero, sel_mask)
+                            if v8res is None:
+                                raise RuntimeError("bv8: v8 features need live hero rows")
+                            obs["scalars"] = np.concatenate([obs["scalars"], v8s], axis=1)
+                            dt_v8 = time.perf_counter() - t_v
+                            timing["v8_s"] += dt_v8
                         t_q = time.perf_counter()
                         with torch.no_grad():
                             q = net(
@@ -1367,16 +1430,20 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                                 .cpu()
                                 .numpy()
                             )
-                        timing["featurizer_s"] += t_q - t_f
+                        timing["featurizer_s"] += t_q - t_f - dt_v8
                         timing["forward_s"] += time.perf_counter() - t_q
                         mm = m.copy()
                         mm[~mm.any(axis=1), :3] = True
                         rand = np.array([rng.choice(np.flatnonzero(r)) for r in mm])
                         explore = rng.random(len(hero)) < eps
                         policy_act = greedy
-                        if shield is not None:
+                        if shield is not None or bv8:
                             t_v = time.perf_counter()
-                            a_v8 = shield.act(q.float().cpu().numpy(), m, prepared, hero)
+                            qn = q.float().cpu().numpy()
+                            if bv8:  # the hero is slot 0, a veto slot: the v8 action
+                                a_v8 = v8_redecide(v8res, qn, sel_mask).action
+                            else:
+                                a_v8 = shield.act(qn, m, prepared, hero)
                             timing["v8_s"] += time.perf_counter() - t_v
                             chosen["a_v8"] = a_v8
                             if p_shield > 0.0:
@@ -1490,18 +1557,37 @@ def main_multi(args) -> int:
     device = torch.device(args.device)
     sched = schedules_from_args(args)
 
+    from src.model.ego2s_network import OBS_SPEC_B, OBS_SPEC_BV8, spec_for
+
+    bv8 = args.obs_version == "bv8"
+    nscal = nscal_for(args)
     online = load_ego2s_checkpoint(args.init, device).train()
+    want_spec = OBS_SPEC_BV8 if bv8 else OBS_SPEC_B
+    if spec_for(online) != want_spec:
+        raise SystemExit(
+            f"--obs-version {args.obs_version} needs a {want_spec} --init, got "
+            f"{spec_for(online)} (widen with research/redesign_m4b_20261012/widen_bv8.py)"
+        )
     target = load_ego2s_checkpoint(args.init, device).eval()
     opt = torch.optim.Adam(online.parameters(), lr=1e-4)
     margin = json.loads((args.demo_data / "margin.json").read_text())["margin"]
-    demos = DemoStream(
-        args.demo_data, [int(r) for r in args.demo_rounds.split(",")], args.demo_capacity, args.seed
-    )
-    demos.fill_initial(args.demo_initial_shards)
-    demo_qmax = float(np.abs(demos.buf["q_teacher"][: demos.size]).max())
     holdout = DemoStream.load(
         sorted((args.demo_data / "round-12").glob("chunk-*-part-*.npz"))[0], held_out=True
     )
+    if bv8:
+        # The shards only have the 30 ego2s-b scalars: no demonstration rows (every anchor row
+        # is an on-policy label), no held-out agreement; the Q-scale flag uses the hold-out.
+        demos = None
+        demo_qmax = float(np.abs(holdout["q_teacher"]).max())
+    else:
+        demos = DemoStream(
+            args.demo_data,
+            [int(r) for r in args.demo_rounds.split(",")],
+            args.demo_capacity,
+            args.seed,
+        )
+        demos.fill_initial(args.demo_initial_shards)
+        demo_qmax = float(np.abs(demos.buf["q_teacher"][: demos.size]).max())
     replay = Replay(args.replay)
     labels = LabelBuffer(args.label_capacity) if args.onpolicy_labels else None
     tel = Telemetry(args.out, args)
@@ -1524,9 +1610,9 @@ def main_multi(args) -> int:
     names: Dict[str, str] = {}
     rings = []
     for j in range(K):
-        s = new_shm(ring_nbytes(ring_cap), args.ring_dir, f"ring{j}")
+        s = new_shm(ring_nbytes(ring_cap, nscal), args.ring_dir, f"ring{j}")
         names[f"ring{j}"] = s.desc
-        rings.append(SharedObsRing(s, ring_cap, margin_rows))
+        rings.append(SharedObsRing(s, ring_cap, margin_rows, nscal))
     s_w = new_shm(8 + 8 * (n_weights + 1), args.ring_dir, "weights")
     names["weights"] = s_w.desc
     wver = np.ndarray((1,), dtype=np.int64, buffer=s_w.buf, offset=0)
@@ -1567,7 +1653,9 @@ def main_multi(args) -> int:
         return torch.where(m, q, torch.full_like(q, -1e9)).argmax(dim=1)
 
     @torch.no_grad()
-    def holdout_agreement() -> float:
+    def holdout_agreement() -> Optional[float]:
+        if bv8:
+            return None  # the hold-out shard has no v8 feature scalars
         online.eval()
         q = online(to_dev(holdout["local"]), to_dev(holdout["global"]), to_dev(holdout["scalars"]))
         pred = masked_argmax(q, to_dev(holdout["mask_resolved"])).cpu().numpy()
@@ -1596,6 +1684,7 @@ def main_multi(args) -> int:
         "deaths": 0,
         "v8_override": 0,
         "label_rows": [],
+        "anchor_updates": 0,
         "lag": [],
         "action_window": deque(maxlen=100_000),
     }
@@ -1631,9 +1720,19 @@ def main_multi(args) -> int:
         R = to_dev(replay.R[idx])
         disc = to_dev(replay.disc[idx])
         n_lab = 0
-        if labels is not None and labels.size >= 10_000:
+        if labels is not None and labels.size >= LABEL_ANCHOR_MIN_ROWS:
             n_lab = int(round(128 * args.label_frac))
-        d = demos.sample(rng, 128 - n_lab)
+        if demos is None:  # bv8: label rows only (TD only until LABEL_ANCHOR_MIN_ROWS labels)
+            d = {
+                "local": np.zeros((0,) + LOCAL, dtype=np.uint8),
+                "global": np.zeros((0,) + GLOBAL, dtype=np.uint8),
+                "scalars": np.zeros((0, nscal), dtype=np.float32),
+                "a_v8": np.zeros(0, dtype=np.int64),
+                "mask_resolved": np.zeros((0, 6), dtype=bool),
+                "q_teacher": np.zeros((0, 6), dtype=np.float32),
+            }
+        else:
+            d = demos.sample(rng, 128 - n_lab)
         if n_lab:
             li = labels.sample(rng, n_lab, multi)
             lids = labels.ids[li]
@@ -1665,7 +1764,10 @@ def main_multi(args) -> int:
             y = R + disc * q_next
         td = torch.nn.functional.smooth_l1_loss(qa, y)
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
-        if args.anchor_mode == "v8margin":
+        has_anchor = qd.shape[0] > 0
+        if not has_anchor:  # bv8 before enough on-policy labels: TD only
+            anc = torch.zeros((), device=q.device)
+        elif args.anchor_mode == "v8margin":
             anc = anchor_loss_margin(torch, qd, db["a_v8"], db["mask_resolved"], margin)
         elif args.anchor_boost_weight == 1.0:
             anc = anchor_loss(torch, qd, db, margin)
@@ -1681,12 +1783,16 @@ def main_multi(args) -> int:
         opt.step()
         st["updates"] += 1
         st["td"].append(float(td.detach()))
-        st["anc"].append(float(anc.detach()))
+        if has_anchor:
+            st["anc"].append(float(anc.detach()))
+            st["anchor_updates"] += 1
         st["qmax"] = max(st["qmax"], float(q.detach().abs().max()))
         if st["updates"] % 1000 == 0:
             target.load_state_dict(online.state_dict())
-            demos.prefetch()
-        demos.swap_if_ready()
+            if demos is not None:
+                demos.prefetch()
+        if demos is not None:
+            demos.swap_if_ready()
         st["learn_s"] += time.perf_counter() - t0
 
     code = 0
@@ -1777,10 +1883,13 @@ def main_multi(args) -> int:
                     "boost_rate": st["boost"] / max(1, st["decisions"]),
                     "greedy_boost_rate": st["greedy_boost"] / max(1, st["decisions"]),
                     "deaths_per_1k": 1000 * st["deaths"] / max(1, st["decisions"]),
-                    "demo_shards_loaded": demos.loaded,
-                    "demo_distinct": demos.distinct,
+                    "demo_shards_loaded": demos.loaded if demos is not None else 0,
+                    "demo_distinct": demos.distinct if demos is not None else 0,
                     "actors": K,
                 }
+                if bv8:
+                    row["obs_version"] = "bv8"
+                    row["label_buffer"] = labels.size
                 if args.shield != "none" or labels is not None:
                     row["v8_override_rate"] = st["v8_override"] / max(1, st["decisions"])
                     row["shield_p"] = (
@@ -1791,7 +1900,7 @@ def main_multi(args) -> int:
                     row["label_rows_mean"] = (
                         float(np.mean(st["label_rows"])) if st["label_rows"] else 0.0
                     )
-                if t % 500_000 < 100_000:
+                if t % 500_000 < 100_000 and not bv8:
                     row["holdout_agreement"] = holdout_agreement()
                     if row["holdout_agreement"] < 0.6:
                         st["flags"].append({"t": t, "agreement": row["holdout_agreement"]})
@@ -1857,12 +1966,15 @@ def main_multi(args) -> int:
         "halt": st["halt"],
         "flags": st["flags"][:200],
         "demo_qmax": demo_qmax,
-        "demo_distinct": demos.distinct,
+        "demo_distinct": demos.distinct if demos is not None else 0,
         "holdout_agreement_final": holdout_agreement(),
         "m3c": m3c_flags(args),
+        "obs_version": args.obs_version,
         "actors": K,
         "actor_exitcodes": [p.exitcode for p in procs],
         "ring_overrun_rows": st["ring_overrun_rows"],
+        "anchor_updates": st["anchor_updates"],
+        "label_buffer": labels.size if labels is not None else 0,
     }
     (args.out / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
     print(json.dumps({k: summary[k] for k in ("transitions", "rate", "halt", "flags")}))
