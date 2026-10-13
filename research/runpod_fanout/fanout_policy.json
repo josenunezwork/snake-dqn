@@ -1,6 +1,6 @@
 {
   "schema": "runpod-fanout-policy/v1",
-  "approved": "user chat 2026-10-03: cpu3c only, secure cloud, any data center; $50 project cap; refuse below a $5 balance floor; Tier-1 only",
+  "approved": "user chat 2026-10-03: cpu3c only, secure cloud, any data center; $50 project cap; refuse below a $5 balance floor; Tier-1 only; user chat 2026-10-06: new $50 cap from today (cap = $27.47 spent through 2026-10-06 + $50 = $77.47); user chat 2026-10-07: project cap raised to $100 total for FRP-v5-H Phase R pods (\"Raise cap, run on pods\"); applied to M3-C 2026-10-08 per the research loop (same $100 total, M3-C pod approved in chat 2026-10-08)",
   "flavor": "cpu3c",
   "cloud": "SECURE",
   "vcpu_sizes_desc": [32, 16, 8, 4, 2],
@@ -14,7 +14,7 @@
   "threads_per_episode": 2,
   "isa_cap": null,
   "numerics_env": {"MKL_CBWR": "COMPATIBLE", "ATEN_CPU_CAPABILITY": "avx2"},
-  "project_cap_usd": 50.0,
+  "project_cap_usd": 100.0,
   "global_floor_usd": 5.0,
   "prior_spend_usd": 0.11,
   "max_hourly_per_pod_usd": 1.0,

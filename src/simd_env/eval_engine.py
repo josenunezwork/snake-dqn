@@ -646,6 +646,7 @@ def run_simd_eval(
     sim_engine: str = "batch",
     hero_ego2s: str | None = None,
     ego2s_forward: str = "batched",
+    ego2s_mask: str = "resolved",
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -701,6 +702,9 @@ def run_simd_eval(
             student's Q replaces the carrier's). Records gain ``ego2s_hero``.
         ego2s_forward: ``"batched"`` (default; the M2/M2b checks) or ``"rowwise"`` (one
             batch-1 forward per hero row: comparable with the live engine's records).
+        ego2s_mask: no-veto ego2s hero only: ``"resolved"`` (default; M2/M2b/M3) or
+            ``"advisory"`` (M3-C: the live AISnake's selection mask, advisory + normal-only
+            fallback). Recorded as ``ego2s_hero["mask"]`` when not the default.
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -716,6 +720,8 @@ def run_simd_eval(
     sim_class = _terminal_hero_sim_class(sim_engine)
     if hero_ego2s is not None and (sim_engine != "grid" or not vector61):
         raise ValueError("hero_ego2s needs sim_engine='grid' and vector61=True")
+    if ego2s_mask not in ("resolved", "advisory"):
+        raise ValueError(f"ego2s_mask must be 'resolved' or 'advisory', got {ego2s_mask!r}")
     if frame_observer is not None and not callable(frame_observer):
         raise TypeError("frame_observer must be callable")
     if frame_observer is not None and profile is None:
@@ -854,7 +860,9 @@ def run_simd_eval(
                 from src.simd_env.ego2s_policy import Ego2sSimdPolicy, Ego2sV8Policy
 
                 if veto_spec is None:
-                    ego2s_cache["hero"] = Ego2sSimdPolicy(hero_ego2s, forward=ego2s_forward)
+                    ego2s_cache["hero"] = Ego2sSimdPolicy(
+                        hero_ego2s, forward=ego2s_forward, mask_mode=ego2s_mask
+                    )
                 else:
                     ego2s_cache["hero"] = Ego2sV8Policy(
                         hero_ego2s,
@@ -1085,6 +1093,8 @@ def run_simd_eval(
                     "veto": None if veto_spec is None else veto_spec.method,
                     "forward": ego2s_forward,
                 }
+                if ego2s_mask != "resolved":
+                    record["ego2s_hero"]["mask"] = ego2s_mask
             records.append(record)
             continue
         af = int(alive_frames[e])
