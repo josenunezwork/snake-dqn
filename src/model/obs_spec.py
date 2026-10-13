@@ -34,7 +34,9 @@ __all__ = [
     "RASTER_OBS_SPECS",
     "EGO2S_DRAFT",
     "EGO2S_B",
+    "EGO2S_BV8",
     "EGO2S_OBS_SPECS",
+    "EGO2S_SIMD_ONLY_SPECS",
     "DEFAULT_OBS_SPEC",
     "KNOWN_OBS_SPECS",
     "RasterObsShapes",
@@ -69,6 +71,13 @@ RASTER_OBS_SPECS = (RASTER31V2, RASTER31V3)
 EGO2S_DRAFT = "ego2s-draft"
 EGO2S_B = "ego2s-b"
 EGO2S_OBS_SPECS = (EGO2S_DRAFT, EGO2S_B)
+#: M4-B research spec: ``ego2s-b`` + the v8 veto's 30 per-action features appended to the
+#: scalars (``src/simd_env/ego_raster_bv8.py``). The features need the simulator's bodies,
+#: so it is evaluated on the SIMD grid engine only: deliberately NOT in
+#: :data:`EGO2S_OBS_SPECS` / :data:`KNOWN_OBS_SPECS` (no live serving / tournament path),
+#: so the serving loaders refuse it instead of featurizing it wrongly.
+EGO2S_BV8 = "ego2s-bv8"
+EGO2S_SIMD_ONLY_SPECS = (EGO2S_BV8,)
 
 # A recognized v3 descriptor is not, by itself, a serving guarantee. The
 # loader validates its semantic metadata before construction and Session adds

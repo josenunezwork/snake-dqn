@@ -19,7 +19,12 @@ from typing import Optional, Sequence
 import numpy as np
 import torch
 
-from src.model.ego2s_network import OBS_SPEC_B, load_ego2s_checkpoint, obs_tensors
+from src.model.ego2s_network import (
+    OBS_SPEC_B,
+    OBS_SPEC_BV8,
+    load_ego2s_checkpoint,
+    obs_tensors,
+)
 from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 from src.simd_env.vector61_policy import Vector61SimdPolicy
 
@@ -30,7 +35,8 @@ def ego_config_for(net) -> EgoRasterConfig:
     """The featurizer config a student was trained on (from its input shape)."""
     from src.model.ego2s_network import spec_for
 
-    return EgoRasterConfig(version="b" if spec_for(net) == OBS_SPEC_B else "draft")
+    version = {OBS_SPEC_B: "b", OBS_SPEC_BV8: "bv8"}.get(spec_for(net), "draft")
+    return EgoRasterConfig(version=version)
 
 
 FORWARDS = ("batched", "rowwise")

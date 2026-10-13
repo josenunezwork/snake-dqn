@@ -125,7 +125,9 @@ class EgoRasterConfig:
     reach_steps: int = 24
     min_boost_length: int = 5
     #: ``"draft"`` (``ego2s-draft``: 6 local channels, 12 scalars) or ``"b"`` (``ego2s-b``:
-    #: + the ``enemy_next`` channel and 18 enemy / region scalars, see ego_raster_b).
+    #: + the ``enemy_next`` channel and 18 enemy / region scalars, see ego_raster_b) or
+    #: ``"bv8"`` (``ego2s-bv8``: ``"b"`` + 30 v8 veto feature scalars, see ego_raster_bv8;
+    #: needs a GridBatchSim source).
     version: str = "draft"
 
 
@@ -481,7 +483,7 @@ def build_ego_raster(
         if picked is not None:
             local = local[picked[:, 0], picked[:, 1]]
             glob = glob[picked[:, 0], picked[:, 1]]
-    if cfg.version == "b":
+    if cfg.version in ("b", "bv8"):
         from src.simd_env import ego_raster_b as eb
 
         lead = local.shape[:-3]
@@ -494,6 +496,15 @@ def build_ego_raster(
         scalars = np.concatenate([scalars.reshape(-1, scalars.shape[-1]), bs], axis=1).reshape(
             scalars.shape[:-1] + (scalars.shape[-1] + bs.shape[-1],)
         )
+        if cfg.version == "bv8":
+            from src.simd_env.ego_raster_bv8 import v8_scalars
+
+            if isinstance(source, EgoGridView):
+                raise TypeError("ego2s-bv8 needs a GridBatchSim source (the v8 features)")
+            vs, _ = v8_scalars(source, picked)
+            scalars = np.concatenate([scalars.reshape(-1, scalars.shape[-1]), vs], axis=1).reshape(
+                scalars.shape[:-1] + (scalars.shape[-1] + vs.shape[-1],)
+            )
     elif cfg.version != "draft":
         raise ValueError(f"unknown ego raster version {cfg.version!r}")
     out = {

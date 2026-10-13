@@ -46,7 +46,7 @@ counters (``veto_record`` / ``veto_diagnostics``) and the optional v8
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -56,6 +56,7 @@ __all__ = [
     "V8Result",
     "v8_decide",
     "v8_feature_planes",
+    "v8_redecide",
     "FEATURE_NAMES",
     "OUTCOME_KEPT",
     "OUTCOME_VETOED",
@@ -831,5 +832,183 @@ def v8_decide(
         out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
         out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
         out.head_waived, out.v5_eligible,
+    )  # fmt: skip
+    return out
+
+
+# ----------------------------------------------------------------------------- cached re-decision
+@njit(cache=True, nogil=True)
+def _redecide_rows(
+    q, mask_in, counts, need_in, landing, area_in, acap_in, risky_in, lam,
+    out_action, out_base, out_v5, out_v7, out_outcome, out_reason,
+):  # fmt: skip
+    """The decision part of :func:`_v8_rows` on fully evaluated (eager) diagnostics."""
+    N = q.shape[0]
+    qv = np.empty(6, dtype=np.float64)
+    mask = np.empty(6, dtype=np.bool_)
+    elig = np.empty(6, dtype=np.bool_)
+    spac = np.empty(3, dtype=np.bool_)
+    land_ok = np.empty(3, dtype=np.int64)
+    cand = np.empty(6, dtype=np.int64)
+    scratch = np.empty(6, dtype=np.float64)
+    area = np.empty(6, dtype=np.int64)
+    red = np.empty(6, dtype=np.bool_)
+    inv = np.float32(INVALID_Q_VALUE)
+    for r in range(N):
+        anym = False
+        for a in range(6):
+            mask[a] = mask_in[r, a]
+            anym = anym or mask[a]
+        if not anym:
+            mask[0] = True
+            mask[1] = True
+            mask[2] = True
+        base = 0
+        for a in range(6):
+            v = q[r, a] if mask[a] else inv
+            qv[a] = np.float64(v)
+            if qv[a] > qv[base]:
+                base = a
+        need = need_in[r]
+        acap = acap_in[r]
+        for d in range(3):
+            spac[d] = counts[r, d] >= need
+            lc = landing[r, d]
+            land_ok[d] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
+        for a in range(6):
+            area[a] = area_in[r, a]
+        # ---- v5
+        for a in range(6):
+            elig[a] = mask[a] and spac[a % 3]
+        v5 = base
+        outcome = OUTCOME_KEPT
+        reason = _R_KEPT
+        need_clear = False
+        if elig[base]:
+            d0 = base % 3
+            ok = True
+            if base >= 3:
+                ok = land_ok[d0] == 1
+            if not ok:
+                if mask[d0]:
+                    v5 = d0
+                    outcome = OUTCOME_VETOED
+                    reason = _R_SAME_DIR
+                else:
+                    need_clear = True
+                    reason = _R_LANDING_V2
+        else:
+            v5, outcome = _veto_choice(qv, elig, base)
+            reason = _R_V2
+            if outcome == OUTCOME_VETOED and v5 >= 3:
+                if land_ok[v5 % 3] == 0:
+                    need_clear = True
+        if need_clear:
+            for a in range(6):
+                red[a] = elig[a] and (a < 3 or land_ok[a - 3] == 1)
+            a2, o2 = _veto_choice(qv, red, base)
+            if reason == _R_LANDING_V2:
+                if o2 == OUTCOME_NO_SPACIOUS:
+                    v5 = base
+                    outcome = OUTCOME_NO_SPACIOUS
+                    reason = _R_LANDING_NONE
+                else:
+                    v5 = a2
+                    outcome = o2
+            else:
+                v5 = a2
+                outcome = o2
+        # ---- v7 re-rank
+        v7 = v5
+        v7_outcome = outcome
+        if outcome != OUTCOME_NO_SPACIOUS and lam != 0.0 and reason != _R_SAME_DIR:
+            off = 3 if v5 >= 3 else 0
+            nc = 0
+            for d in range(3):
+                a = off + d
+                if a == v5:
+                    cand[nc] = a
+                    nc += 1
+                elif mask[a] and spac[d] and (off == 0 or land_ok[d] == 1):
+                    cand[nc] = a
+                    nc += 1
+            if nc >= 2:
+                best, _ = _space_pref(qv, cand, nc, v5, lam, area, acap, scratch)
+                if best != v5:
+                    v7 = best
+                    v7_outcome = OUTCOME_VETOED
+        # ---- v8 head layer
+        final = v7
+        final_outcome = v7_outcome
+        if v7_outcome != OUTCOME_NO_SPACIOUS and risky_in[r, v7]:
+            ne = 0
+            for a in range(6):
+                el = mask[a] and spac[a % 3] and not risky_in[r, a]
+                if el and a >= 3:
+                    el = land_ok[a - 3] == 1
+                elig[a] = el
+                if el and a != v7:
+                    ne += 1
+            if ne > 0:
+                cb = v7 >= 3
+                anchor = -1
+                for a in range(6):
+                    if a != v7 and elig[a] and (a >= 3) == cb:
+                        if anchor < 0 or qv[a] > qv[anchor]:
+                            anchor = a
+                if anchor < 0:
+                    for a in range(6):
+                        if a != v7 and elig[a]:
+                            if anchor < 0 or qv[a] > qv[anchor]:
+                                anchor = a
+                ab = anchor >= 3
+                nc = 0
+                for a in range(6):
+                    if a != v7 and elig[a] and (a >= 3) == ab:
+                        cand[nc] = a
+                        nc += 1
+                best, _ = _space_pref(qv, cand, nc, anchor, lam, area, acap, scratch)
+                final = best
+                final_outcome = OUTCOME_VETOED
+        out_action[r] = final
+        out_base[r] = base
+        out_v5[r] = v5
+        out_v7[r] = v7
+        out_outcome[r] = final_outcome
+        out_reason[r] = reason
+
+
+def v8_redecide(res: V8Result, q: np.ndarray, mask: np.ndarray, lam: float = 8.0) -> V8Result:
+    """The v8 decision for new Q, reusing a ``features=True`` result's diagnostics.
+
+    ``res`` must come from :func:`v8_decide` with ``features=True`` on the same sim state,
+    rows and ``mask`` (its diagnostics are Q-independent, so any Q, e.g. zeros, works there).
+    Decision-identical to ``v8_decide(sim, rows, q, mask, lam)`` (pinned in
+    ``tests/test_ego_raster_bv8.py``) without repeating a single flood. The returned result
+    shares ``res``'s diagnostic arrays and carries the new decision fields.
+    """
+    lam = float(lam)
+    if not np.isfinite(lam) or lam < 0.0:
+        raise ValueError(f"lambda must be finite and >= 0, got {lam!r}")
+    N = len(res.action)
+    if N and (np.any(res.area < 0) or np.any(res.landing == _LANDING_UNKNOWN)):
+        raise ValueError("v8_redecide needs a v8_decide(..., features=True) result")
+    q = np.ascontiguousarray(q, dtype=np.float32).reshape(N, 6)
+    mask = np.ascontiguousarray(mask, dtype=bool).reshape(N, 6)
+    out = replace(
+        res,
+        action=np.zeros(N, dtype=np.int64),
+        base=np.zeros(N, dtype=np.int64),
+        v5_action=np.zeros(N, dtype=np.int64),
+        v7_action=np.zeros(N, dtype=np.int64),
+        outcome=np.zeros(N, dtype=np.int64),
+        v5_reason=np.zeros(N, dtype=np.int64),
+    )
+    if not N:
+        return out
+    _redecide_rows(
+        q, mask, _i64(res.counts), _i64(res.need), _i64(res.landing), _i64(res.area),
+        _i64(res.area_cap), np.ascontiguousarray(res.head_risky, dtype=bool), lam,
+        out.action, out.base, out.v5_action, out.v7_action, out.outcome, out.v5_reason,
     )  # fmt: skip
     return out
