@@ -647,6 +647,7 @@ def run_simd_eval(
     hero_ego2s: str | None = None,
     ego2s_forward: str = "batched",
     ego2s_mask: str = "resolved",
+    vector61_backend: str | None = None,
 ) -> List[Dict[str, object]]:
     """Run one hero over all ``seeds`` of one opponent mix in a single batch.
 
@@ -705,6 +706,12 @@ def run_simd_eval(
         ego2s_mask: no-veto ego2s hero only: ``"resolved"`` (default; M2/M2b/M3) or
             ``"advisory"`` (M3-C: the live AISnake's selection mask, advisory + normal-only
             fallback). Recorded as ``ego2s_hero["mask"]`` when not the default.
+        vector61_backend: The shared :class:`Vector61Runtime` featurizer backend:
+            ``None`` (default: env ``SNAKE_V61_BACKEND``, else ``"python"``, as before),
+            ``"python"`` or ``"numba"`` (float32-identical featurizer). Not written into
+            the records (records are identical across backends; the dev-probe record
+            identity is pinned by ``tests/test_eval_v61_backend_identity.py``); callers
+            record which backend they used.
 
     Returns:
         One per-seed metric dict per seed, in ``seeds`` order, with the same
@@ -760,6 +767,8 @@ def run_simd_eval(
         raise ValueError("world_runtime_spec requires an explicit evaluation profile")
     if vector61 and profile is None:
         raise ValueError("vector61 SIMD evaluation requires an explicit evaluation profile")
+    if vector61_backend is not None and not vector61:
+        raise ValueError("vector61_backend needs vector61=True")
     veto_spec = resolve_safety_veto_spec(
         hero_safety_veto, hero_safety_veto_lambda, hero_safety_veto_reference_lambda
     )
@@ -775,7 +784,9 @@ def run_simd_eval(
         if vector61
         else None
     )
-    vector61_runtime = Vector61Runtime(trace=vector61_trace) if vector61 else None
+    vector61_runtime = (
+        Vector61Runtime(trace=vector61_trace, backend=vector61_backend) if vector61 else None
+    )
     vector61_cache: Dict[Tuple[str, object], Vector61SimdPolicy] = {}
     vector61_specs: Dict[str, bool] = {}
 

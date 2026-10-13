@@ -29,6 +29,19 @@ version is read from the network, ``ego_config_for``).
       --root R --candidates C.json --selection S.json [--smoke] [--bv8-simd-only]
   ./venv/bin/python research/redesign_m4_20261013/phase_r_m4.py look --root R --look K
   python -I research/sequential_phase_r/audit.py --root R --record-dirs R/shards/look-*
+
+vector61 featurizer backend (perf-eval, opt-in): ``plan --v61-backend numba`` binds
+``study.engine.vector61_backend = "numba"`` into ``plan.json`` (a default plan has no such key
+and means ``python``, the ratified M4 engine). Every ``unit`` sets ``SNAKE_V61_BACKEND`` from
+its plan before the pinned harness builds its ``Vector61Runtime``, so a unit always runs the
+plan's backend (an inherited environment variable can no longer switch it silently). The
+compiled featurizer is float32-identical to the Python one and the dev-probe records are
+identical (``tests/test_eval_v61_backend_identity.py``), but the ratified M4 pre-registration
+fixes the Python engine: only ``--smoke`` plans accept ``numba`` here
+(``GATE_V61_BACKENDS``). Using it in a gate requires a NEW pre-registration that names the
+backend AND a records-identity check on that study's own heroes and horizons (e.g. the same
+smoke look under a ``python`` and a ``numba`` plan, compared with
+``research/perf_eval_20261013/eval_speed.py compare-records``) before that study's ``plan``.
 """
 
 from __future__ import annotations
@@ -66,6 +79,11 @@ P2_DIR = ART / "redesign-m4-p2-candidates"
 TRAINING_TRANSITIONS = 20_000_000  # M4-A plans (research/redesign_m4a_20261012/plans)
 EGO2S_B, EGO2S_BV8 = "ego2s-b", "ego2s-bv8"
 CANDIDATE_SPECS = (EGO2S_B, EGO2S_BV8)
+# vector61 featurizer backends (src.simd_env.vector61_policy.V61_BACKENDS / V61_BACKEND_ENV).
+V61_BACKENDS = ("python", "numba")
+V61_BACKEND_ENV = "SNAKE_V61_BACKEND"
+# Backends a non-smoke (gate) plan may bind: the ratified M4 engine only (see the docstring).
+GATE_V61_BACKENDS = ("python",)
 STUDIES = {
     "nv": {
         "rule": rs.primary_rule,
@@ -188,11 +206,40 @@ def p2_for(
     return base.p2_evidence(key, candidates)
 
 
+def plan_v61_backend(payload: Mapping) -> str:
+    """The vector61 featurizer backend a plan binds (no key: ``python``, the M4 engine)."""
+    backend = payload["study"]["engine"].get("vector61_backend", "python")
+    if backend not in V61_BACKENDS:
+        raise SystemExit(f"refusing: plan binds an unknown vector61 backend {backend!r}")
+    if backend not in GATE_V61_BACKENDS and not payload["study"]["smoke"]:
+        raise SystemExit(
+            f"refusing: a non-smoke plan binds vector61 backend {backend!r}; a gate with it "
+            "needs a new pre-registration and a records-identity check"
+        )
+    return backend
+
+
+def bind_unit_v61_backend(root: Path) -> str:
+    """Set ``SNAKE_V61_BACKEND`` to the plan's backend (before the harness builds its runtime)."""
+    payload, _, _ = base.load_plan(Path(root))
+    backend = plan_v61_backend(payload)
+    os.environ[V61_BACKEND_ENV] = backend
+    return backend
+
+
 def cmd_plan(args) -> int:
     """M3-C's ``cmd_plan`` with M4's pre-registration, obs-spec binding and bv8 P2 rule."""
     from research.sequential_phase_r import receipts
 
     key = args.study
+    v61_backend = getattr(args, "v61_backend", None) or "python"
+    if v61_backend not in V61_BACKENDS:
+        raise SystemExit(f"vector61 backend must be one of {V61_BACKENDS}, got {v61_backend!r}")
+    if v61_backend not in GATE_V61_BACKENDS and not args.smoke:
+        raise SystemExit(
+            f"refusing: --v61-backend {v61_backend} is accepted for --smoke plans only; a gate "
+            "with it needs a new pre-registration and a records-identity check"
+        )
     commit, dirty = git_commit()
     if dirty and not args.smoke:
         raise SystemExit("refusing: dirty worktree (the plan binds a clean commit)")
@@ -246,6 +293,8 @@ def cmd_plan(args) -> int:
         "controls": controls(key),
         "created_utc": datetime.now(timezone.utc).isoformat(),
     }
+    if v61_backend != "python":  # opt-in; default plans keep the ratified engine keys
+        study["engine"]["vector61_backend"] = v61_backend
     Path(args.root).mkdir(parents=True, exist_ok=True)
     receipts.write_plan(
         Path(args.root), plan.as_dict(), {str(k): v for k, v in banks.items()}, study
@@ -268,6 +317,12 @@ def main(argv=None) -> int:
         action="store_true",
         help="ego2s-bv8 candidates: run without P2 (SIMD-only); recorded in plan.json",
     )
+    p.add_argument(
+        "--v61-backend",
+        choices=V61_BACKENDS,
+        default="python",
+        help="vector61 featurizer bound into plan.json (numba: --smoke plans only)",
+    )
     q = sub.add_parser("look")
     q.add_argument("--root", type=Path, required=True)
     q.add_argument("--look", type=int, required=True)
@@ -283,6 +338,7 @@ def main(argv=None) -> int:
         if not 1 <= args.procs <= 3:
             raise SystemExit("compute policy: 1..3 processes")
         return base.cmd_look(args)
+    bind_unit_v61_backend(args.root)
     return base.run_unit(args.root, args.look, args.unit_id)
 
 

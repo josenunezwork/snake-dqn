@@ -15,6 +15,11 @@ re-running skips (run, ckpt, veto, mix) rows already written.
   (M3-C runs two watchers: intermediates ``--schedule 5000k,10000k,15000k --worlds 16
   --vetoes none`` and finals ``--schedule final --worlds 32 --vetoes none,v8``; they write
   different files because the checkpoint stem is part of the name.)
+
+``--v61-backend numba`` (opt-in) passes ``dev_probe --v61-backend numba`` (compiled vector61
+featurizer for the opponents / v8 carrier). Its records are identical to the default's
+(``tests/test_eval_v61_backend_identity.py``), so an output file may hold rows of either
+backend (each non-default row carries ``v61_backend``); resuming across backends is allowed.
 """
 
 from __future__ import annotations
@@ -216,7 +221,15 @@ def pending_jobs(
     return jobs
 
 
-def probe_argv(job: Job, out: Path, worlds: int, round_index: int, slots: bool) -> List[str]:
+def probe_argv(
+    job: Job,
+    out: Path,
+    worlds: int,
+    round_index: int,
+    slots: bool,
+    v61_backend: Optional[str] = None,
+) -> List[str]:
+    """dev_probe's argv for ``job``; ``v61_backend`` (opt-in) adds ``--v61-backend``."""
     run, stem, path, veto, mix = job
     argv = [
         sys.executable,
@@ -240,6 +253,8 @@ def probe_argv(job: Job, out: Path, worlds: int, round_index: int, slots: bool) 
         "--out",
         str(result_path(out, run, stem, veto)),
     ]
+    if v61_backend is not None:
+        argv += ["--v61-backend", v61_backend]
     if slots:
         return [sys.executable, str(REPO / "research/redesign_m3_20261008/slotrun.py"), "--"] + argv
     return ["nice", "-n", "10"] + argv
@@ -256,6 +271,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--round-index", type=int, default=52)
     ap.add_argument("--procs", type=int, default=1)
     ap.add_argument("--slots", action="store_true", help="hold a shared CPU slot lock per probe")
+    ap.add_argument(
+        "--v61-backend",
+        choices=("python", "numba"),
+        default=None,
+        help="pass dev_probe --v61-backend (opt-in; numba is record-identical, "
+        "tests/test_eval_v61_backend_identity.py); default: dev_probe's own default",
+    )
     ap.add_argument("--until", type=Path, default=None, help="exit when this file exists and idle")
     ap.add_argument("--once", action="store_true", help="one pass, then wait for the jobs, exit")
     args = ap.parse_args(argv)
@@ -291,7 +313,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 break
             job = jobs.pop(0)
             key = job[:2] + job[3:]
-            argv_ = probe_argv(job, args.out, args.worlds, args.round_index, args.slots)
+            argv_ = probe_argv(
+                job, args.out, args.worlds, args.round_index, args.slots, args.v61_backend
+            )
             live[key] = subprocess.Popen(argv_, cwd=REPO, env=env, stdout=subprocess.DEVNULL)
             with log.open("a") as fh:
                 fh.write(json.dumps({"started": key, "t": time.time()}) + "\n")
