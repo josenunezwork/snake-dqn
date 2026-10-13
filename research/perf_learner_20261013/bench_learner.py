@@ -30,6 +30,9 @@ Usage (re-run on a quiet machine for clean numbers)::
         --devices mps,cpu --out research/perf_learner_20261013/results/bench_learner.json
     ./venv/bin/python research/perf_learner_20261013/bench_learner.py --drift --devices mps \\
         --out research/perf_learner_20261013/results/drift.json
+
+On a CUDA host (e.g. the pod bench session, ``research/perf_podbench_20261013/pod_bench.py``)
+pass ``--devices cuda``; a CUDA device on a host without CUDA is skipped (``skipped_devices``).
 """
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ import sys  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
-from typing import Any, Dict, List  # noqa: E402
+from typing import Any, Dict, List, Optional  # noqa: E402
 
 import numpy as np  # noqa: E402
 
@@ -78,6 +81,7 @@ CONFIGS: Dict[str, Dict[str, Any]] = {
     "t1_cl": {"fast": True, "channels_last": True},
 }
 DEFAULT_CONFIGS = "baseline,t1,t1_fp16,t1_bf16,t1_k2,t1_k4"
+NOISY_NOTE = "NOISY: measured while other training jobs shared the CPU and the MPS GPU"
 N_ACTORS = 2
 
 
@@ -144,14 +148,32 @@ def build_world(mode: str, nscal: int, id_hi: int, seed: int):
     return replay, labels, demos
 
 
-def init_net(nscal: int) -> Ego2sNet:
-    if STUDENT.exists():
+def init_path(init: Optional[str] = None) -> Optional[Path]:
+    """``--init`` if given (it must exist), else the M2b student if present, else None."""
+    if init:
+        path = Path(init)
+        if not path.exists():
+            raise SystemExit(f"--init {init} does not exist")
+        return path
+    return STUDENT if STUDENT.exists() else None
+
+
+def init_net(nscal: int, init: Optional[str] = None) -> Ego2sNet:
+    path = init_path(init)
+    if path is not None:
         args = m3c.default_args()
-        args.init = str(STUDENT)
+        args.init = str(path)
         args.obs_version = "bv8" if nscal == 60 else "b"
         return m3c.load_init(args, "cpu")
     torch.manual_seed(0)
     return Ego2sNet(7, nscal)
+
+
+def device_available(device: str) -> bool:
+    """False for a CUDA device on a host without CUDA (the device is then skipped)."""
+    if device.startswith("cuda"):
+        return bool(torch.cuda.is_available())
+    return True
 
 
 def trainer_args(mode: str):
@@ -224,9 +246,13 @@ def bench(ns) -> Dict[str, Any]:
     nscal = 60 if ns.mode == "bv8" else 30
     multi = build_rings(nscal, ns.ring_rows, 0)
     id_hi = ns.ring_rows * N_ACTORS
-    net0 = init_net(nscal)
+    net0 = init_net(nscal, ns.init)
     out: Dict[str, Any] = {"cells": []}
     for device in ns.devices.split(","):
+        if not device_available(device):
+            print(f"{device} unavailable: skipped", flush=True)
+            out.setdefault("skipped_devices", []).append(device)
+            continue
         torch.set_num_threads(ns.threads)
         names = ns.configs.split(",")
         upd = ns.updates_cpu if device == "cpu" else ns.updates
@@ -295,9 +321,13 @@ def drift(ns) -> Dict[str, Any]:
     nscal = 60 if ns.mode == "bv8" else 30
     multi = build_rings(nscal, ns.ring_rows, 0)
     id_hi = ns.ring_rows * N_ACTORS
-    net0 = init_net(nscal)
+    net0 = init_net(nscal, ns.init)
     out: Dict[str, Any] = {"drift": []}
     for device in ns.devices.split(","):
+        if not device_available(device):
+            print(f"{device} unavailable: skipped", flush=True)
+            out.setdefault("skipped_devices", []).append(device)
+            continue
         runs = {}
         variants = {
             "reference_fp32": {},
@@ -361,9 +391,16 @@ def main(argv=None) -> int:
     ap.add_argument("--warm", type=int, default=5)
     ap.add_argument("--warm-cpu", type=int, default=1)
     ap.add_argument("--threads", type=int, default=1, help="torch threads (trainer: 1)")
+    ap.add_argument(
+        "--init",
+        default=None,
+        help="ego2s checkpoint to start from (default: the M2b student if present, else a "
+        "random net; the forward cost is the same, drift is more realistic from the student)",
+    )
     ap.add_argument("--drift", action="store_true")
     ap.add_argument("--drift-updates", type=int, default=200)
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--note", default=NOISY_NOTE, help="the result's 'note' (host conditions)")
     ns = ap.parse_args(argv)
     if any(n not in CONFIGS for n in ns.configs.split(",")):
         ap.error(f"configs: {sorted(CONFIGS)}")
@@ -374,9 +411,9 @@ def main(argv=None) -> int:
         "torch": torch.__version__,
         "loadavg_start": os.getloadavg(),
         "argv": sys.argv[1:],
-        "init": str(STUDENT) if STUDENT.exists() else "random",
+        "init": str(init_path(ns.init) or "random"),
         "mode": ns.mode,
-        "note": "NOISY: measured while other training jobs shared the CPU and the MPS GPU",
+        "note": ns.note,
     }
     res = drift(ns) if ns.drift else bench(ns)
     res = {**meta, **res, "loadavg_end": os.getloadavg()}

@@ -23,6 +23,11 @@ Usage (re-run on a quiet machine; numbers taken while other jobs run are noisy):
         --worlds 64,128,256 --devices cpu,mps --frames 150 --warm 30 \\
         --out research/perf_actor_20261013/results/bench_actor.json
 
+    # the B8 recipe's actor (bv8 obs + on-policy v8 labels) on a CUDA host (pod bench session)
+    ./venv/bin/python research/perf_actor_20261013/bench_actor.py --configs numba \\
+        --worlds 64,128,256 --devices cuda \\
+        --trainer-args "--obs-version bv8 --onpolicy-labels --mixed-frac 0.25 --reward mass"
+
     # one cell under cProfile (top functions by own time)
     ./venv/bin/python research/perf_actor_20261013/bench_actor.py --profile \\
         --configs baseline --worlds 64 --devices cpu --frames 100
@@ -39,6 +44,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 import argparse  # noqa: E402
 import json  # noqa: E402
 import platform  # noqa: E402
+import shlex  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
 import tempfile  # noqa: E402
@@ -132,8 +138,13 @@ def run_cell(
     frozen_frac: float,
     seed: int,
     profile: bool = False,
+    trainer_args: str = "",
 ) -> Dict[str, Any]:
-    """One in-process ``actor_main`` run; returns rates and the timing split."""
+    """One in-process ``actor_main`` run; returns rates and the timing split.
+
+    ``trainer_args`` (opt-in, shell-split) are appended to the actor's ``train_m3c`` argv, e.g.
+    the B8 recipe's ``--obs-version bv8 --onpolicy-labels --mixed-frac 0.25 --reward mass``;
+    the trainer's own parser validates them (the last occurrence of a flag wins)."""
     from research.redesign_m3c_20261008 import train_m3c as T
 
     impl, v61 = CONFIGS[config]
@@ -160,7 +171,7 @@ def run_cell(
         impl,
         "--v61-backend",
         v61,
-    ]
+    ] + shlex.split(trainer_args or "")
     args = T.build_parser().parse_args(argv)
     if grow_to:
         orig = T.build_segment
@@ -225,6 +236,7 @@ def run_cell(
         "warm": warm,
         "grow_to": grow_to,
         "frozen_frac": frozen_frac,
+        "trainer_args": trainer_args or "",
         "wall_s": wall,
         "frames_per_s": n / wall,
         "ms_per_frame": 1e3 * wall / n,
@@ -256,6 +268,12 @@ def main() -> int:
     ap.add_argument("--init", default=None)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--profile", action="store_true", help="cProfile one in-process cell")
+    ap.add_argument(
+        "--trainer-args",
+        default="",
+        help="extra train_m3c actor flags (one string, shell-split), e.g. the B8 recipe's "
+        "'--obs-version bv8 --onpolicy-labels --mixed-frac 0.25 --reward mass'",
+    )
     ap.add_argument("--cell", default=None, help=argparse.SUPPRESS)  # internal: one cell
     a = ap.parse_args()
     init = a.init or default_init()
@@ -272,18 +290,27 @@ def main() -> int:
             a.frozen_frac,
             a.seed,
             profile=a.profile,
+            trainer_args=a.trainer_args,
         )
         if a.profile:
             print(row.pop("profile_tottime"))
         print("CELL " + json.dumps(row), flush=True)
         return 0
     rows: List[Dict[str, Any]] = []
+    skipped: List[str] = []
     for device in a.devices.split(","):
         if device == "mps":
             import torch
 
             if not torch.backends.mps.is_available():
                 print("mps unavailable: skipped", flush=True)
+                continue
+        if device.startswith("cuda"):
+            import torch
+
+            if not torch.cuda.is_available():
+                print(f"{device} unavailable: skipped", flush=True)
+                skipped.append(device)
                 continue
         for worlds in [int(w) for w in a.worlds.split(",")]:
             for config in a.configs.split(","):
@@ -305,6 +332,8 @@ def main() -> int:
                     "--init",
                     init,
                 ]
+                if a.trainer_args:
+                    cmd.append("--trainer-args=" + a.trainer_args)
                 r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
                 line = [x for x in r.stdout.splitlines() if x.startswith("CELL ")]
                 if r.returncode or not line:
@@ -326,8 +355,11 @@ def main() -> int:
         "machine": platform.machine(),
         "note": "single actor process, in-process sink (no learner); noisy if the host is busy",
         "init": init,
+        "trainer_args": a.trainer_args,
         "rows": rows,
     }
+    if skipped:
+        result["skipped_devices"] = skipped
     if a.out:
         a.out.parent.mkdir(parents=True, exist_ok=True)
         a.out.write_text(json.dumps(result, indent=1) + "\n")
