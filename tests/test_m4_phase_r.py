@@ -114,7 +114,7 @@ def test_ratification_line(tmp_path):
     assert not pr.ratified(p)
     p.write_text("x\n**RATIFIED 2026-10-14 by the owner**\n")
     assert pr.ratified(p)
-    assert not pr.ratified(pr.PREREG)  # the committed pre-registration is a DRAFT
+    assert pr.ratified(pr.PREREG)  # ratified 2026-10-13
 
 
 def test_obs_spec_binding_and_bv8_p2_rule(tmp_path):
