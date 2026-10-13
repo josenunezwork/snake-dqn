@@ -76,3 +76,24 @@ not count as progress, and per-study governance (ratification, admission,
 qualification, closeout receipts) must be capped relative to the experiment.
 Many M3-D studies ended on wall-clock admission or audit-inventory refusals and
 produced no scientific endpoint.
+
+## Post-hoc code review: likely causes of the M3-C survival collapse
+
+Found by reading the M3-C training code (worktree `m3c`, `research/redesign_m3c_20261008/`)
+after the fact; none were tested by M3-D.
+
+- **Reward objective is not the eval metric.** The base v2 reward is potential
+  shaping on length (telescopes away, policy-invariant) + 0.3 x victim length per
+  kill - 3 per death (`batch_sim.py:1299-1332`). Its optimum is kill-hunting with a
+  flat death cost — risk-seeking. Arms B/L add a per-step mass term, but:
+- **Horizon mismatch.** gamma 0.99 -> 0.995 (effective ~100-200 frames) vs a
+  5000-frame mass-integral evaluation (`train_m3c.py:84-101`).
+- **Inconsistent teacher.** Q/KL targets are frp3-s12's *unvetoed* Q while the
+  DQfD margin label is the *v8-vetoed* action (`redesign_m2_20261008/gen_data.py:194-216`);
+  the student is then evaluated with no veto. This is the S16/S18 objective conflict.
+- **Train/eval roster mismatch.** Training worlds were 75% scripted / 25% frozen,
+  never the evaluated "mixed" roster (arm D dropped in amendment A1).
+- **ego2s-b already has flood-fill** (`reach_time` plane, uncapped per-action
+  region sizes) but lacks v8's per-action tail-aware post-move area, post-boost
+  landing area and opponent head-reach risk (`safety_veto_v7.py:173-217`,
+  `safety_veto_v6.py:174-232`).
