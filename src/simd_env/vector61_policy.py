@@ -111,6 +111,9 @@ FORWARD_MODES = ("rowwise", "batched")
 # safety_veto_v8.SpaceAndHeadVeto(lambda[, reference_lambda]) (opt-in, need a lambda).
 SAFETY_VETO_VARIANTS = ("v2", "v5", "v7", "v8")
 LAMBDA_VETO_VARIANTS = ("v7", "v8")
+# Vector61Runtime featurizer backends (default "python"; "numba" is float32-identical).
+V61_BACKENDS = ("python", "numba")
+V61_BACKEND_ENV = "SNAKE_V61_BACKEND"
 # Relative action direction (0 left, 1 straight, 2 right) -> CARDINAL index delta.
 _TURN_DELTA = (-1, 0, 1)
 
@@ -530,9 +533,21 @@ class Vector61Runtime:
         params: Featurizer params; default ``Vector61Params.from_game_config``.
         trace: Optional diagnostic callable receiving one dict per frame with
             the selection rows, their states/masks and whether each was fresh.
+        backend: ``"python"`` (the NumPy :class:`Vector61Featurizer`) or ``"numba"``
+            (:class:`src.simd_env.vector61_nb.Vector61FeaturizerNB`, float32-identical,
+            pinned by ``tests/test_vector61_nb.py``). ``None``: env
+            ``SNAKE_V61_BACKEND``, else ``"python"``.
     """
 
-    def __init__(self, params: Optional[Vector61Params] = None, trace=None) -> None:
+    def __init__(
+        self, params: Optional[Vector61Params] = None, trace=None, backend: Optional[str] = None
+    ) -> None:
+        import os
+
+        backend = backend or os.environ.get(V61_BACKEND_ENV) or "python"
+        if backend not in V61_BACKENDS:
+            raise ValueError(f"vector61 backend must be one of {V61_BACKENDS}, got {backend!r}")
+        self.backend = backend
         self._params = params
         self.trace = trace
         self.featurizer: Optional[Vector61Featurizer] = None
@@ -548,11 +563,12 @@ class Vector61Runtime:
         from dataclasses import replace
 
         params = self._params or Vector61Params.from_game_config(sim.cfg)
-        self.featurizer = Vector61Featurizer(params)
+        cls = Vector61Featurizer
+        if self.backend == "numba":
+            from src.simd_env.vector61_nb import Vector61FeaturizerNB as cls
+        self.featurizer = cls(params)
         self.free_space_featurizer = (
-            self.featurizer
-            if params.use_free_space
-            else Vector61Featurizer(replace(params, use_free_space=True))
+            self.featurizer if params.use_free_space else cls(replace(params, use_free_space=True))
         )
         E, S = int(sim.E), int(sim.S)
         controlled = np.asarray(controlled, dtype=bool)
