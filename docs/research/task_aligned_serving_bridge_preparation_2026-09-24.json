@@ -1,0 +1,142 @@
+{
+  "active_continuation_untouched": true,
+  "base_commit": "7fd9e6b924e05f8e4edfe75119ec4f13116ad0b3",
+  "candidate": {
+    "checkpoint_bytes_accessed_this_preparation": false,
+    "checkpoint_sha256_from_completed_metadata": "8d67915ef1ea5dbb0804ffd8bf9874dedb27c95878bacdd5b5e5ae77682aa46f",
+    "continuation_endpoint_substitution_permitted": false,
+    "global_update": 35613,
+    "lineage": 2026096102
+  },
+  "committed": false,
+  "draft": "/Users/josenunez/Projects/ml/snake-dqn/docs/research/task_aligned_challenger_design_draft_2026-09-24.md",
+  "executed_this_preparation": {
+    "checkpoint_reads": 0,
+    "fixtures": 0,
+    "games": 0,
+    "model_queries": 0,
+    "old_science_or_audit_reruns": 0,
+    "optimizer_updates": 0,
+    "static_source_inspection_hashing_formatting_ast": true,
+    "tests": 0
+  },
+  "no_numerical_admission_or_release_authority": true,
+  "prospective_tests_not_run": {
+    "model_backend_profile": {
+      "cases": 47,
+      "forward_computations": 21,
+      "forwarded_rows": 129,
+      "games": 0,
+      "network_constructions": 6,
+      "optimizer_updates": 0,
+      "profile_mock_deserializations": 10,
+      "synthetic_checkpoint_byte_reads": 4,
+      "synthetic_checkpoint_loads": 2,
+      "synthetic_checkpoint_writes": 1
+    },
+    "provenance_integration": {
+      "cases": 14,
+      "checkpoint_or_model_or_game_operations": 0,
+      "complete_api_case": {
+        "fixture_bytes_ceiling": 1048576,
+        "included_provenance_reads": 12,
+        "json_files": 11,
+        "json_opens": 32,
+        "mock_decision_passes": false,
+        "stubs": [
+          "E0/model/source closure",
+          "profile/roster",
+          "serving",
+          "pilot/calibration",
+          "raw science",
+          "statistical decision"
+        ]
+      }
+    },
+    "provenance_semantics": {
+      "in_memory_authentication_callback_ceiling": 128,
+      "methods": 10,
+      "synthetic_fixture_bytes_ceiling_each": 1048576,
+      "validator_call_ceiling": 32
+    }
+  },
+  "pushed": false,
+  "remaining_before_admission": [
+    "Implement finite qualification and public challenge artifact producers with complete physical counters and caps",
+    "Bind exact incumbent/pool/config/metadata identities and conservative all-Python E0 source closure",
+    "Independently review complete execution protocol and implementation",
+    "After current controller releases shared locks, record new prospective deadline covering all stage caps, audit and120second handoff",
+    "Qualify new runtime once, then fresh incumbent comparison; preserve any failed prefix and follow frozen recovery policy"
+  ],
+  "reviews": [
+    {
+      "evidence": "Complete public call chains traced. Original native bytes reach inference. Restricted inputs and Q scale preserved. Full source config/counters and explicit source/deployment capacity/normalization differences reviewed.",
+      "model": "gpt-6-astra",
+      "not_reviewed": "strict-v3 provenance is covered separately",
+      "result": "PASS_SOURCE_ONLY",
+      "reviewer": "/root/astra_learning",
+      "scope": [
+        "model",
+        "inference",
+        "backend",
+        "public_profile_path",
+        "corresponding_tests"
+      ]
+    },
+    {
+      "evidence": "Exact uint64 historical exclusions; five uint32 executable sets; bounded same-byte authenticated metadata; v2 behavior and statistics unchanged. New complete API regression independently reviewed with explicit unrelated stubs.",
+      "model": "gpt-6-astra",
+      "result": "PASS_SOURCE_ONLY",
+      "reviewer": "/root/astra_continuation_audit",
+      "scope": [
+        "provenance_module",
+        "strict_v3_integration",
+        "corresponding_tests"
+      ]
+    }
+  ],
+  "schema": "task-aligned-serving-bridge-source-preparation/v1",
+  "scientific_changes": {
+    "declared_deployment_body_capacity": 10400,
+    "deployment_horizon": 5000,
+    "deployment_progress_normalizer": 5000,
+    "individual_candidate_not_all_three": true,
+    "inference_recipe": false,
+    "progress_scalar_retained": false,
+    "promotion_statistics": false,
+    "raw_observation_parity_claim": false,
+    "source_allocated_body_capacity": 2448,
+    "source_config_body_capacity": 400,
+    "source_progress_normalizer": 256,
+    "weights": false
+  },
+  "seed_provenance": {
+    "all_history_novelty": false,
+    "ancestry_coverage": "incomplete",
+    "geometry_novelty": false,
+    "historical_training_ids": 25087,
+    "max_metadata_bytes_per_source": 4194304,
+    "max_metadata_bytes_per_validation": 16777216,
+    "metadata_sources": 4,
+    "previous_selection_ids": 160,
+    "request_schema": "strict-promotion-request/v3",
+    "strict_cli_metadata_validations": 3
+  },
+  "source_growth_argument": "Fresh spawn/respawn length1, native consumption returns after first grow(1) per frame including corpse/trail food, boost subtracts. Fresh H5000 logical length <=5001, plus transient head insertion covered by10400. Does not cover arbitrary imported midgame bodies.",
+  "source_sha256": {
+    "src/evaluation/seed_provenance.py": "bb62ab0ffcb5d7a25e9d8591a3685e8615ac93831d64e9ddcf096beebe9ee9cb",
+    "src/evaluation/strict_promotion.py": "831c7f574132f6dc9a64b062373f8f4ea7e057ffc3adc11ea1dccc92f3302ba2",
+    "src/model/inference_agent.py": "9e015984f727dd372807f84572310d4210b6041afbc5be8227f4fbc406df584b",
+    "src/model/task_aligned_network.py": "881de4b8029717bd8dd48a5bdde3402f5a72521faaa6bf29c32811ed5a720972",
+    "src/simd_env/eval_engine.py": "16b7deb31a07d9dbd5c56267014dc8632cc05547f61da5c921f96996f3f439f1",
+    "tests/test_strict_provenance_integration.py": "400beebb45f5149eb35e17516fa9995b83e7768c19031373e114b09e2455d335",
+    "tests/test_strict_seed_provenance.py": "175a00503276488044bc4e75e9a7403142906612ebff7dccb26361b793a0e531",
+    "tests/test_task_aligned_checkpoint_serving.py": "11bf0cd18d02c7866faacf449be071f3016a77edb509e5323c652e0fd342849d",
+    "tests/test_task_aligned_live_contract.py": "13de6619830175e3bdac88195bbfa6f2b38a88a15d6d338e79936489c44f0418",
+    "tests/test_task_aligned_profile_bridge.py": "761d8f44fdb098e19cbe55b0fb15d12ac09965552e6f758d1b095fd19c1d3713",
+    "web/backend/session.py": "c5d7ee07696d767d64c4e911640d710268e21399f30f24eae8ff663382cef444"
+  },
+  "status": "SOURCE_IMPLEMENTED_INDEPENDENTLY_REVIEWED_NOT_NUMERICALLY_QUALIFIED",
+  "utc": "2026-09-24T15:10:54.415289+00:00",
+  "worktree": "/Users/josenunez/.codex/worktrees/task-aligned-serving-bridge/snake-dqn"
+}

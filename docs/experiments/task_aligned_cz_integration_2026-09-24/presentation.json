@@ -1,0 +1,111 @@
+{
+  "artifacts": [
+    {
+      "path": "all-cells.csv",
+      "sha256": "546c2a2da3c340c819931e4217e8525bc178a25cf0a3a7fd8575a157b3c29788"
+    },
+    {
+      "path": "all-cells.md",
+      "sha256": "9a3c48ba12ff9d8dc840ee4d2032b8bd6b2b5fa1d4b71647499104eda26b68a9"
+    },
+    {
+      "path": "paired-2026096101-solo.png",
+      "sha256": "3a4773c229448270054b9cf399235d11cd9395e366e9f423a780f4157815013b"
+    },
+    {
+      "path": "paired-2026096101-food_pressure.png",
+      "sha256": "9ade1d450ea68fae05b7d29541cf8be4be56ebc128d8a0e4e18d942fac3ccf64"
+    },
+    {
+      "path": "paired-2026096101-mixed.png",
+      "sha256": "ecdeb1f1d349ec5f61b82f64624c89ea739f53750794c95fdef580fd5531d9fb"
+    },
+    {
+      "path": "paired-2026096102-solo.png",
+      "sha256": "5fc5e3125edd6f013d4caff42e49610b5fae76e193cb85ec5629358c17ef51f8"
+    },
+    {
+      "path": "paired-2026096102-food_pressure.png",
+      "sha256": "36a0333de65689b98290c4329384ee1db5284d4917d051f816c9048b854a727c"
+    },
+    {
+      "path": "paired-2026096102-mixed.png",
+      "sha256": "3cc1ce82ff1a27da1dd2cc710e1182cbadd979240770e8444963b42220991829"
+    },
+    {
+      "path": "paired-2026096103-solo.png",
+      "sha256": "6f3950eea44270af8136e03f4c46a705d36ee0e9973b86c0c3fe85f2722da58a"
+    },
+    {
+      "path": "paired-2026096103-food_pressure.png",
+      "sha256": "b40dd782b54a36055f2f9d7884b09011d98c5d5b57ca9100f8d36a47b6f4e1b9"
+    },
+    {
+      "path": "paired-2026096103-mixed.png",
+      "sha256": "22969a17157ca14e5cccfc40352a6cae9cd118f93ea4dd0277090c523f5ee5cd"
+    },
+    {
+      "path": "training-telemetry.png",
+      "sha256": "b8e70e5bf6e88145ed3718518f605d1ea00c4422507357eb796fb1d4d5a0dcee"
+    }
+  ],
+  "counters": {
+    "checkpoint_loads": 0,
+    "hero_transitions": 0,
+    "model_forwards": 0,
+    "native_frames": 0,
+    "optimizer_updates": 0
+  },
+  "decision": "INCONCLUSIVE_SCREEN",
+  "kind": "saved_presentation",
+  "new_scientific_analysis": false,
+  "promotion_eligible": false,
+  "schema_version": 1,
+  "source_cell_report_sha256": [
+    "71412d413b3576af5582e9ce28f8ded9ec8baa2c989f1f26cb09d9d931c22b08",
+    "7f0a23e98f9557a4addd19a7fa5ef90d58b7dcba6cf43a0cf2c0590066d1f4c5",
+    "d2d52e091b966445d716525c1ea03778d22b34dd01b51cc24f9b82ecc4107302",
+    "b5f881331768cd69cc77de679fed44b2abc2054479e9e3693edd8db850d47540",
+    "56dd545c626621774a1db0d661184b934c241ac801d19d6ea57540ea256310a5",
+    "6c9e83be7d9e5fc1caf14f8985921d2a192542cd07f953405d02925d700af0a9",
+    "bdae7905a3078f4314a5f0fdeabf15fbffcd8a129298904e35aaa9f48f71dd4a",
+    "e42bdf81e79a84382d1fa872752d0f475a32dd0e46c421966332d70c06ef1e67",
+    "065b7001a1828208b80936035942dfb8f6a95e3b457242daaa4ca82d6391a76a",
+    "09d942e0991bea5d8c786e099b3e6d07c6ada33ffed0a9ba598ed9aa0161666d",
+    "f6fdc835724b0907ae22d19356feee2b832242c2b920066fd57513a9b40eed2f",
+    "a7e71c2a118749b9c27b834ab653ca2553d1021d449121ceedf8d5f5f651574e",
+    "0c0adba1342ab36dc95c08a4e9a2897f9d16f4f55ca9844934b559ed7ff6f96d",
+    "1834d9e75abc6a74636a43145a8a53187a1e29387392deb4df77dd7cffefd8cd",
+    "64a51eab0b0a1c834f5a6755fc88979ecd99d2d14f4d0cd891427bfcc64db645",
+    "c4c7b0911470ff8ccc2de8e9f27b819baf54471b212567c31aa73f66e557c569",
+    "eadea5c4bbb2bb23e6a68af427f784f3b014ec6e1dbb9291557145c35d27a996",
+    "988221f7aa2151a96d1afc163e5072adead8de0d24054a0ff25a0f6b08585bb6",
+    "465ce9adc43a571c220eb07e7d3de5c8d26d49618f985e33b449c9472e243599",
+    "3bbbfbfb99b157f4c63d379abe5e26fdaa831caefbec5e50808463d6aae9632d",
+    "eec64c443aed633b8b9bfe68c810d372048c56cdd54fc3e862681c05fc8fcdd9",
+    "41ed7b347801280f7fe4f872f1f87b6477e5581b7909a4b81f59f2b8289de07a",
+    "088841a1a144ec0dc8cdb47ef18c2ec44062b093a357acf264c65755dabc9e5b",
+    "47f15318b766ee01ad3202075b1c0baa1db4a88d363cab8ead909df12185ca59"
+  ],
+  "source_decision_sha256": "43b2d8dd7c1fb4f430e0bbef9f9e35eb806dbee082bdd0f92529291771e2aaec",
+  "spec_sha256": "c7b3b18e61b907a4edd906e5b6d1bb12fa8d594031f589d4c58426fbe68ac027",
+  "status": "PASS",
+  "study_id": "task-aligned-20260924",
+  "training_logs": [
+    {
+      "lineage": 2026096101,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-cz-integration-20260924/admission-v2/run/train_2026096101/output/training.jsonl",
+      "sha256": "a70e95beed876bc34e4a2f6b949854d943951469afd39c4549b1e4596a79a5d1"
+    },
+    {
+      "lineage": 2026096102,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-cz-integration-20260924/admission-v2/run/train_2026096102/output/training.jsonl",
+      "sha256": "7dc166cd36868f75abd67fc586ed38d153eb34f44adc9426c142fb8c62cd0681"
+    },
+    {
+      "lineage": 2026096103,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-cz-integration-20260924/admission-v2/run/train_2026096103/output/training.jsonl",
+      "sha256": "33ac5de7d89f96b6d1783059753007702578e91f9c3b7899822f695951a07032"
+    }
+  ]
+}
