@@ -290,7 +290,7 @@ class RolloutEngine:
         self.count: Counter = Counter()
 
     # -- policies --------------------------------------------------------------------
-    def hero_q(self, w: Any, rows: np.ndarray) -> np.ndarray:
+    def hero_q(self, w: Any, rows: np.ndarray, forward: Optional[str] = None) -> np.ndarray:
         """Student Q for ``(N, 2)`` rows: ``ego2s_policy.student_q``, timed in two parts."""
         from src.simd_env.ego2s_policy import ego_config_for, forward_q
         from src.simd_env.ego_raster import build_ego_raster
@@ -299,7 +299,7 @@ class RolloutEngine:
         rows = np.asarray(rows, dtype=np.int64).reshape(-1, 2)
         obs = build_ego_raster(w, ego_config_for(self.net), backend="numba", rows=rows)
         t1 = time.perf_counter()
-        q = forward_q(self.net, obs, self.forward).numpy()
+        q = forward_q(self.net, obs, forward or self.forward).numpy()
         t2 = time.perf_counter()
         self.sec["hero_featurize"] += t1 - t0
         self.sec["hero_forward"] += t2 - t1
@@ -308,9 +308,9 @@ class RolloutEngine:
         self.count["hero_calls"] += 1
         return q
 
-    def greedy(self, w: Any, rows: np.ndarray) -> np.ndarray:
+    def greedy(self, w: Any, rows: np.ndarray, forward: Optional[str] = None) -> np.ndarray:
         """The advisory-mask greedy student action (``Ego2sSimdPolicy`` advisory rule)."""
-        q = self.hero_q(w, rows)
+        q = self.hero_q(w, rows, forward)
         m = w.get_advisory_action_mask()[rows[:, 0], rows[:, 1]].astype(bool)
         m[~m.any(axis=1), :3] = True
         return np.where(m, q.astype(np.float64), -np.inf).argmax(axis=1).astype(np.int64)
@@ -353,8 +353,8 @@ class RolloutEngine:
         masks = None
         for key, rows in groups.items():
             rows_a = np.asarray(rows, dtype=np.int64)
-            if key[0] == "student":
-                actions[rows_a[:, 0], rows_a[:, 1]] = self.greedy(w, rows_a)
+            if key[0] == "student":  # identity-blind model: opp_forward (not bit-pinned)
+                actions[rows_a[:, 0], rows_a[:, 1]] = self.greedy(w, rows_a, self.opp_forward)
                 continue
             if masks is None:
                 masks = w.get_resolved_action_mask()
@@ -872,6 +872,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
         forward="rowwise",
         opp_model=args.opp_model,
         food_rng=args.food_rng,
+        opp_forward=args.opp_forward,
     )
     # The closed-loop world itself always plays the real opponents and food; only the
     # planner's rollouts use ``engine``'s (possibly identity-blind) model.
@@ -1313,6 +1314,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cl-control", action="store_true")
     p.add_argument("--opp-model", choices=OPP_MODELS, default="oracle")
     p.add_argument("--food-rng", choices=FOOD_RNG, default="oracle")
+    p.add_argument(
+        "--opp-forward",
+        choices=("rowwise", "batched"),
+        default="rowwise",
+        help="opponent forward (vector61 oracle: rowwise = the eval's; student model: either)",
+    )
     p.add_argument("--frames", type=int, default=HORIZON, help="default H5000 (smoke only)")
     p.add_argument("--out", default=str(OUT_ROOT))
     s = sub.add_parser("summarize")
