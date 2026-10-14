@@ -1,0 +1,20 @@
+{
+ "kind": "perf-ram verify-data",
+ "created_utc": "2026-10-14T04:41:03.768933+00:00",
+ "rows": 4160000,
+ "shards": 416,
+ "byte_identical": true,
+ "seconds": 45.5,
+ "max_enemy_head_pixels": 4,
+ "head_cap": 8,
+ "global_rect_sizes_seen": [
+  [
+   11,
+   19
+  ],
+  [
+   19,
+   11
+  ]
+ ]
+}

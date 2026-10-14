@@ -60,8 +60,12 @@ Everything new is behind a flag:
   ``tests/test_obs_pack.py``). ``--demo-mmap PATH`` replaces the private demonstration
   buffer by a slot -> row index into a read-only file of every training demonstration row
   (:mod:`research.redesign_m3c_20261008.demo_store`; built once per host under a lock,
-  mapped by every run: the page cache is shared); the sampled rows are identical. RAM
-  model and measurements: ``research/perf_ram_20261013``.
+  mapped by every run: the page cache is shared); the sampled rows are identical for the
+  same buffer contents, but a rotated-in shard lands before the next batch instead of when
+  a loader thread finishes (a scheduling-dependent lag in the default). 12.0 GB per host
+  (packed store, rounds 10-12): worth it only from ~12 runs per host. RAM model and
+  measurements: ``research/perf_ram_20261013/bench_ram.py`` (per run on the pods: 16.2 GB
+  default, 6.6 GB ``--obs-pack``; ``bv8`` 12.4 / 5.5 GB).
 
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
@@ -332,6 +336,16 @@ class Block:
             self._unlink()
         except (FileNotFoundError, OSError):
             pass
+
+
+def ring_capacity(replay: int, actors: int, worlds: int, queue_frames: int) -> tuple[int, int]:
+    """``(rows per actor ring, overwrite margin rows)`` for ``main_multi``.
+
+    Each actor holds 1.5x its share of the replay plus the in-flight frames (ingest is
+    round-robin, so actor shares stay near 1/K; an overrun only drops rows, counted)."""
+    margin_rows = int(worlds) * 16
+    cap = int(1.5 * replay / actors) + int(worlds) * (int(queue_frames) + 8) + margin_rows
+    return cap, margin_rows
 
 
 def ring_nbytes(capacity: int, nscal: int = NSCAL, pack=None) -> int:
@@ -675,20 +689,47 @@ def demo_key(path: Path) -> str:
     return f"{path.parent.name}/{path.name}"
 
 
+def demo_fields(pack=None):
+    """``(name, per-row shape, dtype)`` of a demonstration buffer row (``DEMO_KEYS`` order);
+    with a :class:`~research.redesign_m3c_20261008.obs_pack.PackLayout` the planes are one
+    ``packed`` field. Shared by :class:`DemoStream` and the demonstration store."""
+    planes = (
+        (("local", LOCAL, np.uint8), ("global", GLOBAL, np.uint8))
+        if pack is None
+        else (("packed", (int(pack.nbytes),), np.uint8),)
+    )
+    return planes + (
+        ("scalars", (NSCAL,), np.float32),
+        ("q_teacher", (6,), np.float32),
+        ("a_v8", (), np.int64),
+        ("mask_resolved", (6,), np.bool_),
+    )
+
+
+def demo_row_nbytes(pack=None) -> int:
+    """Bytes per demonstration buffer row (12,361 raw; 3,222 with the training layout)."""
+    return int(
+        sum(int(np.prod(s, dtype=np.int64)) * np.dtype(d).itemsize for _, s, d in demo_fields(pack))
+    )
+
+
 class DemoStream:
     """Rotating buffer of M2b teacher demonstrations (hold-out worlds excluded).
 
-    Storage modes (perf-ram; the default is the original private raw buffer). Every mode
-    holds the same rows in the same slots and draws the same RNG variates, so sampled
-    batches are byte-identical (``tests/test_obs_pack.py``):
+    Storage modes (perf-ram; the default is the original private raw buffer). Given the same
+    load / swap sequence every mode holds the same rows in the same slots and draws the same
+    RNG variates, so sampled batches are byte-identical (``tests/test_obs_pack.py``):
 
     * ``pack`` (``--obs-pack``): the planes as packed rows (:mod:`obs_pack`), unpacked on
-      gather; a prefetched shard is packed in the loader thread.
+      gather; a prefetched shard is packed in the loader thread (~4 us per row).
     * ``store`` (``--demo-mmap``): no private rows, a slot -> row index into a read-only
       :class:`~research.redesign_m3c_20261008.demo_store.SharedDemoStore` (every training
       row, decompressed once per host, page cache shared by every run that maps it). A
-      prefetch resolves the next shard's row range at once (no thread), so the swap lands at
-      the next update - where the private buffer swaps when its decompression is done.
+      prefetch resolves the next shard's row range at once (no thread), so the new shard is
+      swapped in before the next batch is drawn; the private buffer swaps when its loader
+      thread finishes, a scheduling-dependent number of updates later (it is not
+      reproducible run to run either; packing adds ~40 ms per shard to that thread). That
+      swap timing is the only difference in what a run sees.
     """
 
     pack = None  # class defaults: instances made with object.__new__ (tests, benches)
@@ -718,20 +759,9 @@ class DemoStream:
             self.buf = None
             self.index = np.zeros(capacity, dtype=np.int64)
         else:
-            planes = (
-                {
-                    "local": np.zeros((capacity,) + LOCAL, dtype=np.uint8),
-                    "global": np.zeros((capacity,) + GLOBAL, dtype=np.uint8),
-                }
-                if pack is None
-                else {"packed": np.zeros((capacity, pack.nbytes), dtype=np.uint8)}
-            )
             self.buf = {
-                **planes,
-                "scalars": np.zeros((capacity, NSCAL), dtype=np.float32),
-                "q_teacher": np.zeros((capacity, 6), dtype=np.float32),
-                "a_v8": np.zeros(capacity, dtype=np.int64),
-                "mask_resolved": np.zeros((capacity, 6), dtype=bool),
+                name: np.zeros((capacity,) + tuple(shape), dtype=dtype)
+                for name, shape, dtype in demo_fields(pack)
             }
         self.size = 0
         self.write = 0
@@ -2084,14 +2114,9 @@ def main_multi(args) -> int:
     replay = Replay(args.replay)
     labels = LabelBuffer(args.label_capacity) if args.onpolicy_labels else None
     tel = Telemetry(args.out, args)
-    # Rings: each actor holds 1.5x its share of the replay plus the in-flight frames (ingest is
-    # round-robin, so actor shares stay near 1/K; an overrun only drops rows, counted). With
-    # the defaults (replay 500k, K = 2, 64 worlds): 2 x ~377k rows x 12.2 KB = ~9.3 GB per run
-    # (--obs-pack: 3.2 KB per row, ~2.4 GB).
-    margin_rows = args.worlds * 16
-    ring_cap = (
-        int(1.5 * args.replay / K) + args.worlds * (args.actor_queue_frames + 8) + margin_rows
-    )
+    # Rings (ring_capacity): with the defaults (replay 500k, K = 2, 64 worlds) 2 x 377k rows x
+    # 12.3 KB = 9.3 GB per run (--obs-pack: 3.2 KB per row, 2.4 GB). research/perf_ram_20261013
+    ring_cap, margin_rows = ring_capacity(args.replay, K, args.worlds, args.actor_queue_frames)
     spec = _weights_spec(online)
     n_weights = int(sum(n for _, _, n in spec))
     shms: List[Any] = []

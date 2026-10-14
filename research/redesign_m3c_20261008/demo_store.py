@@ -1,11 +1,17 @@
 """Shared read-only demonstration store for ``train_m3c --demo-mmap PATH`` (perf-ram).
 
 Every run with demonstrations (``--obs-version b``) keeps a private 300k-row buffer of
-decompressed M2b shards (3.7 GB raw, 0.92 GB with ``--obs-pack``) and decompresses one
+decompressed M2b shards (3.71 GB raw, 0.97 GB with ``--obs-pack``) and decompresses one
 shard per target sync. This module decompresses every *training* row (hold-out worlds
 excluded, exactly :meth:`DemoStream.load`) of the requested rounds ONCE into a single file;
 each run maps it read-only and keeps only a slot -> row index (8 bytes per slot), so the
 rows live once in the host's page cache however many runs read them.
+
+Size: rounds 10-12 hold 3,725,000 training rows: 12.0 GB packed, 46 GB raw. The packed
+store therefore pays off against ``--obs-pack``'s private 0.97 GB buffers from about 12
+concurrent runs per host (its pages are clean file cache: the kernel can drop the ones no
+buffer slot points at, so the resident part is smaller); a raw store only makes sense with
+``--obs-pack`` off AND more than 12 runs. RAM model: ``research/perf_ram_20261013``.
 
 File layout: ``MAGIC`` (8 bytes), header length (uint64 LE), a JSON header (fields with
 dtype / per-row shape / offset, row count, the shard table ``key -> [start, rows, bytes]``,
@@ -33,10 +39,8 @@ import numpy as np
 
 from research.redesign_m3c_20261008.train_m3c import (
     DEMO_KEYS,
-    GLOBAL,
-    LOCAL,
-    NSCAL,
     DemoStream,
+    demo_fields,
     demo_key,
 )
 
@@ -46,17 +50,8 @@ VERSION = 1
 
 
 def _fields(pack) -> List[Tuple[str, Tuple[int, ...], str]]:
-    planes = (
-        [("local", LOCAL, "uint8"), ("global", GLOBAL, "uint8")]
-        if pack is None
-        else [("packed", (int(pack.nbytes),), "uint8")]
-    )
-    return planes + [
-        ("scalars", (NSCAL,), "float32"),
-        ("q_teacher", (6,), "float32"),
-        ("a_v8", (), "int64"),
-        ("mask_resolved", (6,), "bool"),
-    ]
+    """:func:`demo_fields` (the DemoStream buffer's rows) with dtype names for the header."""
+    return [(n, tuple(s), np.dtype(d).name) for n, s, d in demo_fields(pack)]
 
 
 def _shard_paths(data: Path, rounds: Iterable[int]) -> List[Path]:

@@ -10,6 +10,9 @@
 * :class:`DemoStream`: raw, packed, store (raw) and store (packed) buffers hold the same
   rows in the same slots through ``fill_initial`` / ``prefetch`` / ``swap_if_ready`` and
   return identical ``sample`` / ``gather_into`` bytes with identical RNG streams.
+* Both parity checks are shown to FAIL on deliberate breaks (planes scattered into the wrong
+  staging rows on either learner path; an off-by-one store row index; packed demonstration
+  planes gathered from the wrong slots).
 * End to end: ``actor_main`` writes the same observations into a packed ring as into a raw
   one (slow; needs the pinned checkpoints).
 """
@@ -98,6 +101,19 @@ def test_training_arena_layout():
 
     with pytest.raises(ValueError, match="5 bits"):
         op.layout_for_arena(145, 83, 6, EgoRasterConfig(version="b", reach_steps=40))
+
+
+def test_buffer_bytes_per_row():
+    """The RAM model's inputs (research/perf_ram_20261013): bytes per stored row."""
+    assert m3c.ring_nbytes(1, 30) - 8 == 12203 + 120 + 6
+    assert m3c.ring_nbytes(1, 30, LAYOUT) - 8 == 3064 + 120 + 6
+    assert m3c.ring_nbytes(1, 60, LAYOUT) - 8 == 3064 + 240 + 6
+    assert m3c.demo_row_nbytes() == 12203 + 120 + 24 + 8 + 6
+    assert m3c.demo_row_nbytes(LAYOUT) == 3064 + 120 + 24 + 8 + 6
+    # production rings: 2 actors x 377,048 rows at replay 500k / 64 worlds
+    assert m3c.ring_capacity(500_000, 2, 64, 8) == (375_000 + 64 * 16 + 64 * 16, 64 * 16)
+    s = object.__new__(m3c.DemoStream)
+    assert s.pack is None and s.store is None  # class defaults (object.__new__ users)
 
 
 @pytest.mark.parametrize("mechanics", [1, 2])
@@ -329,9 +345,8 @@ def _run(mode, packed, fast, n_updates=6):
     return online, st, rng, multi, staged
 
 
-@pytest.mark.parametrize("mode", ["b", "bv8"])
-@pytest.mark.parametrize("fast", [False, True])
-def test_packed_world_trains_bitwise_identically(mode, fast):
+def _assert_same_training(mode, fast):
+    """Raw vs packed world: same weights, stats, RNG state, ring checks and staged batches."""
     import torch
 
     raw = _run(mode, packed=False, fast=fast)
@@ -346,6 +361,26 @@ def test_packed_world_trains_bitwise_identically(mode, fast):
     for s_raw, s_pk in zip(raw[4], pk[4]):  # T1: every staged batch, byte for byte
         for k in s_raw:
             assert np.array_equal(s_raw[k], s_pk[k]), k
+
+
+@pytest.mark.parametrize("mode", ["b", "bv8"])
+@pytest.mark.parametrize("fast", [False, True])
+def test_packed_world_trains_bitwise_identically(mode, fast):
+    _assert_same_training(mode, fast)
+
+
+@pytest.mark.parametrize("fast", [False, True])
+def test_training_parity_fails_on_a_deliberately_broken_unpack(monkeypatch, fast):
+    """The parity check above is not vacuous: unpacking the right rows into the wrong
+    staging rows (reference path: ``ring.get``; T1 path: ``Learner._gather``) is caught."""
+    good = op.unpack_into
+
+    def scattered_wrong(src, src_rows, out_l, out_g, out_rows, layout):
+        good(src, src_rows, out_l, out_g, np.asarray(out_rows)[::-1], layout)
+
+    monkeypatch.setattr(op, "unpack_into", scattered_wrong)
+    with pytest.raises(AssertionError):
+        _assert_same_training("b", fast)
 
 
 def test_multiring_get_identical():
@@ -404,7 +439,7 @@ def _same_dicts(a, b, ctx):
         assert a[k].dtype == b[k].dtype and np.array_equal(a[k], b[k]), (ctx, k)
 
 
-def test_demo_stream_modes_identical(tmp_path):
+def _assert_demo_modes_identical(tmp_path):
     _, streams = _streams(tmp_path)
     for s in streams.values():
         s.fill_initial(2)
@@ -440,6 +475,36 @@ def test_demo_stream_modes_identical(tmp_path):
         for k in streams:
             _same_dicts(staged["raw"], staged[k], ("gather", step, k))
     assert ref.loaded == 7 and ref.distinct > ref.cap  # the buffer wrapped
+
+
+def test_demo_stream_modes_identical(tmp_path):
+    _assert_demo_modes_identical(tmp_path)
+
+
+@pytest.mark.parametrize("bug", ["store_index", "packed_planes"])
+def test_demo_parity_fails_on_a_deliberate_break(tmp_path, monkeypatch, bug):
+    """The demonstration parity check is not vacuous: an off-by-one store row index, or
+    packed planes gathered from the wrong slots, is caught."""
+    from research.redesign_m3c_20261008.demo_store import SharedDemoStore
+
+    if bug == "store_index":
+        good = SharedDemoStore.shard_range
+
+        def shifted(self, path):
+            start, n = good(self, path)
+            return (start + 1, n) if start + n < self.rows else (start - 1, n)
+
+        monkeypatch.setattr(SharedDemoStore, "shard_range", shifted)
+    else:
+        good = m3c.DemoStream._planes_into
+
+        def wrong_slots(self, src, rows, out_l, out_g):
+            rows = np.asarray(rows)
+            good(self, src, rows[::-1] if "packed" in src else rows, out_l, out_g)
+
+        monkeypatch.setattr(m3c.DemoStream, "_planes_into", wrong_slots)
+    with pytest.raises(AssertionError):
+        _assert_demo_modes_identical(tmp_path)
 
 
 def test_demo_store_reuse_and_drift_check(tmp_path):

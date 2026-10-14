@@ -1,0 +1,3462 @@
+{
+ "kind": "perf-ram trainer",
+ "created_utc": "2026-10-14T04:23:55.494064+00:00",
+ "host": {
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "python": "3.12.3"
+ },
+ "noisy": true,
+ "config": {
+  "cmd": "trainer",
+  "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+  "demo_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+  "demo_rounds": "12",
+  "scratch": "/private/tmp/perfpass/perf-ram/scratch",
+  "variants": "default,pack,pack_mmap",
+  "actors": 1,
+  "worlds": 16,
+  "replay": 20000,
+  "demo_capacity": 20000,
+  "demo_initial_shards": 3,
+  "transitions": 40000,
+  "warmup": 5000,
+  "device": "cpu",
+  "actor_device": null,
+  "sample_every": 2.0,
+  "keep": false,
+  "noisy": true,
+  "out": "/private/tmp/perfpass/perf-ram/trainer_mac_cpu.json"
+ },
+ "variants": {
+  "default": {
+   "argv": [
+    "--seed",
+    "0",
+    "--init",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+    "--demo-data",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+    "--demo-rounds",
+    "12",
+    "--out",
+    "/private/tmp/perfpass/perf-ram/scratch/run_default_1791951835",
+    "--actors",
+    "1",
+    "--worlds",
+    "16",
+    "--replay",
+    "20000",
+    "--demo-capacity",
+    "20000",
+    "--demo-initial-shards",
+    "3",
+    "--transitions",
+    "40000",
+    "--warmup",
+    "5000",
+    "--checkpoint-every",
+    "1000000000000",
+    "--device",
+    "cpu",
+    "--v61-backend",
+    "numba",
+    "--ring-dir",
+    "/private/tmp/perfpass/perf-ram/scratch/rings"
+   ],
+   "returncode": 0,
+   "wall_s": 261.8,
+   "tail": [
+    "\ud83d\udda5\ufe0f  Using CPU (forced)",
+    "{\"transitions\": 40000, \"rate\": 154.52638021038268, \"halt\": null, \"flags\": []}"
+   ],
+   "model_small": {
+    "obs": "b",
+    "worlds": 16,
+    "actors": 1,
+    "replay": 20000,
+    "demo_capacity": 20000,
+    "pack": false,
+    "demo_mmap": false,
+    "ring_rows_per_actor": 30512,
+    "ring_row_bytes": 12329,
+    "demo_row_bytes": 12361,
+    "components_gb": {
+     "rings": 0.3762,
+     "replay": 0.0006,
+     "demo_buffer": 0.2472,
+     "demo_loader_peak": 0.2472,
+     "labels": 0.0,
+     "holdout": 0.0099,
+     "models": 0.0391
+    },
+    "other_gb": 0.0,
+    "per_run_gb": 0.92,
+    "per_run_summed_rss_gb": 5.396,
+    "host_shared_gb": 0.0
+   },
+   "store_touched_gb": 0.0,
+   "plateau": [
+    {
+     "rss": 1.773469696,
+     "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+     "phys_footprint": 0.517996544,
+     "role": "learner"
+    },
+    {
+     "rss": 0.428883968,
+     "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+     "phys_footprint": 0.27262976,
+     "role": "child51275"
+    }
+   ],
+   "peak": {
+    "learner": {
+     "rss": 1.773469696,
+     "uss": 0.0,
+     "pss": 0.0,
+     "phys_footprint": 0.559939584
+    },
+    "child51275": {
+     "rss": 0.818184192,
+     "uss": 0.0,
+     "pss": 0.0,
+     "phys_footprint": 0.285212672
+    }
+   },
+   "footprint_gb": 1.167,
+   "footprint_rule": "sum phys_footprint + file-backed rings + touched store pages",
+   "summed_rss_gb": 2.202,
+   "non_buffer_gb": 0.494,
+   "samples": [
+    {
+     "t": 0.1,
+     "procs": [
+      {
+       "rss": 0.034193408,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.030408704,
+       "role": "learner"
+      }
+     ]
+    },
+    {
+     "t": 4.4,
+     "procs": [
+      {
+       "rss": 0.792543232,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.559939584,
+       "role": "learner"
+      },
+      {
+       "rss": 0.481951744,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 8.7,
+     "procs": [
+      {
+       "rss": 1.248575488,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.509607936,
+       "role": "learner"
+      },
+      {
+       "rss": 0.50470912,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 12.9,
+     "procs": [
+      {
+       "rss": 1.304838144,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.50470912,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 17.2,
+     "procs": [
+      {
+       "rss": 1.321074688,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.509607936,
+       "role": "learner"
+      },
+      {
+       "rss": 0.50470912,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 21.5,
+     "procs": [
+      {
+       "rss": 1.329496064,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.509607936,
+       "role": "learner"
+      },
+      {
+       "rss": 0.50470912,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 25.8,
+     "procs": [
+      {
+       "rss": 1.329463296,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.509607936,
+       "role": "learner"
+      },
+      {
+       "rss": 0.50470912,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 30.1,
+     "procs": [
+      {
+       "rss": 1.329496064,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.509607936,
+       "role": "learner"
+      },
+      {
+       "rss": 0.50470912,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 34.3,
+     "procs": [
+      {
+       "rss": 1.34447104,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.509607936,
+       "role": "learner"
+      },
+      {
+       "rss": 0.50470912,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 38.6,
+     "procs": [
+      {
+       "rss": 1.376485376,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.509607936,
+       "role": "learner"
+      },
+      {
+       "rss": 0.509247488,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 42.9,
+     "procs": [
+      {
+       "rss": 1.384398848,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.51716096,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 47.2,
+     "procs": [
+      {
+       "rss": 1.39157504,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.525090816,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 51.5,
+     "procs": [
+      {
+       "rss": 1.40509184,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.533069824,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 55.8,
+     "procs": [
+      {
+       "rss": 1.41320192,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.541016064,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 60.1,
+     "procs": [
+      {
+       "rss": 1.421180928,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.549093376,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 64.5,
+     "procs": [
+      {
+       "rss": 1.430437888,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.55836672,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 68.8,
+     "procs": [
+      {
+       "rss": 1.444855808,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.566280192,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 73.0,
+     "procs": [
+      {
+       "rss": 1.458896896,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.574193664,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 77.3,
+     "procs": [
+      {
+       "rss": 1.473019904,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.582467584,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 81.6,
+     "procs": [
+      {
+       "rss": 1.481261056,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.59154432,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 85.9,
+     "procs": [
+      {
+       "rss": 1.487781888,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.599425024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 90.1,
+     "procs": [
+      {
+       "rss": 1.497776128,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.608927744,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 94.4,
+     "procs": [
+      {
+       "rss": 1.505427456,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.61792256,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 98.7,
+     "procs": [
+      {
+       "rss": 1.51453696,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.62742528,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 103.0,
+     "procs": [
+      {
+       "rss": 1.52182784,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.635322368,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 107.3,
+     "procs": [
+      {
+       "rss": 1.5294464,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.643219456,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 111.6,
+     "procs": [
+      {
+       "rss": 1.538310144,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.651689984,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 115.9,
+     "procs": [
+      {
+       "rss": 1.546125312,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.660570112,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 120.2,
+     "procs": [
+      {
+       "rss": 1.553383424,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.6684672,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 124.5,
+     "procs": [
+      {
+       "rss": 1.561182208,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.676380672,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 128.8,
+     "procs": [
+      {
+       "rss": 1.570783232,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.685850624,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 133.0,
+     "procs": [
+      {
+       "rss": 1.578614784,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.69378048,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 137.3,
+     "procs": [
+      {
+       "rss": 1.586528256,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.701661184,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 141.6,
+     "procs": [
+      {
+       "rss": 1.594392576,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.711163904,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 145.9,
+     "procs": [
+      {
+       "rss": 1.601961984,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.719060992,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 150.1,
+     "procs": [
+      {
+       "rss": 1.612005376,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.728580096,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 154.4,
+     "procs": [
+      {
+       "rss": 1.626619904,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.736477184,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 158.8,
+     "procs": [
+      {
+       "rss": 1.63397632,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.510656512,
+       "role": "learner"
+      },
+      {
+       "rss": 0.744423424,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 163.1,
+     "procs": [
+      {
+       "rss": 1.661059072,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.516947968,
+       "role": "learner"
+      },
+      {
+       "rss": 0.752304128,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 167.4,
+     "procs": [
+      {
+       "rss": 1.677246464,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.516947968,
+       "role": "learner"
+      },
+      {
+       "rss": 0.7602176,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 171.7,
+     "procs": [
+      {
+       "rss": 1.68558592,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.516947968,
+       "role": "learner"
+      },
+      {
+       "rss": 0.768131072,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 175.9,
+     "procs": [
+      {
+       "rss": 1.701691392,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.516947968,
+       "role": "learner"
+      },
+      {
+       "rss": 0.776044544,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 180.2,
+     "procs": [
+      {
+       "rss": 1.708752896,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.516947968,
+       "role": "learner"
+      },
+      {
+       "rss": 0.783941632,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 184.5,
+     "procs": [
+      {
+       "rss": 1.716518912,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.516947968,
+       "role": "learner"
+      },
+      {
+       "rss": 0.791871488,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 188.9,
+     "procs": [
+      {
+       "rss": 1.72539904,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.8003584,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 193.2,
+     "procs": [
+      {
+       "rss": 1.752072192,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.809254912,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 197.4,
+     "procs": [
+      {
+       "rss": 1.759412224,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.817152,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 201.8,
+     "procs": [
+      {
+       "rss": 1.766391808,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818102272,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 206.1,
+     "procs": [
+      {
+       "rss": 1.769570304,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818118656,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 210.4,
+     "procs": [
+      {
+       "rss": 1.771044864,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818118656,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 214.7,
+     "procs": [
+      {
+       "rss": 1.77217536,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818118656,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 219.0,
+     "procs": [
+      {
+       "rss": 1.772568576,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818118656,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 223.3,
+     "procs": [
+      {
+       "rss": 1.772781568,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.81813504,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 227.6,
+     "procs": [
+      {
+       "rss": 1.772879872,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.81813504,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 231.9,
+     "procs": [
+      {
+       "rss": 1.772978176,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818151424,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 236.2,
+     "procs": [
+      {
+       "rss": 1.773010944,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818151424,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 240.5,
+     "procs": [
+      {
+       "rss": 1.773027328,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818151424,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 244.8,
+     "procs": [
+      {
+       "rss": 1.773027328,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818167808,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 249.1,
+     "procs": [
+      {
+       "rss": 1.773060096,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818184192,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.285212672,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 253.4,
+     "procs": [
+      {
+       "rss": 1.773060096,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818184192,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.285212672,
+       "role": "child51275"
+      }
+     ]
+    },
+    {
+     "t": 257.7,
+     "procs": [
+      {
+       "rss": 1.77307648,
+       "cmd": "--ring-dir /private/tmp/perfpass/perf-ram/scratch/rings",
+       "phys_footprint": 0.517996544,
+       "role": "learner"
+      },
+      {
+       "rss": 0.818184192,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.285212672,
+       "role": "child51275"
+      }
+     ]
+    }
+   ],
+   "model_buffers_steady_gb": 0.673
+  },
+  "pack": {
+   "argv": [
+    "--seed",
+    "0",
+    "--init",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+    "--demo-data",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+    "--demo-rounds",
+    "12",
+    "--out",
+    "/private/tmp/perfpass/perf-ram/scratch/run_pack_1791952097",
+    "--actors",
+    "1",
+    "--worlds",
+    "16",
+    "--replay",
+    "20000",
+    "--demo-capacity",
+    "20000",
+    "--demo-initial-shards",
+    "3",
+    "--transitions",
+    "40000",
+    "--warmup",
+    "5000",
+    "--checkpoint-every",
+    "1000000000000",
+    "--device",
+    "cpu",
+    "--v61-backend",
+    "numba",
+    "--ring-dir",
+    "/private/tmp/perfpass/perf-ram/scratch/rings",
+    "--obs-pack"
+   ],
+   "returncode": 0,
+   "wall_s": 267.3,
+   "tail": [
+    "\ud83d\udda5\ufe0f  Using CPU (forced)",
+    "{\"transitions\": 40000, \"rate\": 152.11455242684758, \"halt\": null, \"flags\": []}"
+   ],
+   "model_small": {
+    "obs": "b",
+    "worlds": 16,
+    "actors": 1,
+    "replay": 20000,
+    "demo_capacity": 20000,
+    "pack": true,
+    "demo_mmap": false,
+    "ring_rows_per_actor": 30512,
+    "ring_row_bytes": 3190,
+    "demo_row_bytes": 3222,
+    "components_gb": {
+     "rings": 0.0973,
+     "replay": 0.0006,
+     "demo_buffer": 0.0644,
+     "demo_loader_peak": 0.2781,
+     "labels": 0.0,
+     "holdout": 0.0099,
+     "models": 0.0391
+    },
+    "other_gb": 0.0,
+    "per_run_gb": 0.49,
+    "per_run_summed_rss_gb": 4.687,
+    "host_shared_gb": 0.0
+   },
+   "store_touched_gb": 0.0,
+   "plateau": [
+    {
+     "rss": 1.432387584,
+     "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+     "phys_footprint": 0.317718528,
+     "role": "learner"
+    },
+    {
+     "rss": 0.606879744,
+     "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+     "phys_footprint": 0.284164096,
+     "role": "child52177"
+    }
+   ],
+   "peak": {
+    "learner": {
+     "rss": 1.432387584,
+     "uss": 0.0,
+     "pss": 0.0,
+     "phys_footprint": 0.40894464
+    },
+    "child52177": {
+     "rss": 0.606879744,
+     "uss": 0.0,
+     "pss": 0.0,
+     "phys_footprint": 0.284164096
+    }
+   },
+   "footprint_gb": 0.699,
+   "footprint_rule": "sum phys_footprint + file-backed rings + touched store pages",
+   "summed_rss_gb": 2.039,
+   "non_buffer_gb": 0.487,
+   "samples": [
+    {
+     "t": 0.1,
+     "procs": [
+      {
+       "rss": 0.031244288,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.0262144,
+       "role": "learner"
+      }
+     ]
+    },
+    {
+     "t": 4.4,
+     "procs": [
+      {
+       "rss": 0.721272832,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.360710144,
+       "role": "learner"
+      },
+      {
+       "rss": 0.446119936,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 8.7,
+     "procs": [
+      {
+       "rss": 1.108688896,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.312475648,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45441024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 13.0,
+     "procs": [
+      {
+       "rss": 1.165377536,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.312475648,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45441024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 17.3,
+     "procs": [
+      {
+       "rss": 1.180368896,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.312475648,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45441024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 21.6,
+     "procs": [
+      {
+       "rss": 1.195098112,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.312475648,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45441024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 26.0,
+     "procs": [
+      {
+       "rss": 1.201389568,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.312475648,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45441024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 30.3,
+     "procs": [
+      {
+       "rss": 1.207959552,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.312475648,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45441024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 34.6,
+     "procs": [
+      {
+       "rss": 1.21602048,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45441024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 38.9,
+     "procs": [
+      {
+       "rss": 1.230995456,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45441024,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 43.2,
+     "procs": [
+      {
+       "rss": 1.24092416,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45645824,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 47.6,
+     "procs": [
+      {
+       "rss": 1.243037696,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.458522624,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.276824064,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 51.8,
+     "procs": [
+      {
+       "rss": 1.274036224,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.462225408,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 56.1,
+     "procs": [
+      {
+       "rss": 1.276035072,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.464289792,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 60.4,
+     "procs": [
+      {
+       "rss": 1.278050304,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.466337792,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 64.7,
+     "procs": [
+      {
+       "rss": 1.280458752,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.468795392,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 69.0,
+     "procs": [
+      {
+       "rss": 1.2824576,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.470859776,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 73.3,
+     "procs": [
+      {
+       "rss": 1.291026432,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.472875008,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 77.5,
+     "procs": [
+      {
+       "rss": 1.29318912,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.474923008,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 81.8,
+     "procs": [
+      {
+       "rss": 1.301610496,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.477380608,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 86.1,
+     "procs": [
+      {
+       "rss": 1.303543808,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.479412224,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 90.4,
+     "procs": [
+      {
+       "rss": 1.30572288,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.481460224,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 94.7,
+     "procs": [
+      {
+       "rss": 1.307983872,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.483934208,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 99.0,
+     "procs": [
+      {
+       "rss": 1.31006464,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.485982208,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 103.3,
+     "procs": [
+      {
+       "rss": 1.312227328,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.3145728,
+       "role": "learner"
+      },
+      {
+       "rss": 0.489324544,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.278921216,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 107.7,
+     "procs": [
+      {
+       "rss": 1.327120384,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.514932736,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.282066944,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 112.0,
+     "procs": [
+      {
+       "rss": 1.329348608,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.517373952,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.282066944,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 116.3,
+     "procs": [
+      {
+       "rss": 1.33152768,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.519421952,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.282066944,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 120.6,
+     "procs": [
+      {
+       "rss": 1.333297152,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.521486336,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.282066944,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 125.0,
+     "procs": [
+      {
+       "rss": 1.33554176,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.523534336,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.281018368,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 129.3,
+     "procs": [
+      {
+       "rss": 1.337524224,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.52559872,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.281018368,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 133.6,
+     "procs": [
+      {
+       "rss": 1.348091904,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.527679488,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.281018368,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 137.9,
+     "procs": [
+      {
+       "rss": 1.350025216,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.320864256,
+       "role": "learner"
+      },
+      {
+       "rss": 0.535166976,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.281018368,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 142.3,
+     "procs": [
+      {
+       "rss": 1.362100224,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.537214976,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.279969792,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 146.6,
+     "procs": [
+      {
+       "rss": 1.363755008,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.546521088,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.279969792,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 151.0,
+     "procs": [
+      {
+       "rss": 1.365999616,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.54894592,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.279969792,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 155.3,
+     "procs": [
+      {
+       "rss": 1.374470144,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.553631744,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 159.7,
+     "procs": [
+      {
+       "rss": 1.385086976,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.562839552,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 164.0,
+     "procs": [
+      {
+       "rss": 1.387266048,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.564936704,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 168.4,
+     "procs": [
+      {
+       "rss": 1.389625344,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.58892288,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 172.7,
+     "procs": [
+      {
+       "rss": 1.39165696,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.5910528,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 177.1,
+     "procs": [
+      {
+       "rss": 1.393688576,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.593231872,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 181.4,
+     "procs": [
+      {
+       "rss": 1.403928576,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.59547648,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 185.7,
+     "procs": [
+      {
+       "rss": 1.406304256,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.597721088,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 190.0,
+     "procs": [
+      {
+       "rss": 1.40836864,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.599752704,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 194.3,
+     "procs": [
+      {
+       "rss": 1.410613248,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.601800704,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.28311552,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 198.6,
+     "procs": [
+      {
+       "rss": 1.413234688,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.60432384,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 202.9,
+     "procs": [
+      {
+       "rss": 1.415168,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.60637184,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 207.2,
+     "procs": [
+      {
+       "rss": 1.416658944,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.6066176,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 211.5,
+     "procs": [
+      {
+       "rss": 1.417150464,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606633984,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 215.8,
+     "procs": [
+      {
+       "rss": 1.417248768,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606666752,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 220.1,
+     "procs": [
+      {
+       "rss": 1.417281536,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606715904,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 224.4,
+     "procs": [
+      {
+       "rss": 1.417347072,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606732288,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 228.7,
+     "procs": [
+      {
+       "rss": 1.423917056,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.60678144,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 233.0,
+     "procs": [
+      {
+       "rss": 1.42393344,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.60678144,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 237.3,
+     "procs": [
+      {
+       "rss": 1.423949824,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.60678144,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 241.6,
+     "procs": [
+      {
+       "rss": 1.423949824,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606814208,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 246.0,
+     "procs": [
+      {
+       "rss": 1.432387584,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606814208,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 250.3,
+     "procs": [
+      {
+       "rss": 1.432387584,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606830592,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 254.6,
+     "procs": [
+      {
+       "rss": 1.432387584,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606879744,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 258.9,
+     "procs": [
+      {
+       "rss": 1.432387584,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606879744,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    },
+    {
+     "t": 263.2,
+     "procs": [
+      {
+       "rss": 1.432387584,
+       "cmd": "/private/tmp/perfpass/perf-ram/scratch/rings --obs-pack",
+       "phys_footprint": 0.317718528,
+       "role": "learner"
+      },
+      {
+       "rss": 0.606879744,
+       "cmd": "wn_main(tracker_fd=8, pipe_handle=19) --multiprocessing-fork",
+       "phys_footprint": 0.284164096,
+       "role": "child52177"
+      }
+     ]
+    }
+   ],
+   "model_buffers_steady_gb": 0.212
+  },
+  "pack_mmap": {
+   "argv": [
+    "--seed",
+    "0",
+    "--init",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+    "--demo-data",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+    "--demo-rounds",
+    "12",
+    "--out",
+    "/private/tmp/perfpass/perf-ram/scratch/run_pack_mmap_1791952364",
+    "--actors",
+    "1",
+    "--worlds",
+    "16",
+    "--replay",
+    "20000",
+    "--demo-capacity",
+    "20000",
+    "--demo-initial-shards",
+    "3",
+    "--transitions",
+    "40000",
+    "--warmup",
+    "5000",
+    "--checkpoint-every",
+    "1000000000000",
+    "--device",
+    "cpu",
+    "--v61-backend",
+    "numba",
+    "--ring-dir",
+    "/private/tmp/perfpass/perf-ram/scratch/rings",
+    "--obs-pack",
+    "--demo-mmap",
+    "/private/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin"
+   ],
+   "returncode": 0,
+   "wall_s": 257.1,
+   "tail": [
+    "\ud83d\udda5\ufe0f  Using CPU (forced)",
+    "{\"transitions\": 40000, \"rate\": 157.82748577144133, \"halt\": null, \"flags\": []}"
+   ],
+   "model_small": {
+    "obs": "b",
+    "worlds": 16,
+    "actors": 1,
+    "replay": 20000,
+    "demo_capacity": 20000,
+    "pack": true,
+    "demo_mmap": true,
+    "ring_rows_per_actor": 30512,
+    "ring_row_bytes": 3190,
+    "demo_row_bytes": 3222,
+    "components_gb": {
+     "rings": 0.0973,
+     "replay": 0.0006,
+     "demo_buffer": 0.0002,
+     "demo_loader_peak": 0.0,
+     "labels": 0.0,
+     "holdout": 0.0099,
+     "models": 0.0391
+    },
+    "other_gb": 0.0,
+    "per_run_gb": 0.147,
+    "per_run_summed_rss_gb": 4.344,
+    "host_shared_gb": 3.093
+   },
+   "store_touched_gb": 0.064,
+   "plateau": [
+    {
+     "rss": 1.381892096,
+     "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+     "phys_footprint": 0.33030144,
+     "role": "learner"
+    },
+    {
+     "rss": 0.531857408,
+     "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+     "phys_footprint": 0.27262976,
+     "role": "child53089"
+    }
+   ],
+   "peak": {
+    "learner": {
+     "rss": 1.544486912,
+     "uss": 0.0,
+     "pss": 0.0,
+     "phys_footprint": 0.360710144
+    },
+    "child53089": {
+     "rss": 0.531857408,
+     "uss": 0.0,
+     "pss": 0.0,
+     "phys_footprint": 0.27262976
+    }
+   },
+   "footprint_gb": 0.765,
+   "footprint_rule": "sum phys_footprint + file-backed rings + touched store pages",
+   "summed_rss_gb": 1.914,
+   "non_buffer_gb": 0.554,
+   "samples": [
+    {
+     "t": 0.1,
+     "procs": [
+      {
+       "rss": 0.030982144,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.0262144,
+       "role": "learner"
+      }
+     ]
+    },
+    {
+     "t": 4.4,
+     "procs": [
+      {
+       "rss": 0.466059264,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.289406976,
+       "role": "learner"
+      },
+      {
+       "rss": 0.442384384,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 8.7,
+     "procs": [
+      {
+       "rss": 1.077755904,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.324009984,
+       "role": "learner"
+      },
+      {
+       "rss": 0.44826624,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.271581184,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 13.0,
+     "procs": [
+      {
+       "rss": 1.1669504,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.329252864,
+       "role": "learner"
+      },
+      {
+       "rss": 0.44826624,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.271581184,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 17.3,
+     "procs": [
+      {
+       "rss": 1.191968768,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.32505856,
+       "role": "learner"
+      },
+      {
+       "rss": 0.44826624,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.271581184,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 21.6,
+     "procs": [
+      {
+       "rss": 1.20479744,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.32505856,
+       "role": "learner"
+      },
+      {
+       "rss": 0.44826624,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.271581184,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 25.9,
+     "procs": [
+      {
+       "rss": 1.216643072,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.332398592,
+       "role": "learner"
+      },
+      {
+       "rss": 0.44826624,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.271581184,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 30.2,
+     "procs": [
+      {
+       "rss": 1.220739072,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.326107136,
+       "role": "learner"
+      },
+      {
+       "rss": 0.44826624,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.271581184,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 34.5,
+     "procs": [
+      {
+       "rss": 1.2242944,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.326107136,
+       "role": "learner"
+      },
+      {
+       "rss": 0.44826624,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.271581184,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 38.9,
+     "procs": [
+      {
+       "rss": 1.241104384,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.326107136,
+       "role": "learner"
+      },
+      {
+       "rss": 0.44908544,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.271581184,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 43.2,
+     "procs": [
+      {
+       "rss": 1.254260736,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.451149824,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 47.5,
+     "procs": [
+      {
+       "rss": 1.258110976,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.453214208,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 51.8,
+     "procs": [
+      {
+       "rss": 1.26148608,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.455262208,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 56.1,
+     "procs": [
+      {
+       "rss": 1.265483776,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.457703424,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 60.4,
+     "procs": [
+      {
+       "rss": 1.268416512,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.45973504,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 64.7,
+     "procs": [
+      {
+       "rss": 1.270890496,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.461799424,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 68.9,
+     "procs": [
+      {
+       "rss": 1.280606208,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.464257024,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 73.2,
+     "procs": [
+      {
+       "rss": 1.291583488,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.466305024,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 77.5,
+     "procs": [
+      {
+       "rss": 1.293860864,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.468385792,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 81.8,
+     "procs": [
+      {
+       "rss": 1.296515072,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.470843392,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 86.1,
+     "procs": [
+      {
+       "rss": 1.298546688,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.472907776,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 90.4,
+     "procs": [
+      {
+       "rss": 1.30113536,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.47497216,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 94.7,
+     "procs": [
+      {
+       "rss": 1.302986752,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.47702016,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 99.0,
+     "procs": [
+      {
+       "rss": 1.30572288,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.479494144,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 103.2,
+     "procs": [
+      {
+       "rss": 1.307836416,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.481558528,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 107.5,
+     "procs": [
+      {
+       "rss": 1.309835264,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.483590144,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 111.8,
+     "procs": [
+      {
+       "rss": 1.312063488,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.48562176,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.270532608,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 116.1,
+     "procs": [
+      {
+       "rss": 1.320042496,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.489259008,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 120.4,
+     "procs": [
+      {
+       "rss": 1.322123264,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.491323392,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 124.7,
+     "procs": [
+      {
+       "rss": 1.330446336,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.493355008,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 129.0,
+     "procs": [
+      {
+       "rss": 1.33292032,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.327155712,
+       "role": "learner"
+      },
+      {
+       "rss": 0.49577984,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 133.3,
+     "procs": [
+      {
+       "rss": 1.335427072,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.497926144,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 137.6,
+     "procs": [
+      {
+       "rss": 1.337442304,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.49995776,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 141.9,
+     "procs": [
+      {
+       "rss": 1.33922816,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.50200576,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 146.2,
+     "procs": [
+      {
+       "rss": 1.341751296,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.504446976,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 150.5,
+     "procs": [
+      {
+       "rss": 1.343717376,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.506544128,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 154.8,
+     "procs": [
+      {
+       "rss": 1.345978368,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.508592128,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 159.1,
+     "procs": [
+      {
+       "rss": 1.34856704,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.511049728,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 163.4,
+     "procs": [
+      {
+       "rss": 1.350909952,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.513130496,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 167.6,
+     "procs": [
+      {
+       "rss": 1.353187328,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.51552256,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 171.9,
+     "procs": [
+      {
+       "rss": 1.355497472,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.517701632,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 176.2,
+     "procs": [
+      {
+       "rss": 1.35716864,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.519847936,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 180.5,
+     "procs": [
+      {
+       "rss": 1.359609856,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.522207232,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 184.7,
+     "procs": [
+      {
+       "rss": 1.36175616,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.524255232,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 189.0,
+     "procs": [
+      {
+       "rss": 1.364606976,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.5267456,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 193.2,
+     "procs": [
+      {
+       "rss": 1.366523904,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.528809984,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 197.5,
+     "procs": [
+      {
+       "rss": 1.368915968,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.530661376,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 201.8,
+     "procs": [
+      {
+       "rss": 1.36986624,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.530661376,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 206.1,
+     "procs": [
+      {
+       "rss": 1.370161152,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.53067776,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 210.3,
+     "procs": [
+      {
+       "rss": 1.37019392,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.530710528,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 214.6,
+     "procs": [
+      {
+       "rss": 1.370226688,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.531775488,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 218.8,
+     "procs": [
+      {
+       "rss": 1.370226688,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.531791872,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 223.1,
+     "procs": [
+      {
+       "rss": 1.370226688,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.531791872,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 227.4,
+     "procs": [
+      {
+       "rss": 1.370259456,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.53182464,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 231.6,
+     "procs": [
+      {
+       "rss": 1.370259456,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.53182464,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 235.9,
+     "procs": [
+      {
+       "rss": 1.370259456,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.531841024,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 240.1,
+     "procs": [
+      {
+       "rss": 1.370259456,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.531841024,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 244.4,
+     "procs": [
+      {
+       "rss": 1.370259456,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.531857408,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 248.7,
+     "procs": [
+      {
+       "rss": 1.37027584,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.328204288,
+       "role": "learner"
+      },
+      {
+       "rss": 0.531857408,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    },
+    {
+     "t": 252.9,
+     "procs": [
+      {
+       "rss": 1.381892096,
+       "cmd": "vate/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+       "phys_footprint": 0.33030144,
+       "role": "learner"
+      },
+      {
+       "rss": 0.531857408,
+       "cmd": "wn_main(tracker_fd=9, pipe_handle=20) --multiprocessing-fork",
+       "phys_footprint": 0.27262976,
+       "role": "child53089"
+      }
+     ]
+    }
+   ],
+   "model_buffers_steady_gb": 0.211
+  }
+ },
+ "store": {
+  "path": "/private/tmp/perfpass/perf-ram/scratch/demo_store_r12_packed.bin",
+  "rows": 960000
+ },
+ "summary": {
+  "default->pack": {
+   "measured_saving_gb": 0.468,
+   "model_saving_gb": 0.461
+  },
+  "pack->pack_mmap": {
+   "measured_saving_gb": -0.066,
+   "model_saving_gb": 0.001
+  },
+  "default->pack_mmap": {
+   "measured_saving_gb": 0.402,
+   "model_saving_gb": 0.462
+  },
+  "non_buffer_gb": {
+   "default": 0.494,
+   "pack": 0.487,
+   "pack_mmap": 0.554
+  }
+ },
+ "postprocessed": "steady-buffer fields added after the run by bench_ram.trainer_summary"
+}

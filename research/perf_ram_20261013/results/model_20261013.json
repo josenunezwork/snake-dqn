@@ -1,0 +1,487 @@
+{
+ "kind": "perf-ram model",
+ "created_utc": "2026-10-14T04:39:34.174065+00:00",
+ "rows": {
+  "train_rows": 3725000,
+  "holdout_rows": 625
+ },
+ "worlds": 64,
+ "reserve_gb": 8.0,
+ "hosts_gb": [
+  125,
+  167,
+  200
+ ],
+ "other_gb_source": "OTHER_MARGINAL_GB (podtel cgroup exits)",
+ "other_summed_gb": 4.1,
+ "configs": [
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 500000,
+   "demo_capacity": 300000,
+   "pack": false,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 377048,
+   "ring_row_bytes": 12329,
+   "demo_row_bytes": 12361,
+   "components_gb": {
+    "rings": 9.2972,
+    "replay": 0.016,
+    "demo_buffer": 3.7083,
+    "demo_loader_peak": 0.2472,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 16.227,
+   "per_run_summed_rss_gb": 26.724,
+   "host_shared_gb": 0.0,
+   "name": "b default",
+   "runs_per_host": {
+    "125": 7,
+    "167": 9,
+    "200": 11
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 7,
+    "167": 9,
+    "200": 11
+   }
+  },
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 500000,
+   "demo_capacity": 300000,
+   "pack": true,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 377048,
+   "ring_row_bytes": 3190,
+   "demo_row_bytes": 3222,
+   "components_gb": {
+    "rings": 2.4056,
+    "replay": 0.016,
+    "demo_buffer": 0.9666,
+    "demo_loader_peak": 0.2781,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 6.624,
+   "per_run_summed_rss_gb": 10.23,
+   "host_shared_gb": 0.0,
+   "name": "b --obs-pack",
+   "runs_per_host": {
+    "125": 17,
+    "167": 24,
+    "200": 28
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 17,
+    "167": 24,
+    "200": 28
+   }
+  },
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 500000,
+   "demo_capacity": 300000,
+   "pack": true,
+   "demo_mmap": true,
+   "ring_rows_per_actor": 377048,
+   "ring_row_bytes": 3190,
+   "demo_row_bytes": 3222,
+   "components_gb": {
+    "rings": 2.4056,
+    "replay": 0.016,
+    "demo_buffer": 0.0024,
+    "demo_loader_peak": 0.0,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 5.382,
+   "per_run_summed_rss_gb": 8.988,
+   "host_shared_gb": 12.002,
+   "name": "b --obs-pack --demo-mmap",
+   "runs_per_host": {
+    "125": 19,
+    "167": 27,
+    "200": 33
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 21,
+    "167": 29,
+    "200": 35
+   }
+  },
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 500000,
+   "demo_capacity": 300000,
+   "pack": false,
+   "demo_mmap": true,
+   "ring_rows_per_actor": 377048,
+   "ring_row_bytes": 12329,
+   "demo_row_bytes": 12361,
+   "components_gb": {
+    "rings": 9.2972,
+    "replay": 0.016,
+    "demo_buffer": 0.0024,
+    "demo_loader_peak": 0.0,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 12.274,
+   "per_run_summed_rss_gb": 22.771,
+   "host_shared_gb": 46.045,
+   "name": "b --demo-mmap (raw store)",
+   "runs_per_host": {
+    "125": 5,
+    "167": 9,
+    "200": 11
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 9,
+    "167": 12,
+    "200": 15
+   }
+  },
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 250000,
+   "demo_capacity": 300000,
+   "pack": false,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 189548,
+   "ring_row_bytes": 12329,
+   "demo_row_bytes": 12361,
+   "components_gb": {
+    "rings": 4.6739,
+    "replay": 0.008,
+    "demo_buffer": 3.7083,
+    "demo_loader_peak": 0.2472,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 11.596,
+   "per_run_summed_rss_gb": 17.469,
+   "host_shared_gb": 0.0,
+   "name": "b --replay 250k [semantics]",
+   "runs_per_host": {
+    "125": 10,
+    "167": 13,
+    "200": 16
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 10,
+    "167": 13,
+    "200": 16
+   }
+  },
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 500000,
+   "demo_capacity": 150000,
+   "pack": false,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 377048,
+   "ring_row_bytes": 12329,
+   "demo_row_bytes": 12361,
+   "components_gb": {
+    "rings": 9.2972,
+    "replay": 0.016,
+    "demo_buffer": 1.8541,
+    "demo_loader_peak": 0.2472,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 14.373,
+   "per_run_summed_rss_gb": 24.87,
+   "host_shared_gb": 0.0,
+   "name": "b --demo-capacity 150k [semantics]",
+   "runs_per_host": {
+    "125": 8,
+    "167": 11,
+    "200": 13
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 8,
+    "167": 11,
+    "200": 13
+   }
+  },
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 250000,
+   "demo_capacity": 150000,
+   "pack": false,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 189548,
+   "ring_row_bytes": 12329,
+   "demo_row_bytes": 12361,
+   "components_gb": {
+    "rings": 4.6739,
+    "replay": 0.008,
+    "demo_buffer": 1.8541,
+    "demo_loader_peak": 0.2472,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 9.741,
+   "per_run_summed_rss_gb": 15.615,
+   "host_shared_gb": 0.0,
+   "name": "b --replay 250k --demo-capacity 150k [semantics]",
+   "runs_per_host": {
+    "125": 12,
+    "167": 16,
+    "200": 19
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 12,
+    "167": 16,
+    "200": 19
+   }
+  },
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 250000,
+   "demo_capacity": 300000,
+   "pack": true,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 189548,
+   "ring_row_bytes": 3190,
+   "demo_row_bytes": 3222,
+   "components_gb": {
+    "rings": 1.2093,
+    "replay": 0.008,
+    "demo_buffer": 0.9666,
+    "demo_loader_peak": 0.2781,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 5.42,
+   "per_run_summed_rss_gb": 7.83,
+   "host_shared_gb": 0.0,
+   "name": "b --obs-pack --replay 250k [semantics]",
+   "runs_per_host": {
+    "125": 21,
+    "167": 29,
+    "200": 35
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 21,
+    "167": 29,
+    "200": 35
+   }
+  },
+  {
+   "obs": "b",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 500000,
+   "demo_capacity": 150000,
+   "pack": true,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 377048,
+   "ring_row_bytes": 3190,
+   "demo_row_bytes": 3222,
+   "components_gb": {
+    "rings": 2.4056,
+    "replay": 0.016,
+    "demo_buffer": 0.4833,
+    "demo_loader_peak": 0.2781,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0457
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 6.141,
+   "per_run_summed_rss_gb": 9.747,
+   "host_shared_gb": 0.0,
+   "name": "b --obs-pack --demo-capacity 150k [semantics]",
+   "runs_per_host": {
+    "125": 19,
+    "167": 25,
+    "200": 31
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 19,
+    "167": 25,
+    "200": 31
+   }
+  },
+  {
+   "obs": "bv8",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 500000,
+   "demo_capacity": 0,
+   "pack": false,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 377048,
+   "ring_row_bytes": 12449,
+   "demo_row_bytes": 0,
+   "components_gb": {
+    "rings": 9.3877,
+    "replay": 0.016,
+    "demo_buffer": 0.0,
+    "demo_loader_peak": 0.0,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0459
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 12.362,
+   "per_run_summed_rss_gb": 22.95,
+   "host_shared_gb": 0.0,
+   "name": "bv8 default",
+   "runs_per_host": {
+    "125": 9,
+    "167": 12,
+    "200": 15
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 9,
+    "167": 12,
+    "200": 15
+   }
+  },
+  {
+   "obs": "bv8",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 500000,
+   "demo_capacity": 0,
+   "pack": true,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 377048,
+   "ring_row_bytes": 3310,
+   "demo_row_bytes": 0,
+   "components_gb": {
+    "rings": 2.4961,
+    "replay": 0.016,
+    "demo_buffer": 0.0,
+    "demo_loader_peak": 0.0,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0459
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 5.47,
+   "per_run_summed_rss_gb": 9.167,
+   "host_shared_gb": 0.0,
+   "name": "bv8 --obs-pack",
+   "runs_per_host": {
+    "125": 21,
+    "167": 29,
+    "200": 35
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 21,
+    "167": 29,
+    "200": 35
+   }
+  },
+  {
+   "obs": "bv8",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 250000,
+   "demo_capacity": 0,
+   "pack": false,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 189548,
+   "ring_row_bytes": 12449,
+   "demo_row_bytes": 0,
+   "components_gb": {
+    "rings": 4.7194,
+    "replay": 0.008,
+    "demo_buffer": 0.0,
+    "demo_loader_peak": 0.0,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0459
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 7.686,
+   "per_run_summed_rss_gb": 13.605,
+   "host_shared_gb": 0.0,
+   "name": "bv8 --replay 250k [semantics]",
+   "runs_per_host": {
+    "125": 15,
+    "167": 20,
+    "200": 24
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 15,
+    "167": 20,
+    "200": 24
+   }
+  },
+  {
+   "obs": "bv8",
+   "worlds": 64,
+   "actors": 2,
+   "replay": 250000,
+   "demo_capacity": 0,
+   "pack": true,
+   "demo_mmap": false,
+   "ring_rows_per_actor": 189548,
+   "ring_row_bytes": 3310,
+   "demo_row_bytes": 0,
+   "components_gb": {
+    "rings": 1.2548,
+    "replay": 0.008,
+    "demo_buffer": 0.0,
+    "demo_loader_peak": 0.0,
+    "labels": 0.0048,
+    "holdout": 0.0077,
+    "models": 0.0459
+   },
+   "other_gb": 2.9,
+   "per_run_gb": 4.221,
+   "per_run_summed_rss_gb": 6.676,
+   "host_shared_gb": 0.0,
+   "name": "bv8 --obs-pack --replay 250k [semantics]",
+   "runs_per_host": {
+    "125": 27,
+    "167": 37,
+    "200": 45
+   },
+   "runs_per_host_if_store_evicted": {
+    "125": 27,
+    "167": 37,
+    "200": 45
+   }
+  }
+ ]
+}
