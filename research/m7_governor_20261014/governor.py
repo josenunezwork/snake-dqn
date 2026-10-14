@@ -777,7 +777,7 @@ def print_table(summary: Mapping[str, Any]) -> None:
                 else f"scr {sc['mass']:6.1f}" + " " * 7
             )
             print(
-                f"{cap:>14} {mass} | "
+                f"{cap:>14} n{len(a['seeds'])} {mass} | "
                 + " ".join(
                     "  -  " if pm.get(m) is None else f"{pm[m]['survival']:.3f}" for m in MIXES
                 )
