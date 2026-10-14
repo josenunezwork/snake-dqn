@@ -13,6 +13,12 @@ import pytest
 
 
 SOURCE = Path(__file__).parents[1] / "verification/s18_kl_contrast_audit_outer_v1.py"
+# The subject imports the M3-D research package, which lives only in the archived tag
+# archive/m3d-autonomous-20261010 (not merged into main): skip cleanly when it is absent.
+pytest.importorskip(
+    "research.redesign_m3d_20261010",
+    reason="M3-D package archived (tag archive/m3d-autonomous-20261010)",
+)
 
 
 @pytest.fixture
