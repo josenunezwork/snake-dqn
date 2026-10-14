@@ -26,6 +26,14 @@ Usage (re-run on a quiet machine; numbers taken while other jobs run are noisy):
     # one cell under cProfile (top functions by own time)
     ./venv/bin/python research/perf_actor_20261013/bench_actor.py --profile \\
         --configs baseline --worlds 64 --devices cpu --frames 100
+
+    # perf-opp: the opponent-forward modes on the M5 recipe (bv8 + labels, 25% mixed);
+    # --reps 4 repeats every worlds' cells, odd reps in reversed order (A B, B A, ...)
+    ./venv/bin/python research/perf_actor_20261013/bench_actor.py --configs numba \\
+        --worlds 128,256 --devices mps --opp-forwards per-group,merged-cpu,merged-device \\
+        --reps 4 \\
+        --extra "--mixed-frac 0.25 --obs-version bv8 --onpolicy-labels --label-frac 1.0 \\
+                 --anchor-mode v8margin --v8-backend numba"
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 import argparse  # noqa: E402
 import json  # noqa: E402
 import platform  # noqa: E402
+import shlex  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
 import tempfile  # noqa: E402
@@ -132,6 +141,8 @@ def run_cell(
     frozen_frac: float,
     seed: int,
     profile: bool = False,
+    opp_forward: str = "per-group",
+    extra: str = "",
 ) -> Dict[str, Any]:
     """One in-process ``actor_main`` run; returns rates and the timing split."""
     from research.redesign_m3c_20261008 import train_m3c as T
@@ -160,6 +171,9 @@ def run_cell(
         impl,
         "--v61-backend",
         v61,
+        "--opp-forward",
+        opp_forward,
+        *shlex.split(extra),
     ]
     args = T.build_parser().parse_args(argv)
     if grow_to:
@@ -225,6 +239,8 @@ def run_cell(
         "warm": warm,
         "grow_to": grow_to,
         "frozen_frac": frozen_frac,
+        "opp_forward": opp_forward,
+        "extra": extra,
         "wall_s": wall,
         "frames_per_s": n / wall,
         "ms_per_frame": 1e3 * wall / n,
@@ -243,6 +259,33 @@ def run_cell(
     return row
 
 
+def summarize(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Per (config, worlds, device, opp_forward): median and all reps of ms/frame."""
+    cells: Dict[tuple, List[Dict[str, Any]]] = {}
+    for r in rows:
+        if not r.get("error"):
+            key = tuple(r.get(k) for k in ("config", "worlds", "device", "opp_forward"))
+            cells.setdefault(key, []).append(r)
+    out = []
+    for (config, worlds, device, opp), rs in cells.items():
+        ms = [r["ms_per_frame"] for r in rs]
+        opp_ms = [r["timing_ms_per_frame"].get("opponents_s", float("nan")) for r in rs]
+        out.append(
+            {
+                "config": config,
+                "worlds": worlds,
+                "device": device,
+                "opp_forward": opp,
+                "reps": len(rs),
+                "ms_per_frame_median": float(np.median(ms)),
+                "ms_per_frame": ms,
+                "opponents_ms_median": float(np.median(opp_ms)),
+                "opponents_ms": opp_ms,
+            }
+        )
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--configs", default="baseline,vectorized,numba")
@@ -256,11 +299,17 @@ def main() -> int:
     ap.add_argument("--init", default=None)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--profile", action="store_true", help="cProfile one in-process cell")
+    ap.add_argument("--opp-forwards", default="per-group", help="train_m3c --opp-forward values")
+    ap.add_argument("--extra", default="", help="more train_m3c flags for every cell (one string)")
+    ap.add_argument(
+        "--reps", type=int, default=1, help="repeat each worlds' cells; odd reps run reversed"
+    )
     ap.add_argument("--cell", default=None, help=argparse.SUPPRESS)  # internal: one cell
     a = ap.parse_args()
     init = a.init or default_init()
     if a.cell or a.profile:
-        config, worlds, device = (a.cell or f"{a.configs},{a.worlds},{a.devices}").split(",")
+        cell = (a.cell or f"{a.configs},{a.worlds},{a.devices},{a.opp_forwards}").split(",")
+        config, worlds, device = cell[:3]
         row = run_cell(
             config,
             int(worlds),
@@ -272,6 +321,8 @@ def main() -> int:
             a.frozen_frac,
             a.seed,
             profile=a.profile,
+            opp_forward=cell[3] if len(cell) > 3 else "per-group",
+            extra=a.extra,
         )
         if a.profile:
             print(row.pop("profile_tottime"))
@@ -286,12 +337,15 @@ def main() -> int:
                 print("mps unavailable: skipped", flush=True)
                 continue
         for worlds in [int(w) for w in a.worlds.split(",")]:
-            for config in a.configs.split(","):
+            pairs = [(c, o) for c in a.configs.split(",") for o in a.opp_forwards.split(",")]
+            for rep, (config, opp) in [
+                (r, p) for r in range(a.reps) for p in (pairs[::-1] if r % 2 else pairs)
+            ]:
                 cmd = [
                     sys.executable,
                     str(Path(__file__).resolve()),
                     "--cell",
-                    f"{config},{worlds},{device}",
+                    f"{config},{worlds},{device},{opp}",
                     "--frames",
                     str(a.frames),
                     "--warm",
@@ -304,17 +358,25 @@ def main() -> int:
                     str(a.seed),
                     "--init",
                     init,
+                    "--extra=" + a.extra,
                 ]
                 r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
                 line = [x for x in r.stdout.splitlines() if x.startswith("CELL ")]
                 if r.returncode or not line:
                     row = {"config": config, "worlds": worlds, "device": device, "error": True}
+                    row["opp_forward"] = opp
                     row["stderr"] = r.stderr[-1500:]
                 else:
                     row = json.loads(line[-1][5:])
+                row["rep"] = rep
                 rows.append(row)
                 print(
-                    json.dumps({k: row.get(k) for k in ("config", "worlds", "device")})
+                    json.dumps(
+                        {
+                            k: row.get(k)
+                            for k in ("config", "worlds", "device", "opp_forward", "rep")
+                        }
+                    )
                     + f" -> {row.get('frames_per_s', float('nan')):.1f} frames/s, "
                     f"{row.get('hero_transitions_per_s', float('nan')):.0f} hero tr/s",
                     flush=True,
@@ -326,6 +388,9 @@ def main() -> int:
         "machine": platform.machine(),
         "note": "single actor process, in-process sink (no learner); noisy if the host is busy",
         "init": init,
+        "extra": a.extra,
+        "reps": a.reps,
+        "summary": summarize(rows),
         "rows": rows,
     }
     if a.out:

@@ -51,6 +51,13 @@ Everything new is behind a flag:
   plain Adam), ``--learner-precision fp16|bf16`` (T2: autocast, numerics change),
   ``--batch-scale K`` / ``--lr-scale`` (T3: K x larger batches at the same replay ratio -
   CHANGES the training dynamics). Benchmark: ``research/perf_learner_20261013``.
+* perf-opp (2026-10-13; multi-actor only; default ``per-group`` = unchanged): ``--opp-forward``
+  (or env ``M3C_OPP_FORWARD``) ``merged-cpu`` runs the vector61 opponents (one group per
+  pool checkpoint, identical ApexNetwork architecture) as ONE stacked ``baddbmm`` forward per
+  frame instead of one call per checkpoint - Q bitwise equal on Apple Accelerate, actor
+  messages identical (``tests/test_perf_opp.py``); ``merged-device`` runs that forward on
+  ``--actor-device`` (MPS / CUDA floats differ: not same-math). Benchmark and parity check:
+  ``research/perf_opp_20261013/bench_opp.py``.
 
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
@@ -773,6 +780,9 @@ V61_BACKENDS = ("python", "numba")
 V61_BACKEND_ENV = "M3C_V61_BACKEND"
 #: Actor bookkeeping implementations (``NStepBuilder`` / ``NStepBuilderRef``, eps sampling).
 ACTOR_IMPLS = ("vectorized", "reference")
+#: perf-opp: how the actor runs the vector61 opponents (``src.simd_env.vector61_merged``).
+OPP_FORWARDS = ("per-group", "merged-cpu", "merged-device")
+OPP_FORWARD_ENV = "M3C_OPP_FORWARD"
 
 
 def load_init(args, device):
@@ -969,6 +979,21 @@ def rss_gb() -> float:
     return r / 1e9 if sys.platform == "darwin" else r * 1024 / 1e9
 
 
+def resolve_opp_forward_env(args) -> None:
+    """Multi-actor runs: a non-default ``M3C_OPP_FORWARD`` becomes ``args.opp_forward``.
+
+    So the mode the actors use is recorded with the run's m3c flags (``merged-device`` is
+    not same-math); an explicit ``--opp-forward`` wins, ``per-group`` / unset change nothing.
+    """
+    env = os.environ.get(OPP_FORWARD_ENV)
+    if not getattr(args, "actors", 0) or args.opp_forward is not None or not env:
+        return
+    if env not in OPP_FORWARDS:
+        raise SystemExit(f"{OPP_FORWARD_ENV} must be one of {OPP_FORWARDS}, got {env!r}")
+    if env != "per-group":
+        args.opp_forward = env
+
+
 def m3c_flags(args) -> Dict[str, Any]:
     """The non-default M3-C options in effect (empty for an M3-identical run)."""
     d = default_args()
@@ -1004,6 +1029,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "learner_precision",
         "batch_scale",
         "lr_scale",
+        "opp_forward",
     ):
         if getattr(args, k) != getattr(d, k):
             out[k] = getattr(args, k)
@@ -1111,6 +1137,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="none",
         help="T3: Adam lr x K (linear) or x sqrt(K) with --batch-scale K",
     )
+    # --- perf-opp option (multi-actor trainer only; see src/simd_env/vector61_merged.py) ---
+    ap.add_argument(
+        "--opp-forward",
+        choices=OPP_FORWARDS,
+        default=None,
+        help="vector61 opponents: per-group (one call per checkpoint), merged-cpu (one stacked "
+        "forward for all same-architecture checkpoints; Q bitwise = per-group on Accelerate, "
+        "tested) or merged-device (that forward on --actor-device; floats differ). Default: "
+        "env M3C_OPP_FORWARD, else per-group",
+    )
     ap.add_argument("--no-guard", action="store_true", help="tests only: skip the Mac guard")
     return ap
 
@@ -1160,6 +1196,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     if perf_learner and not args.actors:
         raise SystemExit("the perf-learner options need the multi-actor trainer (--actors >= 1)")
+    if args.opp_forward is not None and not args.actors:
+        raise SystemExit("--opp-forward needs the multi-actor trainer (--actors >= 1)")
+    resolve_opp_forward_env(args)
     if perf_learner:
         from research.redesign_m3c_20261008.learner_m3c import LearnerOpts
 
@@ -1629,6 +1668,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             carrier = ctx["lookup"][ni_spec.FRP3_S12[1]][1]
         fast = getattr(args, "actor_impl", "vectorized") == "vectorized"
         sample = sample_legal if fast else sample_legal_ref
+        opp_forward = (
+            getattr(args, "opp_forward", None) or os.environ.get(OPP_FORWARD_ENV) or "per-group"
+        )
+        if opp_forward not in OPP_FORWARDS:
+            raise ValueError(f"opp forward must be one of {OPP_FORWARDS}, got {opp_forward!r}")
         segment = j
         while not stop_evt.is_set():
             t_glob = int(progress[0])
@@ -1649,6 +1693,20 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 from src.simd_env.vector61_policy import check_live_rule_config
 
                 check_live_rule_config(sim)
+            # perf-opp (opt-in): one stacked forward for every same-architecture vector61
+            # opponent checkpoint (merged-*); the rest (scripted anchors) stay per group.
+            merged = None
+            opp_groups = groups
+            if opp_forward != "per-group":
+                from src.simd_env.vector61_merged import MergedVector61Opponents
+
+                merged = MergedVector61Opponents(
+                    policies,
+                    groups,
+                    runtime,
+                    device="cpu" if opp_forward == "merged-cpu" else device,
+                )
+                opp_groups = {k: v for k, v in groups.items() if k not in merged.specs}
             E = sim.E
             nsb = NStepBuilder(E) if fast else NStepBuilderRef(E)
             for _frame in range(args.segment_frames):
@@ -1673,13 +1731,18 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
 
                 def opponents(prepared, masks, alive, actions):
                     t_o = time.perf_counter()
-                    for spec_, cells in groups.items():
+                    # merged: enqueue first (async on MPS / CUDA), host groups, then collect;
+                    # the opponents' cells are disjoint and none of them draws actor RNG.
+                    pending = merged.launch(alive) if merged is not None else None
+                    for spec_, cells in opp_groups.items():
                         live = cells[alive[cells[:, 0], cells[:, 1]]]
                         if len(live):
                             mk = masks[live[:, 0], live[:, 1]]
                             actions[live[:, 0], live[:, 1]] = policies[spec_].actions(
                                 mk, prepared, live
                             )
+                    if pending is not None:
+                        merged.finish(pending, actions)
                     timing["opponents_s"] += time.perf_counter() - t_o
 
                 def choose(prepared):
