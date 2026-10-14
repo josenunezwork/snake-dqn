@@ -646,10 +646,15 @@ def governor_off_noop(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     return {"violations": bad}
 
 
-def verdict(arms: Mapping[str, Any], incumbent_mass: float) -> Dict[str, Any]:
+def verdict(
+    arms: Mapping[str, Any], incumbent_mass: float, variants: bool = False
+) -> Dict[str, Any]:
+    """The study rule over the ``twin`` arms (``variants=True``: over every governed arm)."""
     best_go, best_surv = None, None
     for cap, a in arms.items():
         if cap == "off" or a.get("per_mix", {}).get("scripted") is None:
+            continue
+        if "/" in cap and not variants:
             continue
         s = a["per_mix"]["scripted"]["survival"]
         mass = a.get("mass_stratified")
@@ -718,6 +723,7 @@ def cmd_summarize(args: argparse.Namespace) -> int:
             "seeds": names,
             "arms": arms,
             "verdict": verdict(arms, inc["mass_stratified"]),
+            "verdict_incl_variants": verdict(arms, inc["mass_stratified"], variants=True),
         }
     summary = {
         "authority": "development diagnostic only (not a screen, not gate evidence, never served)",
@@ -753,21 +759,28 @@ def print_table(summary: Mapping[str, Any]) -> None:
     for g, gd in summary["groups"].items():
         print(f"== {g} {gd['seeds']}  verdict {gd['verdict']['verdict']}")
         print(
-            "cap   mass   dOff  dInc | surv fro  scr   mix | scr d L>=800 / all"
+            "           cap   mass   dOff  dInc | surv fro  scr   mix | scr d L>=800 / all"
             " | hzL>=800 | fracL>=800 | boostdec | med maxlen | scr paired vs off"
         )
         for cap, a in gd["arms"].items():
             pm = a.get("per_mix", {})
-            if any(pm.get(m) is None for m in MIXES):
-                print(f"{cap:>5} incomplete")
+            sc = pm.get("scripted")
+            if sc is None:
+                print(f"{cap:>14} incomplete")
                 continue
-            sc = pm["scripted"]
             pr = a.get("paired_scripted_vs_off")
             hz = sc["hazard_per_1000_L_ge_800"]
+            ms = a.get("mass_stratified")
+            mass = (
+                f"{ms:6.1f} {a['vs_off_mass'] or 0:+6.1f} {a['vs_incumbent_mass']:+6.1f}"
+                if ms is not None
+                else f"scr {sc['mass']:6.1f}" + " " * 7
+            )
             print(
-                f"{cap:>5} {a['mass_stratified']:6.1f} {a['vs_off_mass'] or 0:+6.1f}"
-                f" {a['vs_incumbent_mass']:+6.1f} | "
-                + " ".join(f"{pm[m]['survival']:.3f}" for m in MIXES)
+                f"{cap:>14} {mass} | "
+                + " ".join(
+                    "  -  " if pm.get(m) is None else f"{pm[m]['survival']:.3f}" for m in MIXES
+                )
                 + f" | {sc['deaths_L_ge_800']:3d}/{sc['deaths']:3d}"
                 + f" | {hz if hz is None else round(hz, 3)}"
                 + f" | {sc['frac_decisions_L_ge_800']:.3f}"
