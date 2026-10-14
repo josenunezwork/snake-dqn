@@ -40,6 +40,10 @@ Usage::
     ... pod_bench.py bench --emit-commands /tmp/cmds.json
     ... pod_bench.py bench --dry-run --commands /tmp/cmds.json
 
+    # scarce GPU: keep retrying the create once a minute for up to 2 h (refused creates cost
+    # $0); the session starts on the first round that gets a pod
+    ... pod_bench.py bench --confirm --out-dir DIR --stock-wait-hours 2 [--stock-poll-s 60]
+
     # manual cleanup of any perfbench- pod
     ./venv/bin/python research/perf_podbench_20261013/pod_bench.py cleanup --out-dir DIR --confirm
 
@@ -62,6 +66,16 @@ is built from the committed benches too: torch.compile commands appear only when
 compile support (perf-compile's learner ``--compile`` / actor ``--compile-actor`` flags, or
 compile-named ``CONFIGS``), and options a bench lacks (``--init``, ``--note``,
 ``--trainer-args``) are left out.
+
+Stock wait (opt-in ``--stock-wait-hours``, default 0 = one round of create tries as before):
+while every create try is a "no instances available" refusal, another self-contained round
+(own pod name, watchdog, ledger run) starts every ``--stock-poll-s`` (default 60 s) for up to
+the given hours, so callers need no sleep loop of their own (gpu_run_v2's ``StockWait``). A
+refused round leaves no pod, no live ledger run and no watchdog; it is one row in
+``<out-dir>/stock_wait.jsonl`` and one printed line, and its own files move to
+``<out-dir>/stock_wait_last_refused/`` (the latest only). The round that gets a pod runs the
+session exactly as a single try would (same ``<out-dir>`` layout and results). Any other
+create error ends the wait at once.
 """
 
 from __future__ import annotations
@@ -73,6 +87,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -109,6 +124,8 @@ SETUP_BUDGET_S = 1200
 PULL_MAX_S = 300
 DEFAULT_TIMEOUT_S = 900
 SETUP_ESTIMATE_S = 900  # boot + image pull + uploads + pip (for the dry run's budget note)
+STOCK_LOG = "stock_wait.jsonl"  # one row per refused stock-wait round
+STOCK_ASIDE = "stock_wait_last_refused"  # the latest refused round's own files
 POD_ROOT = "/r"
 POD_REPO = "/r/repo"
 PLACEHOLDERS = {
@@ -710,16 +727,29 @@ def write_summary(run_dir: Path, state, commands, skipped, args, outcome: str) -
     return path
 
 
-def launch_attempt(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
+def launch_attempt(
+    args, rp, run_dir: Path, inputs, commands, skipped, defer_settle: bool = False
+) -> Tuple[int, bool]:
+    """One self-contained attempt. Returns (exit code, it created nothing and every create try
+    was a definite refusal). ``defer_settle`` (the stock wait): a round whose every try was a
+    capacity refusal skips the late-listing settle (``gr.StockWait`` owns it) and prints only
+    the stock wait's one line."""
     from research.runpod_fanout.ledger import SharedLedger
 
     gr._install_signal_handlers()
     policy = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
     if float(args.max_hourly) > float(policy["max_hourly_per_pod_usd"]):
         raise SystemExit("refusing: --max-hourly is above the policy's max_hourly_per_pod_usd")
-    if gr.our_pods(rp):
+    try:  # a failed read before anything is reserved or created: the stock wait retries
+        mine = gr.our_pods(rp)
+    except Exception as exc:  # noqa: BLE001
+        raise gr.PreCreateTransient(repr(exc)) from exc
+    if mine:
         raise SystemExit(f"refusing: a {gr.POD_NAME} pod already exists (run cleanup first)")
-    balance0 = rp.balance()
+    try:
+        balance0 = rp.balance()
+    except Exception as exc:  # noqa: BLE001
+        raise gr.PreCreateTransient(repr(exc)) from exc
     token = secrets.token_urlsafe(32)
     created = gr.now()
     until = created + float(args.lifetime_hours) * 3600.0
@@ -760,7 +790,7 @@ def launch_attempt(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
     ok, no_capacity = False, False
     try:
         out, err, no_capacity = gr.create_pod_retrying(
-            rp, body, run_dir, state, (gr.GPU,), float(args.max_hourly)
+            rp, body, run_dir, state, (gr.GPU,), float(args.max_hourly), quiet=defer_settle
         )
         if err:
             outcome = f"create error: {err}"
@@ -791,8 +821,13 @@ def launch_attempt(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, signal.SIG_IGN)  # nothing may interrupt the delete
         state["outcome"] = outcome
+        quick = {}
+        if defer_settle and no_capacity and not state.get("pod_id"):
+            if gr.capacity_refusals_only(state):  # no pod exists: one clean listing suffices
+                quick = {"settle_s": 0.0, "clean_s": 0.0, "quiet": True}
+                state["settle_deferred"] = True
         gr.save_state(run_dir, state)
-        ok = gr.delete_and_verify(rp, run_dir, state, outcome)
+        ok = gr.delete_and_verify(rp, run_dir, state, outcome, **quick)
         if ok and state.get("pod_id") and hasattr(rp, "get_pod"):
             try:  # belt and braces: the pod itself answers 404 now
                 state["pod_gone_by_id"] = rp.get_pod(state["pod_id"]) is None
@@ -818,17 +853,83 @@ def launch_attempt(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
             state["watchdog_stopped"] = True
         gr.save_state(run_dir, state)
         summary = write_summary(run_dir, state, commands, skipped, args, outcome)
-        gr.say(
-            json.dumps(
-                {
-                    "outcome": outcome,
-                    "pods_deleted_verified": ok,
-                    "results": str(run_dir / "out"),
-                    "summary": str(summary),
-                }
-            )
+        if not quick:  # a stock-wait round prints one line (StockWait.another_round)
+            _say_done(run_dir, outcome, ok, summary)
+    code = 0 if outcome == "complete" and ok else 1
+    return code, bool(no_capacity and not state.get("pod_id") and ok)
+
+
+def _say_done(run_dir: Path, outcome: Any, ok: Any, summary: Path) -> None:
+    gr.say(
+        json.dumps(
+            {
+                "outcome": outcome,
+                "pods_deleted_verified": ok,
+                "results": str(run_dir / "out"),
+                "summary": str(summary),
+            }
         )
-    return 0 if outcome == "complete" and ok else 1
+    )
+
+
+def set_round_aside(run_dir: Path, keep: set) -> Path:
+    """Move a refused round's own files (state, pod bodies, watchdog files, summary) out of the
+    session dir before the next round: a stale ``watchdog.stop`` would stop the next round's
+    watchdog at once and a stale "armed" line would pass its spawn check. Only the latest
+    refused round is kept (``STOCK_ASIDE``); ``keep`` = what the session wrote before round 0."""
+    aside = run_dir / STOCK_ASIDE
+    shutil.rmtree(aside, ignore_errors=True)
+    aside.mkdir()
+    for path in sorted(run_dir.iterdir()):
+        if path.name not in keep and path.name not in (STOCK_ASIDE, STOCK_LOG):
+            path.replace(aside / path.name)
+    return aside
+
+
+def stock_wait_s(args) -> float:
+    return min(gr.STOCK_WAIT_S, 3600.0 * float(getattr(args, "stock_wait_hours", 0.0) or 0.0))
+
+
+def stock_wait(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
+    """``--stock-wait-hours``: a launch_attempt round every ``--stock-poll-s`` (start to start)
+    while every create try is a capacity refusal, up to the wait (``gr.StockWait``). Every
+    round runs in the session dir, so the round that gets a pod leaves exactly the layout of
+    a single try; a refused round's own files are set aside before the next one."""
+    poll_s = float(getattr(args, "stock_poll_s", gr.STOCK_POLL_S))
+    wait = gr.StockWait(stock_wait_s(args), poll_s, run_dir / STOCK_LOG)
+    keep = set(os.listdir(run_dir))  # inputs/, commands.json
+    k = 0
+    try:
+        while True:
+            start = gr.now()
+            transient = None
+            try:
+                code, refused = launch_attempt(
+                    args, rp, run_dir, inputs, commands, skipped, defer_settle=True
+                )
+                st = gr.read_state(run_dir)
+            except gr.PreCreateTransient as exc:  # nothing reserved or created
+                code, refused, transient, st = 1, True, str(exc), {}
+            wait.track(run_dir, st)
+            if not refused:
+                return code
+            if not wait.another_round(k, f"round{k:03d}", start, st, transient):
+                if wait.deferred_dir == run_dir:  # the last round's files are in place
+                    wait.settle(rp, run_dir)
+                    st = gr.read_state(run_dir)
+                    outcome = st.get("outcome")
+                    summary = write_summary(run_dir, st, commands, skipped, args, outcome)
+                    _say_done(run_dir, outcome, st.get("pods_deleted_verified"), summary)
+                return code
+            if st:
+                aside = set_round_aside(run_dir, keep)
+                if wait.deferred_dir == run_dir:
+                    wait.deferred_dir = aside
+            k += 1
+            gr._install_signal_handlers()
+            time.sleep(wait.sleep_s(start))
+    finally:
+        wait.settle(rp)
 
 
 def launch(args, commit: str, commands, skipped) -> int:
@@ -836,6 +937,9 @@ def launch(args, commit: str, commands, skipped) -> int:
     from research.runpod_fanout.tls import preflight
 
     bind_prefix(args.pod_prefix)
+    problem = gr.stock_poll_problem(getattr(args, "stock_poll_s", gr.STOCK_POLL_S))
+    if problem:  # bench_cmd checked it already (check_args); direct callers too
+        raise SystemExit(problem)
     run_dir = Path(args.out_dir)
     if run_dir.exists() and any(run_dir.iterdir()):
         raise SystemExit(f"refusing: {run_dir} exists and is not empty")
@@ -848,7 +952,9 @@ def launch(args, commit: str, commands, skipped) -> int:
     (run_dir / "commands.json").write_text(
         json.dumps({"runnable": commands, "skipped": skipped}, indent=1)
     )
-    return launch_attempt(args, RpClient(), run_dir, inputs, commands, skipped)
+    if stock_wait_s(args) > 0:
+        return stock_wait(args, RpClient(), run_dir, inputs, commands, skipped)
+    return launch_attempt(args, RpClient(), run_dir, inputs, commands, skipped)[0]
 
 
 def dry_run(args, commit: str, commands, skipped) -> Dict[str, Any]:
@@ -911,6 +1017,12 @@ def dry_run(args, commit: str, commands, skipped) -> Dict[str, Any]:
             "there (results so far are pulled), so the list is in priority order",
         },
         "account": account,
+        "stock_wait": {
+            "hours": stock_wait_s(args) / 3600.0,
+            "poll_s": float(getattr(args, "stock_poll_s", gr.STOCK_POLL_S)),
+            "note": "0 h = one round of create tries; otherwise a round every poll_s while "
+            "every try is a capacity refusal (a refused create costs $0)",
+        },
     }
     return out
 
@@ -929,7 +1041,10 @@ def check_args(args) -> Optional[str]:
     note = args.accept_no_self_delete
     if note is not None and len(note.strip()) < 10:
         return "--accept-no-self-delete needs a real note (who decided, when)"
-    return None
+    max_wait_h = gr.STOCK_WAIT_S / 3600.0
+    if not 0 <= float(getattr(args, "stock_wait_hours", 0.0)) <= max_wait_h:  # NaN fails
+        return f"--stock-wait-hours must be in [0, {max_wait_h:g}]"
+    return gr.stock_poll_problem(getattr(args, "stock_poll_s", gr.STOCK_POLL_S))
 
 
 def bench_cmd(args, repo: Path = REPO, caps_loader: Callable = load_caps) -> int:
@@ -998,6 +1113,20 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--pod-prefix", default=PREFIX)
     b.add_argument("--job-id", default=JOB_ID, help="ledger job id (a new suffix per re-run)")
     b.add_argument("--accept-no-self-delete", metavar="NOTE", default=None)
+    b.add_argument(
+        "--stock-wait-hours",
+        type=float,
+        default=0.0,
+        help="scarce GPU: keep retrying the create for up to this long (at most "
+        f"{gr.STOCK_WAIT_S // 3600} h; default 0 = a single round of create tries)",
+    )
+    b.add_argument(
+        "--stock-poll-s",
+        type=float,
+        default=gr.STOCK_POLL_S,
+        help=f"seconds between stock-wait rounds, start to start (default {gr.STOCK_POLL_S}; "
+        f"{gr.STOCK_POLL_MIN_S}-{gr.STOCK_POLL_MAX_S}); a refused create costs $0",
+    )
     b.add_argument(
         "--with-account",
         action="store_true",

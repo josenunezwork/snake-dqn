@@ -7,6 +7,13 @@ pod-side job kill at the deadline + dead-man switch, delete-and-verify on every 
 ``--accept-no-self-delete`` waiver, definite-refusal-only create retries, opt-in stock polling
 and GPU fallbacks), plus:
 
+* **Stock wait** (opt-in ``--stock-wait-hours``, at most 3 h): when every create try is a
+  "no instances available" refusal ($0), another round follows every ``--stock-poll-s``
+  (default 60 s, start to start). Each round is self-contained and leaves nothing behind
+  (no pod, a finished ledger run, a stopped watchdog); it is one row in
+  ``<run-dir>/stock_wait.jsonl`` and one printed line, and only the latest refused round's
+  attempt dir is kept. Any other create error ends the wait at once (``StockWait``).
+
 * **Run queue** from a sha-pinned plan JSON (``--plan``): N training runs (arm x seed), at most
   ``max_concurrent`` at once. The initial concurrency comes from the measured host (RAM, vCPU)
   and the plan's per-run footprint; an adaptive fill starts one more queued run (at most one
@@ -58,6 +65,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -135,7 +143,11 @@ GPU_FALLBACKS = (
 )
 NO_CAPACITY = re.compile(r"no (longer any |more )?instances? (currently |are )?available", re.I)
 GPU_MAX_HOURLY = 0.80
-STOCK_POLL_S = 300
+#: opt-in stock wait (``--stock-wait-hours``): one round of create tries every STOCK_POLL_S
+#: (start to start; ``--stock-poll-s``) for up to STOCK_WAIT_S. A refused create costs $0.
+STOCK_POLL_S = 60
+STOCK_POLL_MIN_S = 30
+STOCK_POLL_MAX_S = 3600
 STOCK_WAIT_S = 3 * 3600
 CREATE_SETTLE_S = 300
 POLL_S = 60
@@ -880,9 +892,22 @@ def append_jsonl(path: Path, row: Dict[str, Any]) -> None:
 
 
 # ----------------------------------------------------------------------------- delete / watchdog
-def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> bool:
+def delete_and_verify(
+    rp,
+    run_dir: Path,
+    state: Dict[str, Any],
+    reason: str,
+    settle_s: float = CREATE_SETTLE_S,
+    clean_s: float = 60.0,
+    quiet: bool = False,
+) -> bool:
     """Delete our pod(s) with backoff until GET /pods shows none (pod self-delete is not
-    available, so this never gives up early: alerts every 30 min, stops trying after 24 h)."""
+    available, so this never gives up early: alerts every 30 min, stops trying after 24 h).
+
+    Verified = no pod of ours listed for ``clean_s`` and ``settle_s`` since the last create
+    try (a fresh pod can be missing from GET /pods for minutes). Only the stock wait passes
+    ``settle_s=0, clean_s=0`` (one clean listing), for a round whose every create try was a
+    capacity refusal; its loop then owns the late-listing settle (``StockWait``)."""
     deadline = now() + 24 * 3600
     next_alert = now() + 1800
     wait = 10.0
@@ -908,15 +933,17 @@ def delete_and_verify(rp, run_dir: Path, state: Dict[str, Any], reason: str) -> 
                 deleted_known = True
             all_ids |= ids
             left = our_pods(rp)
-            settled = now() - float(state.get("create_attempted_at") or 0) >= CREATE_SETTLE_S
+            settled = now() - float(state.get("create_attempted_at") or 0) >= settle_s
             if left:
                 clean_since = None
             elif clean_since is None:
                 clean_since = now()
-            if not left and settled and now() - clean_since >= 60:
+            if not left and settled and now() - clean_since >= clean_s:
                 state.update(deleted=now(), delete_reason=reason, pods_left=[])
                 save_state(run_dir, state)
-                say(json.dumps({"deleted": sorted(all_ids), "reason": reason, "our_pods_left": []}))
+                if not quiet or all_ids:
+                    out = {"deleted": sorted(all_ids), "reason": reason, "our_pods_left": []}
+                    say(json.dumps(out))
                 return True
             state["pods_left"] = [p.get("id") for p in left]
         except Exception as exc:  # noqa: BLE001
@@ -1065,7 +1092,12 @@ def create_pod_retrying(
     state: Dict[str, Any],
     gpus=(GPU,),
     max_hourly: float = GPU_MAX_HOURLY,
+    quiet: bool = False,
 ):
+    """One round of create tries (``create_plans``: at most one per stocked DC, 20 s apart).
+    Returns (create answer, last error, every try was a definite refusal). ``quiet`` (the
+    stock wait) prints no capacity refusal (each is still recorded in ``create_attempts``;
+    the stock wait prints one line per round)."""
     attempts = state.setdefault("create_attempts", [])
     err = ""
     for i, (gpu, plan_dcs) in enumerate(create_plans(rp, gpus)):
@@ -1090,10 +1122,184 @@ def create_pod_retrying(
             err = error_detail(exc)
             attempts.append({"try": i, "gpu": gpu, "dcs": plan_dcs, "error": err})
             save_state(run_dir, state)
-            say(f"create try {i} ({gpu}, {plan_dcs or 'any DC'}): {err}")
+            if not (quiet and definite_refusal(exc) and NO_CAPACITY.search(err)):
+                say(f"create try {i} ({gpu}, {plan_dcs or 'any DC'}): {err}")
             if not definite_refusal(exc):
                 return None, err, False  # unknown outcome: adopt-or-give-up, never re-POST
     return None, err, True
+
+
+# ----------------------------------------------------------------------------- stock wait
+def stock_poll_problem(poll_s: Any) -> Optional[str]:
+    """Why ``--stock-poll-s`` is unusable (None: it is fine)."""
+    try:
+        s = float(poll_s)
+    except (TypeError, ValueError):
+        return "--stock-poll-s must be a number of seconds"
+    if not STOCK_POLL_MIN_S <= s <= STOCK_POLL_MAX_S:  # NaN fails too
+        return f"--stock-poll-s must be in [{STOCK_POLL_MIN_S}, {STOCK_POLL_MAX_S}] seconds"
+    return None
+
+
+def capacity_refusals_only(state: Dict[str, Any]) -> bool:
+    """Every create try of a round was a definite 'no instances available' refusal (no pod
+    was created), not a bad request, an auth error or an unknown outcome."""
+    tries = state.get("create_attempts") or []
+    return bool(tries) and all(
+        not t.get("ok") and NO_CAPACITY.search(str(t.get("error") or "")) for t in tries
+    )
+
+
+def tries_text(tries: Sequence[Dict[str, Any]]) -> str:
+    """A round's create tries, compact: ``GPU: any DC, EU-RO-1; GPU2: EU-SE-1``."""
+    by: Dict[str, List[str]] = {}
+    for t in tries:
+        by.setdefault(str(t.get("gpu")), []).append(", ".join(t.get("dcs") or []) or "any DC")
+    return "; ".join(f"{g}: {', '.join(d)}" for g, d in by.items()) or "no create try"
+
+
+def short_error(err: str) -> str:
+    m = NO_CAPACITY.search(err or "")
+    return f"no capacity ({m.group(0)})" if m else (err or "")[:200]
+
+
+def read_state(run_dir: Path) -> Dict[str, Any]:
+    """A round's saved state ({} when the round wrote none, e.g. a transient before create)."""
+    try:
+        return json.loads(state_path(run_dir).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+class StockWait:
+    """Opt-in capacity polling for scarce GPUs (``--stock-wait-hours``, ``--stock-poll-s``).
+
+    A round is one self-contained attempt (own pod name, watchdog, ledger run, create tries,
+    delete-and-verify). Rounds start every ``poll_s`` (start to start; a longer round is
+    followed at once) for up to ``wait_s``, while every create try is a capacity refusal; any
+    other create error, an interrupted round or a created pod ends the wait. Nothing is
+    reserved or live between rounds: a refused round finishes its ledger run, stops its
+    watchdog and, after one clean listing, is done.
+
+    Late-listing settle: a refused round's delete-and-verify does not wait CREATE_SETTLE_S
+    (that alone would space the rounds >= 5 min apart). A capacity refusal is a definite HTTP
+    answer (no pod; the create retries already rely on that), and the settle stays a backstop
+    owned here: every round's pre-create check lists our pods (one found stops the wait); a
+    round that ends the wait after a create try (a pod, or any other create error) settles in
+    full itself, and a full settle sweeps every pod with our prefix; on every other exit
+    (give-up, interrupt, error) ``settle`` deletes any pod of ours that is listed within
+    CREATE_SETTLE_S of the last refused create. Residual: a pod made despite a refusal that
+    is listed only after the next round's create succeeded is deleted when that session ends
+    (its spend counts toward that session's balance-drop spend cap).
+
+    Each round appends one row to ``log`` and prints one compact line.
+    """
+
+    def __init__(self, wait_s: float, poll_s: float, log: Path) -> None:
+        self.wait_s = float(wait_s)
+        self.poll_s = float(poll_s)
+        self.log = log
+        self.t0 = now()
+        self.deferred_at: Optional[float] = None  # the last refused create we owe a settle
+        self.deferred_dir: Optional[Path] = None  # where that round's state.json lives
+
+    @property
+    def active(self) -> bool:
+        return self.wait_s > 0
+
+    def track(self, run_dir: Path, st: Dict[str, Any]) -> None:
+        """Note the settle a finished round left to this loop (or settled itself)."""
+        if st.get("settle_deferred"):
+            self.deferred_at = float(st["create_attempted_at"])
+            self.deferred_dir = run_dir
+        elif st.get("create_attempted_at"):  # a later create try, settled in full
+            self.deferred_at = self.deferred_dir = None
+
+    def sleep_s(self, start: float) -> float:
+        return max(0.0, self.poll_s - (now() - start))
+
+    def another_round(
+        self,
+        k: int,
+        label: str,
+        start: float,
+        st: Dict[str, Any],
+        transient: Optional[str] = None,
+    ) -> bool:
+        """After a round that created nothing: poll again? Logs the round when active."""
+        capacity = transient is not None or (
+            capacity_refusals_only(st) and not str(st.get("outcome", "")).startswith("error:")
+        )
+        more = now() - self.t0 + self.poll_s <= self.wait_s
+        if self.active:
+            tries = [
+                {"gpu": a.get("gpu"), "dcs": a.get("dcs")} for a in st.get("create_attempts") or []
+            ]
+            errs = [str(a["error"]) for a in st.get("create_attempts") or [] if a.get("error")]
+            if transient is not None:
+                err = f"transient before create: {transient}"[:200]
+            elif str(st.get("outcome", "")).startswith("error:") or not errs:
+                err = str(st.get("outcome"))[:200]  # an interrupted / failed round
+            else:
+                err = short_error(errs[-1])
+            row = {
+                "round": k,
+                "attempt": label,
+                "t": now(),
+                "elapsed_s": round(now() - self.t0, 1),
+                "round_s": round(now() - start, 1),
+                "tries": tries,
+                "error": err,
+                "run_id": st.get("run_id"),
+                "cost_usd": st.get("cost_estimate"),
+                "pods_deleted_verified": st.get("pods_deleted_verified"),
+                "settle_deferred": bool(st.get("settle_deferred")),
+            }
+            append_jsonl(self.log, row)
+            nxt = f"next round in {self.sleep_s(start):.0f} s" if capacity and more else "stop"
+            say(
+                f"stock wait round {k} ({label}): {err} [{tries_text(tries)}]; "
+                f"{(now() - self.t0) / 3600:.2f} h of {self.wait_s / 3600:.2f} h; {nxt}"
+            )
+            if not capacity:
+                alert(f"{label}: {err}; not polling again (only capacity refusals are retried)")
+                return False
+        if not more:
+            hours = (now() - self.t0) / 3600
+            alert(f"no capacity after {hours:.2f} h; giving up at $0 (Mac fallback)")
+            return False
+        return True
+
+    def settle(self, rp, run_dir: Optional[Path] = None) -> Optional[bool]:
+        """Before the loop exits: wait out CREATE_SETTLE_S after the last refused create whose
+        settle a round deferred, deleting any pod of ours listed meanwhile (None: nothing was
+        deferred). The result lands in that round's state.json (``late_listing_settle``)."""
+        if self.deferred_at is None:
+            return None
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)  # nothing may interrupt the delete
+        where = run_dir or self.deferred_dir
+        assert where is not None
+        where.mkdir(parents=True, exist_ok=True)
+        st = read_state(where)
+        st["create_attempted_at"] = max(float(st.get("create_attempted_at") or 0), self.deferred_at)
+        left = CREATE_SETTLE_S - (now() - self.deferred_at)
+        if left > 0:
+            say(f"stock wait: watching {left:.0f} s for a late-listed pod (last refused create)")
+        ok = delete_and_verify(
+            rp,
+            where,
+            st,
+            "stock wait: late-listing settle after the last refused create",
+            quiet=True,
+        )
+        st["late_listing_settle"] = {"pods_deleted_verified": ok, "t": now()}
+        st["pods_deleted_verified"] = bool(st.get("pods_deleted_verified", True)) and ok
+        save_state(where, st)
+        self.deferred_at = self.deferred_dir = None
+        if not ok:
+            alert(f"late-listing settle failed; run `cleanup --confirm` ({where})")
+        return ok
 
 
 # ----------------------------------------------------------------------------- pulls
@@ -1288,6 +1494,11 @@ def launch(args) -> int:
     from research.runpod_fanout.rp_client import RpClient
     from research.runpod_fanout.tls import preflight
 
+    poll_s = getattr(args, "stock_poll_s", None)
+    poll_s = STOCK_POLL_S if poll_s is None else poll_s
+    problem = stock_poll_problem(poll_s)
+    if problem:
+        raise SystemExit(problem)
     if sys.platform == "darwin":  # keep the Mac awake while this process lives
         subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())], start_new_session=True)
     plan = load_plan(Path(args.plan))
@@ -1306,30 +1517,56 @@ def launch(args) -> int:
     if inputs.get("trainer_flag_problems"):  # before any RunPod call: nothing to clean up
         raise SystemExit(f"refusing: {inputs['trainer_flag_problems']}")
     rp = RpClient()
-    t0 = now()
+    wait_s = min(STOCK_WAIT_S, 3600.0 * float(getattr(args, "stock_wait_hours", 0.0) or 0.0))
+    wait = StockWait(wait_s, float(poll_s), root / "stock_wait.jsonl")
     k = 0
-    while True:
-        start = now()
-        sub = root / f"attempt{k:02d}"
-        sub.mkdir()
-        (root / "CURRENT_ATTEMPT").write_text(sub.name)
-        try:
-            code, no_capacity = launch_attempt(args, rp, sub, inputs, plan)
-        except PreCreateTransient as exc:
-            say(f"{sub.name}: transient before create: {exc}")
-            code, no_capacity = 1, True
-        if not no_capacity:
-            return code
-        wait_s = min(STOCK_WAIT_S, 3600.0 * float(getattr(args, "stock_wait_hours", 0.0) or 0.0))
-        if now() - t0 + STOCK_POLL_S > wait_s:
-            alert(f"no capacity after {(now() - t0) / 3600:.2f} h; giving up at $0 (Mac fallback)")
-            return code
-        k += 1
-        _install_signal_handlers()
-        time.sleep(max(0.0, STOCK_POLL_S - (now() - start)))
+    kept: Optional[Path] = None  # the latest refused round's attempt dir (older ones pruned)
+    try:
+        while True:
+            start = now()
+            sub = root / f"attempt{k:02d}"
+            sub.mkdir()
+            (root / "CURRENT_ATTEMPT").write_text(sub.name)
+            transient = None
+            try:
+                code, no_capacity = launch_attempt(
+                    args, rp, sub, inputs, plan, defer_settle=wait.active
+                )
+            except PreCreateTransient as exc:
+                say(f"{sub.name}: transient before create: {exc}")
+                code, no_capacity, transient = 1, True, str(exc)
+            st = read_state(sub)
+            wait.track(sub, st)
+            if not no_capacity:
+                return code
+            if not wait.another_round(k, sub.name, start, st, transient):
+                return code
+            # bounded attempt dirs: a refused round is one row in stock_wait.jsonl; only the
+            # latest refused round's dir is kept (a transient round's dir is empty)
+            if not st:
+                shutil.rmtree(sub, ignore_errors=True)
+            else:
+                if kept is not None and kept != wait.deferred_dir:
+                    shutil.rmtree(kept, ignore_errors=True)
+                kept = sub
+            k += 1
+            _install_signal_handlers()
+            time.sleep(wait.sleep_s(start))
+    finally:
+        wait.settle(rp)
 
 
-def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any], plan: Dict[str, Any]):
+def launch_attempt(
+    args,
+    rp,
+    run_dir: Path,
+    inputs: Dict[str, Any],
+    plan: Dict[str, Any],
+    defer_settle: bool = False,
+):
+    """One self-contained attempt. Returns (exit code, it created nothing and every create try
+    was a definite refusal). ``defer_settle`` (the stock wait): a round whose every try was a
+    capacity refusal skips the CREATE_SETTLE_S late-listing settle (``StockWait`` owns it)."""
     from research.runpod_fanout.ledger import SharedLedger
 
     _install_signal_handlers()
@@ -1397,7 +1634,7 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any], plan: Dict[s
         gpus = GPU_FALLBACKS if getattr(args, "gpu_fallbacks", False) else (GPU,)
         state["gpus_allowed"] = list(gpus)
         out, err, no_capacity = create_pod_retrying(
-            rp, body, run_dir, state, gpus, float(plan["max_hourly"])
+            rp, body, run_dir, state, gpus, float(plan["max_hourly"]), quiet=defer_settle
         )
         if err:
             outcome = f"create error: {err}"
@@ -1428,8 +1665,13 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any], plan: Dict[s
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, signal.SIG_IGN)  # nothing may interrupt the delete
         state["outcome"] = outcome
+        quick = {}
+        if defer_settle and no_capacity and not state.get("pod_id"):
+            if capacity_refusals_only(state):  # no pod exists: one clean listing suffices
+                quick = {"settle_s": 0.0, "clean_s": 0.0, "quiet": True}
+                state["settle_deferred"] = True
         save_state(run_dir, state)
-        ok = delete_and_verify(rp, run_dir, state, outcome)
+        ok = delete_and_verify(rp, run_dir, state, outcome, **quick)
         try:
             cost = rate * (now() - created) / 3600.0 if state.get("pod_id") else 0.0
             ledger.release_pod(run_id, name, cost)
@@ -1944,7 +2186,7 @@ def plan_cmd(args) -> int:
     return 0
 
 
-def main() -> int:
+def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("cmd", choices=("plan", "launch", "cleanup"))
     ap.add_argument("--plan", default=None, help="the run plan JSON (schema m3c-gpu-plan/v1)")
@@ -1955,20 +2197,37 @@ def main() -> int:
     ap.add_argument("--confirm", action="store_true")
     ap.add_argument("--accept-no-self-delete", metavar="NOTE", default=None)
     ap.add_argument("--gpu-fallbacks", action="store_true")
-    ap.add_argument("--stock-wait-hours", type=float, default=0.0)
+    ap.add_argument(
+        "--stock-wait-hours",
+        type=float,
+        default=0.0,
+        help="opt-in: keep polling for capacity for up to this long (at most 3 h; default 0 = "
+        "a single round of create tries)",
+    )
+    ap.add_argument(
+        "--stock-poll-s",
+        type=float,
+        default=STOCK_POLL_S,
+        help=f"seconds between stock-wait rounds, start to start (default {STOCK_POLL_S}; "
+        f"{STOCK_POLL_MIN_S}-{STOCK_POLL_MAX_S}); a refused create costs $0",
+    )
     ap.add_argument(
         "--pod-prefix",
         default=POD_NAME,
         help="pod name prefix: this runner only sees, guards and deletes pods with it "
         "(distinct prefixes let independent runs share the account concurrently)",
     )
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*-", args.pod_prefix):
         print("--pod-prefix must look like 'name-' (lowercase, ends with '-')", file=sys.stderr)
         return 2
     globals()["POD_NAME"] = args.pod_prefix
     if args.accept_no_self_delete is not None and len(args.accept_no_self_delete.strip()) < 10:
         print("--accept-no-self-delete needs a real note (who decided, when)", file=sys.stderr)
+        return 2
+    problem = stock_poll_problem(args.stock_poll_s)
+    if problem:
+        print(problem, file=sys.stderr)
         return 2
     if args.cmd == "cleanup":
         return cleanup(args)
