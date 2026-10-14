@@ -48,6 +48,13 @@ Definitions (per death; ``t`` = fatal decision, the last decision before death):
   decisions before it.
 * ``opponent_head_involved``: head-on death, or an enemy-body hit within 2 cells of the
   partner's new head (offset <= 2: cut off), or the taken action was v8 head-risky.
+* Trap onset (two-frame counterfactual): at every enclosure entry (enclosed at ``t0``, open
+  at ``t0 - 1``) the world of decision ``t0 - 1`` is stepped once per hero action with the
+  opponents' actual moves and enclosure is re-tested on the result. ``avoidable_1step``:
+  some action survives and is not enclosed afterwards (an "escape"); one step only, so an
+  escape is necessary, not sufficient, for avoiding the trap. v8's landing area is only
+  meaningful for an action that does not collide at once, so every enclosure test uses
+  advisory-safe actions only (no such action: enclosed).
 
 Usage::
 
@@ -93,7 +100,7 @@ ROUND_INDEX = 52
 WORLDS = 32
 HORIZON = 5000
 LAM = 8.0
-WINDOW = 80  # detailed decision snapshots kept per env
+WINDOW = 30  # detailed decision snapshots kept per env
 HISTORY = 20  # hero actions reported per death
 K_MAX = 10
 ENCLOSURE_MIN = 3
@@ -275,6 +282,10 @@ class Recorder:
         self.ring: Dict[int, Deque[Dict[str, Any]]] = {e: deque(maxlen=WINDOW) for e in range(E)}
         self.pending: Dict[int, Dict[str, Any]] = {}
         self.pre: Any = None
+        self.prev_pre: Any = None  # the previous decision's prepared world (trap onsets)
+        self.prev_actions: Optional[np.ndarray] = None
+        self.base_step: Any = None  # the uninstrumented sim step (set by instrumented())
+        self.onsets: Dict[int, Dict[int, Dict[str, Any]]] = {e: {} for e in range(E)}
         self.pre_alive = np.zeros(E, bool)
         self.actions: Optional[np.ndarray] = None
         self.collisions: Dict[int, Dict[str, Any]] = {}
@@ -412,6 +423,18 @@ class Recorder:
                 s["taken_area"][e, t] = int(d["area"][a]) if d["adv"][a] else 0
                 s["adv_any"][e, t] = bool(d["adv"].any())
                 s["taken_adv_safe"][e, t] = bool(d["adv"][a])
+            if t >= 1 and self.prev_pre is not None:
+                t2 = time.perf_counter()
+                s = self.series
+                for e in envs:
+                    e = int(e)
+                    entered = s["best_area"][e, t] < s["need"][e, t]
+                    was_open = s["action"][e, t - 1] >= 0 and not (
+                        s["best_area"][e, t - 1] < s["need"][e, t - 1]
+                    )
+                    if entered and was_open:
+                        self.onsets[e][t] = self._onset_counterfactual(e, t)
+                self.seconds["onset"] += time.perf_counter() - t2
         self.pending = {}
         self.pre_alive = alive
         self.actions = actions.copy()
@@ -489,9 +512,67 @@ class Recorder:
             e = int(e)
             self.deaths[e] = self._death(sim, e, int(cause[e]), base_step)
         self.collisions = {}
+        self.prev_pre, self.prev_actions = self.pre, self.actions
         self.pre = None
         self.t += 1
         self.seconds["post"] += time.perf_counter() - t0
+
+    def _onset_counterfactual(self, e: int, t: int) -> Dict[str, Any]:
+        """At an enclosure entry ``t`` (enclosed at ``t``, open at ``t - 1``): step the
+        world of decision ``t - 1`` once per hero action (opponents' actual moves) and
+        re-test enclosure on the resulting world (``escape`` = survives and not enclosed)."""
+        from src.simd_env.v8_nb import v8_decide
+
+        assert self.prev_actions is not None
+        out: Dict[int, Dict[str, Any]] = {}
+        for a in range(6):
+            c = clone_sim(self.prev_pre)
+            acts = self.prev_actions.copy()
+            acts[e, 0] = a
+            self.base_step(c, acts)
+            if not bool(c.alive[e, 0]):
+                out[a] = {"survives": False, "enclosed": None, "best_safe_area": None}
+                continue
+            adv = c.get_advisory_action_mask()[e, 0].astype(bool)
+            res = v8_decide(
+                c,
+                np.array([[e, 0]], dtype=np.int64),
+                np.zeros((1, 6), np.float32),
+                adv[None],
+                LAM,
+                features=True,
+            )
+            best = int(np.where(adv, res.area[0], 0).max())
+            out[a] = {
+                "survives": True,
+                "best_safe_area": best,
+                "need": int(res.need[0]),
+                "enclosed": best < int(res.need[0]),
+            }
+        taken = int(self.prev_actions[e, 0])
+        if out[taken]["enclosed"]:
+            self.checks["onset_taken_enclosed_ok"] += 1
+        else:
+            self.checks["onset_taken_enclosed_bad"] += 1
+        escapes = [a for a in range(6) if out[a]["survives"] and not out[a]["enclosed"]]
+        v8a = int(self.series["v8_action"][e, t - 1]) if self.shadow_on else None
+        prev = self.ring[e][-2] if len(self.ring[e]) >= 2 else None
+        return {
+            "t0": t,
+            "t_pre": t - 1,
+            "length": int(self.series["length"][e, t - 1]),
+            "taken_action": taken,
+            "v8_action": v8a,
+            "adv_safe_pre": (
+                [int(x) for x in np.flatnonzero(prev["adv"])]
+                if prev is not None and prev["t"] == t - 1
+                else None
+            ),
+            "actions": out,
+            "escape_actions": escapes,
+            "v8_escapes": (v8a in escapes) if self.shadow_on else None,
+            "only_boost_escape": bool(escapes) and all(a >= 3 for a in escapes),
+        }
 
     def _counterfactual(self, sim: Any, e: int, base_step) -> Dict[str, Any]:
         from research.redesign_scope_20261007 import grid_h5000_identity as gid
@@ -529,6 +610,7 @@ class Recorder:
             "cause": CAUSE_LABEL[code],
             "collision": self.collisions.get(e),
             "counterfactual": cf,
+            "onsets": dict(self.onsets[e]),
         }
 
     # -- frame observer (after each transition) ---------------------------------------
@@ -553,6 +635,7 @@ def instrumented(recorder: Recorder) -> Iterator[Recorder]:
     orig_cls_fn = ee._terminal_hero_sim_class
     base = orig_cls_fn("grid")
     base_step = base.step
+    recorder.base_step = base_step
 
     class CensusGridSim(base):  # type: ignore[misc, valid-type]
         def step(self, actions, active_env_mask=None):  # type: ignore[no-untyped-def]
@@ -720,28 +803,24 @@ def analyze_death(
         "cut_off_neck_hit": killer is not None and killer.get("type") == "opponent_neck",
         "taken_head_risky": row["taken_head_risky"],
     }
-    # trap onset: the last non-enclosed decision before the final enclosed run
+    # trap onset: the entry into the final enclosed run (first enclosed decision t0)
     onset: Optional[Dict[str, Any]] = None
-    if 1 <= trap_run <= t:
-        i_pre = t - trap_run  # the last non-enclosed decision
-        snaps = {s["t"]: s for s in raw["window"]}
-        s = snaps.get(i_pre)
-        if s is not None:
-            ar = np.asarray(s["area"])
-            adv = np.asarray(s["adv"], bool)
-            spacious = [a for a in range(6) if adv[a] and ar[a] >= s["need"]]
+    if trap_run >= 1:
+        t0 = t - trap_run + 1
+        o = (raw.get("onsets") or {}).get(t0)
+        if o is not None:
             onset = {
-                "t": i_pre,
-                "decisions_before_death": t - i_pre,
-                "taken_action": int(s["action"]),
-                "taken_spacious": int(s["action"]) in spacious,
-                "spacious_actions": spacious,
-                "v8_action": s.get("v8_action"),
-                "v8_spacious": (int(s["v8_action"]) in spacious) if shadow else None,
-                "only_boost_spacious": bool(spacious) and all(a >= 3 for a in spacious),
-                "length": int(s["length"]),
-                "v8_differs": (int(s["v8_action"]) != int(s["action"])) if shadow else None,
-                "kind": "world_closed" if int(s["action"]) in spacious else "hero_entered",
+                "t0": t0,
+                "decisions_before_death": t - t0 + 1,
+                "length": o["length"],
+                "taken_action": o["taken_action"],
+                "v8_action": o["v8_action"],
+                "adv_safe_pre": o["adv_safe_pre"],
+                "escape_actions": o["escape_actions"],
+                "v8_escapes": o["v8_escapes"],
+                "only_boost_escape": o["only_boost_escape"],
+                "kind": "avoidable_1step" if o["escape_actions"] else "unavoidable_1step",
+                "actions": o["actions"],
             }
     row["trap_onset"] = onset
     if shadow:
@@ -1039,6 +1118,10 @@ def _frac(n: int, d: int) -> Optional[float]:
     return None if d == 0 else n / d
 
 
+def onset_ok(d: Mapping[str, Any]) -> bool:
+    return bool(d["enclosure"] and d["trap_onset"])
+
+
 def summarize_deaths(deaths: Sequence[Mapping[str, Any]], shadow: bool) -> Dict[str, Any]:
     n = len(deaths)
     out: Dict[str, Any] = {
@@ -1062,8 +1145,10 @@ def summarize_deaths(deaths: Sequence[Mapping[str, Any]], shadow: bool) -> Dict[
             ">=30": sum(d["trap_run"] >= 30 for d in deaths),
         },
         "trap_run_median": float(np.median([d["trap_run"] for d in deaths])) if n else None,
-        "trap_onset_kind": dict(
-            Counter(d["trap_onset"]["kind"] for d in deaths if d["trap_onset"] and d["enclosure"])
+        "trap_onset_kind": dict(Counter(d["trap_onset"]["kind"] for d in deaths if onset_ok(d))),
+        "trap_onset_available": sum(1 for d in deaths if onset_ok(d)),
+        "trap_onset_only_boost_escape": sum(
+            bool(d["trap_onset"]["only_boost_escape"]) for d in deaths if onset_ok(d)
         ),
         "forced_frac": _frac(sum(d["forced"] for d in deaths), n),
         "survivor_existed_frac": _frac(sum(bool(d["cf_survivors"]) for d in deaths), n),
@@ -1113,21 +1198,9 @@ def summarize_deaths(deaths: Sequence[Mapping[str, Any]], shadow: bool) -> Dict[
                     sum(d["v8_differs_any_in_trap_run"] for d in deaths if d["enclosure"]),
                     sum(d["enclosure"] for d in deaths),
                 ),
-                "trap_onset_v8_differs_frac": _frac(
-                    sum(
-                        bool(d["trap_onset"]["v8_differs"])
-                        for d in deaths
-                        if d["enclosure"] and d["trap_onset"]
-                    ),
-                    sum(1 for d in deaths if d["enclosure"] and d["trap_onset"]),
-                ),
-                "trap_onset_v8_spacious_frac": _frac(
-                    sum(
-                        bool(d["trap_onset"]["v8_spacious"])
-                        for d in deaths
-                        if d["enclosure"] and d["trap_onset"]
-                    ),
-                    sum(1 for d in deaths if d["enclosure"] and d["trap_onset"]),
+                "trap_onset_v8_escapes_frac": _frac(
+                    sum(bool(d["trap_onset"]["v8_escapes"]) for d in deaths if onset_ok(d)),
+                    sum(1 for d in deaths if onset_ok(d)),
                 ),
             }
         )
