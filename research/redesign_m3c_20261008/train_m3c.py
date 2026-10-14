@@ -93,6 +93,25 @@ Everything new is behind a flag:
   ``research/perf_profile_20261013``). The actor's messages and ring rows are unchanged by it
   (``tests/test_profile_m3c.py``).
 
+* M6 reward levers (2026-10-14; multi-actor only; every default off = the previous trainer,
+  bitwise: ``tests/test_m6_reward.py`` replays the pre-M6 actor from git). Motivation and
+  design: the B8 death census (``b8-death-census-20261014``, ``m6_levers.json``).
+
+  - ``--tight-cost c --tight-min-len Lmin`` (needs ``--obs-version bv8``): each hero decision
+    with ``L >= Lmin`` that is *tight* gains ``-c * (1 - gamma) * Phi(L)`` (``L`` = the
+    decision-time length, ``gamma`` = the segment's gamma, as ``mass_term``), whatever its
+    outcome. *Tight* is the census's length-aware definition (:func:`tight_predicate`): the
+    best advisory-safe action's v8 tail-aware landing area (v8_nb, capped at v7's
+    ``area_cap``; 0 when no action is advisory-safe) is ``< L``. It is read from the
+    ``features=True`` v8 result the bv8 actor already holds, on the selection (advisory) mask.
+  - ``--death-mass-mult w``: a hero death adds ``-w * Phi(L_before)`` (``L_before`` = the
+    length at the fatal decision) on top of the v2 reward (its ``death_value`` unchanged).
+  - Telemetry when a lever is on (or ``--tight-telemetry``, bv8, which logs without any
+    reward change: the control arm): ``tight_frac`` (tight share of the hero decisions with
+    ``L >= Lmin``), ``tight_big_share`` (their share of all decisions), ``tight_frac_1000``
+    (the census's ``L >= 1000`` metric) and ``death_len_mean`` in ``log.jsonl``; run totals in
+    ``summary.json`` (``m6_totals``).
+
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
 calibration) and ``manifest.jsonl`` (one row per completed checkpoint with its sha256, for
@@ -214,6 +233,126 @@ def mass_term(lengths: np.ndarray, alive_after: np.ndarray, gamma: float, kappa:
     """``kappa * (1 - gamma) * Phi(L)`` for heroes alive after the step, else 0 (float64)."""
     phi = np.asarray(lengths, dtype=np.float64) / PHI_DIV
     return np.where(np.asarray(alive_after, dtype=bool), kappa * (1.0 - gamma) * phi, 0.0)
+
+
+# ----------------------------------------------------------------------------- M6 reward levers
+TIGHT_MIN_LEN = 600  # --tight-min-len default
+TIGHT_REPORT_LEN = 1000  # tight_frac_1000: the census's large-length bin
+
+
+def tight_predicate(area: np.ndarray, adv: np.ndarray, lengths: np.ndarray) -> np.ndarray:
+    """M6 *tight* per row: no advisory-safe action lands in a region of at least ``L`` cells.
+
+    Exactly the B8 death census's length-aware test (``best_area < L``; census.py builds
+    ``best_area = max(where(adv, area, 0))``):
+
+    * ``area`` ``(N, 6)``: :func:`src.simd_env.v8_nb.v8_decide`'s tail-aware post-move landing
+      area per action (``features=True``), capped at v7's ``area_cap = max(1, min(max(32,
+      2L), 4096, free))`` (``free`` = cells not covered by another live snake);
+    * ``adv`` ``(N, 6)``: the advisory (exactly safe) mask; the flood starts on the new head
+      unchecked, so an action that collides at once does not count (no safe action: 0);
+    * ``lengths`` ``(N,)``: the decision-time hero length ``L``.
+
+    The cap does not blur ``< L``: capping at ``max(32, 2L) >= L`` or at ``4096 >= L`` keeps
+    every value below ``L`` and maps every value ``>= L`` to ``>= L``, and the flood (other
+    snakes are walls) cannot exceed ``free`` except by the new head cell itself. So this is
+    the uncapped ``area < L`` except when ``L > 4096`` (always tight here) or the arena is
+    within one cell of full. In obs terms (``ego2s-bv8`` scalar ``30 + 5a`` = ``area_g =
+    min(area, cap) / cap``): when ``area_cap == 2L`` (``16 <= L <= 2048`` with ``2L`` free
+    cells) *tight* iff ``max_{a safe} area_g < 0.5`` (bitwise in float32 for these L).
+    """
+    area = np.asarray(area, dtype=np.int64)
+    adv = np.asarray(adv, dtype=bool)
+    if area.shape != adv.shape or area.ndim != 2 or area.shape[1] != 6:
+        raise ValueError(f"tight: area {area.shape} / mask {adv.shape} must both be (N, 6)")
+    if np.any(adv & (area < 0)):
+        raise ValueError("tight: a safe action's landing area was not evaluated (features=True)")
+    best = np.where(adv, area, 0).max(axis=1, initial=0)
+    return best < np.asarray(lengths, dtype=np.int64)
+
+
+def tight_cost_term(lengths, tight, gamma: float, cost: float, min_len: int) -> np.ndarray:
+    """``-cost * (1 - gamma) * Phi(L)`` on tight rows with ``L >= min_len``, else 0 (float64)."""
+    L = np.asarray(lengths)
+    on = np.asarray(tight, dtype=bool) & (L >= min_len)
+    phi = L.astype(np.float64) / PHI_DIV
+    return np.where(on, -cost * (1.0 - gamma) * phi, 0.0)
+
+
+def death_mass_term(lengths_before, died, mult: float) -> np.ndarray:
+    """``-mult * Phi(L_before)`` on rows that died this step, else 0 (float64)."""
+    phi = np.asarray(lengths_before, dtype=np.float64) / PHI_DIV
+    return np.where(np.asarray(died, dtype=bool), -mult * phi, 0.0)
+
+
+@dataclass(frozen=True)
+class M6Levers:
+    """The M6 reward levers of a run (:meth:`from_args` is ``None`` when all are off)."""
+
+    tight_cost: float = 0.0
+    tight_min_len: int = TIGHT_MIN_LEN
+    death_mass_mult: float = 0.0
+    tight_telemetry: bool = False
+
+    @classmethod
+    def from_args(cls, args) -> Optional["M6Levers"]:
+        lv = cls(
+            tight_cost=float(getattr(args, "tight_cost", 0.0)),
+            tight_min_len=int(getattr(args, "tight_min_len", TIGHT_MIN_LEN)),
+            death_mass_mult=float(getattr(args, "death_mass_mult", 0.0)),
+            tight_telemetry=bool(getattr(args, "tight_telemetry", False)),
+        )
+        if lv.tight_cost == 0.0 and lv.death_mass_mult == 0.0 and not lv.tight_telemetry:
+            return None
+        return lv
+
+    @property
+    def tight(self) -> bool:
+        """The tight predicate is evaluated (cost or telemetry)."""
+        return self.tight_cost > 0.0 or self.tight_telemetry
+
+    def frame(self, lengths, tight, died, gamma: float):
+        """One frame's hero rows -> ``(reward delta per row or None, message counters)``.
+
+        ``lengths``: decision-time hero lengths; ``tight``: :func:`tight_predicate` per row
+        (``None`` unless :attr:`tight`); ``died``: the row's hero died this step. The delta is
+        ``None`` when both reward coefficients are 0 (telemetry only).
+        """
+        L = np.asarray(lengths, dtype=np.int64)
+        died = np.asarray(died, dtype=bool)
+        stats = {"m6_death_len": int(L[died].sum())}
+        delta = None
+        if self.tight:
+            t = np.asarray(tight, dtype=bool)
+            big, big1k = L >= self.tight_min_len, L >= TIGHT_REPORT_LEN
+            stats.update(
+                m6_big=int(big.sum()),
+                m6_tight=int((t & big).sum()),
+                m6_big1k=int(big1k.sum()),
+                m6_tight1k=int((t & big1k).sum()),
+            )
+            if self.tight_cost > 0.0:
+                delta = tight_cost_term(L, t, gamma, self.tight_cost, self.tight_min_len)
+        if self.death_mass_mult > 0.0:
+            d = death_mass_term(L, died, self.death_mass_mult)
+            delta = d if delta is None else delta + d
+        return delta, stats
+
+    def empty_stats(self) -> Dict[str, int]:
+        """The counters of a frame without hero rows."""
+        return self.frame(np.zeros(0, np.int64), np.zeros(0, bool), np.zeros(0, bool), 0.0)[1]
+
+
+def m6_log_fields(acc: Dict[str, int], decisions: int, deaths: int) -> Dict[str, Any]:
+    """``log.jsonl`` fields from summed M6 counters (``tight_*`` only when tight is on)."""
+    out: Dict[str, Any] = {}
+    if "m6_big" in acc:
+        big, big1k = acc["m6_big"], acc["m6_big1k"]
+        out["tight_frac"] = acc["m6_tight"] / big if big else None
+        out["tight_big_share"] = big / max(1, decisions)
+        out["tight_frac_1000"] = acc["m6_tight1k"] / big1k if big1k else None
+    out["death_len_mean"] = acc.get("m6_death_len", 0) / deaths if deaths else None
+    return out
 
 
 # ----------------------------------------------------------------------------- replay
@@ -1201,6 +1340,24 @@ def resolve_opp_forward_env(args) -> None:
         args.opp_forward = env
 
 
+def check_m6_args(args) -> None:
+    """Refuse M6 reward-lever settings that would be invalid or silently do nothing."""
+    for name in ("tight_cost", "death_mass_mult"):
+        v = getattr(args, name)
+        if not (math.isfinite(v) and v >= 0.0):
+            raise SystemExit(f"--{name.replace('_', '-')} must be finite and >= 0, got {v!r}")
+    if args.tight_min_len < 0:
+        raise SystemExit(f"--tight-min-len must be >= 0, got {args.tight_min_len}")
+    tight = args.tight_cost > 0.0 or args.tight_telemetry
+    if args.tight_min_len != TIGHT_MIN_LEN and not tight:
+        raise SystemExit("--tight-min-len needs --tight-cost or --tight-telemetry")
+    if (tight or args.death_mass_mult > 0.0) and not args.actors:
+        raise SystemExit("the M6 reward levers need the multi-actor trainer (--actors >= 1)")
+    if tight and args.obs_version != "bv8":
+        # tightness is read from the bv8 actor's features=True v8 result (no extra flood)
+        raise SystemExit("--tight-cost / --tight-telemetry need --obs-version bv8")
+
+
 def m3c_flags(args) -> Dict[str, Any]:
     """The non-default M3-C options in effect (empty for an M3-identical run)."""
     d = default_args()
@@ -1242,9 +1399,15 @@ def m3c_flags(args) -> Dict[str, Any]:
         "compile_learner_scope",
         "compile_actor",
         "opp_forward",
+        "tight_cost",
+        "tight_min_len",
+        "death_mass_mult",
+        "tight_telemetry",
     ):
         if getattr(args, k) != getattr(d, k):
             out[k] = getattr(args, k)
+    if (args.tight_cost or args.tight_telemetry) and "tight_min_len" not in out:
+        out["tight_min_len"] = args.tight_min_len  # in effect: record it with its lever
     return out
 
 
@@ -1394,6 +1557,31 @@ def build_parser() -> argparse.ArgumentParser:
         "tested) or merged-device (that forward on --actor-device; floats differ). Default: "
         "env M3C_OPP_FORWARD, else per-group",
     )
+    # --- M6 reward levers (multi-actor trainer only; defaults = off, the previous trainer) ---
+    ap.add_argument(
+        "--tight-cost",
+        type=float,
+        default=0.0,
+        help="c: each tight hero decision at L >= --tight-min-len gains -c (1 - gamma) Phi(L) "
+        "(tight: best advisory-safe v8 landing area < L; needs --obs-version bv8)",
+    )
+    ap.add_argument(
+        "--tight-min-len",
+        type=int,
+        default=TIGHT_MIN_LEN,
+        help="Lmin of the tight cost / telemetry (needs --tight-cost or --tight-telemetry)",
+    )
+    ap.add_argument(
+        "--death-mass-mult",
+        type=float,
+        default=0.0,
+        help="w: a hero death adds -w Phi(L_before) on top of the v2 reward (death_value kept)",
+    )
+    ap.add_argument(
+        "--tight-telemetry",
+        action="store_true",
+        help="log tight_frac without a reward change (control arms; needs --obs-version bv8)",
+    )
     ap.add_argument("--no-guard", action="store_true", help="tests only: skip the Mac guard")
     return ap
 
@@ -1423,6 +1611,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     if m4a and not args.actors:
         raise SystemExit("the M4-A options need the multi-actor trainer (--actors >= 1)")
+    check_m6_args(args)
     if args.onpolicy_labels and args.anchor_mode != "v8margin":
         raise SystemExit("--onpolicy-labels needs --anchor-mode v8margin")
     if not args.shield_full_until <= args.shield_off_at:
@@ -1915,7 +2104,10 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         bv8 = getattr(args, "obs_version", "b") == "bv8"
         pack = None
         if cfg.get("obs_pack") is not None:
-            from research.redesign_m3c_20261008.obs_pack import PackLayout, layout_for_arena
+            from research.redesign_m3c_20261008.obs_pack import (
+                PackLayout,
+                layout_for_arena,
+            )
 
             pack = PackLayout.from_dict(cfg["obs_pack"])
         ring = SharedObsRing(
@@ -1948,6 +2140,9 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         ctx = gid._context(1)
         B = EgoRasterConfig(version="b")
         mass = args.reward == "mass"
+        m6 = M6Levers.from_args(args)  # None: every M6 lever off (the previous actor)
+        if m6 is not None and m6.tight and not bv8:
+            raise ValueError("the M6 tight predicate needs --obs-version bv8")
         use_v8 = args.shield != "none" or args.onpolicy_labels
         carrier = None
         if use_v8:
@@ -2111,6 +2306,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         act = np.where(explore, rand, policy_act)
                         actions[hero[:, 0], 0] = act
                         chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
+                        if m6 is not None:  # M6: decision-time length (and tightness)
+                            L_dec = np.asarray(prepared.length[hero[:, 0], 0], dtype=np.int64)
+                            chosen["L"] = L_dec
+                            if m6.tight:
+                                chosen["tight"] = tight_predicate(v8res.area, sel_mask, L_dec)
                     if not overlap:
                         opponents(prepared, masks, alive, actions)
                     return actions
@@ -2124,6 +2324,18 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     reward = reward + mass_term(
                         sim.get_lengths()[:, 0], alive_after, gamma_seg, args.mass_kappa
                     )
+                m6_stats: Dict[str, int] = {}
+                if m6 is not None:
+                    if chosen:
+                        hw = chosen["hero"][:, 0]
+                        delta, m6_stats = m6.frame(
+                            chosen["L"], chosen.get("tight"), done[hw], gamma_seg
+                        )
+                        if delta is not None:
+                            reward = np.array(reward, dtype=np.float64)
+                            reward[hw] = reward[hw] + delta
+                    else:
+                        m6_stats = m6.empty_stats()
                 deaths = 0
                 stats = {"decisions": 0, "boost": 0, "greedy_boost": 0, "v8_override": 0}
                 acts = np.zeros(0, dtype=np.int64)
@@ -2166,6 +2378,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     "timing": timing,
                     "weights_version": last,
                     **stats,
+                    **m6_stats,
                 }
                 if prof is not None and prof.running:
                     _profile_count(prof.meta, msg)
@@ -2378,6 +2591,9 @@ def main_multi(args) -> int:
         "lag": [],
         "action_window": deque(maxlen=100_000),
     }
+    m6 = M6Levers.from_args(args)  # None: every M6 lever off (no M6 keys anywhere)
+    if m6 is not None:
+        st["m6"], st["m6_total"] = {}, {"decisions": 0, "deaths": 0}
     meta_base = {
         "schema": SCHEMA_M3C,
         "seed": args.seed,
@@ -2457,6 +2673,14 @@ def main_multi(args) -> int:
                 st["action_window"].extend(msg["acts"].tolist())
                 for k_, v_ in msg["timing"].items():
                     tel.add(k_, v_)
+                if m6 is not None:
+                    tot = st["m6_total"]
+                    tot["decisions"] += msg["decisions"]
+                    tot["deaths"] += msg["deaths"]
+                    for k_, v_ in msg.items():
+                        if k_.startswith("m6_"):
+                            st["m6"][k_] = st["m6"].get(k_, 0) + v_
+                            tot[k_] = tot.get(k_, 0) + v_
             st["wait_s"] += time.perf_counter() - t_w
             progress[0] = st["transitions"]
             if replay.size >= args.warmup:
@@ -2496,6 +2720,9 @@ def main_multi(args) -> int:
                     "demo_distinct": demos.distinct if demos is not None else 0,
                     "actors": K,
                 }
+                if m6 is not None:
+                    row.update(m6_log_fields(st["m6"], st["decisions"], st["deaths"]))
+                    st["m6"] = {}
                 if bv8:
                     row["obs_version"] = "bv8"
                     row["label_buffer"] = labels.size
@@ -2601,6 +2828,9 @@ def main_multi(args) -> int:
     }
     if lopts.compile != "off":
         summary["compile_learner"] = learner.compile_status()
+    if m6 is not None:
+        tot = st["m6_total"]
+        summary["m6_totals"] = {**tot, **m6_log_fields(tot, tot["decisions"], tot["deaths"])}
     (args.out / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
     if prof is not None:
         prof.safe_dump({"actors": K, "worlds": int(args.worlds), "device": str(device)})
