@@ -30,13 +30,17 @@ M6_COMMON = (
     "--gamma-anneal-end 1 --mixed-frac 0.25 --anchor-mode v8margin --anchor-hold 0 "
     "--anchor-floor-at 1 --anchor-floor 0.1 --onpolicy-labels --obs-version bv8 "
     "--label-frac 1.0 --v61-backend numba --learner-fast --batch-scale 2 --obs-pack "
-    "--compile-learner reduce-overhead --worlds 128 --checkpoint-every 2000000"
+    "--worlds 128 --checkpoint-every 2000000"
 ).split()
 M6_ARMS = {
     "CTRL": [],
     "TIGHT": ["--tight-cost", "2", "--tight-min-len", "600"],
     "DEATHW": ["--death-mass-mult", "2"],
 }
+# the plan's launch amendment (2026-10-14, plan notes): every arm then adds the fine-tune
+# schedule flags; CTRL also adds --tight-telemetry (same-seed tight_frac baseline, same reward)
+M6_SCHEDULE = ["--gamma-start", "0.998", "--eps-end-at", "1"]
+M6_TAIL = {"CTRL": ["--tight-telemetry"], "TIGHT": [], "DEATHW": []}
 SHA_A = "a" * 64
 
 
@@ -585,7 +589,7 @@ def test_m6_plan_matches_its_spec():
         "gpu_count": 1,
         "image": gr.IMAGE_DEVEL,
         "min_ram_gb": 125,
-        "min_vcpu": 36,
+        "min_vcpu": 32,
         "vcpu_per_run": 4.3,
         "ram_per_run_gb": 8,
         "actors": 3,
@@ -594,6 +598,9 @@ def test_m6_plan_matches_its_spec():
         "g2_factor": 4,
         "max_hourly": 0.95,
         "ring_dir": "/r/rings",
+        "max_concurrent_cap": 8,
+        "vram_per_run_gb": 2.7,
+        "preflight_transitions": 30_000,
     }
     assert {k: plan[k] for k in want} == want
     assert [x["dst"] for x in plan["extra_inputs"]] == [f"ckpt/B8_s{k}.pth" for k in range(5)]
@@ -606,11 +613,12 @@ def test_m6_plan_matches_its_spec():
         for arm, flags in M6_ARMS.items():
             r = by[f"{arm}_s{10 + k}"]
             assert r["seed"] == 10 + k and r["init"] == f"/r/in/ckpt/B8_s{k}.pth"
-            assert r["extra"] == M6_COMMON + flags  # pairs differ only by the arm's flags
-    # the only sizing warning is the initial wave's VRAM (8 x 2.8 GB): no RAM / pack mismatch
-    warnings = gr.plan_warnings(plan)
-    assert len(warnings) == 1 and warnings[0].startswith("initial wave 8 runs")
-    assert gr.initial_wave(plan) == 8
+            # pairs differ only by the arm's flags
+            assert r["extra"] == M6_COMMON + flags + M6_SCHEDULE + M6_TAIL[arm]
+    # no sizing warning: the initial wave on the 125 GB / 32 vCPU minimum is min(RAM 14,
+    # CPU 7, cap 8) = 7 runs x 2.7 GB VRAM = 18.9 GB (< 90% of 24 GB); no RAM / pack mismatch
+    assert gr.plan_warnings(plan) == []
+    assert gr.initial_wave(plan) == 7
 
 
 def test_m6_plan_flags_parse_with_the_trainer_except_the_pending_m6_ones():
@@ -632,9 +640,12 @@ def test_m6_plan_flags_parse_with_the_trainer_except_the_pending_m6_ones():
                 continue
             keep.append(tok)
         args = parser.parse_args(keep)  # types / choices of every defined flag and value
-        assert args.compile_learner == "reduce-overhead" and args.batch_scale == 2
+        # attempt 4: an eager learner (--compile-learner's CUDA-graph pools ran out of VRAM)
+        assert args.compile_learner == "off" and args.batch_scale == 2
         assert args.obs_pack and args.learner_fast and args.v61_backend == "numba"
         assert args.actors == 3 and args.worlds == 128 and args.init == run["init"]
+        assert args.gamma_start == 0.998 and args.eps_end_at == 1
+        assert args.tight_telemetry == run["name"].startswith("CTRL_")
 
 
 @pytest.mark.skipif(not B8_ART.exists(), reason="the B8 finals live on the Mac only")
