@@ -57,7 +57,9 @@ Everything new is behind a flag:
   frame instead of one call per checkpoint - Q bitwise equal on Apple Accelerate, actor
   messages identical (``tests/test_perf_opp.py``); ``merged-device`` runs that forward on
   ``--actor-device`` (MPS / CUDA floats differ: not same-math). Benchmark and parity check:
-  ``research/perf_opp_20261013/bench_opp.py``.
+  ``research/perf_opp_20261013/bench_opp.py``. Measured on the Mac (noisy): merged-cpu saves
+  ~0.2 ms of a ~17 ms 128-world actor frame and nothing at 256; merged-device on MPS is
+  slower. Not worth enabling there; CUDA untested.
 
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q

@@ -13,15 +13,25 @@ padded into a ``(G, N_max, D)`` block and run through :class:`StackedApexForward
 ``baddbmm`` per layer, the G weight sets stacked), followed by one masked argmax.
 
 * ``device="cpu"`` (``--opp-forward merged-cpu``): Q is bitwise equal to the per-group
-  forwards on Apple Accelerate (``tests/test_perf_opp.py``: every row, every frame, uneven,
-  single-row and empty groups). ``baddbmm`` runs one GEMM per batch entry with the bias
-  pre-filled, as ``addmm`` does. Accelerate's GEMM is row-count invariant only from 16 rows
-  up (:data:`EXACT_MIN_ROWS`), so smaller groups keep their own network call. Other BLAS
-  builds (MKL / oneDNN on x86) may differ: run
+  forwards on Apple Accelerate (torch 2.9.1, M-series; ``tests/test_perf_opp.py``: every
+  row, every frame, uneven, single-row and empty groups). ``baddbmm`` runs one GEMM per batch
+  entry with the bias pre-filled, as ``addmm`` does. Accelerate's GEMM is row-count invariant
+  only from 16 rows up (:data:`EXACT_MIN_ROWS`), so smaller groups keep their own network
+  call. Other BLAS builds (MKL / oneDNN on x86) may differ: run
   ``research/perf_opp_20261013/bench_opp.py --parity`` there before calling it same-math.
 * ``device=<actor device>`` (``merged-device``): the same forward on MPS / CUDA, every group
   stacked. Float results differ from the CPU forwards (different kernels); the bench reports
-  the max |dQ| and the selected-action flip rate. Not same-math.
+  the max |dQ|, raw / selected-action flips and the near-tie rows a difference could flip.
+  Not same-math.
+
+Measured 2026-10-13 on the Mac while two M5 runs were training (NOISY,
+``research/perf_opp_20261013/results``): per frame the M5 recipe has 4 vector61 checkpoints
+(all same architecture) + 2 scripted groups, rows split evenly (32 / 64 / 128 per checkpoint
+at 64 / 128 / 256 worlds). The per-group vector61 forwards cost ~0.7 / 1.0 / 1.4 ms per frame
+(all opponents ~8% of a 128-world actor frame); ``merged-cpu`` ~0.5 / 0.8 / 1.4 ms (the
+stacked GEMMs are compute-bound by 256 worlds), ``merged-device`` on MPS ~2.1 / 2.1 / 2.6 ms
+(slower). Parity over 1.15M real rows: merged-cpu Q bitwise on every row; MPS max |dQ| 8e-5,
+~25% rows bitwise, 0 action flips, ~2e-4 of rows have a masked top-2 gap under 1e-4.
 
 Only plain greedy ``forward="batched"`` groups are merged (no veto slots, exact
 ``ApexNetwork`` modules; in exact CPU mode also only networks that live on the CPU, which

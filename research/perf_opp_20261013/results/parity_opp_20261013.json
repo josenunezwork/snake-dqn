@@ -1,0 +1,110 @@
+{
+ "schema": "perf-opp-bench/v1",
+ "created_utc": "2026-10-14T03:41:17.618718+00:00",
+ "host": "MacBook-Pro.local",
+ "machine": "arm64",
+ "label": "noisy",
+ "note": "opponents only (random hero); one CPU process; noisy if the host is busy",
+ "rows": [
+  {
+   "worlds": 128,
+   "frozen_frac": 0.25,
+   "mixed_frac": 0.25,
+   "segments": 3,
+   "timed_frames": 1500,
+   "device": "mps",
+   "census_mean": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 256.0,
+    "v61_rows_min_group": 64.0,
+    "v61_rows_max_group": 64.0,
+    "scripted_rows": 384.0
+   },
+   "census_max": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 256.0,
+    "v61_rows_min_group": 64.0,
+    "v61_rows_max_group": 64.0,
+    "scripted_rows": 384.0
+   },
+   "parity": {
+    "merged-cpu": {
+     "rows": 384000,
+     "q_bitwise_rows": 384000,
+     "max_abs_dq": 0.0,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 66,
+     "min_masked_top2_gap": 5.960464477539062e-07,
+     "q_bitwise_frac": 1.0,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    },
+    "merged-device": {
+     "rows": 384000,
+     "q_bitwise_rows": 97167,
+     "max_abs_dq": 8.0108642578125e-05,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 66,
+     "min_masked_top2_gap": 5.960464477539062e-07,
+     "q_bitwise_frac": 0.2530390625,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    }
+   }
+  },
+  {
+   "worlds": 256,
+   "frozen_frac": 0.25,
+   "mixed_frac": 0.25,
+   "segments": 3,
+   "timed_frames": 1500,
+   "device": "mps",
+   "census_mean": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 512.0,
+    "v61_rows_min_group": 128.0,
+    "v61_rows_max_group": 128.0,
+    "scripted_rows": 768.0
+   },
+   "census_max": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 512.0,
+    "v61_rows_min_group": 128.0,
+    "v61_rows_max_group": 128.0,
+    "scripted_rows": 768.0
+   },
+   "parity": {
+    "merged-cpu": {
+     "rows": 768000,
+     "q_bitwise_rows": 768000,
+     "max_abs_dq": 0.0,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 171,
+     "min_masked_top2_gap": 0.0,
+     "q_bitwise_frac": 1.0,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    },
+    "merged-device": {
+     "rows": 768000,
+     "q_bitwise_rows": 193456,
+     "max_abs_dq": 6.866455078125e-05,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 171,
+     "min_masked_top2_gap": 0.0,
+     "q_bitwise_frac": 0.2518958333333333,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    }
+   }
+  }
+ ]
+}
