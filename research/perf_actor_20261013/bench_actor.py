@@ -36,6 +36,11 @@ Usage (re-run on a quiet machine; numbers taken while other jobs run are noisy):
         --devices cuda --compile-actor off,default,reduce-overhead --frames 300 --warm 30 \\
         --out bench_actor_cuda_compile.json
 
+    # the B8 recipe's actor (bv8 obs + on-policy v8 labels) on a CUDA host (pod bench session)
+    ./venv/bin/python research/perf_actor_20261013/bench_actor.py --configs numba \\
+        --worlds 64,128,256 --devices cuda \\
+        --trainer-args "--obs-version bv8 --onpolicy-labels --mixed-frac 0.25 --reward mass"
+
     # one cell under cProfile (top functions by own time)
     ./venv/bin/python research/perf_actor_20261013/bench_actor.py --profile \\
         --configs baseline --worlds 64 --devices cpu --frames 100
@@ -46,8 +51,10 @@ Usage (re-run on a quiet machine; numbers taken while other jobs run are noisy):
         --profiler pyinstrument --profile-dir /tmp/prof_long --configs numba --worlds 128 \\
         --devices mps --frames 150 --warm 400 --grow-to 1200
 
-``--b8`` appends the B8 recipe's actor-side flags (:data:`B8_ARGS`); ``--train-args`` appends
-any other ``train_m3c`` flags. Neither changes the default cells.
+``--b8`` appends the B8 recipe's actor-side flags (:data:`B8_ARGS`); ``--train-args`` and
+``--trainer-args`` (pod bench session) append any other ``train_m3c`` flags, in that order
+after ``--compile-actor`` (the trainer's parser validates them; the last occurrence of a flag
+wins). None of them changes the default cells.
 """
 
 from __future__ import annotations
@@ -172,8 +179,14 @@ def run_cell(
     train_args: str = "",
     profiler: str = "cprofile",
     profile_dir: Optional[Path] = None,
+    trainer_args: str = "",
 ) -> Dict[str, Any]:
-    """One in-process ``actor_main`` run; returns rates and the timing split."""
+    """One in-process ``actor_main`` run; returns rates and the timing split.
+
+    ``train_args`` then ``trainer_args`` (opt-in, shell-split) are appended to the actor's
+    ``train_m3c`` argv, e.g. the B8 recipe's ``--obs-version bv8 --onpolicy-labels
+    --mixed-frac 0.25 --reward mass``; the trainer's own parser validates them (the last
+    occurrence of a flag wins)."""
     from research.redesign_m3c_20261008 import train_m3c as T
 
     impl, v61 = CONFIGS[config]
@@ -202,7 +215,8 @@ def run_cell(
         v61,
         "--compile-actor",
         compile_actor,
-        *shlex.split(train_args),
+        *shlex.split(train_args or ""),
+        *shlex.split(trainer_args or ""),
     ]
     args = T.build_parser().parse_args(argv)
     built: list = []  # the segments' sims (read after the run: body sizes in the window)
@@ -285,6 +299,7 @@ def run_cell(
         "grow_to": grow_to,
         "frozen_frac": frozen_frac,
         "train_args": train_args,
+        "trainer_args": trainer_args or "",
         "wall_s": wall,
         "frames_per_s": n / wall,
         "ms_per_frame": 1e3 * wall / n,
@@ -350,6 +365,12 @@ def main() -> int:
     ap.add_argument("--b8", action="store_true", help="append the B8 actor flags (B8_ARGS)")
     ap.add_argument("--train-args", default="", help="extra train_m3c flags (one string)")
     ap.add_argument(
+        "--trainer-args",
+        default="",
+        help="extra train_m3c actor flags (one string, shell-split), e.g. the B8 recipe's "
+        "'--obs-version bv8 --onpolicy-labels --mixed-frac 0.25 --reward mass'",
+    )
+    ap.add_argument(
         "--compile-actor",
         default="off",
         help="perf-compile: comma list of hero-forward compile modes (off = eager)",
@@ -378,18 +399,27 @@ def main() -> int:
             train_args=train_args,
             profiler=a.profiler,
             profile_dir=a.profile_dir,
+            trainer_args=a.trainer_args,
         )
         if a.profile:
             print(row.pop("profile_tottime"))
         print("CELL " + json.dumps(row), flush=True)
         return 0
     rows: List[Dict[str, Any]] = []
+    skipped: List[str] = []
     for device in a.devices.split(","):
         if device == "mps":
             import torch
 
             if not torch.backends.mps.is_available():
                 print("mps unavailable: skipped", flush=True)
+                continue
+        if device.startswith("cuda"):
+            import torch
+
+            if not torch.cuda.is_available():
+                print(f"{device} unavailable: skipped", flush=True)
+                skipped.append(device)
                 continue
         for worlds, config, cmode in [
             (int(w), c, m)
@@ -416,6 +446,8 @@ def main() -> int:
                 init,
                 "--train-args=" + train_args,  # one token: the value may start with "--"
             ]
+            if a.trainer_args:
+                cmd.append("--trainer-args=" + a.trainer_args)
             r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
             line = [x for x in r.stdout.splitlines() if x.startswith("CELL ")]
             if r.returncode or not line:
@@ -441,8 +473,12 @@ def main() -> int:
         "note": "single actor process, in-process sink (no learner); noisy if the host is busy"
         + (f"; {a.note}" if a.note else ""),
         "init": init,
+        "train_args": train_args,
+        "trainer_args": a.trainer_args,
         "rows": rows,
     }
+    if skipped:
+        result["skipped_devices"] = skipped
     if a.out:
         a.out.parent.mkdir(parents=True, exist_ok=True)
         a.out.write_text(json.dumps(result, indent=1) + "\n")
