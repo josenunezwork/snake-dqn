@@ -1,0 +1,93 @@
+{
+ "schema": "perf-compile-mps-check/v1",
+ "torch": "2.9.1",
+ "created": "2026-10-13",
+ "what": "torch.compile(loss_terms) learner step on MPS vs eager (first-steps check, test-size learner 24+8 rows), and one fixed batch: CPU eager (ground truth) vs MPS eager vs MPS compiled gradients",
+ "verdict": "MPS eager matches CPU (worst rel L2 2.5e-6); MPS-inductor-compiled backward returns wrong conv-bias gradients (glob.2.bias, local.2.bias, local.4.bias; rel err 1e2-4e3) -> the learner check rejects every MPS config and falls back to eager. The compiled hero forward (inference) on MPS matches eager (max |dQ| ~1e-6).",
+ "learner_first_steps_check": [
+  {
+   "mode": "bv8",
+   "scope": "loss",
+   "precision": "fp32",
+   "fallback": "RuntimeError: compiled step disagrees with eager: grad glob.2.bias relative error 1.77e+03 > allowed 0.001 (shape key (24, 8, 0))",
+   "verify_worst_rel_err": 1773.2216740757058,
+   "compiled_calls": 0
+  },
+  {
+   "mode": "bv8",
+   "scope": "loss",
+   "precision": "bf16",
+   "fallback": "RuntimeError: compiled step disagrees with eager: grad glob.2.bias relative error inf > allowed 0.385 (shape key (24, 8, 0))",
+   "verify_worst_rel_err": "inf",
+   "compiled_calls": 0
+  },
+  {
+   "mode": "bv8",
+   "scope": "forward",
+   "precision": "fp32",
+   "fallback": "RuntimeError: compiled step disagrees with eager: grad glob.2.bias relative error 2.5e+03 > allowed 0.001 (shape key (24, 8, 0))",
+   "verify_worst_rel_err": 2499.438810093061,
+   "compiled_calls": 0
+  },
+  {
+   "mode": "bv8",
+   "scope": "forward",
+   "precision": "bf16",
+   "fallback": "RuntimeError: compiled step disagrees with eager: td relative error inf > allowed 0.05 (shape key (24, 8, 0))",
+   "verify_worst_rel_err": "inf",
+   "compiled_calls": 0
+  },
+  {
+   "mode": "b",
+   "scope": "loss",
+   "precision": "fp32",
+   "fallback": "RuntimeError: compiled step disagrees with eager: grad glob.2.bias relative error inf > allowed 0.001 (shape key (24, 8, 8))",
+   "verify_worst_rel_err": "inf",
+   "compiled_calls": 0
+  },
+  {
+   "mode": "b",
+   "scope": "loss",
+   "precision": "bf16",
+   "fallback": "RuntimeError: compiled step disagrees with eager: grad glob.2.bias relative error 112 > allowed 0.232 (shape key (24, 8, 8))",
+   "verify_worst_rel_err": 111.89226236477535,
+   "compiled_calls": 0
+  },
+  {
+   "mode": "b",
+   "scope": "forward",
+   "precision": "fp32",
+   "fallback": "RuntimeError: compiled step disagrees with eager: grad glob.2.bias relative error 360 > allowed 0.001 (shape key (24, 8, 8))",
+   "verify_worst_rel_err": 359.69557459844907,
+   "compiled_calls": 0
+  },
+  {
+   "mode": "b",
+   "scope": "forward",
+   "precision": "bf16",
+   "fallback": "RuntimeError: compiled step disagrees with eager: td relative error inf > allowed 0.05 (shape key (24, 8, 8))",
+   "verify_worst_rel_err": "inf",
+   "compiled_calls": 0
+  }
+ ],
+ "fixed_batch_vs_cpu": {
+  "mps_eager_vs_cpu_worst": [
+   "local.0.weight",
+   2.5490887075037395e-06
+  ],
+  "mps_compiled_vs_cpu_worst": [
+   "glob.2.bias",
+   1362.1968906867862
+  ],
+  "glob.2.bias": {
+   "mps_eager": 6.122627316225193e-07,
+   "mps_compiled": 1362.1968906867862
+  },
+  "bias_grads_wrong_in_compiled": [
+   "glob.2.bias",
+   "local.2.bias",
+   "local.4.bias"
+  ]
+ },
+ "note": "learner_first_steps_check: final criterion (fp32 tol 1e-3; autocast max(5e-2, 4 x own bf16-vs-fp32 error)); inf = the compiled step produced NaN"
+}

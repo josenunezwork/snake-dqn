@@ -1,4 +1,4 @@
-"""Serve an ``ego2s-draft`` / ``ego2s-b`` student behind the live web game (Watch / Play).
+"""Serve an ``ego2s-draft`` / ``ego2s-b`` / ``ego2s-bv8`` student behind the live web game.
 
 Mirrors :class:`web.backend.raster_policy.RasterServingPolicy`: it duck-types the
 ``ApexPolicy`` surface the game and serializer use (``training`` / ``epsilon`` /
@@ -8,7 +8,9 @@ Once per frame (``prepare_frame``, called by ``GameState.update`` step 6 after r
 before any snake moves; or lazily on the first ``dqn`` call) it rasterises the live game
 with :func:`~src.simd_env.ego_live_adapter.game_state_to_ego_view` and runs the SAME
 featurizer the student was trained on (numba backend, version from the checkpoint) for
-every living snake, then one batched forward. Serve-time observations are bitwise the
+every living snake, then one batched forward. ``ego2s-bv8`` adds the v8 feature scalars from
+:func:`~src.simd_env.ego_live_bv8.game_state_to_v8_source` (the same compiled v8 kernel on
+the live bodies) for the snakes this policy drives only. Serve-time observations are bitwise the
 training observations (``tests/test_ego_live_identity.py`` and the gate-world harness
 ``research/redesign_scope_20261007/ego_live_identity.py --obs-version b``).
 
@@ -109,15 +111,34 @@ class Ego2sServingPolicy:
         frame = int(getattr(game, "frame", 0))
         if self._frame == frame and self._q is not None:
             return
+        from src.game.ai_snake import AISnake
+
         snakes = list(game.snakes)
         view = game_state_to_ego_view(game)
-        rows = np.array(
-            [[0, i] for i in range(len(snakes)) if view.alive[0, i]], dtype=np.int64
-        ).reshape(-1, 2)
+        driven = [
+            i
+            for i, s in enumerate(snakes)
+            if isinstance(s, AISnake)
+            and bool(getattr(s, "is_alive", False))
+            and getattr(s, "policy", None) is self
+        ]
+        v8_source = None
+        if self.ego_cfg.version == "bv8":
+            # The v8 features cost a flood + an advisory mask per row: featurize only the
+            # snakes this policy drives (the only Q rows ever dispatched).
+            from src.simd_env.ego_live_bv8 import game_state_to_v8_source
+
+            picked = [i for i in driven if view.alive[0, i]]
+            v8_source = game_state_to_v8_source(game, mask_slots=picked)
+        else:
+            picked = [i for i in range(len(snakes)) if view.alive[0, i]]
+        rows = np.array([[0, i] for i in picked], dtype=np.int64).reshape(-1, 2)
         q = np.zeros((len(snakes), self.output_size), dtype=np.float32)
         obs = None
         if len(rows):
-            obs = build_ego_raster(view, self.ego_cfg, backend="numba", rows=rows)
+            obs = build_ego_raster(
+                view, self.ego_cfg, backend="numba", rows=rows, v8_source=v8_source
+            )
             q_rows = forward_q(self.net, obs, self.forward).numpy()
             q[rows[:, 1]] = q_rows
         self._frame = frame
@@ -126,15 +147,7 @@ class Ego2sServingPolicy:
             {"rows": rows[:, 1], **{k: np.asarray(v) for k, v in obs.items()}} if obs else None
         )
         self._id_to_row = {int(s.id): row for row, s in enumerate(snakes)}
-        from src.game.ai_snake import AISnake
-
-        self._dispatch = [
-            int(s.id)
-            for s in snakes
-            if isinstance(s, AISnake)
-            and bool(getattr(s, "is_alive", False))
-            and getattr(s, "policy", None) is self
-        ]
+        self._dispatch = [int(snakes[i].id) for i in driven]
 
     def _next_dispatch_q(self, state: torch.Tensor) -> torch.Tensor:
         self._ensure_frame()

@@ -19,11 +19,12 @@ import torch
 from torch import nn
 
 from src.model.obs_spec import EGO2S_B as OBS_SPEC_B  # noqa: E402
+from src.model.obs_spec import EGO2S_BV8 as OBS_SPEC_BV8  # noqa: E402
 from src.model.obs_spec import EGO2S_DRAFT as OBS_SPEC  # noqa: E402
 
 ARCH = "ego2s-dueling-cnn/v1"
 #: obs spec -> (local channels, scalars)
-OBS_SHAPES = {OBS_SPEC: (6, 12), OBS_SPEC_B: (7, 30)}
+OBS_SHAPES = {OBS_SPEC: (6, 12), OBS_SPEC_B: (7, 30), OBS_SPEC_BV8: (7, 60)}
 
 
 class Ego2sNet(nn.Module):

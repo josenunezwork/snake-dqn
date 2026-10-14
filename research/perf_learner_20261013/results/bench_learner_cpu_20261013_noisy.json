@@ -1,0 +1,149 @@
+{
+ "created_utc": "2026-10-13T22:36:31.384407+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "loadavg_start": [
+  5.58251953125,
+  4.92919921875,
+  4.72412109375
+ ],
+ "argv": [
+  "--devices",
+  "cpu",
+  "--configs",
+  "baseline,t1,t1_bf16,t1_k2,t1_k4",
+  "--updates-cpu",
+  "3",
+  "--rounds-cpu",
+  "2",
+  "--out",
+  "research/perf_learner_20261013/results/bench_learner_cpu_20261013_noisy.json"
+ ],
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "mode": "bv8",
+ "note": "NOISY: measured while other training jobs shared the CPU and the MPS GPU",
+ "cells": [
+  {
+   "device": "cpu",
+   "config": "baseline",
+   "flags": {},
+   "updates_per_round": 3,
+   "rounds": 2,
+   "round_seconds": [
+    2.5477,
+    2.5778
+   ],
+   "ms_per_update_median": 854.25,
+   "updates_per_s": 1.171,
+   "update_every": 128,
+   "transitions_per_s": 149.8,
+   "rows_per_update": {
+    "agent": 384,
+    "anchor": 128
+   },
+   "halt": null,
+   "speedup_vs_baseline": 1.0
+  },
+  {
+   "device": "cpu",
+   "config": "t1",
+   "flags": {
+    "fast": true
+   },
+   "updates_per_round": 3,
+   "rounds": 2,
+   "round_seconds": [
+    2.5361,
+    2.5449
+   ],
+   "ms_per_update_median": 846.83,
+   "updates_per_s": 1.181,
+   "update_every": 128,
+   "transitions_per_s": 151.2,
+   "rows_per_update": {
+    "agent": 384,
+    "anchor": 128
+   },
+   "halt": null,
+   "speedup_vs_baseline": 1.009
+  },
+  {
+   "device": "cpu",
+   "config": "t1_bf16",
+   "flags": {
+    "fast": true,
+    "precision": "bf16"
+   },
+   "updates_per_round": 3,
+   "rounds": 2,
+   "round_seconds": [
+    18.0799,
+    18.1198
+   ],
+   "ms_per_update_median": 6033.27,
+   "updates_per_s": 0.166,
+   "update_every": 128,
+   "transitions_per_s": 21.2,
+   "rows_per_update": {
+    "agent": 384,
+    "anchor": 128
+   },
+   "halt": null,
+   "speedup_vs_baseline": 0.142
+  },
+  {
+   "device": "cpu",
+   "config": "t1_k2",
+   "flags": {
+    "fast": true,
+    "batch_scale": 2
+   },
+   "updates_per_round": 3,
+   "rounds": 2,
+   "round_seconds": [
+    5.1607,
+    5.1694
+   ],
+   "ms_per_update_median": 1721.68,
+   "updates_per_s": 0.581,
+   "update_every": 256,
+   "transitions_per_s": 148.7,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "speedup_vs_baseline": 0.993
+  },
+  {
+   "device": "cpu",
+   "config": "t1_k4",
+   "flags": {
+    "fast": true,
+    "batch_scale": 4
+   },
+   "updates_per_round": 3,
+   "rounds": 2,
+   "round_seconds": [
+    10.4292,
+    10.5907
+   ],
+   "ms_per_update_median": 3503.32,
+   "updates_per_s": 0.285,
+   "update_every": 512,
+   "transitions_per_s": 146.1,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "speedup_vs_baseline": 0.975
+  }
+ ],
+ "loadavg_end": [
+  7.017578125,
+  5.572265625,
+  4.9931640625
+ ]
+}

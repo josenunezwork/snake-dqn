@@ -217,7 +217,7 @@ def test_policy_is_cpu3c_secure():
     p = jobspec.load_policy()
     assert p["flavor"] == "cpu3c" and p["cloud"] == "SECURE"
     assert p["vcpu_sizes_desc"] == [32, 16, 8, 4, 2]
-    assert p["global_floor_usd"] == 5.0 and p["project_cap_usd"] == 50.0
+    assert p["global_floor_usd"] == 5.0 and p["project_cap_usd"] == 100.0
 
 
 def test_deterministic_bytes_drop_timing_and_stamps():
@@ -726,7 +726,7 @@ def test_cli_run_refuses_without_budget(tmp_path, monkeypatch, capsys):
     jf.write_text(json.dumps(job()))
     assert runner.main(["run", str(jf), "--confirm"]) == 2
     assert runner.main(["run", str(jf), "--budget", "0.5"]) == 2
-    assert runner.main(["run", str(jf), "--budget", "60", "--confirm"]) == 2
+    assert runner.main(["run", str(jf), "--budget", "120", "--confirm"]) == 2  # > cap
 
 
 def test_agent_rejects_bad_token_and_unlisted_uploads(tmp_path):

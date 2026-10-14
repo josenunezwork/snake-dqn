@@ -34,7 +34,9 @@ __all__ = [
     "RASTER_OBS_SPECS",
     "EGO2S_DRAFT",
     "EGO2S_B",
+    "EGO2S_BV8",
     "EGO2S_OBS_SPECS",
+    "EGO2S_SIMD_ONLY_SPECS",
     "DEFAULT_OBS_SPEC",
     "KNOWN_OBS_SPECS",
     "RasterObsShapes",
@@ -68,7 +70,15 @@ RASTER_OBS_SPECS = (RASTER31V2, RASTER31V3)
 #: through ``web.backend.ego2s_policy.Ego2sServingPolicy`` (never through InferenceAgent).
 EGO2S_DRAFT = "ego2s-draft"
 EGO2S_B = "ego2s-b"
-EGO2S_OBS_SPECS = (EGO2S_DRAFT, EGO2S_B)
+#: M4-B: ``ego2s-b`` + the v8 veto's 30 per-action features appended to the scalars
+#: (``src/simd_env/ego_raster_bv8.py``). The SIMD grid engine reads them from the sim's
+#: bodies; serving reads the same compiled kernel on the live bodies
+#: (``src/simd_env/ego_live_bv8.py``; grid == live records, P2, hold since 2026-10-13).
+EGO2S_BV8 = "ego2s-bv8"
+EGO2S_OBS_SPECS = (EGO2S_DRAFT, EGO2S_B, EGO2S_BV8)
+#: Ego specs with no live serving path (refused by the serving loaders). Empty since
+#: ``ego2s-bv8`` gained its live featurizer; kept for callers that consult it.
+EGO2S_SIMD_ONLY_SPECS: tuple = ()
 
 # A recognized v3 descriptor is not, by itself, a serving guarantee. The
 # loader validates its semantic metadata before construction and Session adds

@@ -1,0 +1,80 @@
+{
+ "note": "NOISY: 300k-transition B8 runs (2 actors x 128 worlds, MPS learner + actors) while M5-L60 trained on the same GPU and other agents ran benchmarks",
+ "runs": [
+  {
+   "run": "run1",
+   "transitions": 300160,
+   "updates": 2335,
+   "wall_s": 148.7,
+   "rate_overall": 2018.9,
+   "halt": null,
+   "git": "09ef078",
+   "dirty": true,
+   "rate_steady": 2150.9,
+   "learn_frac_steady": 0.954,
+   "actor_env_ms_per_frame": 33.98,
+   "profiled_window": {
+    "s": 117.4,
+    "transitions": 251904,
+    "updates": 1969,
+    "rate": 2146.0,
+    "learn_frac": 0.958,
+    "learner_wait_frac": 0.0019,
+    "ms_per_update": 59.61
+   },
+   "uptime_before_after": [
+    "5.50 4.85 4.77",
+    "6.96 5.74 5.15"
+   ],
+   "profiled": true,
+   "note": "pyinstrument; code = 09ef078 + the uncommitted hook (the earlier session's run)"
+  },
+  {
+   "run": "run3_pyi",
+   "transitions": 300160,
+   "updates": 2335,
+   "wall_s": 123.6,
+   "rate_overall": 2427.8,
+   "halt": null,
+   "git": "cb87747",
+   "dirty": true,
+   "rate_steady": 2546.7,
+   "learn_frac_steady": 0.945,
+   "actor_env_ms_per_frame": 36.55,
+   "profiled_window": {
+    "s": 92.9,
+    "transitions": 237824,
+    "updates": 1859,
+    "rate": 2559.5,
+    "learn_frac": 0.949,
+    "learner_wait_frac": 0.0027,
+    "ms_per_update": 49.98
+   },
+   "uptime_before_after": [
+    "8.01 6.99 5.55",
+    "10.48 8.14 6.19"
+   ],
+   "profiled": true,
+   "note": "pyinstrument; code = cb87747"
+  },
+  {
+   "run": "run4_off",
+   "transitions": 300160,
+   "updates": 2335,
+   "wall_s": 148.0,
+   "rate_overall": 2028.3,
+   "halt": null,
+   "git": "cb87747",
+   "dirty": true,
+   "rate_steady": 1904.7,
+   "learn_frac_steady": 0.949,
+   "actor_env_ms_per_frame": 42.48,
+   "uptime_before_after": [
+    "11.00 8.29 6.26",
+    "13.16 10.26 7.38"
+   ],
+   "profiled": false,
+   "note": "M3C_PROFILE unset; code = cb87747"
+  }
+ ]
+}

@@ -1,0 +1,148 @@
+{
+ "schema": "perf-actor-bench/v1",
+ "created_utc": "2026-10-13T15:46:45.783533+00:00",
+ "host": "MacBook-Pro.local",
+ "machine": "arm64",
+ "note": "single actor process, in-process sink (no learner); noisy if the host is busy",
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "rows": [
+  {
+   "config": "baseline",
+   "actor_impl": "reference",
+   "v61_backend": "python",
+   "worlds": 64,
+   "device": "mps",
+   "frames": 150,
+   "warm": 400,
+   "grow_to": 1200,
+   "frozen_frac": 0.25,
+   "wall_s": 5.84449058258906,
+   "frames_per_s": 25.66519662925888,
+   "ms_per_frame": 38.963270550593734,
+   "hero_transitions_per_s": 1642.5725842725683,
+   "emitted_transitions": 9600,
+   "env_ms_per_frame": 38.95544893108308,
+   "timing_ms_per_frame": {
+    "featurizer_s": 2.30849369118611,
+    "forward_s": 7.035609384377797,
+    "opponents_s": 1.693258925030629,
+    "v8_s": 0.0
+   }
+  },
+  {
+   "config": "vectorized",
+   "actor_impl": "vectorized",
+   "v61_backend": "python",
+   "worlds": 64,
+   "device": "mps",
+   "frames": 150,
+   "warm": 400,
+   "grow_to": 1200,
+   "frozen_frac": 0.25,
+   "wall_s": 5.4351752498187125,
+   "frames_per_s": 27.598006155367884,
+   "ms_per_frame": 36.23450166545808,
+   "hero_transitions_per_s": 1766.2723939435446,
+   "emitted_transitions": 9600,
+   "env_ms_per_frame": 36.22561776700119,
+   "timing_ms_per_frame": {
+    "featurizer_s": 2.28043418067197,
+    "forward_s": 6.27085642889142,
+    "opponents_s": 1.7779402621090412,
+    "v8_s": 0.0
+   }
+  },
+  {
+   "config": "numba",
+   "actor_impl": "vectorized",
+   "v61_backend": "numba",
+   "worlds": 64,
+   "device": "mps",
+   "frames": 150,
+   "warm": 400,
+   "grow_to": 1200,
+   "frozen_frac": 0.25,
+   "wall_s": 2.014432417228818,
+   "frames_per_s": 74.46266189776155,
+   "ms_per_frame": 13.42954944819212,
+   "hero_transitions_per_s": 4765.610361456739,
+   "emitted_transitions": 9600,
+   "env_ms_per_frame": 13.42010524434348,
+   "timing_ms_per_frame": {
+    "featurizer_s": 2.1819602977484465,
+    "forward_s": 5.698604518547654,
+    "opponents_s": 1.4221277584632237,
+    "v8_s": 0.0
+   }
+  },
+  {
+   "config": "baseline",
+   "actor_impl": "reference",
+   "v61_backend": "python",
+   "worlds": 128,
+   "device": "mps",
+   "frames": 150,
+   "warm": 400,
+   "grow_to": 1200,
+   "frozen_frac": 0.25,
+   "wall_s": 11.847023374866694,
+   "frames_per_s": 12.661408292501815,
+   "ms_per_frame": 78.98015583244462,
+   "hero_transitions_per_s": 1620.6602614402323,
+   "emitted_transitions": 19205,
+   "env_ms_per_frame": 78.97120476079483,
+   "timing_ms_per_frame": {
+    "featurizer_s": 4.248671966294448,
+    "forward_s": 8.565507143115004,
+    "opponents_s": 3.0232466074327626,
+    "v8_s": 0.0
+   }
+  },
+  {
+   "config": "vectorized",
+   "actor_impl": "vectorized",
+   "v61_backend": "python",
+   "worlds": 128,
+   "device": "mps",
+   "frames": 150,
+   "warm": 400,
+   "grow_to": 1200,
+   "frozen_frac": 0.25,
+   "wall_s": 11.925808792002499,
+   "frames_per_s": 12.577763287684997,
+   "ms_per_frame": 79.50539194668333,
+   "hero_transitions_per_s": 1609.9537008236796,
+   "emitted_transitions": 19205,
+   "env_ms_per_frame": 79.49471468416353,
+   "timing_ms_per_frame": {
+    "featurizer_s": 4.270417516430219,
+    "forward_s": 8.09625414510568,
+    "opponents_s": 3.546193807075421,
+    "v8_s": 0.0
+   }
+  },
+  {
+   "config": "numba",
+   "actor_impl": "vectorized",
+   "v61_backend": "numba",
+   "worlds": 128,
+   "device": "mps",
+   "frames": 150,
+   "warm": 400,
+   "grow_to": 1200,
+   "frozen_frac": 0.25,
+   "wall_s": 3.176390124950558,
+   "frames_per_s": 47.223418440244274,
+   "ms_per_frame": 21.175934166337054,
+   "hero_transitions_per_s": 6044.597560351267,
+   "emitted_transitions": 19205,
+   "env_ms_per_frame": 21.16664204125603,
+   "timing_ms_per_frame": {
+    "featurizer_s": 3.8643722143024206,
+    "forward_s": 8.716957454259196,
+    "opponents_s": 1.515330293526252,
+    "v8_s": 0.0
+   }
+  }
+ ]
+}

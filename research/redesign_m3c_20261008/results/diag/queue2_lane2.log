@@ -1,0 +1,17 @@
+🖥️  Using CPU (forced)
+{"arm": "baseline", "veto": "v8", "mix": "frozen", "mean": 413.14183125}
+🖥️  Using CPU (forced)
+{"arm": "baseline", "veto": "v8", "mix": "scripted", "mean": 454.5998375}
+🖥️  Using CPU (forced)
+{"arm": "baseline", "veto": "v8", "mix": "mixed", "mean": 437.037775}
+🖥️  Using CPU (forced)
+{"mix": "frozen", "world_seed": 575618937, "identical": true, "mass_integral": 125.9868}
+{"mix": "frozen", "world_seed": 643519331, "identical": true, "mass_integral": 415.9224}
+{"mix": "frozen", "world_seed": 3305189242, "identical": true, "mass_integral": 134.4928}
+{"mix": "scripted", "world_seed": 575618937, "identical": true, "mass_integral": 5.5736}
+{"mix": "scripted", "world_seed": 643519331, "identical": true, "mass_integral": 131.85}
+{"mix": "scripted", "world_seed": 3305189242, "identical": true, "mass_integral": 81.6836}
+{"mix": "mixed", "world_seed": 575618937, "identical": true, "mass_integral": 363.1308}
+{"mix": "mixed", "world_seed": 643519331, "identical": true, "mass_integral": 334.8722}
+{"mix": "mixed", "world_seed": 3305189242, "identical": true, "mass_integral": 320.9666}
+{"arm": "none", "compared": 9, "identical": 9, "pass": true}

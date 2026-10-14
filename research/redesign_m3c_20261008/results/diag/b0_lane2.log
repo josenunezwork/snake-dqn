@@ -1,0 +1,11 @@
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "none", "mix": "frozen", "mean": 95.5040375}
+{"arm": "student", "veto": "none", "mix": "scripted", "mean": 138.4015125}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "none", "mix": "mixed", "mean": 160.2669625}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "frozen", "mean": 451.1470875}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "scripted", "mean": 420.7423}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "mixed", "mean": 441.6795}

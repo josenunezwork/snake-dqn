@@ -1,0 +1,64 @@
+{
+ "kind": "perf-ram actor-state",
+ "created_utc": "2026-10-14T04:39:05.618246+00:00",
+ "rows": [
+  {
+   "worlds": 16,
+   "frames": 150,
+   "delta_uss_gb": 0.0469,
+   "delta_rss_gb": 0.1214,
+   "numpy_gb": {
+    "sim": 0.019,
+    "runtime": 0.0006,
+    "policies": 0.0006
+   },
+   "process_after": {
+    "rss": 0.395722752,
+    "uss": 0.243810304
+   }
+  },
+  {
+   "worlds": 64,
+   "frames": 150,
+   "delta_uss_gb": 0.071,
+   "delta_rss_gb": 0.207,
+   "numpy_gb": {
+    "sim": 0.0761,
+    "runtime": 0.0012,
+    "policies": 0.0012
+   },
+   "process_after": {
+    "rss": 0.602701824,
+    "uss": 0.310689792
+   }
+  },
+  {
+   "worlds": 128,
+   "frames": 150,
+   "delta_uss_gb": 0.1637,
+   "delta_rss_gb": 0.2225,
+   "numpy_gb": {
+    "sim": 0.1521,
+    "runtime": 0.002,
+    "policies": 0.002
+   },
+   "process_after": {
+    "rss": 0.825606144,
+    "uss": 0.402489344
+   }
+  }
+ ],
+ "host": {
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "python": "3.12.3"
+ },
+ "noisy": true,
+ "baseline": {
+  "rss": 0.261521408,
+  "uss": 0.18857984
+ },
+ "after_context": {
+  "rss": 0.274317312,
+  "uss": 0.196919296
+ }
+}

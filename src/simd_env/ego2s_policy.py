@@ -19,7 +19,12 @@ from typing import Optional, Sequence
 import numpy as np
 import torch
 
-from src.model.ego2s_network import OBS_SPEC_B, load_ego2s_checkpoint, obs_tensors
+from src.model.ego2s_network import (
+    OBS_SPEC_B,
+    OBS_SPEC_BV8,
+    load_ego2s_checkpoint,
+    obs_tensors,
+)
 from src.simd_env.ego_raster import EgoRasterConfig, build_ego_raster
 from src.simd_env.vector61_policy import Vector61SimdPolicy
 
@@ -30,7 +35,8 @@ def ego_config_for(net) -> EgoRasterConfig:
     """The featurizer config a student was trained on (from its input shape)."""
     from src.model.ego2s_network import spec_for
 
-    return EgoRasterConfig(version="b" if spec_for(net) == OBS_SPEC_B else "draft")
+    version = {OBS_SPEC_B: "b", OBS_SPEC_BV8: "bv8"}.get(spec_for(net), "draft")
+    return EgoRasterConfig(version=version)
 
 
 FORWARDS = ("batched", "rowwise")
@@ -68,18 +74,42 @@ def student_q(net, sim, slots: np.ndarray, forward: str = "batched") -> torch.Te
     return forward_q(net, obs, forward)
 
 
+MASK_MODES = ("resolved", "advisory")
+
+
 class Ego2sSimdPolicy:
-    """Greedy masked ego2s student (duck-types ``SimdPolicy.actions``)."""
+    """Greedy masked ego2s student (duck-types ``SimdPolicy.actions``).
+
+    ``mask_mode="resolved"`` (default; M2/M2b/M3): argmax over the engine's resolved mask
+    (whose last resort is the legal mask, boost included) with a normal-only fallback.
+    ``mask_mode="advisory"`` (M3-C, the no-veto Phase R arm): argmax over the advisory
+    (exact safe-action) mask with the normal-only fallback, as the live ``AISnake`` selects
+    (float64 Q, first maximum), so a trapped hero falls back to normal moves only.
+    """
 
     batched_rows = True  # eval_engine groups every row of a frame into one call
 
-    def __init__(self, checkpoint_path: str, device: str = "cpu", forward: str = "batched") -> None:
+    def __init__(
+        self,
+        checkpoint_path: str,
+        device: str = "cpu",
+        forward: str = "batched",
+        mask_mode: str = "resolved",
+    ) -> None:
+        if mask_mode not in MASK_MODES:
+            raise ValueError(f"mask_mode must be one of {MASK_MODES}, got {mask_mode!r}")
         self.checkpoint_path = str(checkpoint_path)
         self.net = load_ego2s_checkpoint(checkpoint_path, device)
         self.forward = forward
+        self.mask_mode = mask_mode
 
     def actions(self, masks: np.ndarray, sim, slots: np.ndarray) -> np.ndarray:
         q = student_q(self.net, sim, slots, self.forward).numpy()
+        if self.mask_mode == "advisory":
+            rows = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
+            m = sim.get_advisory_action_mask()[rows[:, 0], rows[:, 1]].astype(bool)
+            m[~m.any(axis=1), :3] = True
+            return np.where(m, q.astype(np.float64), -np.inf).argmax(axis=1).astype(np.int64)
         m = np.asarray(masks, dtype=bool).copy()
         m[~m.any(axis=1), :3] = True
         return np.where(m, q, -np.inf).argmax(axis=1).astype(np.int64)

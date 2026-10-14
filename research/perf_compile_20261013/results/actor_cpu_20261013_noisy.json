@@ -1,0 +1,128 @@
+{
+ "schema": "perf-actor-bench/v1",
+ "created_utc": "2026-10-14T03:49:50.759800+00:00",
+ "host": "MacBook-Pro.local",
+ "machine": "arm64",
+ "note": "single actor process, in-process sink (no learner); noisy if the host is busy; NOISY: Mac busy",
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "rows": [
+  {
+   "config": "numba",
+   "actor_impl": "vectorized",
+   "v61_backend": "numba",
+   "worlds": 64,
+   "device": "cpu",
+   "frames": 120,
+   "warm": 20,
+   "grow_to": 0,
+   "frozen_frac": 0.25,
+   "wall_s": 5.984530750196427,
+   "frames_per_s": 20.051697452813873,
+   "ms_per_frame": 49.87108958497023,
+   "hero_transitions_per_s": 1283.3086369800878,
+   "emitted_transitions": 7680,
+   "env_ms_per_frame": 49.85916558653116,
+   "timing_ms_per_frame": {
+    "featurizer_s": 2.2010232283112905,
+    "forward_s": 41.334667014113315,
+    "opponents_s": 2.4589333683252335,
+    "v8_s": 0.0
+   },
+   "compile_actor": "off"
+  },
+  {
+   "config": "numba",
+   "actor_impl": "vectorized",
+   "v61_backend": "numba",
+   "worlds": 64,
+   "device": "cpu",
+   "frames": 120,
+   "warm": 20,
+   "grow_to": 0,
+   "frozen_frac": 0.25,
+   "wall_s": 7.458660916890949,
+   "frames_per_s": 16.088678830840394,
+   "ms_per_frame": 62.15550764075791,
+   "hero_transitions_per_s": 1029.6754451737852,
+   "emitted_transitions": 7680,
+   "env_ms_per_frame": 62.14220828454321,
+   "timing_ms_per_frame": {
+    "featurizer_s": 2.424234702872733,
+    "forward_s": 51.96829029979805,
+    "opponents_s": 3.3040784027737877,
+    "v8_s": 0.0
+   },
+   "compile_actor": "default",
+   "compile_status": {
+    "mode": "default",
+    "device": "cpu",
+    "rows": 64,
+    "compiled": true,
+    "fallback": null,
+    "compile_s": 4.459,
+    "probe": {
+     "max_abs_diff": 1.1444091796875e-05,
+     "q_scale": 43.664852142333984,
+     "argmax_flip_rate": 0.0
+    },
+    "calls": 0,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 1,
+     "frames_ok": 1,
+     "frames_total": 1,
+     "graph_breaks": 0
+    }
+   }
+  },
+  {
+   "config": "numba",
+   "actor_impl": "vectorized",
+   "v61_backend": "numba",
+   "worlds": 64,
+   "device": "cpu",
+   "frames": 120,
+   "warm": 20,
+   "grow_to": 0,
+   "frozen_frac": 0.25,
+   "wall_s": 6.606198458001018,
+   "frames_per_s": 18.16475856166014,
+   "ms_per_frame": 55.05165381667515,
+   "hero_transitions_per_s": 1162.544547946249,
+   "emitted_transitions": 7680,
+   "env_ms_per_frame": 55.03959375200793,
+   "timing_ms_per_frame": {
+    "featurizer_s": 2.2565236664377153,
+    "forward_s": 46.43044052645564,
+    "opponents_s": 2.58306049897025,
+    "v8_s": 0.0
+   },
+   "compile_actor": "max-autotune-no-cudagraphs",
+   "compile_status": {
+    "mode": "max-autotune-no-cudagraphs",
+    "device": "cpu",
+    "rows": 64,
+    "compiled": true,
+    "fallback": null,
+    "compile_s": 5.663,
+    "probe": {
+     "max_abs_diff": 1.1444091796875e-05,
+     "q_scale": 43.664852142333984,
+     "argmax_flip_rate": 0.0
+    },
+    "calls": 0,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 1,
+     "frames_ok": 1,
+     "frames_total": 1,
+     "graph_breaks": 0
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,23 @@
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "none", "mix": "frozen", "mean": 106.602}
+{"arm": "student", "veto": "none", "mix": "scripted", "mean": 119.7043375}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "none", "mix": "mixed", "mean": 167.6611625}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "frozen", "mean": 399.8718875}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "scripted", "mean": 395.571475}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "mixed", "mean": 419.89885}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "none", "mix": "frozen", "mean": 164.9086625}
+{"arm": "student", "veto": "none", "mix": "scripted", "mean": 105.7723375}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "none", "mix": "mixed", "mean": 177.3286125}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "frozen", "mean": 409.7154125}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "scripted", "mean": 434.2924125}
+🖥️  Using CPU (forced)
+{"arm": "student", "veto": "v8", "mix": "mixed", "mean": 458.7001125}
+B0_DONE

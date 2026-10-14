@@ -1,0 +1,42 @@
+{
+ "device": "mps",
+ "rows": 128,
+ "same_q_bitwise": true,
+ "loadavg": [
+  11.55859375,
+  10.302734375,
+  7.59228515625
+ ],
+ "note": "NOISY: other trainings shared the CPU and the MPS GPU",
+ "ms_per_frame_median": {
+  "four": 5.203,
+  "packed": 4.536,
+  "packed_nb": 3.943
+ },
+ "ms_per_frame_rounds": {
+  "four": [
+   6.386,
+   5.022,
+   4.818,
+   5.006,
+   5.438,
+   5.384
+  ],
+  "packed": [
+   5.22,
+   6.192,
+   4.175,
+   4.587,
+   4.387,
+   4.484
+  ],
+  "packed_nb": [
+   3.918,
+   3.994,
+   3.99,
+   3.968,
+   3.837,
+   3.836
+  ]
+ }
+}

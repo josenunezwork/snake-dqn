@@ -1,0 +1,108 @@
+[
+ {
+  "break": "B1 eager T1 loss changed (default path)",
+  "file": "research/redesign_m3c_20261008/learner_m3c.py",
+  "results": {
+   "test_compile_off_never_calls_torch_compile": "FAILED"
+  },
+  "all_failed": true
+ },
+ {
+  "break": "B2 compiled-only: target y x 1.001 inside torch.compile(loss_terms)",
+  "file": "research/redesign_m3c_20261008/learner_m3c.py",
+  "results": {
+   "test_compiled_updates_stay_close_to_eager[forward]": "PASSED",
+   "test_compiled_loss_terms_close_on_fixed_batch[bv8-1.0]": "FAILED",
+   "test_compiled_loss_terms_close_on_fixed_batch[b-1.0]": "FAILED",
+   "test_compiled_loss_terms_close_on_fixed_batch[b-3.0]": "FAILED",
+   "test_compiled_updates_stay_close_to_eager[loss]": "FAILED",
+   "test_first_steps_verified_then_compiled": "FAILED"
+  },
+  "all_failed": false
+ },
+ {
+  "break": "B3 compiled-only: Ego2sNet Q x 1.001 under compile",
+  "file": "src/model/ego2s_network.py",
+  "results": {
+   "test_compiled_loss_terms_close_on_fixed_batch[bv8-1.0]": "FAILED",
+   "test_compiled_loss_terms_close_on_fixed_batch[b-1.0]": "FAILED",
+   "test_compiled_loss_terms_close_on_fixed_batch[b-3.0]": "FAILED",
+   "test_compiled_updates_stay_close_to_eager[loss]": "FAILED",
+   "test_compiled_updates_stay_close_to_eager[forward]": "FAILED",
+   "test_hero_forward_matches_eager_without_recompiles[30]": "FAILED",
+   "test_hero_forward_matches_eager_without_recompiles[60]": "FAILED"
+  },
+  "all_failed": true
+ },
+ {
+  "break": "B4 hero forward returns the wrong padded rows",
+  "file": "research/redesign_m3c_20261008/compile_m3c.py",
+  "results": {
+   "test_actor_compiled_hero_forward_end_to_end": "PASSED",
+   "test_hero_forward_matches_eager_without_recompiles[30]": "FAILED",
+   "test_hero_forward_matches_eager_without_recompiles[60]": "FAILED"
+  },
+  "all_failed": false
+ },
+ {
+  "break": "B5 hero forward compiles a frozen copy (weight updates not picked up)",
+  "file": "research/redesign_m3c_20261008/compile_m3c.py",
+  "results": {
+   "test_hero_forward_picks_up_in_place_weight_updates": "FAILED"
+  },
+  "all_failed": true
+ },
+ {
+  "break": "B6 verify step keeps the compiled result (no eager recompute)",
+  "file": "research/redesign_m3c_20261008/learner_m3c.py",
+  "results": {
+   "test_learner_falls_back_to_eager_bitwise[raise]": "PASSED",
+   "test_learner_falls_back_to_eager_bitwise[mismatch]": "FAILED"
+  },
+  "all_failed": false
+ },
+ {
+  "break": "B7 every batch treated as canonical (stale-row batches compiled)",
+  "file": "research/redesign_m3c_20261008/learner_m3c.py",
+  "results": {
+   "test_noncanonical_batches_run_eager": "FAILED"
+  },
+  "all_failed": true
+ },
+ {
+  "break": "B8 no recompilation-storm guard in the learner",
+  "file": "research/redesign_m3c_20261008/learner_m3c.py",
+  "results": {
+   "test_recompile_storm_falls_back_to_eager": "FAILED"
+  },
+  "all_failed": true
+ },
+ {
+  "break": "B9 graph count = process-wide counter (not per learner)",
+  "file": "research/redesign_m3c_20261008/compile_m3c.py",
+  "results": {
+   "test_graph_count_is_per_learner": "FAILED"
+  },
+  "all_failed": true
+ },
+ {
+  "break": "B10 AMP check = fixed 5e-2 (no rounding floor): false positives",
+  "file": "research/redesign_m3c_20261008/learner_m3c.py",
+  "results": {
+   "test_amp_compiled_steps_pass_the_rounding_floor_check[bf16]": "PASSED",
+   "test_amp_compiled_steps_pass_the_rounding_floor_check[fp16]": "PASSED",
+   "test_grad_check_criterion": "FAILED"
+  },
+  "all_failed": false
+ },
+ {
+  "break": "B11 AMP check effectively off (floor factor 1e9)",
+  "file": "research/redesign_m3c_20261008/learner_m3c.py",
+  "results": {
+   "test_amp_check_still_catches_wrong_steps[mismatch]": "PASSED",
+   "test_amp_check_still_catches_wrong_steps[anchor-grad]": "FAILED",
+   "test_grad_check_criterion": "FAILED"
+  },
+  "all_failed": false
+ }
+]

@@ -1,0 +1,85 @@
+"""M4-A trainer options (research/redesign_m3c_20261008/train_m3c.py)."""
+
+import numpy as np
+import pytest
+import torch
+
+from research.redesign_m3c_20261008 import train_m3c as T
+
+
+def test_shield_prob_schedule():
+    assert T.shield_prob(0, 8, 16) == 1.0
+    assert T.shield_prob(8, 8, 16) == 1.0
+    assert T.shield_prob(12, 8, 16) == pytest.approx(0.5)
+    assert T.shield_prob(16, 8, 16) == 0.0
+    assert T.shield_prob(99, 8, 16) == 0.0
+
+
+def test_gamma_schedule_uses_m4a_endpoints():
+    args = T.build_parser().parse_args(
+        ["--seed", "0", "--init", "x", "--demo-data", ".", "--out", "x", "--gamma-end", "0.998"]
+    )
+    sched = T.schedules_from_args(args)
+    assert sched.gamma(0) == 0.99
+    assert sched.gamma(10**9) == 0.998
+
+
+def test_margin_anchor_zero_when_label_leads_by_margin():
+    q = torch.tensor([[2.0, 0.0, 0.5, -1.0, -1.0, -1.0]])
+    a = torch.tensor([0])
+    mask = torch.tensor([[True, True, True, False, False, False]])
+    assert float(T.anchor_loss_margin(torch, q, a, mask, margin=1.0)) == pytest.approx(0.0)
+    # label not ahead: loss = (best other + margin) - q[label]
+    q2 = torch.tensor([[0.0, 1.0, 0.5, 9.0, 9.0, 9.0]])
+    assert float(T.anchor_loss_margin(torch, q2, a, mask, margin=0.5)) == pytest.approx(1.5)
+
+
+class _Ring:
+    def __init__(self, valid_from):
+        self.valid_from = valid_from
+
+    def valid(self, ids):
+        return ids >= self.valid_from
+
+
+def test_label_buffer_wraps_and_skips_overwritten_rows():
+    buf = T.LabelBuffer(4)
+    buf.add(np.arange(6, dtype=np.int64), np.arange(6, dtype=np.int64) % 6)
+    assert buf.size == 4
+    assert sorted(buf.ids.tolist()) == [2, 3, 4, 5]
+    idx = buf.sample(np.random.default_rng(0), 50, _Ring(valid_from=4))
+    assert len(idx) and set(buf.ids[idx].tolist()) <= {4, 5}
+    assert np.array_equal(buf.a[idx], buf.ids[idx] % 6)
+
+
+def _main_args(*extra):
+    return ["--seed", "0", "--init", "x", "--demo-data", ".", "--out", "x", *extra]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--shield", "v8", "--anchor-mode", "v8margin"],
+        ["--kill-scale", "0"],
+        ["--gamma-end", "0.998"],
+    ],
+)
+def test_m4a_options_require_actors(extra):
+    with pytest.raises(SystemExit, match="multi-actor"):
+        T.main(_main_args(*extra))
+
+
+def test_onpolicy_labels_require_margin_anchor():
+    with pytest.raises(SystemExit, match="v8margin"):
+        T.main(_main_args("--actors", "1", "--onpolicy-labels"))
+
+
+def test_m4a_flags_recorded_only_when_set():
+    d = T.default_args()
+    assert T.m3c_flags(d) == {}
+    args = T.build_parser().parse_args(
+        _main_args("--kill-scale", "0", "--shield", "v8", "--anchor-mode", "v8margin")
+    )
+    flags = T.m3c_flags(args)
+    assert flags["kill_scale"] == 0.0 and flags["shield"] == "v8"
+    assert flags["anchor_mode"] == "v8margin"
