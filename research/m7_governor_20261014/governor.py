@@ -95,11 +95,12 @@ GO_SCRIPTED = 0.64
 NO_GO_SCRIPTED = 0.60
 MASS_MARGIN = 60.0
 LEVER4_PREDICTION = {"cap": 900, "survival": 0.61, "mass_delta": -44.0}
-GOVERNOR_MODES = ("twin", "bestboost", "twinspace")
+GOVERNOR_MODES = ("twin", "bestboost", "twinspace", "noeat")
 MODE_LABEL = {
     "twin": "boost-twin-if-advisory-safe",
     "bestboost": "best-q-safe-boost",
     "twinspace": "boost-twin-if-advisory-safe-spacious-and-not-head-risky",
+    "noeat": "avoid-food: best-Q advisory-safe non-eating normal action",
 }
 SPACE_LAM = 8.0  # v8 lambda for the diagnostics call (areas / head risk do not depend on it)
 
@@ -170,6 +171,7 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
         q: Optional[np.ndarray] = None,
         mode: str = "twin",
         space_ok: Optional[np.ndarray] = None,
+        eats: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """``(new actions, replaced, blocked)`` for student actions ``act``.
 
@@ -179,6 +181,9 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
         highest-Q advisory-safe boost action (float64, first maximum), if any.
         ``mode="twinspace"`` (variant): as ``twin``, and the twin must also be ``space_ok``
         (computed by :meth:`twin_space_ok`: spacious landing and not head-risky).
+        ``mode="noeat"`` (variant, no boosting): an action that would eat (``eats``, ``(N, 6)``
+        from :meth:`eating_actions`) becomes the highest-Q advisory-safe normal action that
+        does not eat, if any (then ``replaced`` may also swap a student boost).
         """
         n = len(act)
         if cap is None:
@@ -188,6 +193,17 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
             raise ValueError(f"mode must be one of {GOVERNOR_MODES}, got {mode!r}")
         over = length > cap
         normal = act < 3
+        if mode == "noeat":
+            assert q is not None and eats is not None
+            eats = np.asarray(eats, dtype=bool)
+            i = np.arange(n)
+            cand = adv[:, :3] & ~eats[:, :3]
+            qn = np.where(cand, np.asarray(q, dtype=np.float64)[:, :3], -np.inf)
+            pick = qn.argmax(axis=1).astype(np.int64)
+            would_eat = over & eats[i, act]
+            replaced = would_eat & cand.any(axis=1)
+            blocked = would_eat & ~cand.any(axis=1)
+            return np.where(replaced, pick, act).astype(np.int64), replaced, blocked
         if mode in ("twin", "twinspace"):
             pick = act % 3 + 3
             safe = adv[np.arange(n), pick]
@@ -227,6 +243,28 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
         need = np.minimum(np.asarray(length, dtype=np.int64), res.area_cap)
         return (area >= need) & ~res.head_risky[i, twin]
 
+    @staticmethod
+    def eating_actions(sim, rows: np.ndarray) -> np.ndarray:
+        """``(N, 6)``: whether each action's traversed cell(s) hold food now (boost: either)."""
+        from src.simd_env.batch_sim import CARDINAL
+        from src.simd_env.grid_sim import GRID_PAD
+
+        food = sim.get_padded_grids()[2]
+        e = rows[:, 0]
+        head = sim.heads()[e, rows[:, 1]]
+        d = np.asarray(sim.direction)[e, rows[:, 1]]
+        can_boost = np.asarray(sim.length)[e, rows[:, 1]] >= sim.cfg.min_boost_length
+        out = np.zeros((len(rows), 6), dtype=bool)
+        for a, delta in enumerate((-1, 0, 1)):
+            step = CARDINAL[(d + delta) % 4]
+            c1 = head + step
+            c2 = c1 + step
+            f1 = food[e, c1[:, 1] + GRID_PAD, c1[:, 0] + GRID_PAD] > 0
+            f2 = food[e, c2[:, 1] + GRID_PAD, c2[:, 0] + GRID_PAD] > 0
+            out[:, a] = f1
+            out[:, a + 3] = f1 | (f2 & can_boost)  # a boost below min length moves once
+        return out
+
     def actions(self, masks: np.ndarray, sim, slots: np.ndarray) -> np.ndarray:
         rows = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
         q = ep.student_q(self.net, sim, rows, self.forward).numpy()
@@ -242,8 +280,11 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
             space_ok[cand] = self.twin_space_ok(
                 sim, rows[cand], q[cand], adv[cand], act[cand], length[cand]
             )
+        eats = None
+        if self.mode == "noeat" and self.cap is not None:
+            eats = self.eating_actions(sim, rows)
         out, replaced, blocked = self.govern(
-            act, adv, length, self.cap, q, self.mode, space_ok=space_ok
+            act, adv, length, self.cap, q, self.mode, space_ok=space_ok, eats=eats
         )
         # counters (hero rows only: one row per env)
         env = rows[:, 0]
