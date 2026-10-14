@@ -1131,6 +1131,14 @@ OPP_FORWARDS = ("per-group", "merged-cpu", "merged-device")
 OPP_FORWARD_ENV = "M3C_OPP_FORWARD"
 
 
+def hero_selection_mask(sim, rows: np.ndarray) -> np.ndarray:
+    """The hero's selection (advisory) mask straight from the sim: equal to the vector61
+    runtime's ``selection`` mask (0 mismatches over 57,600 training-world hero rows,
+    tests/test_m4a_trainer.py), without featurizing the hero in Python."""
+    rows = np.asarray(rows, dtype=np.int64).reshape(-1, 2)
+    return sim.get_advisory_action_mask()[rows[:, 0], rows[:, 1]].astype(bool)
+
+
 def load_init(args, device):
     """The ``--init`` network; an ego2s-b checkpoint is widened in memory for ``bv8`` runs
     (zero new fuse columns: Q unchanged, see ``widen_bv8.py``)."""
@@ -1192,7 +1200,7 @@ def make_shield(carrier: str, runtime, backend: Optional[str] = None):
                 check_live_rule_config(sim)
                 self._rule_config_checked = sim
             slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
-            _, mask = self.runtime.selection(slots)
+            mask = hero_selection_mask(sim, slots)
             res = v8_decide(sim, slots, q, mask, self.veto_spec.lam)
             vetoed = np.isin(slots[:, 1], list(self.veto_slots))
             return np.where(vetoed, res.action, res.base).astype(np.int64)
@@ -2160,8 +2168,15 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         while not stop_evt.is_set():
             t_glob = int(progress[0])
             gamma_seg = sched.gamma(t_glob)
+            # The Python v8 reads the hero's vector61 rows; the compiled one (numba shield,
+            # bv8 features) needs only the sim, so the hero is not featurized for it.
+            python_v8 = (
+                use_v8
+                and not bv8
+                and ((args.v8_backend or os.environ.get(V8_BACKEND_ENV) or "python") == "python")
+            )
             sim, runtime, policies, groups = build_segment(
-                args, ctx, segment, gamma_seg, hero_v61=use_v8
+                args, ctx, segment, gamma_seg, hero_v61=python_v8
             )
             if pack is not None and layout_for_arena(sim.grid_w, sim.grid_h, sim.S) != pack:
                 raise RuntimeError(f"--obs-pack layout {pack} does not match this arena")
@@ -2256,7 +2271,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                             # Every stored hero observation gets its v8 features here, from
                             # the same selection mask the shield / labels decide with.
                             t_v = time.perf_counter()
-                            _, sel_mask = runtime.selection(hero)
+                            sel_mask = hero_selection_mask(prepared, hero)
                             v8s, v8res = v8_scalars(prepared, hero, sel_mask)
                             if v8res is None:
                                 raise RuntimeError("bv8: v8 features need live hero rows")

@@ -124,6 +124,9 @@ def test_pod_body_image_is_opt_in_and_changes_nothing_else():
     new = gr.pod_body("m3c-gpu-x", "a" * 64, 1000.0, 2000.0, 125, 36, image=gr.IMAGE_DEVEL)
     assert new["imageName"] == "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel"
     assert {k for k in old if old[k] != new[k]} == {"imageName"}
+    two = gr.pod_body("m3c-gpu-x", "a" * 64, 1000.0, 2000.0, 125, 36, gpu_count=2)
+    assert {k for k in old if old[k] != two[k]} == {"gpuCount", "minRAMPerGPU", "minVCPUPerGPU"}
+    assert (two["gpuCount"], two["minRAMPerGPU"], two["minVCPUPerGPU"]) == (2, 63, 18)
 
 
 @pytest.mark.parametrize("path", _committed_plans(), ids=lambda p: p.name)
@@ -152,7 +155,14 @@ def test_committed_plans_validate(path):
 )
 def test_pre_m6_plans_are_sized_consistently_and_use_known_flags(path):
     plan = gr.load_plan(path)
-    assert gr.plan_warnings(plan) == []
+    # M4-A2 attempts 4-6 (branch m4b) size vcpu_per_run from pod-1 telemetry (2.3 = the
+    # measured 215-236% CPU per run, plan notes), below the actors + 1 rule of thumb
+    expected = (
+        ["vcpu_per_run 2.3 < actors + 1 = 3: the learner and each actor keep about one core busy"]
+        if path.name == "m4a2_pod_plan.json"
+        else []
+    )
+    assert gr.plan_warnings(plan) == expected
     flags = gr.argparse_flags((gr.REPO / gr.TRAINER).read_text())
     assert gr.trainer_flag_problems(plan, flags) == []
 
@@ -169,7 +179,11 @@ def test_validate_opt_in_keys(tmp_path):
 
     for image in ("", "pytorch/pytorch", "x:1; rm -rf /", "Pytorch/x:1", 7):
         assert any(p.startswith("image") for p in problems(image=image)), image
-    assert any("gpu_count" in p for p in problems(gpu_count=2))
+    for gpus in (0, 3, "2", True):
+        assert any("gpu_count" in p for p in problems(gpu_count=gpus)), gpus
+    # two GPUs (m4b): max_hourly may scale with the GPU count; RAM/vCPU minimums are totals
+    assert problems(gpu_count=2, max_hourly=2 * gr.MAX_HOURLY) == []
+    assert any("max_hourly" in p for p in problems(gpu_count=1, max_hourly=2 * gr.MAX_HOURLY))
     x = good["extra_inputs"][0]
     for dst in ("/abs.pth", "../x.pth", "ckpt/../x.pth", "ckpt/./x.pth", "a b.pth", ""):
         assert any(

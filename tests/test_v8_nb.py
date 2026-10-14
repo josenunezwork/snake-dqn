@@ -149,8 +149,9 @@ def run_parity(
                 feats = frame % feature_every == 0
                 res = v8_decide(prepared, hero, q, sel_mask, 8.0, features=feats)
                 lv = shield.last_veto
-                a_nb = shield_nb.act(q, masks[hero[:, 0], 0], prepared, hero)
-                assert np.array_equal(a_nb, a_py), frame  # the trainer's opt-in switch
+                if kind != 3:  # the trainer's switch reads the sim's (real) advisory mask
+                    a_nb = shield_nb.act(q, masks[hero[:, 0], 0], prepared, hero)
+                    assert np.array_equal(a_nb, a_py), frame
                 assert np.array_equal(res.base, lv["base"]), frame
                 assert np.array_equal(res.counts, lv["counts"]), frame
                 assert np.array_equal(res.need, lv["need"]), frame
