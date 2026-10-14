@@ -427,7 +427,9 @@ def drift(ns) -> Dict[str, Any]:
                 }
         if ns.drift_variants:
             keep = set(ns.drift_variants.split(",")) | {"t1_fp32", "reference_fp32"}
-            variants = {k: v for k, v in variants.items() if k in keep}
+            variants = {
+                k: v for k, v in variants.items() if k in keep or v.get("compile", "off") != "off"
+            }
         theta0 = torch.cat([p.detach().reshape(-1) for p in net0.parameters()])
         for name, cfg in variants.items():
             world = build_world(ns.mode, nscal, id_hi, 0)

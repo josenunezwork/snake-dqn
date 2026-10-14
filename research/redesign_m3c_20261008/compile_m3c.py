@@ -32,6 +32,10 @@ float32 reassociation (``tests/test_perf_compile.py`` reports and bounds max |dQ
 argmax flip rate; compiled training stays within a tolerance of eager over N updates). It is
 NOT bitwise.
 
+**Workers.** The trainer calls :func:`limit_compile_workers` in each compiling process (the
+actors compile in-process; the learner's Triton-compile pool is quiesced after compiling), so
+K actors do not each keep a ``min(32, cores)``-process compile pool alive on a pod.
+
 **Fallback.** If compiling or running the compiled code raises (e.g. an inductor backend
 that does not support this device), the caller prints one clear message, records the reason
 in :meth:`status` and continues eagerly; the failing batch is recomputed eagerly. The actor
@@ -41,6 +45,7 @@ they disagree beyond ``PROBE_TOL``.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from typing import Any, Dict, Optional, Sequence, Tuple
@@ -134,6 +139,32 @@ def compile_fn(torch, fn, mode: str):
     if not hasattr(torch, "compile"):
         raise RuntimeError("this torch has no torch.compile")
     return torch.compile(fn, mode=mode, dynamic=False)
+
+
+def limit_compile_workers(role: str) -> Dict[str, Any]:
+    """Keep inductor's compile workers from multiplying across the trainer's processes.
+
+    Every actor and the learner is its own process, and inductor's default is a pool of
+    ``min(32, cores)`` Triton-compile worker processes per process (CUDA), kept alive after
+    compiling: K actors x 32 idle workers on a pod. So actors (``role="actor"``: one small
+    forward graph) compile in-process (``compile_threads = 1``) and the learner keeps the
+    parallel pool but quiesces it after each compilation. An explicit
+    ``TORCHINDUCTOR_COMPILE_THREADS`` / ``TORCHINDUCTOR_QUIESCE_ASYNC_COMPILE_POOL`` wins.
+    (On CPU / MPS inductor starts no worker pool either way; the effect is CUDA-only and
+    untested here.) Returns the settings in force.
+    """
+    import torch._inductor.config as icfg
+
+    if role not in ("actor", "learner"):
+        raise ValueError(f"role must be actor or learner, got {role!r}")
+    if role == "actor" and "TORCHINDUCTOR_COMPILE_THREADS" not in os.environ:
+        icfg.compile_threads = 1
+    if role == "learner" and "TORCHINDUCTOR_QUIESCE_ASYNC_COMPILE_POOL" not in os.environ:
+        icfg.quiesce_async_compile_pool = True
+    return {
+        "compile_threads": icfg.compile_threads,
+        "quiesce_async_compile_pool": bool(getattr(icfg, "quiesce_async_compile_pool", False)),
+    }
 
 
 def fallback_message(who: str, device, mode: str, exc: BaseException) -> str:

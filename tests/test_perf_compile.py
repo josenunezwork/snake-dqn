@@ -259,6 +259,8 @@ def _bad_compile(kind):
 
         def skewed(torch_, online, target, *a, **k):  # a wrong "compiled" kernel
             td, anc, qmax = fn(torch_, online, target, *a, **k)
+            if kind == "anchor-grad":  # right values, the anchor term's gradient lost
+                return td, anc.detach(), qmax
             return td * 1.01, anc, qmax
 
         return skewed
@@ -278,6 +280,54 @@ def test_learner_falls_back_to_eager_bitwise(monkeypatch, capsys, kind):
     assert "continuing EAGER" in capsys.readouterr().err
     assert torch.equal(_theta(ref.online), _theta(bad.online))  # the eager run, bitwise
     assert ref.st["td"] == bad.st["td"]
+
+
+@pytest.mark.parametrize("precision", ["bf16", "fp16"])
+def test_amp_compiled_steps_pass_the_rounding_floor_check(precision):
+    """Under autocast, compiled and eager round differently: the first-steps check allows
+    AMP_FLOOR_FACTOR x the precision's own (eager autocast vs fp32) gradient error, so a
+    correct compiled bf16 / fp16 step is not rejected."""
+    opts = lm.LearnerOpts(fast=True, fused_adam=False, precision=precision, compile="default")
+    learner = _learner("bv8", opts)
+    _train(learner, 6)
+    st = learner.compile_status()
+    assert st["fallback"] is None, st["fallback"]
+    assert st["verify_calls"] == lm.VERIFY_CALLS and st["compiled_calls"] == 6 - lm.VERIFY_CALLS
+    assert st["verify_worst_ratio"] < 1.0
+
+
+def test_grad_check_criterion():
+    """fp32: relative error <= tol. Autocast: up to AMP_FLOOR_FACTOR x the precision's own
+    error on that tensor (measured on CPU bf16, bench-size batches: compiled-vs-eager up to
+    0.25 on the small dueling adv.bias gradient, where eager bf16-vs-fp32 is ~0.2)."""
+    g32 = torch.linspace(1.0, 2.0, 50)
+    ge = g32 * 1.2  # this precision is 20% off fp32 on this tensor
+    gc = ge * 1.25  # compiled 25% off eager autocast: same rounding class
+    err, allowed = lm.grad_check(gc, ge, g32, 1.0, lm.VERIFY_TOL_AMP)
+    assert abs(err - 0.25) < 1e-5 and err <= allowed  # a fixed 5e-2 would reject it
+    assert allowed == pytest.approx(lm.AMP_FLOOR_FACTOR * 0.2, rel=1e-5)
+    assert lm.grad_check(gc * 1024, ge * 1024, g32, 1024.0, 5e-2) == pytest.approx((err, allowed))
+    err, allowed = lm.grad_check(ge * 10, ge, g32, 1.0, lm.VERIFY_TOL_AMP)  # a wrong kernel
+    assert err > allowed
+    err, allowed = lm.grad_check(gc, ge, None, 1.0, lm.VERIFY_TOL)  # fp32: no floor
+    assert allowed == lm.VERIFY_TOL and err > allowed
+    assert lm.grad_check(None, None, None, 1.0, 1e-3) == (0.0, 1e-3)
+    assert lm.grad_check(None, ge, None, 1.0, 1e-3)[0] == float("inf")
+    assert lm.grad_check(ge * float("nan"), ge, None, 1.0, 1e-3)[0] == float("inf")
+
+
+@pytest.mark.parametrize("kind", ["mismatch", "anchor-grad"])
+def test_amp_check_still_catches_wrong_steps(monkeypatch, kind):
+    """The looser autocast criterion still rejects a wrong compiled step: a 1% TD skew
+    (fp32 check) and a lost anchor gradient (bf16 check, values unchanged)."""
+    monkeypatch.setattr(cm, "compile_fn", _bad_compile(kind))
+    precision = "fp32" if kind == "mismatch" else "bf16"
+    opts = lm.LearnerOpts(fast=True, fused_adam=False, precision=precision, compile="default")
+    learner = _learner("bv8", opts)
+    _train(learner, 4)
+    st = learner.compile_status()
+    assert st["fallback"] and "disagrees with eager" in st["fallback"]
+    assert st["compiled_calls"] == 0 and st["verify_worst_ratio"] > 1.0
 
 
 def test_graph_count_is_per_learner():
@@ -314,6 +364,32 @@ def test_recompile_storm_falls_back_to_eager(monkeypatch, capsys):
         ref = net(*[torch.from_numpy(obs[k]) for k in ("local", "global", "scalars")])
         assert torch.equal(hf(obs), ref)  # eager from now on
     assert "recompilation storm" in capsys.readouterr().err
+
+
+def test_limit_compile_workers(monkeypatch):
+    """Actors compile in-process, the learner quiesces its pool; explicit env vars win."""
+    import torch._inductor.config as icfg
+
+    monkeypatch.setattr(icfg, "compile_threads", 8)
+    monkeypatch.setattr(icfg, "quiesce_async_compile_pool", False)
+    for k in ("TORCHINDUCTOR_COMPILE_THREADS", "TORCHINDUCTOR_QUIESCE_ASYNC_COMPILE_POOL"):
+        monkeypatch.delenv(k, raising=False)
+    assert cm.limit_compile_workers("learner") == {
+        "compile_threads": 8,
+        "quiesce_async_compile_pool": True,
+    }
+    assert cm.limit_compile_workers("actor")["compile_threads"] == 1
+    monkeypatch.setattr(icfg, "compile_threads", 8)
+    monkeypatch.setattr(icfg, "quiesce_async_compile_pool", False)
+    monkeypatch.setenv("TORCHINDUCTOR_COMPILE_THREADS", "8")
+    monkeypatch.setenv("TORCHINDUCTOR_QUIESCE_ASYNC_COMPILE_POOL", "0")
+    assert cm.limit_compile_workers("actor") == {
+        "compile_threads": 8,
+        "quiesce_async_compile_pool": False,
+    }
+    assert cm.limit_compile_workers("learner")["quiesce_async_compile_pool"] is False
+    with pytest.raises(ValueError):
+        cm.limit_compile_workers("opponent")
 
 
 # ----------------------------------------------------------------------------- actor
@@ -493,4 +569,7 @@ def test_trainer_runs_with_compiled_learner_and_actor(tmp_path):
     status = [json.loads(x)["compile_actor"] for x in r.stdout.splitlines() if "compile_actor" in x]
     assert len(status) == 1 and status[0]["compiled"] and status[0]["fallback"] is None
     assert status[0]["rows"] == 16 and status[0]["probe"]["argmax_flip_rate"] == 0.0
+    inductor = [json.loads(x) for x in r.stdout.splitlines() if "compile_actor" in x][0]
+    assert inductor["inductor"]["compile_threads"] == 1  # actors compile in-process
+    assert '"quiesce_async_compile_pool": true' in r.stdout  # the learner quiesces its pool
     assert (out / "final.pth").exists()

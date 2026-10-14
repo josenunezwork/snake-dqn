@@ -289,7 +289,8 @@ def main() -> int:
     a = ap.parse_args()
     init = a.init or default_init()
     if a.cell or a.profile:
-        cell = a.cell or f"{a.configs},{a.worlds},{a.devices},{a.compile_actor}"
+        cmode0 = a.compile_actor.split(",")[0]  # --profile: one cell, the first mode
+        cell = a.cell or f"{a.configs},{a.worlds},{a.devices},{cmode0}"
         config, worlds, device, cmode = cell.split(",")
         row = run_cell(
             config,

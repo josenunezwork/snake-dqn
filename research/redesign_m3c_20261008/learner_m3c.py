@@ -71,10 +71,15 @@ LR_SCALES = ("none", "linear", "sqrt")
 COMPILE_SCOPES = LEARNER_SCOPES
 #: perf-compile: the first VERIFY_CALLS compiled steps per batch shape are checked against
 #: eager (loss terms and per-parameter gradients, relative L2 error); above the tolerance
-#: the learner falls back to eager. fp32 reassociation is ~1e-6; autocast adds rounding.
+#: the learner falls back to eager. fp32: VERIFY_TOL (reassociation is ~1e-6). fp16 / bf16:
+#: compiled and eager autocast round differently (inductor keeps fused intermediates in
+#: fp32), so a gradient may differ by AMP_FLOOR_FACTOR x the precision's own rounding error
+#: on that batch (eager autocast vs eager fp32; measured ratio <= ~2 on CPU bf16 except
+#: near-zero-floor tensors), and at least VERIFY_TOL_AMP.
 VERIFY_CALLS = 3
 VERIFY_TOL = 1e-3
 VERIFY_TOL_AMP = 5e-2
+AMP_FLOOR_FACTOR = 4.0
 AGENT_ROWS = 384
 ANCHOR_ROWS = 128
 MIN_ROWS = 64
@@ -216,6 +221,22 @@ def loss_terms(
     return td, anc, q.detach().abs().max()
 
 
+def grad_check(g_c, g_e, g_32, scale: float, tol: float):
+    """``(error, allowed)`` for one parameter's compiled gradient ``g_c`` against eager
+    ``g_e`` (relative L2; NaN -> inf). ``g_32``: the fp32 eager gradient when ``g_e`` came
+    from autocast (``g_e / scale`` vs ``g_32`` is that precision's own rounding error,
+    ``scale`` the GradScaler scale): allowed ``max(tol, AMP_FLOOR_FACTOR x`` that error``)``;
+    else ``tol``."""
+    if g_c is None or g_e is None:
+        return (0.0 if g_c is None and g_e is None else float("inf")), tol
+    err = float((g_c - g_e).norm()) / (1e-12 + float(g_e.norm()))
+    allowed = tol
+    if g_32 is not None:
+        floor = float((g_e / scale - g_32).norm()) / (1e-12 + float(g_32.norm()))
+        allowed = max(tol, AMP_FLOOR_FACTOR * floor)
+    return (err if err == err else float("inf")), allowed
+
+
 class _Staging:
     """One flat host block holding a whole batch, sliced into typed numpy views.
 
@@ -354,9 +375,9 @@ class Learner:
             "fallback": None,
             "first_call_s": None,
             "verify_worst_rel_err": None,
+            "verify_worst_ratio": None,  # max over checks of error / allowed (fails > 1)
         }
         self._verified: dict = {}
-        self._verify_tol = VERIFY_TOL_AMP if self._amp_dtype is not None else VERIFY_TOL
         self._gcount = cm.GraphCount()
         if self.opts.compile_scope == "loss":
             self._loss_c = cm.compile_fn(torch, loss_terms, mode)
@@ -698,37 +719,49 @@ class Learner:
 
     def _verify(self, key, tensors, kw: dict, lam: float, compiled_out):
         """Check one compiled step against eager on the same batch: the loss terms and every
-        parameter gradient (relative L2 error per tensor <= ``verify_tol``). The step then
-        uses the EAGER result; a mismatch falls back to eager for the rest of the run (torch
-        2.9.1's MPS inductor, for one, returns wrong conv-bias gradients here)."""
+        parameter gradient (relative L2 error per tensor; fp32 <= ``VERIFY_TOL``; under
+        autocast <= ``max(VERIFY_TOL_AMP, AMP_FLOOR_FACTOR x`` the eager autocast-vs-fp32
+        error of that tensor``)``, which costs one extra fp32 forward/backward per checked
+        step). The step then uses the EAGER result; a mismatch falls back to eager for the
+        rest of the run (torch 2.9.1's MPS inductor, for one, returns wrong conv-bias
+        gradients here)."""
         torch, cs = self.torch, self._cstat
-        named = [(k, p) for k, p in self.online.named_parameters()]
+        named = list(self.online.named_parameters())
         g_c = [None if p.grad is None else p.grad.detach().float().clone() for _, p in named]
         o_c = [x.detach().float().reshape(()) for x in compiled_out]
+        amp = self._amp_dtype is not None
+        g_32, scale = None, 1.0
+        if amp:  # the precision's own rounding error: fp32 eager gradients, same batch
+            td32, anc32, _ = loss_terms(
+                torch, self.online, self.target, *tensors, **{**kw, "amp_dtype": None}
+            )
+            g_32 = torch.autograd.grad(td32 + lam * anc32, [p for _, p in named], allow_unused=True)
+            scale = float(self.scaler.get_scale()) if self.scaler is not None else 1.0
         td, anc, qmax = loss_terms(torch, self.online, self.target, *tensors, **kw)
         finite = self._backward(td, anc, lam)  # zeroes the compiled gradients first
         cs["verify_calls"] += 1
         g_e = [None if p.grad is None else p.grad.detach().float() for _, p in named]
         if not all(g is None or bool(torch.isfinite(g).all()) for g in g_e):
             return td, anc, qmax, finite  # fp16 overflow / bad batch: verify a later step
-        worst, where = 0.0, ""
+        tol = VERIFY_TOL_AMP if amp else VERIFY_TOL
+        checks = []  # (error, allowed, where)
         for name, x, y in zip(("td", "anchor", "qmax"), o_c, (td, anc, qmax)):
             err = float((x - y.detach().float()).abs()) / (1e-6 + float(y.detach().abs()))
-            if not err <= worst:  # (NaN-safe)
-                worst, where = err, name
-        for (name, _), x, y in zip(named, g_c, g_e):
-            if x is None or y is None:
-                err = 0.0 if x is None and y is None else float("inf")
-            else:
-                err = float((x - y).norm()) / (1e-12 + float(y.norm()))
-            if not err <= worst:
-                worst, where = err, f"grad {name}"
-        cs["verify_worst_rel_err"] = max(cs.get("verify_worst_rel_err") or 0.0, worst)
-        if not worst <= self._verify_tol:
+            checks.append((err if err == err else float("inf"), tol, name))  # NaN -> inf
+        for i, ((name, _), x, y) in enumerate(zip(named, g_c, g_e)):
+            ref = None if g_32 is None or g_32[i] is None else g_32[i].detach().float()
+            err, allowed = grad_check(x, y, ref, scale, tol)
+            checks.append((err, allowed, f"grad {name}"))
+        err, allowed, where = max(checks, key=lambda c: c[0] / c[1])
+        cs["verify_worst_rel_err"] = max(
+            cs.get("verify_worst_rel_err") or 0.0, max(c[0] for c in checks)
+        )
+        cs["verify_worst_ratio"] = max(cs.get("verify_worst_ratio") or 0.0, err / allowed)
+        if not err <= allowed:
             self._compile_fallback(
                 RuntimeError(
-                    f"compiled step disagrees with eager: {where} relative error {worst:.3g} "
-                    f"> {self._verify_tol:g} (shape key {key})"
+                    f"compiled step disagrees with eager: {where} relative error {err:.3g} "
+                    f"> allowed {allowed:.3g} (shape key {key})"
                 )
             )
         else:

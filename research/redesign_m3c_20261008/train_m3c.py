@@ -1657,12 +1657,17 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         net = net.to(device)
         hero_fwd = None  # perf-compile (--compile-actor): the compiled, padded hero forward
         if getattr(args, "compile_actor", "off") != "off":
-            from research.redesign_m3c_20261008.compile_m3c import HeroForward
+            from research.redesign_m3c_20261008.compile_m3c import (
+                HeroForward,
+                limit_compile_workers,
+            )
 
+            inductor = limit_compile_workers("actor")
             hero_fwd = HeroForward(
                 torch, net, device, args.compile_actor, args.worlds, nscal_for(args), LOCAL, GLOBAL
             )
-            print(json.dumps({"actor": j, "compile_actor": hero_fwd.status()}), flush=True)
+            msg = {"actor": j, "compile_actor": hero_fwd.status(), "inductor": inductor}
+            print(json.dumps(msg), flush=True)
         rng = np.random.default_rng([args.seed, 17, 1000 + j])
         sched = schedules_from_args(args)
         ctx = gid._context(1)
@@ -1919,6 +1924,11 @@ def main_multi(args) -> int:
     )
 
     lopts = LearnerOpts.from_args(args)
+    if lopts.compile != "off":
+        from research.redesign_m3c_20261008.compile_m3c import limit_compile_workers
+
+        msg = {"compile_learner_inductor": limit_compile_workers("learner")}
+        print(json.dumps(msg), flush=True)
     opt = make_optimizer(torch, online, lopts, device)  # default: Adam(lr=1e-4), as before
     margin = json.loads((args.demo_data / "margin.json").read_text())["margin"]
     holdout = DemoStream.load(
