@@ -9,10 +9,14 @@ and GPU fallbacks), plus:
 
 * **Stock wait** (opt-in ``--stock-wait-hours``, at most 3 h): when every create try is a
   "no instances available" refusal ($0), another round follows every ``--stock-poll-s``
-  (default 60 s, start to start). Each round is self-contained and leaves nothing behind
-  (no pod, a finished ledger run, a stopped watchdog); it is one row in
-  ``<run-dir>/stock_wait.jsonl`` and one printed line, and only the latest refused round's
-  attempt dir is kept. Any other create error ends the wait at once (``StockWait``).
+  (default 60 s, start to start); a throttled round (HTTP 429) backs off exponentially (up to
+  ``STOCK_THROTTLE_MAX_S``) within the same bound. Each round is self-contained (no pod, a
+  finished ledger run); its watchdog stays armed until the round's late-listing window
+  (``CREATE_SETTLE_S``) has passed with a clean listing. A round is one row in
+  ``<run-dir>/stock_wait.jsonl`` and one printed line; only the latest refused round's
+  attempt dir (and those whose watchdog is still armed) is kept. Any other create error ends
+  the wait at once (``StockWait``); a session deletes a stray late-listed pod of an earlier
+  round (``sweep_strays``).
 
 * **Run queue** from a sha-pinned plan JSON (``--plan``): N training runs (arm x seed), at most
   ``max_concurrent`` at once. The initial concurrency comes from the measured host (RAM, vCPU)
@@ -142,6 +146,8 @@ GPU_FALLBACKS = (
     "NVIDIA L4",
 )
 NO_CAPACITY = re.compile(r"no (longer any |more )?instances? (currently |are )?available", re.I)
+#: request-rate refusal text (with HTTP 429 itself: ``is_throttled``); the stock wait backs off
+THROTTLED = re.compile(r"too many requests|rate[ _-]?limit|throttl", re.I)
 GPU_MAX_HOURLY = 0.80
 #: opt-in stock wait (``--stock-wait-hours``): one round of create tries every STOCK_POLL_S
 #: (start to start; ``--stock-poll-s``) for up to STOCK_WAIT_S. A refused create costs $0.
@@ -149,7 +155,14 @@ STOCK_POLL_S = 60
 STOCK_POLL_MIN_S = 30
 STOCK_POLL_MAX_S = 3600
 STOCK_WAIT_S = 3 * 3600
+#: a throttled stock-wait round (HTTP 429) is followed min(STOCK_THROTTLE_MAX_S, poll x 2^n)
+#: later (start to start; n = consecutive throttled rounds), never sooner than the poll
+STOCK_THROTTLE_MAX_S = 300
+#: create-try kinds the stock wait retries (no pod was made): "no instances available", a
+#: request-rate refusal, a failed pod listing between two refused tries (the round stops there)
+STOCK_RETRYABLE = ("no_capacity", "throttled", "transient")
 CREATE_SETTLE_S = 300
+STRAY_SWEEP_S = 300  # a session deletes a late-listed pod of an earlier refused round this often
 POLL_S = 60
 LOG_PULL_S = 300
 PULL_BUDGET_S = 45
@@ -1038,7 +1051,9 @@ def spawn_watchdog(run_dir: Path, until: float, name: str, wait_s: float = 60.0)
         if log.exists() and '"armed"' in log.read_text():
             return proc.pid
         time.sleep(0.5)
-    stop_watchdog(proc.pid, run_dir)
+    # its process group only: it guards no pod yet (spawned before the create), and a stop
+    # file would also stop an armed watchdog sharing this dir (pod_bench's stock-wait rounds)
+    stop_watchdog(proc.pid)
     raise SystemExit("refusing: the watchdog did not log 'armed'")
 
 
@@ -1064,17 +1079,44 @@ def error_detail(exc: BaseException) -> str:
     return f"{exc} {text}".strip()[:1500]
 
 
-def definite_refusal(exc: BaseException) -> bool:
-    """True when RunPod answered with an HTTP error (the pod was NOT created)."""
+def _http(exc: BaseException) -> Tuple[Optional[int], str]:
+    """(HTTP status, error body text) of an rp.py error; (None, "") when RunPod gave none."""
     payload = getattr(exc, "payload", None)
     status = payload.get("http_status") if isinstance(payload, dict) else None
     if not isinstance(status, int):
+        return None, ""
+    body = payload.get("error")
+    return status, json.dumps(body).lower() if isinstance(body, (dict, list, str)) else ""
+
+
+def definite_refusal(exc: BaseException) -> bool:
+    """True when RunPod answered with an HTTP error (the pod was NOT created)."""
+    status, text = _http(exc)
+    if status is None:
         return False
     if 400 <= status < 500:
         return True
-    body = payload.get("error")
-    text = json.dumps(body).lower() if isinstance(body, (dict, list, str)) else ""
     return 500 <= status < 600 and bool(NO_CAPACITY.search(text))
+
+
+def is_throttled(exc: BaseException) -> bool:
+    """A request-rate refusal: HTTP 429, or a 4xx/5xx body saying so. For a create it counts
+    only as a definite refusal (``refusal_kind``: a 5xx stays an unknown outcome)."""
+    status, text = _http(exc)
+    if status is None:
+        return False
+    return status == 429 or (400 <= status < 600 and bool(THROTTLED.search(text)))
+
+
+def refusal_kind(exc: BaseException) -> str:
+    """A failed create try: "no_capacity" / "throttled" (the stock wait retries both),
+    "refused" (any other definite refusal: a bad request, auth, not found ...) or "unknown"
+    (no definite answer, e.g. a 5xx: the pod may exist; adopt it by name, never re-POST)."""
+    if not definite_refusal(exc):
+        return "unknown"
+    if NO_CAPACITY.search(error_detail(exc)):
+        return "no_capacity"
+    return "throttled" if is_throttled(exc) else "refused"
 
 
 def create_plans(rp, gpus=(GPU,)) -> List[tuple]:
@@ -1092,18 +1134,32 @@ def create_pod_retrying(
     state: Dict[str, Any],
     gpus=(GPU,),
     max_hourly: float = GPU_MAX_HOURLY,
-    quiet: bool = False,
+    stock_wait: bool = False,
 ):
     """One round of create tries (``create_plans``: at most one per stocked DC, 20 s apart).
-    Returns (create answer, last error, every try was a definite refusal). ``quiet`` (the
-    stock wait) prints no capacity refusal (each is still recorded in ``create_attempts``;
-    the stock wait prints one line per round)."""
+    Returns (create answer, last error, every try was a definite refusal). Each failed try is
+    recorded in ``create_attempts`` with its ``kind`` (``refusal_kind``). ``stock_wait``: no
+    line per capacity refusal or throttle (the stock wait prints one line per round), and a
+    throttle or a failed pod listing between two tries ends the round (the next round, backed
+    off, tries again; more POSTs would only be throttled too)."""
     attempts = state.setdefault("create_attempts", [])
     err = ""
     for i, (gpu, plan_dcs) in enumerate(create_plans(rp, gpus)):
         if i:
             time.sleep(20)
-            if [p for p in our_pods(rp) if p.get("name") == body["name"]]:
+            try:
+                hits = [p for p in our_pods(rp) if p.get("name") == body["name"]]
+            except Exception as exc:  # noqa: BLE001
+                if not stock_wait:
+                    raise
+                # every earlier try of this round was a definite refusal: no pod to adopt
+                kind = "throttled" if is_throttled(exc) else "transient"
+                err = f"pod listing before try {i} failed: {error_detail(exc)}"[:1500]
+                row = {"try": i, "gpu": gpu, "dcs": plan_dcs, "error": err, "kind": kind}
+                attempts.append(dict(row, skipped=True))  # no create was sent
+                save_state(run_dir, state)
+                return None, err, True
+            if hits:
                 return None, err, False  # the caller adopts it by name
         b = dict(body, gpuTypeIds=[gpu])
         if plan_dcs:
@@ -1120,12 +1176,15 @@ def create_pod_retrying(
             return out, "", False
         except Exception as exc:  # noqa: BLE001
             err = error_detail(exc)
-            attempts.append({"try": i, "gpu": gpu, "dcs": plan_dcs, "error": err})
+            kind = refusal_kind(exc)
+            attempts.append({"try": i, "gpu": gpu, "dcs": plan_dcs, "error": err, "kind": kind})
             save_state(run_dir, state)
-            if not (quiet and definite_refusal(exc) and NO_CAPACITY.search(err)):
+            if not (stock_wait and kind in STOCK_RETRYABLE):
                 say(f"create try {i} ({gpu}, {plan_dcs or 'any DC'}): {err}")
-            if not definite_refusal(exc):
+            if kind == "unknown":
                 return None, err, False  # unknown outcome: adopt-or-give-up, never re-POST
+            if stock_wait and kind == "throttled":
+                return None, err, True  # no more POSTs this round: the stock wait backs off
     return None, err, True
 
 
@@ -1141,13 +1200,25 @@ def stock_poll_problem(poll_s: Any) -> Optional[str]:
     return None
 
 
-def capacity_refusals_only(state: Dict[str, Any]) -> bool:
-    """Every create try of a round was a definite 'no instances available' refusal (no pod
-    was created), not a bad request, an auth error or an unknown outcome."""
+def try_kind(t: Dict[str, Any]) -> str:
+    """A recorded create try's kind: "ok" or its ``refusal_kind`` (a row saved before kinds
+    were recorded is classified by its error text)."""
+    if t.get("ok"):
+        return "ok"
+    if t.get("kind"):
+        return str(t["kind"])
+    return "no_capacity" if NO_CAPACITY.search(str(t.get("error") or "")) else "refused"
+
+
+def stock_refusals_only(state: Dict[str, Any]) -> bool:
+    """Every create try of a round was a refusal the stock wait retries (``STOCK_RETRYABLE``;
+    no pod was created), not a bad request, an auth error or an unknown outcome."""
     tries = state.get("create_attempts") or []
-    return bool(tries) and all(
-        not t.get("ok") and NO_CAPACITY.search(str(t.get("error") or "")) for t in tries
-    )
+    return bool(tries) and all(try_kind(t) in STOCK_RETRYABLE for t in tries)
+
+
+def throttled_round(state: Dict[str, Any]) -> bool:
+    return any(try_kind(t) == "throttled" for t in state.get("create_attempts") or [])
 
 
 def tries_text(tries: Sequence[Dict[str, Any]]) -> str:
@@ -1176,47 +1247,131 @@ class StockWait:
 
     A round is one self-contained attempt (own pod name, watchdog, ledger run, create tries,
     delete-and-verify). Rounds start every ``poll_s`` (start to start; a longer round is
-    followed at once) for up to ``wait_s``, while every create try is a capacity refusal; any
-    other create error, an interrupted round or a created pod ends the wait. Nothing is
-    reserved or live between rounds: a refused round finishes its ledger run, stops its
-    watchdog and, after one clean listing, is done.
+    followed at once) for up to ``wait_s``, while every create try is a refusal the wait
+    retries (``STOCK_RETRYABLE``); any other create error (a bad request, auth, not found
+    ...: fast), an unknown create outcome (adopt-by-name, as before), an interrupted round or
+    a created pod ends the wait. A throttled round (HTTP 429) backs off: the next round
+    starts min(STOCK_THROTTLE_MAX_S, poll_s x 2^n) after it (n = consecutive throttled
+    rounds), still within ``wait_s``. Nothing is reserved between rounds: a refused round
+    finishes its ledger run.
 
     Late-listing settle: a refused round's delete-and-verify does not wait CREATE_SETTLE_S
-    (that alone would space the rounds >= 5 min apart). A capacity refusal is a definite HTTP
-    answer (no pod; the create retries already rely on that), and the settle stays a backstop
-    owned here: every round's pre-create check lists our pods (one found stops the wait); a
-    round that ends the wait after a create try (a pod, or any other create error) settles in
-    full itself, and a full settle sweeps every pod with our prefix; on every other exit
-    (give-up, interrupt, error) ``settle`` deletes any pod of ours that is listed within
-    CREATE_SETTLE_S of the last refused create. Residual: a pod made despite a refusal that
-    is listed only after the next round's create succeeded is deleted when that session ends
-    (its spend counts toward that session's balance-drop spend cap).
+    (that alone would space the rounds >= 5 min apart); one clean listing ends it. The settle
+    is owned here instead, and the round's detached watchdog stays armed as its backstop
+    (``pending``) until its own window has passed with a clean listing: ``reap`` (between
+    rounds: CREATE_SETTLE_S after that round's create, no pod of its name listed), a later
+    round's full settle (a clean listing of our whole prefix CREATE_SETTLE_S after a later
+    create covers every earlier window), or ``settle`` (on every other exit: give-up,
+    interrupt, error). A watchdog whose window never verified clean stays armed (a pod may
+    exist; it deletes that pod at its lifetime + 5 min). Every round's pre-create check
+    lists our pods (one found stops the wait; ``settle`` deletes it), and a session sweeps
+    our prefix every STRAY_SWEEP_S (``sweep_strays``) for a pod of an earlier refused round
+    that is listed only after the session's create.
 
-    Each round appends one row to ``log`` and prints one compact line.
+    Each round appends one row to ``log`` and prints one compact line. ``stop_files``: stop a
+    watchdog with its ``watchdog.stop`` file too (each round has its own dir); pod_bench's
+    rounds share one dir, so they are stopped by process group only.
     """
 
-    def __init__(self, wait_s: float, poll_s: float, log: Path) -> None:
+    def __init__(self, wait_s: float, poll_s: float, log: Path, stop_files: bool = True) -> None:
         self.wait_s = float(wait_s)
         self.poll_s = float(poll_s)
         self.log = log
+        self.stop_files = stop_files
         self.t0 = now()
         self.deferred_at: Optional[float] = None  # the last refused create we owe a settle
         self.deferred_dir: Optional[Path] = None  # where that round's state.json lives
+        #: refused rounds whose watchdog is still armed: {"name", "pid", "at", "dir"}
+        self.pending: List[Dict[str, Any]] = []
+        #: watchdogs left armed for good (a pod may exist): their files are kept too
+        self.left_armed: List[Dict[str, Any]] = []
+        self.throttled = 0  # consecutive throttled rounds (the backoff exponent)
+        self.gap_s = self.poll_s  # start to start, the latest round -> the next
 
     @property
     def active(self) -> bool:
         return self.wait_s > 0
 
+    def holds(self, path: Path) -> bool:
+        """``path`` holds a refused round whose watchdog is still armed (keep its files)."""
+        return self.owner(path) is not None
+
+    def owner(self, path: Path) -> Optional[Dict[str, Any]]:
+        return next((e for e in self.pending + self.left_armed if e["dir"] == path), None)
+
+    def moved(self, src: Path, dst: Path) -> None:
+        """A round's files moved from ``src`` to ``dst`` (pod_bench sets refused rounds
+        aside): its settle record and watchdog bookkeeping follow them."""
+        for e in self.pending + self.left_armed:
+            if e["dir"] == src:
+                e["dir"] = dst
+        if self.deferred_dir == src:
+            self.deferred_dir = dst
+
+    def _note(self, e: Dict[str, Any], **kw: Any) -> None:
+        """Record a watchdog decision in its round's state.json (when it is still there)."""
+        st = read_state(e["dir"])
+        if st and st.get("name") == e["name"]:
+            st.update(kw)
+            save_state(e["dir"], st)
+
+    def _stop(self, entries: Sequence[Dict[str, Any]], why: str) -> None:
+        for e in list(entries):
+            try:
+                stop_watchdog(e["pid"], e["dir"] if self.stop_files else None)
+            except OSError:  # its dir is gone: the process group alone
+                stop_watchdog(e["pid"])
+            self._note(e, watchdog_stopped=True, watchdog_stop={"why": why, "t": now()})
+            self.pending.remove(e)
+
+    def _leave_armed(self, why: str) -> None:
+        """A pod may exist: every armed watchdog stays armed (it deletes the pod of its name
+        at its lifetime + 5 min); the loop owes no further settle."""
+        for e in self.pending:
+            self._note(e, watchdog_left_armed=why)
+        if self.pending:
+            names = [e["name"] for e in self.pending]
+            alert(f"watchdog(s) left armed for {names} ({why}); run `cleanup --confirm`")
+        self.left_armed += self.pending
+        self.pending = []
+        self.deferred_at = self.deferred_dir = None
+
     def track(self, run_dir: Path, st: Dict[str, Any]) -> None:
-        """Note the settle a finished round left to this loop (or settled itself)."""
+        """Note what a finished round left to this loop: a deferred settle and an armed
+        watchdog (a refused round), or a full settle that covers every earlier round."""
         if st.get("settle_deferred"):
             self.deferred_at = float(st["create_attempted_at"])
             self.deferred_dir = run_dir
+            if st.get("watchdog_pid") and not st.get("watchdog_stopped"):
+                entry = {"name": st.get("name"), "pid": int(st["watchdog_pid"]), "dir": run_dir}
+                self.pending.append(dict(entry, at=float(st["create_attempted_at"])))
+            if not st.get("pods_deleted_verified"):
+                self._leave_armed("a refused round's pod listing never came back clean")
         elif st.get("create_attempted_at"):  # a later create try, settled in full
+            if st.get("pods_deleted_verified"):
+                self._stop(self.pending, "covered by a later round's full late-listing settle")
+            else:
+                self._leave_armed("a later round's delete-and-verify did not verify")
             self.deferred_at = self.deferred_dir = None
 
+    def reap(self, rp) -> List[Dict[str, Any]]:
+        """Between rounds: stop each armed watchdog whose round's window (CREATE_SETTLE_S
+        after its create) has passed, once a listing shows no pod of its name. A failed
+        listing or a listed pod keeps it armed (the pre-create check then stops the wait on
+        that pod and ``settle`` deletes it)."""
+        due = [e for e in self.pending if now() - e["at"] >= CREATE_SETTLE_S]
+        if not due:
+            return []
+        try:
+            listed = {str(p.get("name")) for p in our_pods(rp)}
+        except Exception:  # noqa: BLE001  (armed until a later round's listing)
+            return []
+        done = [e for e in due if e["name"] not in listed]
+        self._stop(done, f"clean listing >= {CREATE_SETTLE_S} s after its create")
+        return done
+
     def sleep_s(self, start: float) -> float:
-        return max(0.0, self.poll_s - (now() - start))
+        return max(0.0, self.gap_s - (now() - start))
 
     def another_round(
         self,
@@ -1225,23 +1380,32 @@ class StockWait:
         start: float,
         st: Dict[str, Any],
         transient: Optional[str] = None,
+        throttled: bool = False,
     ) -> bool:
-        """After a round that created nothing: poll again? Logs the round when active."""
-        capacity = transient is not None or (
-            capacity_refusals_only(st) and not str(st.get("outcome", "")).startswith("error:")
-        )
-        more = now() - self.t0 + self.poll_s <= self.wait_s
+        """After a round that created nothing: poll again? Logs the round when active.
+        ``transient`` (a read failed before the create; ``throttled``: a request-rate one)."""
+        failed = str(st.get("outcome", "")).startswith("error:")
+        retry = transient is not None or (stock_refusals_only(st) and not failed)
+        throttle = throttled if transient is not None else throttled_round(st)
+        self.throttled = self.throttled + 1 if throttle else 0
+        self.gap_s = self.poll_s
+        if self.throttled:  # exponential backoff, capped (never sooner than the poll)
+            backoff = min(STOCK_THROTTLE_MAX_S, self.poll_s * 2.0**self.throttled)
+            self.gap_s = max(self.poll_s, backoff)
+        more = now() - self.t0 + self.sleep_s(start) <= self.wait_s
         if self.active:
-            tries = [
-                {"gpu": a.get("gpu"), "dcs": a.get("dcs")} for a in st.get("create_attempts") or []
-            ]
-            errs = [str(a["error"]) for a in st.get("create_attempts") or [] if a.get("error")]
+            attempts = st.get("create_attempts") or []
+            sent = [a for a in attempts if not a.get("skipped")]  # POSTs (not a failed listing)
+            tries = [{"gpu": a.get("gpu"), "dcs": a.get("dcs")} for a in sent]
+            last = attempts[-1] if attempts else {}
             if transient is not None:
                 err = f"transient before create: {transient}"[:200]
-            elif str(st.get("outcome", "")).startswith("error:") or not errs:
+            elif failed or not last.get("error"):
                 err = str(st.get("outcome"))[:200]  # an interrupted / failed round
+            elif try_kind(last) == "no_capacity":
+                err = short_error(str(last["error"]))
             else:
-                err = short_error(errs[-1])
+                err = f"{try_kind(last)}: {last['error']}"[:200]
             row = {
                 "round": k,
                 "attempt": label,
@@ -1250,19 +1414,27 @@ class StockWait:
                 "round_s": round(now() - start, 1),
                 "tries": tries,
                 "error": err,
+                "throttled": throttle,
                 "run_id": st.get("run_id"),
                 "cost_usd": st.get("cost_estimate"),
                 "pods_deleted_verified": st.get("pods_deleted_verified"),
                 "settle_deferred": bool(st.get("settle_deferred")),
+                "watchdogs_armed": len(self.pending),
             }
             append_jsonl(self.log, row)
-            nxt = f"next round in {self.sleep_s(start):.0f} s" if capacity and more else "stop"
+            nxt = "stop"
+            if retry and more:
+                nxt = f"next round in {self.sleep_s(start):.0f} s"
+                nxt += " (throttled: backing off)" if throttle else ""
             say(
                 f"stock wait round {k} ({label}): {err} [{tries_text(tries)}]; "
                 f"{(now() - self.t0) / 3600:.2f} h of {self.wait_s / 3600:.2f} h; {nxt}"
             )
-            if not capacity:
-                alert(f"{label}: {err}; not polling again (only capacity refusals are retried)")
+            if not retry:
+                alert(
+                    f"{label}: {err}; not polling again (only capacity refusals and "
+                    "throttles are retried)"
+                )
                 return False
         if not more:
             hours = (now() - self.t0) / 3600
@@ -1272,18 +1444,20 @@ class StockWait:
 
     def settle(self, rp, run_dir: Optional[Path] = None) -> Optional[bool]:
         """Before the loop exits: wait out CREATE_SETTLE_S after the last refused create whose
-        settle a round deferred, deleting any pod of ours listed meanwhile (None: nothing was
-        deferred). The result lands in that round's state.json (``late_listing_settle``)."""
-        if self.deferred_at is None:
+        settle a round deferred, deleting any pod of ours listed meanwhile, then stop every
+        watchdog still armed (None: nothing was deferred). A settle that does not verify
+        leaves them armed (a pod may exist). The result lands in the latest deferred round's
+        state.json (``late_listing_settle``)."""
+        if self.deferred_at is None and not self.pending:
             return None
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, signal.SIG_IGN)  # nothing may interrupt the delete
-        where = run_dir or self.deferred_dir
-        assert where is not None
+        need = max([self.deferred_at or 0.0] + [e["at"] for e in self.pending])
+        where = run_dir or self.deferred_dir or self.pending[-1]["dir"]
         where.mkdir(parents=True, exist_ok=True)
         st = read_state(where)
-        st["create_attempted_at"] = max(float(st.get("create_attempted_at") or 0), self.deferred_at)
-        left = CREATE_SETTLE_S - (now() - self.deferred_at)
+        st["create_attempted_at"] = max(float(st.get("create_attempted_at") or 0), need)
+        left = CREATE_SETTLE_S - (now() - need)
         if left > 0:
             say(f"stock wait: watching {left:.0f} s for a late-listed pod (last refused create)")
         ok = delete_and_verify(
@@ -1293,13 +1467,55 @@ class StockWait:
             "stock wait: late-listing settle after the last refused create",
             quiet=True,
         )
-        st["late_listing_settle"] = {"pods_deleted_verified": ok, "t": now()}
+        armed = [e["name"] for e in self.pending]
+        st["late_listing_settle"] = {"pods_deleted_verified": ok, "t": now(), "watchdogs": armed}
         st["pods_deleted_verified"] = bool(st.get("pods_deleted_verified", True)) and ok
         save_state(where, st)
         self.deferred_at = self.deferred_dir = None
-        if not ok:
+        if ok:
+            self._stop(self.pending, "late-listing settle verified")
+        else:
+            self._leave_armed("the late-listing settle did not verify")
             alert(f"late-listing settle failed; run `cleanup --confirm` ({where})")
         return ok
+
+
+def stray_pod(state: Dict[str, Any], pod: Dict[str, Any]) -> bool:
+    """A pod a session deletes: named exactly like one of this runner's rounds (our prefix +
+    the 10-digit timestamp; never another prefix, even one that extends ours) but not the
+    session's own pod (by name and id)."""
+    name, own = str(pod.get("name") or ""), state.get("name")
+    if not own or not pod.get("id") or not re.fullmatch(re.escape(POD_NAME) + r"\d{10}", name):
+        return False
+    return name != own and pod.get("id") != state.get("pod_id")
+
+
+def sweep_strays(rp, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """During a session (``guard``), every STRAY_SWEEP_S: delete any pod of ours that is not
+    the session's own (a pod an earlier stock-wait round's refused create made after all,
+    listed only after this session's create) and record it in ``state["strays"]``. Best
+    effort: a failed listing or delete is retried at the next sweep, and the session's
+    delete-and-verify sweeps our whole prefix at its end anyway."""
+    if not state.get("name") or now() - float(state.get("stray_sweep_at") or 0) < STRAY_SWEEP_S:
+        return []
+    state["stray_sweep_at"] = now()
+    try:
+        pods = [p for p in rp.list_pods() if stray_pod(state, p)]
+    except Exception:  # noqa: BLE001
+        return []
+    rows = []
+    for p in pods:
+        row = {"id": p["id"], "name": p.get("name"), "t": now(), "deleted": False}
+        try:
+            rp.delete_pod(p["id"], confirm=True)
+            row["deleted"] = True
+        except Exception as exc:  # noqa: BLE001
+            row["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        state.setdefault("strays", []).append(row)
+        verb = "deleted" if row["deleted"] else "could not delete (retried next sweep)"
+        alert(f"stray pod of ours {row['name']} ({row['id']}), not this session's: {verb}")
+        rows.append(row)
+    return rows
 
 
 # ----------------------------------------------------------------------------- pulls
@@ -1481,7 +1697,16 @@ def _raise_interrupt(signum, frame):  # noqa: ARG001
 
 
 class PreCreateTransient(RuntimeError):
-    """A read failed before anything was reserved or created (safe to retry next poll)."""
+    """A read failed before anything was reserved or created (safe to retry next poll);
+    ``throttled``: a request-rate refusal (the stock wait backs off)."""
+
+    def __init__(self, msg: str, throttled: bool = False) -> None:
+        super().__init__(msg)
+        self.throttled = throttled
+
+    @classmethod
+    def of(cls, exc: BaseException) -> "PreCreateTransient":
+        return cls(repr(exc), throttled=is_throttled(exc))
 
 
 def _install_signal_handlers() -> None:
@@ -1520,40 +1745,52 @@ def launch(args) -> int:
     wait_s = min(STOCK_WAIT_S, 3600.0 * float(getattr(args, "stock_wait_hours", 0.0) or 0.0))
     wait = StockWait(wait_s, float(poll_s), root / "stock_wait.jsonl")
     k = 0
-    kept: Optional[Path] = None  # the latest refused round's attempt dir (older ones pruned)
+    refused: List[Path] = []  # refused rounds' attempt dirs (pruned: see _prune_rounds)
     try:
         while True:
             start = now()
+            if k:  # stop the watchdogs whose late-listing window has passed clean
+                wait.reap(rp)
+                _prune_rounds(refused, wait)
             sub = root / f"attempt{k:02d}"
             sub.mkdir()
             (root / "CURRENT_ATTEMPT").write_text(sub.name)
-            transient = None
+            transient, throttled = None, False
             try:
                 code, no_capacity = launch_attempt(
                     args, rp, sub, inputs, plan, defer_settle=wait.active
                 )
             except PreCreateTransient as exc:
                 say(f"{sub.name}: transient before create: {exc}")
-                code, no_capacity, transient = 1, True, str(exc)
+                code, no_capacity, transient, throttled = 1, True, str(exc), exc.throttled
             st = read_state(sub)
             wait.track(sub, st)
             if not no_capacity:
                 return code
-            if not wait.another_round(k, sub.name, start, st, transient):
+            if not wait.another_round(k, sub.name, start, st, transient, throttled):
                 return code
-            # bounded attempt dirs: a refused round is one row in stock_wait.jsonl; only the
-            # latest refused round's dir is kept (a transient round's dir is empty)
+            # bounded attempt dirs: a refused round is one row in stock_wait.jsonl (a
+            # transient round's dir is empty)
             if not st:
                 shutil.rmtree(sub, ignore_errors=True)
             else:
-                if kept is not None and kept != wait.deferred_dir:
-                    shutil.rmtree(kept, ignore_errors=True)
-                kept = sub
+                refused.append(sub)
+            _prune_rounds(refused, wait)
             k += 1
             _install_signal_handlers()
             time.sleep(wait.sleep_s(start))
     finally:
         wait.settle(rp)
+        _prune_rounds(refused, wait)
+
+
+def _prune_rounds(refused: List[Path], wait: StockWait) -> None:
+    """Keep the latest refused round's attempt dir, the one a deferred settle writes to and
+    every dir whose watchdog is still armed (its stop file and log live there)."""
+    for d in list(refused[:-1]):
+        if d != wait.deferred_dir and not wait.holds(d):
+            shutil.rmtree(d, ignore_errors=True)
+            refused.remove(d)
 
 
 def launch_attempt(
@@ -1566,7 +1803,8 @@ def launch_attempt(
 ):
     """One self-contained attempt. Returns (exit code, it created nothing and every create try
     was a definite refusal). ``defer_settle`` (the stock wait): a round whose every try was a
-    capacity refusal skips the CREATE_SETTLE_S late-listing settle (``StockWait`` owns it)."""
+    refusal the wait retries skips the CREATE_SETTLE_S late-listing settle and leaves its
+    watchdog armed (``StockWait`` owns both)."""
     from research.runpod_fanout.ledger import SharedLedger
 
     _install_signal_handlers()
@@ -1575,14 +1813,14 @@ def launch_attempt(
         mine = our_pods(rp)
         balance0 = rp.balance()
     except Exception as exc:  # noqa: BLE001
-        raise PreCreateTransient(repr(exc)) from exc
+        raise PreCreateTransient.of(exc) from exc
     if mine:
         raise SystemExit("refusing: a pod of ours already exists")
     token = secrets.token_urlsafe(32)
     created = now()
     until = created + args.lifetime_hours * 3600
     deadline = until - 15 * 60
-    name = POD_NAME + time.strftime("%m%d%H%M%S")
+    name = POD_NAME + time.strftime("%m%d%H%M%S", time.localtime(created))
     body = pod_body(
         name,
         hashlib.sha256(token.encode()).hexdigest(),
@@ -1634,7 +1872,7 @@ def launch_attempt(
         gpus = GPU_FALLBACKS if getattr(args, "gpu_fallbacks", False) else (GPU,)
         state["gpus_allowed"] = list(gpus)
         out, err, no_capacity = create_pod_retrying(
-            rp, body, run_dir, state, gpus, float(plan["max_hourly"]), quiet=defer_settle
+            rp, body, run_dir, state, gpus, float(plan["max_hourly"]), stock_wait=defer_settle
         )
         if err:
             outcome = f"create error: {err}"
@@ -1667,7 +1905,7 @@ def launch_attempt(
         state["outcome"] = outcome
         quick = {}
         if defer_settle and no_capacity and not state.get("pod_id"):
-            if capacity_refusals_only(state):  # no pod exists: one clean listing suffices
+            if stock_refusals_only(state):  # no pod was made: one clean listing for now
                 quick = {"settle_s": 0.0, "clean_s": 0.0, "quiet": True}
                 state["settle_deferred"] = True
         save_state(run_dir, state)
@@ -1680,17 +1918,22 @@ def launch_attempt(
         except Exception as exc:  # noqa: BLE001
             alert(f"ledger/balance bookkeeping failed: {exc}")
         state["pods_deleted_verified"] = ok
-        if ok:
+        if ok and not quick:
             stop_watchdog(watchdog_pid, run_dir)
             state["watchdog_stopped"] = True
+        elif ok:  # the late-listing window is still open: armed until StockWait stops it
+            state["watchdog_stopped"] = False
         save_state(run_dir, state)
     code = 0 if outcome == "complete" and state.get("pods_deleted_verified") else 1
     return code, bool(no_capacity and not state.get("pod_id") and ok)
 
 
 def guard(rp, state, args) -> Optional[str]:
+    """A session's spend / lifetime check (each poll); also sweeps our prefix for a stray pod
+    of an earlier stock-wait round every STRAY_SWEEP_S (``sweep_strays``)."""
     if now() >= state["deadline"]:  # the agent kills jobs here
         return "lifetime"
+    sweep_strays(rp, state)
     try:
         bal = rp.balance()
     except Exception:  # noqa: BLE001  (the lifetime already bounds the spend)

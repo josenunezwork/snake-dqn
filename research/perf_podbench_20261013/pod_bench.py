@@ -70,12 +70,16 @@ compile-named ``CONFIGS``), and options a bench lacks (``--init``, ``--note``,
 Stock wait (opt-in ``--stock-wait-hours``, default 0 = one round of create tries as before):
 while every create try is a "no instances available" refusal, another self-contained round
 (own pod name, watchdog, ledger run) starts every ``--stock-poll-s`` (default 60 s) for up to
-the given hours, so callers need no sleep loop of their own (gpu_run_v2's ``StockWait``). A
-refused round leaves no pod, no live ledger run and no watchdog; it is one row in
+the given hours, so callers need no sleep loop of their own (gpu_run_v2's ``StockWait``); a
+throttled round (HTTP 429) backs off exponentially within the same bound. A refused round
+leaves no pod and no live ledger run; its watchdog stays armed until the round's
+late-listing window has passed with a clean listing. It is one row in
 ``<out-dir>/stock_wait.jsonl`` and one printed line, and its own files move to
-``<out-dir>/stock_wait_last_refused/`` (the latest only). The round that gets a pod runs the
-session exactly as a single try would (same ``<out-dir>`` layout and results). Any other
-create error ends the wait at once.
+``<out-dir>/stock_wait_last_refused/`` (the latest; an older round whose watchdog is still
+armed waits in ``stock_wait_armed/``). The round that gets a pod runs the session exactly as
+a single try would (same ``<out-dir>`` layout and results) and deletes a stray late-listed
+pod of an earlier round (gpu_run_v2's ``sweep_strays``). Any other create error ends the
+wait at once.
 """
 
 from __future__ import annotations
@@ -126,6 +130,7 @@ DEFAULT_TIMEOUT_S = 900
 SETUP_ESTIMATE_S = 900  # boot + image pull + uploads + pip (for the dry run's budget note)
 STOCK_LOG = "stock_wait.jsonl"  # one row per refused stock-wait round
 STOCK_ASIDE = "stock_wait_last_refused"  # the latest refused round's own files
+STOCK_ARMED = "stock_wait_armed"  # older refused rounds whose watchdog is still armed
 POD_ROOT = "/r"
 POD_REPO = "/r/repo"
 PLACEHOLDERS = {
@@ -732,8 +737,10 @@ def launch_attempt(
 ) -> Tuple[int, bool]:
     """One self-contained attempt. Returns (exit code, it created nothing and every create try
     was a definite refusal). ``defer_settle`` (the stock wait): a round whose every try was a
-    capacity refusal skips the late-listing settle (``gr.StockWait`` owns it) and prints only
-    the stock wait's one line."""
+    refusal the wait retries skips the late-listing settle and leaves its watchdog armed
+    (``gr.StockWait`` owns both) and prints only the stock wait's one line; the round's own
+    watchdog is stopped by process group only (``watchdog.stop`` in this shared dir would
+    also stop an earlier round's armed watchdog)."""
     from research.runpod_fanout.ledger import SharedLedger
 
     gr._install_signal_handlers()
@@ -743,32 +750,33 @@ def launch_attempt(
     try:  # a failed read before anything is reserved or created: the stock wait retries
         mine = gr.our_pods(rp)
     except Exception as exc:  # noqa: BLE001
-        raise gr.PreCreateTransient(repr(exc)) from exc
+        raise gr.PreCreateTransient.of(exc) from exc
     if mine:
         raise SystemExit(f"refusing: a {gr.POD_NAME} pod already exists (run cleanup first)")
     try:
         balance0 = rp.balance()
     except Exception as exc:  # noqa: BLE001
-        raise gr.PreCreateTransient(repr(exc)) from exc
+        raise gr.PreCreateTransient.of(exc) from exc
     token = secrets.token_urlsafe(32)
     created = gr.now()
     until = created + float(args.lifetime_hours) * 3600.0
     deadline = until - DEADLINE_MARGIN_S
-    name = gr.POD_NAME + time.strftime("%m%d%H%M%S")
+    name = gr.POD_NAME + time.strftime("%m%d%H%M%S", time.localtime(created))
     body = bench_pod_body(name, hashlib.sha256(token.encode()).hexdigest(), deadline, until, args)
     (run_dir / "pod_body.json").write_text(json.dumps(body))
     watchdog_pid = gr.spawn_watchdog(run_dir, until, name)
+    stop_dir = None if defer_settle else run_dir  # the stock wait: by process group only
     ledger = SharedLedger(policy)
     run_id = f"{args.job_id}-{int(created)}"
     try:
         ledger.register_run(run_id, args.job_id, str(run_dir), args.spend_cap, os.getpid())
         refusal = ledger.reserve_pod(run_id, name, float(args.max_hourly), until, balance0)
     except BaseException:
-        gr.stop_watchdog(watchdog_pid, run_dir)
+        gr.stop_watchdog(watchdog_pid, stop_dir)
         raise
     if refusal:
         ledger.finish_run(run_id, False, False)
-        gr.stop_watchdog(watchdog_pid, run_dir)
+        gr.stop_watchdog(watchdog_pid, stop_dir)
         raise SystemExit(f"ledger refused: {refusal}")
     state: Dict[str, Any] = {
         "run_id": run_id,
@@ -790,7 +798,7 @@ def launch_attempt(
     ok, no_capacity = False, False
     try:
         out, err, no_capacity = gr.create_pod_retrying(
-            rp, body, run_dir, state, (gr.GPU,), float(args.max_hourly), quiet=defer_settle
+            rp, body, run_dir, state, (gr.GPU,), float(args.max_hourly), stock_wait=defer_settle
         )
         if err:
             outcome = f"create error: {err}"
@@ -823,7 +831,7 @@ def launch_attempt(
         state["outcome"] = outcome
         quick = {}
         if defer_settle and no_capacity and not state.get("pod_id"):
-            if gr.capacity_refusals_only(state):  # no pod exists: one clean listing suffices
+            if gr.stock_refusals_only(state):  # no pod was made: one clean listing for now
                 quick = {"settle_s": 0.0, "clean_s": 0.0, "quiet": True}
                 state["settle_deferred"] = True
         gr.save_state(run_dir, state)
@@ -848,9 +856,11 @@ def launch_attempt(
         except Exception as exc:  # noqa: BLE001
             gr.alert(f"ledger/balance bookkeeping failed: {exc}")
         state["pods_deleted_verified"] = ok
-        if ok:
+        if ok and not quick:  # a full settle (it covers every earlier round's window too)
             gr.stop_watchdog(watchdog_pid, run_dir)
             state["watchdog_stopped"] = True
+        elif ok:  # the late-listing window is still open: armed until gr.StockWait stops it
+            state["watchdog_stopped"] = False
         gr.save_state(run_dir, state)
         summary = write_summary(run_dir, state, commands, skipped, args, outcome)
         if not quick:  # a stock-wait round prints one line (StockWait.another_round)
@@ -872,18 +882,47 @@ def _say_done(run_dir: Path, outcome: Any, ok: Any, summary: Path) -> None:
     )
 
 
-def set_round_aside(run_dir: Path, keep: set) -> Path:
+def set_round_aside(run_dir: Path, keep: set, wait: Optional[gr.StockWait] = None) -> Path:
     """Move a refused round's own files (state, pod bodies, watchdog files, summary) out of the
     session dir before the next round: a stale ``watchdog.stop`` would stop the next round's
-    watchdog at once and a stale "armed" line would pass its spawn check. Only the latest
-    refused round is kept (``STOCK_ASIDE``); ``keep`` = what the session wrote before round 0."""
+    watchdog at once and a stale "armed" line would pass its spawn check. The latest refused
+    round is kept in ``STOCK_ASIDE``; an older one whose watchdog ``wait`` still keeps armed
+    moves to ``STOCK_ARMED/<pod name>`` (its log stays readable) until it is stopped
+    (``prune_armed``). ``keep`` = what the session wrote before round 0."""
     aside = run_dir / STOCK_ASIDE
-    shutil.rmtree(aside, ignore_errors=True)
+    prev = wait.owner(aside) if wait is not None else None
+    if prev is not None:
+        dest = run_dir / STOCK_ARMED / str(prev["name"])
+        n = 1
+        while dest.exists():
+            dest, n = run_dir / STOCK_ARMED / f"{prev['name']}.{n}", n + 1
+        dest.parent.mkdir(exist_ok=True)
+        aside.replace(dest)
+        wait.moved(aside, dest)
+    else:
+        shutil.rmtree(aside, ignore_errors=True)
     aside.mkdir()
     for path in sorted(run_dir.iterdir()):
-        if path.name not in keep and path.name not in (STOCK_ASIDE, STOCK_LOG):
+        if path.name not in keep and path.name not in (STOCK_ASIDE, STOCK_LOG, STOCK_ARMED):
             path.replace(aside / path.name)
+    if wait is not None:  # its settle record and armed watchdog follow its files
+        wait.moved(run_dir, aside)
     return aside
+
+
+def prune_armed(run_dir: Path, wait: gr.StockWait) -> None:
+    """Drop the set-aside rounds whose watchdog the stock wait has stopped (and the dir once
+    it is empty)."""
+    armed = run_dir / STOCK_ARMED
+    if not armed.is_dir():
+        return
+    for d in armed.iterdir():
+        if not wait.holds(d):
+            shutil.rmtree(d, ignore_errors=True)
+    try:
+        armed.rmdir()  # only when empty
+    except OSError:
+        pass
 
 
 def stock_wait_s(args) -> float:
@@ -891,29 +930,34 @@ def stock_wait_s(args) -> float:
 
 
 def stock_wait(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
-    """``--stock-wait-hours``: a launch_attempt round every ``--stock-poll-s`` (start to start)
-    while every create try is a capacity refusal, up to the wait (``gr.StockWait``). Every
-    round runs in the session dir, so the round that gets a pod leaves exactly the layout of
-    a single try; a refused round's own files are set aside before the next one."""
+    """``--stock-wait-hours``: a launch_attempt round every ``--stock-poll-s`` (start to start;
+    backed off after a throttled round) while every create try is a refusal the wait retries,
+    up to the wait (``gr.StockWait``). Every round runs in the session dir, so the round that
+    gets a pod leaves exactly the layout of a single try; a refused round's own files are set
+    aside before the next one. Its watchdog stays armed until its late-listing window has
+    passed with a clean listing (stopped by process group: the rounds share this dir)."""
     poll_s = float(getattr(args, "stock_poll_s", gr.STOCK_POLL_S))
-    wait = gr.StockWait(stock_wait_s(args), poll_s, run_dir / STOCK_LOG)
+    wait = gr.StockWait(stock_wait_s(args), poll_s, run_dir / STOCK_LOG, stop_files=False)
     keep = set(os.listdir(run_dir))  # inputs/, commands.json
     k = 0
     try:
         while True:
             start = gr.now()
-            transient = None
+            if k:  # stop the watchdogs whose late-listing window has passed clean
+                wait.reap(rp)
+                prune_armed(run_dir, wait)
+            transient, throttled = None, False
             try:
                 code, refused = launch_attempt(
                     args, rp, run_dir, inputs, commands, skipped, defer_settle=True
                 )
                 st = gr.read_state(run_dir)
             except gr.PreCreateTransient as exc:  # nothing reserved or created
-                code, refused, transient, st = 1, True, str(exc), {}
+                code, refused, transient, throttled, st = 1, True, str(exc), exc.throttled, {}
             wait.track(run_dir, st)
             if not refused:
                 return code
-            if not wait.another_round(k, f"round{k:03d}", start, st, transient):
+            if not wait.another_round(k, f"round{k:03d}", start, st, transient, throttled):
                 if wait.deferred_dir == run_dir:  # the last round's files are in place
                     wait.settle(rp, run_dir)
                     st = gr.read_state(run_dir)
@@ -921,15 +965,14 @@ def stock_wait(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
                     summary = write_summary(run_dir, st, commands, skipped, args, outcome)
                     _say_done(run_dir, outcome, st.get("pods_deleted_verified"), summary)
                 return code
-            if st:
-                aside = set_round_aside(run_dir, keep)
-                if wait.deferred_dir == run_dir:
-                    wait.deferred_dir = aside
+            if st:  # (retargets the round's deferred settle and armed watchdog)
+                set_round_aside(run_dir, keep, wait)
             k += 1
             gr._install_signal_handlers()
             time.sleep(wait.sleep_s(start))
     finally:
         wait.settle(rp)
+        prune_armed(run_dir, wait)
 
 
 def launch(args, commit: str, commands, skipped) -> int:
