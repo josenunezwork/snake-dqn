@@ -26,6 +26,23 @@ and GPU fallbacks), plus:
   this exact job) and the projected finish of the whole queue + 45 min must fit the remaining
   lifetime; otherwise the pod is deleted (Mac fallback).
 
+Opt-in plan keys (M6; a plan without them runs exactly as before, tested):
+
+* ``"image"``: the pod's container image (default ``IMAGE``, the runtime image). torch.compile
+  (``--compile-learner``) needs a C compiler, which only ``IMAGE_DEVEL`` has: the runtime
+  image silently falls back to eager (research/perf_quiet_20261013 RESULTS).
+* ``"extra_inputs"``: ``[{"src": local path, "dst": path under the pod's /r/in, "sha256"}]``
+  uploaded with the sha-checked input upload (refused locally before anything is created if
+  a file does not hash to its pin; the pod agent refuses a body that does not either).
+* per-run ``"init"``: a pod-side path (``/r/in/<an extra_inputs dst>``) that REPLACES the
+  default M2b-student ``--init`` in that run's argv (never a duplicate flag).
+
+``plan_warnings`` flags sizing that looks inconsistent with the runs' flags (``--obs-pack``
+vs ``ram_per_run_gb`` / ``ring_gb_per_run``, actors vs ``vcpu_per_run``, the initial wave's
+VRAM, ``--compile-learner`` without the devel image). Every run's argv is checked against
+the COMMITTED trainer's argparse: ``plan`` reports flags it does not define, ``launch``
+refuses them before any RunPod call (a run would die in argparse on a paid pod).
+
 Subcommands: ``plan`` (dry run: inputs, pod body, rp.py dry-run request; spends nothing),
 ``launch --confirm`` (spends money: only on the user's direct approval), ``cleanup --confirm``.
 """
@@ -33,6 +50,7 @@ Subcommands: ``plan`` (dry run: inputs, pod body, rp.py dry-run request; spends 
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import gzip
 import hashlib
@@ -63,6 +81,23 @@ DEMO = ARTIFACTS / "redesign-m2b-20261008" / "data"
 DEMO_ROUNDS = (10, 11, 12)
 GPU = "NVIDIA GeForce RTX 4090"
 IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
+#: opt-in (plan ``"image"``): the same torch / CUDA with gcc, for torch.compile on the pod
+IMAGE_DEVEL = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel"
+IMAGE_RE = re.compile(r"[a-z0-9]+([._/-][a-z0-9]+)*:[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+POD_IN = "/r/in/"
+STUDENT_DST = "ckpt/student_m2b_final.pth"
+STUDENT_INIT = POD_IN + STUDENT_DST
+INPUT_DST_RE = re.compile(r"[A-Za-z0-9_.\-]{1,80}(/[A-Za-z0-9_.\-]{1,80}){0,4}")
+RESERVED_DSTS = ("repo.tar.gz", STUDENT_DST)
+RESERVED_DST_PREFIXES = ("demo/",)
+RUNNER_FLAGS = ("--out", "--device", "--init", "--demo-data", "--transitions", "--seed")
+# Sanity bounds for plan sizing (warnings only), from research/perf_ram_20261013 (per run on
+# the RTX 4090 pods: 16.2 GB default / 6.6 GB --obs-pack; bv8 12.4 / 5.5 GB; plans used 19
+# GB unpacked) and the pod telemetry (2.0 GB VRAM per run with a CUDA learner + 2 CUDA actors).
+OBS_PACK_RAM_GB = 6.0
+NO_PACK_RAM_GB = 16.0
+UNPACKED_RING_GB = 9.0  # rings per run: 9.3-9.5 GB raw, 2.4-2.6 GB --obs-pack (bench_ram)
+GPU_VRAM_GB = 24.0  # the RTX 4090, in nvidia-smi GiB (the fill's unit)
 PIP = [
     "numpy==1.26.4",
     "numba==0.68.0",
@@ -135,8 +170,10 @@ def validate_plan(plan: Dict[str, Any]) -> List[str]:
         if not isinstance(r.get("seed"), int):
             p.append(f"{r.get('name')}: seed")
         for a in r.get("extra", []):
-            if a in ("--out", "--device", "--init", "--demo-data", "--transitions", "--seed"):
-                p.append(f"{r.get('name')}: extra may not set {a}")
+            flag = str(a).split("=", 1)[0]  # "--init=x" sets --init too
+            if flag in RUNNER_FLAGS:
+                p.append(f"{r.get('name')}: extra may not set {flag}")
+    p += _validate_opt_in(plan, runs)
     for k in ("transitions", "mac_rate", "g2_factor", "ram_per_run_gb", "vcpu_per_run"):
         if not isinstance(plan.get(k), (int, float)) or plan[k] <= 0:
             p.append(k)
@@ -148,6 +185,146 @@ def validate_plan(plan: Dict[str, Any]) -> List[str]:
     if int(plan.get("max_concurrent_cap", 0)) < 1:
         p.append("max_concurrent_cap")
     return p
+
+
+def _validate_opt_in(plan: Dict[str, Any], runs: List[Dict[str, Any]]) -> List[str]:
+    """Problems with the opt-in keys ``image``, ``extra_inputs``, per-run ``init`` and the
+    informational ``gpu_count`` (the pod body always asks for one GPU)."""
+    p: List[str] = []
+    if "gpu_count" in plan and plan["gpu_count"] != 1:
+        p.append("gpu_count: this runner drives exactly one GPU per pod")
+    if "image" in plan:
+        image = plan["image"]
+        if not isinstance(image, str) or not IMAGE_RE.fullmatch(image):
+            p.append(f"image must be a tagged image reference (e.g. {IMAGE_DEVEL}), got {image!r}")
+    xs = plan.get("extra_inputs", [])
+    dsts: List[str] = []
+    if not isinstance(xs, list):
+        p.append("extra_inputs must be a list")
+        xs = []
+    for i, x in enumerate(xs):
+        if (
+            not isinstance(x, dict)
+            or set(x) != {"src", "dst", "sha256"}
+            or not all(isinstance(x[k], str) for k in x)
+        ):
+            p.append(f"extra_inputs[{i}]: needs exactly the strings src, dst, sha256")
+            continue
+        dst = x["dst"]
+        parts = dst.split("/")
+        if not INPUT_DST_RE.fullmatch(dst) or any(c in (".", "..") for c in parts):
+            p.append(f"extra_inputs[{i}]: dst {dst!r} must be a relative path under {POD_IN}")
+        elif dst in RESERVED_DSTS or dst.startswith(RESERVED_DST_PREFIXES):
+            p.append(f"extra_inputs[{i}]: dst {dst!r} is one of the runner's own inputs")
+        if dst in dsts:
+            p.append(f"extra_inputs[{i}]: duplicate dst {dst!r}")
+        dsts.append(dst)
+        if not re.fullmatch(r"[0-9a-f]{64}", x["sha256"]):
+            p.append(f"extra_inputs[{i}]: sha256 must be 64 lowercase hex digits")
+    inits = {STUDENT_INIT} | {POD_IN + d for d in dsts}
+    for r in runs:
+        if "init" in r and r["init"] not in inits:
+            p.append(
+                f"{r.get('name')}: init {r['init']!r} is not an uploaded input "
+                f"({POD_IN}<an extra_inputs dst> or {STUDENT_INIT})"
+            )
+    return p
+
+
+def run_flags(run: Dict[str, Any]) -> List[str]:
+    return [str(a) for a in run.get("extra", [])]
+
+
+def flag_value(argv: Sequence[str], flag: str) -> Optional[str]:
+    """The value argparse would give ``flag`` (the last occurrence wins); None if absent."""
+    out = None
+    for i, tok in enumerate(argv):
+        if tok == flag:
+            out = argv[i + 1] if i + 1 < len(argv) else ""
+        elif tok.startswith(flag + "="):
+            out = tok.split("=", 1)[1]
+    return out
+
+
+def initial_wave(plan: Dict[str, Any]) -> int:
+    """The runs started at once on the smallest host the plan admits (min_ram_gb, min_vcpu)."""
+    mem, vcpu = float(plan.get("min_ram_gb", 96)), float(plan.get("min_vcpu", 16))
+    return initial_concurrency(plan, mem, vcpu, vcpu)
+
+
+def plan_warnings(plan: Dict[str, Any]) -> List[str]:
+    """Sizing that looks inconsistent with the runs' flags (printed, never refused).
+
+    G2 and the sizing use the plan's own ``ram_per_run_gb`` / ``vcpu_per_run``; these checks
+    compare them with what was measured for the flags the runs carry.
+    """
+    w: List[str] = []
+    runs = plan["runs"]
+    packed = [r["name"] for r in runs if "--obs-pack" in run_flags(r)]
+    unpacked = [r["name"] for r in runs if "--obs-pack" not in run_flags(r)]
+    ram = float(plan["ram_per_run_gb"])
+    ring = float(plan.get("ring_gb_per_run", 9.3))
+    if packed and unpacked:
+        w.append(
+            f"--obs-pack in {len(packed)} of {len(runs)} runs: ram_per_run_gb ({ram:g}) and "
+            "ring_gb_per_run are one number for every run; size them for the unpacked runs"
+        )
+    if unpacked and ram < NO_PACK_RAM_GB:
+        w.append(
+            f"ram_per_run_gb {ram:g} < {NO_PACK_RAM_GB:g}: runs without --obs-pack measured "
+            "~16-19 GB each on the pods (perf-ram): the initial wave may run out of memory"
+        )
+    if unpacked and ring < UNPACKED_RING_GB:
+        w.append(
+            f"ring_gb_per_run {ring:g} < {UNPACKED_RING_GB:g}: unpacked rings are ~9.3 GB per "
+            "run (the adaptive fill reserves this for young runs)"
+        )
+    if packed and not unpacked:
+        if ram < OBS_PACK_RAM_GB:
+            w.append(
+                f"ram_per_run_gb {ram:g} < {OBS_PACK_RAM_GB:g}: --obs-pack runs measured "
+                "~6-7 GB each on the pods (perf-ram): the initial wave may run out of memory"
+            )
+        elif ram >= NO_PACK_RAM_GB:
+            w.append(
+                f"ram_per_run_gb {ram:g} is the unpacked size, but every run has --obs-pack "
+                "(~6-7 GB per run): the RAM bound starts fewer runs than fit"
+            )
+        if ring >= UNPACKED_RING_GB:
+            w.append(
+                f"ring_gb_per_run {ring:g} (default 9.3) is the unpacked ring size; --obs-pack "
+                "rings are ~2.4-2.6 GB per run: the adaptive fill under-fills"
+            )
+    actors = int(plan.get("actors", 0))
+    if actors and float(plan["vcpu_per_run"]) < actors + 1:
+        w.append(
+            f"vcpu_per_run {plan['vcpu_per_run']} < actors + 1 = {actors + 1}: the learner and "
+            "each actor keep about one core busy"
+        )
+    wave = initial_wave(plan)
+    if wave < 1:
+        w.append("no run fits the smallest admitted host (min_ram_gb / min_vcpu): launch fails")
+    vram = float(plan.get("vram_per_run_gb", 2.0))
+    if wave * vram > 0.9 * GPU_VRAM_GB:
+        w.append(
+            f"initial wave {wave} runs x vram_per_run_gb {vram:g} = {wave * vram:.1f} GB > 90% "
+            f"of the RTX 4090's {GPU_VRAM_GB:g} GB: the initial wave is not VRAM-checked (only "
+            "the adaptive fill is); lower max_concurrent_cap if a run can OOM"
+        )
+    compiled = [
+        r["name"]
+        for r in runs
+        if any(
+            flag_value(run_flags(r), f) not in (None, "off")
+            for f in ("--compile-learner", "--compile-actor")
+        )
+    ]
+    if compiled and plan.get("image", IMAGE) == IMAGE:
+        w.append(
+            f"{len(compiled)} runs use torch.compile but the image is the runtime image (no C "
+            f'compiler: compile falls back to eager); set "image": "{IMAGE_DEVEL}"'
+        )
+    return w
 
 
 # ----------------------------------------------------------------------------- pure parts
@@ -166,6 +343,7 @@ def pod_body(
     until: float,
     min_ram_gb: int = 96,
     min_vcpu: int = 16,
+    image: str = IMAGE,
 ) -> Dict[str, Any]:
     blob = base64.b64encode(gzip.compress(AGENT.read_bytes(), mtime=0)).decode()
     start = (
@@ -179,7 +357,7 @@ def pod_body(
         "gpuTypeIds": [GPU],
         "gpuCount": 1,
         "cloudType": "SECURE",
-        "imageName": IMAGE,
+        "imageName": image,
         "containerDiskInGb": 120,  # code, demos (2.2 GB), file-backed rings (~7.6 GB per run)
         "volumeInGb": 0,
         "minRAMPerGPU": int(min_ram_gb),
@@ -425,7 +603,13 @@ def build_inputs(work: Path, plan: Dict[str, Any]) -> Dict[str, Any]:
         files.append({"src": str(src), "dst": f"ckpt/{name}", "sha256": sha})
     if sha_file(STUDENT) != STUDENT_SHA:
         raise SystemExit("the M2b student does not hash to its pinned sha")
-    files.append({"src": str(STUDENT), "dst": "ckpt/student_m2b_final.pth", "sha256": STUDENT_SHA})
+    files.append({"src": str(STUDENT), "dst": STUDENT_DST, "sha256": STUDENT_SHA})
+    taken = {f["dst"] for f in files}
+    extra = extra_input_files(plan)
+    clash = sorted(taken & {f["dst"] for f in extra})
+    if clash:
+        raise SystemExit(f"refusing: extra_inputs dst {clash} would replace the runner's inputs")
+    files += extra
     demo_tar = work / "demo.tar"
     if not demo_tar.exists():
         with tarfile.open(demo_tar, "w") as tar:
@@ -457,7 +641,62 @@ def build_inputs(work: Path, plan: Dict[str, Any]) -> Dict[str, Any]:
         "demo_sha256": demo_sha,
         "bytes": sum(Path(f["src"]).stat().st_size for f in files),
         "plan_sha256": plan["_sha256"],
+        "trainer_flag_problems": trainer_flag_problems(plan, committed_trainer_flags(commit)),
     }
+
+
+def extra_input_files(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The plan's opt-in ``extra_inputs`` as upload rows, each re-hashed against its pin."""
+    out = []
+    for x in plan.get("extra_inputs", []):
+        src = Path(x["src"])
+        try:
+            got = sha_file(src)
+        except OSError as exc:
+            raise SystemExit(f"refusing: extra input {src} is unreadable: {exc}") from exc
+        if got != x["sha256"]:
+            raise SystemExit(f"refusing: extra input {src} hashes to {got}, not {x['sha256']}")
+        out.append({"src": str(src), "dst": x["dst"], "sha256": x["sha256"]})
+    return out
+
+
+def argparse_flags(source: str) -> set:
+    """Every option string a script's ``add_argument`` calls define (plus -h / --help)."""
+    flags = {"-h", "--help"}
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_argument"
+        ):
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and str(arg.value).startswith("-"):
+                    flags.add(str(arg.value))
+    return flags
+
+
+def committed_trainer_flags(commit: str) -> Optional[set]:
+    """The flags of the trainer AS COMMITTED (what the pod runs); None if it is missing."""
+    done = subprocess.run(
+        ["git", "show", f"{commit}:{TRAINER}"], cwd=REPO, capture_output=True, text=True
+    )
+    return argparse_flags(done.stdout) if done.returncode == 0 else None
+
+
+def trainer_flag_problems(plan: Dict[str, Any], flags: Optional[set]) -> List[str]:
+    """Option strings in the runs' argv that the committed trainer does not define."""
+    if flags is None:
+        return [f"{TRAINER} is not in the committed tree"]
+    bad: Dict[str, List[str]] = {}
+    for run in plan["runs"]:
+        for tok in train_argv(plan, run)[2:]:
+            flag = tok.split("=", 1)[0]
+            if tok.startswith("--") and flag not in flags:  # values never start with "--"
+                bad.setdefault(flag, []).append(run["name"])
+    return [
+        f"{flag} ({len(names)} runs, e.g. {names[0]}) is not defined by the committed {TRAINER}"
+        for flag, names in sorted(bad.items())
+    ]
 
 
 def setup_argv(demo_sha: str, cuda_mps: bool = False) -> List[str]:
@@ -513,13 +752,15 @@ def probe_argv() -> List[str]:
 
 
 def train_argv(plan: Dict[str, Any], run: Dict[str, Any]) -> List[str]:
+    """The run's trainer argv. A per-run ``init`` (opt-in) replaces the student path; the
+    plan's ``extra`` flags are appended verbatim (validation keeps the runner's own out)."""
     argv = [
         "python",
         TRAINER,
         "--seed",
         str(int(run["seed"])),
         "--init",
-        "/r/in/ckpt/student_m2b_final.pth",
+        str(run.get("init", STUDENT_INIT)),
         "--demo-data",
         "/r/demo",
         "--transitions",
@@ -1054,10 +1295,14 @@ def launch(args) -> int:
         return 2
     root.mkdir(parents=True)
     (root / "plan.json").write_text(json.dumps({k: v for k, v in plan.items() if k != "_sha256"}))
+    for w in plan_warnings(plan):
+        say(f"plan warning: {w}", err=True)
     problems = preflight()
     if problems:
         raise SystemExit(f"TLS preflight failed: {problems}")
     inputs = build_inputs(root / "inputs", plan)
+    if inputs.get("trainer_flag_problems"):  # before any RunPod call: nothing to clean up
+        raise SystemExit(f"refusing: {inputs['trainer_flag_problems']}")
     rp = RpClient()
     t0 = now()
     k = 0
@@ -1106,6 +1351,7 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any], plan: Dict[s
         until,
         int(plan.get("min_ram_gb", 96)),
         int(plan.get("min_vcpu", 16)),
+        image=plan.get("image", IMAGE),
     )
     (run_dir / "pod_body.json").write_text(json.dumps(body))
     watchdog_pid = spawn_watchdog(run_dir, until, name)
@@ -1140,6 +1386,7 @@ def launch_attempt(args, rp, run_dir: Path, inputs: Dict[str, Any], plan: Dict[s
         "spend_cap": args.spend_cap,
         "token_sha256": body["env"]["M3_TOKEN_SHA256"],
         "watchdog_pid": watchdog_pid,
+        "image": body["imageName"],
     }
     save_state(run_dir, state)
     outcome, rate, no_capacity = "unknown", float(plan["max_hourly"]), False
@@ -1620,15 +1867,26 @@ def plan_cmd(args) -> int:
         until,
         int(plan.get("min_ram_gb", 96)),
         int(plan.get("min_vcpu", 16)),
+        image=plan.get("image", IMAGE),
     )
     (work / "pod_body.json").write_text(json.dumps(body))
     rp = RpClient()
     dry = rp.create_pod(work / "pod_body.json", float(plan["max_hourly"]), confirm=False)
+    total = float(plan["transitions"]) * len(plan["runs"])
     out = {
         "commit": inputs["commit"],
         "plan_sha256": plan["_sha256"],
         "runs": [r["name"] for r in plan["runs"]],
         "transitions_per_run": plan["transitions"],
+        "image": body["imageName"],
+        "extra_inputs": [
+            {k: x[k] for k in ("dst", "sha256")} for x in plan.get("extra_inputs", [])
+        ],
+        "inits": {r["name"]: r.get("init", STUDENT_INIT) for r in plan["runs"]},
+        "initial_wave_on_min_host": initial_wave(plan),
+        "plan_warnings": plan_warnings(plan),
+        "trainer_flag_problems_launch_refuses": inputs.get("trainer_flag_problems"),
+        "g2_pod_wall_budget_s": total / float(plan["mac_rate"]) / float(plan["g2_factor"]),
         "upload_files": len(inputs["files"]),
         "upload_bytes": inputs["bytes"],
         "balance": rp.balance(),
