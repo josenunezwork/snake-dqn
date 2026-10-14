@@ -833,3 +833,30 @@ def test_probe_watch_reads_every_attempt_of_a_run_root(tmp_path):
         (d / "landed.jsonl").write_text(json.dumps({"run": run, "file": "final.pth", "path": "/p"}))
     rows = pw.landed_rows(tmp_path, [])
     assert sorted(r["run"] for r in rows) == ["A_s0", "B_s0"]
+
+
+def test_preflight_argv_is_the_first_run_with_short_transitions_and_own_out():
+    plan = {"transitions": 8_000_000, "actors": 3, "ring_dir": "/r/rings"}
+    run = {"name": "CTRL_s10", "seed": 10, "extra": ["--worlds", "128"]}
+    full = gr.train_argv(plan, run)
+    pre = gr.preflight_argv(plan, run, 30_000)
+    assert pre[pre.index("--transitions") + 1] == "30000"
+    assert pre[pre.index("--out") + 1] == "/r/out/_preflight"
+    diff = [i for i, (a, b) in enumerate(zip(full, pre)) if a != b]
+    assert len(full) == len(pre) and len(diff) == 2
+
+
+def test_fetch_log_tail_saves_and_never_raises(tmp_path):
+    class Ok:
+        def get(self, path, timeout=30):
+            assert path == "/log/CTRL_s10"
+            return b"x" * 10 + b"Traceback: boom"
+
+    class Down:
+        def get(self, path, timeout=30):
+            raise OSError("unreachable")
+
+    tail = gr.fetch_log_tail(Ok(), "CTRL_s10", tmp_path, limit=8)
+    assert tail == "ck: boom"[-8:] or tail.endswith("boom")
+    assert (tmp_path / "failed_logs" / "CTRL_s10.log").read_text() == tail
+    assert gr.fetch_log_tail(Down(), "x", tmp_path).startswith("<log unavailable")

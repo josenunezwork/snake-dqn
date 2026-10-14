@@ -119,6 +119,8 @@ PORT = 8000
 UPLOAD_BUDGET_S = 3600
 SETUP_BUDGET_S = 1800
 PROBE_BUDGET_S = 600
+PREFLIGHT_BUDGET_S = 1200  # opt-in trainer preflight (plan "preflight_transitions")
+FAILED_LOG_TAIL = 4000  # bytes of a failed run's stdout+stderr kept locally
 STALL_S = 900
 NET_FAIL_BUDGET_S = 900
 CREATE_TRIES = 12
@@ -1471,6 +1473,30 @@ class NetBudget:
         return now() - self.first_fail > NET_FAIL_BUDGET_S
 
 
+def preflight_argv(plan: Dict[str, Any], run: Dict[str, Any], transitions: int) -> List[str]:
+    """``train_argv`` of ``run`` with a short ``--transitions`` and its own ``--out``."""
+    argv = list(train_argv(plan, run))
+    for flag, value in (("--transitions", str(int(transitions))), ("--out", "/r/out/_preflight")):
+        argv[argv.index(flag) + 1] = value
+    return argv
+
+
+def fetch_log_tail(agent, name: str, run_dir: Path, limit: int = FAILED_LOG_TAIL) -> str:
+    """The tail of a pod process's stdout+stderr, also saved to ``run_dir/failed_logs``;
+    best effort (an unreachable agent returns a marker, never raises)."""
+    try:
+        tail = agent.get(f"/log/{name}").decode(errors="replace")[-limit:]
+    except Exception as exc:  # noqa: BLE001
+        return f"<log unavailable: {type(exc).__name__}: {exc}>"
+    try:
+        out = run_dir / "failed_logs"
+        out.mkdir(exist_ok=True)
+        (out / f"{name}.log").write_text(tail)
+    except OSError:
+        pass
+    return tail
+
+
 def _wait_job(agent, rp, state, args, net, name: str, budget_s: float) -> Tuple[Optional[int], str]:
     """Poll /health until job ``name`` exits; (returncode, stop-reason-or-'')."""
     t0 = now()
@@ -1582,6 +1608,18 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
     note(stage="speed_probe", returncode=rc, rate=probe.get("rate"), floor=plan.get("speed_floor"))
     if float(probe.get("rate") or 0.0) < float(plan.get("speed_floor", 0.0)):
         return f"slow host: actor probe {probe.get('rate'):.0f}/s < floor {plan['speed_floor']}"
+    # 4b. opt-in trainer preflight: the first run's exact command for a few transitions, so a
+    # trainer that cannot start on this host fails once (with its log) instead of N times.
+    if int(plan.get("preflight_transitions", 0)):
+        argv = preflight_argv(plan, plan["runs"][0], int(plan["preflight_transitions"]))
+        agent.exec("preflight", argv, "/r/repo", env)
+        rc, stop = _wait_job(agent, rp, state, args, net, "preflight", PREFLIGHT_BUDGET_S)
+        tail = fetch_log_tail(agent, "preflight", run_dir)
+        note(stage="preflight", returncode=rc, stop=stop or None, tail=tail[-1500:])
+        if stop:
+            return f"trainer preflight: {stop}"
+        if rc != 0:
+            return f"trainer preflight failed (rc {rc}); log in failed_logs/preflight.log"
     # 5. the run queue: seed-major (A_s0, B_s0, D_s0, L_s0, A_s1, ...) so every arm trains
     # under the same concurrency profile and a truncated queue never drops a whole arm.
     order = {r["name"]: i for i, r in enumerate(plan["runs"])}
@@ -1671,6 +1709,9 @@ def drive(agent, rp, run_dir, state, inputs, args, plan) -> str:
             if "finished" not in status[r]:
                 status[r].update(finished=now(), returncode=rcs[r])
                 note(stage="run_finished", run=r, returncode=rcs[r])
+                if rcs[r] != 0:
+                    tail = fetch_log_tail(agent, r, run_dir)
+                    note(stage="run_failed_log", run=r, tail=tail[-1500:])
                 last_progress = now()
         unreadable = [r for r in running if r not in observed_logs]
         if unreadable and any(now() - log_read_failed[r] > NET_FAIL_BUDGET_S for r in unreadable):
