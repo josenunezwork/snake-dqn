@@ -65,6 +65,45 @@ def ensemble_hero(members: Sequence[str], rule: str, holder: Dict[str, Any]) -> 
         ep.Ego2sSimdPolicy = orig
 
 
+@contextmanager
+def world_slice(offset: int, ctx: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
+    """Probe worlds ``offset .. offset + worlds`` of the round's list (rosters as in the full list).
+
+    Rosters depend on a world's position in the list, so the design rows are materialized
+    for the first ``offset + worlds`` worlds and then restricted to the slice.
+    """
+    if not offset:
+        yield ctx
+        return
+    import types
+
+    orig = dev_probe.probe_seeds
+    ds = ctx["ds"]
+
+    def sliced(worlds: int, round_index: int) -> List[int]:
+        return orig(offset + worlds, round_index)[offset:]
+
+    def design_rows(seeds: Sequence[int]) -> List[Dict[str, Any]]:
+        full = orig(offset + len(seeds), round_index_holder[0])
+        if list(full[offset:]) != list(seeds):
+            raise RuntimeError("world slice mismatch")
+        keep = set(seeds)
+        return [r for r in ds._design_rows(full) if int(r["world_seed"]) in keep]
+
+    round_index_holder = [None]
+
+    def sliced_tracking(worlds: int, round_index: int) -> List[int]:
+        round_index_holder[0] = round_index
+        return sliced(worlds, round_index)
+
+    proxy = types.SimpleNamespace(_design_rows=design_rows)
+    dev_probe.probe_seeds = sliced_tracking
+    try:
+        yield {**ctx, "ds": proxy}
+    finally:
+        dev_probe.probe_seeds = orig
+
+
 def sha(path: str) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -98,9 +137,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         pargs = dev_probe.build_parser().parse_args(argv)
         holder: Dict[str, Any] = {}
         t0 = time.perf_counter()
-        with ensemble_hero(members, args.rule, holder):
-            recs, row = dev_probe.probe(pargs, ctx)
-        seeds = dev_probe.probe_seeds(pargs.worlds, pargs.round_index)
+        with ensemble_hero(members, args.rule, holder), world_slice(args.world_offset, ctx) as c:
+            recs, row = dev_probe.probe(pargs, c)
+            seeds = dev_probe.probe_seeds(pargs.worlds, pargs.round_index)
+        if args.world_offset:
+            row["world_offset"] = args.world_offset
         row["student"] = f"ensemble:{args.rule}:K{len(members)}"
         row["student_sha256"] = None
         row["ensemble"] = {"rule": args.rule, "members": members, "member_sha256": shas}
@@ -161,6 +202,9 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--rule", choices=RULES, default="mean")
     r.add_argument("--mixes", default="frozen,scripted,mixed")
     r.add_argument("--worlds", type=int, default=32)
+    r.add_argument(
+        "--world-offset", type=int, default=0, help="probe worlds offset..offset+worlds-1"
+    )
     r.add_argument("--round-index", type=int, default=52)
     r.add_argument("--v61-backend", choices=dev_probe.V61_BACKENDS, default=None)
     r.add_argument("--anchors", choices=dev_probe.ANCHORS, default="python")
