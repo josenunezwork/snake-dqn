@@ -28,6 +28,14 @@ Per-seed independence:
   the single-run halt.
 * target sync: per seed, on that seed's own update count.
 
+Forward options (``forward=``): ``"vmap"`` (the default) is ``vmap(functional_call)`` over
+the stacked parameters. ``"grouped"`` (:func:`grouped_forward`) writes the same network by
+hand: the convolution activations stay in a channel layout ``(N, K*C, H, W)`` with one
+``groups=K`` convolution per layer, and the linears are ``baddbmm``. vmap's convolution
+batching rule moves the K dimension into the channels and back around every convolution (a
+float copy of the activations each time); on MPS that alone made a vmap update ~2x as slow
+as the grouped one (``DESIGN.md``).
+
 Numerics: on CPU the stacked forward/backward is NOT bitwise the single-model one. The
 grouped convolution / bmm reassociates against convolution / addmm, at about 1e-6 on Q, and
 Adam's ``m / sqrt(v)`` can amplify that on near-zero gradients. Multi-step trajectories are
@@ -47,6 +55,8 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+from torch import nn
 from torch.func import functional_call, stack_module_state, vmap
 from torch.optim.adam import adam as adam_functional
 
@@ -59,6 +69,7 @@ BETAS = (0.9, 0.999)
 EPS = 1e-8
 ADAM_IMPLS = ("default", "fused")
 PRECISIONS = ("fp32", "bf16")
+FORWARDS = ("vmap", "grouped")
 Batch = Dict[str, torch.Tensor]
 
 
@@ -137,18 +148,80 @@ def single_update(
     }
 
 
+# ----------------------------------------------------------------------------- grouped forward
+def _grouped_seq(seq: nn.Sequential, prefix: str, x, p: Dict[str, torch.Tensor], K: int, n: int):
+    """One ``nn.Sequential`` tower of K stacked seeds without vmap.
+
+    Convolution activations stay in the channel layout ``(n, K*C, H, W)`` (seed k owns channel
+    block k; one ``groups=K`` convolution per layer, no per-layer permute); ``Flatten`` turns
+    them into ``(K, n, F)``, where linears are ``baddbmm`` and LayerNorm normalizes each row
+    and applies seed k's affine."""
+    for i, mod in enumerate(seq):
+        name = f"{prefix}.{i}"
+        if isinstance(mod, nn.Conv2d):
+            if mod.padding_mode != "zeros":
+                raise TypeError("grouped forward: only zero-padded convolutions")
+            w, b = p[name + ".weight"], p.get(name + ".bias")
+            x = F.conv2d(
+                x,
+                w.flatten(0, 1),
+                None if b is None else b.flatten(),
+                mod.stride,
+                mod.padding,
+                mod.dilation,
+                K * mod.groups,
+            )
+        elif isinstance(mod, nn.ReLU):
+            x = F.relu(x)
+        elif isinstance(mod, nn.Flatten):
+            x = x.reshape(n, K, -1).transpose(0, 1)
+        elif isinstance(mod, nn.Linear):
+            x = _grouped_linear(x, p, name)
+        elif isinstance(mod, nn.LayerNorm):
+            x = F.layer_norm(x, mod.normalized_shape, eps=mod.eps)
+            x = x * p[name + ".weight"].unsqueeze(1) + p[name + ".bias"].unsqueeze(1)
+        else:
+            raise TypeError(f"grouped forward: unsupported module {type(mod).__name__}")
+    return x
+
+
+def _grouped_linear(x, p: Dict[str, torch.Tensor], name: str):
+    """``(K, n, in)`` -> ``(K, n, out)`` with seed k's ``weight[k]`` / ``bias[k]``."""
+    return torch.baddbmm(p[name + ".bias"].unsqueeze(1), x, p[name + ".weight"].transpose(1, 2))
+
+
+def grouped_forward(base: Ego2sNet, p: Dict[str, torch.Tensor], local, glob, scalars):
+    """``Ego2sNet.forward`` for K stacked seeds as grouped convolutions + batched matmuls (the
+    ``forward="grouped"`` option). ``(K, n, ...)`` observations -> ``(K, n, 6)`` Q. The uint8
+    planes are permuted once to the channel layout (a uint8 copy, 1/4 of a float one); vmap
+    instead permutes the float activations around every convolution."""
+    K, n = local.shape[0], local.shape[1]
+    lo = local.transpose(0, 1).reshape((n, -1) + tuple(local.shape[3:])).float() * (1.0 / 255.0)
+    gl = glob.transpose(0, 1).reshape((n, -1) + tuple(glob.shape[3:])).float() * (1.0 / 255.0)
+    hl = _grouped_seq(base.local, "local", lo, p, K, n)
+    hg = _grouped_seq(base.glob, "glob", gl, p, K, n)
+    h = _grouped_seq(base.fuse, "fuse", torch.cat([hl, hg, scalars.float()], dim=2), p, K, n)
+    a = _grouped_linear(h, p, "adv")
+    return _grouped_linear(h, p, "value") + a - a.mean(dim=2, keepdim=True)
+
+
 # ----------------------------------------------------------------------------- stacked model
 class StackedEgo2s:
-    """K :class:`Ego2sNet` parameter sets as stacked leaf tensors + one vmapped forward."""
+    """K :class:`Ego2sNet` parameter sets as stacked leaf tensors + one batched forward:
+    ``forward="vmap"`` (``vmap(functional_call)``, the default) or ``"grouped"``
+    (:func:`grouped_forward`, the same math without vmap's per-layer layout permutes)."""
 
-    def __init__(self, nets: Sequence[Ego2sNet], device=None) -> None:
+    def __init__(self, nets: Sequence[Ego2sNet], device=None, forward: str = "vmap") -> None:
         nets = list(nets)
         if not nets:
             raise ValueError("need at least one network")
+        if forward not in FORWARDS:
+            raise ValueError(f"forward must be one of {FORWARDS}")
         self.config = dict(nets[0].config)
         if any(dict(net.config) != self.config for net in nets):
             raise ValueError("all seeds must share one Ego2sNet config")
         self.K = len(nets)
+        self.forward_impl = forward
         params, buffers = stack_module_state(nets)
         dev = torch.device(device) if device is not None else next(iter(params.values())).device
         self.device = dev
@@ -156,6 +229,7 @@ class StackedEgo2s:
         self.buffers = {k: v.to(dev) for k, v in buffers.items()}  # Ego2sNet has none
         self.names = list(self.params)
         base = copy.deepcopy(nets[0]).to("meta")
+        self._base = base
 
         def fwd(p, bufs, local, glob, scalars):
             return functional_call(base, (p, bufs), (local, glob, scalars))
@@ -164,6 +238,8 @@ class StackedEgo2s:
 
     def forward(self, params: Dict[str, torch.Tensor], local, glob, scalars) -> torch.Tensor:
         """``(K, N, ...)`` observations -> ``(K, N, 6)`` Q with parameter set ``params``."""
+        if self.forward_impl == "grouped":
+            return grouped_forward(self._base, params, local, glob, scalars)
         return self._fwd(params, self.buffers, local, glob, scalars)
 
     def seed_state_dict(self, k: int, params: Optional[Dict[str, torch.Tensor]] = None):
@@ -302,11 +378,14 @@ class StackedLearner:
         target_every: int = TARGET_EVERY,
         adam: str = "default",
         precision: str = "fp32",
+        forward: str = "vmap",
     ) -> None:
         if precision not in PRECISIONS:
             raise ValueError(f"precision must be one of {PRECISIONS} (fp16 needs per-seed scalers)")
         self.device = torch.device(device)
-        self.model = StackedEgo2s([copy.deepcopy(n).to(self.device) for n in nets], self.device)
+        self.model = StackedEgo2s(
+            [copy.deepcopy(n).to(self.device) for n in nets], self.device, forward=forward
+        )
         self.K = self.model.K
         tnets = nets if targets is None else targets
         tp, _ = stack_module_state([copy.deepcopy(n).to(self.device) for n in tnets])

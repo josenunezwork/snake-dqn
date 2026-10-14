@@ -1,6 +1,7 @@
 """perf pass item 5 (2026-10-13): the multi-seed (stacked, vmapped) learner prototype.
 
-What is pinned, and how tightly:
+Both stacked forwards (``vmap`` and the hand-written ``grouped`` one) and both train_m3c obs
+specs (ego2s-b: 30 scalars, ego2s-bv8: 60) are covered. What is pinned, and how tightly:
 
 * ``single_update`` (the per-seed reference) IS the ``learner_m3c`` T1 update: bitwise on CPU
   against ``Learner`` itself (plain and fused Adam), batch for batch.
@@ -10,7 +11,9 @@ What is pinned, and how tightly:
 * K stacked updates track K separate ``single_update`` runs within a tolerance (grouped
   convolution / bmm reassociate on CPU; Adam amplifies that on near-zero gradients), and every
   deliberate break (batch mix-up, shared Adam moments, target sync from the wrong seed, no
-  target sync, global clip, wrong anchor weight) fails the same check by orders of magnitude.
+  target sync, global clip, wrong anchor weight, a seed/channel-block mix-up in the grouped
+  forward) fails the same check by orders of magnitude.
+* both forwards equal each seed's own ``Ego2sNet.forward`` up to float reassociation.
 * seeds are isolated bitwise: other seeds' data, or a non-finite loss in another seed, do not
   change a seed's trajectory; the non-finite seed halts with its pre-step weights.
 """
@@ -18,6 +21,7 @@ What is pinned, and how tightly:
 from __future__ import annotations
 
 import copy
+import json
 
 import numpy as np
 import pytest
@@ -39,17 +43,17 @@ LAM, MARGIN = 0.5, 0.3
 
 
 # ----------------------------------------------------------------------------- helpers
-def _nets(k=K, base_seed=100):
+def _nets(k=K, base_seed=100, nscal=NSCAL):
     out = []
     for i in range(k):
         torch.manual_seed(base_seed + i)
-        out.append(Ego2sNet(7, NSCAL))
+        out.append(Ego2sNet(7, nscal))
     return out
 
 
-def _batches(seed=0, steps=STEPS, k=K):
+def _batches(seed=0, steps=STEPS, k=K, nscal=NSCAL):
     rng = np.random.default_rng(seed)
-    return [[sl.synthetic_batch(rng, N, M, NSCAL) for _ in range(k)] for _ in range(steps)]
+    return [[sl.synthetic_batch(rng, N, M, nscal) for _ in range(k)] for _ in range(steps)]
 
 
 def _flat(params):
@@ -89,8 +93,10 @@ def _reference(nets, batches, clip=sl.CLIP, adam_fused=False):
     return out
 
 
-def _run_stacked(nets, batches, *, lam=LAM, clip=sl.CLIP, roll=False, setup=None):
-    lrn = sl.StackedLearner(nets, device="cpu", margin=MARGIN, target_every=TARGET_EVERY, clip=clip)
+def _run_stacked(nets, batches, *, lam=LAM, clip=sl.CLIP, roll=False, setup=None, fwd="vmap"):
+    lrn = sl.StackedLearner(
+        nets, device="cpu", margin=MARGIN, target_every=TARGET_EVERY, clip=clip, forward=fwd
+    )
     if setup is not None:
         setup(lrn)
     tds = []
@@ -148,16 +154,26 @@ def _within(w) -> bool:
     return all(w[k] < tol for k, tol in PARITY_TOL.items()) and w["argmax_agree"] == 1.0
 
 
-def _hold():
-    b = sl.to_device(sl.synthetic_batch(np.random.default_rng(77), 64, 0, NSCAL), "cpu")
+def _hold(nscal=NSCAL):
+    b = sl.to_device(sl.synthetic_batch(np.random.default_rng(77), 64, 0, nscal), "cpu")
     return b["local"][:64], b["global"][:64], b["scalars"][:64]
+
+
+_REFS: dict = {}
+
+
+def _setup(nscal=NSCAL):
+    """(nets, batches, K single-model reference runs) for one obs spec, built once."""
+    if nscal not in _REFS:
+        nets = _nets(nscal=nscal)
+        batches = _batches(nscal=nscal)
+        _REFS[nscal] = (nets, batches, _reference(nets, batches))
+    return _REFS[nscal]
 
 
 @pytest.fixture(scope="module")
 def setup_ref():
-    nets = _nets()
-    batches = _batches()
-    return nets, batches, _reference(nets, batches)
+    return _setup()
 
 
 # ----------------------------------------------------------------------------- 1. reference
@@ -382,12 +398,59 @@ def test_stacked_adam_is_torch_adam_per_seed_bitwise(impl):
     )
 
 
-# ----------------------------------------------------------------------------- 3. end to end
-def test_stacked_tracks_k_single_updates(setup_ref):
-    nets, batches, ref = setup_ref
-    lrn, tds = _run_stacked(nets, batches)
+# ----------------------------------------------------------------------------- 3. forward
+SPECS = {"ego2s-b": 30, "ego2s-bv8": 60}  # train_m3c obs versions: local (7, 31, 31) both
+
+
+def _roll_local(local):
+    return local.roll(1, 0)  # seed k sees seed k-1's local planes (a layout mix-up)
+
+
+@pytest.mark.parametrize("spec", list(SPECS))
+def test_grouped_forward_is_the_per_seed_forward(spec):
+    """``grouped_forward`` and the vmap forward equal each seed's own ``Ego2sNet.forward``
+    (float reassociation only); a seed / channel-block mix-up fails the same check."""
+    nscal = SPECS[spec]
+    nets = _nets(nscal=nscal)
+    g = torch.Generator().manual_seed(9)
+    with torch.no_grad():  # LayerNorm affines start at 1 / 0 for every seed: make them differ
+        for net in nets:
+            for mod in net.modules():
+                if isinstance(mod, torch.nn.LayerNorm):
+                    mod.weight.add_(0.3 * torch.randn(mod.weight.shape, generator=g))
+                    mod.bias.add_(0.3 * torch.randn(mod.bias.shape, generator=g))
+    model = sl.StackedEgo2s(nets)
+    b = sl.to_device(
+        sl.stack_batches(
+            [sl.synthetic_batch(np.random.default_rng(k), 40, 0, nscal) for k in range(K)]
+        ),
+        "cpu",
+    )
+    x = b["local"], b["global"], b["scalars"]
+    with torch.no_grad():
+        want = torch.stack([net(x[0][k], x[1][k], x[2][k]) for k, net in enumerate(nets)])
+        got = {
+            "grouped": sl.grouped_forward(model._base, model.params, *x),
+            "vmap": model.forward(model.params, *x),
+            "broken": sl.grouped_forward(model._base, model.params, _roll_local(x[0]), *x[1:]),
+        }
+    scale = float(want.abs().mean())
+    for name in ("grouped", "vmap"):
+        assert got[name].shape == want.shape
+        assert float((got[name] - want).abs().max()) < 1e-5 * max(1.0, scale), name
+        assert torch.equal(got[name].argmax(-1), want.argmax(-1)), name
+    assert float((got["broken"] - want).abs().max()) > 1e-2 * scale
+
+
+# ----------------------------------------------------------------------------- 4. end to end
+@pytest.mark.parametrize("fwd", sl.FORWARDS)
+@pytest.mark.parametrize("spec", list(SPECS))
+def test_stacked_tracks_k_single_updates(spec, fwd):
+    nscal = SPECS[spec]
+    nets, batches, ref = _setup(nscal)
+    lrn, tds = _run_stacked(nets, batches, fwd=fwd)
     assert (lrn.updates == STEPS).all() and not lrn.halted.any()
-    w = _parity(nets, ref, lrn, tds, _hold())
+    w = _parity(nets, ref, lrn, tds, _hold(nscal))
     assert _within(w), w
 
 
@@ -411,7 +474,15 @@ def _break_no_target_sync(lrn):
 
 @pytest.mark.parametrize(
     "brk",
-    ["batch_roll", "shared_adam", "target_from_seed0", "no_target_sync", "global_clip", "lam"],
+    [
+        "batch_roll",
+        "shared_adam",
+        "target_from_seed0",
+        "no_target_sync",
+        "global_clip",
+        "lam",
+        "grouped_layout",
+    ],
 )
 def test_parity_check_fails_on_deliberate_breaks(setup_ref, brk, monkeypatch):
     nets, batches, ref = setup_ref
@@ -424,22 +495,33 @@ def test_parity_check_fails_on_deliberate_breaks(setup_ref, brk, monkeypatch):
         monkeypatch.setattr(
             sl, "clip_per_seed_", lambda ps, k, mx=10.0: torch.nn.utils.clip_grad_norm_(ps, mx)
         )
+    if brk == "grouped_layout":
+        good = sl.grouped_forward
+        monkeypatch.setattr(
+            sl, "grouped_forward", lambda base, p, lo, *x: good(base, p, _roll_local(lo), *x)
+        )
     lrn, tds = _run_stacked(
-        nets, batches, setup=setup, roll=brk == "batch_roll", lam=1.0 if brk == "lam" else LAM
+        nets,
+        batches,
+        setup=setup,
+        roll=brk == "batch_roll",
+        lam=1.0 if brk == "lam" else LAM,
+        fwd="grouped" if brk == "grouped_layout" else "vmap",
     )
     w = _parity(nets, ref, lrn, tds, _hold())
     assert not _within(w), (brk, w)
     assert w["drift_ratio"] > 10 * PARITY_TOL["drift_ratio"], (brk, w)
 
 
-# ----------------------------------------------------------------------------- 4. isolation
-def test_seeds_are_isolated_bitwise():
+# ----------------------------------------------------------------------------- 5. isolation
+@pytest.mark.parametrize("fwd", sl.FORWARDS)
+def test_seeds_are_isolated_bitwise(fwd):
     nets = _nets()
     batches = _batches()
-    base, _ = _run_stacked(nets, batches)
+    base, _ = _run_stacked(nets, batches, fwd=fwd)
     other = _batches(seed=5)  # seed 1 sees different data
     mixed = [[b[0], o[1], b[2]] for b, o in zip(batches, other)]
-    alt, _ = _run_stacked(nets, mixed)
+    alt, _ = _run_stacked(nets, mixed, fwd=fwd)
     for k in (0, 2):
         assert torch.equal(_seed_flat(base, k), _seed_flat(alt, k))
         assert torch.equal(_seed_flat(base, k, base.tparams), _seed_flat(alt, k, alt.tparams))
@@ -447,11 +529,11 @@ def test_seeds_are_isolated_bitwise():
 
     # non-finite loss in seed 1 at its third update: seed 1 halts with its weights after two
     # updates; seeds 0 and 2 are bitwise unaffected and keep stepping.
-    two, _ = _run_stacked(nets, batches[:2])
+    two, _ = _run_stacked(nets, batches[:2], fwd=fwd)
     poisoned = copy.deepcopy(batches)
     for step in poisoned[2:3]:
         step[1] = dict(step[1], R=np.full_like(step[1]["R"], np.nan))
-    bad, _ = _run_stacked(nets, poisoned)
+    bad, _ = _run_stacked(nets, poisoned, fwd=fwd)
     assert bad.halted.tolist() == [False, True, False]
     assert bad.updates.tolist() == [STEPS, 2, STEPS]
     assert torch.equal(_seed_flat(bad, 1), _seed_flat(two, 1))
@@ -460,7 +542,7 @@ def test_seeds_are_isolated_bitwise():
     assert all(torch.isfinite(p).all() for p in bad.params.values())
 
 
-# ----------------------------------------------------------------------------- 5. misc
+# ----------------------------------------------------------------------------- 6. misc
 def test_seed_checkpoints_roundtrip(tmp_path):
     nets = _nets()
     lrn = sl.StackedLearner(nets, device="cpu", margin=MARGIN)
@@ -480,6 +562,8 @@ def test_seed_checkpoints_roundtrip(tmp_path):
         sl.StackedEgo2s([Ego2sNet(7, 60), Ego2sNet(7, 30)])
     with pytest.raises(ValueError):
         sl.StackedLearner(nets, device="cpu", margin=MARGIN, precision="fp16")
+    with pytest.raises(ValueError):
+        sl.StackedEgo2s(nets, forward="loop")
 
 
 def test_bf16_autocast_runs_and_stays_close():
@@ -499,12 +583,15 @@ def test_bf16_autocast_runs_and_stays_close():
 
 
 @pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs MPS")
-def test_mps_stacked_tracks_sequential():
+@pytest.mark.parametrize("fwd", sl.FORWARDS)
+def test_mps_stacked_tracks_sequential(fwd):
     """torch.func batching works on MPS (torch 2.9.1): stacked == K MPS single updates within
-    the CPU tolerance."""
+    the CPU tolerance (and so does the grouped forward)."""
     nets = _nets(2)
     batches = _batches(steps=3, k=2)
-    lrn = sl.StackedLearner(nets, device="mps", margin=MARGIN, target_every=2, adam="fused")
+    lrn = sl.StackedLearner(
+        nets, device="mps", margin=MARGIN, target_every=2, adam="fused", forward=fwd
+    )
     for step in batches:
         out = lrn.update(sl.to_device(sl.stack_batches(step), "mps"), N, M, LAM)
         assert out["finite"].all()
@@ -529,3 +616,27 @@ def test_mps_stacked_tracks_sequential():
         a, b = _flat(online.parameters()), _seed_flat(lrn, k)
         ratio = float((a - b).norm() / (a - _flat(net.parameters())).norm())
         assert ratio < PARITY_TOL["drift_ratio"], ratio
+
+
+def test_bench_script_smoke(tmp_path):
+    """``bench_multiseed.py`` runs end to end (tiny rows, CPU, in-process arms) and writes its
+    JSON (so the quiet-machine / CUDA re-run is one command)."""
+    from research.perf_multiseed_20261013 import bench_multiseed as bm
+
+    out = tmp_path / "b.json"
+    argv = ["--devices", "cpu", "--ks", "1,2", "--arms", "stacked,grouped,sequential"]
+    argv += ["--agent-rows", "8", "--anchor-rows", "4", "--rounds-cpu", "1", "--out", str(out)]
+    threads = torch.get_num_threads()
+    try:
+        assert bm.main(argv) == 0
+    finally:
+        torch.set_num_threads(threads)  # the bench pins 1 thread (the trainer's learner)
+    res = json.loads(out.read_text())
+    cells = {(c["arm"], c["K"]) for c in res["cells"]}
+    assert cells == {(a, k) for a in ("stacked", "grouped", "sequential") for k in (1, 2)}
+    assert {n["K"] for n in res["numerics"]} == {2}
+    num = res["numerics"][0]
+    for arm in ("stacked", "grouped"):
+        assert num[f"{arm}_vs_sequential_same_device"]["argmax_agree"] == 1.0
+    assert num["stacked_vs_grouped_params"]["max_abs"] < 1e-4
+    assert res["gflop_per_seed_update"] > 0 and all(c["achieved_tflops"] > 0 for c in res["cells"])

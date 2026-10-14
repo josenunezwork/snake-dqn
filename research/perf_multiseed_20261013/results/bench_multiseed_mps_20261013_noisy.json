@@ -1,0 +1,353 @@
+{
+ "schema": "perf-multiseed-bench/v2",
+ "created_utc": "2026-10-14T03:55:38.268616+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "cpu_count": 18,
+ "cuda_device": null,
+ "loadavg_start": [
+  11.501953125,
+  10.90185546875,
+  8.5341796875
+ ],
+ "argv": [
+  "--devices",
+  "mps",
+  "--ks",
+  "1,2,4",
+  "--arms",
+  "stacked,grouped,sequential,procs",
+  "--procs-ks",
+  "1,2",
+  "--calls",
+  "10",
+  "--rounds",
+  "7",
+  "--warm",
+  "3",
+  "--out",
+  "research/perf_multiseed_20261013/results/bench_multiseed_mps_20261013_noisy.json"
+ ],
+ "rows_per_seed_update": {
+  "agent": 384,
+  "anchor": 128
+ },
+ "obs_version": "bv8",
+ "note": "NOISY: measured while other training jobs shared the CPU and the MPS GPU",
+ "gflop_per_seed_update": 49.68,
+ "cells": [
+  {
+   "device": "mps",
+   "arm": "stacked",
+   "K": 1,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    1.0845,
+    0.9786,
+    1.0653,
+    1.0149,
+    1.047,
+    1.0287,
+    1.0758
+   ],
+   "ms_per_call_median": 104.7,
+   "ms_per_seed_update": 104.7,
+   "seed_updates_per_s": 9.551,
+   "transitions_per_s": 1222.5,
+   "achieved_tflops": 0.474,
+   "speedup_vs_sequential_same_K": 0.449,
+   "throughput_vs_one_seed": 0.449
+  },
+  {
+   "device": "mps",
+   "arm": "grouped",
+   "K": 1,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    0.4299,
+    0.5651,
+    0.4409,
+    0.4297,
+    0.4321,
+    0.4335,
+    0.4352
+   ],
+   "ms_per_call_median": 43.35,
+   "ms_per_seed_update": 43.35,
+   "seed_updates_per_s": 23.066,
+   "transitions_per_s": 2952.4,
+   "achieved_tflops": 1.146,
+   "speedup_vs_sequential_same_K": 1.084,
+   "throughput_vs_one_seed": 1.084
+  },
+  {
+   "device": "mps",
+   "arm": "sequential",
+   "K": 1,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    0.454,
+    0.4718,
+    0.542,
+    0.454,
+    0.4349,
+    0.4699,
+    0.4866
+   ],
+   "ms_per_call_median": 46.99,
+   "ms_per_seed_update": 46.99,
+   "seed_updates_per_s": 21.283,
+   "transitions_per_s": 2724.2,
+   "achieved_tflops": 1.057,
+   "throughput_vs_one_seed": 1.0
+  },
+  {
+   "device": "mps",
+   "arm": "stacked",
+   "K": 2,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    1.355,
+    1.3672,
+    1.4255,
+    1.479,
+    1.3919,
+    1.4527,
+    1.4459
+   ],
+   "ms_per_call_median": 142.55,
+   "ms_per_seed_update": 71.27,
+   "seed_updates_per_s": 14.03,
+   "transitions_per_s": 1795.9,
+   "achieved_tflops": 0.697,
+   "speedup_vs_sequential_same_K": 0.659,
+   "throughput_vs_one_seed": 0.659
+  },
+  {
+   "device": "mps",
+   "arm": "grouped",
+   "K": 2,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    0.648,
+    0.6448,
+    0.6616,
+    0.705,
+    0.7907,
+    0.6415,
+    0.6619
+   ],
+   "ms_per_call_median": 66.16,
+   "ms_per_seed_update": 33.08,
+   "seed_updates_per_s": 30.228,
+   "transitions_per_s": 3869.2,
+   "achieved_tflops": 1.502,
+   "speedup_vs_sequential_same_K": 1.419,
+   "throughput_vs_one_seed": 1.42
+  },
+  {
+   "device": "mps",
+   "arm": "sequential",
+   "K": 2,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    0.9511,
+    0.8737,
+    0.9371,
+    0.9389,
+    0.9127,
+    0.9927,
+    0.943
+   ],
+   "ms_per_call_median": 93.89,
+   "ms_per_seed_update": 46.95,
+   "seed_updates_per_s": 21.301,
+   "transitions_per_s": 2726.5,
+   "achieved_tflops": 1.058,
+   "throughput_vs_one_seed": 1.001
+  },
+  {
+   "device": "mps",
+   "arm": "stacked",
+   "K": 4,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    2.1846,
+    2.1017,
+    2.2249,
+    2.1273,
+    2.126,
+    2.0829,
+    2.2779
+   ],
+   "ms_per_call_median": 212.73,
+   "ms_per_seed_update": 53.18,
+   "seed_updates_per_s": 18.804,
+   "transitions_per_s": 2406.9,
+   "achieved_tflops": 0.934,
+   "speedup_vs_sequential_same_K": 0.863,
+   "throughput_vs_one_seed": 0.884
+  },
+  {
+   "device": "mps",
+   "arm": "grouped",
+   "K": 4,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    1.4792,
+    1.4388,
+    1.4499,
+    1.4611,
+    1.436,
+    1.4474,
+    1.503
+   ],
+   "ms_per_call_median": 144.99,
+   "ms_per_seed_update": 36.25,
+   "seed_updates_per_s": 27.588,
+   "transitions_per_s": 3531.3,
+   "achieved_tflops": 1.371,
+   "speedup_vs_sequential_same_K": 1.266,
+   "throughput_vs_one_seed": 1.296
+  },
+  {
+   "device": "mps",
+   "arm": "sequential",
+   "K": 4,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    1.9498,
+    1.7776,
+    1.8268,
+    1.8699,
+    1.8363,
+    1.8499,
+    1.7898
+   ],
+   "ms_per_call_median": 183.63,
+   "ms_per_seed_update": 45.91,
+   "seed_updates_per_s": 21.783,
+   "transitions_per_s": 2788.3,
+   "achieved_tflops": 1.082,
+   "throughput_vs_one_seed": 1.023
+  },
+  {
+   "device": "mps",
+   "arm": "procs",
+   "K": 1,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    0.6346,
+    0.5124,
+    0.4953,
+    0.5556,
+    0.4762,
+    0.4675,
+    0.4747
+   ],
+   "ms_per_call_median": 49.53,
+   "ms_per_seed_update": 49.53,
+   "seed_updates_per_s": 20.19,
+   "transitions_per_s": 2584.3,
+   "achieved_tflops": 1.003,
+   "speedup_vs_sequential_same_K": 0.949,
+   "throughput_vs_one_seed": 0.949
+  },
+  {
+   "device": "mps",
+   "arm": "procs",
+   "K": 2,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 10,
+   "rounds": 7,
+   "round_seconds": [
+    0.7284,
+    0.632,
+    0.742,
+    0.8072,
+    0.6524,
+    0.6828,
+    0.7122
+   ],
+   "ms_per_call_median": 71.22,
+   "ms_per_seed_update": 35.61,
+   "seed_updates_per_s": 28.084,
+   "transitions_per_s": 3594.7,
+   "achieved_tflops": 1.395,
+   "speedup_vs_sequential_same_K": 1.318,
+   "throughput_vs_one_seed": 1.32
+  }
+ ],
+ "numerics": [
+  {
+   "device": "mps",
+   "K": 2,
+   "steps": 3,
+   "stacked_vs_sequential_same_device": {
+    "drift_ratio": 0.000291728152660653,
+    "q_max_abs": 3.4302473068237305e-05,
+    "argmax_agree": 1.0,
+    "q_scale": 0.4774898588657379
+   },
+   "stacked_vs_sequential_cpu": {
+    "drift_ratio": 0.006541448645293713,
+    "q_max_abs": 0.001040130853652954,
+    "argmax_agree": 1.0,
+    "q_scale": 0.47742095589637756
+   },
+   "grouped_vs_sequential_same_device": {
+    "drift_ratio": 0.000291728152660653,
+    "q_max_abs": 3.4302473068237305e-05,
+    "argmax_agree": 1.0,
+    "q_scale": 0.4774898588657379
+   },
+   "grouped_vs_sequential_cpu": {
+    "drift_ratio": 0.006541448645293713,
+    "q_max_abs": 0.001040130853652954,
+    "argmax_agree": 1.0,
+    "q_scale": 0.47742095589637756
+   },
+   "stacked_vs_grouped_params": {
+    "bitwise_equal": true,
+    "max_abs": 0.0
+   }
+  }
+ ],
+ "loadavg_end": [
+  10.56201171875,
+  10.650390625,
+  8.72705078125
+ ]
+}
