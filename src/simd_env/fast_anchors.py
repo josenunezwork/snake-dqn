@@ -123,6 +123,11 @@ class FastProfileAnchorSimdPolicy:
     Duck-types ``SimdPolicy.actions(masks, sim, slots)``.
     """
 
+    # Stateless and row-order free (tests/test_fast_anchors.py shuffles rows), so
+    # eval_engine may group every row of a frame into one call (run_simd_eval's opt-in
+    # scripted_anchors="fast"; the default Python anchors keep one call per row).
+    batched_rows = True
+
     def __init__(self, kind: str, world_seeds: Sequence[int]) -> None:
         if kind not in SCRIPTED_ANCHOR_KINDS:
             raise ValueError(f"unknown scripted anchor kind {kind!r}")

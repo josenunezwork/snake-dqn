@@ -1,0 +1,1514 @@
+{
+ "NOISY": "Mac (Apple Silicon, 18 cores) shared with two M5 training runs, their probe watcher and other agents' jobs (load avg 4-11); at most 2 of these processes at a time. Re-run on a quiet machine: eval_speed.py bench ... --quiet-machine",
+ "authority": "development-only (not a screen, not gate evidence)",
+ "batched_forward_flips": [
+  {
+   "arm": "student-nv",
+   "bit_equal_fraction": 0.19600662655854914,
+   "bit_equal_rows": 6744,
+   "frames": 5000,
+   "masked_argmax_flips": 0,
+   "masked_flip_rate": 0.0,
+   "max_abs_dq": 4.1961669921875e-05,
+   "min_masked_top2_gap": 4.9591064453125e-05,
+   "mix": "frozen",
+   "rows": 34407,
+   "unmasked_argmax_flips": 0,
+   "worlds": 8
+  },
+  {
+   "arm": "student-nv",
+   "bit_equal_fraction": 0.19852056617778802,
+   "bit_equal_rows": 7756,
+   "frames": 5000,
+   "masked_argmax_flips": 0,
+   "masked_flip_rate": 0.0,
+   "max_abs_dq": 3.814697265625e-05,
+   "min_masked_top2_gap": 6.67572021484375e-06,
+   "mix": "mixed",
+   "rows": 39069,
+   "unmasked_argmax_flips": 0,
+   "worlds": 8
+  },
+  {
+   "arm": "student-nv",
+   "bit_equal_fraction": 0.15313647800561067,
+   "bit_equal_rows": 5295,
+   "frames": 5000,
+   "masked_argmax_flips": 0,
+   "masked_flip_rate": 0.0,
+   "max_abs_dq": 5.340576171875e-05,
+   "min_masked_top2_gap": 9.5367431640625e-06,
+   "mix": "scripted",
+   "rows": 34577,
+   "unmasked_argmax_flips": 0,
+   "worlds": 8
+  },
+  {
+   "arm": "student-v8",
+   "bit_equal_fraction": 0.1967913505972622,
+   "bit_equal_rows": 6771,
+   "frames": 5000,
+   "masked_argmax_flips": 0,
+   "masked_flip_rate": 0.0,
+   "max_abs_dq": 4.1961669921875e-05,
+   "min_masked_top2_gap": 4.9591064453125e-05,
+   "mix": "frozen",
+   "rows": 34407,
+   "unmasked_argmax_flips": 0,
+   "worlds": 8
+  },
+  {
+   "arm": "student-v8",
+   "bit_equal_fraction": 0.197125,
+   "bit_equal_rows": 7885,
+   "frames": 5000,
+   "masked_argmax_flips": 0,
+   "masked_flip_rate": 0.0,
+   "max_abs_dq": 4.57763671875e-05,
+   "min_masked_top2_gap": 6.67572021484375e-06,
+   "mix": "mixed",
+   "rows": 40000,
+   "unmasked_argmax_flips": 0,
+   "worlds": 8
+  },
+  {
+   "arm": "student-v8",
+   "bit_equal_fraction": 0.1493345895654222,
+   "bit_equal_rows": 5072,
+   "frames": 5000,
+   "masked_argmax_flips": 0,
+   "masked_flip_rate": 0.0,
+   "max_abs_dq": 4.9591064453125e-05,
+   "min_masked_top2_gap": 3.910064697265625e-05,
+   "mix": "scripted",
+   "rows": 33964,
+   "unmasked_argmax_flips": 0,
+   "worlds": 8
+  }
+ ],
+ "bench_32w_h5000": [
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    10.76416015625,
+    10.72705078125,
+    8.22265625
+   ],
+   "mix": "frozen",
+   "probe_wall_seconds": 354.65,
+   "run": "bench32",
+   "variant": "default",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    11.22216796875,
+    10.8935546875,
+    8.6123046875
+   ],
+   "mix": "frozen",
+   "probe_wall_seconds": 118.12,
+   "run": "bench32",
+   "variant": "numba",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    11.02099609375,
+    10.83740234375,
+    9.0927734375
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds": 224.46,
+   "run": "bench32",
+   "variant": "default",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    10.8095703125,
+    10.72412109375,
+    9.40234375
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds": 206.83,
+   "run": "bench32",
+   "variant": "numba",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    8.06494140625,
+    9.54248046875,
+    9.24755859375
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds": 260.77,
+   "run": "bench32",
+   "variant": "default",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    9.248046875,
+    9.4931640625,
+    9.26318359375
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds": 127.88,
+   "run": "bench32",
+   "variant": "numba",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    7.99658203125,
+    7.87109375,
+    8.38818359375
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds": 188.75,
+   "run": "bench32-anchors",
+   "variant": "default",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    6.91845703125,
+    7.5732421875,
+    8.2421875
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds": 53.15,
+   "run": "bench32-anchors",
+   "variant": "numba+fast-anchors",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    6.17333984375,
+    7.0849609375,
+    7.89501953125
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds": 209.3,
+   "run": "bench32-anchors",
+   "variant": "default",
+   "worlds": 32
+  },
+  {
+   "arm": "student-nv",
+   "frames": 5000,
+   "load_avg_after": [
+    5.82861328125,
+    6.7880859375,
+    7.7041015625
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds": 79.63,
+   "run": "bench32-anchors",
+   "variant": "numba+fast-anchors",
+   "worlds": 32
+  }
+ ],
+ "bench_32w_h5000_summary": {
+  "bench32": [
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "frozen",
+    "probe_wall_seconds_median": 354.65437733288854,
+    "speedup_vs_default": 1.0,
+    "variant": "default"
+   },
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "frozen",
+    "probe_wall_seconds_median": 118.12156650004908,
+    "speedup_vs_default": 3.0024523703953854,
+    "variant": "numba"
+   },
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "scripted",
+    "probe_wall_seconds_median": 224.45588975027204,
+    "speedup_vs_default": 1.0,
+    "variant": "default"
+   },
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "scripted",
+    "probe_wall_seconds_median": 206.82739929202944,
+    "speedup_vs_default": 1.085232858502234,
+    "variant": "numba"
+   },
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "mixed",
+    "probe_wall_seconds_median": 260.7663790001534,
+    "speedup_vs_default": 1.0,
+    "variant": "default"
+   },
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "mixed",
+    "probe_wall_seconds_median": 127.88233858393505,
+    "speedup_vs_default": 2.039111748249743,
+    "variant": "numba"
+   }
+  ],
+  "bench32-anchors": [
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "scripted",
+    "probe_wall_seconds_median": 188.75408324971795,
+    "speedup_vs_default": 1.0,
+    "variant": "default"
+   },
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "scripted",
+    "probe_wall_seconds_median": 53.15087370807305,
+    "speedup_vs_default": 3.551288437635753,
+    "variant": "numba+fast-anchors"
+   },
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "mixed",
+    "probe_wall_seconds_median": 209.30318774981424,
+    "speedup_vs_default": 1.0,
+    "variant": "default"
+   },
+   {
+    "arm": "student-nv",
+    "mass_deaths_equal_default": true,
+    "mix": "mixed",
+    "probe_wall_seconds_median": 79.6304816249758,
+    "speedup_vs_default": 2.6284305140277726,
+    "variant": "numba+fast-anchors"
+   }
+  ]
+ },
+ "git_at_measurement": {
+  "commit": "8cad97e323c363d840f439a9fcd421953a08adeb",
+  "dirty_paths": "M research/perf_eval_20261013/eval_speed.py\n M tests/test_eval_v61_backend_identity.py"
+ },
+ "identity": [
+  {
+   "arm": "student-nv",
+   "deaths": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [
+    "ego2s_hero.forward"
+   ],
+   "load_avg": [
+    11.583984375,
+    10.22021484375,
+    7.50048828125
+   ],
+   "mix": "frozen",
+   "probe_wall_seconds_in_process": {
+    "reference": 67.28061645803973,
+    "variant": 62.008289833087474
+   },
+   "record_difference_paths": [],
+   "variant": "batched",
+   "worlds": 4
+  },
+  {
+   "arm": "student-nv",
+   "deaths": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [
+    "ego2s_hero.forward"
+   ],
+   "load_avg": [
+    10.5478515625,
+    10.6845703125,
+    8.1787109375
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds_in_process": {
+    "reference": 42.37704179203138,
+    "variant": 42.04782229103148
+   },
+   "record_difference_paths": [],
+   "variant": "batched",
+   "worlds": 4
+  },
+  {
+   "arm": "student-nv",
+   "deaths": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [
+    "ego2s_hero.forward"
+   ],
+   "load_avg": [
+    13.142578125,
+    10.91845703125,
+    7.98681640625
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds_in_process": {
+    "reference": 37.29564433405176,
+    "variant": 35.77490874985233
+   },
+   "record_difference_paths": [],
+   "variant": "batched",
+   "worlds": 4
+  },
+  {
+   "arm": "student-v8",
+   "deaths": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [
+    "ego2s_hero.forward"
+   ],
+   "load_avg": [
+    10.38330078125,
+    10.7109375,
+    8.6103515625
+   ],
+   "mix": "frozen",
+   "probe_wall_seconds_in_process": {
+    "reference": 73.48648120788857,
+    "variant": 79.08978329226375
+   },
+   "record_difference_paths": [],
+   "variant": "batched",
+   "worlds": 4
+  },
+  {
+   "arm": "student-v8",
+   "deaths": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [
+    "ego2s_hero.forward"
+   ],
+   "load_avg": [
+    10.00390625,
+    10.5537109375,
+    9.16748046875
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds_in_process": {
+    "reference": 79.77719595795497,
+    "variant": 74.62712887534872
+   },
+   "record_difference_paths": [],
+   "variant": "batched",
+   "worlds": 4
+  },
+  {
+   "arm": "student-v8",
+   "deaths": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [
+    "ego2s_hero.forward"
+   ],
+   "load_avg": [
+    11.31689453125,
+    10.826171875,
+    8.9619140625
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds_in_process": {
+    "reference": 69.94638324994594,
+    "variant": 67.34126816736534
+   },
+   "record_difference_paths": [],
+   "variant": "batched",
+   "worlds": 4
+  },
+  {
+   "arm": "incumbent-v8",
+   "deaths": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    6.79248046875,
+    7.3310546875,
+    8.03125
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds_in_process": {
+    "reference": 45.359253583010286,
+    "variant": 21.650287583004683
+   },
+   "record_difference_paths": [],
+   "variant": "numba+fast-anchors",
+   "worlds": 4
+  },
+  {
+   "arm": "incumbent-v8",
+   "deaths": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    6.6767578125,
+    7.36474609375,
+    8.09521484375
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds_in_process": {
+    "reference": 41.89937795838341,
+    "variant": 14.388308375142515
+   },
+   "record_difference_paths": [],
+   "variant": "numba+fast-anchors",
+   "worlds": 4
+  },
+  {
+   "arm": "student-nv",
+   "deaths": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    6.275390625,
+    7.5986328125,
+    8.3623046875
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds_in_process": {
+    "reference": 33.84738074988127,
+    "variant": 17.449998625088483
+   },
+   "record_difference_paths": [],
+   "variant": "numba+fast-anchors",
+   "worlds": 4
+  },
+  {
+   "arm": "student-nv",
+   "deaths": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    7.78173828125,
+    8.04150390625,
+    8.56005859375
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds_in_process": {
+    "reference": 29.25507091684267,
+    "variant": 12.379396458156407
+   },
+   "record_difference_paths": [],
+   "variant": "numba+fast-anchors",
+   "worlds": 4
+  },
+  {
+   "arm": "student-v8",
+   "deaths": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    7.041015625,
+    7.546875,
+    8.20947265625
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds_in_process": {
+    "reference": 60.32607116736472,
+    "variant": 35.515253166202456
+   },
+   "record_difference_paths": [],
+   "variant": "numba+fast-anchors",
+   "worlds": 4
+  },
+  {
+   "arm": "student-v8",
+   "deaths": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    8.62890625,
+    7.986328125,
+    8.4345703125
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds_in_process": {
+    "reference": 55.28444258309901,
+    "variant": 24.226672749966383
+   },
+   "record_difference_paths": [],
+   "variant": "numba+fast-anchors",
+   "worlds": 4
+  },
+  {
+   "arm": "incumbent-v8",
+   "deaths": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    9.42626953125,
+    7.6982421875,
+    5.96240234375
+   ],
+   "mix": "frozen",
+   "probe_wall_seconds_in_process": {
+    "reference": 65.56014912528917,
+    "variant": 31.457916332874447
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  },
+  {
+   "arm": "incumbent-v8",
+   "deaths": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    12.03662109375,
+    9.12109375,
+    6.705078125
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds_in_process": {
+    "reference": 61.56218850007281,
+    "variant": 34.170953291933984
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  },
+  {
+   "arm": "incumbent-v8",
+   "deaths": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    11.00244140625,
+    8.2900390625,
+    6.255859375
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds_in_process": {
+    "reference": 51.470068083144724,
+    "variant": 38.882627916987985
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  },
+  {
+   "arm": "student-nv",
+   "deaths": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    7.193359375,
+    6.060546875,
+    4.9462890625
+   ],
+   "mix": "frozen",
+   "probe_wall_seconds_in_process": {
+    "reference": 43.502000416163355,
+    "variant": 24.423086166847497
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  },
+  {
+   "arm": "student-nv",
+   "deaths": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    8.21923828125,
+    6.53857421875,
+    5.2041015625
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds_in_process": {
+    "reference": 39.80105087487027,
+    "variant": 27.42067616712302
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  },
+  {
+   "arm": "student-nv",
+   "deaths": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    7.384765625,
+    6.07861328125,
+    4.9462890625
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds_in_process": {
+    "reference": 32.35161729110405,
+    "variant": 32.36174766719341
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  },
+  {
+   "arm": "student-v8",
+   "deaths": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    8.1337890625,
+    6.69970703125,
+    5.3154296875
+   ],
+   "mix": "frozen",
+   "probe_wall_seconds_in_process": {
+    "reference": 64.54967795824632,
+    "variant": 33.451165665872395
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  },
+  {
+   "arm": "student-v8",
+   "deaths": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    8.57421875,
+    7.27880859375,
+    5.72021484375
+   ],
+   "mix": "mixed",
+   "probe_wall_seconds_in_process": {
+    "reference": 69.27946520829573,
+    "variant": 48.74964825017378
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  },
+  {
+   "arm": "student-v8",
+   "deaths": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "first_differing_action_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "first_differing_frames": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "frames": 5000,
+   "identical_worlds": 4,
+   "ignored_provenance_paths": [],
+   "load_avg": [
+    7.91259765625,
+    6.93505859375,
+    5.51318359375
+   ],
+   "mix": "scripted",
+   "probe_wall_seconds_in_process": {
+    "reference": 57.935311124660075,
+    "variant": 46.919801499694586
+   },
+   "record_difference_paths": [],
+   "variant": "numba",
+   "worlds": 4
+  }
+ ],
+ "phase_r_smoke_subset": {
+  "compared_records": 7,
+  "identical_records": 7,
+  "only_a": [],
+  "only_b": [],
+  "unit_wall_seconds": {
+   "numba": {
+    "M4-selected-noveto-s0-frozen-1715669161.json": 15.187437833286822,
+    "M4-selected-noveto-s0-frozen-2543410453.json": 15.187437833286822,
+    "champion-s0-frozen-1715669161.json": 22.21607245784253,
+    "champion-s0-frozen-2543410453.json": 22.21607245784253,
+    "control-incumbent-s0-frozen-1715669161.json": 7.123974583111703,
+    "incumbent-s0-mixed-1715669161.json": 19.1078512086533,
+    "incumbent-s0-mixed-2543410453.json": 19.1078512086533
+   },
+   "python": {
+    "M4-selected-noveto-s0-frozen-1715669161.json": 37.37595941592008,
+    "M4-selected-noveto-s0-frozen-2543410453.json": 37.37595941592008,
+    "champion-s0-frozen-1715669161.json": 52.99392595794052,
+    "champion-s0-frozen-2543410453.json": 52.99392595794052,
+    "control-incumbent-s0-frozen-1715669161.json": 15.87314087478444,
+    "incumbent-s0-mixed-1715669161.json": 39.505305249709636,
+    "incumbent-s0-mixed-2543410453.json": 39.505305249709636
+   }
+  },
+  "what": "M4 nv SMOKE plan look 0, 4 of 69 units, python vs numba plan (dev only)"
+ },
+ "profile_16w_1500f": [
+  {
+   "arm": "incumbent-v8",
+   "exclusive_seconds": {
+    "accounting_other": 0.58,
+    "dispatch_other": 0.084,
+    "ego2s_forward": 0.0,
+    "ego2s_policy_other": 0.0,
+    "ego2s_raster": 0.0,
+    "scripted_policies": 0.0,
+    "sim_step": 1.127,
+    "v61_apex_forward": 5.284,
+    "v61_featurize_observe": 10.371,
+    "v61_featurize_prepare": 0.125,
+    "v61_policy_other": 0.204,
+    "veto_free_space": 3.674,
+    "veto_rule": 5.907
+   },
+   "frames": 1500,
+   "load_avg": [
+    14.48876953125,
+    9.68212890625,
+    9.1494140625
+   ],
+   "mix": "frozen",
+   "variant": "default",
+   "wall_seconds": 27.356,
+   "worlds": 16
+  },
+  {
+   "arm": "incumbent-v8",
+   "exclusive_seconds": {
+    "accounting_other": 0.561,
+    "dispatch_other": 0.072,
+    "ego2s_forward": 0.0,
+    "ego2s_policy_other": 0.0,
+    "ego2s_raster": 0.0,
+    "scripted_policies": 0.0,
+    "sim_step": 0.995,
+    "v61_apex_forward": 5.206,
+    "v61_featurize_observe": 1.168,
+    "v61_featurize_prepare": 0.044,
+    "v61_policy_other": 0.165,
+    "veto_free_space": 0.233,
+    "veto_rule": 5.616
+   },
+   "frames": 1500,
+   "load_avg": [
+    14.48876953125,
+    9.68212890625,
+    9.1494140625
+   ],
+   "mix": "frozen",
+   "variant": "numba",
+   "wall_seconds": 14.059,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.652,
+    "dispatch_other": 0.121,
+    "ego2s_forward": 9.376,
+    "ego2s_policy_other": 0.084,
+    "ego2s_raster": 1.798,
+    "scripted_policies": 0.0,
+    "sim_step": 1.338,
+    "v61_apex_forward": 4.65,
+    "v61_featurize_observe": 11.855,
+    "v61_featurize_prepare": 0.144,
+    "v61_policy_other": 0.22,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    5.85595703125,
+    5.26953125,
+    4.45361328125
+   ],
+   "mix": "frozen",
+   "variant": "default",
+   "wall_seconds": 30.238,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.577,
+    "dispatch_other": 0.072,
+    "ego2s_forward": 9.51,
+    "ego2s_policy_other": 0.069,
+    "ego2s_raster": 1.422,
+    "scripted_policies": 0.0,
+    "sim_step": 0.979,
+    "v61_apex_forward": 4.147,
+    "v61_featurize_observe": 1.059,
+    "v61_featurize_prepare": 0.042,
+    "v61_policy_other": 0.131,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    11.76904296875,
+    10.10791015625,
+    9.3681640625
+   ],
+   "mix": "frozen",
+   "variant": "numba+batched",
+   "wall_seconds": 18.008,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.663,
+    "dispatch_other": 0.11,
+    "ego2s_forward": 8.161,
+    "ego2s_policy_other": 0.081,
+    "ego2s_raster": 1.732,
+    "scripted_policies": 0.0,
+    "sim_step": 1.286,
+    "v61_apex_forward": 4.592,
+    "v61_featurize_observe": 1.312,
+    "v61_featurize_prepare": 2.21,
+    "v61_policy_other": 0.219,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    6.1064453125,
+    5.29638671875,
+    4.45361328125
+   ],
+   "mix": "frozen",
+   "variant": "numba",
+   "wall_seconds": 20.365,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.539,
+    "dispatch_other": 0.128,
+    "ego2s_forward": 7.549,
+    "ego2s_policy_other": 0.053,
+    "ego2s_raster": 1.552,
+    "scripted_policies": 3.975,
+    "sim_step": 0.975,
+    "v61_apex_forward": 2.608,
+    "v61_featurize_observe": 6.572,
+    "v61_featurize_prepare": 0.116,
+    "v61_policy_other": 0.14,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    15.642578125,
+    10.3984375,
+    9.42578125
+   ],
+   "mix": "mixed",
+   "variant": "default",
+   "wall_seconds": 24.209,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.517,
+    "dispatch_other": 0.159,
+    "ego2s_forward": 6.828,
+    "ego2s_policy_other": 0.05,
+    "ego2s_raster": 1.382,
+    "scripted_policies": 0.0,
+    "sim_step": 0.899,
+    "v61_apex_forward": 2.557,
+    "v61_featurize_observe": 0.774,
+    "v61_featurize_prepare": 0.038,
+    "v61_policy_other": 0.123,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    6.646484375,
+    7.25439453125,
+    7.982421875
+   ],
+   "mix": "mixed",
+   "variant": "numba+fast-anchors",
+   "wall_seconds": 13.328,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.545,
+    "dispatch_other": 0.122,
+    "ego2s_forward": 7.272,
+    "ego2s_policy_other": 0.047,
+    "ego2s_raster": 1.497,
+    "scripted_policies": 4.016,
+    "sim_step": 0.961,
+    "v61_apex_forward": 2.628,
+    "v61_featurize_observe": 0.829,
+    "v61_featurize_prepare": 0.039,
+    "v61_policy_other": 0.134,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    16.39501953125,
+    10.4560546875,
+    9.4404296875
+   ],
+   "mix": "mixed",
+   "variant": "numba",
+   "wall_seconds": 18.09,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.36,
+    "dispatch_other": 0.15,
+    "ego2s_forward": 7.123,
+    "ego2s_policy_other": 0.052,
+    "ego2s_raster": 1.623,
+    "scripted_policies": 18.383,
+    "sim_step": 1.014,
+    "v61_apex_forward": 0.0,
+    "v61_featurize_observe": 0.014,
+    "v61_featurize_prepare": 0.023,
+    "v61_policy_other": 0.0,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    13.28271484375,
+    10.25537109375,
+    9.4013671875
+   ],
+   "mix": "scripted",
+   "variant": "default",
+   "wall_seconds": 28.742,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.346,
+    "dispatch_other": 0.125,
+    "ego2s_forward": 6.492,
+    "ego2s_policy_other": 0.043,
+    "ego2s_raster": 1.477,
+    "scripted_policies": 0.0,
+    "sim_step": 0.939,
+    "v61_apex_forward": 0.0,
+    "v61_featurize_observe": 0.012,
+    "v61_featurize_prepare": 0.022,
+    "v61_policy_other": 0.0,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    6.9970703125,
+    7.353515625,
+    8.0302734375
+   ],
+   "mix": "scripted",
+   "variant": "numba+fast-anchors",
+   "wall_seconds": 9.456,
+   "worlds": 16
+  },
+  {
+   "arm": "student-nv",
+   "exclusive_seconds": {
+    "accounting_other": 0.366,
+    "dispatch_other": 0.149,
+    "ego2s_forward": 7.156,
+    "ego2s_policy_other": 0.051,
+    "ego2s_raster": 1.642,
+    "scripted_policies": 18.277,
+    "sim_step": 1.002,
+    "v61_apex_forward": 0.0,
+    "v61_featurize_observe": 0.013,
+    "v61_featurize_prepare": 0.023,
+    "v61_policy_other": 0.0,
+    "veto_free_space": 0.0,
+    "veto_rule": 0.0
+   },
+   "frames": 1500,
+   "load_avg": [
+    12.779296875,
+    10.201171875,
+    9.38720703125
+   ],
+   "mix": "scripted",
+   "variant": "numba",
+   "wall_seconds": 28.679,
+   "worlds": 16
+  },
+  {
+   "arm": "student-v8",
+   "exclusive_seconds": {
+    "accounting_other": 0.646,
+    "dispatch_other": 0.092,
+    "ego2s_forward": 9.043,
+    "ego2s_policy_other": 0.0,
+    "ego2s_raster": 1.679,
+    "scripted_policies": 0.0,
+    "sim_step": 1.181,
+    "v61_apex_forward": 4.39,
+    "v61_featurize_observe": 11.947,
+    "v61_featurize_prepare": 0.151,
+    "v61_policy_other": 0.237,
+    "veto_free_space": 4.3,
+    "veto_rule": 6.48
+   },
+   "frames": 1500,
+   "load_avg": [
+    12.81640625,
+    9.1337890625,
+    8.951171875
+   ],
+   "mix": "frozen",
+   "variant": "default",
+   "wall_seconds": 40.148,
+   "worlds": 16
+  },
+  {
+   "arm": "student-v8",
+   "exclusive_seconds": {
+    "accounting_other": 0.648,
+    "dispatch_other": 0.089,
+    "ego2s_forward": 7.576,
+    "ego2s_policy_other": 0.0,
+    "ego2s_raster": 1.613,
+    "scripted_policies": 0.0,
+    "sim_step": 1.115,
+    "v61_apex_forward": 4.337,
+    "v61_featurize_observe": 1.301,
+    "v61_featurize_prepare": 0.049,
+    "v61_policy_other": 0.222,
+    "veto_free_space": 0.322,
+    "veto_rule": 6.42
+   },
+   "frames": 1500,
+   "load_avg": [
+    8.62060546875,
+    8.1806640625,
+    8.619140625
+   ],
+   "mix": "frozen",
+   "variant": "numba",
+   "wall_seconds": 23.692,
+   "worlds": 16
+  }
+ ],
+ "schema": "perf-eval-results/v1",
+ "student": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m5-mac-20261013/D20_s0/final.pth",
+ "versions": {
+  "numba": "0.68.0",
+  "numpy": "1.26.4",
+  "python": "3.12.3",
+  "torch": "2.9.1"
+ }
+}

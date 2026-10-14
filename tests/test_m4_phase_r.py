@@ -199,3 +199,74 @@ def test_smoke_plan_binds_m4(tmp_path):
     assert {h["hero"] for h in st["heroes"]} == {rs.HERO_NV, "incumbent", "champion", "M2b-student"}
     units = pr.base.units_for(root, 0)
     assert {u["seed"] for u in units} == {0, 1, 2, 3, 4}
+
+
+# ----------------------------------------------------------------------------- perf-eval
+def test_v61_backend_plan_rules():
+    """No key = python (the ratified engine); numba binds only into smoke plans."""
+
+    def payload(smoke, **engine):
+        return {"study": {"smoke": smoke, "engine": engine}}
+
+    assert pr.plan_v61_backend(payload(False)) == "python"
+    assert pr.plan_v61_backend(payload(True, vector61_backend="numba")) == "numba"
+    with pytest.raises(SystemExit, match="new pre-registration"):
+        pr.plan_v61_backend(payload(False, vector61_backend="numba"))
+    with pytest.raises(SystemExit, match="unknown vector61 backend"):
+        pr.plan_v61_backend(payload(True, vector61_backend="cuda"))
+    assert pr.GATE_V61_BACKENDS == ("python",)
+
+
+def test_non_smoke_numba_plan_is_refused(tmp_path):
+    cand = tmp_path / "cand.json"
+    cand.write_text("{}")
+    argv = ["plan", "--study", "nv", "--root", str(tmp_path / "r"), "--candidates", str(cand)]
+    with pytest.raises(SystemExit, match="smoke plans only"):
+        pr.main(argv + ["--v61-backend", "numba"])
+    assert not (tmp_path / "r").exists()
+
+
+def test_unit_runs_the_plans_backend(tmp_path, monkeypatch):
+    """``unit`` sets SNAKE_V61_BACKEND from plan.json before the pinned harness runs."""
+    import os
+
+    seen = []
+    payload = {"study": {"smoke": True, "engine": {"vector61_backend": "numba"}}}
+    monkeypatch.setattr(pr.base, "load_plan", lambda root: (payload, None, None))
+
+    def run_unit(root, look, unit_id):
+        seen.append(os.environ.get(pr.V61_BACKEND_ENV))
+        return 0
+
+    monkeypatch.setattr(pr.base, "run_unit", run_unit)
+    argv = ["unit", "--root", str(tmp_path), "--look", "0", "--unit-id", "u"]
+    monkeypatch.setenv(pr.V61_BACKEND_ENV, "python")
+    assert pr.main(argv) == 0
+    payload["study"]["engine"] = {}  # a default plan pins python even under an inherited env
+    monkeypatch.setenv(pr.V61_BACKEND_ENV, "numba")
+    assert pr.main(argv) == 0
+    assert seen == ["numba", "python"]
+
+
+def test_smoke_plan_binds_the_numba_backend(tmp_path, monkeypatch):
+    ck = Path(
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-gpu-20261012/"
+        "attempt00/out/C_s0/ckpt_5000k.pth"
+    )
+    if not ck.exists() or not pr.base.M2B.exists():
+        pytest.skip("artifacts not on this machine")
+    cand = tmp_path / "cand.json"
+    cand.write_text(json.dumps({"arm": "C", "paths": {str(s): str(ck) for s in range(5)}}))
+    roots = {}
+    for backend in ("python", "numba"):
+        roots[backend] = tmp_path / backend
+        argv = ["plan", "--study", "nv", "--root", str(roots[backend])]
+        argv += ["--candidates", str(cand), "--smoke", "--v61-backend", backend]
+        assert pr.main(argv) == 0
+    plans = {b: json.loads((r / "plan.json").read_text()) for b, r in roots.items()}
+    assert "vector61_backend" not in plans["python"]["study"]["engine"]
+    assert plans["numba"]["study"]["engine"]["vector61_backend"] == "numba"
+    assert plans["python"]["banks"] == plans["numba"]["banks"]
+    monkeypatch.setenv(pr.V61_BACKEND_ENV, "python")
+    assert pr.bind_unit_v61_backend(roots["numba"]) == "numba"
+    assert pr.bind_unit_v61_backend(roots["python"]) == "python"

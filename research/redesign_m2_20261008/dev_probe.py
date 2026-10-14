@@ -8,6 +8,23 @@ decides whether a pre-registered check runs, and is never reported as the check'
 
   nice -n 10 ./venv/bin/python research/redesign_m2_20261008/dev_probe.py \\
       --student S.pth --mix scripted --worlds 8 --arm student --out probe.jsonl
+
+``--v61-backend numba`` (opt-in; default: env ``SNAKE_V61_BACKEND``, else ``python``) runs
+the vector61 opponents' / carrier's featurizer compiled (``src/simd_env/vector61_nb.py``).
+The records are identical to the Python featurizer's (whole record and per-frame world
+digest, every mix, no-veto advisory student, student + v8 and the v8 incumbent:
+``tests/test_eval_v61_backend_identity.py``); a non-default backend is written into the
+row as ``v61_backend``.
+
+``--anchors fast`` (opt-in; default ``python``) plays the ``scripted:`` slots with the
+decision-identical compiled anchors (``src/simd_env/fast_anchors.py``, one grouped call per
+frame) instead of one Python ``AnchorContext`` per row; records identical (same test file);
+written into the row as ``anchors`` when not the default.
+
+``--ego2s-forward batched`` is NOT record-identical to ``rowwise`` (about 80% of the hero's
+Q rows differ in the last bits, max |dQ| ~5e-5, and masked top-2 gaps as small as ~7e-6 occur:
+``research/perf_eval_20261013/eval_speed.py flips``); probes keep ``rowwise`` (Phase R's
+forward; ``probe_watch.py`` refuses other rows).
 """
 
 from __future__ import annotations
@@ -22,6 +39,7 @@ import json  # noqa: E402
 import sys  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
@@ -31,9 +49,12 @@ from research.redesign_m2_20261008 import ni_spec  # noqa: E402
 from research.redesign_scope_20261007 import grid_h5000_identity as gid  # noqa: E402
 
 PROBE_ROUND_INDEX = 50
+V61_BACKENDS = ("python", "numba")  # == src.simd_env.vector61_policy.V61_BACKENDS
+V61_BACKEND_ENV = "SNAKE_V61_BACKEND"  # == src.simd_env.vector61_policy.V61_BACKEND_ENV
+ANCHORS = ("python", "fast")  # run_simd_eval(scripted_anchors=...)
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--student", default=None)
     ap.add_argument("--arm", choices=("student", "baseline"), required=True)
@@ -54,46 +75,85 @@ def main() -> int:
     ap.add_argument(
         "--frames", type=int, default=None, help="default: the NI horizon (smoke tests only)"
     )
-    args = ap.parse_args()
-    import torch
+    ap.add_argument(
+        "--v61-backend",
+        choices=V61_BACKENDS,
+        default=None,
+        help="vector61 featurizer (default: env SNAKE_V61_BACKEND, else python); numba is "
+        "record-identical (tests/test_eval_v61_backend_identity.py)",
+    )
+    ap.add_argument(
+        "--anchors",
+        choices=ANCHORS,
+        default="python",
+        help="scripted anchors: python (default) or fast (compiled, decision-identical)",
+    )
+    return ap
 
-    from src.simd_env import eval_engine as ee
 
-    torch.set_num_threads(1)
-    ctx = gid._context(1)
-    if args.frames:
-        import dataclasses
+def effective_v61_backend(requested: Optional[str]) -> str:
+    """The backend ``Vector61Runtime`` will use (flag, else env, else ``python``)."""
+    backend = requested or os.environ.get(V61_BACKEND_ENV) or "python"
+    if backend not in V61_BACKENDS:
+        raise SystemExit(f"vector61 backend must be one of {V61_BACKENDS}, got {backend!r}")
+    return backend
 
-        ctx["profile"] = dataclasses.replace(ctx["profile"], scored_horizon=args.frames)
+
+def probe_seeds(worlds: int, round_index: int) -> List[int]:
     from research.redesign_m2_20261008 import ni_spec_m2b
 
-    seeds = ni_spec.distill_seeds(args.worlds, round_index=args.round_index)
+    seeds = ni_spec.distill_seeds(worlds, round_index=round_index)
     assert not set(seeds) & (set(ni_spec.ni_seeds()) | set(ni_spec_m2b.ni_seeds()))
-    rows = {
-        int(r["world_seed"]): [ctx["lookup"][s["member_sha256"]] for s in r["slots"]]
-        for r in ctx["ds"]._design_rows(seeds)
-        if r["mix"] == args.mix
-    }
-    kwargs = {"hero_ego2s": args.student} if args.arm == "student" else {}
+    return seeds
+
+
+def probe_kwargs(args: argparse.Namespace) -> Dict[str, Any]:
+    """The hero / veto keyword arguments ``run_simd_eval`` gets for ``args``."""
+    kwargs: Dict[str, Any] = {"hero_ego2s": args.student} if args.arm == "student" else {}
     if args.arm == "student":
         kwargs["ego2s_forward"] = args.ego2s_forward
         if args.veto == "none":
             kwargs["ego2s_mask"] = args.ego2s_mask
     if args.veto == "v8":
         kwargs.update(hero_safety_veto="v8", hero_safety_veto_lambda=8.0)
+    return kwargs
+
+
+def probe(
+    args: argparse.Namespace, ctx: Optional[Mapping[str, Any]] = None
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """Run one probe (one mix); returns ``(records, row)`` (``row`` = the jsonl line)."""
+    from src.simd_env import eval_engine as ee
+
+    if ctx is None:
+        ctx = gid._context(1)
+    profile = ctx["profile"]
+    if args.frames:
+        import dataclasses
+
+        profile = dataclasses.replace(profile, scored_horizon=args.frames)
+    backend = effective_v61_backend(args.v61_backend)
+    seeds = probe_seeds(args.worlds, args.round_index)
+    rows = {
+        int(r["world_seed"]): [ctx["lookup"][s["member_sha256"]] for s in r["slots"]]
+        for r in ctx["ds"]._design_rows(seeds)
+        if r["mix"] == args.mix
+    }
     t0 = time.perf_counter()
     recs = ee.run_simd_eval(
         ctx["lookup"][ni_spec.FRP3_S12[1]],
         rows[seeds[0]],
         args.frames or ni_spec.HORIZON,
         seeds,
-        profile=ctx["profile"],
+        profile=profile,
         opponent_specs_by_world=rows,
         mix_id=args.mix,
         vector61=True,
         vector61_forward="rowwise",
         sim_engine="grid",
-        **kwargs,
+        vector61_backend=backend,
+        scripted_anchors=args.anchors,
+        **probe_kwargs(args),
     )
     row = {
         "arm": args.arm,
@@ -114,6 +174,19 @@ def main() -> int:
         "deaths": {int(r["seed"]): r["deaths"] for r in recs},
         "causes": {int(r["seed"]): r.get("death_cause") for r in recs},
     }
+    if backend != "python":  # default rows keep their pre-existing keys
+        row["v61_backend"] = backend
+    if args.anchors != "python":
+        row["anchors"] = args.anchors
+    return recs, row
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    import torch
+
+    torch.set_num_threads(1)
+    _, row = probe(args)
     with args.out.open("a") as stream:
         stream.write(json.dumps(row) + "\n")
     m = list(row["mass"].values())
