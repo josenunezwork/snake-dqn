@@ -52,6 +52,13 @@ Everything new is behind a flag:
   ``--batch-scale K`` / ``--lr-scale`` (T3: K x larger batches at the same replay ratio -
   CHANGES the training dynamics). Benchmark: ``research/perf_learner_20261013``.
 
+* perf-profile (2026-10-13; multi-actor only; off by default): env ``M3C_PROFILE=cprofile``
+  or ``pyinstrument`` (plus ``M3C_PROFILE_DIR`` / ``M3C_PROFILE_WARM_S``) makes the learner
+  and every actor profile itself and dump ``<role>.*`` at exit
+  (:mod:`research.redesign_m3c_20261008.profile_m3c`; analysis and report:
+  ``research/perf_profile_20261013``). The actor's messages and ring rows are unchanged by it
+  (``tests/test_profile_m3c.py``).
+
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
 calibration) and ``manifest.jsonl`` (one row per completed checkpoint with its sha256, for
@@ -1591,6 +1598,15 @@ def _read_weights(net, spec, wbuf: np.ndarray, wver: np.ndarray, last: int) -> i
     return v1
 
 
+def _profile_count(meta: Dict[str, Any], msg: Dict[str, Any]) -> None:
+    """Per-frame counters of a profiled actor window (``M3C_PROFILE``; never called when off)."""
+    meta["frames"] = meta.get("frames", 0) + 1
+    meta["decisions"] = meta.get("decisions", 0) + int(msg["decisions"])
+    meta["env_s"] = meta.get("env_s", 0.0) + float(msg["env_s"])
+    for k, v in msg["timing"].items():
+        meta[k] = meta.get(k, 0.0) + float(v)
+
+
 def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt) -> None:
     """One actor process: worlds, acting, n-step windows, observation ring writes."""
     os.environ["OMP_NUM_THREADS"] = "1"
@@ -1601,6 +1617,9 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
     torch.set_num_threads(1)
     args = argparse.Namespace(**cfg["args"])
     K = int(cfg["K"])
+    from research.redesign_m3c_20261008.profile_m3c import ProcessProfile
+
+    prof = ProcessProfile.from_env(f"actor{j}", Path(args.out))  # None unless M3C_PROFILE
     shm_ring = Block.attach(names[f"ring{j}"])
     shm_w = Block.attach(names["weights"])
     shm_p = Block.attach(names["progress"])
@@ -1654,6 +1673,8 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             for _frame in range(args.segment_frames):
                 if stop_evt.is_set():
                     break
+                if prof is not None:
+                    prof.tick()
                 while progress[1] and not stop_evt.is_set():  # learner paused (Mac guard)
                     time.sleep(1.0)
                 if int(wver[0]) > last:
@@ -1806,6 +1827,8 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     "weights_version": last,
                     **stats,
                 }
+                if prof is not None and prof.running:
+                    _profile_count(prof.meta, msg)
                 while not stop_evt.is_set():
                     try:
                         tx.put(msg, timeout=1.0)  # bounded: back-pressure from the learner
@@ -1814,9 +1837,17 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         continue
             segment += K
     finally:
+        if prof is not None:
+            prof.safe_dump({"worlds": int(args.worlds), "actor": j})
         shm_ring.close()
         shm_w.close()
         shm_p.close()
+
+
+def _learner_counters(st: Dict[str, Any]) -> Dict[str, Any]:
+    """Learner counters bracketing a profiled window (``M3C_PROFILE``; never called when off)."""
+    keys = ("transitions", "updates", "learn_s", "wait_s", "env_s")
+    return {**{k: st[k] for k in keys}, "t": time.perf_counter()}
 
 
 def main_multi(args) -> int:
@@ -1839,6 +1870,10 @@ def main_multi(args) -> int:
     if problems:
         print(json.dumps({"refused": problems}), flush=True)
         return 3
+    from research.redesign_m3c_20261008.profile_m3c import ProcessProfile
+
+    # None unless M3C_PROFILE; a bad value fails here, before any shared memory / actor exists
+    prof = ProcessProfile.from_env("learner", args.out)
     args.out.mkdir(parents=True)
     K = int(args.actors)
     torch.set_num_threads(1)
@@ -1859,7 +1894,11 @@ def main_multi(args) -> int:
             f"{spec_for(online)} (widen with research/redesign_m4b_20261012/widen_bv8.py)"
         )
     target = load_init(args, device).eval()
-    from research.redesign_m3c_20261008.learner_m3c import Learner, LearnerOpts, make_optimizer
+    from research.redesign_m3c_20261008.learner_m3c import (
+        Learner,
+        LearnerOpts,
+        make_optimizer,
+    )
 
     lopts = LearnerOpts.from_args(args)
     opt = make_optimizer(torch, online, lopts, device)  # default: Adam(lr=1e-4), as before
@@ -2015,6 +2054,8 @@ def main_multi(args) -> int:
     attached: set = set()
     try:
         while st["transitions"] < args.transitions and st["halt"] is None:
+            if prof is not None and prof.tick():
+                prof.meta["start"] = _learner_counters(st)
             if st["transitions"] >= next_guard:
                 next_guard += 320_000
                 problems = guard_ok()
@@ -2145,6 +2186,9 @@ def main_multi(args) -> int:
         st["halt"] = st["halt"] or f"{type(exc).__name__}: {exc}"
         code = 1
     finally:
+        if prof is not None and prof.running:
+            prof.meta["end"] = _learner_counters(st)
+            prof.stop()
         stop_evt.set()
         for q_ in txs:  # drain so blocked actors can exit
             try:
@@ -2193,6 +2237,8 @@ def main_multi(args) -> int:
         "label_buffer": labels.size if labels is not None else 0,
     }
     (args.out / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
+    if prof is not None:
+        prof.safe_dump({"actors": K, "worlds": int(args.worlds), "device": str(device)})
     print(json.dumps({k: summary[k] for k in ("transitions", "rate", "halt", "flags")}))
     for s in shms:  # views may still exist: close() tolerates that (names already unlinked)
         s.close()
