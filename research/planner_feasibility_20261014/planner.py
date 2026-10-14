@@ -1148,40 +1148,57 @@ def _frac(n: int, d: int) -> Optional[float]:
 
 
 def summarize_probe(path: Path) -> Dict[str, Any]:
-    data = json.loads(path.read_text())
+    return summarize_results([json.loads(path.read_text())])
+
+
+def summarize_results(datas: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """Detection and closed-loop summary over one or more probe files (same model)."""
+    first = datas[0]
     out: Dict[str, Any] = {
-        "arm": data["arm"],
-        "opp_model": data["opp_model"],
-        "food_rng": data["food_rng"],
-        "checks": data["checks"],
+        "arms": [d["arm"] for d in datas],
+        "opp_model": first["opp_model"],
+        "food_rng": first["food_rng"],
+        "deaths": sum(int(d["deaths"]) for d in datas),
+        "checks": dict(sum((Counter(d["checks"]) for d in datas), Counter())),
     }
-    res = data["results"]
+    res = [r for d in datas for r in d["results"]]
     # (1) trap-entry decision (one before the enclosure onset), per checkpoint depth
     onset = [r for r in res if r["kind"] == "onset"]
-    for d in data["onset_depths"]:
+    for d in first["onset_depths"]:
         out[f"onset_d{d}"] = _detect(onset, d)
-    for d in data["sight_depths"]:
+    for d in first["sight_depths"]:
         out[f"sight_d{d}"] = _detect(
             [r for r in res if r["kind"] == "sight" and r["depth"] == d], d
         )
-    for d in [0] + list(data["cl_depths"]):
+    cl_depths = sorted({int(r["depth"]) for r in res if r["kind"] == "closed_loop"})
+    for d in cl_depths:
         cl = [r for r in res if r["kind"] == "closed_loop" and r["depth"] == d]
-        if not cl:
-            continue
-        ext = sorted(r["extra_decisions"] for r in cl)
-        out[f"closed_loop_d{d}"] = {
-            "n": len(cl),
-            "survived_past_T": sum(r["survived_past_T"] for r in cl),
-            "censored_alive_at_end": sum(r["censored"] for r in cl),
-            "reproduces_greedy": sum(r["reproduces_greedy"] for r in cl) if d == 0 else None,
-            "median_extra_decisions": statistics.median(ext) if ext else None,
-            "fires_total": sum(r["fires"] for r in cl),
-            "switches_total": sum(r["switches"] for r in cl),
-            "planner_ms_per_decision_median": statistics.median(
-                r["planner_ms_per_decision"] for r in cl
-            ),
+        groups = {
+            "all": cl,
+            "trap_run<=30": [r for r in cl if r["trap_run"] <= 30],
+            "trap_run>30": [r for r in cl if r["trap_run"] > 30],
         }
+        out[f"closed_loop_d{d}"] = {name: _cl_stats(g, d) for name, g in groups.items()}
     return out
+
+
+def _cl_stats(cl: Sequence[Mapping[str, Any]], d: int) -> Dict[str, Any]:
+    if not cl:
+        return {"n": 0}
+    ext = sorted(r["extra_decisions"] for r in cl)
+    return {
+        "n": len(cl),
+        "survived_past_T": sum(r["survived_past_T"] for r in cl),
+        "alive_at_window_end": sum(r["censored"] for r in cl),
+        "reproduces_greedy": sum(r["reproduces_greedy"] for r in cl) if d == 0 else None,
+        "median_extra_decisions": statistics.median(ext),
+        "fires_total": sum(r["fires"] for r in cl),
+        "switches_total": sum(r["switches"] for r in cl),
+        "decisions_total": sum(r["decisions"] for r in cl),
+        "planner_ms_per_decision_median": statistics.median(
+            r["planner_ms_per_decision"] for r in cl
+        ),
+    }
 
 
 def _detect(rows: Sequence[Mapping[str, Any]], d: int) -> Dict[str, Any]:
@@ -1266,8 +1283,20 @@ def cmd_summarize(args: argparse.Namespace) -> int:
     summary: Dict[str, Any] = {"bench": {}, "probe": {}}
     for p in sorted(root.glob("bench_*.json")):
         summary["bench"][p.stem] = summarize_bench(p)
+    pooled: Dict[str, List[Any]] = defaultdict(list)
     for p in sorted(root.glob("probe_*.json")):
-        summary["probe"][p.stem] = summarize_probe(p)
+        data = json.loads(p.read_text())
+        summary["probe"][p.stem] = summarize_results([data])
+        pooled[f"{data['opp_model']}_{data['food_rng']}"].append(data)
+    summary["probe_pooled"] = {k: summarize_results(v) for k, v in pooled.items()}
+    summary["episode"] = {}
+    for p in sorted(root.glob("episode_*.json")):
+        data = json.loads(p.read_text())
+        summary["episode"][p.stem] = {
+            "depth": data["depth"],
+            **data["summary"],
+            "stats": data["stats"],
+        }
     (root / "summary.json").write_text(json.dumps(_jsonable(summary), indent=1))
     print(json.dumps(_jsonable(summary), indent=1))
     return 0
