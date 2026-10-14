@@ -389,8 +389,13 @@ class Learner:
                 continue
             pos = local[sel] % ring.cap
             arr = ring.arrays
-            L[sel] = arr["local"][pos]
-            G[sel] = arr["global"][pos]
+            if ring.pack is None:
+                L[sel] = arr["local"][pos]
+                G[sel] = arr["global"][pos]
+            else:  # --obs-pack: unpacked straight into the staging rows (byte-identical)
+                from research.redesign_m3c_20261008.obs_pack import unpack_into
+
+                unpack_into(arr["packed"], pos, L, G, sel, ring.pack)
             S[sel] = arr["scalars"][pos]
             if mask_out is not None:
                 mask_out[sel] = arr["mask"][pos]
@@ -440,13 +445,7 @@ class Learner:
         if demos is not None:
             n_demo = self.d_rows - n_lab
             di = rng.integers(0, demos.size, size=n_demo)  # == DemoStream.sample
-            buf = demos.buf
-            v["local"][base : base + n_demo] = buf["local"][di]
-            v["global"][base : base + n_demo] = buf["global"][di]
-            v["scalars"][base : base + n_demo] = buf["scalars"][di]
-            v["a_v8"][:n_demo] = buf["a_v8"][di]
-            v["mask_resolved"][:n_demo] = buf["mask_resolved"][di]
-            v["q_teacher"][:n_demo] = buf["q_teacher"][di]
+            demos.gather_into(di, v, base)
         if n_lab:
             li = labels.sample(rng, n_lab, multi)
             lids = labels.ids[li]

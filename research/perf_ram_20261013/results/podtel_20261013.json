@@ -1,0 +1,492 @@
+{
+ "kind": "perf-ram podtel",
+ "created_utc": "2026-10-14T04:39:28.732640+00:00",
+ "files": [
+  {
+   "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-gpu-20261012/attempt00/telemetry.jsonl",
+   "jobs": {
+    "C_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.76,
+     "plateau": true,
+     "other_summed_gb": 4.13,
+     "buffers_gb": 13.33
+    },
+    "C_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.79,
+     "plateau": true,
+     "other_summed_gb": 4.16,
+     "buffers_gb": 13.33
+    },
+    "C_s2": {
+     "obs": "b",
+     "summed_rss_gb": 26.77,
+     "plateau": true,
+     "other_summed_gb": 4.15,
+     "buffers_gb": 13.33
+    },
+    "D_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.96,
+     "plateau": true,
+     "other_summed_gb": 4.34,
+     "buffers_gb": 13.33
+    },
+    "D_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.94,
+     "plateau": true,
+     "other_summed_gb": 4.32,
+     "buffers_gb": 13.33
+    },
+    "D_s2": {
+     "obs": "b",
+     "summed_rss_gb": 26.88,
+     "plateau": true,
+     "other_summed_gb": 4.26,
+     "buffers_gb": 13.33
+    },
+    "S_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.91,
+     "plateau": true,
+     "other_summed_gb": 4.29,
+     "buffers_gb": 13.33
+    },
+    "S_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.91,
+     "plateau": true,
+     "other_summed_gb": 4.29,
+     "buffers_gb": 13.33
+    },
+    "S_s2": {
+     "obs": "b",
+     "summed_rss_gb": 26.9,
+     "plateau": true,
+     "other_summed_gb": 4.27,
+     "buffers_gb": 13.33
+    }
+   },
+   "cgroup_exits": [
+    {
+     "jobs_exited": [
+      "C_s0"
+     ],
+     "headroom_gain_gb": 16.04,
+     "per_job_gb": 16.04
+    },
+    {
+     "jobs_exited": [
+      "C_s1"
+     ],
+     "headroom_gain_gb": 16.43,
+     "per_job_gb": 16.43
+    },
+    {
+     "jobs_exited": [
+      "C_s2"
+     ],
+     "headroom_gain_gb": 16.64,
+     "per_job_gb": 16.64
+    }
+   ]
+  },
+  {
+   "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-g2fail4/attempt00/telemetry.jsonl",
+   "jobs": {
+    "B8_s0": {
+     "obs": "bv8",
+     "summed_rss_gb": 23.12,
+     "plateau": true,
+     "other_summed_gb": 4.27,
+     "buffers_gb": 9.46
+    },
+    "B8_s1": {
+     "obs": "bv8",
+     "summed_rss_gb": 23.12,
+     "plateau": true,
+     "other_summed_gb": 4.27,
+     "buffers_gb": 9.46
+    },
+    "D_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.53,
+     "plateau": true,
+     "other_summed_gb": 3.9,
+     "buffers_gb": 13.33
+    },
+    "D_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.57,
+     "plateau": true,
+     "other_summed_gb": 3.95,
+     "buffers_gb": 13.33
+    },
+    "D_s2": {
+     "obs": "b",
+     "summed_rss_gb": 26.49,
+     "plateau": true,
+     "other_summed_gb": 3.86,
+     "buffers_gb": 13.33
+    },
+    "S_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.52,
+     "plateau": true,
+     "other_summed_gb": 3.89,
+     "buffers_gb": 13.33
+    },
+    "S_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.5,
+     "plateau": true,
+     "other_summed_gb": 3.87,
+     "buffers_gb": 13.33
+    },
+    "S_s2": {
+     "obs": "b",
+     "summed_rss_gb": 26.52,
+     "plateau": true,
+     "other_summed_gb": 3.9,
+     "buffers_gb": 13.33
+    }
+   },
+   "cgroup_exits": []
+  },
+  {
+   "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-gpu-20261012-g2fail1/attempt00/telemetry.jsonl",
+   "jobs": {
+    "B8_s0": {
+     "obs": "bv8",
+     "summed_rss_gb": 16.11,
+     "plateau": false,
+     "other_summed_gb": -2.74,
+     "buffers_gb": 9.46
+    },
+    "B8_s1": {
+     "obs": "bv8",
+     "summed_rss_gb": 16.31,
+     "plateau": false,
+     "other_summed_gb": -2.54,
+     "buffers_gb": 9.46
+    },
+    "D_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.38,
+     "plateau": true,
+     "other_summed_gb": 3.75,
+     "buffers_gb": 13.33
+    },
+    "D_s1": {
+     "obs": "b",
+     "summed_rss_gb": 25.71,
+     "plateau": true,
+     "other_summed_gb": 3.08,
+     "buffers_gb": 13.33
+    },
+    "D_s2": {
+     "obs": "b",
+     "summed_rss_gb": 21.18,
+     "plateau": true,
+     "other_summed_gb": -1.44,
+     "buffers_gb": 13.33
+    },
+    "S_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.34,
+     "plateau": true,
+     "other_summed_gb": 3.71,
+     "buffers_gb": 13.33
+    },
+    "S_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.39,
+     "plateau": true,
+     "other_summed_gb": 3.77,
+     "buffers_gb": 13.33
+    }
+   },
+   "cgroup_exits": []
+  },
+  {
+   "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008/attempt00/telemetry.jsonl",
+   "jobs": {
+    "A_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.5,
+     "plateau": true,
+     "other_summed_gb": 3.87,
+     "buffers_gb": 13.33
+    },
+    "B_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.54,
+     "plateau": true,
+     "other_summed_gb": 3.91,
+     "buffers_gb": 13.33
+    },
+    "D_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.53,
+     "plateau": true,
+     "other_summed_gb": 3.9,
+     "buffers_gb": 13.33
+    },
+    "L_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.45,
+     "plateau": true,
+     "other_summed_gb": 3.83,
+     "buffers_gb": 13.33
+    }
+   },
+   "cgroup_exits": []
+  },
+  {
+   "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-a1/attempt00/telemetry.jsonl",
+   "jobs": {
+    "A_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.49,
+     "plateau": true,
+     "other_summed_gb": 3.86,
+     "buffers_gb": 13.33
+    },
+    "A_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.53,
+     "plateau": true,
+     "other_summed_gb": 3.9,
+     "buffers_gb": 13.33
+    },
+    "B_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.48,
+     "plateau": true,
+     "other_summed_gb": 3.85,
+     "buffers_gb": 13.33
+    },
+    "B_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.53,
+     "plateau": true,
+     "other_summed_gb": 3.9,
+     "buffers_gb": 13.33
+    },
+    "L_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.47,
+     "plateau": true,
+     "other_summed_gb": 3.84,
+     "buffers_gb": 13.33
+    },
+    "L_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.56,
+     "plateau": true,
+     "other_summed_gb": 3.94,
+     "buffers_gb": 13.33
+    }
+   },
+   "cgroup_exits": []
+  },
+  {
+   "file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-gpu-20261008-recovery/attempt00/telemetry.jsonl",
+   "jobs": {
+    "A_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.76,
+     "plateau": true,
+     "other_summed_gb": 4.14,
+     "buffers_gb": 13.33
+    },
+    "A_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.77,
+     "plateau": true,
+     "other_summed_gb": 4.15,
+     "buffers_gb": 13.33
+    },
+    "A_s2": {
+     "obs": "b",
+     "summed_rss_gb": 26.8,
+     "plateau": true,
+     "other_summed_gb": 4.18,
+     "buffers_gb": 13.33
+    },
+    "A_s3": {
+     "obs": "b",
+     "summed_rss_gb": 26.86,
+     "plateau": true,
+     "other_summed_gb": 4.23,
+     "buffers_gb": 13.33
+    },
+    "A_s4": {
+     "obs": "b",
+     "summed_rss_gb": 26.75,
+     "plateau": true,
+     "other_summed_gb": 4.13,
+     "buffers_gb": 13.33
+    },
+    "B_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.82,
+     "plateau": true,
+     "other_summed_gb": 4.19,
+     "buffers_gb": 13.33
+    },
+    "B_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.71,
+     "plateau": true,
+     "other_summed_gb": 4.09,
+     "buffers_gb": 13.33
+    },
+    "B_s2": {
+     "obs": "b",
+     "summed_rss_gb": 26.79,
+     "plateau": true,
+     "other_summed_gb": 4.17,
+     "buffers_gb": 13.33
+    },
+    "B_s3": {
+     "obs": "b",
+     "summed_rss_gb": 26.72,
+     "plateau": true,
+     "other_summed_gb": 4.09,
+     "buffers_gb": 13.33
+    },
+    "B_s4": {
+     "obs": "b",
+     "summed_rss_gb": 26.79,
+     "plateau": true,
+     "other_summed_gb": 4.16,
+     "buffers_gb": 13.33
+    },
+    "L_s0": {
+     "obs": "b",
+     "summed_rss_gb": 26.8,
+     "plateau": true,
+     "other_summed_gb": 4.17,
+     "buffers_gb": 13.33
+    },
+    "L_s1": {
+     "obs": "b",
+     "summed_rss_gb": 26.72,
+     "plateau": true,
+     "other_summed_gb": 4.09,
+     "buffers_gb": 13.33
+    },
+    "L_s2": {
+     "obs": "b",
+     "summed_rss_gb": 26.72,
+     "plateau": true,
+     "other_summed_gb": 4.09,
+     "buffers_gb": 13.33
+    },
+    "L_s3": {
+     "obs": "b",
+     "summed_rss_gb": 26.72,
+     "plateau": true,
+     "other_summed_gb": 4.09,
+     "buffers_gb": 13.33
+    },
+    "L_s4": {
+     "obs": "b",
+     "summed_rss_gb": 26.72,
+     "plateau": true,
+     "other_summed_gb": 4.09,
+     "buffers_gb": 13.33
+    }
+   },
+   "cgroup_exits": [
+    {
+     "jobs_exited": [
+      "A_s0",
+      "L_s1"
+     ],
+     "headroom_gain_gb": 32.38,
+     "per_job_gb": 16.19
+    },
+    {
+     "jobs_exited": [
+      "B_s0"
+     ],
+     "headroom_gain_gb": 12.6,
+     "per_job_gb": 12.6
+    },
+    {
+     "jobs_exited": [
+      "B_s1"
+     ],
+     "headroom_gain_gb": 12.59,
+     "per_job_gb": 12.59
+    },
+    {
+     "jobs_exited": [
+      "A_s2"
+     ],
+     "headroom_gain_gb": 16.11,
+     "per_job_gb": 16.11
+    },
+    {
+     "jobs_exited": [
+      "L_s2"
+     ],
+     "headroom_gain_gb": 16.17,
+     "per_job_gb": 16.17
+    },
+    {
+     "jobs_exited": [
+      "B_s2"
+     ],
+     "headroom_gain_gb": 12.83,
+     "per_job_gb": 12.83
+    },
+    {
+     "jobs_exited": [
+      "A_s3",
+      "B_s3",
+      "L_s3"
+     ],
+     "headroom_gain_gb": 45.0,
+     "per_job_gb": 15.0
+    },
+    {
+     "jobs_exited": [
+      "A_s4"
+     ],
+     "headroom_gain_gb": 16.17,
+     "per_job_gb": 16.17
+    },
+    {
+     "jobs_exited": [
+      "B_s4"
+     ],
+     "headroom_gain_gb": 16.18,
+     "per_job_gb": 16.18
+    },
+    {
+     "jobs_exited": [
+      "L_s4"
+     ],
+     "headroom_gain_gb": 16.2,
+     "per_job_gb": 16.2
+    }
+   ]
+  }
+ ],
+ "summary": {
+  "plateau_jobs": 47,
+  "b_jobs": 45,
+  "other_summed_gb_median_b": 4.09,
+  "bv8_jobs": 2,
+  "other_summed_gb_median_bv8": 4.27,
+  "cgroup_exits": 13,
+  "cgroup_per_job_gb_median": 16.17,
+  "b_buffers_gb": 13.33,
+  "other_marginal_gb": 2.8400000000000016
+ }
+}

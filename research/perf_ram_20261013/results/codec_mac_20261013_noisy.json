@@ -1,0 +1,46 @@
+{
+ "kind": "perf-ram codec",
+ "created_utc": "2026-10-14T04:38:26.838036+00:00",
+ "host": {
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "python": "3.12.3"
+ },
+ "noisy": true,
+ "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data/round-12/chunk-0000-part-00.npz",
+ "rows": 10000,
+ "batch_rows": 896,
+ "packed_bytes_per_row": 3064,
+ "raw_bytes_per_row": 12203,
+ "median": {
+  "pack_us_per_row": 4.079729085788131,
+  "unpack_ms_per_batch": 1.259879139252007,
+  "raw_gather_ms_per_batch": 1.3643604004755616
+ },
+ "rounds": [
+  {
+   "pack_us_per_row": 4.282954195514321,
+   "unpack_ms_per_batch": 1.4642562484368682,
+   "raw_gather_ms_per_batch": 1.3558125123381615
+  },
+  {
+   "pack_us_per_row": 4.075774969533086,
+   "unpack_ms_per_batch": 1.2623229529708624,
+   "raw_gather_ms_per_batch": 1.424543745815754
+  },
+  {
+   "pack_us_per_row": 4.05601249076426,
+   "unpack_ms_per_batch": 1.2560833478346467,
+   "raw_gather_ms_per_batch": 1.3643604004755616
+  },
+  {
+   "pack_us_per_row": 4.098425013944507,
+   "unpack_ms_per_batch": 1.259879139252007,
+   "raw_gather_ms_per_batch": 1.3499187538400292
+  },
+  {
+   "pack_us_per_row": 4.079729085788131,
+   "unpack_ms_per_batch": 1.2594792060554028,
+   "raw_gather_ms_per_batch": 1.461427053436637
+  }
+ ]
+}

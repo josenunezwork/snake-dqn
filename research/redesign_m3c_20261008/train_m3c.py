@@ -52,6 +52,21 @@ Everything new is behind a flag:
   ``--batch-scale K`` / ``--lr-scale`` (T3: K x larger batches at the same replay ratio -
   CHANGES the training dynamics). Benchmark: ``research/perf_learner_20261013``.
 
+* perf-ram (2026-10-13; multi-actor only; RAM only, no training-semantics change):
+  ``--obs-pack`` stores the observation planes of the actor rings and of the demonstration
+  buffer in the lossless packed layout of
+  :mod:`research.redesign_m3c_20261008.obs_pack` (3,064 instead of 12,203 bytes per row;
+  every invariant is verified when packing, and the gathered batches are byte-identical,
+  ``tests/test_obs_pack.py``). ``--demo-mmap PATH`` replaces the private demonstration
+  buffer by a slot -> row index into a read-only file of every training demonstration row
+  (:mod:`research.redesign_m3c_20261008.demo_store`; built once per host under a lock,
+  mapped by every run: the page cache is shared); the sampled rows are identical for the
+  same buffer contents, but a rotated-in shard lands before the next batch instead of when
+  a loader thread finishes (a scheduling-dependent lag in the default). 12.0 GB per host
+  (packed store, rounds 10-12): worth it only from ~12 runs per host. RAM model and
+  measurements: ``research/perf_ram_20261013/bench_ram.py`` (per run on the pods: 16.2 GB
+  default, 6.6 GB ``--obs-pack``; ``bv8`` 12.4 / 5.5 GB).
+
 Outputs as M3 (``log.jsonl`` keys and values unchanged by default) plus, always:
 ``telemetry.jsonl`` (per log interval: time split, RSS, actor / queue state, held-out Q
 calibration) and ``manifest.jsonl`` (one row per completed checkpoint with its sha256, for
@@ -250,11 +265,16 @@ class Replay:
 
 
 # ----------------------------------------------------------------------------- multi-actor ring
-def ring_fields(nscal: int = NSCAL):
-    """``(name, per-row shape, dtype)`` of a ring with ``nscal`` scalars per row."""
-    return (
-        ("local", LOCAL, np.uint8),
-        ("global", GLOBAL, np.uint8),
+def ring_fields(nscal: int = NSCAL, pack=None):
+    """``(name, per-row shape, dtype)`` of a ring with ``nscal`` scalars per row; with a
+    :class:`~research.redesign_m3c_20261008.obs_pack.PackLayout` (``--obs-pack``) the local
+    and global planes are one ``packed`` field."""
+    planes = (
+        (("local", LOCAL, np.uint8), ("global", GLOBAL, np.uint8))
+        if pack is None
+        else (("packed", (int(pack.nbytes),), np.uint8),)
+    )
+    return planes + (
         ("scalars", (int(nscal),), np.float32),
         ("mask", (6,), np.bool_),
     )
@@ -318,9 +338,19 @@ class Block:
             pass
 
 
-def ring_nbytes(capacity: int, nscal: int = NSCAL) -> int:
+def ring_capacity(replay: int, actors: int, worlds: int, queue_frames: int) -> tuple[int, int]:
+    """``(rows per actor ring, overwrite margin rows)`` for ``main_multi``.
+
+    Each actor holds 1.5x its share of the replay plus the in-flight frames (ingest is
+    round-robin, so actor shares stay near 1/K; an overrun only drops rows, counted)."""
+    margin_rows = int(worlds) * 16
+    cap = int(1.5 * replay / actors) + int(worlds) * (int(queue_frames) + 8) + margin_rows
+    return cap, margin_rows
+
+
+def ring_nbytes(capacity: int, nscal: int = NSCAL, pack=None) -> int:
     total = 8  # the int64 publish counter
-    for _, shape, dtype in ring_fields(nscal):
+    for _, shape, dtype in ring_fields(nscal, pack):
         total += int(capacity) * int(np.prod(shape)) * np.dtype(dtype).itemsize
     return total
 
@@ -331,17 +361,23 @@ class SharedObsRing:
     The actor writes rows at ``id % cap`` and then publishes ``count``; the learner only
     reads ids it has received in a transition message (so ``id < count``) that are at least
     ``margin`` rows away from being overwritten (``id >= count - cap + margin``).
+
+    ``pack`` (``--obs-pack``): rows hold packed planes (:mod:`obs_pack`); :meth:`add` packs
+    (raising before the publish if a row cannot be packed losslessly), :meth:`get` unpacks.
     """
 
-    def __init__(self, shm, capacity: int, margin: int, nscal: int = NSCAL) -> None:
+    pack = None
+
+    def __init__(self, shm, capacity: int, margin: int, nscal: int = NSCAL, pack=None) -> None:
         self.shm = shm
         self.cap = int(capacity)
         self.margin = int(margin)
         self.nscal = int(nscal)
+        self.pack = pack
         off = 8
         self.arrays: Dict[str, np.ndarray] = {}
         self._count = np.ndarray((1,), dtype=np.int64, buffer=shm.buf, offset=0)
-        for name, shape, dtype in ring_fields(self.nscal):
+        for name, shape, dtype in ring_fields(self.nscal, pack):
             arr = np.ndarray((self.cap,) + tuple(shape), dtype=dtype, buffer=shm.buf, offset=off)
             self.arrays[name] = arr
             off += arr.nbytes
@@ -355,8 +391,13 @@ class SharedObsRing:
         c = self.count
         ids = np.arange(c, c + n, dtype=np.int64)
         pos = ids % self.cap
-        self.arrays["local"][pos] = obs["local"]
-        self.arrays["global"][pos] = obs["global"]
+        if self.pack is not None:
+            from research.redesign_m3c_20261008.obs_pack import pack as pack_rows
+
+            self.arrays["packed"][pos] = pack_rows(obs["local"], obs["global"], self.pack)
+        else:
+            self.arrays["local"][pos] = obs["local"]
+            self.arrays["global"][pos] = obs["global"]
         self.arrays["scalars"][pos] = obs["scalars"]
         self.arrays["mask"][pos] = mask
         self._count[0] = c + n  # publish after the rows are written
@@ -368,6 +409,11 @@ class SharedObsRing:
     def get(self, ids: np.ndarray):
         pos = ids % self.cap
         a = self.arrays
+        if self.pack is not None:
+            from research.redesign_m3c_20261008.obs_pack import unpack
+
+            loc, glo = unpack(a["packed"], pos, self.pack)
+            return loc, glo, a["scalars"][pos], a["mask"][pos]
         return a["local"][pos], a["global"][pos], a["scalars"][pos], a["mask"][pos]
 
 
@@ -637,10 +683,67 @@ def sample_legal(rng: np.random.Generator, mm: np.ndarray) -> np.ndarray:
 DEMO_KEYS = ("local", "global", "scalars", "q_teacher", "a_v8", "mask_resolved")
 
 
-class DemoStream:
-    """Rotating buffer of M2b teacher demonstrations (hold-out worlds excluded)."""
+def demo_key(path: Path) -> str:
+    """A demonstration shard's name relative to the data directory (``round-R/chunk-...``)."""
+    path = Path(path)
+    return f"{path.parent.name}/{path.name}"
 
-    def __init__(self, data: Path, rounds: List[int], capacity: int, seed: int) -> None:
+
+def demo_fields(pack=None):
+    """``(name, per-row shape, dtype)`` of a demonstration buffer row (``DEMO_KEYS`` order);
+    with a :class:`~research.redesign_m3c_20261008.obs_pack.PackLayout` the planes are one
+    ``packed`` field. Shared by :class:`DemoStream` and the demonstration store."""
+    planes = (
+        (("local", LOCAL, np.uint8), ("global", GLOBAL, np.uint8))
+        if pack is None
+        else (("packed", (int(pack.nbytes),), np.uint8),)
+    )
+    return planes + (
+        ("scalars", (NSCAL,), np.float32),
+        ("q_teacher", (6,), np.float32),
+        ("a_v8", (), np.int64),
+        ("mask_resolved", (6,), np.bool_),
+    )
+
+
+def demo_row_nbytes(pack=None) -> int:
+    """Bytes per demonstration buffer row (12,361 raw; 3,222 with the training layout)."""
+    return int(
+        sum(int(np.prod(s, dtype=np.int64)) * np.dtype(d).itemsize for _, s, d in demo_fields(pack))
+    )
+
+
+class DemoStream:
+    """Rotating buffer of M2b teacher demonstrations (hold-out worlds excluded).
+
+    Storage modes (perf-ram; the default is the original private raw buffer). Given the same
+    load / swap sequence every mode holds the same rows in the same slots and draws the same
+    RNG variates, so sampled batches are byte-identical (``tests/test_obs_pack.py``):
+
+    * ``pack`` (``--obs-pack``): the planes as packed rows (:mod:`obs_pack`), unpacked on
+      gather; a prefetched shard is packed in the loader thread (~4 us per row).
+    * ``store`` (``--demo-mmap``): no private rows, a slot -> row index into a read-only
+      :class:`~research.redesign_m3c_20261008.demo_store.SharedDemoStore` (every training
+      row, decompressed once per host, page cache shared by every run that maps it). A
+      prefetch resolves the next shard's row range at once (no thread), so the new shard is
+      swapped in before the next batch is drawn; the private buffer swaps when its loader
+      thread finishes, a scheduling-dependent number of updates later (it is not
+      reproducible run to run either; packing adds ~40 ms per shard to that thread). That
+      swap timing is the only difference in what a run sees.
+    """
+
+    pack = None  # class defaults: instances made with object.__new__ (tests, benches)
+    store = None
+
+    def __init__(
+        self,
+        data: Path,
+        rounds: List[int],
+        capacity: int,
+        seed: int,
+        pack=None,
+        store=None,
+    ) -> None:
         paths: List[Path] = []
         for r in rounds:
             paths += sorted((data / f"round-{r}").glob("chunk-*-part-*.npz"))
@@ -649,14 +752,17 @@ class DemoStream:
         rng = np.random.default_rng([seed, 991])
         self.order = [paths[i] for i in rng.permutation(len(paths))]
         self.cap = int(capacity)
-        self.buf = {
-            "local": np.zeros((capacity,) + LOCAL, dtype=np.uint8),
-            "global": np.zeros((capacity,) + GLOBAL, dtype=np.uint8),
-            "scalars": np.zeros((capacity, NSCAL), dtype=np.float32),
-            "q_teacher": np.zeros((capacity, 6), dtype=np.float32),
-            "a_v8": np.zeros(capacity, dtype=np.int64),
-            "mask_resolved": np.zeros((capacity, 6), dtype=bool),
-        }
+        self.pack = pack
+        self.store = store
+        if store is not None:
+            store.check(paths)
+            self.buf = None
+            self.index = np.zeros(capacity, dtype=np.int64)
+        else:
+            self.buf = {
+                name: np.zeros((capacity,) + tuple(shape), dtype=dtype)
+                for name, shape, dtype in demo_fields(pack)
+            }
         self.size = 0
         self.write = 0
         self.next_shard = 0
@@ -671,11 +777,32 @@ class DemoStream:
             keep = (z["world_seed"] % 10 == 0) == held_out
             return {k: z[k][keep] for k in DEMO_KEYS}
 
+    def _load_part(self, path: Path) -> Dict[str, Any]:
+        """The next shard in this buffer's storage form."""
+        if self.store is not None:
+            return {"range": self.store.shard_range(path)}
+        part = self.load(path)
+        if self.pack is not None:
+            from research.redesign_m3c_20261008.obs_pack import pack as pack_rows
+
+            part["packed"] = pack_rows(part.pop("local"), part.pop("global"), self.pack)
+        return part
+
     def _put(self, part: Dict[str, np.ndarray]) -> None:
-        n = len(part["a_v8"])
-        idx = (self.write + np.arange(n)) % self.cap
-        for k in DEMO_KEYS:
-            self.buf[k][idx] = part[k]
+        if self.store is not None:
+            start, n = part["range"]
+            idx = (self.write + np.arange(n)) % self.cap
+            self.index[idx] = start + np.arange(n, dtype=np.int64)
+        elif self.pack is not None:
+            n = len(part["a_v8"])
+            idx = (self.write + np.arange(n)) % self.cap
+            for k in self.buf:
+                self.buf[k][idx] = part[k]
+        else:
+            n = len(part["a_v8"])
+            idx = (self.write + np.arange(n)) % self.cap
+            for k in DEMO_KEYS:
+                self.buf[k][idx] = part[k]
         self.write = int((self.write + n) % self.cap)
         self.size = min(self.cap, self.size + n)
         self.loaded += 1
@@ -683,7 +810,7 @@ class DemoStream:
 
     def fill_initial(self, shards: int) -> None:
         for _ in range(shards):
-            self._put(self.load(self.order[self.next_shard % len(self.order)]))
+            self._put(self._load_part(self.order[self.next_shard % len(self.order)]))
             self.next_shard += 1
 
     def prefetch(self) -> None:
@@ -692,7 +819,12 @@ class DemoStream:
             return
         path = self.order[self.next_shard % len(self.order)]
         self.next_shard += 1
-        self._thread = threading.Thread(target=lambda: self._q.put(self.load(path)), daemon=True)
+        if self.store is not None:  # nothing to decompress: queued now, swapped next update
+            self._q.put(self._load_part(path))
+            return
+        self._thread = threading.Thread(
+            target=lambda: self._q.put(self._load_part(path)), daemon=True
+        )
         self._thread.start()
 
     def swap_if_ready(self) -> bool:
@@ -703,9 +835,64 @@ class DemoStream:
         self._put(part)
         return True
 
+    def _source(self, idx: np.ndarray):
+        """``(arrays, rows)``: where buffer slots ``idx`` live (private buffer or store)."""
+        if self.store is not None:
+            return self.store.arrays, self.index[idx]
+        return self.buf, idx
+
+    def _planes_into(self, src, rows, out_local, out_global) -> None:
+        if "packed" in src:
+            from research.redesign_m3c_20261008.obs_pack import unpack_into
+
+            pack = self.store.pack if self.store is not None else self.pack
+            n = len(rows)
+            unpack_into(
+                src["packed"], rows, out_local, out_global, np.arange(n, dtype=np.int64), pack
+            )
+        else:
+            out_local[...] = src["local"][rows]
+            out_global[...] = src["global"][rows]
+
     def sample(self, rng: np.random.Generator, n: int) -> Dict[str, np.ndarray]:
         idx = rng.integers(0, self.size, size=n)
-        return {k: v[idx] for k, v in self.buf.items()}
+        if self.store is None and self.pack is None:
+            return {k: v[idx] for k, v in self.buf.items()}
+        src, rows = self._source(idx)
+        out = {
+            "local": np.empty((n,) + LOCAL, dtype=np.uint8),
+            "global": np.empty((n,) + GLOBAL, dtype=np.uint8),
+        }
+        self._planes_into(src, rows, out["local"], out["global"])
+        for k in DEMO_KEYS[2:]:
+            out[k] = src[k][rows]
+        return out
+
+    def gather_into(self, di: np.ndarray, v: Dict[str, np.ndarray], base: int) -> None:
+        """Rows ``di`` (slots drawn as in :meth:`sample`) into the learner's staging views:
+        planes / scalars at rows ``base:base+n``, labels / masks / teacher Q at ``:n``."""
+        n = len(di)
+        if self.store is None and self.pack is None:
+            buf = self.buf
+            v["local"][base : base + n] = buf["local"][di]
+            v["global"][base : base + n] = buf["global"][di]
+            v["scalars"][base : base + n] = buf["scalars"][di]
+            v["a_v8"][:n] = buf["a_v8"][di]
+            v["mask_resolved"][:n] = buf["mask_resolved"][di]
+            v["q_teacher"][:n] = buf["q_teacher"][di]
+            return
+        src, rows = self._source(di)
+        self._planes_into(src, rows, v["local"][base : base + n], v["global"][base : base + n])
+        v["scalars"][base : base + n] = src["scalars"][rows]
+        v["a_v8"][:n] = src["a_v8"][rows]
+        v["mask_resolved"][:n] = src["mask_resolved"][rows]
+        v["q_teacher"][:n] = src["q_teacher"][rows]
+
+    def q_teacher_absmax(self) -> float:
+        """``max |q_teacher|`` over the filled slots."""
+        if self.store is not None:
+            return float(np.abs(self.store.arrays["q_teacher"][self.index[: self.size]]).max())
+        return float(np.abs(self.buf["q_teacher"][: self.size]).max())
 
 
 # ----------------------------------------------------------------------------- losses
@@ -1004,6 +1191,8 @@ def m3c_flags(args) -> Dict[str, Any]:
         "learner_precision",
         "batch_scale",
         "lr_scale",
+        "obs_pack",
+        "demo_mmap",
     ):
         if getattr(args, k) != getattr(d, k):
             out[k] = getattr(args, k)
@@ -1111,6 +1300,19 @@ def build_parser() -> argparse.ArgumentParser:
         default="none",
         help="T3: Adam lr x K (linear) or x sqrt(K) with --batch-scale K",
     )
+    # --- perf-ram options (multi-actor trainer only; RAM only, same math) ---
+    ap.add_argument(
+        "--obs-pack",
+        action="store_true",
+        help="lossless packed observation planes in the actor rings and the demonstration "
+        "buffer (~4x less RAM; verified per row, gathered batches byte-identical, tested)",
+    )
+    ap.add_argument(
+        "--demo-mmap",
+        default=None,
+        help="shared read-only demonstration store at this path (built once per host under a "
+        "lock if missing; every run maps it): replaces the private demonstration buffer",
+    )
     ap.add_argument("--no-guard", action="store_true", help="tests only: skip the Mac guard")
     return ap
 
@@ -1167,6 +1369,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             LearnerOpts.from_args(args)
         except ValueError as exc:
             raise SystemExit(str(exc))
+    if (args.obs_pack or args.demo_mmap) and not args.actors:
+        raise SystemExit("--obs-pack / --demo-mmap need the multi-actor trainer (--actors >= 1)")
+    if args.demo_mmap and args.obs_version == "bv8":
+        raise SystemExit("--demo-mmap: an --obs-version bv8 run has no demonstration buffer")
     if args.actors:
         return main_multi(args)
     return main_sync(args)
@@ -1606,7 +1812,14 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
     shm_p = Block.attach(names["progress"])
     try:
         bv8 = getattr(args, "obs_version", "b") == "bv8"
-        ring = SharedObsRing(shm_ring, cfg["ring_cap"], cfg["ring_margin"], nscal_for(args))
+        pack = None
+        if cfg.get("obs_pack") is not None:
+            from research.redesign_m3c_20261008.obs_pack import PackLayout, layout_for_arena
+
+            pack = PackLayout.from_dict(cfg["obs_pack"])
+        ring = SharedObsRing(
+            shm_ring, cfg["ring_cap"], cfg["ring_margin"], nscal_for(args), pack=pack
+        )
         nw = cfg["n_weights"]
         wver = np.ndarray((1,), dtype=np.int64, buffer=shm_w.buf, offset=0)
         wbuf = np.ndarray((nw + 1,), dtype=np.float64, buffer=shm_w.buf, offset=8)
@@ -1636,6 +1849,8 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             sim, runtime, policies, groups = build_segment(
                 args, ctx, segment, gamma_seg, hero_v61=use_v8
             )
+            if pack is not None and layout_for_arena(sim.grid_w, sim.grid_h, sim.S) != pack:
+                raise RuntimeError(f"--obs-pack layout {pack} does not match this arena")
             # bv8: one compiled v8 evaluation per frame (features=True) serves both the
             # observation's feature scalars and the shield / label action (v8_redecide).
             shield = (
@@ -1867,30 +2082,41 @@ def main_multi(args) -> int:
     holdout = DemoStream.load(
         sorted((args.demo_data / "round-12").glob("chunk-*-part-*.npz"))[0], held_out=True
     )
+    pack = None
+    if args.obs_pack:  # perf-ram: the training arena's packed layout (rings + demo buffer)
+        from research.redesign_m3c_20261008.obs_pack import train_layout
+
+        pack = train_layout()
     if bv8:
         # The shards only have the 30 ego2s-b scalars: no demonstration rows (every anchor row
         # is an on-policy label), no held-out agreement; the Q-scale flag uses the hold-out.
         demos = None
         demo_qmax = float(np.abs(holdout["q_teacher"]).max())
     else:
+        rounds = [int(r) for r in args.demo_rounds.split(",")]
+        store = None
+        if args.demo_mmap:
+            from research.redesign_m3c_20261008.demo_store import SharedDemoStore
+
+            store = SharedDemoStore.open_or_build(
+                Path(args.demo_mmap), args.demo_data, rounds, pack
+            )
         demos = DemoStream(
             args.demo_data,
-            [int(r) for r in args.demo_rounds.split(",")],
+            rounds,
             args.demo_capacity,
             args.seed,
+            pack=pack,
+            store=store,
         )
         demos.fill_initial(args.demo_initial_shards)
-        demo_qmax = float(np.abs(demos.buf["q_teacher"][: demos.size]).max())
+        demo_qmax = demos.q_teacher_absmax()
     replay = Replay(args.replay)
     labels = LabelBuffer(args.label_capacity) if args.onpolicy_labels else None
     tel = Telemetry(args.out, args)
-    # Rings: each actor holds 1.5x its share of the replay plus the in-flight frames (ingest is
-    # round-robin, so actor shares stay near 1/K; an overrun only drops rows, counted). With
-    # the defaults (replay 500k, K = 2, 64 worlds): 2 x ~377k rows x 12.2 KB = ~9.3 GB per run.
-    margin_rows = args.worlds * 16
-    ring_cap = (
-        int(1.5 * args.replay / K) + args.worlds * (args.actor_queue_frames + 8) + margin_rows
-    )
+    # Rings (ring_capacity): with the defaults (replay 500k, K = 2, 64 worlds) 2 x 377k rows x
+    # 12.3 KB = 9.3 GB per run (--obs-pack: 3.2 KB per row, 2.4 GB). research/perf_ram_20261013
+    ring_cap, margin_rows = ring_capacity(args.replay, K, args.worlds, args.actor_queue_frames)
     spec = _weights_spec(online)
     n_weights = int(sum(n for _, _, n in spec))
     shms: List[Any] = []
@@ -1903,9 +2129,9 @@ def main_multi(args) -> int:
     names: Dict[str, str] = {}
     rings = []
     for j in range(K):
-        s = new_shm(ring_nbytes(ring_cap, nscal), args.ring_dir, f"ring{j}")
+        s = new_shm(ring_nbytes(ring_cap, nscal, pack), args.ring_dir, f"ring{j}")
         names[f"ring{j}"] = s.desc
-        rings.append(SharedObsRing(s, ring_cap, margin_rows, nscal))
+        rings.append(SharedObsRing(s, ring_cap, margin_rows, nscal, pack=pack))
     s_w = new_shm(8 + 8 * (n_weights + 1), args.ring_dir, "weights")
     names["weights"] = s_w.desc
     wver = np.ndarray((1,), dtype=np.int64, buffer=s_w.buf, offset=0)
@@ -1929,6 +2155,8 @@ def main_multi(args) -> int:
         "n_weights": n_weights,
         "actor_device": args.actor_device or args.device,
     }
+    if pack is not None:
+        cfg["obs_pack"] = pack.to_dict()
     cfg["args"]["demo_data"] = str(args.demo_data)
     procs = [
         ctx_mp.Process(target=actor_main, args=(j, cfg, names, txs[j], stop_evt), daemon=True)
