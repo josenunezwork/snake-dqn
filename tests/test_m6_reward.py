@@ -525,8 +525,53 @@ def test_levers_on_change_only_the_rewards_by_the_lever_terms(tmp_path, monkeypa
         n["rows"] += len(L)
     print("m6 on-run:", n)
     assert n["tight"] >= 8 and n["deaths"] >= 1 and n["rows"] > 300  # not vacuous
-    # R moved where (and only where) a window holds a lever term
+    # the lever terms reach the n-step returns
     assert any(not np.array_equal(a["R"], b["R"]) for a, b in zip(off_msgs, on_msgs))
+
+
+DEMO = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data")
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not (HAVE_CKPT and (DEMO / "round-12").is_dir()), reason="needs the M2b data + checkpoints"
+)
+def test_trainer_records_m6_flags_and_totals(tmp_path):
+    """A tiny multi-actor bv8 run with both levers on: the learner sums the actor counters
+    (``summary.json`` ``m6_totals``) and the checkpoint meta records the flags."""
+    import json
+    import os
+
+    import torch
+
+    init = _init(tmp_path)
+    out = tmp_path / "run"
+    argv = [
+        sys.executable,
+        str(REPO / TRAINER),
+        *("--seed", "7", "--init", str(init), "--demo-data", str(DEMO), "--out", str(out)),
+        *("--transitions", "12000", "--worlds", "16", "--segment-frames", "300"),
+        *("--replay", "8000", "--warmup", "3000", "--checkpoint-every", "6000"),
+        *("--device", "cpu", "--actors", "1", "--no-guard", "--ring-dir", str(tmp_path)),
+        *B8_ACTOR,
+        *("--tight-cost", "2", "--tight-min-len", "1", "--death-mass-mult", "2"),
+    ]
+    env = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", SNAKE_DQN_DEVICE="cpu")
+    r = subprocess.run(argv, cwd=REPO, env=env, capture_output=True, text=True, timeout=1500)
+    assert r.returncode == 0, r.stderr[-3000:]
+    s = json.loads((out / "summary.json").read_text())
+    assert s["halt"] is None and s["actor_exitcodes"] == [0]
+    want = {"tight_cost": 2.0, "tight_min_len": 1, "death_mass_mult": 2.0}
+    assert {k: s["m3c"][k] for k in want} == want
+    tot = s["m6_totals"]
+    assert tot["decisions"] == s["transitions"] >= 12000
+    assert tot["m6_big"] == tot["decisions"]  # Lmin 1: every decision counts
+    assert 0 < tot["m6_tight"] < tot["m6_big"]
+    assert tot["tight_frac"] == tot["m6_tight"] / tot["m6_big"]
+    if tot["deaths"]:
+        assert tot["death_len_mean"] == tot["m6_death_len"] / tot["deaths"]
+    blob = torch.load(out / "final.pth", map_location="cpu", weights_only=False)
+    assert blob["meta"]["m3c"] == s["m3c"]
 
 
 def test_lever_terms_are_finite_for_extreme_lengths():
