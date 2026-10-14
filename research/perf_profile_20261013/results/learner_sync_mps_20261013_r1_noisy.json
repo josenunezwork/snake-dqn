@@ -1,0 +1,99 @@
+{
+ "created_utc": "2026-10-13T23:43:39.857654+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "torch": "2.9.1",
+ "loadavg": [
+  6.21337890625,
+  6.81787109375,
+  5.927734375
+ ],
+ "argv": [
+  "--devices",
+  "mps",
+  "--out",
+  "research/perf_profile_20261013/results/learner_sync_mps_20261013_noisy.json"
+ ],
+ "note": "NOISY: other trainings shared the CPU and the MPS GPU",
+ "cells": [
+  {
+   "device": "mps",
+   "config": "t1",
+   "masked_argmax": "shipped",
+   "round_seconds": [
+    1.6524,
+    1.7056,
+    1.7063,
+    1.6657,
+    1.6378,
+    1.6853
+   ],
+   "ms_per_update_median": 55.85,
+   "transitions_per_s": 2291.8,
+   "halt": null,
+   "speedup_vs_shipped": 1.0
+  },
+  {
+   "device": "mps",
+   "config": "t1",
+   "masked_argmax": "nosync",
+   "round_seconds": [
+    1.497,
+    1.622,
+    1.6286,
+    1.6223,
+    1.539,
+    1.5506
+   ],
+   "ms_per_update_median": 52.88,
+   "transitions_per_s": 2420.7,
+   "halt": null,
+   "speedup_vs_shipped": 1.056
+  },
+  {
+   "device": "mps",
+   "config": "t1_k2",
+   "masked_argmax": "shipped",
+   "round_seconds": [
+    2.4437,
+    2.4401,
+    2.4798,
+    2.4178,
+    2.6125,
+    2.4442
+   ],
+   "ms_per_update_median": 81.46,
+   "transitions_per_s": 3142.5,
+   "halt": null,
+   "speedup_vs_shipped": 1.0
+  },
+  {
+   "device": "mps",
+   "config": "t1_k2",
+   "masked_argmax": "nosync",
+   "round_seconds": [
+    2.3349,
+    2.3271,
+    2.3222,
+    2.3804,
+    2.2791,
+    2.3034
+   ],
+   "ms_per_update_median": 77.49,
+   "transitions_per_s": 3303.7,
+   "halt": null,
+   "speedup_vs_shipped": 1.051
+  },
+  {
+   "device": "mps",
+   "config": "t1",
+   "weights_max_abs_diff_after_bench": 0.0,
+   "bitwise_equal": true
+  },
+  {
+   "device": "mps",
+   "config": "t1_k2",
+   "weights_max_abs_diff_after_bench": 0.0,
+   "bitwise_equal": true
+  }
+ ]
+}
