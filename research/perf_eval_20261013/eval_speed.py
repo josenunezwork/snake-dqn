@@ -1,22 +1,31 @@
 #!/usr/bin/env python3
 """Evaluation-speed switches for dev probes / Phase R: identity, flip rate, timing (perf-eval).
 
-DEVELOPMENT ONLY (not a screen, not gate evidence). Three subcommands around
+DEVELOPMENT ONLY (not a screen, not gate evidence). Subcommands around
 ``research/redesign_m2_20261008/dev_probe.py`` (``dev_probe.probe``, same engine, profile,
 worlds and rosters as the probes ``probe_watch.py`` launches):
 
 * ``identity``: run one probe twice in this process, the reference (vector61 featurizer
-  ``python``, hero forward ``rowwise``) and a variant (``--variant numba``: compiled vector61
-  featurizer; ``batched``: one batched ego2s hero forward per frame; ``numba+batched``), each
-  with the per-frame whole-world digest recorder of ``grid_h5000_identity`` installed, and
-  compare every world's record (type-strict, wall-clock keys stripped) and digest stream
-  (first differing frame). Exit 1 on any difference.
+  ``python``, hero forward ``rowwise``, Python anchors) and a variant (``--variant numba``:
+  compiled vector61 featurizer; ``fast-anchors``: compiled scripted anchors; ``batched``: one
+  batched ego2s hero forward per frame; and the ``numba+...`` combinations), each
+  with the per-frame whole-world digest recorder of ``grid_h5000_identity`` and a per-frame
+  action recorder (every slot's action, as returned to the sim) installed, and compare every
+  world's record (type-strict, wall-clock keys stripped), digest stream and action stream
+  (first differing frame of each). The batched variants' own provenance field
+  (``ego2s_hero.forward``) is listed but not counted. Exit 1 on any difference.
 * ``flips``: the reference run with a shadow batched hero forward: per decision, compares the
   batched Q with the rowwise Q actually used (bitwise-equal rows, max |dQ|, and the masked
   greedy argmax flip rate under the mask the policy selects with). The trajectory is the
   reference one (the shadow never acts).
+* ``profile``: one probe with stage timers (inclusive wall of the sim step, vector61
+  featurizer prepare/observe, Apex forwards, veto + its free-space counts, ego2s raster and
+  forward, scripted policies) and the exclusive cost split (sums to the probe wall).
 * ``bench``: dev_probe CLI wall per (arm, mix, variant), one subprocess per cell, at most
   ``--procs`` (1-2) at a time. Numbers taken while other jobs run are NOISY.
+* ``compare-records``: Phase R record directories of two plan roots (e.g. the same smoke look
+  under a ``python`` and a ``numba`` ``phase_r_m4.py`` plan), every entry field except the
+  run's own (binding, commit, wall, unit id, look, tier).
 
 Arms (``--arm``): ``student-nv`` (no veto, advisory mask: the M3-C/M4 primary probe),
 ``student-v8`` (the student inside the v8 veto), ``incumbent-v8`` (frp3-s12 + v8),
@@ -65,12 +74,15 @@ ARMS: Dict[str, Dict[str, str]] = {
     "incumbent-v8": {"arm": "baseline", "veto": "v8"},
     "incumbent-nv": {"arm": "baseline", "veto": "none"},
 }
-#: variant -> (vector61 backend, ego2s hero forward); "default" is the probe_watch reference.
+#: variant -> (vector61 backend, ego2s hero forward, scripted anchors); "default" is the
+#: probe_watch reference.
 VARIANTS: Dict[str, Dict[str, str]] = {
-    "default": {"v61_backend": "python", "ego2s_forward": "rowwise"},
-    "numba": {"v61_backend": "numba", "ego2s_forward": "rowwise"},
-    "batched": {"v61_backend": "python", "ego2s_forward": "batched"},
-    "numba+batched": {"v61_backend": "numba", "ego2s_forward": "batched"},
+    "default": {"v61_backend": "python", "ego2s_forward": "rowwise", "anchors": "python"},
+    "numba": {"v61_backend": "numba", "ego2s_forward": "rowwise", "anchors": "python"},
+    "fast-anchors": {"v61_backend": "python", "ego2s_forward": "rowwise", "anchors": "fast"},
+    "numba+fast-anchors": {"v61_backend": "numba", "ego2s_forward": "rowwise", "anchors": "fast"},
+    "batched": {"v61_backend": "python", "ego2s_forward": "batched", "anchors": "python"},
+    "numba+batched": {"v61_backend": "numba", "ego2s_forward": "batched", "anchors": "python"},
 }
 
 
@@ -81,7 +93,7 @@ def probe_args(arm: str, variant: str, ns: argparse.Namespace) -> argparse.Names
         *("--arm", a["arm"], "--veto", a["veto"], "--mix", ns.mix),
         *("--worlds", str(ns.worlds), "--round-index", str(ns.round_index)),
         *("--ego2s-forward", v["ego2s_forward"], "--ego2s-mask", "advisory"),
-        *("--v61-backend", v["v61_backend"], "--out", os.devnull),
+        *("--v61-backend", v["v61_backend"], "--anchors", v["anchors"], "--out", os.devnull),
     ]
     if a["arm"] == "student":
         if not ns.student:
@@ -92,35 +104,109 @@ def probe_args(arm: str, variant: str, ns: argparse.Namespace) -> argparse.Names
     return dev_probe.build_parser().parse_args(argv)
 
 
+class ActionRecorder:
+    """Wraps a sim class's ``step_with_policy`` selector: every env's full action row
+    (all slots) of every frame, as returned to the sim (``per_env[e][frame]`` = bytes)."""
+
+    def __init__(self) -> None:
+        self.per_env: List[List[bytes]] = []
+
+    def install(self, sim_class: type) -> Any:
+        recorder = self
+        original = sim_class.step_with_policy
+
+        def step_with_policy(sim, action_selector, *args, **kwargs):
+            def select(prepared):
+                actions = action_selector(prepared)
+                grid = np.asarray(actions, dtype=np.int64)
+                if not recorder.per_env:
+                    recorder.per_env = [[] for _ in range(grid.shape[0])]
+                for e in range(grid.shape[0]):
+                    recorder.per_env[e].append(grid[e].astype(np.int8).tobytes())
+                return actions
+
+            return original(sim, select, *args, **kwargs)
+
+        sim_class.step_with_policy = step_with_policy
+        return original
+
+
+def _restore(sim_class: type, own: bool, original: Any) -> None:
+    """Undo a recorder: restore the class's own method, or drop the shadowing attribute."""
+    if own:
+        sim_class.step_with_policy = original
+    else:
+        del sim_class.step_with_policy
+
+
 def run_recorded(args: argparse.Namespace, ctx: Mapping[str, Any]) -> Dict[str, Any]:
-    """One probe with the per-frame world digest recorder installed."""
+    """One probe with the per-frame world digest and action recorders installed."""
     from src.simd_env import eval_engine as ee
 
     sim_class = ee._terminal_hero_sim_class("grid")
-    recorder = gid.DigestRecorder()
-    original = recorder.install(sim_class)
+    own = "step_with_policy" in vars(sim_class)
+    original = sim_class.step_with_policy
+    digests, actions = gid.DigestRecorder(), ActionRecorder()
+    digests.install(sim_class)
+    actions.install(sim_class)  # outermost: sees the selector's actions before the step
     started = time.perf_counter()
     try:
         records, row = dev_probe.probe(args, ctx)
     finally:
-        sim_class.step_with_policy = original
+        _restore(sim_class, own, original)
     return {
         "wall_seconds": time.perf_counter() - started,
         "records": [gid.normalize(r) for r in records],
-        "frame_digests": recorder.per_env,
+        "frame_digests": digests.per_env,
+        "frame_actions": actions.per_env,
         "row": row,
     }
 
 
-def compare(ref: Mapping[str, Any], var: Mapping[str, Any], seeds: Sequence[int]):
-    """Per-world identity rows (``gid.compare_worlds``: records + digest streams)."""
+#: Record paths that only name the variant's own setting (provenance), per variant.
+PROVENANCE_PATHS: Dict[str, tuple] = {
+    "batched": ("ego2s_hero.forward",),
+    "numba+batched": ("ego2s_hero.forward",),
+}
+
+
+def compare(
+    ref: Mapping[str, Any],
+    var: Mapping[str, Any],
+    seeds: Sequence[int],
+    ignore: Sequence[str] = (),
+):
+    """Per-world identity rows: records + digest streams (``gid.compare_worlds``) + actions.
+
+    A world is ``identical`` when its record (type-strict, wall-clock keys stripped), its
+    per-frame whole-world digest stream and its per-frame action rows (every slot) are all
+    equal. ``ignore``: record paths that are provenance of the variant itself (the batched
+    hero's ``ego2s_hero.forward``); they are listed per world but are not a difference."""
     rows = gid.compare_worlds(ref, var, seeds)
-    for r in rows:  # gid's labels are engine names; here they are reference / variant
+    for index, r in enumerate(rows):  # gid's labels are engine names; here reference/variant
         r["world_chain_reference"] = r.pop("world_chain_batch")
         r["world_chain_variant"] = r.pop("world_chain_grid")
+        kept, ignored = [], []
         for d in r["record_differences"]:
             d["reference"] = d.pop("batch")
             d["variant"] = d.pop("grid")
+            (ignored if d["path"] in ignore else kept).append(d)
+        r["record_differences"], r["ignored_provenance"] = kept, ignored
+        if ignored:  # gid compared the whole record; only the provenance path differs
+            r["record_identical"] = not kept
+        fa, fb = ref["frame_actions"][index], var["frame_actions"][index]
+        first = next((f for f, (x, y) in enumerate(zip(fa, fb)) if x != y), None)
+        if first is None and len(fa) != len(fb):
+            first = min(len(fa), len(fb))
+        r["actions_compared"] = min(len(fa), len(fb))
+        r["first_differing_action_frame"] = first
+        r["differing_action_frames"] = sum(x != y for x, y in zip(fa, fb)) + abs(len(fa) - len(fb))
+        r["identical"] = (
+            r["record_identical"]
+            and r["first_differing_frame"] is None
+            and r["world_chain_reference"] == r["world_chain_variant"]
+            and first is None
+        )
     return rows
 
 
@@ -166,11 +252,11 @@ def cmd_identity(ns: argparse.Namespace) -> int:
     seeds = dev_probe.probe_seeds(ns.worlds, ns.round_index)
     ref = run_recorded(ref_args, ctx)
     var = run_recorded(var_args, ctx)
-    rows = compare(ref, var, seeds)
+    rows = compare(ref, var, seeds, PROVENANCE_PATHS.get(ns.variant, ()))
     identical = sum(r["identical"] for r in rows)
     payload = {
         **_meta(ns),
-        "schema": "perf-eval-identity/v1",
+        "schema": "perf-eval-identity/v2",
         "arm": ns.arm,
         "mix": ns.mix,
         "variant": ns.variant,
@@ -196,6 +282,10 @@ def cmd_identity(ns: argparse.Namespace) -> int:
                 "identical": identical,
                 "compared": len(rows),
                 "first_differing_frames": [r["first_differing_frame"] for r in rows],
+                "first_differing_action_frames": [r["first_differing_action_frame"] for r in rows],
+                "record_difference_paths": sorted(
+                    {d["path"] for r in rows for d in r["record_differences"]}
+                ),
                 "probe_wall_seconds": payload["probe_wall_seconds"],
                 "deaths": list(ref["row"]["deaths"].values()),
             }
@@ -326,6 +416,133 @@ def cmd_flips(ns: argparse.Namespace) -> int:
     return 0
 
 
+# ----------------------------------------------------------------------------- profile
+class StageTimer:
+    """Inclusive wall time + calls of patched callables (``(owner, name)`` attributes)."""
+
+    def __init__(self) -> None:
+        self.seconds: Dict[str, float] = {}
+        self.calls: Dict[str, int] = {}
+        self._undo: List[tuple] = []
+
+    def patch(self, label: str, owner: Any, name: str) -> None:
+        own = name in vars(owner)
+        original = getattr(owner, name)
+        timer = self
+        self.seconds.setdefault(label, 0.0)
+        self.calls.setdefault(label, 0)
+
+        def timed(*args, **kwargs):
+            t0 = time.perf_counter()
+            try:
+                return original(*args, **kwargs)
+            finally:
+                timer.seconds[label] += time.perf_counter() - t0
+                timer.calls[label] += 1
+
+        setattr(owner, name, timed)
+        self._undo.append((owner, name, own, original))
+
+    def restore(self) -> None:
+        for owner, name, own, original in reversed(self._undo):
+            if own:
+                setattr(owner, name, original)
+            else:
+                delattr(owner, name)
+        self._undo.clear()
+
+
+def profile_split(seconds: Mapping[str, float], wall: float) -> Dict[str, float]:
+    """Exclusive cost split (seconds) from :class:`StageTimer`'s inclusive stages.
+
+    Nesting: ``step_with_policy`` > {``v61_prepare``, ``dispatch``}; ``dispatch`` > every
+    policy's ``actions``; vector61 ``actions`` > {``v61_q_apex``, ``veto``}; ``veto`` >
+    ``v8_free_space``; ego2s ``actions`` > {``ego2s_raster``, ``ego2s_forward``}."""
+    s = {k: float(v) for k, v in seconds.items()}
+    g = s.get
+    v61_actions = g("v61_actions", 0.0)
+    ego_actions = g("ego2s_actions", 0.0)
+    scripted = g("scripted_actions", 0.0)
+    ego_core = g("ego2s_raster", 0.0) + g("ego2s_forward", 0.0)
+    split = {
+        "v61_featurize_prepare": g("v61_prepare", 0.0),
+        "v61_featurize_observe": g("v61_observe", 0.0),
+        "v61_apex_forward": g("v61_q_apex", 0.0),
+        "veto_rule": g("veto", 0.0) - g("v8_free_space", 0.0),
+        "veto_free_space": g("v8_free_space", 0.0),
+        "v61_policy_other": v61_actions - g("v61_q_apex", 0.0) - g("veto", 0.0),
+        "ego2s_raster": g("ego2s_raster", 0.0),
+        "ego2s_forward": g("ego2s_forward", 0.0),
+        "ego2s_policy_other": max(ego_actions - ego_core, 0.0),
+        "scripted_policies": scripted,
+        "dispatch_other": g("dispatch", 0.0) - v61_actions - ego_actions - scripted,
+        "sim_step": g("step_with_policy", 0.0) - g("v61_prepare", 0.0) - g("dispatch", 0.0),
+        "accounting_other": wall - g("step_with_policy", 0.0) - g("v61_observe", 0.0),
+    }
+    # An ego2s v8 hero runs its student inside the vector61 veto policy (q_values override):
+    # its raster/forward time is inside v61_actions, not ego2s_actions.
+    if ego_actions < ego_core:
+        split["v61_policy_other"] -= ego_core - ego_actions
+    return split
+
+
+def cmd_profile(ns: argparse.Namespace) -> int:
+    """One dev probe with stage timers (inclusive wall per stage) and the exclusive split."""
+    import torch
+
+    from src.simd_env import ego2s_policy as ep
+    from src.simd_env import eval_engine as ee
+    from src.simd_env import vector61_policy as vp
+    from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
+
+    torch.set_num_threads(1)
+    ctx = gid._context(1)
+    args = probe_args(ns.arm, ns.variant, ns)
+    timer = StageTimer()
+    timer.patch("step_with_policy", ee._terminal_hero_sim_class("grid"), "step_with_policy")
+    timer.patch("v61_prepare", vp.Vector61Runtime, "prepare")
+    timer.patch("v61_observe", vp.Vector61Runtime, "observe_step")
+    timer.patch("v8_free_space", vp.Vector61Runtime, "decision_free_space")
+    timer.patch("dispatch", ee, "_dispatch_actions")
+    timer.patch("v61_actions", vp.Vector61SimdPolicy, "actions")
+    timer.patch("v61_q_apex", vp.Vector61SimdPolicy, "q_values")  # not the ego2s override
+    timer.patch("veto", vp.Vector61SimdPolicy, "_apply_veto")
+    timer.patch("ego2s_actions", ep.Ego2sSimdPolicy, "actions")
+    timer.patch("ego2s_raster", ep, "build_ego_raster")
+    timer.patch("ego2s_forward", ep, "forward_q")
+    scripted = (ee.GreedyFoodSimdPolicy, ee.RandomSafeSimdPolicy, ee._ProfileAnchorSimdPolicy)
+    for cls in scripted + (FastProfileAnchorSimdPolicy,):
+        timer.patch("scripted_actions", cls, "actions")
+    started = time.perf_counter()
+    try:
+        _, row = dev_probe.probe(args, ctx)
+    finally:
+        timer.restore()
+    wall = time.perf_counter() - started
+    split = profile_split(timer.seconds, wall)
+    payload = {
+        **_meta(ns),
+        "schema": "perf-eval-profile/v1",
+        "arm": ns.arm,
+        "mix": ns.mix,
+        "variant": ns.variant,
+        "frames": ns.frames or dev_probe.ni_spec.HORIZON,
+        "worlds": ns.worlds,
+        "wall_seconds": wall,
+        "probe_wall_seconds": row["wall"],
+        "inclusive_seconds": timer.seconds,
+        "calls": timer.calls,
+        "exclusive_seconds": split,
+        "exclusive_fraction": {k: v / wall for k, v in split.items()},
+        "row": row,
+    }
+    _write(ns.out, payload)
+    print(json.dumps({"arm": ns.arm, "mix": ns.mix, "variant": ns.variant, "wall": wall}))
+    for k, v in sorted(split.items(), key=lambda kv: -kv[1]):
+        print(f"  {k:24s} {v:8.2f}s {100 * v / wall:5.1f}%")
+    return 0
+
+
 # ----------------------------------------------------------------------------- bench
 def cmd_bench(ns: argparse.Namespace) -> int:
     if not 1 <= ns.procs <= 2:
@@ -340,7 +557,8 @@ def cmd_bench(ns: argparse.Namespace) -> int:
         for arm in arms:
             for mix in mixes:
                 for variant in variants:
-                    if variant in ("batched", "numba+batched") and ARMS[arm]["arm"] != "student":
+                    batched = VARIANTS[variant]["ego2s_forward"] == "batched"
+                    if batched and ARMS[arm]["arm"] != "student":
                         continue
                     cells.append((rep, arm, mix, variant))
     env = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", SNAKE_DQN_DEVICE="cpu")
@@ -357,7 +575,8 @@ def cmd_bench(ns: argparse.Namespace) -> int:
         argv = [sys.executable, str(DEV_PROBE)]
         for key in ("arm", "veto", "mix", "worlds", "round_index", "ego2s_forward"):
             argv += [f"--{key.replace('_', '-')}", str(getattr(args, key))]
-        argv += ["--ego2s-mask", "advisory", "--v61-backend", args.v61_backend, "--out", str(out)]
+        argv += ["--ego2s-mask", "advisory", "--v61-backend", args.v61_backend]
+        argv += ["--anchors", args.anchors, "--out", str(out)]
         if args.student:
             argv += ["--student", args.student]
         if args.frames:
@@ -506,6 +725,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     f = sub.add_parser("flips", parents=[common])
     f.add_argument("--arm", choices=("student-nv", "student-v8"), required=True)
     f.add_argument("--mix", choices=dev_probe.ni_spec.MIXES, required=True)
+    pr = sub.add_parser("profile", parents=[common])
+    pr.add_argument("--arm", choices=sorted(ARMS), required=True)
+    pr.add_argument("--mix", choices=dev_probe.ni_spec.MIXES, required=True)
+    pr.add_argument("--variant", choices=sorted(VARIANTS), default="default")
     b = sub.add_parser("bench", parents=[common])
     b.add_argument("--arms", default="student-nv,incumbent-v8")
     b.add_argument("--mixes", default="frozen,scripted,mixed")
@@ -522,6 +745,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     return {
         "identity": cmd_identity,
         "flips": cmd_flips,
+        "profile": cmd_profile,
         "bench": cmd_bench,
         "compare-records": cmd_compare_records,
     }[ns.cmd](ns)

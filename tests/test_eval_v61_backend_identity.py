@@ -1,16 +1,19 @@
-"""Eval records are identical with the compiled vector61 featurizer (perf-eval, item 8).
+"""Eval records are identical with the compiled vector61 featurizer and the compiled scripted
+anchors (perf-eval, item 8).
 
-``run_simd_eval(vector61_backend="numba")`` against the default Python featurizer, through
+``run_simd_eval(vector61_backend="numba")`` (and ``scripted_anchors="fast"``) against the
+default Python featurizer (and Python anchors), through
 ``dev_probe.probe`` (the engine, profile, distillation-namespace worlds and strict rosters of
 the probes ``probe_watch.py`` launches: grid engine, vector61 rowwise forwards, ego2s rowwise
 hero forward, advisory mask for the no-veto student). Each run has the per-frame whole-world
-digest recorder of ``grid_h5000_identity`` installed (every snake's body, heading, masks,
-events, food, corpses and env RNG state after every frame), so equal digests mean equal
-per-frame actions. Arms: the no-veto advisory student (M3-C / M4 primary probe), the student
+digest recorder of ``grid_h5000_identity`` (every snake's body, heading, masks, events, food,
+corpses and env RNG state after every frame) and a per-frame action recorder (every slot's
+action) installed. Arms: the no-veto advisory student (M3-C / M4 primary probe), the student
 inside the v8 veto and the v8-vetoed incumbent frp3-s12; every mix.
 
-Negative controls: the numba run must really call the compiled featurizer (and never fall
-back to the NumPy one), and a deliberately perturbed compiled featurizer must be caught.
+Negative controls: the variant must really call the compiled featurizer (never falling back to
+the NumPy one) / the compiled anchors (grouped rows), and a deliberately perturbed compiled
+featurizer or anchor must be caught.
 """
 
 from __future__ import annotations
@@ -71,37 +74,76 @@ class Spy:
         monkeypatch.setattr(Vector61FeaturizerNB, "featurize", featurize)
 
 
-def _pair(ctx, arm, mix, worlds, frames, monkeypatch, perturb=None):
+class AnchorSpy:
+    """Counts compiled scripted-anchor calls / rows in a run (optionally perturbing them)."""
+
+    def __init__(self, monkeypatch, perturb=None):
+        from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
+
+        self.calls = 0
+        self.rows = 0
+        orig = FastProfileAnchorSimdPolicy.actions
+        spy = self
+
+        def actions(policy, masks, sim, slots):
+            out = orig(policy, masks, sim, slots)
+            spy.calls += 1
+            spy.rows += len(out)
+            return perturb(out) if perturb is not None else out
+
+        monkeypatch.setattr(FastProfileAnchorSimdPolicy, "actions", actions)
+
+
+def _pair(
+    ctx, arm, mix, worlds, frames, monkeypatch, perturb=None, variant="numba", anchor_perturb=None
+):
     from research.perf_eval_20261013 import eval_speed as es
 
     ns = argparse.Namespace(
         mix=mix, worlds=worlds, frames=frames, round_index=52, student=str(STUDENT)
     )
     spy = Spy(monkeypatch, perturb)
+    spy.anchors = AnchorSpy(monkeypatch, anchor_perturb)
     ref = es.run_recorded(es.probe_args(arm, "default", ns), ctx)
-    assert spy.calls == 0  # the reference never touches the compiled featurizer
-    var = es.run_recorded(es.probe_args(arm, "numba", ns), ctx)
+    # the reference never touches the compiled featurizer or the compiled anchors
+    assert spy.calls == 0 and spy.anchors.calls == 0
+    var = es.run_recorded(es.probe_args(arm, variant, ns), ctx)
     seeds = es.dev_probe.probe_seeds(worlds, 52)
     return es.compare(ref, var, seeds), ref, var, spy
 
 
-def _assert_identical(rows, ref, var, spy, expect_vector61_rows=True):
+def _assert_identical(rows, ref, var, spy, expect_vector61_rows=True, variant="numba"):
+    from research.perf_eval_20261013 import eval_speed as es
+
     bad = [r for r in rows if not r["identical"]]
     assert not bad, bad[:2]
-    assert all(r["frames_compared"] == len(ref["frame_digests"][0]) for r in rows)
+    frames = len(ref["frame_digests"][0])
+    assert frames > 0 and all(r["frames_compared"] == frames for r in rows)
+    assert all(r["actions_compared"] == frames for r in rows)  # every frame's action row
+    assert all(r["first_differing_action_frame"] is None for r in rows)
     assert ref["row"]["mass"] == var["row"]["mass"]
     assert ref["row"]["deaths"] == var["row"]["deaths"]
     assert ref["row"]["causes"] == var["row"]["causes"]
-    assert "v61_backend" not in ref["row"] and var["row"]["v61_backend"] == "numba"
+    v = es.VARIANTS[variant]
+    assert "v61_backend" not in ref["row"] and "anchors" not in ref["row"]
+    assert var["row"].get("v61_backend", "python") == v["v61_backend"]
+    assert var["row"].get("anchors", "python") == v["anchors"]
     assert spy.fallbacks == 0
-    if expect_vector61_rows:
+    if expect_vector61_rows and v["v61_backend"] == "numba":
         assert spy.calls > 0 and spy.rows > 0
+    if v["anchors"] == "fast" and ref["row"]["mix"] != "frozen":  # frozen has no anchor slot
+        assert spy.anchors.calls > 0 and spy.anchors.rows > spy.anchors.calls  # grouped rows
 
 
 @needs_artifacts
 def test_numba_backend_records_identical_quick(ctx, monkeypatch):
+    from src.simd_env import eval_engine as ee
+
+    sim_class = ee._terminal_hero_sim_class("grid")
+    own_before = "step_with_policy" in vars(sim_class)
     rows, ref, var, spy = _pair(ctx, "student-nv", "frozen", 2, 300, monkeypatch)
     _assert_identical(rows, ref, var, spy)
+    assert ("step_with_policy" in vars(sim_class)) == own_before  # recorders removed
 
 
 @needs_artifacts
@@ -117,6 +159,64 @@ def test_identity_check_catches_a_broken_featurizer(ctx, monkeypatch):
     assert spy.calls > 0
     assert any(not r["identical"] for r in rows)
     assert any(r["first_differing_frame"] is not None for r in rows)
+    assert any(r["first_differing_action_frame"] is not None for r in rows)
+
+
+def _fake_run(records, digests, actions):
+    return {"records": records, "frame_digests": digests, "frame_actions": actions}
+
+
+def test_compare_checks_actions_and_ignores_only_provenance():
+    """``compare``: an action-only difference fails; only the named provenance path is
+    ignored. (Synthetic runs: a deliberate break of either check fails this test.)"""
+    from research.perf_eval_20261013 import eval_speed as es
+
+    rec = {"seed": 1, "mass_integral": 10.0, "ego2s_hero": {"forward": "rowwise"}}
+    acts = [b"\x01\x01", b"\x02\x01", b"\x00\x01"]
+    ref = _fake_run([rec], [["d0", "d1", "d2"]], [acts])
+
+    same = es.compare(ref, _fake_run([dict(rec)], [["d0", "d1", "d2"]], [list(acts)]), [1])
+    assert same[0]["identical"] and same[0]["actions_compared"] == 3
+
+    flipped = [acts[0], b"\x05\x01", acts[2]]  # same world digests, one hero action differs
+    rows = es.compare(ref, _fake_run([dict(rec)], [["d0", "d1", "d2"]], [flipped]), [1])
+    assert not rows[0]["identical"] and rows[0]["record_identical"]
+    assert rows[0]["first_differing_action_frame"] == 1
+    assert rows[0]["differing_action_frames"] == 1
+
+    batched = dict(rec, ego2s_hero={"forward": "batched"})
+    var = _fake_run([batched], [["d0", "d1", "d2"]], [list(acts)])
+    assert not es.compare(ref, var, [1])[0]["identical"]  # without the provenance rule
+    rows = es.compare(ref, var, [1], es.PROVENANCE_PATHS["batched"])
+    assert rows[0]["identical"] and rows[0]["ignored_provenance"][0]["variant"] == "batched"
+    worse = dict(batched, mass_integral=10.5)  # a real difference is never ignored
+    rows = es.compare(ref, _fake_run([worse], [["d0", "d1", "d2"]], [acts]), [1], ("x",))
+    assert not rows[0]["identical"] and not rows[0]["record_identical"]
+    rows = es.compare(ref, _fake_run([dict(rec)], [["d0", "dX", "d2"]], [acts]), [1])
+    assert not rows[0]["identical"] and rows[0]["first_differing_frame"] == 1
+
+
+def test_profile_split_is_exclusive_and_sums_to_wall():
+    from research.perf_eval_20261013 import eval_speed as es
+
+    nv = {
+        "step_with_policy": 8.0,
+        "v61_prepare": 0.5,
+        "v61_observe": 3.0,
+        "dispatch": 7.0,
+        "v61_actions": 2.0,
+        "v61_q_apex": 1.5,
+        "ego2s_actions": 4.5,
+        "ego2s_raster": 1.0,
+        "ego2s_forward": 3.0,
+        "scripted_actions": 0.2,
+    }
+    v8 = {**nv, "ego2s_actions": 0.0, "v61_actions": 6.5, "veto": 0.6, "v8_free_space": 0.4}
+    for seconds in (nv, v8):
+        split = es.profile_split(seconds, 12.0)
+        assert sum(split.values()) == pytest.approx(12.0)
+        assert all(v >= -1e-9 for v in split.values()), split
+    assert es.profile_split(v8, 12.0)["v61_policy_other"] == pytest.approx(0.4)
 
 
 @pytest.mark.slow
@@ -131,11 +231,55 @@ def test_numba_backend_records_identical_every_arm_and_mix(ctx, monkeypatch, arm
     )
 
 
+@needs_artifacts
+@pytest.mark.parametrize("mix", ["scripted", "mixed"])  # greedy_food / random_safe anchors
+def test_fast_anchors_records_identical_quick(ctx, monkeypatch, mix):
+    variant = "numba+fast-anchors"
+    rows, ref, var, spy = _pair(ctx, "student-nv", mix, 2, 300, monkeypatch, variant=variant)
+    _assert_identical(rows, ref, var, spy, expect_vector61_rows=mix != "scripted", variant=variant)
+
+
+@needs_artifacts
+def test_identity_check_catches_a_broken_anchor(ctx, monkeypatch):
+    """Negative control: compiled anchors that turn instead of going straight are detected."""
+
+    def perturb(out):
+        return np.where(out == 1, 0, out)
+
+    rows, ref, var, spy = _pair(
+        ctx, "student-nv", "scripted", 2, 300, monkeypatch, None, "fast-anchors", perturb
+    )
+    assert spy.anchors.calls > 0
+    assert any(not r["identical"] for r in rows)
+    assert any(r["first_differing_action_frame"] is not None for r in rows)
+
+
+@pytest.mark.slow
+@needs_artifacts
+@pytest.mark.parametrize("arm", ["student-nv", "student-v8", "incumbent-v8"])
+@pytest.mark.parametrize("mix", ["scripted", "mixed"])
+def test_fast_anchors_records_identical_every_arm_and_mix(ctx, monkeypatch, arm, mix):
+    variant = "numba+fast-anchors"
+    rows, ref, var, spy = _pair(ctx, arm, mix, 3, 600, monkeypatch, variant=variant)
+    _assert_identical(
+        rows,
+        ref,
+        var,
+        spy,
+        expect_vector61_rows=(arm, mix) != ("student-nv", "scripted"),
+        variant=variant,
+    )
+
+
 def test_run_simd_eval_validates_backend():
     from src.simd_env import eval_engine as ee
 
     with pytest.raises(ValueError, match="vector61_backend needs vector61=True"):
         ee.run_simd_eval(("scripted", "random_safe"), [], 1, [0], vector61_backend="numba")
+    with pytest.raises(ValueError, match="scripted_anchors must be"):
+        ee.run_simd_eval(("scripted", "random_safe"), [], 1, [0], scripted_anchors="numba")
+    with pytest.raises(ValueError, match="needs a profile and sim_engine='grid'"):
+        ee.run_simd_eval(("scripted", "random_safe"), [], 1, [0], scripted_anchors="fast")
 
 
 def test_dev_probe_backend_resolution(monkeypatch):
@@ -151,6 +295,7 @@ def test_dev_probe_backend_resolution(monkeypatch):
         ["--arm", "student", "--mix", "frozen", "--out", "x", "--student", "s.pth"]
     )
     assert args.v61_backend is None and args.ego2s_forward == "batched"
+    assert args.anchors == "python"
 
 
 def test_probe_watch_passes_the_backend_only_when_asked(tmp_path):
@@ -163,6 +308,9 @@ def test_probe_watch_passes_the_backend_only_when_asked(tmp_path):
     assert numba[: len(default)] == default and numba[len(default) :] == ["--v61-backend", "numba"]
     slots = pw.probe_argv(job, tmp_path, 16, 52, slots=True, v61_backend="numba")
     assert slots[1].endswith("slotrun.py") and slots[-2:] == ["--v61-backend", "numba"]
+    assert "--anchors" not in default
+    both = pw.probe_argv(job, tmp_path, 16, 52, False, v61_backend="numba", anchors="fast")
+    assert both[len(default) :] == ["--v61-backend", "numba", "--anchors", "fast"]
 
 
 def test_probe_watch_resumes_rows_of_either_backend(tmp_path):

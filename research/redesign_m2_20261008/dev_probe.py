@@ -15,6 +15,16 @@ The records are identical to the Python featurizer's (whole record and per-frame
 digest, every mix, no-veto advisory student, student + v8 and the v8 incumbent:
 ``tests/test_eval_v61_backend_identity.py``); a non-default backend is written into the
 row as ``v61_backend``.
+
+``--anchors fast`` (opt-in; default ``python``) plays the ``scripted:`` slots with the
+decision-identical compiled anchors (``src/simd_env/fast_anchors.py``, one grouped call per
+frame) instead of one Python ``AnchorContext`` per row; records identical (same test file);
+written into the row as ``anchors`` when not the default.
+
+``--ego2s-forward batched`` is NOT record-identical to ``rowwise`` (about 80% of the hero's
+Q rows differ in the last bits, max |dQ| ~5e-5, and masked top-2 gaps as small as ~7e-6 occur:
+``research/perf_eval_20261013/eval_speed.py flips``); probes keep ``rowwise`` (Phase R's
+forward; ``probe_watch.py`` refuses other rows).
 """
 
 from __future__ import annotations
@@ -41,6 +51,7 @@ from research.redesign_scope_20261007 import grid_h5000_identity as gid  # noqa:
 PROBE_ROUND_INDEX = 50
 V61_BACKENDS = ("python", "numba")  # == src.simd_env.vector61_policy.V61_BACKENDS
 V61_BACKEND_ENV = "SNAKE_V61_BACKEND"  # == src.simd_env.vector61_policy.V61_BACKEND_ENV
+ANCHORS = ("python", "fast")  # run_simd_eval(scripted_anchors=...)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="vector61 featurizer (default: env SNAKE_V61_BACKEND, else python); numba is "
         "record-identical (tests/test_eval_v61_backend_identity.py)",
+    )
+    ap.add_argument(
+        "--anchors",
+        choices=ANCHORS,
+        default="python",
+        help="scripted anchors: python (default) or fast (compiled, decision-identical)",
     )
     return ap
 
@@ -135,6 +152,7 @@ def probe(
         vector61_forward="rowwise",
         sim_engine="grid",
         vector61_backend=backend,
+        scripted_anchors=args.anchors,
         **probe_kwargs(args),
     )
     row = {
@@ -158,6 +176,8 @@ def probe(
     }
     if backend != "python":  # default rows keep their pre-existing keys
         row["v61_backend"] = backend
+    if args.anchors != "python":
+        row["anchors"] = args.anchors
     return recs, row
 
 
