@@ -1135,6 +1135,24 @@ def summarize_deaths(deaths: Sequence[Mapping[str, Any]], shadow: bool) -> Dict[
             k: _frac(sum(d["opponent_head_components"][k] for d in deaths), n)
             for k in ("head_on", "cut_off_neck_hit", "taken_head_risky")
         },
+        # broader, descriptive: an opponent head next to the hero at the fatal decision,
+        # and enemy-body hits within 8 cells of the partner's head
+        "opp_head_within_2_at_fatal_frac": _frac(
+            sum(
+                d["nearest_opp_head_dist"] is not None and d["nearest_opp_head_dist"] <= 2
+                for d in deaths
+            ),
+            n,
+        ),
+        "enemy_body_hit_offset_le8_frac": _frac(
+            sum(
+                d["cause"] == "enemy_body"
+                and bool((d["killer"] or {}).get("hit_offsets"))
+                and min(d["killer"]["hit_offsets"]) <= 8
+                for d in deaths
+            ),
+            n,
+        ),
         "enclosure_frac": _frac(sum(d["enclosure"] for d in deaths), n),
         "enclosed_at_fatal_frac": _frac(sum(d["enclosed_fatal"] for d in deaths), n),
         "trap_run_hist": {
@@ -1205,6 +1223,77 @@ def summarize_deaths(deaths: Sequence[Mapping[str, Any]], shadow: bool) -> Dict[
             }
         )
     return out
+
+
+LARGE = 800
+
+
+def large_length(group: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """Share of decisions and of deaths at hero length >= LARGE."""
+    dec = big = 0
+    for r in group:
+        for key, v in r["frame_stats"]["length_hazard"].items():
+            dec += v["decisions"]
+            if int(key.split("-")[0]) >= LARGE:
+                big += v["decisions"]
+    deaths = [d for r in group for d in r["deaths"]]
+    eps = [e for r in group for e in r["episodes"]]
+    return {
+        "threshold": LARGE,
+        "decision_share": big / dec if dec else None,
+        "deaths": len(deaths),
+        "deaths_at_large": sum(d["length"] >= LARGE for d in deaths),
+        "episodes": len(eps),
+        "episodes_reaching_large": sum(e["max_mass"] >= LARGE for e in eps),
+        "deaths_below_large_per_episode": sum(d["length"] < LARGE for d in deaths) / len(eps),
+        "deaths_at_large_per_episode_reaching": (
+            sum(d["length"] >= LARGE for d in deaths)
+            / max(1, sum(e["max_mass"] >= LARGE for e in eps))
+        ),
+        "max_mass_median": float(np.median([e["max_mass"] for e in eps])),
+        "death_hero_fill_median": (
+            float(np.median([d["hero_fill_frac"] for d in deaths])) if deaths else None
+        ),
+        "death_occupied_median": (
+            float(np.median([d["occupied_frac"] for d in deaths])) if deaths else None
+        ),
+    }
+
+
+def enclosure_episodes(root: Path, arms: Sequence[str]) -> Dict[str, Any]:
+    """Maximal enclosed runs (from the saved series): how many end in death vs reopen."""
+    runs_total = ended_death = reopened = censored = 0
+    lengths: List[int] = []
+    for arm in arms:
+        z = np.load(root / "runs" / f"{arm}_series.npz")
+        alive = z["action"] >= 0
+        enc = (z["best_area"] < z["need"]) & alive
+        for e in range(enc.shape[0]):
+            row, al = enc[e], alive[e]
+            t = 0
+            H = len(row)
+            while t < H:
+                if not row[t]:
+                    t += 1
+                    continue
+                start = t
+                while t < H and row[t]:
+                    t += 1
+                runs_total += 1
+                lengths.append(t - start)
+                if t >= H:
+                    censored += 1
+                elif not al[t]:
+                    ended_death += 1
+                else:
+                    reopened += 1
+    return {
+        "enclosed_runs": runs_total,
+        "ended_in_death": ended_death,
+        "reopened": reopened,
+        "censored_at_horizon": censored,
+        "run_length_median": float(np.median(lengths)) if lengths else None,
+    }
 
 
 def cmd_summarize(args: argparse.Namespace) -> int:
@@ -1302,6 +1391,17 @@ def cmd_summarize(args: argparse.Namespace) -> int:
         per_world = Counter(d["world_seed"] for d in b8_deaths)
         summary["b8_deaths_per_world_hist"] = dict(Counter(per_world.values()))
         summary["b8_worlds_with_no_b8_death"] = len(b8[0]["seeds"]) - len(per_world)
+    summary["enclosure_episodes"] = {
+        "b8_pooled": enclosure_episodes(root, [a for a in B8_ARMS if a in runs]),
+        **{arm: enclosure_episodes(root, [arm]) for arm in REF_ARMS if arm in runs},
+    }
+    summary["large_length"] = {
+        "b8_pooled": large_length(b8),
+        **{arm: large_length([runs[arm]]) for arm in REF_ARMS if arm in runs},
+    }
+    first = next(iter(runs.values()))
+    summary["rosters"] = dict(Counter(",".join(k) for k in first["rosters"].values()))
+    summary["arena_cells"] = first["meta"]["grid_w"] * first["meta"]["grid_h"]
     path = root / "results.json"
     path.write_text(json.dumps(_jsonable(summary), indent=1, sort_keys=True))
     print(json.dumps(_jsonable(summary.get("b8_pooled", {})), indent=1)[:4000])
