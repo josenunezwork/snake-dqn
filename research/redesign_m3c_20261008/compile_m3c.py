@@ -159,11 +159,18 @@ def limit_compile_workers(role: str) -> Dict[str, Any]:
         raise ValueError(f"role must be actor or learner, got {role!r}")
     if role == "actor" and "TORCHINDUCTOR_COMPILE_THREADS" not in os.environ:
         icfg.compile_threads = 1
+    quiesce_supported = hasattr(icfg, "quiesce_async_compile_pool")  # not in torch 2.5.x
     if role == "learner" and "TORCHINDUCTOR_QUIESCE_ASYNC_COMPILE_POOL" not in os.environ:
-        icfg.quiesce_async_compile_pool = True
+        if quiesce_supported:
+            icfg.quiesce_async_compile_pool = True
+        elif "TORCHINDUCTOR_COMPILE_THREADS" not in os.environ:
+            # No way to quiesce the pool after compiling: compile in-process instead, so K
+            # learners on one pod do not each keep ~32 idle worker processes alive.
+            icfg.compile_threads = 1
     return {
         "compile_threads": icfg.compile_threads,
         "quiesce_async_compile_pool": bool(getattr(icfg, "quiesce_async_compile_pool", False)),
+        "quiesce_supported": quiesce_supported,
     }
 
 

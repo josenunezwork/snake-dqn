@@ -377,6 +377,7 @@ def test_limit_compile_workers(monkeypatch):
     assert cm.limit_compile_workers("learner") == {
         "compile_threads": 8,
         "quiesce_async_compile_pool": True,
+        "quiesce_supported": True,
     }
     assert cm.limit_compile_workers("actor")["compile_threads"] == 1
     monkeypatch.setattr(icfg, "compile_threads", 8)
@@ -386,10 +387,37 @@ def test_limit_compile_workers(monkeypatch):
     assert cm.limit_compile_workers("actor") == {
         "compile_threads": 8,
         "quiesce_async_compile_pool": False,
+        "quiesce_supported": True,
     }
     assert cm.limit_compile_workers("learner")["quiesce_async_compile_pool"] is False
     with pytest.raises(ValueError):
         cm.limit_compile_workers("opponent")
+
+
+def test_limit_compile_workers_without_quiesce_option(monkeypatch):
+    """torch 2.5.x (the pod image) has no quiesce_async_compile_pool: never set it (it
+    raised AttributeError and killed every M6 run at startup); the learner compiles
+    in-process instead."""
+    import sys
+    from types import SimpleNamespace
+
+    import torch._inductor
+
+    old = SimpleNamespace(compile_threads=32)  # no quiesce_async_compile_pool attribute
+    monkeypatch.setitem(sys.modules, "torch._inductor.config", old)
+    monkeypatch.setattr(torch._inductor, "config", old, raising=False)
+    for k in ("TORCHINDUCTOR_COMPILE_THREADS", "TORCHINDUCTOR_QUIESCE_ASYNC_COMPILE_POOL"):
+        monkeypatch.delenv(k, raising=False)
+    out = cm.limit_compile_workers("learner")
+    assert out == {
+        "compile_threads": 1,
+        "quiesce_async_compile_pool": False,
+        "quiesce_supported": False,
+    }
+    assert not hasattr(old, "quiesce_async_compile_pool")
+    monkeypatch.setenv("TORCHINDUCTOR_COMPILE_THREADS", "4")
+    old.compile_threads = 4
+    assert cm.limit_compile_workers("learner")["compile_threads"] == 4
 
 
 # ----------------------------------------------------------------------------- actor
