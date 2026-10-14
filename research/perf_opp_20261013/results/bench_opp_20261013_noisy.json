@@ -1,0 +1,181 @@
+{
+ "schema": "perf-opp-bench/v1",
+ "created_utc": "2026-10-14T03:40:47.388977+00:00",
+ "host": "MacBook-Pro.local",
+ "machine": "arm64",
+ "label": "noisy",
+ "note": "opponents only (random hero); one CPU process; noisy if the host is busy",
+ "rows": [
+  {
+   "worlds": 64,
+   "frozen_frac": 0.25,
+   "mixed_frac": 0.25,
+   "segments": 2,
+   "timed_frames": 400,
+   "device": "mps",
+   "census_mean": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 128.0,
+    "v61_rows_min_group": 32.0,
+    "v61_rows_max_group": 32.0,
+    "scripted_rows": 192.0
+   },
+   "census_max": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 128.0,
+    "v61_rows_min_group": 32.0,
+    "v61_rows_max_group": 32.0,
+    "scripted_rows": 192.0
+   },
+   "parity": {
+    "merged-cpu": {
+     "rows": 51200,
+     "q_bitwise_rows": 51200,
+     "max_abs_dq": 0.0,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 10,
+     "min_masked_top2_gap": 7.62939453125e-06,
+     "q_bitwise_frac": 1.0,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    },
+    "merged-device": {
+     "rows": 51200,
+     "q_bitwise_rows": 12719,
+     "max_abs_dq": 4.1961669921875e-05,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 10,
+     "min_masked_top2_gap": 7.62939453125e-06,
+     "q_bitwise_frac": 0.24841796875,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    }
+   },
+   "ms_per_frame": {
+    "per_group_v61": 0.6992939754854888,
+    "scripted": 0.1764060219284147,
+    "merged-cpu": 0.5122134939301759,
+    "merged-device_launch": 1.7429647909011692,
+    "merged-device": 2.051610549679026
+   }
+  },
+  {
+   "worlds": 128,
+   "frozen_frac": 0.25,
+   "mixed_frac": 0.25,
+   "segments": 2,
+   "timed_frames": 400,
+   "device": "mps",
+   "census_mean": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 256.0,
+    "v61_rows_min_group": 64.0,
+    "v61_rows_max_group": 64.0,
+    "scripted_rows": 384.0
+   },
+   "census_max": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 256.0,
+    "v61_rows_min_group": 64.0,
+    "v61_rows_max_group": 64.0,
+    "scripted_rows": 384.0
+   },
+   "parity": {
+    "merged-cpu": {
+     "rows": 102400,
+     "q_bitwise_rows": 102400,
+     "max_abs_dq": 0.0,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 17,
+     "min_masked_top2_gap": 3.814697265625e-06,
+     "q_bitwise_frac": 1.0,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    },
+    "merged-device": {
+     "rows": 102400,
+     "q_bitwise_rows": 25455,
+     "max_abs_dq": 6.103515625e-05,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 17,
+     "min_masked_top2_gap": 3.814697265625e-06,
+     "q_bitwise_frac": 0.248583984375,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    }
+   },
+   "ms_per_frame": {
+    "per_group_v61": 1.0012641025241464,
+    "scripted": 0.30220301472581923,
+    "merged-cpu": 0.7825802220031619,
+    "merged-device_launch": 1.8513200979214162,
+    "merged-device": 2.148312288336456
+   }
+  },
+  {
+   "worlds": 256,
+   "frozen_frac": 0.25,
+   "mixed_frac": 0.25,
+   "segments": 2,
+   "timed_frames": 400,
+   "device": "mps",
+   "census_mean": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 512.0,
+    "v61_rows_min_group": 128.0,
+    "v61_rows_max_group": 128.0,
+    "scripted_rows": 768.0
+   },
+   "census_max": {
+    "groups_live": 6.0,
+    "v61_checkpoints_live": 4.0,
+    "v61_rows": 512.0,
+    "v61_rows_min_group": 128.0,
+    "v61_rows_max_group": 128.0,
+    "scripted_rows": 768.0
+   },
+   "parity": {
+    "merged-cpu": {
+     "rows": 204800,
+     "q_bitwise_rows": 204800,
+     "max_abs_dq": 0.0,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 34,
+     "min_masked_top2_gap": 3.814697265625e-06,
+     "q_bitwise_frac": 1.0,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    },
+    "merged-device": {
+     "rows": 204800,
+     "q_bitwise_rows": 50970,
+     "max_abs_dq": 6.103515625e-05,
+     "argmax_flips": 0,
+     "action_flips": 0,
+     "near_tie_rows_1e-4": 34,
+     "min_masked_top2_gap": 3.814697265625e-06,
+     "q_bitwise_frac": 0.248876953125,
+     "action_flip_rate": 0.0,
+     "argmax_flip_rate": 0.0
+    }
+   },
+   "ms_per_frame": {
+    "per_group_v61": 1.4137140370439738,
+    "scripted": 0.5643281782977283,
+    "merged-cpu": 1.3847750157583505,
+    "merged-device_launch": 2.2072778025176376,
+    "merged-device": 2.600107209291309
+   }
+  }
+ ]
+}

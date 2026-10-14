@@ -51,10 +51,20 @@ Usage (re-run on a quiet machine; numbers taken while other jobs run are noisy):
         --profiler pyinstrument --profile-dir /tmp/prof_long --configs numba --worlds 128 \\
         --devices mps --frames 150 --warm 400 --grow-to 1200
 
-``--b8`` appends the B8 recipe's actor-side flags (:data:`B8_ARGS`); ``--train-args`` and
-``--trainer-args`` (pod bench session) append any other ``train_m3c`` flags, in that order
-after ``--compile-actor`` (the trainer's parser validates them; the last occurrence of a flag
-wins). None of them changes the default cells.
+    # perf-opp: the opponent-forward modes on the M5 recipe (bv8 + labels, 25% mixed);
+    # --reps 4 repeats every worlds' cells, odd reps in reversed order (A B, B A, ...)
+    ./venv/bin/python research/perf_actor_20261013/bench_actor.py --configs numba \\
+        --worlds 128,256 --devices mps --opp-forwards per-group,merged-cpu,merged-device \\
+        --reps 4 \\
+        --extra "--mixed-frac 0.25 --obs-version bv8 --onpolicy-labels --label-frac 1.0 \\
+                 --anchor-mode v8margin --v8-backend numba"
+
+Every cell is one (config, worlds, device, ``--compile-actor`` mode, ``--opp-forwards``
+mode). ``--b8`` appends the B8 recipe's actor-side flags (:data:`B8_ARGS`); ``--train-args``,
+``--trainer-args`` (pod bench session) and ``--extra`` (perf-opp) append any other
+``train_m3c`` flags, in that order after ``--compile-actor`` / ``--opp-forward`` (the
+trainer's parser validates them; the last occurrence of a flag wins). None of them changes
+the default cells.
 """
 
 from __future__ import annotations
@@ -180,11 +190,13 @@ def run_cell(
     profiler: str = "cprofile",
     profile_dir: Optional[Path] = None,
     trainer_args: str = "",
+    opp_forward: str = "per-group",
+    extra: str = "",
 ) -> Dict[str, Any]:
     """One in-process ``actor_main`` run; returns rates and the timing split.
 
-    ``train_args`` then ``trainer_args`` (opt-in, shell-split) are appended to the actor's
-    ``train_m3c`` argv, e.g. the B8 recipe's ``--obs-version bv8 --onpolicy-labels
+    ``train_args``, ``trainer_args`` then ``extra`` (opt-in, shell-split) are appended to the
+    actor's ``train_m3c`` argv, e.g. the B8 recipe's ``--obs-version bv8 --onpolicy-labels
     --mixed-frac 0.25 --reward mass``; the trainer's own parser validates them (the last
     occurrence of a flag wins)."""
     from research.redesign_m3c_20261008 import train_m3c as T
@@ -215,8 +227,11 @@ def run_cell(
         v61,
         "--compile-actor",
         compile_actor,
+        "--opp-forward",
+        opp_forward,
         *shlex.split(train_args or ""),
         *shlex.split(trainer_args or ""),
+        *shlex.split(extra or ""),
     ]
     args = T.build_parser().parse_args(argv)
     built: list = []  # the segments' sims (read after the run: body sizes in the window)
@@ -300,6 +315,8 @@ def run_cell(
         "frozen_frac": frozen_frac,
         "train_args": train_args,
         "trainer_args": trainer_args or "",
+        "opp_forward": opp_forward,
+        "extra": extra,
         "wall_s": wall,
         "frames_per_s": n / wall,
         "ms_per_frame": 1e3 * wall / n,
@@ -347,6 +364,37 @@ def run_cell(
     return row
 
 
+def summarize(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Per (config, worlds, device, compile_actor, opp_forward): median and all reps of
+    ms/frame."""
+    cells: Dict[tuple, List[Dict[str, Any]]] = {}
+    for r in rows:
+        if not r.get("error"):
+            key = tuple(
+                r.get(k) for k in ("config", "worlds", "device", "compile_actor", "opp_forward")
+            )
+            cells.setdefault(key, []).append(r)
+    out = []
+    for (config, worlds, device, cmode, opp), rs in cells.items():
+        ms = [r["ms_per_frame"] for r in rs]
+        opp_ms = [r["timing_ms_per_frame"].get("opponents_s", float("nan")) for r in rs]
+        out.append(
+            {
+                "config": config,
+                "worlds": worlds,
+                "device": device,
+                "compile_actor": cmode,
+                "opp_forward": opp,
+                "reps": len(rs),
+                "ms_per_frame_median": float(np.median(ms)),
+                "ms_per_frame": ms,
+                "opponents_ms_median": float(np.median(opp_ms)),
+                "opponents_ms": opp_ms,
+            }
+        )
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--configs", default="baseline,vectorized,numba")
@@ -376,14 +424,22 @@ def main() -> int:
         help="perf-compile: comma list of hero-forward compile modes (off = eager)",
     )
     ap.add_argument("--note", default="", help="provenance note (e.g. quiet / noisy)")
+    ap.add_argument("--opp-forwards", default="per-group", help="train_m3c --opp-forward values")
+    ap.add_argument("--extra", default="", help="more train_m3c flags for every cell (one string)")
+    ap.add_argument(
+        "--reps", type=int, default=1, help="repeat each worlds' cells; odd reps run reversed"
+    )
     ap.add_argument("--cell", default=None, help=argparse.SUPPRESS)  # internal: one cell
     a = ap.parse_args()
     init = a.init or default_init()
     train_args = " ".join(x for x in (B8_ARGS if a.b8 else "", a.train_args) if x)
     if a.cell or a.profile:
-        cmode0 = a.compile_actor.split(",")[0]  # --profile: one cell, the first mode
-        cell = a.cell or f"{a.configs},{a.worlds},{a.devices},{cmode0}"
-        config, worlds, device, cmode = cell.split(",")
+        # --profile: one cell, the first compile mode and the first opponent-forward mode
+        cmode0, opp0 = a.compile_actor.split(",")[0], a.opp_forwards.split(",")[0]
+        cell = (a.cell or f"{a.configs},{a.worlds},{a.devices},{cmode0},{opp0}").split(",")
+        config, worlds, device = cell[:3]
+        cmode = cell[3] if len(cell) > 3 else "off"
+        opp = cell[4] if len(cell) > 4 else "per-group"
         row = run_cell(
             config,
             int(worlds),
@@ -400,6 +456,8 @@ def main() -> int:
             profiler=a.profiler,
             profile_dir=a.profile_dir,
             trainer_args=a.trainer_args,
+            opp_forward=opp,
+            extra=a.extra,
         )
         if a.profile:
             print(row.pop("profile_tottime"))
@@ -421,50 +479,58 @@ def main() -> int:
                 print(f"{device} unavailable: skipped", flush=True)
                 skipped.append(device)
                 continue
-        for worlds, config, cmode in [
-            (int(w), c, m)
-            for w in a.worlds.split(",")
-            for c in a.configs.split(",")
-            for m in a.compile_actor.split(",")
-        ]:
-            cmd = [
-                sys.executable,
-                str(Path(__file__).resolve()),
-                "--cell",
-                f"{config},{worlds},{device},{cmode}",
-                "--frames",
-                str(a.frames),
-                "--warm",
-                str(a.warm),
-                "--grow-to",
-                str(a.grow_to),
-                "--frozen-frac",
-                str(a.frozen_frac),
-                "--seed",
-                str(a.seed),
-                "--init",
-                init,
-                "--train-args=" + train_args,  # one token: the value may start with "--"
+        for worlds in [int(w) for w in a.worlds.split(",")]:
+            cells = [
+                (c, m, o)
+                for c in a.configs.split(",")
+                for m in a.compile_actor.split(",")
+                for o in a.opp_forwards.split(",")
             ]
-            if a.trainer_args:
-                cmd.append("--trainer-args=" + a.trainer_args)
-            r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
-            line = [x for x in r.stdout.splitlines() if x.startswith("CELL ")]
-            if r.returncode or not line:
-                row = {"config": config, "worlds": worlds, "device": device, "error": True}
-                row["compile_actor"] = cmode
-                row["stderr"] = r.stderr[-1500:]
-            else:
-                row = json.loads(line[-1][5:])
-                if "[perf-compile]" in r.stderr:  # an eager fallback (message on stderr)
-                    row["compile_stderr"] = r.stderr[-1500:]
-            rows.append(row)
-            print(
-                json.dumps({k: row.get(k) for k in ("config", "worlds", "device", "compile_actor")})
-                + f" -> {row.get('frames_per_s', float('nan')):.1f} frames/s, "
-                f"{row.get('hero_transitions_per_s', float('nan')):.0f} hero tr/s",
-                flush=True,
-            )
+            for rep, (config, cmode, opp) in [
+                (r, p) for r in range(a.reps) for p in (cells[::-1] if r % 2 else cells)
+            ]:
+                cmd = [
+                    sys.executable,
+                    str(Path(__file__).resolve()),
+                    "--cell",
+                    f"{config},{worlds},{device},{cmode},{opp}",
+                    "--frames",
+                    str(a.frames),
+                    "--warm",
+                    str(a.warm),
+                    "--grow-to",
+                    str(a.grow_to),
+                    "--frozen-frac",
+                    str(a.frozen_frac),
+                    "--seed",
+                    str(a.seed),
+                    "--init",
+                    init,
+                    "--train-args=" + train_args,  # one token: the value may start with "--"
+                    "--extra=" + a.extra,
+                ]
+                if a.trainer_args:
+                    cmd.append("--trainer-args=" + a.trainer_args)
+                r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
+                line = [x for x in r.stdout.splitlines() if x.startswith("CELL ")]
+                if r.returncode or not line:
+                    row = {"config": config, "worlds": worlds, "device": device, "error": True}
+                    row["compile_actor"] = cmode
+                    row["opp_forward"] = opp
+                    row["stderr"] = r.stderr[-1500:]
+                else:
+                    row = json.loads(line[-1][5:])
+                    if "[perf-compile]" in r.stderr:  # an eager fallback (message on stderr)
+                        row["compile_stderr"] = r.stderr[-1500:]
+                row["rep"] = rep
+                rows.append(row)
+                keys = ("config", "worlds", "device", "compile_actor", "opp_forward", "rep")
+                print(
+                    json.dumps({k: row.get(k) for k in keys})
+                    + f" -> {row.get('frames_per_s', float('nan')):.1f} frames/s, "
+                    f"{row.get('hero_transitions_per_s', float('nan')):.0f} hero tr/s",
+                    flush=True,
+                )
     result = {
         "schema": "perf-actor-bench/v1",
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -475,6 +541,9 @@ def main() -> int:
         "init": init,
         "train_args": train_args,
         "trainer_args": a.trainer_args,
+        "extra": a.extra,
+        "reps": a.reps,
+        "summary": summarize(rows),
         "rows": rows,
     }
     if skipped:
