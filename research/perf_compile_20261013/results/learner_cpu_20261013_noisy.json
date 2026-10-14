@@ -1,0 +1,201 @@
+{
+ "created_utc": "2026-10-14T03:49:04.392634+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "loadavg_start": [
+  12.03662109375,
+  9.12109375,
+  6.705078125
+ ],
+ "argv": [
+  "--devices",
+  "cpu",
+  "--configs",
+  "t1,t1_c,t1_c_fwd,t1_c_ma",
+  "--updates-cpu",
+  "4",
+  "--rounds-cpu",
+  "3",
+  "--warm-cpu",
+  "2",
+  "--ring-rows",
+  "8000",
+  "--note",
+  "NOISY: Mac busy (M5 L60 training on MPS+CPU, other agents' benches); CPU inductor",
+  "--out",
+  "/private/tmp/perfpass/perf-compile/bench_learner_cpu.json"
+ ],
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "mode": "bv8",
+ "note": "NOISY: Mac busy (M5 L60 training on MPS+CPU, other agents' benches); CPU inductor",
+ "cells": [
+  {
+   "device": "cpu",
+   "config": "t1",
+   "flags": {
+    "fast": true
+   },
+   "updates_per_round": 4,
+   "rounds": 3,
+   "round_seconds": [
+    5.1245,
+    4.8403,
+    4.3241
+   ],
+   "ms_per_update_median": 1210.09,
+   "updates_per_s": 0.826,
+   "update_every": 128,
+   "transitions_per_s": 105.8,
+   "rows_per_update": {
+    "agent": 384,
+    "anchor": 128
+   },
+   "halt": null
+  },
+  {
+   "device": "cpu",
+   "config": "t1_c",
+   "flags": {
+    "fast": true,
+    "compile": "default"
+   },
+   "updates_per_round": 4,
+   "rounds": 3,
+   "round_seconds": [
+    4.2929,
+    4.9121,
+    4.175
+   ],
+   "ms_per_update_median": 1073.22,
+   "updates_per_s": 0.932,
+   "update_every": 128,
+   "transitions_per_s": 119.3,
+   "rows_per_update": {
+    "agent": 384,
+    "anchor": 128
+   },
+   "halt": null,
+   "compile": {
+    "mode": "default",
+    "scope": "loss",
+    "device": "cpu",
+    "compiled_calls": 15,
+    "verify_calls": 3,
+    "eager_calls": 0,
+    "fallback": null,
+    "first_call_s": 2.581,
+    "verify_worst_rel_err": 3.0252007866639726e-06,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "eager_twin": "t1",
+   "speedup_vs_eager_twin": 1.128
+  },
+  {
+   "device": "cpu",
+   "config": "t1_c_fwd",
+   "flags": {
+    "fast": true,
+    "compile": "default",
+    "compile_scope": "forward"
+   },
+   "updates_per_round": 4,
+   "rounds": 3,
+   "round_seconds": [
+    4.7529,
+    4.6059,
+    5.2204
+   ],
+   "ms_per_update_median": 1188.24,
+   "updates_per_s": 0.842,
+   "update_every": 128,
+   "transitions_per_s": 107.7,
+   "rows_per_update": {
+    "agent": 384,
+    "anchor": 128
+   },
+   "halt": null,
+   "compile": {
+    "mode": "default",
+    "scope": "forward",
+    "device": "cpu",
+    "compiled_calls": 15,
+    "verify_calls": 3,
+    "eager_calls": 0,
+    "fallback": null,
+    "first_call_s": 6.537,
+    "verify_worst_rel_err": 3.0252007866639726e-06,
+    "graphs": 2,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "eager_twin": "t1",
+   "speedup_vs_eager_twin": 1.018
+  },
+  {
+   "device": "cpu",
+   "config": "t1_c_ma",
+   "flags": {
+    "fast": true,
+    "compile": "max-autotune-no-cudagraphs"
+   },
+   "updates_per_round": 4,
+   "rounds": 3,
+   "round_seconds": [
+    4.399,
+    4.3763,
+    4.3051
+   ],
+   "ms_per_update_median": 1094.07,
+   "updates_per_s": 0.914,
+   "update_every": 128,
+   "transitions_per_s": 117.0,
+   "rows_per_update": {
+    "agent": 384,
+    "anchor": 128
+   },
+   "halt": null,
+   "compile": {
+    "mode": "max-autotune-no-cudagraphs",
+    "scope": "loss",
+    "device": "cpu",
+    "compiled_calls": 15,
+    "verify_calls": 3,
+    "eager_calls": 0,
+    "fallback": null,
+    "first_call_s": 7.036,
+    "verify_worst_rel_err": 3.0252007866639726e-06,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "eager_twin": "t1",
+   "speedup_vs_eager_twin": 1.106
+  }
+ ],
+ "loadavg_end": [
+  12.904296875,
+  10.296875,
+  7.43017578125
+ ]
+}
