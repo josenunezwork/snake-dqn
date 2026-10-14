@@ -66,3 +66,16 @@ Pod EPYC cores are ~2.4× slower per actor than the M5 Pro: pods are actor-bound
 --v61-backend numba` fp32, `--worlds 128`, `--actors 3`–`4`; `--batch-scale 2` only after the A/B.
 **Mac production flags:** `--learner-fast --obs-pack --v61-backend numba --worlds 128 --actors 2`
 (no compile on MPS: wrong gradients in torch 2.9.1, auto-fallback).
+
+# Batch-scale A/B (item 3; Mac, B8 recipe, seed 0, 20M, `--learner-fast --obs-pack --v61-backend numba --worlds 64`, both arms concurrently)
+
+No-veto dev probe, 32 worlds × 3 mixes vs frp3-s12 + v8 (434.9); raw `snake-dqn-artifacts/perf-ab-k2-20261014/`, probes `perf-ab-probes-20261014/`.
+
+| arm | 10M | final | survival frozen / scripted / mixed | wall |
+|---|---|---|---|---|
+| K1 | 494.2 (+59) | 527.3 (+92.4, SE 28) | 0.81 / 0.62 / 0.75 | 2.10 h |
+| K2 (`--batch-scale 2`) | 535.5 (+101) | 537.5 (+102.6, SE 27) | 0.69 / 0.59 / 0.81 | 1.49 h |
+
+K2 − K1 = +10 (well inside one SE; one seed each; B8's own seed spread was +63…+132): no
+evidence of a quality loss, 1.41× faster wall-clock. **Adopted: `--batch-scale 2` in the production
+recipe** (Mac and pods), with the single-seed caveat.
