@@ -32,6 +32,7 @@ ENSEMBLES = {
     "mean_B8x5": OUT_DIR / "ens_mean_B8x5.jsonl",
     "vote_B8x5": OUT_DIR / "ens_vote_B8x5.jsonl",
     "mean_CTRL": OUT_DIR / "ens_mean_CTRL.jsonl",
+    "vote_CTRL": OUT_DIR / "ens_vote_CTRL.jsonl",
     "identity_B8_s0_K1": OUT_DIR / "identity_B8_s0_K1.jsonl",
 }
 MIXES = ("frozen", "scripted", "mixed")
