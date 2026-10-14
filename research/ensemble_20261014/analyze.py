@@ -169,6 +169,91 @@ def member_pool(members: Dict[str, Dict[str, dict]], ref: Dict[str, dict]) -> Di
     return {"members": sums, "pool": pool}
 
 
+def _scripted_world_rows(first: Dict[str, dict], extra_path: Path) -> Optional[Dict[str, Any]]:
+    """Per-world scripted outcomes: the first 32 worlds (``first``) + worlds 32..95 (extra)."""
+    extra = load(extra_path).get("scripted")
+    if "scripted" not in first or extra is None:
+        return None
+    out: Dict[str, Any] = {"mass": {}, "deaths": {}, "last_len": {}, "dec800": {}}
+    for row in (first["scripted"], extra):
+        out["mass"].update({str(k): float(v) for k, v in row["mass"].items()})
+        out["deaths"].update({str(k): int(v) for k, v in row["deaths"].items()})
+        if row.get("diag"):
+            for s, w in row["diag"]["per_world"].items():
+                out["last_len"][str(s)] = w["last_len"]
+                out["dec800"][str(s)] = w["decisions_ge_long"]
+    return out
+
+
+def _arm96(w: Dict[str, Any], census: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    n = len(w["mass"])
+    dead = [s for s, d in w["deaths"].items() if d]
+    res: Dict[str, Any] = {
+        "n": n,
+        "mass": sum(w["mass"].values()) / n,
+        "survival": 1 - len(dead) / n,
+        "deaths": len(dead),
+    }
+    known = [s for s in dead if s in w["last_len"]]
+    if len(known) == len(dead) and len(w["dec800"]) == n:
+        d800 = sum(1 for s in dead if w["last_len"][s] >= LONG)
+        dec = sum(w["dec800"].values())
+    elif census is not None and len(w["dec800"]) == n - 32:
+        # first 32 scripted worlds from the census, the rest from the extra run's diag
+        d800 = census["deaths_ge800"] + sum(1 for s in known if w["last_len"][s] >= LONG)
+        dec = census["decisions_ge800"] + sum(w["dec800"].values())
+    else:
+        return res
+    res.update(
+        {
+            "deaths_ge800": d800,
+            "decisions_ge800": dec,
+            "hazard_ge800_per_1k": round(1000.0 * d800 / dec, 4) if dec else None,
+        }
+    )
+    return res
+
+
+def scripted96(b8: Dict[str, Dict[str, dict]]) -> Dict[str, Any]:
+    """Scripted mix on 96 dev-probe worlds (first 32 + extra 64) for members and ensembles."""
+    members = {}
+    for k, rows in b8.items():
+        w = _scripted_world_rows(rows, OUT_DIR / f"extra_scripted_{k}_K1.jsonl")
+        if w is not None:
+            members[k] = w
+    out: Dict[str, Any] = {"arms": {}, "vs_member_average": {}}
+    for k, w in members.items():
+        out["arms"][k] = _arm96(w, census_scripted(k))
+    if len(members) == len(b8):
+        pooled = {
+            "n": sum(a["n"] for a in out["arms"].values()),
+            "deaths": sum(a["deaths"] for a in out["arms"].values()),
+        }
+        pooled["survival"] = 1 - pooled["deaths"] / pooled["n"]
+        pooled["mass"] = sum(a["mass"] for a in out["arms"].values()) / len(members)
+        if all("deaths_ge800" in a for a in out["arms"].values()):
+            pooled["deaths_ge800"] = sum(a["deaths_ge800"] for a in out["arms"].values())
+            pooled["decisions_ge800"] = sum(a["decisions_ge800"] for a in out["arms"].values())
+            pooled["hazard_ge800_per_1k"] = round(
+                1000.0 * pooled["deaths_ge800"] / pooled["decisions_ge800"], 4
+            )
+        out["arms"]["B8_pooled"] = pooled
+    for name in ("vote_B8x5", "mean_B8x5"):
+        w = _scripted_world_rows(load(ENSEMBLES[name]), OUT_DIR / f"extra_scripted_{name}.jsonl")
+        if w is None:
+            continue
+        out["arms"][name] = _arm96(w)
+        if len(members) == len(b8):
+            dm, ds = [], []
+            for s in w["mass"]:
+                mm = [m["mass"][s] for m in members.values()]
+                ms = [1.0 if m["deaths"][s] == 0 else 0.0 for m in members.values()]
+                dm.append(w["mass"][s] - sum(mm) / len(mm))
+                ds.append((1.0 if w["deaths"][s] == 0 else 0.0) - sum(ms) / len(ms))
+            out["vs_member_average"][name] = {"mass": ci(dm), "survival": ci(ds)}
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=OUT_DIR / "results.json")
@@ -210,7 +295,15 @@ def main() -> int:
             e["vs_member_average"] = paired_vs_members(rows, b8)
         e["calibration"] = {m: rows[m]["diag"]["calibration"] for m in rows if rows[m].get("diag")}
         res["ensembles"][name] = e
+    res["scripted96"] = scripted96(b8)
     args.out.write_text(json.dumps(res, indent=1) + "\n")
+    for k, v in res["scripted96"].get("arms", {}).items():
+        print(
+            f"scripted96 {k:12s} n={v['n']} surv {v['survival']:.3f} mass {v['mass']:6.1f} "
+            f"d>=800 {v.get('deaths_ge800')}/{v['deaths']} haz800 {v.get('hazard_ge800_per_1k')}"
+        )
+    for k, v in res["scripted96"].get("vs_member_average", {}).items():
+        print(f"scripted96 {k} - member avg: {json.dumps(v)}")
 
     def line(name: str, s: Dict[str, Any]) -> str:
         pm = s["per_mix"]
