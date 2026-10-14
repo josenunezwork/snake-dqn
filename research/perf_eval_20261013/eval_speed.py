@@ -38,6 +38,13 @@ Arms (``--arm``): ``student-nv`` (no veto, advisory mask: the M3-C/M4 primary pr
   ./venv/bin/python research/perf_eval_20261013/eval_speed.py bench --student S.pth \\
       --arms student-nv,incumbent-v8 --mixes frozen,scripted,mixed --variants default,numba \\
       --worlds 16 --frames 5000 --procs 1 --out OUT.json     # quiet machine
+  ./venv/bin/python research/perf_eval_20261013/eval_speed.py profile --arm student-nv \\
+      --student S.pth --mix frozen --worlds 16 --frames 1500 --variant numba --out OUT.json
+
+Measured 2026-10-13 on the busy Mac (NOISY; identity, flips, cost splits, 32-world H5000
+walls and a Phase R smoke-subset records comparison): ``results/noisy_mac_20261013.json``.
+Re-run ``bench`` with ``--quiet-machine --procs 1`` (and ``--variants
+default,numba,numba+fast-anchors``) on an idle machine for numbers to quote.
 """
 
 from __future__ import annotations

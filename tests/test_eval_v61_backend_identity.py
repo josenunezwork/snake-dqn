@@ -343,7 +343,8 @@ def test_dev_probe_cli_records_the_backend(tmp_path):
         str(REPO / "research/redesign_m2_20261008/dev_probe.py"),
         *("--student", str(STUDENT), "--arm", "student", "--mix", "mixed", "--worlds", "1"),
         *("--frames", "60", "--ego2s-forward", "rowwise", "--ego2s-mask", "advisory"),
-        *("--round-index", "52", "--v61-backend", "numba", "--out", str(out)),
+        *("--round-index", "52", "--v61-backend", "numba", "--anchors", "fast"),
+        *("--out", str(out)),
     ]
     env = {"OMP_NUM_THREADS": "1", "MKL_NUM_THREADS": "1", "SNAKE_DQN_DEVICE": "cpu"}
     r = subprocess.run(
@@ -352,4 +353,37 @@ def test_dev_probe_cli_records_the_backend(tmp_path):
     assert r.returncode == 0, r.stderr[-2000:]
     row = json.loads(out.read_text().splitlines()[-1])
     assert row["v61_backend"] == "numba" and row["ego2s_forward"] == "rowwise"
+    assert row["anchors"] == "fast"
     assert len(row["mass"]) == 1 and np.isfinite(list(row["mass"].values())[0])
+
+
+def test_compare_records_ignores_only_run_fields(tmp_path):
+    """Phase R record dirs: run fields (binding, commit, wall, ...) are not compared; any
+    episode field is; a record present on one side only fails the comparison."""
+    from research.perf_eval_20261013 import eval_speed as es
+
+    entry = {
+        "binding": {"plan_file_sha256": "a"},
+        "commit": "c1",
+        "unit_wall_seconds": 10.0,
+        "hero": "incumbent",
+        "record": {"mass_integral": 12.5, "deaths": 0},
+        "prefix_h5000": {"mass_integral": 6.0},
+    }
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    (a / "r1.json").write_text(json.dumps(entry))
+    other_run = dict(entry, binding={"plan_file_sha256": "b"}, commit="c2", unit_wall_seconds=5.0)
+    (b / "r1.json").write_text(json.dumps(other_run))
+    assert es.compare_record_dirs(a, b)["identical"] == 1
+    assert es.main(["compare-records", "--a", str(a), "--b", str(b)]) == 0
+    changed = dict(other_run, record=dict(entry["record"], mass_integral=12.75))
+    (b / "r1.json").write_text(json.dumps(changed))
+    result = es.compare_record_dirs(a, b)
+    assert result["identical"] == 0 and result["rows"][0]["differences"]
+    assert es.main(["compare-records", "--a", str(a), "--b", str(b)]) == 1
+    (b / "r1.json").write_text(json.dumps(other_run))
+    (a / "r2.json").write_text(json.dumps(entry))
+    assert es.compare_record_dirs(a, b)["only_a"] == ["r2.json"]
+    assert es.main(["compare-records", "--a", str(a), "--b", str(b)]) == 1
