@@ -33,3 +33,36 @@ Raw JSON / logs: `snake-dqn-artifacts/perf-quiet-mac-20261013/`. Code: branch `p
 Learner-bound in every configuration: more actors / worlds do not help. Recommended Mac
 config: `--worlds 128 --actors 2 --v61-backend numba --learner-fast --obs-pack` (+ `--batch-scale 2`
 only if the A/B at `snake-dqn-artifacts/perf-ab-k2-20261014/` shows equal policy quality).
+
+# CUDA benchmarks (RunPod RTX 4090 secure, x86 EPYC, torch 2.5.1+cu124; 2026-10-14 ~05:40–07:10 UTC)
+
+Raw: `snake-dqn-artifacts/perf-cuda-bench-20261013-try2/out/` (runtime image) and
+`perf-cuda-compile-20261014-try1/out/` (devel image, gcc available). Both pods deleted & verified; ~$0.5 total.
+
+| learner (bv8) | ms/update | tr/s ceiling | note |
+|---|---|---|---|
+| baseline | 14.9 | 8,603 | |
+| t1 | 12.5 (13.5–14.6 in the 2nd session) | 10,273 | |
+| t1 fp16 / bf16 | 15.7 / 15.4 | ~8.2–8.3k | slower: no precision tier |
+| t1 + batch-scale 2 / 4 | 15.6 / 22.4 | 16,375 / 22,873 | semantics change (A/B) |
+| t1 + compile default | 13.7 | 9,364 | 1.07× vs eager twin |
+| **t1 + compile reduce-overhead** | **8.4** | **15,170** | **1.74× vs eager twin**; drift 0.040 of update norm ≈ 1-ulp init floor 0.045 |
+| t1 + k2 + compile reduce-overhead | 11.5 | 22,212 | |
+| max-autotune-no-cudagraphs | — | — | first-steps check rejected (grad mismatch) → eager |
+
+Compile needs a C compiler: the training *runtime* image has none (all compile cells fell back
+to eager in session 1); use `pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel`.
+
+| actor (single, numba, CUDA hero fwd) | 64 | 128 | 256 worlds |
+|---|---|---|---|
+| ego2s-b | 4,251 | 5,424 | 6,234 hero tr/s |
+| B8 recipe | 3,338 | 4,056 | 4,540 |
+| B8, long bodies | 2,614 | 2,987 | 3,285 |
+| `--compile-actor` | no gain (±5 %) | | |
+
+Pod EPYC cores are ~2.4× slower per actor than the M5 Pro: pods are actor-bound -> 3–4 actors/run.
+
+**Pod production flags:** devel image; `--learner-fast --compile-learner reduce-overhead --obs-pack
+--v61-backend numba` fp32, `--worlds 128`, `--actors 3`–`4`; `--batch-scale 2` only after the A/B.
+**Mac production flags:** `--learner-fast --obs-pack --v61-backend numba --worlds 128 --actors 2`
+(no compile on MPS: wrong gradients in torch 2.9.1, auto-fallback).
