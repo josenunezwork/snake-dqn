@@ -95,8 +95,13 @@ GO_SCRIPTED = 0.64
 NO_GO_SCRIPTED = 0.60
 MASS_MARGIN = 60.0
 LEVER4_PREDICTION = {"cap": 900, "survival": 0.61, "mass_delta": -44.0}
-GOVERNOR_MODES = ("twin", "bestboost")
-MODE_LABEL = {"twin": "boost-twin-if-advisory-safe", "bestboost": "best-q-safe-boost"}
+GOVERNOR_MODES = ("twin", "bestboost", "twinspace")
+MODE_LABEL = {
+    "twin": "boost-twin-if-advisory-safe",
+    "bestboost": "best-q-safe-boost",
+    "twinspace": "boost-twin-if-advisory-safe-spacious-and-not-head-risky",
+}
+SPACE_LAM = 8.0  # v8 lambda for the diagnostics call (areas / head risk do not depend on it)
 
 
 def parse_cap(text: str) -> Optional[int]:
@@ -164,6 +169,7 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
         cap: Optional[int],
         q: Optional[np.ndarray] = None,
         mode: str = "twin",
+        space_ok: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """``(new actions, replaced, blocked)`` for student actions ``act``.
 
@@ -171,6 +177,8 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
         ``mode="twin"`` (the study's governor): a normal ``a`` becomes ``a + 3`` when that is
         advisory-safe. ``mode="bestboost"`` (variant): a normal action becomes the student's
         highest-Q advisory-safe boost action (float64, first maximum), if any.
+        ``mode="twinspace"`` (variant): as ``twin``, and the twin must also be ``space_ok``
+        (computed by :meth:`twin_space_ok`: spacious landing and not head-risky).
         """
         n = len(act)
         if cap is None:
@@ -180,9 +188,12 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
             raise ValueError(f"mode must be one of {GOVERNOR_MODES}, got {mode!r}")
         over = length > cap
         normal = act < 3
-        if mode == "twin":
+        if mode in ("twin", "twinspace"):
             pick = act % 3 + 3
             safe = adv[np.arange(n), pick]
+            if mode == "twinspace":
+                assert space_ok is not None
+                safe = safe & np.asarray(space_ok, dtype=bool)
         else:
             assert q is not None
             qb = np.where(adv[:, 3:], np.asarray(q, dtype=np.float64)[:, 3:], -np.inf)
@@ -192,6 +203,30 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
         blocked = over & normal & ~safe
         return np.where(replaced, pick, act).astype(np.int64), replaced, blocked
 
+    @staticmethod
+    def twin_space_ok(
+        sim, rows: np.ndarray, q: np.ndarray, adv: np.ndarray, act: np.ndarray, length
+    ) -> np.ndarray:
+        """Whether each row's boost twin lands spacious and is not v8 head-risky.
+
+        Spacious: the twin's v8 tail-aware post-move landing area (``v8_nb``, capped at v7's
+        ``area_cap`` = ``2L`` bounded by the free cells) is at least ``min(L, area_cap)``,
+        i.e. there is room for the whole body after the boost (the census's length-aware
+        "not tight" test).
+        """
+        from src.simd_env.v8_nb import v8_decide
+
+        n = len(rows)
+        ok = np.zeros(n, dtype=bool)
+        if not n:
+            return ok
+        res = v8_decide(sim, rows, q, adv, SPACE_LAM, features=True)
+        twin = act % 3 + 3
+        i = np.arange(n)
+        area = res.area[i, twin]
+        need = np.minimum(np.asarray(length, dtype=np.int64), res.area_cap)
+        return (area >= need) & ~res.head_risky[i, twin]
+
     def actions(self, masks: np.ndarray, sim, slots: np.ndarray) -> np.ndarray:
         rows = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
         q = ep.student_q(self.net, sim, rows, self.forward).numpy()
@@ -200,7 +235,16 @@ class GovernorEgo2sPolicy(ep.Ego2sSimdPolicy):
         m[~m.any(axis=1), :3] = True
         act = np.where(m, q.astype(np.float64), -np.inf).argmax(axis=1).astype(np.int64)
         length = np.asarray(sim.length)[rows[:, 0], rows[:, 1]].astype(np.int64)
-        out, replaced, blocked = self.govern(act, adv, length, self.cap, q, self.mode)
+        space_ok = None
+        if self.mode == "twinspace" and self.cap is not None:
+            space_ok = np.zeros(len(rows), dtype=bool)
+            cand = np.nonzero((length > self.cap) & (act < 3))[0]
+            space_ok[cand] = self.twin_space_ok(
+                sim, rows[cand], q[cand], adv[cand], act[cand], length[cand]
+            )
+        out, replaced, blocked = self.govern(
+            act, adv, length, self.cap, q, self.mode, space_ok=space_ok
+        )
         # counters (hero rows only: one row per env)
         env = rows[:, 0]
         self._ensure(int(env.max()) + 1 if len(env) else 0)

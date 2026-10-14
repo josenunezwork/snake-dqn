@@ -119,3 +119,14 @@ def test_arm_summary_and_paired_delta():
     assert a["mass_stratified"] == 100.0
     d = gov.paired_scripted_delta(rows, off)
     assert d["pairs"] == 4 and d["delta_survival"] == 0.25 and d["rescued"] == 1
+
+
+def test_twinspace_requires_space_ok():
+    act = np.array([0, 1, 2])
+    adv = _adv([[1] * 6] * 3)
+    space = np.array([True, False, True])
+    out, rep, blk = gov.GovernorEgo2sPolicy.govern(
+        act, adv, np.array([900, 900, 700]), 800, None, "twinspace", space_ok=space
+    )
+    assert out.tolist() == [3, 1, 2]
+    assert rep.tolist() == [True, False, False] and blk.tolist() == [False, True, False]
