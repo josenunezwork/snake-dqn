@@ -32,7 +32,15 @@ the ingest rate the learner can sustain.
 ``--drift`` instead runs a fixed batch sequence (same seed, same world, same ingestion) for
 ``--drift-updates`` updates per precision from the same initial weights and reports the
 parameter / Q drift relative to fp32 (and the fp32 reference-vs-fast difference, i.e. the
-reassociation noise floor).
+reassociation noise floor). ``t1_fp32_init_1ulp`` is the chaos floor: the same run from
+weights scaled by ``1 + 1e-7 N(0, 1)``, i.e. how far ANY float32-rounding-level difference
+grows over the run under Adam; compiled drift (``--compile``) is judged against it, since a
+compiled step differs from eager only by reassociation (~1e-6 relative per step). Pick a
+subset with ``--drift-variants`` (``t1_fp32`` and ``reference_fp32`` always run).
+
+Compile status fields ``graphs`` / ``frames_*`` / ``graph_breaks`` are dynamo's process-wide
+counters: here many learners share a process, so they add up over all compiled cells (the
+trainer has one learner per process, where they are per learner).
 
 Usage (re-run on a quiet machine for clean numbers)::
 
@@ -262,6 +270,19 @@ def make_learner(cfg, device, mode, nscal, net0, multi, world, seed):
     return learner
 
 
+ULP_KEY = "_init_perturb"
+
+
+def perturbed(net0: Ego2sNet, rel: float) -> Ego2sNet:
+    """A copy of ``net0`` with every weight scaled by ``1 + rel * N(0, 1)`` (seeded)."""
+    net = copy.deepcopy(net0)
+    gen = torch.Generator().manual_seed(0)
+    with torch.no_grad():
+        for p in net.parameters():
+            p.mul_(1 + rel * torch.randn(p.shape, generator=gen))
+    return net
+
+
 def sync(device: str) -> None:
     if device.startswith("mps"):
         torch.mps.synchronize()
@@ -383,6 +404,9 @@ def drift(ns) -> Dict[str, Any]:
             "reference_fp32": {},
             "t1_fp32": {"fast": True},
             "t1_fp32_plain_adam": {"fast": True, "fused_adam": False},
+            # chaos floor: t1_fp32 from weights x (1 + 1e-7 N(0,1)) - how far ANY float32
+            # rounding-level difference grows over the run (compare compiled drift to this)
+            "t1_fp32_init_1ulp": {"fast": True, ULP_KEY: True},
             "t1_bf16": {"fast": True, "precision": "bf16"},
             "t1_fp16": {"fast": True, "precision": "fp16"},
         }
@@ -401,10 +425,15 @@ def drift(ns) -> Dict[str, Any]:
                     "compile": cmode,
                     "compile_scope": scope,
                 }
+        if ns.drift_variants:
+            keep = set(ns.drift_variants.split(",")) | {"t1_fp32", "reference_fp32"}
+            variants = {k: v for k, v in variants.items() if k in keep}
         theta0 = torch.cat([p.detach().reshape(-1) for p in net0.parameters()])
         for name, cfg in variants.items():
             world = build_world(ns.mode, nscal, id_hi, 0)
-            lr = make_learner(cfg, device, ns.mode, nscal, net0, multi, world, 0)
+            cfg = dict(cfg)
+            net = perturbed(net0, 1e-7) if cfg.pop(ULP_KEY, False) else net0
+            lr = make_learner(cfg, device, ns.mode, nscal, net, multi, world, 0)
             run_updates(lr, ns.drift_updates, np.random.default_rng(5), id_hi, device)
             runs[name] = {
                 "theta": torch.cat([p.detach().reshape(-1).cpu() for p in lr.online.parameters()]),
@@ -461,6 +490,12 @@ def main(argv=None) -> int:
     ap.add_argument("--threads", type=int, default=1, help="torch threads (trainer: 1)")
     ap.add_argument("--drift", action="store_true")
     ap.add_argument("--drift-updates", type=int, default=200)
+    ap.add_argument(
+        "--drift-variants",
+        default="",
+        help="--drift: comma list of eager variants to run (t1_fp32 / reference_fp32 always; "
+        "compiled variants come from --compile); default all",
+    )
     ap.add_argument(
         "--compile",
         default="",

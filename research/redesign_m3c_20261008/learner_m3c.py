@@ -357,6 +357,7 @@ class Learner:
         }
         self._verified: dict = {}
         self._verify_tol = VERIFY_TOL_AMP if self._amp_dtype is not None else VERIFY_TOL
+        self._gcount = cm.GraphCount()
         if self.opts.compile_scope == "loss":
             self._loss_c = cm.compile_fn(torch, loss_terms, mode)
         else:
@@ -378,14 +379,11 @@ class Learner:
         self._fwd_c = None
 
     def compile_status(self) -> Optional[dict]:
-        """Compile counters for telemetry (``None`` when compile is off)."""
+        """Compile counters for telemetry (``None`` when compile is off); ``graphs`` are the
+        graphs THIS learner compiled (dynamo's process-wide counters: ``dynamo_process``)."""
         if self._cstat is None:
             return None
-        from research.redesign_m3c_20261008 import compile_m3c as cm
-
-        out = {**self._cstat, **cm.dynamo_counters()}
-        out["recompile_storm"] = out["graphs"] > cm.GRAPH_WARN
-        return out
+        return {**self._cstat, **self._gcount.status()}
 
     # ------------------------------------------------------------------ public
     def update(self, lam: float) -> None:
@@ -673,18 +671,21 @@ class Learner:
             return None
         t0 = time.perf_counter() if cs["first_call_s"] is None else None
         try:
-            if self._cudagraphs:
-                torch.compiler.cudagraph_mark_step_begin()
-            if self._loss_c is not None:
-                td, anc, qmax = self._loss_c(torch, self.online, self.target, *tensors, **kw)
-            else:
-                td, anc, qmax = loss_terms(torch, *self._fwd_c, *tensors, **kw)
-            finite = self._backward(td, anc, lam)
+            with self._gcount:
+                if self._cudagraphs:
+                    torch.compiler.cudagraph_mark_step_begin()
+                if self._loss_c is not None:
+                    td, anc, qmax = self._loss_c(torch, self.online, self.target, *tensors, **kw)
+                else:
+                    td, anc, qmax = loss_terms(torch, *self._fwd_c, *tensors, **kw)
+                finite = self._backward(td, anc, lam)
         except Exception as exc:  # noqa: BLE001
             self.opt.zero_grad(set_to_none=True)
             self._compile_fallback(exc)
             cs["eager_calls"] += 1
             return None
+        if self._gcount.storm:  # this step is fine; the following ones run eagerly
+            self._compile_fallback(self._gcount.storm_error())
         if t0 is not None:
             cs["first_call_s"] = round(time.perf_counter() - t0, 3)
         if self._cudagraphs:  # CUDA-graph outputs are overwritten by the next replay

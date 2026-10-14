@@ -280,6 +280,42 @@ def test_learner_falls_back_to_eager_bitwise(monkeypatch, capsys, kind):
     assert ref.st["td"] == bad.st["td"]
 
 
+def test_graph_count_is_per_learner():
+    """``graphs`` counts this learner's own compilations (dynamo's counters are process-wide:
+    a bench builds many learners in one process)."""
+    a = _learner("b", lm.LearnerOpts(fast=True, fused_adam=False, compile="default"))
+    b = _learner("b", lm.LearnerOpts(fast=True, fused_adam=False, compile="default"))
+    _train(a, 2)
+    _train(b, 2)
+    sa, sb = a.compile_status(), b.compile_status()
+    assert sa["graphs"] == 1 and sa["fallback"] is None
+    assert sa["dynamo_process"]["graphs"] == sa["graphs"] + sb["graphs"]
+
+
+def test_recompile_storm_falls_back_to_eager(monkeypatch, capsys):
+    monkeypatch.setattr(cm, "GRAPH_LIMIT", 0)  # the first compiled graph already "storms"
+    learner = _learner("b", lm.LearnerOpts(fast=True, fused_adam=False, compile="default"))
+    _train(learner, 4)
+    st = learner.compile_status()
+    assert st["recompile_storm"] and "recompilation storm" in st["fallback"]
+    assert (st["graphs"], st["verify_calls"], st["compiled_calls"], st["eager_calls"]) == (
+        1,
+        1,
+        0,
+        3,
+    )
+    assert "continuing EAGER" in capsys.readouterr().err
+    net = Ego2sNet(7, 30).eval()
+    hf = cm.HeroForward(torch, net, "cpu", "default", 4, 30, m3c.LOCAL, m3c.GLOBAL)
+    obs = _obs(np.random.default_rng(0), 3)
+    with torch.no_grad():
+        hf(obs)  # compiled (graph from the probe), then the guard trips
+        assert hf.fn is None and hf.status()["recompile_storm"]
+        ref = net(*[torch.from_numpy(obs[k]) for k in ("local", "global", "scalars")])
+        assert torch.equal(hf(obs), ref)  # eager from now on
+    assert "recompilation storm" in capsys.readouterr().err
+
+
 # ----------------------------------------------------------------------------- actor
 def _obs(r, n, nscal=30):
     def planes(shape):
@@ -311,7 +347,8 @@ def test_hero_forward_matches_eager_without_recompiles(nscal):
         assert bool((q.argmax(1) == ref.argmax(1)).all())
     assert worst < Q_ATOL, worst
     st = hf.status()
-    assert st["calls"] == 6 and st["graphs"] == 1 and st["frames_total"] == 1  # one compile
+    assert st["calls"] == 6 and st["graphs"] == 1 and not st["recompile_storm"]  # one compile
+    assert st["dynamo_process"]["frames_total"] == 1
 
 
 def test_hero_forward_picks_up_in_place_weight_updates():
@@ -422,3 +459,38 @@ def test_actor_compiled_hero_forward_end_to_end(tmp_path, monkeypatch, capsys):
                 assert x == y, (f, k)
     for k in ref_ring:
         assert np.array_equal(ref_ring[k], ring[k]), k
+
+
+@pytest.mark.slow
+def test_trainer_runs_with_compiled_learner_and_actor(tmp_path):
+    """End to end (learner + 1 actor, CPU inductor): ``--compile-learner`` / ``--compile-actor``
+    reach the learner and the actor, the learner's compiled steps pass the first-steps check
+    (no fallback, <= 3 graphs), the status lands in the summary and the flags in ``m3c``."""
+    from tests.test_m3c_trainer import HAVE_DATA, _run
+
+    if not HAVE_DATA:
+        pytest.skip("needs the M2b student and demonstrations")
+    out = tmp_path / "compiled"
+    extra = ["--actors", "1", "--no-guard", "--ring-dir", str(tmp_path), "--learner-fast"]
+    extra += ["--compile-learner", "default", "--compile-actor", "default"]
+    r = _run("research/redesign_m3c_20261008/train_m3c.py", out, extra)
+    assert r.returncode == 0, r.stderr[-3000:]
+    assert "[perf-compile]" not in r.stderr, r.stderr[-3000:]  # no eager fallback
+    s = json.loads((out / "summary.json").read_text())
+    assert s["halt"] is None and s["actor_exitcodes"] == [0]
+    assert s["transitions"] >= 12000 and s["updates"] >= 30
+    assert s["m3c"] == {
+        "actors": 1,
+        "learner_fast": True,
+        "compile_learner": "default",
+        "compile_actor": "default",
+    }
+    c = s["compile_learner"]
+    assert c["fallback"] is None and c["verify_calls"] == lm.VERIFY_CALLS
+    assert c["compiled_calls"] > 0 and c["verify_worst_rel_err"] < 1e-4
+    assert c["graphs"] <= 3 and c["graph_breaks"] == 0 and not c["recompile_storm"]
+    assert c["compiled_calls"] + c["verify_calls"] + c["eager_calls"] == s["updates"]
+    status = [json.loads(x)["compile_actor"] for x in r.stdout.splitlines() if "compile_actor" in x]
+    assert len(status) == 1 and status[0]["compiled"] and status[0]["fallback"] is None
+    assert status[0]["rows"] == 16 and status[0]["probe"]["argmax_flip_rate"] == 0.0
+    assert (out / "final.pth").exists()

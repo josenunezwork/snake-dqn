@@ -23,6 +23,10 @@ shapes, so there is no recompilation storm and ``reduce-overhead`` (CUDA graphs)
   conv / LayerNorm), so a padding row never changes a real row's Q beyond kernel-level
   float reassociation.
 
+Each learner / hero forward counts the graphs it compiled (:class:`GraphCount`; reported as
+``graphs``, with dynamo's process-wide counters under ``dynamo_process``) and stops calling
+the compiled code past ``GRAPH_LIMIT`` (a recompilation storm: eager fallback + message).
+
 **Numerics.** Inductor fuses and reorders float ops: compiled Q equals eager Q only up to
 float32 reassociation (``tests/test_perf_compile.py`` reports and bounds max |dQ| and the
 argmax flip rate; compiled training stays within a tolerance of eager over N updates). It is
@@ -47,8 +51,10 @@ COMPILE_MODES = ("off", "default", "reduce-overhead", "max-autotune-no-cudagraph
 LEARNER_SCOPES = ("loss", "forward")
 #: probe check (actor): max |q_compiled - q_eager| <= PROBE_TOL * (1 + max |q_eager|)
 PROBE_TOL = 1e-3
-#: more compiled graphs than this in one process is reported as a recompilation storm
-GRAPH_WARN = 8
+#: a learner / hero forward that compiles more graphs than this is in a recompilation storm:
+#: it stops calling the compiled code and continues eagerly (expected: the learner <= 3 shape
+#: keys, x 2 grad modes for scope ``forward``; the hero forward 1)
+GRAPH_LIMIT = 8
 
 
 def check_mode(mode: str) -> str:
@@ -71,6 +77,53 @@ def dynamo_counters() -> Dict[str, int]:
         "frames_total": int(counters["frames"]["total"]),
         "graph_breaks": int(sum(counters["graph_break"].values())),
     }
+
+
+def _graphs_and_breaks() -> Tuple[int, int]:
+    from torch._dynamo.utils import counters
+
+    return int(counters["stats"]["unique_graphs"]), int(sum(counters["graph_break"].values()))
+
+
+class GraphCount:
+    """One caller's own compiled graphs / graph breaks (``with count: <compiled call>``).
+
+    Dynamo's counters are process-wide (a bench runs many learners in one process), so this
+    adds up their deltas around the caller's own compiled calls; calls are single-threaded,
+    so a delta belongs to the call it brackets. ``storm``: more than ``GRAPH_LIMIT`` graphs.
+    """
+
+    def __init__(self) -> None:
+        self.graphs = 0
+        self.graph_breaks = 0
+        self._at: Optional[Tuple[int, int]] = None
+
+    def __enter__(self) -> "GraphCount":
+        self._at = _graphs_and_breaks()
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        g, b = _graphs_and_breaks()
+        self.graphs += g - self._at[0]
+        self.graph_breaks += b - self._at[1]
+        return False
+
+    @property
+    def storm(self) -> bool:
+        return self.graphs > GRAPH_LIMIT
+
+    def storm_error(self) -> RuntimeError:
+        return RuntimeError(
+            f"recompilation storm: {self.graphs} graphs compiled > GRAPH_LIMIT {GRAPH_LIMIT}"
+        )
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "graphs": self.graphs,
+            "graph_breaks": self.graph_breaks,
+            "recompile_storm": self.storm,
+            "dynamo_process": dynamo_counters(),
+        }
 
 
 def compile_fn(torch, fn, mode: str):
@@ -166,6 +219,7 @@ class HeroForward:
         self.calls = 0
         self.compile_s = 0.0
         self.probe: Dict[str, float] = {}
+        self.count = GraphCount()
         self.fn = compile_fn(torch, net, mode)
         self._probe()
 
@@ -184,13 +238,14 @@ class HeroForward:
             with torch.no_grad():
                 dv = self.stage.upload(self.device, self.non_blocking)
                 ref = self.net(dv["local"], dv["global"], dv["scalars"]).float()
-                if self.cudagraphs:
-                    torch.compiler.cudagraph_mark_step_begin()
-                got = self.fn(dv["local"], dv["global"], dv["scalars"]).float()
-                for _ in range(2):  # CUDA graphs record on a later call: replay once too
+                with self.count:
                     if self.cudagraphs:
                         torch.compiler.cudagraph_mark_step_begin()
-                    got = self.fn(dv["local"], dv["global"], dv["scalars"]).float().clone()
+                    got = self.fn(dv["local"], dv["global"], dv["scalars"]).float()
+                    for _ in range(2):  # CUDA graphs record on a later call: replay once too
+                        if self.cudagraphs:
+                            torch.compiler.cudagraph_mark_step_begin()
+                        got = self.fn(dv["local"], dv["global"], dv["scalars"]).float().clone()
                 d = float((got - ref).abs().max())
                 scale = float(ref.abs().max())
                 flips = float((got.argmax(1) != ref.argmax(1)).float().mean())
@@ -231,13 +286,16 @@ class HeroForward:
         v["scalars"][:n] = obs["scalars"]
         dv = self.stage.upload(self.device, self.non_blocking)
         try:
-            if self.cudagraphs:
-                self.torch.compiler.cudagraph_mark_step_begin()
-            q = self.fn(dv["local"], dv["global"], dv["scalars"])[:n]
+            with self.count:
+                if self.cudagraphs:
+                    self.torch.compiler.cudagraph_mark_step_begin()
+                q = self.fn(dv["local"], dv["global"], dv["scalars"])[:n]
         except Exception as exc:  # noqa: BLE001
             self._fall_back(exc)
             return self._eager(obs)
         self.calls += 1
+        if self.count.storm:  # (this call's result is fine; later calls run eagerly)
+            self._fall_back(self.count.storm_error())
         return q.clone() if self.cudagraphs else q
 
     def status(self) -> Dict[str, Any]:
@@ -250,5 +308,5 @@ class HeroForward:
             "compile_s": round(self.compile_s, 3),
             "probe": self.probe,
             "calls": self.calls,
-            **dynamo_counters(),
+            **self.count.status(),
         }

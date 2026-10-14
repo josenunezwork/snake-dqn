@@ -1912,7 +1912,11 @@ def main_multi(args) -> int:
             f"{spec_for(online)} (widen with research/redesign_m4b_20261012/widen_bv8.py)"
         )
     target = load_init(args, device).eval()
-    from research.redesign_m3c_20261008.learner_m3c import Learner, LearnerOpts, make_optimizer
+    from research.redesign_m3c_20261008.learner_m3c import (
+        Learner,
+        LearnerOpts,
+        make_optimizer,
+    )
 
     lopts = LearnerOpts.from_args(args)
     opt = make_optimizer(torch, online, lopts, device)  # default: Adam(lr=1e-4), as before
