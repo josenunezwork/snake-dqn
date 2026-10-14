@@ -1,0 +1,255 @@
+{
+ "schema": "perf-multiseed-bench/v2",
+ "created_utc": "2026-10-14T03:57:37.461320+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "cpu_count": 18,
+ "cuda_device": null,
+ "loadavg_start": [
+  10.3564453125,
+  10.60595703125,
+  8.72265625
+ ],
+ "argv": [
+  "--devices",
+  "cpu",
+  "--ks",
+  "1,2,4",
+  "--arms",
+  "stacked,grouped,sequential",
+  "--calls-cpu",
+  "1",
+  "--rounds-cpu",
+  "3",
+  "--warm-cpu",
+  "1",
+  "--threads",
+  "1",
+  "--out",
+  "research/perf_multiseed_20261013/results/bench_multiseed_cpu_20261013_noisy.json"
+ ],
+ "rows_per_seed_update": {
+  "agent": 384,
+  "anchor": 128
+ },
+ "obs_version": "bv8",
+ "note": "NOISY: measured while other training jobs shared the CPU and the MPS GPU",
+ "gflop_per_seed_update": 49.68,
+ "cells": [
+  {
+   "device": "cpu",
+   "arm": "stacked",
+   "K": 1,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    0.9746,
+    0.964,
+    0.9712
+   ],
+   "ms_per_call_median": 971.19,
+   "ms_per_seed_update": 971.19,
+   "seed_updates_per_s": 1.03,
+   "transitions_per_s": 131.8,
+   "achieved_tflops": 0.051,
+   "speedup_vs_sequential_same_K": 0.956,
+   "throughput_vs_one_seed": 0.956
+  },
+  {
+   "device": "cpu",
+   "arm": "grouped",
+   "K": 1,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    0.941,
+    0.9067,
+    0.9145
+   ],
+   "ms_per_call_median": 914.51,
+   "ms_per_seed_update": 914.51,
+   "seed_updates_per_s": 1.093,
+   "transitions_per_s": 140.0,
+   "achieved_tflops": 0.054,
+   "speedup_vs_sequential_same_K": 1.015,
+   "throughput_vs_one_seed": 1.015
+  },
+  {
+   "device": "cpu",
+   "arm": "sequential",
+   "K": 1,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    0.9286,
+    0.8956,
+    0.9434
+   ],
+   "ms_per_call_median": 928.58,
+   "ms_per_seed_update": 928.58,
+   "seed_updates_per_s": 1.077,
+   "transitions_per_s": 137.8,
+   "achieved_tflops": 0.054,
+   "throughput_vs_one_seed": 1.0
+  },
+  {
+   "device": "cpu",
+   "arm": "stacked",
+   "K": 2,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    2.1706,
+    2.1732,
+    2.3597
+   ],
+   "ms_per_call_median": 2173.22,
+   "ms_per_seed_update": 1086.61,
+   "seed_updates_per_s": 0.92,
+   "transitions_per_s": 117.8,
+   "achieved_tflops": 0.046,
+   "speedup_vs_sequential_same_K": 0.846,
+   "throughput_vs_one_seed": 0.854
+  },
+  {
+   "device": "cpu",
+   "arm": "grouped",
+   "K": 2,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    2.077,
+    2.0767,
+    2.1614
+   ],
+   "ms_per_call_median": 2077.02,
+   "ms_per_seed_update": 1038.51,
+   "seed_updates_per_s": 0.963,
+   "transitions_per_s": 123.3,
+   "achieved_tflops": 0.048,
+   "speedup_vs_sequential_same_K": 0.885,
+   "throughput_vs_one_seed": 0.894
+  },
+  {
+   "device": "cpu",
+   "arm": "sequential",
+   "K": 2,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    1.7978,
+    1.8383,
+    1.8625
+   ],
+   "ms_per_call_median": 1838.29,
+   "ms_per_seed_update": 919.14,
+   "seed_updates_per_s": 1.088,
+   "transitions_per_s": 139.3,
+   "achieved_tflops": 0.054,
+   "throughput_vs_one_seed": 1.01
+  },
+  {
+   "device": "cpu",
+   "arm": "stacked",
+   "K": 4,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    4.3144,
+    4.3707,
+    4.4991
+   ],
+   "ms_per_call_median": 4370.68,
+   "ms_per_seed_update": 1092.67,
+   "seed_updates_per_s": 0.915,
+   "transitions_per_s": 117.1,
+   "achieved_tflops": 0.045,
+   "speedup_vs_sequential_same_K": 0.85,
+   "throughput_vs_one_seed": 0.85
+  },
+  {
+   "device": "cpu",
+   "arm": "grouped",
+   "K": 4,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    4.1888,
+    4.2002,
+    4.2227
+   ],
+   "ms_per_call_median": 4200.23,
+   "ms_per_seed_update": 1050.06,
+   "seed_updates_per_s": 0.952,
+   "transitions_per_s": 121.9,
+   "achieved_tflops": 0.047,
+   "speedup_vs_sequential_same_K": 0.884,
+   "throughput_vs_one_seed": 0.884
+  },
+  {
+   "device": "cpu",
+   "arm": "sequential",
+   "K": 4,
+   "precision": "fp32",
+   "adam": "fused",
+   "calls_per_round": 1,
+   "rounds": 3,
+   "round_seconds": [
+    3.6917,
+    3.7204,
+    3.7157
+   ],
+   "ms_per_call_median": 3715.66,
+   "ms_per_seed_update": 928.92,
+   "seed_updates_per_s": 1.077,
+   "transitions_per_s": 137.8,
+   "achieved_tflops": 0.053,
+   "throughput_vs_one_seed": 1.0
+  }
+ ],
+ "numerics": [
+  {
+   "device": "cpu",
+   "K": 2,
+   "steps": 3,
+   "stacked_vs_sequential_same_device": {
+    "drift_ratio": 3.7642865208908916e-05,
+    "q_max_abs": 2.7120113372802734e-06,
+    "argmax_agree": 1.0,
+    "q_scale": 0.47742095589637756
+   },
+   "grouped_vs_sequential_same_device": {
+    "drift_ratio": 1.1749493751267437e-05,
+    "q_max_abs": 2.0265579223632812e-06,
+    "argmax_agree": 1.0,
+    "q_scale": 0.47742095589637756
+   },
+   "stacked_vs_grouped_params": {
+    "bitwise_equal": false,
+    "max_abs": 3.815395757555962e-06
+   }
+  }
+ ],
+ "loadavg_end": [
+  11.30810546875,
+  10.87548828125,
+  9.05419921875
+ ]
+}
