@@ -78,6 +78,57 @@ def test_compile_modes_are_included_only_when_the_bench_has_them():
     assert not skipped and {"learner_bv8_compile", "actor_compile"} <= {c["name"] for c in runnable}
 
 
+def test_perf_compile_flag_interface_gets_compile_commands():
+    """perf-compile's benches: learner ``--compile MODES`` (twins of the listed configs,
+    ``t1_c*`` CONFIGS), actor ``--compile-actor MODES``; no --init / --trainer-args."""
+    caps = _caps(
+        learner_configs=("baseline", "t1", "t1_bf16", "t1_k2", "t1_cl", "t1_c", "t1_bf16_k2_c"),
+        learner_flags=("--compile", "--compile-scope"),
+        actor_flags=("--compile-actor", "--note"),
+    )
+    caps[pb.LEARNER]["flags"].discard("--init")
+    caps[pb.ACTOR]["flags"].discard("--trainer-args")
+    assert pb.compile_configs(caps[pb.LEARNER]["configs"]) == ["t1_bf16_k2_c", "t1_c"]
+    doc = pb.default_commands(caps)
+    names = [c["name"] for c in doc["commands"]]
+    assert names == [
+        "learner_bv8",
+        "learner_bv8_compile",
+        "actor_b",
+        "actor_b_long",
+        "learner_bv8_autotune",
+        "actor_compile",
+        "learner_drift",
+        "learner_drift_compile",
+    ]
+    by = {c["name"]: c["argv"] for c in doc["commands"]}
+
+    def val(name, flag):
+        return by[name][by[name].index(flag) + 1]
+
+    assert val("learner_bv8", "--configs") == "baseline,t1,t1_bf16,t1_k2"  # no compile twins
+    assert val("learner_bv8_compile", "--configs") == "t1,t1_bf16,t1_k2"
+    assert val("learner_bv8_compile", "--compile") == "default,reduce-overhead"
+    assert val("learner_bv8_autotune", "--compile") == "max-autotune-no-cudagraphs"
+    assert val("actor_compile", "--compile-actor") == "off,default,reduce-overhead"
+    assert val("actor_compile", "--configs") == "numba" and val("actor_b", "--note") == pb.POD_NOTE
+    assert val("learner_drift_compile", "--compile") == "default,reduce-overhead"
+    assert "--compile" not in by["learner_drift"] and "--init" not in by["learner_bv8"]
+    runnable, skipped = pb.split_runnable(pb.parse_commands(doc), caps)
+    assert skipped == [] and [c["name"] for c in runnable] == names
+    # the same list on benches WITHOUT the compile flags: exactly those commands are skipped
+    for script, flag in ((pb.LEARNER, "--compile"), (pb.ACTOR, "--compile-actor")):
+        caps[script]["flags"].discard(flag)
+    runnable, skipped = pb.split_runnable(pb.parse_commands(doc), caps)
+    assert {s["name"] for s in skipped} == {
+        "learner_bv8_compile",
+        "learner_bv8_autotune",
+        "actor_compile",
+        "learner_drift_compile",
+    }
+    assert all("--compile" in s["reason"] for s in skipped)
+
+
 def test_missing_compile_flags_and_configs_skip_gracefully():
     caps = _caps()
     doc = {
@@ -88,13 +139,16 @@ def test_missing_compile_flags_and_configs_skip_gracefully():
             _cmd("cfg", "--devices", "cuda", "--configs=t1,t1_compile"),
             _cmd("script", "--devices", "cuda", script="research/nope/bench.py"),
             _cmd("value", "--trainer-args", "--obs-version bv8", script=pb.ACTOR),
+            _cmd("eqvalue", "--trainer-args=--obs-version bv8 --reward mass", script=pb.ACTOR),
+            _cmd("eqflag", "--trainer-args=--obs-version bv8 --reward mass"),  # learner: no flag
         ],
     }
     runnable, skipped = pb.split_runnable(pb.parse_commands(doc), caps)
-    assert [c["name"] for c in runnable] == ["ok", "value"]
+    assert [c["name"] for c in runnable] == ["ok", "value", "eqvalue"]
     why = {s["name"]: s["reason"] for s in skipped}
     assert "--compile" in why["flag"] and "t1_compile" in why["cfg"]
     assert "not in the committed tree" in why["script"]
+    assert "['--trainer-args']" in why["eqflag"]
 
 
 def test_command_schema_problems_are_refused():
@@ -273,9 +327,11 @@ class FakeRp:
     def __init__(self, create="ok"):
         self.pods, self.deleted, self.created = [], [], []
         self.create_mode = create
+        self.lists, self.visible_from = 0, 0
 
     def list_pods(self):
-        return list(self.pods)
+        self.lists += 1
+        return list(self.pods) if self.lists >= self.visible_from else []
 
     def balance(self):
         return 50.0
@@ -295,7 +351,9 @@ class FakeRp:
         if self.create_mode == "refused":
             raise RunPodError("rp.py exit 1", {"http_status": 400, "error": "bad request"})
         self.pods.append({"id": "pod1", "name": body["name"]})
-        if self.create_mode == "unknown":  # created, but the answer was lost
+        if self.create_mode == "late":  # created, answer lost, listed only after adoption
+            self.visible_from = self.lists + 11  # gave up (10 adoption polls)
+        if self.create_mode in ("unknown", "late"):  # created, but the answer was lost
             raise RunPodError("rp.py timed out")
         return {"id": "pod1", "costPerHr": 0.69, "machine": {"gpuTypeId": gr.GPU}}
 
@@ -495,6 +553,15 @@ def test_create_failure_still_deletes_and_settles(tmp_path, monkeypatch):
     code2, state2, summary2, _, _, _ = _session(tmp_path / "u", monkeypatch, rp2, agent2)
     assert code2 == 1 and summary2["outcome"] == "setup failed" and state2["pod_id"] == "pod1"
     assert rp2.pods == [] and rp2.deleted == ["pod1"] and state2["pods_deleted_verified"]
+    # unknown outcome and the pod is listed only after adoption gave up: no pod id, but the
+    # prefix sweep still finds and deletes it, and the elapsed time is charged to the ledger
+    rp3, agent3 = FakeRp(create="late"), FakeAgent()
+    code3, state3, summary3, _, _, _ = _session(tmp_path / "late", monkeypatch, rp3, agent3)
+    assert code3 == 1 and summary3["outcome"].startswith("create error")
+    assert "pod_id" not in state3 and agent3.order == []
+    assert rp3.pods == [] and rp3.deleted == ["pod1"] and state3["pods_deleted_verified"]
+    assert [c[0] for c in FakeLedger.calls] == ["register", "reserve", "release", "finish"]
+    assert FakeLedger.calls[-2][1] > 0 and FakeLedger.calls[-1] == ("finish", False, False)
 
 
 def test_bench_command_failure_and_timeout_continue_and_delete(tmp_path, monkeypatch):

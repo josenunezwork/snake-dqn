@@ -57,7 +57,11 @@ command is checked against the COMMITTED script before anything is created: a fl
 script's argparse does not define, or a ``--configs`` name missing from its ``CONFIGS``,
 SKIPS that command with the reason (e.g. compile modes that live on another branch) instead
 of spending pod time on an argparse error. A command that fails or times out on the pod is
-recorded (exit code, log tail) and the session continues with the next one.
+recorded (exit code, log tail) and the session continues with the next one. The DEFAULT list
+is built from the committed benches too: torch.compile commands appear only when they have
+compile support (perf-compile's learner ``--compile`` / actor ``--compile-actor`` flags, or
+compile-named ``CONFIGS``), and options a bench lacks (``--init``, ``--note``,
+``--trainer-args``) are left out.
 """
 
 from __future__ import annotations
@@ -115,6 +119,14 @@ PLACEHOLDERS = {
 LEARNER = "research/perf_learner_20261013/bench_learner.py"
 ACTOR = "research/perf_actor_20261013/bench_actor.py"
 LEARNER_CONFIGS = ("baseline", "t1", "t1_fp16", "t1_bf16", "t1_k2", "t1_k4", "t1_bf16_k2")
+# torch.compile benches (perf-compile branch: bench_learner ``--compile MODE[,MODE]`` adds a
+# compiled twin of each listed fast config; bench_actor ``--compile-actor MODE[,MODE]``).
+# max-autotune compiles slowly, so it gets its own lower-priority command.
+COMPILE_LEARNER_CONFIGS = ("t1", "t1_bf16", "t1_k2")
+COMPILE_LEARNER_MODES = "default,reduce-overhead"
+COMPILE_LEARNER_AUTOTUNE = "max-autotune-no-cudagraphs"
+COMPILE_ACTOR_MODES = "off,default,reduce-overhead"
+COMPILE_DRIFT_MODES = "default,reduce-overhead"
 # The B8 recipe's actor-side flags (research/redesign_m4a_20261012/plans/m4a2_pod_plan.json):
 # bv8 observation (one compiled v8 evaluation per frame), on-policy v8 labels, mixed roster.
 B8_ACTOR_ARGS = (
@@ -205,13 +217,24 @@ def load_caps(
 
 
 # ----------------------------------------------------------------------------- commands
+def compile_configs(configs: Optional[Any]) -> List[str]:
+    """Config names that are torch.compile variants: ``*compile*`` or a ``c`` name part
+    (perf-compile's ``t1_c`` / ``t1_c_ro`` / ``t1_bf16_k2_c``; not ``t1_cl``)."""
+    return sorted(n for n in (configs or ()) if "compile" in n or "c" in n.split("_"))
+
+
 def default_commands(caps: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str, Any]:
     """The default bench list for the committed scripts' capabilities.
 
     Order = priority (a lifetime-truncated session keeps the first ones): learner configs
-    (production flags), compile modes if the committed bench has them, the actor (b obs, as
-    the perf-actor bench; then the B8 recipe's bv8 actor), each at 64 / 128 / 256 worlds with
-    the numba vector61 backend and with long bodies, then the precision drift on CUDA.
+    (production flags); torch.compile (default / reduce-overhead) if the committed bench has
+    it; the actor (b obs, as the perf-actor bench; then the B8 recipe's bv8 actor), each at
+    64 / 128 / 256 worlds with the numba vector61 backend and with long bodies; the slow
+    max-autotune learner compile and the compiled actor forward; the precision drift on CUDA
+    (then its compiled variants). Compile support is detected from the COMMITTED scripts: a
+    ``--compile`` flag (perf-compile's learner bench: compiled twins of the listed configs),
+    compile-named ``CONFIGS`` entries, or the actor bench's ``--compile-actor`` flag; a bench
+    without them simply gets no compile command.
     """
     lc = caps.get(LEARNER) or {"flags": set(), "configs": set()}
     ac = caps.get(ACTOR) or {"flags": set(), "configs": set()}
@@ -222,33 +245,30 @@ def default_commands(caps: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str, Any
     learner = ["python", LEARNER, "--devices", "cuda", "--mode", "bv8"]
     timing = ["--updates", "50", "--rounds", "5", "--warm", "10"]
     known = lc["configs"]
-    lcfg = [n for n in LEARNER_CONFIGS if known is None or n in known]
-    cmds: List[Dict[str, Any]] = [
-        {
-            "name": "learner_bv8",
-            "timeout_s": 1200,
-            "argv": learner
-            + ["--configs", ",".join(lcfg)]
-            + timing
-            + lopts
-            + ["--out", "{out}/learner_bv8.json"],
+
+    def lcmd(name: str, configs: Sequence[str], extra: Sequence[str], timeout: int):
+        argv = learner + ["--configs", ",".join(configs)] + list(extra) + timing + lopts
+        return {
+            "name": name,
+            "timeout_s": timeout,
+            "argv": argv + ["--out", f"{{out}}/{name}.json"],
         }
-    ]
-    compile_l = sorted(n for n in (lc["configs"] or ()) if "compile" in n)
-    if compile_l:
-        cmds.append(
-            {
-                "name": "learner_bv8_compile",
-                "timeout_s": 1500,
-                "argv": learner
-                + ["--configs", ",".join(["t1"] + compile_l)]
-                + timing
-                + lopts
-                + ["--out", "{out}/learner_bv8_compile.json"],
-            }
+
+    lcfg = [n for n in LEARNER_CONFIGS if known is None or n in known]
+    cmds: List[Dict[str, Any]] = [lcmd("learner_bv8", lcfg, [], 1200)]
+    late: List[Dict[str, Any]] = []  # slow compile benches: after the actor
+    if "--compile" in lc["flags"]:
+        base = [n for n in COMPILE_LEARNER_CONFIGS if known is None or n in known]
+        cmds.append(lcmd("learner_bv8_compile", base, ["--compile", COMPILE_LEARNER_MODES], 1500))
+        late.append(
+            lcmd("learner_bv8_autotune", ["t1"], ["--compile", COMPILE_LEARNER_AUTOTUNE], 1500)
         )
+    elif compile_configs(known):
+        cmds.append(lcmd("learner_bv8_compile", ["t1"] + compile_configs(known), [], 1500))
     actor = ["python", ACTOR, "--configs", "numba", "--worlds", "64,128,256", "--devices", "cuda"]
     actor += ["--frames", "150", "--warm", "30", "--init", "{student}"]
+    if "--note" in ac["flags"]:
+        actor += ["--note", POD_NOTE]
     variants = [("actor_b", [])]
     if "--trainer-args" in ac["flags"]:
         variants.append(("actor_b8", ["--trainer-args=" + B8_ACTOR_ARGS]))
@@ -261,22 +281,31 @@ def default_commands(caps: Dict[str, Optional[Dict[str, Any]]]) -> Dict[str, Any
                     "argv": actor + extra + grow + ["--out", f"{{out}}/{name}{suffix}.json"],
                 }
             )
-    compile_a = sorted(n for n in (ac["configs"] or ()) if "compile" in n)
-    if compile_a:
-        argv = ["python", ACTOR, "--configs", ",".join(["numba"] + compile_a)]
-        argv += ["--worlds", "64,128,256", "--devices", "cuda", "--frames", "150", "--warm", "30"]
-        argv += ["--init", "{student}", "--out", "{out}/actor_compile.json"]
+    cmds += late
+    if "--compile-actor" in ac["flags"]:
+        argv = actor + ["--compile-actor", COMPILE_ACTOR_MODES, "--out", "{out}/actor_compile.json"]
         cmds.append({"name": "actor_compile", "timeout_s": 1500, "argv": argv})
+    elif compile_configs(ac["configs"]):
+        argv = actor + ["--out", "{out}/actor_compile.json"]
+        argv[argv.index("--configs") + 1] = ",".join(["numba"] + compile_configs(ac["configs"]))
+        cmds.append({"name": "actor_compile", "timeout_s": 1500, "argv": argv})
+    drift = ["python", LEARNER, "--drift", "--devices", "cuda", "--mode", "bv8"]
+    drift += ["--drift-updates", "200"] + lopts
     cmds.append(
         {
             "name": "learner_drift",
             "timeout_s": 900,
-            "argv": ["python", LEARNER, "--drift", "--devices", "cuda", "--mode", "bv8"]
-            + ["--drift-updates", "200"]
-            + lopts
-            + ["--out", "{out}/learner_drift.json"],
+            "argv": drift + ["--out", "{out}/learner_drift.json"],
         }
     )
+    if "--compile" in lc["flags"]:  # compiled drift vs fp32 (a separate, last command)
+        argv = drift + [
+            "--compile",
+            COMPILE_DRIFT_MODES,
+            "--out",
+            "{out}/learner_drift_compile.json",
+        ]
+        cmds.append({"name": "learner_drift_compile", "timeout_s": 1200, "argv": argv})
     return {"schema": COMMANDS_SCHEMA, "commands": cmds}
 
 
@@ -338,13 +367,16 @@ def unsupported(argv: Sequence[str], caps: Optional[Dict[str, Any]]) -> Optional
     bad_flags = []
     bad_configs: List[str] = []
     for i, tok in enumerate(argv[2:], start=2):
-        if not tok.startswith("-") or tok == "-" or " " in tok or re.fullmatch(r"-\d.*", tok):
-            continue  # a value (argparse reads a dash-led token with a space as a value)
-        flag, _, inline = tok.partition("=")
+        flag, eq, inline = tok.partition("=")
+        if not tok.startswith("-") or tok == "-" or re.fullmatch(r"-\d.*", tok):
+            continue  # a value
+        if " " in flag:
+            continue  # a value: argparse reads a dash-led token with a space as a value
+            # (but ``--flag=value with spaces`` is the flag ``--flag``: checked below)
         if flag not in caps["flags"]:
             bad_flags.append(flag)
         elif flag == "--configs" and caps.get("configs") is not None:
-            value = inline if "=" in tok else (argv[i + 1] if i + 1 < len(argv) else "")
+            value = inline if eq else (argv[i + 1] if i + 1 < len(argv) else "")
             bad_configs += [n for n in value.split(",") if n and n not in caps["configs"]]
     why = []
     if bad_flags:
@@ -725,7 +757,7 @@ def launch_attempt(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
     }
     gr.save_state(run_dir, state)
     outcome, rate = "unknown", float(args.max_hourly)
-    ok = False
+    ok, no_capacity = False, False
     try:
         out, err, no_capacity = gr.create_pod_retrying(
             rp, body, run_dir, state, (gr.GPU,), float(args.max_hourly)
@@ -766,8 +798,14 @@ def launch_attempt(args, rp, run_dir: Path, inputs, commands, skipped) -> int:
                 state["pod_gone_by_id"] = rp.get_pod(state["pod_id"]) is None
             except Exception as exc:  # noqa: BLE001
                 state["pod_gone_by_id"] = f"unknown: {exc}"
+        # a pod may have existed without our knowing its id (a create with an unknown outcome
+        # whose pod showed up only for delete_and_verify's prefix sweep): charge the elapsed
+        # time then too; only a session whose every create try was refused costs nothing
+        charged = bool(state.get("pod_id")) or (
+            bool(state.get("create_attempted_at")) and not no_capacity
+        )
         try:
-            cost = rate * (gr.now() - created) / 3600.0 if state.get("pod_id") else 0.0
+            cost = rate * (gr.now() - created) / 3600.0 if charged else 0.0
             state["cost_estimate"] = round(cost, 4)
             ledger.release_pod(run_id, name, cost)
             ledger.finish_run(run_id, outcome == "complete", outcome == "complete")
