@@ -1,0 +1,29 @@
+
+  _     ._   __/__   _ _  _  _ _/_   Recorded: 20:46:26  Samples:  23931
+ /_//_/// /_\ / //_// / //_'/ //     Duration: 92.919    CPU time: 36.227
+/   _/                      v5.1.3
+
+Profile at /Users/josenunez/Projects/ml/snake-dqn/.claude/worktrees/wf_1f3ca2f7-9d3-7/research/redesign_m3c_20261008/profile_m3c.py:150
+
+92.917 main_multi  train_m3c.py:1853
+|- 88.064 Learner.update  learner_m3c.py:241
+|  `- 87.950 Learner._update_fast  learner_m3c.py:504
+|     |- 30.796 Learner._finalize  learner_m3c.py:466
+|     |- 29.550 _masked_argmax  learner_m3c.py:118
+|     |- 7.916 Learner._sample_fast  learner_m3c.py:404
+|     |  `- 7.565 Learner._gather  learner_m3c.py:381
+|     |- 6.707 Tensor.backward  torch/_tensor.py:570
+|     |     [3 frames hidden]  torch, <built-in>
+|     |- 6.296 Ego2sNet._wrapped_call_impl  torch/nn/modules/module.py:1771
+|     |  `- 6.287 Ego2sNet._call_impl  torch/nn/modules/module.py:1779
+|     |     `- 6.261 Ego2sNet.forward  src/model/ego2s_network.py:64
+|     |        `- 5.046 Sequential._wrapped_call_impl  torch/nn/modules/module.py:1771
+|     |              [12 frames hidden]  torch, <built-in>
+|     |- 3.373 _Staging.upload  learner_m3c.py:164
+|     |  `- 3.264 Tensor.to  <built-in>
+|     `- 1.498 _no_grad_wrapper  torch/nn/utils/clip_grad.py:41
+|           [3 frames hidden]  torch
+|- 2.437 asarray  <built-in>
+`- 1.853 _publish_weights  train_m3c.py:1570
+   `- 1.674 Tensor.cpu  <built-in>
+

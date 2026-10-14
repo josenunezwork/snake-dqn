@@ -39,6 +39,15 @@ Usage (re-run on a quiet machine; numbers taken while other jobs run are noisy):
     # one cell under cProfile (top functions by own time)
     ./venv/bin/python research/perf_actor_20261013/bench_actor.py --profile \\
         --configs baseline --worlds 64 --devices cpu --frames 100
+
+    # perf-profile: the B8 production actor (bv8 obs, v8 labels, mass reward, mixed worlds)
+    # with long bodies, under pyinstrument, saved for research/perf_profile_20261013
+    ./venv/bin/python research/perf_actor_20261013/bench_actor.py --profile --b8 \\
+        --profiler pyinstrument --profile-dir /tmp/prof_long --configs numba --worlds 128 \\
+        --devices mps --frames 150 --warm 400 --grow-to 1200
+
+``--b8`` appends the B8 recipe's actor-side flags (:data:`B8_ARGS`); ``--train-args`` appends
+any other ``train_m3c`` flags. Neither changes the default cells.
 """
 
 from __future__ import annotations
@@ -54,13 +63,14 @@ import contextlib  # noqa: E402
 import io  # noqa: E402
 import json  # noqa: E402
 import platform  # noqa: E402
+import shlex  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
 import tempfile  # noqa: E402
 import time  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
-from typing import Any, Dict, List  # noqa: E402
+from typing import Any, Dict, List, Optional  # noqa: E402
 
 import numpy as np  # noqa: E402
 
@@ -71,6 +81,13 @@ if str(REPO) not in sys.path:
 STUDENT = Path(
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth"
 )
+#: The B8 recipe's actor-side ``train_m3c`` flags (``--b8``; the learner-only flags omitted).
+B8_ARGS = (
+    "--reward mass --mass-kappa 1.0 --kill-scale 0 --gamma-end 0.998 --gamma-hold 2000000 "
+    "--gamma-anneal-end 8000000 --mixed-frac 0.25 --anchor-mode v8margin --anchor-hold 8000000 "
+    "--anchor-floor-at 15000000 --onpolicy-labels --obs-version bv8 --label-frac 1.0"
+)
+PROFILERS = ("cprofile", "pyinstrument")
 CONFIGS = {
     "baseline": ("reference", "python"),
     "vectorized": ("vectorized", "python"),
@@ -94,6 +111,7 @@ class _Sink:
 
     def __init__(self, warm: int, frames: int, stop: _Stop, prof=None) -> None:
         self.warm, self.frames, self.stop, self.prof = warm, frames, stop, prof
+        self.session = None  # pyinstrument
         self.n = 0
         self.t0 = None
         self.t1 = None
@@ -106,7 +124,7 @@ class _Sink:
         self.n += 1
         if self.n == self.warm:
             if self.prof is not None:
-                self.prof.enable()
+                (self.prof.enable if hasattr(self.prof, "enable") else self.prof.start)()
             self.t0 = time.perf_counter()
         elif self.n > self.warm:
             self.decisions += int(msg["decisions"])
@@ -117,7 +135,10 @@ class _Sink:
         if self.n >= self.warm + self.frames:
             self.t1 = time.perf_counter()
             if self.prof is not None:
-                self.prof.disable()
+                if hasattr(self.prof, "disable"):
+                    self.prof.disable()
+                else:
+                    self.session = self.prof.stop()
             self.stop.set()
 
 
@@ -148,6 +169,9 @@ def run_cell(
     seed: int,
     profile: bool = False,
     compile_actor: str = "off",
+    train_args: str = "",
+    profiler: str = "cprofile",
+    profile_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """One in-process ``actor_main`` run; returns rates and the timing split."""
     from research.redesign_m3c_20261008 import train_m3c as T
@@ -178,19 +202,22 @@ def run_cell(
         v61,
         "--compile-actor",
         compile_actor,
+        *shlex.split(train_args),
     ]
     args = T.build_parser().parse_args(argv)
-    if grow_to:
-        orig = T.build_segment
+    built: list = []  # the segments' sims (read after the run: body sizes in the window)
+    orig_build = T.build_segment
 
-        def grown(*a, **k):
-            out = orig(*a, **k)
-            sim = out[0]
+    def tracked(*a, **k):
+        out = orig_build(*a, **k)
+        sim = out[0]
+        if grow_to:
             rng = np.random.default_rng(seed)
             sim.length[:, :] = rng.integers(grow_to // 4, grow_to + 1, size=sim.length.shape)
-            return out
+        built.append(sim)
+        return out
 
-        T.build_segment = grown
+    T.build_segment = tracked
     nscal = T.nscal_for(args)
     margin = worlds * 16
     ring_cap = worlds * 64 + margin
@@ -219,10 +246,15 @@ def run_cell(
         "actor_device": device,
     }
     prof = None
-    if profile:
+    if profile and profiler == "cprofile":
         import cProfile
 
         prof = cProfile.Profile()
+    elif profile:
+        os.environ.setdefault("PYINSTRUMENT_IGNORE_OVERHEAD_WARNING", "1")
+        from pyinstrument import Profiler
+
+        prof = Profiler(interval=0.001, async_mode="disabled", use_timing_thread=True)
     stop = _Stop()
     sink = _Sink(warm, frames, stop, prof)
     captured = io.StringIO()
@@ -230,11 +262,18 @@ def run_cell(
         with contextlib.redirect_stdout(captured):  # the actor prints its compile status
             T.actor_main(0, cfg, names, sink, stop)
     finally:
+        T.build_segment = orig_build
         for b in blocks:
             b.unlink()
             b.close()
     wall = sink.t1 - sink.t0
     n = sink.frames
+    segs = built[-1].seg_count[built[-1].alive] if built else np.zeros(0)
+    body = {  # body segments of the live snakes at the end of the timed window
+        "mean": float(segs.mean()) if len(segs) else 0.0,
+        "p50": float(np.median(segs)) if len(segs) else 0.0,
+        "max": int(segs.max()) if len(segs) else 0,
+    }
     row = {
         "config": config,
         "actor_impl": impl,
@@ -245,6 +284,7 @@ def run_cell(
         "warm": warm,
         "grow_to": grow_to,
         "frozen_frac": frozen_frac,
+        "train_args": train_args,
         "wall_s": wall,
         "frames_per_s": n / wall,
         "ms_per_frame": 1e3 * wall / n,
@@ -252,17 +292,43 @@ def run_cell(
         "emitted_transitions": sink.transitions,
         "env_ms_per_frame": 1e3 * sink.env_s / n,
         "timing_ms_per_frame": {k: 1e3 * v / n for k, v in sink.timing.items()},
+        "body_segments_end": body,
         "compile_actor": compile_actor,
     }
     for line in captured.getvalue().splitlines():
         if '"compile_actor"' in line:
             row["compile_status"] = json.loads(line)["compile_actor"]
-    if prof is not None:
+    if prof is not None and profiler == "cprofile":
         import pstats
 
         s = io.StringIO()
         pstats.Stats(prof, stream=s).sort_stats("tottime").print_stats(45)
         row["profile_tottime"] = s.getvalue()
+        if profile_dir:
+            Path(profile_dir).mkdir(parents=True, exist_ok=True)
+            prof.dump_stats(str(Path(profile_dir) / "actor0.pstats"))
+    elif prof is not None:
+        from pyinstrument.renderers import ConsoleRenderer
+
+        row["profile_tottime"] = ConsoleRenderer(unicode=False, color=False).render(sink.session)
+        if profile_dir:
+            Path(profile_dir).mkdir(parents=True, exist_ok=True)
+            from research.redesign_m3c_20261008.profile_m3c import save_session_compact
+
+            save_session_compact(sink.session, Path(profile_dir) / "actor0.pyisession")
+    if profile and profile_dir:
+        meta = {
+            "role": "actor0",
+            "mode": profiler,
+            "frames": n,
+            "decisions": sink.decisions,
+            "env_s": sink.env_s,
+            "profiled_s": wall,
+            "source": "bench_actor",
+            **{k: v for k, v in row.items() if k not in ("profile_tottime",)},
+            **sink.timing,
+        }
+        (Path(profile_dir) / "actor0.meta.json").write_text(json.dumps(meta, indent=1) + "\n")
     return row
 
 
@@ -278,7 +344,11 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--init", default=None)
     ap.add_argument("--out", type=Path, default=None)
-    ap.add_argument("--profile", action="store_true", help="cProfile one in-process cell")
+    ap.add_argument("--profile", action="store_true", help="profile one in-process cell")
+    ap.add_argument("--profiler", choices=PROFILERS, default="cprofile")
+    ap.add_argument("--profile-dir", type=Path, default=None, help="save the profile here")
+    ap.add_argument("--b8", action="store_true", help="append the B8 actor flags (B8_ARGS)")
+    ap.add_argument("--train-args", default="", help="extra train_m3c flags (one string)")
     ap.add_argument(
         "--compile-actor",
         default="off",
@@ -288,6 +358,7 @@ def main() -> int:
     ap.add_argument("--cell", default=None, help=argparse.SUPPRESS)  # internal: one cell
     a = ap.parse_args()
     init = a.init or default_init()
+    train_args = " ".join(x for x in (B8_ARGS if a.b8 else "", a.train_args) if x)
     if a.cell or a.profile:
         cmode0 = a.compile_actor.split(",")[0]  # --profile: one cell, the first mode
         cell = a.cell or f"{a.configs},{a.worlds},{a.devices},{cmode0}"
@@ -304,6 +375,9 @@ def main() -> int:
             a.seed,
             profile=a.profile,
             compile_actor=cmode,
+            train_args=train_args,
+            profiler=a.profiler,
+            profile_dir=a.profile_dir,
         )
         if a.profile:
             print(row.pop("profile_tottime"))
@@ -340,6 +414,7 @@ def main() -> int:
                 str(a.seed),
                 "--init",
                 init,
+                "--train-args=" + train_args,  # one token: the value may start with "--"
             ]
             r = subprocess.run(cmd, cwd=REPO, capture_output=True, text=True)
             line = [x for x in r.stdout.splitlines() if x.startswith("CELL ")]

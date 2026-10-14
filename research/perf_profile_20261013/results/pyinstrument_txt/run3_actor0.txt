@@ -1,0 +1,46 @@
+
+  _     ._   __/__   _ _  _  _ _/_   Recorded: 20:46:28  Samples:  20577
+ /_//_/// /_\ / //_// / //_'/ //     Duration: 91.429    CPU time: 28.997
+/   _/                      v5.1.3
+
+Profile at /Users/josenunez/Projects/ml/snake-dqn/.claude/worktrees/wf_1f3ca2f7-9d3-7/research/redesign_m3c_20261008/profile_m3c.py:150
+
+91.428 actor_main  train_m3c.py:1610
+|- 56.703 Queue.put  multiprocessing/queues.py:86
+|  `- 56.695 SemLock.acquire  <built-in>
+|- 24.885 GridBatchSim.step_with_policy  src/simd_env/batch_sim.py:632
+|  |- 19.277 choose  train_m3c.py:1706
+|  |  |- 6.718 Tensor.to  <built-in>
+|  |  |- 4.824 build_ego_raster  src/simd_env/ego_raster.py:445
+|  |  |  |- 2.339 b_scalars  src/simd_env/ego_raster_b.py:194
+|  |  |  |  `- 2.222 region_sizes  src/simd_env/ego_raster_b.py:167
+|  |  |  |     `- 2.216 region_sizes_numba  src/simd_env/ego_raster_nb.py:616
+|  |  |  `- 2.007 build_planes_numba  src/simd_env/ego_raster_nb.py:398
+|  |  |- 2.303 v8_scalars  src/simd_env/ego_raster_bv8.py:29
+|  |  |  `- 2.284 v8_decide  src/simd_env/v8_nb.py:768
+|  |  |- 2.262 opponents  train_m3c.py:1695
+|  |  |  `- 1.873 Vector61SimdPolicy.actions  src/simd_env/vector61_policy.py:757
+|  |  |     `- 1.593 Vector61SimdPolicy.q_values  src/simd_env/vector61_policy.py:747
+|  |  |        `- 1.526 ApexNetwork._wrapped_call_impl  torch/nn/modules/module.py:1771
+|  |  |           `- 1.516 ApexNetwork._call_impl  torch/nn/modules/module.py:1779
+|  |  |              `- 1.497 ApexNetwork.forward  src/model/apex_network.py:120
+|  |  |                 `- 1.427 Sequential._wrapped_call_impl  torch/nn/modules/module.py:1771
+|  |  |                       [6 frames hidden]  torch, <built-in>
+|  |  |- 1.426 Tensor.cpu  <built-in>
+|  |  `- 1.279 Ego2sNet._wrapped_call_impl  torch/nn/modules/module.py:1771
+|  |     `- 1.277 Ego2sNet._call_impl  torch/nn/modules/module.py:1779
+|  |        `- 1.267 Ego2sNet.forward  src/model/ego2s_network.py:64
+|  |           `- 0.937 Sequential._wrapped_call_impl  torch/nn/modules/module.py:1771
+|  |              `- 0.935 Sequential._call_impl  torch/nn/modules/module.py:1779
+|  `- 5.485 GridBatchSim.step  src/simd_env/batch_sim.py:520
+|     |- 3.130 GridBatchSim._consume_food  src/simd_env/grid_sim.py:603
+|     |  `- 1.234 list.remove  <built-in>
+|     `- 1.006 GridBatchSim._move_all  src/simd_env/grid_sim.py:456
+|- 7.509 Vector61Runtime.observe_step  src/simd_env/vector61_policy.py:628
+|  `- 7.461 Vector61FeaturizerNB.featurize  src/simd_env/vector61_nb.py:564
+|     |- 4.218 Vector61FeaturizerNB._food_arrays  src/simd_env/vector61_nb.py:539
+|     |  `- 3.759 fromiter  <built-in>
+|     `- 3.200 [self]  src/simd_env/vector61_nb.py
+`- 1.932 Ego2sNet.to  torch/nn/modules/module.py:1244
+      [5 frames hidden]  torch, <built-in>
+
