@@ -296,3 +296,11 @@ CTRL_s12 OOF probabilities are float64 after repair; other archives are float32.
 
 Artifact root: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-fuse-probe-20261015`. Input SHA256s: `inputs.sha256`; result SHA256s:
 `outputs.sha256`. See `README.md` for commands, dependencies and verification.
+
+## Reviewer check (Claude, 2026-10-15): the max-Q signal is not a length proxy
+
+On the pooled B8 H100 rows (89,976 rows, 1,605 positives), length alone has AUC 0.513 and frame
+0.608, while −max Q has 0.851. Within length bands −max Q stays strong: L 800–950 0.716,
+950–1100 0.858, 1100–1300 0.949, 1300+ 0.845. After regressing max Q on L, L², frame and frame²,
+the residual still scores 0.841. B8's value head does know a state is dangerous ~100 decisions
+ahead; whether it ranks the surviving action above the fatal one is T1 Part A's question.
