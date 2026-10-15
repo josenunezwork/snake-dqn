@@ -1289,6 +1289,8 @@ def cmd_summarize(args: argparse.Namespace) -> int:
         summary["probe"][p.stem] = summarize_results([data])
         pooled[f"{data['opp_model']}_{data['food_rng']}"].append(data)
     summary["probe_pooled"] = {k: summarize_results(v) for k, v in pooled.items()}
+    summary["closed_loop_matched"] = closed_loop_matched(pooled)
+    summary["sight_detect_by_model"] = sight_detect_by_model(pooled)
     summary["episode"] = {}
     for p in sorted(root.glob("episode_*.json")):
         data = json.loads(p.read_text())
@@ -1297,9 +1299,168 @@ def cmd_summarize(args: argparse.Namespace) -> int:
             **data["summary"],
             "stats": data["stats"],
         }
+    summary["episode_pooled"] = episode_pooled(summary["episode"])
+    summary["latency_vs_frame_budget"] = latency_vs_frame_budget(summary)
     (root / "summary.json").write_text(json.dumps(_jsonable(summary), indent=1))
     print(json.dumps(_jsonable(summary), indent=1))
     return 0
+
+
+#: The live web game's default Watch speed (``web/backend/session.py``: ``self.speed = 12.0``
+#: frames per second, settable 1..120). One hero decision per frame. The engine loop sleeps
+#: ``1 / speed`` after each step, so per-frame compute adds to the frame period.
+LIVE_DEFAULT_FPS = 12.0
+LIVE_MAX_FPS = 120.0
+
+
+def closed_loop_matched(pooled: Mapping[str, Sequence[Mapping[str, Any]]]) -> Dict[str, Any]:
+    """Oracle-model vs honest-model (student opponents + private food RNG) closed-loop
+    planner on the SAME census deaths (both: the real world plays the real opponents and
+    food; only the planner's rollouts differ)."""
+    oracle = {d["arm"]: d for d in pooled.get("oracle_oracle", [])}
+    honest = {d["arm"]: d for d in pooled.get("student_private", [])}
+    out: Dict[str, Any] = {}
+    depths = sorted(
+        {
+            int(r["depth"])
+            for d in honest.values()
+            for r in d["results"]
+            if r["kind"] == "closed_loop" and int(r["depth"]) > 0
+        }
+    )
+    for depth in depths:
+        pairs = []
+        for arm in sorted(set(oracle) & set(honest)):
+
+            def rows(d: Mapping[str, Any]) -> Dict[int, Mapping[str, Any]]:
+                return {
+                    int(r["death"]): r
+                    for r in d["results"]
+                    if r["kind"] == "closed_loop" and int(r["depth"]) == depth
+                }
+
+            ro, rh = rows(oracle[arm]), rows(honest[arm])
+            pairs += [(arm, ro[k], rh[k]) for k in sorted(set(ro) & set(rh))]
+        groups = {
+            "all": pairs,
+            "trap_run<=30": [p for p in pairs if p[1]["trap_run"] <= 30],
+            "trap_run>30": [p for p in pairs if p[1]["trap_run"] > 30],
+            "length_at_death>=800": [p for p in pairs if p[1]["length_at_death"] >= 800],
+            "length_at_death<800": [p for p in pairs if p[1]["length_at_death"] < 800],
+        }
+        out[f"d{depth}"] = {
+            "arms": sorted({p[0] for p in pairs}),
+            **{
+                name: {
+                    "oracle": _cl_stats([p[1] for p in g], depth),
+                    "honest": _cl_stats([p[2] for p in g], depth),
+                }
+                for name, g in groups.items()
+            },
+        }
+    return out
+
+
+def sight_detect_by_model(pooled: Mapping[str, Sequence[Mapping[str, Any]]]) -> Dict[str, Any]:
+    """At the first-sight decision ``T - d + 1``: does the model's rollout of the action
+    actually taken die within ``d`` (always, under the oracle model)? Per model, over the
+    arms that model was run on."""
+    out: Dict[str, Any] = {}
+    for model, datas in sorted(pooled.items()):
+        row: Dict[str, Any] = {"arms": [d["arm"] for d in datas]}
+        for d in datas[0]["sight_depths"]:
+            rr = [
+                r
+                for data in datas
+                for r in data["results"]
+                if r["kind"] == "sight" and int(r["depth"]) == int(d)
+            ]
+            det = sum(r["rollouts"][str(r["taken"])]["survived"] < int(d) for r in rr)
+            row[f"d{d}"] = {"n": len(rr), "taken_dies": det, "frac": _frac(det, len(rr))}
+        out[model] = row
+    return out
+
+
+def episode_pooled(episodes: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:
+    """Whole-episode shadow-planner runs (ORACLE model, scripted mix), pooled per depth over
+    full 32-world runs (smoke checks excluded)."""
+    by_depth: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
+    for name, e in episodes.items():
+        if int(e["worlds"]) == WORLDS and e.get("base_survival") is not None:
+            by_depth[int(e["depth"])].append({"name": name, **e})
+    out: Dict[str, Any] = {}
+    for depth, es in sorted(by_depth.items()):
+        n = len(es)
+        out[f"d{depth}"] = {
+            "runs": [e["name"] for e in es],
+            "worlds": WORLDS * n,
+            "survival": sum(e["survival"] for e in es) / n,
+            "base_survival": sum(e["base_survival"] for e in es) / n,
+            "mass": sum(e["mass"] for e in es) / n,
+            "base_mass": sum(e["base_mass"] for e in es) / n,
+            "paired_mass_delta": sum(e["paired_mass_delta"] for e in es) / n,
+            "deaths_avoided": sum(int(e["deaths_avoided"]) for e in es),
+            "deaths_new": sum(int(e["deaths_new"]) for e in es),
+            "decisions": sum(int(e["decisions"]) for e in es),
+            "fires": sum(int(e["fires"]) for e in es),
+            "switches": sum(int(e["switches"]) for e in es),
+            "fire_rate": sum(int(e["fires"]) for e in es) / sum(int(e["decisions"]) for e in es),
+            "switch_rate": sum(int(e["switches"]) for e in es)
+            / sum(int(e["decisions"]) for e in es),
+            "planner_ms_per_decision_median": statistics.median(
+                e["planner_ms_per_decision"] for e in es
+            ),
+            "base_policy_ms_per_decision_median": statistics.median(
+                e["base_policy_ms_per_decision"] for e in es
+            ),
+            "per_run_survival_delta": [e["survival"] - e["base_survival"] for e in es],
+        }
+    return out
+
+
+def latency_vs_frame_budget(summary: Mapping[str, Any]) -> Dict[str, Any]:
+    """Per-decision planner latencies (single thread) against the live game's frame period."""
+    budget = 1e3 / LIVE_DEFAULT_FPS
+    out: Dict[str, Any] = {
+        "live_default_fps": LIVE_DEFAULT_FPS,
+        "frame_period_ms_default": budget,
+        "frame_period_ms_at_max_fps": 1e3 / LIVE_MAX_FPS,
+        "note": "single-thread CPU (torch/OMP 1), measured on a busy Mac (load ~11-18 on 18 "
+        "cores); the live loop adds planner time to the frame period (no deadline)",
+        "per_decision_ms": {},
+    }
+    rows: Dict[str, Optional[float]] = {}
+    for name, b in summary.get("bench", {}).items():
+        mix = b["mix"]
+        for d in (8, 16, 32):
+            rows[f"{mix}: one greedy rollout d{d}"] = b.get(f"rollout_k1_d{d}_ms_median")
+            rows[f"{mix}: full beam (all legal, <=6) d{d}"] = b.get(
+                f"beam_legal_d{d}_batched_ms_median"
+            )
+            rows[f"{mix}: beam of 3 non-boost turns d{d}"] = b.get(
+                f"beam_normal3_d{d}_batched_ms_median"
+            )
+        rows[f"{mix}: fork one env (k=1)"] = b.get("fork_env_k1_ms_median")
+        rows[f"{mix}: deepcopy whole 32-env batch"] = b.get("clone_full_batch_ms_median")
+    for depth, e in summary.get("episode_pooled", {}).items():
+        rows[f"scripted: shadow sparse planner {depth} ORACLE model, amortized"] = e[
+            "planner_ms_per_decision_median"
+        ]
+    for depth, m in summary.get("closed_loop_matched", {}).items():
+        rows[f"scripted: sparse planner {depth} HONEST model, near-death window"] = m["all"][
+            "honest"
+        ].get("planner_ms_per_decision_median")
+        rows[f"scripted: sparse planner {depth} ORACLE model, near-death window"] = m["all"][
+            "oracle"
+        ].get("planner_ms_per_decision_median")
+    for k, v in rows.items():
+        if v is not None:
+            out["per_decision_ms"][k] = {
+                "ms": v,
+                "frac_of_default_frame": v / budget,
+                "fits_default_frame": v < budget,
+            }
+    return out
 
 
 def _jsonable(value: Any) -> Any:

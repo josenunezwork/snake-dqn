@@ -83,3 +83,58 @@ def test_reseed_private_changes_only_the_fork_rng() -> None:
     assert sim._rngs[0]._rng.getstate() == state
     assert fork._rngs[0]._rng.getstate() != state
     assert fork._rngs[0]._rng.getstate() != fork._rngs[1]._rng.getstate()
+
+
+def _episode(worlds: int, base_survival: object) -> dict:
+    return {
+        "worlds": worlds,
+        "depth": 32 if base_survival is not None else 16,
+        "survival": 0.75,
+        "base_survival": base_survival,
+        "mass": 700.0,
+        "base_mass": 600.0,
+        "paired_mass_delta": 100.0,
+        "deaths_avoided": 8,
+        "deaths_new": 0,
+        "decisions": 1000,
+        "fires": 10,
+        "switches": 2,
+        "planner_ms_per_decision": 1.5,
+        "base_policy_ms_per_decision": 0.5,
+    }
+
+
+def _cl_row(death: int, survived: bool) -> dict:
+    return {
+        "kind": "closed_loop",
+        "depth": 32,
+        "death": death,
+        "trap_run": 10 * death,
+        "length_at_death": 900,
+        "survived_past_T": survived,
+        "censored": survived,
+        "extra_decisions": 200 if survived else 0,
+        "fires": 1,
+        "switches": 1,
+        "decisions": 10,
+        "planner_ms_per_decision": 5.0,
+    }
+
+
+def test_summary_pools_episodes_and_matches_closed_loop() -> None:
+    eps = {"smoke": _episode(11, None), "a": _episode(32, 0.5), "b": _episode(32, 0.5)}
+    pooled = planner.episode_pooled(eps)
+    assert list(pooled) == ["d32"]  # the smoke run is excluded
+    assert pooled["d32"]["worlds"] == 2 * planner.WORLDS
+    assert pooled["d32"]["deaths_avoided"] == 16 and pooled["d32"]["fire_rate"] == 0.01
+    probes = {
+        "oracle_oracle": [{"arm": "b8_s0", "results": [_cl_row(1, True), _cl_row(5, True)]}],
+        "student_private": [{"arm": "b8_s0", "results": [_cl_row(1, True), _cl_row(5, False)]}],
+    }
+    m = planner.closed_loop_matched(probes)["d32"]
+    assert m["all"]["oracle"]["survived_past_T"] == 2
+    assert m["all"]["honest"]["survived_past_T"] == 1
+    assert m["trap_run>30"]["honest"]["n"] == 1
+    lat = planner.latency_vs_frame_budget({"episode_pooled": pooled})
+    assert lat["frame_period_ms_default"] == 1e3 / planner.LIVE_DEFAULT_FPS
+    assert all(v["fits_default_frame"] for v in lat["per_decision_ms"].values())
