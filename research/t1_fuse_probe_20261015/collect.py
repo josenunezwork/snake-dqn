@@ -5,8 +5,12 @@ from __future__ import annotations
 import os
 
 for _key in (
-    "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
-    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS", "NUMBA_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "NUMBA_NUM_THREADS",
 ):
     os.environ[_key] = "2"
 os.environ["SNAKE_DQN_DEVICE"] = "cpu"
@@ -60,7 +64,11 @@ def fuse_hook(net: torch.nn.Module) -> Iterator[list[np.ndarray]]:
 
 
 def labels(
-    death_frame: np.ndarray, cause: np.ndarray, frame: np.ndarray, horizon: int, frames: int,
+    death_frame: np.ndarray,
+    cause: np.ndarray,
+    frame: np.ndarray,
+    horizon: int,
+    frames: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """M7 labels: fatal decision included; exclude competing deaths and censored survivors."""
     died = death_frame >= 0
@@ -78,7 +86,12 @@ class Collector(m7.Collector):
         self.dec = {k: [] for k in ("features", "env", "frame", "length", "q", "action")}
 
     def record_fuse(
-        self, sim: Any, rows: np.ndarray, features: np.ndarray, q: np.ndarray, act: np.ndarray,
+        self,
+        sim: Any,
+        rows: np.ndarray,
+        features: np.ndarray,
+        q: np.ndarray,
+        act: np.ndarray,
     ) -> None:
         """Align one feature vector with each hero decision, before stepping the world."""
         if np.any(rows[:, 1] != 0) or features.shape != (len(rows), 256):
@@ -87,9 +100,11 @@ class Collector(m7.Collector):
         length = sim.length[envs, 0]
         sel = (length >= self.min_len) & (self.frame % self.stride == 0)
         values = {
-            "features": features[sel], "env": envs[sel].astype(np.int16),
+            "features": features[sel],
+            "env": envs[sel].astype(np.int16),
             "frame": np.full(sel.sum(), self.frame, np.int16),
-            "length": length[sel].astype(np.int32), "q": q[sel].astype(np.float32),
+            "length": length[sel].astype(np.int32),
+            "q": q[sel].astype(np.float32),
             "action": act[sel].astype(np.int8),
         }
         for key, value in values.items():
@@ -107,8 +122,11 @@ class Collector(m7.Collector):
         out["death_cause"] = self.death_cause.copy()
         for h in (50, 100, 300):
             out[f"y{h}"], out[f"keep{h}"] = labels(
-                self.death_frame[out["env"]], self.death_cause[out["env"]],
-                out["frame"], h, frames,
+                self.death_frame[out["env"]],
+                self.death_cause[out["env"]],
+                out["frame"],
+                h,
+                frames,
             )
         return out
 
@@ -161,13 +179,21 @@ def verify_m7(arm: str, arrays: dict[str, np.ndarray], sha: str) -> dict[str, An
         for key in ("seeds", "death_frame", "death_cause"):
             if not np.array_equal(arrays[key], old[key]):
                 raise ValueError(f"M7 {arm} {key} identity failed")
-    return {"status": "identical", "path": str(raw), "sha256": census.sha256_file(raw),
-            "metadata_sha256": census.sha256_file(meta_path),
-            "missing_for_reuse": ["full local raster", "full global raster", "fuse activations"]}
+    return {
+        "status": "identical",
+        "path": str(raw),
+        "sha256": census.sha256_file(raw),
+        "metadata_sha256": census.sha256_file(meta_path),
+        "missing_for_reuse": ["full local raster", "full global raster", "fuse activations"],
+    }
 
 
 def capture(
-    arm: str, out: Path = ROOT, worlds: int = 32, frames: int = 5000, min_len: int = 800,
+    arm: str,
+    out: Path = ROOT,
+    worlds: int = 32,
+    frames: int = 5000,
+    min_len: int = 800,
 ) -> dict[str, Any]:
     """Run the specified arm on the unmodified M7 development worlds, no training."""
     from research.redesign_m2_20261008 import ni_spec
@@ -183,11 +209,22 @@ def capture(
     eval_start = time.perf_counter()
     with instrumented(col):
         records = ee.run_simd_eval(
-            ctx["lookup"][ni_spec.FRP3_S12[1]], rosters[seeds[0]], frames, list(seeds),
-            profile=profile, opponent_specs_by_world=dict(rosters), mix_id=census.MIX,
-            vector61=True, vector61_forward="rowwise", sim_engine="grid",
-            vector61_backend="numba", scripted_anchors="fast", frame_observer=col.observe,
-            hero_ego2s=str(checkpoint), ego2s_forward="rowwise", ego2s_mask="advisory",
+            ctx["lookup"][ni_spec.FRP3_S12[1]],
+            rosters[seeds[0]],
+            frames,
+            list(seeds),
+            profile=profile,
+            opponent_specs_by_world=dict(rosters),
+            mix_id=census.MIX,
+            vector61=True,
+            vector61_forward="rowwise",
+            sim_engine="grid",
+            vector61_backend="numba",
+            scripted_anchors="fast",
+            frame_observer=col.observe,
+            hero_ego2s=str(checkpoint),
+            ego2s_forward="rowwise",
+            ego2s_mask="advisory",
         )
     elapsed = time.perf_counter() - eval_start
     arrays = col.output(arm, frames)
@@ -195,23 +232,38 @@ def capture(
         raise ValueError(f"observer integrity failed: {col.checks}")
     identity = verify_m7(arm, arrays, sha) if (worlds, frames, min_len) == (32, 5000, 800) else None
     meta = {
-        "authority": "development diagnostic, not gate evidence", "arm": arm,
-        "checkpoint": {"path": str(checkpoint), "sha256": sha}, "worlds": seeds,
-        "frames": frames, "min_len": min_len, "stride": 3, "round_index": 52,
-        "mix": "scripted", "engine": "grid", "ego2s_forward": "rowwise",
-        "ego2s_mask": "advisory", "veto": None, "threads": 2,
-        "hook": "fuse[2] ReLU output", "feature_dtype": "float16",
-        "eval_seconds": elapsed, "total_seconds": time.perf_counter() - start,
-        "decisions": col.n_dec, "rows": len(arrays["frame"]), "checks": dict(col.checks),
-        "m7_identity": identity, "git": census._git(),
+        "authority": "development diagnostic, not gate evidence",
+        "arm": arm,
+        "checkpoint": {"path": str(checkpoint), "sha256": sha},
+        "worlds": seeds,
+        "frames": frames,
+        "min_len": min_len,
+        "stride": 3,
+        "round_index": 52,
+        "mix": "scripted",
+        "engine": "grid",
+        "ego2s_forward": "rowwise",
+        "ego2s_mask": "advisory",
+        "veto": None,
+        "threads": 2,
+        "hook": "fuse[2] ReLU output",
+        "feature_dtype": "float16",
+        "eval_seconds": elapsed,
+        "total_seconds": time.perf_counter() - start,
+        "decisions": col.n_dec,
+        "rows": len(arrays["frame"]),
+        "checks": dict(col.checks),
+        "m7_identity": identity,
+        "git": census._git(),
         "episodes": census.episode_rows(records, seeds),
     }
     runs = out / "runs"
     runs.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(runs / f"{arm}.npz", **arrays)
     (runs / f"{arm}.json").write_text(json.dumps(census._jsonable(meta), indent=2) + "\n")
-    print(json.dumps({k: meta[k] for k in ("arm", "rows", "eval_seconds", "m7_identity")}),
-          flush=True)
+    print(
+        json.dumps({k: meta[k] for k in ("arm", "rows", "eval_seconds", "m7_identity")}), flush=True
+    )
     return meta
 
 
