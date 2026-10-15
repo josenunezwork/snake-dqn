@@ -130,7 +130,9 @@ Continuation core: 55,002,897 env-frames in 48843.84 summed worker-seconds (1126
 
 Dense death lengths are actual pre-action lengths: b8_s0: 4 deaths [1014, 596, 1086, 340]; b8_s3: 6 deaths [1218, 1200, 1020, 53, 559, 1067].
 
-Part D status: Part D in progress; fresh namespace allocation and collection.
+Part D status: COMPLETE, independent bank audit PASS; 10,885 decisive + 5,442 counter rows
+from 1,400 fresh-namespace worlds. See [the final bank report](t3_label_bank_2026-10-15.md).
+No training or push occurred.
 
 ### Dense per-world paired changes
 
