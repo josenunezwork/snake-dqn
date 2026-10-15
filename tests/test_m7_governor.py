@@ -121,6 +121,43 @@ def test_arm_summary_and_paired_delta():
     assert d["pairs"] == 4 and d["delta_survival"] == 0.25 and d["rescued"] == 1
 
 
+def test_hazard_by_len_bin_and_lever4_check():
+    pw = [
+        {"decisions": 1000, "ge800": 600, "ge1000": 200, "ge1200": 0, "len_at_death": 950},
+        {"decisions": 2000, "ge800": 0, "ge1000": 0, "ge1200": 0, "len_at_death": 500},
+        {"decisions": 1000, "ge800": 1000, "ge1000": 1000, "ge1200": 500, "len_at_death": None},
+    ]
+    h = gov.hazard_by_len_bin(pw)
+    assert [h[k]["decisions"] for k in ("<800", "800-1000", "1000-1200", ">=1200")] == [
+        2400,
+        400,
+        700,
+        500,
+    ]
+    assert h["<800"]["deaths"] == 1 and h["800-1000"]["deaths"] == 1
+    assert h["800-1000"]["hazard_per_1000"] == pytest.approx(2.5)
+    assert h[">=1200"]["deaths"] == 0 and h[">=1200"]["hazard_per_1000"] == 0.0
+
+    def sc(surv, mass, h800):
+        return {
+            "survival": surv,
+            "mass": mass,
+            "hazard_by_len_bin": {"800-1000": {"hazard_per_1000": h800}},
+        }
+
+    arms = {
+        "off": {"per_mix": {"scripted": sc(0.5, 570.0, 0.1)}},
+        "900": {"per_mix": {"scripted": sc(0.25, 410.0, 0.5)}, "vs_off_mass": -98.0},
+    }
+    c = gov.lever4_check(arms)
+    m = c["measured"]["900"]
+    assert c["assumed_hazard_800_1000"] == 0.1 and "900/twinspace" not in c["measured"]
+    assert m["bin_hazard_ratio"] == pytest.approx(5.0)
+    assert m["scripted_mass_vs_off"] == -160.0
+    assert m["survival_minus_prediction"] == pytest.approx(0.25 - 0.61)
+    assert gov.lever4_check({"900": arms["900"]}) is None
+
+
 def test_twinspace_requires_space_ok():
     act = np.array([0, 1, 2])
     adv = _adv([[1] * 6] * 3)

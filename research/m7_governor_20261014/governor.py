@@ -89,6 +89,13 @@ ROUND_INDEX = 52
 WORLDS = 32
 BIG = 800  # the census's large-length threshold
 LEN_BINS = (800, 1000, 1200)
+# hazard bins: (label, decisions counter "below", decisions counter "at or above")
+HAZARD_BINS = (
+    ("<800", None, "ge800"),
+    ("800-1000", "ge800", "ge1000"),
+    ("1000-1200", "ge1000", "ge1200"),
+    (">=1200", "ge1200", None),
+)
 CHAMPION_SCRIPTED = 0.688  # champion_a5 + v8, census (32 scripted worlds)
 GUARD = 0.05  # Phase R: scripted survival within 0.05 of champion_a5 + v8
 GO_SCRIPTED = 0.64
@@ -512,6 +519,32 @@ def _mean(xs: Sequence[float]) -> Optional[float]:
     return float(np.mean(xs)) if len(xs) else None
 
 
+def hazard_by_len_bin(per_world: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Deaths per 1000 hero decisions by the hero's length bin (death binned by its length).
+
+    The lever-4 cap model (``m6_levers.json``) assumed this hazard is a fixed function of L,
+    so capping L at Lc moves time into lower-hazard bins; here it is measured per arm.
+    """
+    out = {}
+    for label, lo, hi in HAZARD_BINS:
+        dec = sum((w[lo] if lo else w["decisions"]) - (w[hi] if hi else 0) for w in per_world)
+        lo_len = 0 if lo is None else int(lo[2:])
+        hi_len = None if hi is None else int(hi[2:])
+        died = sum(
+            1
+            for w in per_world
+            if w["len_at_death"] is not None
+            and w["len_at_death"] >= lo_len
+            and (hi_len is None or w["len_at_death"] < hi_len)
+        )
+        out[label] = {
+            "deaths": died,
+            "decisions": int(dec),
+            "hazard_per_1000": (1000.0 * died / dec) if dec else None,
+        }
+    return out
+
+
 def arm_summary(rows: Sequence[Mapping[str, Any]], names: Sequence[str]) -> Dict[str, Any]:
     """Pooled metrics of one (group, cap) arm: rows of every seed x mix."""
     out: Dict[str, Any] = {"seeds": sorted(names), "per_mix": {}, "per_seed": {}}
@@ -544,6 +577,7 @@ def arm_summary(rows: Sequence[Mapping[str, Any]], names: Sequence[str]) -> Dict
             "hazard_per_1000_L_lt_800": (
                 1000.0 * (len(died) - big_deaths) / (dec - ge800) if dec > ge800 else None
             ),
+            "hazard_by_len_bin": hazard_by_len_bin(pw),
             "frac_decisions_L_ge_800": ge800 / dec if dec else None,
             "frac_decisions_L_ge_1000": sum(w["ge1000"] for w in pw) / dec if dec else None,
             "frac_decisions_L_ge_1200": sum(w["ge1200"] for w in pw) / dec if dec else None,
@@ -682,6 +716,39 @@ def verdict(
     }
 
 
+def lever4_check(arms: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    """Measured cap-900 arms vs the lever-4 cap-model prediction (scripted survival, mass).
+
+    The model holds the hazard in the capped bin (800-1000) at the ungoverned student's
+    value there; ``bin_hazard_ratio`` is the measured hazard there over that assumption.
+    """
+    off = (arms.get("off") or {}).get("per_mix", {}).get("scripted")
+    if off is None:
+        return None
+    assumed = off["hazard_by_len_bin"]["800-1000"]["hazard_per_1000"]
+    out: Dict[str, Any] = {
+        "prediction": LEVER4_PREDICTION,
+        "off_scripted_survival": off["survival"],
+        "assumed_hazard_800_1000": assumed,
+        "measured": {},
+    }
+    for key in ("900", "900/twinspace"):
+        a = arms.get(key)
+        sc = (a or {}).get("per_mix", {}).get("scripted")
+        if sc is None:
+            continue
+        h = sc["hazard_by_len_bin"]["800-1000"]["hazard_per_1000"]
+        out["measured"][key] = {
+            "scripted_survival": sc["survival"],
+            "survival_minus_prediction": sc["survival"] - LEVER4_PREDICTION["survival"],
+            "scripted_mass_vs_off": sc["mass"] - off["mass"],
+            "mass_stratified_vs_off": a.get("vs_off_mass"),
+            "hazard_800_1000": h,
+            "bin_hazard_ratio": (h / assumed) if (h is not None and assumed) else None,
+        }
+    return out
+
+
 def _arm_order(key: str) -> Tuple[int, int, str]:
     if key == "off":
         return (0, 0, "")
@@ -724,6 +791,7 @@ def cmd_summarize(args: argparse.Namespace) -> int:
             "arms": arms,
             "verdict": verdict(arms, inc["mass_stratified"]),
             "verdict_incl_variants": verdict(arms, inc["mass_stratified"], variants=True),
+            "lever4_check": lever4_check(arms),
         }
     summary = {
         "authority": "development diagnostic only (not a screen, not gate evidence, never served)",
@@ -792,6 +860,35 @@ def print_table(summary: Mapping[str, Any]) -> None:
                     else ""
                 )
             )
+        print("  scripted hazard per 1000 decisions by length bin (deaths / k decisions)")
+        for cap, a in gd["arms"].items():
+            sc = (a.get("per_mix") or {}).get("scripted")
+            if sc is None:
+                continue
+            cells = []
+            for label, b in sc["hazard_by_len_bin"].items():
+                h = b["hazard_per_1000"]
+                cells.append(
+                    f"{label} "
+                    + ("  -  " if h is None else f"{h:.3f}")
+                    + f" ({b['deaths']}/{b['decisions'] / 1000:.0f}k)"
+                )
+            print(f"{cap:>14}  " + "  ".join(cells))
+        l4 = gd.get("lever4_check")
+        if l4:
+            pred = l4["prediction"]
+            print(
+                f"  lever-4 model (cap {pred['cap']}): surv {pred['survival']:.2f}, mass "
+                f"{pred['mass_delta']:+.0f}; assumed 800-1000 hazard "
+                f"{l4['assumed_hazard_800_1000']:.3f}"
+            )
+            for key, m in l4["measured"].items():
+                print(
+                    f"{key:>16}: surv {m['scripted_survival']:.3f} "
+                    f"({m['survival_minus_prediction']:+.3f} vs model), scripted mass vs off "
+                    f"{m['scripted_mass_vs_off']:+.1f}, 800-1000 hazard {m['hazard_800_1000']:.3f}"
+                    f" ({m['bin_hazard_ratio']:.2f}x assumed)"
+                )
 
 
 def build_parser() -> argparse.ArgumentParser:
