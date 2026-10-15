@@ -300,6 +300,7 @@ def merge_world_rows(
     legacy_enrichment: dict[str, str],
     *,
     packed: bool = False,
+    counterweight_ratio: float = 1.0,
 ) -> dict[str, Any]:
     """Globally cap counterweights, write a loader-compatible final shard and manifest."""
     rows = []
@@ -324,7 +325,7 @@ def merge_world_rows(
             if not required.issubset(data.files):
                 raise RuntimeError(f"world shard has an incomplete row schema: {key}")
             enriched: dict[str, np.ndarray] = {}
-            if receipt["_resume_kind"] == "legacy":
+            if key in legacy_enrichment:
                 enrichment_path = out / "calibration" / f"{key}.npz"
                 expected_enrichment = legacy_enrichment.get(key)
                 if not expected_enrichment or not enrichment_path.exists():
@@ -382,7 +383,7 @@ def merge_world_rows(
                         "source_key": key,
                     }
                 )
-    selected = counterweight_trim(rows)
+    selected = counterweight_trim(rows, ratio=counterweight_ratio)
     write_rows(out / "bank-00000.npz", selected, packed=packed)
     with (out / "bank-00000.provenance.jsonl").open("w") as stream:
         for index, row in enumerate(selected):
@@ -461,6 +462,9 @@ def _write_progress(
             "retained_legacy_worlds": len(legacy),
             "new_worlds": len(current),
             "decisive_rows": int(sum(int(item.get("decisive_rows", 0)) for item in receipts)),
+            "counterweight_candidates": sum(
+                int(item.get("counterweight_candidates", 0)) for item in receipts
+            ),
         },
     )
     (out / "README.md").write_text(
@@ -491,6 +495,65 @@ def _require_ac_for_twelve_workers(workers: int) -> None:
         raise SystemExit("refusing 12-worker collection unless pmset reports AC Power")
 
 
+def _validate_death_window_receipt(path: Path, out: Path, repo: Path) -> dict[str, Any]:
+    """Bind the five-key replay proof to the code and preserved bank being launched."""
+    value = json.loads(path.read_text())
+    keys = value.get("keys", [])
+    if (
+        value.get("schema") != "t3-death-window-validation/v1"
+        or value.get("status") != "PASS"
+        or len(keys) != 5
+        or len(set(keys)) != 5
+    ):
+        raise SystemExit("death-window validation requires five unique passing keys")
+    sources = value.get("source_sha256", {})
+    required = {
+        f"research/t3_rollout_labels_20261015/{name}.py"
+        for name in (
+            "death_window",
+            "bank_engine",
+            "collect",
+            "engine",
+            "trigger",
+            "validate_death_window",
+        )
+    }
+    if not required <= set(sources):
+        raise SystemExit("death-window validation does not bind required sources")
+    for name, digest in sources.items():
+        if sha256(repo / name) != digest:
+            raise SystemExit(f"death-window validation source changed: {name}")
+    for name in ("namespace", "prefilter"):
+        if value.get(f"{name}_sha256") != sha256(out / f"{name}.json"):
+            raise SystemExit(f"death-window validation {name} changed")
+    checkpoints = value.get("checkpoint_sha256", {})
+    if not set(census.B8_ARMS) <= set(checkpoints):
+        raise SystemExit("death-window validation does not bind all B8 checkpoints")
+    for name, digest in checkpoints.items():
+        checkpoint = census.b8_path(name) if name in census.B8_ARMS else Path(name)
+        if sha256(checkpoint) != digest:
+            raise SystemExit(f"death-window validation checkpoint changed: {name}")
+    bindings = value.get("legacy_bindings", {})
+    if set(bindings) != set(keys):
+        raise SystemExit("death-window validation key bindings differ")
+    selected = value.get("selected", [])
+    if {item.get("key") for item in selected} != set(keys) or not all(
+        item.get("comparison", {}).get("pass") is True for item in selected
+    ):
+        raise SystemExit("death-window validation has missing or failing comparisons")
+    for key, binding in bindings.items():
+        for suffix, field in (("json", "receipt_sha256"), ("npz", "rows_sha256")):
+            if sha256(out / "worlds" / f"{key}.{suffix}") != binding.get(field):
+                raise SystemExit(f"death-window validation preserved source changed: {key}")
+    return value
+
+
+def _target_met(stats: dict[str, Any], target: int, ratio: float) -> bool:
+    """Require both the decisive target and the declared counterweight complement."""
+    decisive = int(stats.get("decisive_rows", 0))
+    return decisive >= target and int(stats.get("counterweight_rows", 0)) >= int(decisive * ratio)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
@@ -503,6 +566,8 @@ def main() -> None:
     parser.add_argument("--dense-go-receipt", type=Path, required=True)
     parser.add_argument("--prefilter", type=Path, required=True)
     parser.add_argument("--legacy-resume", type=Path)
+    parser.add_argument("--death-window", action="store_true")
+    parser.add_argument("--death-window-validation", type=Path)
     args = parser.parse_args()
     go = json.loads(args.dense_go_receipt.read_text())
     if (
@@ -579,6 +644,19 @@ def main() -> None:
     legacy_path = args.legacy_resume or args.out / "legacy-resume.json"
     legacy = _legacy_entries(legacy_path)
     threshold, prefilter = _prefilter(args.prefilter, legacy_path)
+    counterweight_ratio = 0.5 if args.death_window else 1.0
+    if args.death_window:
+        resume_path = args.out / "death-window-resume.json"
+        retained = _legacy_entries(resume_path)
+        if not retained or any(retained.get(key) != value for key, value in legacy.items()):
+            raise SystemExit("death-window resume must preserve the complete original allowlist")
+        legacy = retained
+        validation_path = args.death_window_validation
+        if validation_path is None:
+            raise SystemExit("death-window mode requires the five-key validation receipt")
+        _validate_death_window_receipt(
+            validation_path, args.out, Path(__file__).resolve().parents[2]
+        )
     profile = gid._context(1)["profile"]
     repo = Path(__file__).resolve().parents[2]
     source_paths = (
@@ -604,6 +682,12 @@ def main() -> None:
         repo / "src/simd_env/ego_raster.py",
         repo / "src/simd_env/ego_raster_bv8.py",
     )
+    if args.death_window:
+        source_paths += (
+            repo / "research/t3_rollout_labels_20261015/death_window.py",
+            repo / "research/t3_rollout_labels_20261015/validate_death_window.py",
+            repo / "docs/research/specs/t3_death_window_spec_2026-10-15.md",
+        )
     run_identity = {
         "namespace": NAMESPACE,
         "horizon": HORIZON,
@@ -623,6 +707,20 @@ def main() -> None:
             if spec[0] == "checkpoint"
         },
     }
+    if args.death_window:
+        run_identity.update(
+            {
+                "collection_mode": "death-window",
+                "counterweight_ratio": counterweight_ratio,
+                "death_window_resume_sha256": sha256(resume_path),
+                "death_window_validation_sha256": sha256(validation_path),
+                "window_maxlen": 60,
+                "window_depth": DEPTH,
+                "window_strict": True,
+                "counter_reservoir": 32,
+                "b8_control_every": 20,
+            }
+        )
     started = time.perf_counter()
     receipts: list[dict[str, Any]] = []
     stats: dict[str, Any] = {"decisive_rows": 0}
@@ -637,9 +735,19 @@ def main() -> None:
     receipts = list(known.values())
     if receipts:
         stats = merge_world_rows(
-            args.out, receipts, run_identity, legacy_enrichment, packed=args.packed
+            args.out,
+            receipts,
+            run_identity,
+            legacy_enrichment,
+            packed=args.packed,
+            counterweight_ratio=counterweight_ratio,
         )
     _write_progress(args.out, receipts, stats, [])
+    worker = collect_world
+    if args.death_window:
+        from research.t3_rollout_labels_20261015.death_window import collect_world_death_window
+
+        worker = collect_world_death_window
     # A cycle has every final and the exact 27:9:4 mix.  Stop only between
     # complete cycles, retaining the training distribution at every handoff.
     for cycle in range(args.cycles):
@@ -647,14 +755,14 @@ def main() -> None:
         pending = [(job, plan) for job, plan in cycle_rows if _key(job, plan) not in known]
         if not pending:
             _write_progress(args.out, receipts, stats, list(range(cycle + 1)))
-            if stats["decisive_rows"] >= args.target_decisive:
+            if _target_met(stats, args.target_decisive, counterweight_ratio):
                 break
             continue
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=args.workers, mp_context=multiprocessing.get_context("spawn")
         ) as pool:
             futures = [
-                pool.submit(collect_world, job, plan, args.out, run_identity, threshold)
+                pool.submit(worker, job, plan, args.out, run_identity, threshold)
                 for job, plan in pending
             ]
             for finished, future in enumerate(concurrent.futures.as_completed(futures), start=1):
@@ -683,13 +791,18 @@ def main() -> None:
                 known[str(receipt["key"])] = receipt
                 _write_progress(args.out, receipts, stats, list(range(cycle)))
         stats = merge_world_rows(
-            args.out, receipts, run_identity, legacy_enrichment, packed=args.packed
+            args.out,
+            receipts,
+            run_identity,
+            legacy_enrichment,
+            packed=args.packed,
+            counterweight_ratio=counterweight_ratio,
         )
         _write_progress(args.out, receipts, stats, list(range(cycle + 1)))
         print(json.dumps({"cycle": cycle, "bank": stats}), flush=True)
-        if stats["decisive_rows"] >= args.target_decisive:
+        if _target_met(stats, args.target_decisive, counterweight_ratio):
             break
-    if stats["decisive_rows"] < args.target_decisive:
+    if not _target_met(stats, args.target_decisive, counterweight_ratio):
         raise SystemExit(
             f"completed balanced cycles but only {stats['decisive_rows']} decisive rows"
         )
@@ -697,7 +810,14 @@ def main() -> None:
         "namespace": NAMESPACE,
         "horizon": HORIZON,
         "depth": DEPTH,
-        "trigger": "dense every fifth L>=700 frame>=2000 and -max(Q)>threshold",
+        "trigger": (
+            "dense every fifth L>=700 frame>=2000; unfiltered death window <300; "
+            "random prefiltered out-of-window counters"
+            if args.death_window
+            else "dense every fifth L>=700 frame>=2000 and -max(Q)>threshold"
+        ),
+        "collection_mode": "death-window" if args.death_window else "filtered",
+        "counterweight_ratio": counterweight_ratio,
         "prefilter": {
             "path": str(args.prefilter),
             "threshold": threshold,
@@ -720,7 +840,10 @@ def main() -> None:
             )
         ],
         "stats": stats,
-        "counterweight_sampling": "uniform without replacement; seed 20261015; cap = decisive rows",
+        "counterweight_sampling": (
+            "uniform without replacement; seed 20261015; "
+            f"cap = floor({counterweight_ratio} * decisive rows)"
+        ),
         "wall_seconds": time.perf_counter() - started,
         "legacy_worker_seconds": sum(
             float(item.get("wall_seconds", 0.0))

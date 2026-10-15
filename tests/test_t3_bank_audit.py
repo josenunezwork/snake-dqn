@@ -193,7 +193,9 @@ def test_empty_legacy_source_synthesizes_missing_row_keys(tmp_path: Path) -> Non
 def test_export_audit_rejects_counterweight_without_legal_alternative(tmp_path: Path) -> None:
     bank, shards, receipts = _world_fixture(tmp_path, decisive=False)
     with pytest.raises(audit_bank.AuditError, match="counterweight relation"):
-        audit_bank._audit_export(bank, {"shards": shards}, receipts, set(), {}, float("-inf"))
+        audit_bank._audit_export(
+            bank, {"shards": shards}, receipts, set(), set(), {}, float("-inf")
+        )
 
 
 def test_export_audit_rejects_dropped_decisive_source_row(tmp_path: Path) -> None:
@@ -212,4 +214,73 @@ def test_export_audit_rejects_dropped_decisive_source_row(tmp_path: Path) -> Non
     )
     (bank / "bank-00000.provenance.jsonl").write_text("")
     with pytest.raises(audit_bank.AuditError, match="decisive source rows were dropped"):
-        audit_bank._audit_export(bank, {"shards": shards}, receipts, set(), {}, float("-inf"))
+        audit_bank._audit_export(
+            bank, {"shards": shards}, receipts, set(), set(), {}, float("-inf")
+        )
+
+
+def test_export_audit_allows_unfiltered_death_window_decisive_row(tmp_path: Path) -> None:
+    bank, shards, receipts = _world_fixture(tmp_path, decisive=True)
+    key = next(iter(receipts))
+    receipts[key]["death_decision"] = 200
+    report = audit_bank._audit_export(bank, {"shards": shards}, receipts, set(), {key}, {}, 0.0)
+    assert report["stats"]["decisive_rows"] == 1
+    assert report["stats"]["counterweight_rows"] == 0
+
+
+def test_death_window_identity_requires_mode_sources_and_validation_binding() -> None:
+    receipt = {
+        "run_identity": {
+            "collection_mode": "death-window",
+            "counterweight_ratio": 0.5,
+            "source_sha256": {
+                "research/t3_rollout_labels_20261015/death_window.py": "module-digest",
+                "docs/research/specs/t3_death_window_spec_2026-10-15.md": "spec-digest",
+            },
+            "death_window_validation_sha256": "receipt-digest",
+            "window_maxlen": 60,
+            "window_depth": 300,
+            "window_strict": True,
+            "counter_reservoir": 32,
+            "b8_control_every": 20,
+        },
+        "death_window": {
+            "maxlen": 60,
+            "depth": 300,
+            "strict": True,
+            "window_batches": 20,
+            "counter_reservoir_seen": 1,
+            "counter_reservoir_size": 1,
+            "counter_batches": 1,
+            "controls_checked": 1,
+        },
+        "b8_control_checks": 1,
+        "batches": 21,
+        "death_decision": 20,
+        "b8_control_receipts": [
+            {
+                "decision": 10,
+                "survives": False,
+                "frames_executed": 11,
+                "expected_death_decision": 20,
+            }
+        ],
+    }
+    audit_bank._audit_death_window_identity(receipt, "dw")
+
+    receipt["run_identity"]["counterweight_ratio"] = 1.0
+    with pytest.raises(audit_bank.AuditError, match="counterweight ratio"):
+        audit_bank._audit_death_window_identity(receipt, "dw")
+
+
+def test_death_window_counterweights_must_be_half_the_decisive_rows() -> None:
+    assert audit_bank.COUNTERWEIGHT_RATIO == 0.5
+    assert int(np.floor(7 * audit_bank.COUNTERWEIGHT_RATIO)) == 3
+
+
+def test_death_window_decisive_boundary_is_strictly_less_than_depth() -> None:
+    receipt = {"death_decision": 500}
+    row = {"decisive": True, "q": np.zeros(6, dtype=np.float32)}
+    audit_bank._audit_death_window_row(receipt, row, 0.0, "dw", 201)
+    with pytest.raises(audit_bank.AuditError, match="outside the fatal window"):
+        audit_bank._audit_death_window_row(receipt, row, 0.0, "dw", 200)

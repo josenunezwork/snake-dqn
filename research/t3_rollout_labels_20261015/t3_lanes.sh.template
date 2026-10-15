@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Template only; never executed by the T3 implementation task.
-# Dense ceiling: GO, 54/64. LABELS requires the completed >=10,000-decisive bank.
+# Dense ceiling: GO, 54/64. LABELS requires the audited death-window bank
+# with >=10,000 decisive rows and floor(0.5 * decisive) counter rows.
 # LABELS_RETURN is reserved for a separately specified rollout-return target/regression arm.
 # Sequential arms: two actors plus one learner, at most three numerical workers.
 set -euo pipefail
@@ -50,7 +51,9 @@ provenance = manifest.get("provenance")
 stats = provenance.get("stats") if isinstance(provenance, dict) else None
 if not isinstance(stats, dict):
     raise SystemExit("LABELS bank manifest has no completed Part D statistics.")
-if stats.get("decisive_rows", 0) < 10000 or stats.get("counterweight_rows", 0) > stats.get("decisive_rows", 0):
+if (stats.get("decisive_rows", 0) < 10000
+        or stats.get("counterweight_rows", 0) != stats.get("decisive_rows", 0) // 2
+        or provenance.get("collection_mode") != "death-window"):
     raise SystemExit("LABELS requires a completed, balanced >=10,000-decisive Part D bank.")
 if hashlib.sha256(receipt_path.read_bytes()).hexdigest() != provenance["run_identity"]["dense_go_receipt_sha256"]:
     raise SystemExit("Bank and ceiling GO receipt hashes differ.")

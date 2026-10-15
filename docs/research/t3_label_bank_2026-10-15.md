@@ -5,9 +5,10 @@ The served policy remains a bare network. No training run or push is authorized 
 
 ## Status
 
-Part D is running in the owned `tmux t3-run` session with 12 single-threaded CPU workers
-on AC power. The revised target is at least 10,000 decisive rows. Completion and final
-throughput will be recorded after the bank and independent audit finish.
+Part D is transitioning to the death-window addendum in the owned `tmux t3-run` session.
+The target is at least 10,000 decisive rows plus `floor(0.5 * decisive)` counter rows,
+with 12 single-threaded CPU workers on AC. Five completed-key replays passed before
+relaunch. Completion and final throughput will be recorded after the independent audit.
 
 The preserved dense ceiling is GO: 54/64 episode survival (0.843750), alive-frame
 survival 0.942434, versus B8 38/64 (0.593750), alive-frame 0.861206.
@@ -21,7 +22,7 @@ worlds were retained byte-for-byte: 544 decisive rows and 1,424 counterweight ca
 `bank/legacy-resume.json` pins their receipts, row shards, and original source identities.
 No completed shard was orphaned at interruption.
 
-The fixed admission rule is the existing dense clock (every fifth decision from first
+The preceding filtered collector used the existing dense clock (every fifth decision from first
 L>=700, with frame>=2000 and a complete D300 horizon) AND
 **`-max(Q) > -9.8897066116333026`** over all six B8 Q values.
 The strict threshold retains **517/544 decisive calibration states (95.036765%)**.
@@ -41,23 +42,45 @@ Its pooled 95% coverage is a calibration guarantee for those observed decisive r
 not a generalization guarantee for all five finals or each mix. B8_s0 coverage is
 400/424 (94.34%); B8_s1 is 117/120 (97.50%). The threshold stays fixed during collection.
 
-## Collection contract
+## Death-window mode and preserved prefix
 
-All five B8 finals play unchanged greedy trajectories on the existing, previously
-verified fresh namespace `t3-rollout-labels-dense/v1`, H5000. Each 200-world cycle
-has 40 worlds per final: 27 scripted, 9 mixed, 4 frozen (67.5%/22.5%/10% overall;
-scripted:mixed = 75:25 within the non-frozen 90%). All advisory-legal first actions,
-including boosts, receive exact D300 B8 continuations at admitted decisions.
-A decisive row requires B8's action to die and an alternative to survive. Counterweights
-come from the same filtered triggers, with B8 surviving and some alternative dying.
-The original unfiltered 50-world prefix remains included and explicitly identified.
+The filtered collector was stopped before changing collection code. All **134** completed
+worlds remain byte-for-byte: **1,111 decisive rows and 3,768 raw counter candidates**.
+`bank/death-window-resume.json` pins their receipts, raw shards, and source identities.
+The original 50-world `legacy-resume.json` and calibration remain unchanged. No orphan shard
+was present when the filtered collector stopped.
 
-The collector skips only completed keys whose receipt, shard, roster, and source identity
-validate. Legacy source differences require the pinned allowlist. Incomplete unreceipted
-shards are preserved under quarantine before recomputation. Every completed world updates
-`progress.json` and README; final rows have unique source-world/decision provenance.
-Collection stops at a complete balanced cycle after reaching the target. The final
-counterweight sample is deterministic and capped at the decisive count.
+All five B8 finals play unchanged greedy trajectories on the previously verified fresh
+namespace `t3-rollout-labels-dense/v1`, H5000. Each 200-world cycle has 40 worlds per final:
+27 scripted, 9 mixed, 4 frozen (67.5%/22.5%/10% overall; scripted:mixed = 75:25 within
+non-frozen worlds). Completed keys are skipped only after their hashes and roster validate.
+All decisive source rows are retained; final source-world/decision pairs are unique.
+
+The death-window worker keeps at most 60 prepared dense snapshots, every fifth decision
+from first L>=700, with frame>=2000 and a full D300 horizon. After B8 dies, it evaluates
+alternatives only at snapshots where `0 <= death_decision - decision < 300`, without a
+Q filter. B8's actual trajectory supplies its fatal label. The surviving set and decisive
+rule are unchanged. Every twentieth window batch also replays B8 and checks the exact
+fatal decision; each check has a receipt. Unavoidable states produce no label.
+
+A deterministic reservoir of up to 32 prefiltered snapshots per world supplies counter
+candidates. After death, only sampled snapshots outside the strict window are rolled out,
+with all legal actions including B8. Every such B8 branch must match the actual trajectory.
+Survivor worlds incur play and snapshot costs only. Thus new counters are sampled from
+out-of-window decisions in dying worlds; the preserved prefix also retains its original
+counter candidates. The fixed Q threshold applies only to these new counter candidates.
+The final uniform counter sample uses seed 20261015 and contains exactly
+`floor(0.5 * decisive_rows)` rows. Collection finishes at a full balanced cycle after both
+row targets are satisfied.
+
+Validation replays five completed dying-world keys from the original unfiltered prefix,
+including a mixed world. Using that prefix avoids conflating removal of the Q filter with
+parity: new unfiltered decisive rows could legitimately be absent from the filtered prefix.
+The validation compares exact decisions, surviving sets, action, frame, and observation
+bytes; source code, namespace, shards, and checkpoints are hash-bound. **PASS:** all
+262 decisive rows matched across five keys, with no missing/extra decisions or byte
+mismatches. Serial validation took 315.941 seconds. The collector independently verified
+the proof against the frozen source and input files before admission.
 
 ## Part C interface (preserved)
 
@@ -134,9 +157,12 @@ implemented by this spec. Both templates pass `bash -n`; neither was executed.
 Root: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015`.
 
 - `bank/namespace.json`: original seed allocation, exclusions and materialized rosters.
-- `bank/legacy-resume.json`: preserved prefix receipts and source identities.
+- `bank/legacy-resume.json`: original 50-world prefix and source identities.
+- `bank/death-window-resume.json`: all 134 completed worlds before the mode change.
+- `bank/death-window-validation.json`: five-key replay proof.
 - `bank/prefilter.json`, `bank/calibration/`: threshold, enrichment, actual dense-score audit data.
 - `bank/worlds/`: immutable completed world shards and receipts.
 - `bank/progress.json`: live keys, cycles and decisive count.
-- `speedup-calibration.*`, `speedup-bank.*`: command, timing, PID, log and exit receipts.
+- `speedup-calibration.*`, `speedup-bank.*`: previous-stage command and timing receipts.
+- `death-window-*`: current-stage command, timing, validation, test and exit receipts.
 - `t3_lanes.sh.template`: unexecuted Part E hand-back.

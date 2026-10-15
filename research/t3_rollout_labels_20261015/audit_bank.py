@@ -31,6 +31,9 @@ NAMESPACE = "t3-rollout-labels-dense/v1"
 ARMS = ("b8_s0", "b8_s1", "b8_s2", "b8_s3", "b8_s4")
 MIX_COUNTS = {"scripted": 27, "mixed": 9, "frozen": 4}
 ALLOWED_ROOT_FILES = {"manifest.json", "README.md", "audit.json"}
+LEGACY_RESUME_SCHEMA = "t3-legacy-resume/v1"
+DEATH_WINDOW_MODE = "death-window"
+COUNTERWEIGHT_RATIO = 0.5
 
 
 class AuditError(RuntimeError):
@@ -242,6 +245,210 @@ def _load_receipts(
     return receipts, sources
 
 
+def _resume_entries(bank: Path, name: str) -> dict[str, dict[str, Any]]:
+    """Load one immutable receipt allowlist without trusting its contents yet."""
+    path = bank / name
+    if not path.is_file():
+        _fail(f"missing {name}")
+    value = _json(path)
+    _same(value.get("schema"), LEGACY_RESUME_SCHEMA, f"{name} schema")
+    entries = value.get("entries")
+    if not isinstance(entries, dict) or not all(
+        isinstance(item, dict) for item in entries.values()
+    ):
+        _fail(f"{name} entries must be a key-to-receipt mapping")
+    return entries
+
+
+def _verify_immutable_entries(
+    bank: Path,
+    entries: dict[str, dict[str, Any]],
+    receipts: dict[str, dict[str, Any]],
+    *,
+    label: str,
+) -> None:
+    """Verify that an allowlist still names the exact pre-existing artifacts."""
+    if not set(entries) <= set(receipts):
+        _fail(f"{label} has missing world receipts")
+    for key, entry in entries.items():
+        receipt_path = bank / "worlds" / f"{key}.json"
+        rows_path = bank / "worlds" / f"{key}.npz"
+        if entry.get("receipt_sha256") != sha256(receipt_path) or entry.get(
+            "rows_sha256"
+        ) != sha256(rows_path):
+            _fail(f"{label} immutable receipt/shard hash changed: {key}")
+        if entry.get("run_identity") != receipts[key].get("run_identity"):
+            _fail(f"{label} immutable run identity changed: {key}")
+
+
+def _is_death_window(receipt: dict[str, Any]) -> bool:
+    return receipt.get("run_identity", {}).get("collection_mode") == DEATH_WINDOW_MODE
+
+
+def _audit_death_window_identity(receipt: dict[str, Any], key: str) -> None:
+    """Check the mode boundary that permits unfiltered fatal-window rows."""
+    identity = receipt.get("run_identity")
+    if not isinstance(identity, dict):
+        _fail(f"death-window receipt has no run identity: {key}")
+    _same(identity.get("collection_mode"), DEATH_WINDOW_MODE, f"death-window mode {key}")
+    if not math.isclose(float(identity.get("counterweight_ratio", -1)), COUNTERWEIGHT_RATIO):
+        _fail(f"death-window counterweight ratio is not 0.5: {key}")
+    source = identity.get("source_sha256")
+    if not isinstance(source, dict) or not source.get(
+        "research/t3_rollout_labels_20261015/death_window.py"
+    ):
+        _fail(f"death-window source hash is absent: {key}")
+    if not source.get("docs/research/specs/t3_death_window_spec_2026-10-15.md"):
+        _fail(f"death-window spec hash is absent: {key}")
+    if not isinstance(identity.get("death_window_validation_sha256"), str):
+        _fail(f"death-window validation receipt is not bound: {key}")
+    for field, expected in (
+        ("window_maxlen", 60),
+        ("window_depth", DEPTH),
+        ("window_strict", True),
+        ("counter_reservoir", 32),
+        ("b8_control_every", 20),
+    ):
+        _same(identity.get(field), expected, f"death-window {field} {key}")
+
+    window = receipt.get("death_window")
+    if not isinstance(window, dict):
+        _fail(f"death-window receipt lacks window counters: {key}")
+    for field, expected in (("maxlen", 60), ("depth", DEPTH), ("strict", True)):
+        _same(window.get(field), expected, f"death-window receipt {field} {key}")
+    counter_names = (
+        "window_batches",
+        "counter_reservoir_seen",
+        "counter_reservoir_size",
+        "counter_batches",
+        "controls_checked",
+    )
+    if any(not isinstance(window.get(name), int) or window[name] < 0 for name in counter_names):
+        _fail(f"death-window receipt has invalid counters: {key}")
+    if (
+        window["counter_reservoir_size"] > 32
+        or window["counter_reservoir_size"] > window["counter_reservoir_seen"]
+    ):
+        _fail(f"death-window receipt reservoir is invalid: {key}")
+    if window["controls_checked"] != window["window_batches"] // 20:
+        _fail(f"death-window receipt has missing B8 controls: {key}")
+    _same(
+        receipt.get("b8_control_checks"),
+        window["controls_checked"],
+        f"death-window B8 control count {key}",
+    )
+    _same(
+        receipt.get("batches"),
+        window["window_batches"] + window["counter_batches"],
+        f"death-window batch count {key}",
+    )
+    controls = receipt.get("b8_control_receipts")
+    if not isinstance(controls, list) or len(controls) != window["controls_checked"]:
+        _fail(f"death-window B8 control receipts are incomplete: {key}")
+    for control in controls:
+        if not isinstance(control, dict) or set(control) != {
+            "decision",
+            "survives",
+            "frames_executed",
+            "expected_death_decision",
+        }:
+            _fail(f"death-window B8 control receipt schema is invalid: {key}")
+        if control["expected_death_decision"] != receipt.get("death_decision"):
+            _fail(f"death-window B8 control has a different death decision: {key}")
+        if (
+            not isinstance(control["decision"], int)
+            or not isinstance(control["survives"], bool)
+            or not isinstance(control["frames_executed"], int)
+            or not isinstance(control["expected_death_decision"], int)
+            or control["survives"]
+            or control["decision"] + control["frames_executed"] - 1
+            != control["expected_death_decision"]
+        ):
+            _fail(f"death-window B8 control is not the recorded fatal trajectory: {key}")
+
+
+def _audit_death_window_validation(bank: Path, identity: dict[str, Any]) -> None:
+    """Verify the five-key legacy replay proof bound into the active identity."""
+    path = bank / "death-window-validation.json"
+    if not path.is_file() or identity.get("death_window_validation_sha256") != sha256(path):
+        _fail("death-window validation receipt is absent or not hash-bound")
+    value = _json(path)
+    keys = value.get("keys")
+    if (
+        value.get("schema") != "t3-death-window-validation/v1"
+        or value.get("status") != "PASS"
+        or not isinstance(keys, list)
+        or len(keys) != 5
+        or len(set(keys)) != 5
+    ):
+        _fail("death-window validation does not contain five passing keys")
+    for name in ("namespace", "prefilter"):
+        if value.get(f"{name}_sha256") != sha256(bank / f"{name}.json"):
+            _fail(f"death-window validation {name} binding differs")
+    selected = value.get("selected")
+    if not isinstance(selected, list) or {item.get("key") for item in selected} != set(keys):
+        _fail("death-window validation selected keys differ")
+    if not all(
+        isinstance(item, dict) and item.get("comparison", {}).get("pass") is True
+        for item in selected
+    ):
+        _fail("death-window validation has a failing comparison")
+    sources = value.get("source_sha256")
+    if not isinstance(sources, dict):
+        _fail("death-window validation source bindings are absent")
+    required = {
+        f"research/t3_rollout_labels_20261015/{name}.py"
+        for name in (
+            "death_window",
+            "bank_engine",
+            "collect",
+            "engine",
+            "trigger",
+            "validate_death_window",
+        )
+    }
+    if not required <= set(sources):
+        _fail("death-window validation source bindings are incomplete")
+    repo = Path(__file__).resolve().parents[2]
+    if any(
+        not isinstance(digest, str) or sha256(repo / name) != digest
+        for name, digest in sources.items()
+    ):
+        _fail("death-window validation source bytes changed")
+    source_identity = identity.get("source_sha256")
+    if not isinstance(source_identity, dict) or any(
+        source_identity.get(name) != digest for name, digest in sources.items()
+    ):
+        _fail("death-window validation sources differ from active identity")
+    bindings = value.get("legacy_bindings")
+    if not isinstance(bindings, dict) or set(bindings) != set(keys):
+        _fail("death-window validation immutable bindings differ")
+    for key, binding in bindings.items():
+        if not isinstance(binding, dict) or (
+            binding.get("receipt_sha256") != sha256(bank / "worlds" / f"{key}.json")
+            or binding.get("rows_sha256") != sha256(bank / "worlds" / f"{key}.npz")
+        ):
+            _fail(f"death-window validation immutable binding changed: {key}")
+
+
+def _audit_death_window_row(
+    receipt: dict[str, Any], row: dict[str, Any], threshold: float, key: str, decision: int
+) -> None:
+    """Enforce the split admission rules for fatal-window labels and counters."""
+    death_decision = receipt.get("death_decision")
+    if not isinstance(death_decision, int):
+        _fail(f"death-window receipt lacks death decision: {key}")
+    gap = death_decision - decision
+    if row["decisive"]:
+        if not 0 <= gap < DEPTH:
+            _fail(f"death-window decisive row is outside the fatal window: {key}/{decision}")
+    else:
+        if gap < DEPTH:
+            _fail(f"death-window counter row is not outside the fatal window: {key}/{decision}")
+        if float(-np.max(row["q"])) <= threshold:
+            _fail(f"death-window counter row fails strict prefilter threshold: {key}/{decision}")
+
+
 def _load_source_rows(
     bank: Path,
     key: str,
@@ -367,6 +574,7 @@ def _audit_export(
     manifest_meta: dict[str, Any],
     receipts: dict[str, dict[str, Any]],
     legacy_keys: set[str],
+    death_window_keys: set[str],
     enrichment_hashes: dict[str, str],
     threshold: float,
 ) -> dict[str, Any]:
@@ -382,6 +590,9 @@ def _audit_export(
         source_decisive = sum(bool(row["decisive"]) for row in rows.values())
         if int(receipt.get("decisive_rows", -1)) != source_decisive:
             _fail(f"receipt/source decisive count differs: {key}")
+        if key in death_window_keys:
+            for decision, row in rows.items():
+                _audit_death_window_row(receipt, row, threshold, key, decision)
         missing_decisive = [
             decision
             for decision, row in rows.items()
@@ -489,7 +700,7 @@ def _audit_export(
             decisive += 1
         elif not survive[action] or not np.any(source["mask"] & ~survive):
             _fail(f"counterweight relation is false: {key}/{decision}")
-        if key not in legacy_keys and float(-np.max(q)) <= threshold:
+        if key not in legacy_keys | death_window_keys and float(-np.max(q)) <= threshold:
             _fail(f"current row fails strict prefilter threshold: {key}/{decision}")
     counts = {
         "rows": len(entries),
@@ -508,8 +719,12 @@ def _audit_export(
             else 0.0
         ),
     }
-    if counts["counterweight_rows"] > counts["decisive_rows"]:
-        _fail("global counterweights exceed decisive rows")
+    expected_counterweights = math.floor(counts["decisive_rows"] * COUNTERWEIGHT_RATIO)
+    if counts["counterweight_rows"] != expected_counterweights:
+        _fail(
+            "global counterweights must equal floor(0.5 * decisive rows): "
+            f"{counts['counterweight_rows']} != {expected_counterweights}"
+        )
     return {"provenance_rows": len(entries), "stats": counts, "train_shard_rows": len(entries)}
 
 
@@ -636,36 +851,39 @@ def audit_bank(bank: Path, out: Path, *, min_decisive: int = 10_000) -> dict[str
     manifest, manifest_meta = _load_manifest(bank)
     namespace, expected, _ = _load_namespace(bank)
     receipts, _ = _load_receipts(bank, manifest_meta, expected)
-    legacy_path = bank / "legacy-resume.json"
-    legacy = _json(legacy_path) if legacy_path.is_file() else {"entries": {}}
-    _same(legacy.get("schema"), "t3-legacy-resume/v1", "legacy resume schema")
-    legacy_entries = legacy.get("entries")
-    if not isinstance(legacy_entries, dict) or len(legacy_entries) != 50:
+    legacy_entries = _resume_entries(bank, "legacy-resume.json")
+    if len(legacy_entries) != 50:
         _fail(f"legacy resume must retain exactly 50 worlds, got {len(legacy_entries or {})}")
     legacy_keys = set(legacy_entries)
-    if not legacy_keys <= set(receipts):
-        _fail("legacy resume has missing world receipts")
+    _verify_immutable_entries(bank, legacy_entries, receipts, label="legacy resume")
+    death_window_entries = _resume_entries(bank, "death-window-resume.json")
+    death_window_resume_keys = set(death_window_entries)
+    _verify_immutable_entries(bank, death_window_entries, receipts, label="death-window resume")
+    if not legacy_keys <= death_window_resume_keys:
+        _fail("death-window resume does not retain every immutable legacy world")
+    death_window_keys = {key for key, receipt in receipts.items() if _is_death_window(receipt)}
+    if not death_window_keys:
+        _fail("bank has no death-window worlds")
+    pre_death_window_keys = set(receipts) - death_window_keys
+    if pre_death_window_keys != death_window_resume_keys:
+        _fail("death-window resume must allowlist exactly all pre-death-window worlds")
     current_identity = manifest.get("provenance", {}).get("run_identity")
-    for key in set(receipts) - legacy_keys:
+    for key in death_window_keys:
         if receipts[key].get("run_identity") != current_identity:
-            _fail(f"current world run identity differs from manifest: {key}")
+            _fail(f"death-window world run identity differs from manifest: {key}")
         if receipts[key].get("q_action_mismatches") != 0:
-            _fail(f"current world has Q action mismatches: {key}")
-    for key, entry in legacy_entries.items():
-        receipt_path = bank / "worlds" / f"{key}.json"
-        rows_path = bank / "worlds" / f"{key}.npz"
-        if entry.get("receipt_sha256") != sha256(receipt_path) or entry.get(
-            "rows_sha256"
-        ) != sha256(rows_path):
-            _fail(f"legacy immutable receipt/shard hash changed: {key}")
-        if entry.get("run_identity") != receipts[key].get("run_identity"):
-            _fail(f"legacy immutable run identity changed: {key}")
+            _fail(f"death-window world has Q action mismatches: {key}")
+        _audit_death_window_identity(receipts[key], key)
+    if not isinstance(current_identity, dict):
+        _fail("manifest provenance lacks death-window run identity")
+    _audit_death_window_validation(bank, current_identity)
     prefilter = _audit_prefilter(bank, legacy_keys, receipts, manifest_meta)
     export = _audit_export(
         bank,
         manifest_meta,
         receipts,
         legacy_keys,
+        death_window_keys,
         _json(bank / "prefilter.json")["enrichment_sha256"],
         prefilter["threshold"],
     )
@@ -715,6 +933,11 @@ def audit_bank(bank: Path, out: Path, *, min_decisive: int = 10_000) -> dict[str
             "completed_cycles": sorted({int(value["cycle"]) for value in receipts.values()}),
         },
         "legacy": {"worlds": len(legacy_keys), "immutable": True},
+        "death_window": {
+            "worlds": len(death_window_keys),
+            "pre_death_window_worlds": len(death_window_resume_keys),
+            "counterweight_ratio": COUNTERWEIGHT_RATIO,
+        },
         "prefilter": prefilter,
         "export": export,
         "labelbank_rows": loaded.size,

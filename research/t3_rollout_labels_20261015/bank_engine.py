@@ -311,11 +311,15 @@ def validate_b8_controls(
     return len(controls)
 
 
-def counterweight_trim(rows: Sequence[dict[str, np.ndarray]]) -> list[dict[str, np.ndarray]]:
+def counterweight_trim(
+    rows: Sequence[dict[str, np.ndarray]], ratio: float = 1.0
+) -> list[dict[str, np.ndarray]]:
     """Keep every decisive row and a fixed-seed uniform global counterweight sample."""
     decisive = [row for row in rows if bool(row["decisive"])]
     nondecisive = [row for row in rows if not bool(row["decisive"])]
-    count = min(len(decisive), len(nondecisive))
+    if not 0 <= ratio <= 1:
+        raise ValueError("counterweight ratio must lie in [0, 1]")
+    count = min(int(len(decisive) * ratio), len(nondecisive))
     if not count:
         return decisive
     indices = np.sort(
@@ -631,7 +635,14 @@ def manifest(out: Path, provenance: dict[str, Any]) -> dict[str, Any]:
     """Build a hash-bound bank manifest after all shard writes complete."""
     shards = sorted(out.glob("*.npz"))
     files = sorted([*shards, *(out.glob("bank-*.provenance.jsonl"))])
-    for name in ("namespace.json", "legacy-resume.json", "prefilter.json", "progress.json"):
+    for name in (
+        "namespace.json",
+        "legacy-resume.json",
+        "prefilter.json",
+        "progress.json",
+        "death-window-resume.json",
+        "death-window-validation.json",
+    ):
         if (out / name).exists():
             files.append(out / name)
     if (out / "calibration").is_dir():

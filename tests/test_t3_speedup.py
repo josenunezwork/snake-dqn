@@ -158,3 +158,67 @@ def test_merge_rejects_duplicate_receipts_before_reading_shards(tmp_path: Path) 
 
     with pytest.raises(RuntimeError, match="duplicate completed world receipts"):
         collect.merge_world_rows(tmp_path, [receipt, receipt], {"identity": True}, {})
+
+
+def test_half_counterweight_ratio_keeps_all_decisive_and_is_deterministic() -> None:
+    rows = [{"decisive": True, "id": i} for i in range(5)]
+    rows += [{"decisive": False, "id": i + 5} for i in range(20)]
+    selected = bank.counterweight_trim(rows, ratio=0.5)
+    assert selected[:5] == rows[:5]
+    assert len(selected) == 7
+    assert selected == bank.counterweight_trim(rows, ratio=0.5)
+
+
+def test_target_requires_the_half_counter_complement() -> None:
+    assert not collect._target_met({"decisive_rows": 10000, "counterweight_rows": 4999}, 10000, 0.5)
+    assert collect._target_met({"decisive_rows": 10001, "counterweight_rows": 5000}, 10000, 0.5)
+    assert not collect._target_met({"decisive_rows": 9999, "counterweight_rows": 5000}, 10000, 0.5)
+
+
+def test_death_window_validation_rejects_stale_code(tmp_path: Path, monkeypatch) -> None:
+    repo, out = tmp_path / "repo", tmp_path / "bank"
+    (out / "worlds").mkdir(parents=True)
+    sources = {}
+    for name in (
+        "death_window",
+        "bank_engine",
+        "collect",
+        "engine",
+        "trigger",
+        "validate_death_window",
+    ):
+        relative = f"research/t3_rollout_labels_20261015/{name}.py"
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("source")
+        sources[relative] = bank.sha256(path)
+    for name in ("namespace", "prefilter"):
+        (out / f"{name}.json").write_text("{}")
+    keys = [f"world-{i}" for i in range(5)]
+    bindings = {}
+    for key in keys:
+        bindings[key] = {}
+        for suffix, field in (("json", "receipt_sha256"), ("npz", "rows_sha256")):
+            path = out / "worlds" / f"{key}.{suffix}"
+            path.write_text(key)
+            bindings[key][field] = bank.sha256(path)
+    value = {
+        "schema": "t3-death-window-validation/v1",
+        "status": "PASS",
+        "keys": keys,
+        "source_sha256": sources,
+        "legacy_bindings": bindings,
+        "namespace_sha256": bank.sha256(out / "namespace.json"),
+        "prefilter_sha256": bank.sha256(out / "prefilter.json"),
+        "selected": [{"key": key, "comparison": {"pass": True}} for key in keys],
+    }
+    checkpoint = tmp_path / "checkpoint.pth"
+    checkpoint.write_bytes(b"checkpoint")
+    monkeypatch.setattr(collect.census, "b8_path", lambda arm: checkpoint)
+    value["checkpoint_sha256"] = {arm: bank.sha256(checkpoint) for arm in collect.census.B8_ARMS}
+    receipt = out / "death-window-validation.json"
+    receipt.write_text(json.dumps(value))
+    assert collect._validate_death_window_receipt(receipt, out, repo)["status"] == "PASS"
+    (repo / next(iter(sources))).write_text("changed")
+    with pytest.raises(SystemExit, match="source changed"):
+        collect._validate_death_window_receipt(receipt, out, repo)
