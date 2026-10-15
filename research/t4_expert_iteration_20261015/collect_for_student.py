@@ -11,12 +11,12 @@ import argparse
 import hashlib
 import json
 import math
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
 from research.b8_death_census_20261014 import census
+from research.fixed_search import fixed_string_hits
 from research.t3_rollout_labels_20261015.bank_engine import (
     concrete_seed_hits,
     manifest,
@@ -93,16 +93,7 @@ def plan(student: Path, out: Path, namespace: str, worlds: int, mixes: list[str]
     repo = Path(__file__).resolve().parents[2]
     roots = (repo, census.ARTIFACTS)
     for root in roots:
-        result = subprocess.run(
-            ["rg", "-l", "--fixed-strings", namespace, str(root)],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode not in (0, 1):
-            raise RuntimeError(f"namespace audit failed for {root}: exit {result.returncode}")
-        if result.stdout.strip():
+        if fixed_string_hits(root, [namespace]):
             raise ValueError(f"expert-iteration namespace is stale under {root}")
     seeds, audit = _seeds(namespace, worlds, roots)
     chosen_mixes = [mixes[index % len(mixes)] for index in range(worlds)]

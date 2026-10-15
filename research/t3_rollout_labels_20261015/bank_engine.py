@@ -18,6 +18,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 
 from research.b8_death_census_20261014 import census
+from research.fixed_search import fixed_string_hits
 
 HORIZON = 5000
 DEPTH = 300
@@ -52,10 +53,6 @@ def concrete_seed_hits(root: Path, candidates: Iterable[int]) -> set[int]:
     the Part-D allocation when its concrete integer appears in either the
     repository or artifact tree, irrespective of why it appeared there.
     """
-    import os
-    import subprocess
-    import tempfile
-
     root = Path(root).resolve()
     if not root.is_dir():
         raise RuntimeError(f"concrete-seed scan root is not a directory: {root}")
@@ -64,41 +61,9 @@ def concrete_seed_hits(root: Path, candidates: Iterable[int]) -> set[int]:
         raise ValueError("concrete-seed scan candidates must be unique")
     if not values:
         return set()
-    handle = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False)
-    try:
-        handle.write("\n".join(str(seed) for seed in values) + "\n")
-        handle.close()
-        result = subprocess.run(
-            [
-                "rg",
-                "--no-filename",
-                "--only-matching",
-                "--fixed-strings",
-                "--word-regexp",
-                "--file",
-                handle.name,
-                str(root),
-            ],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode not in (0, 1):
-            raise RuntimeError(f"concrete-seed scan failed for {root}: exit {result.returncode}")
-        tokens = {str(seed): seed for seed in values}
-        output = set(result.stdout.splitlines())
-        unexpected = output - set(tokens)
-        if unexpected:
-            raise RuntimeError(
-                f"concrete-seed scan returned unexpected values for {root}: {unexpected}"
-            )
-        matches = {tokens[token] for token in output}
-        return matches
-    finally:
-        if not handle.closed:
-            handle.close()
-        os.unlink(handle.name)
+    tokens = {str(seed): seed for seed in values}
+    hits = fixed_string_hits(root, tokens, word_regexp=True)
+    return {tokens[token] for matches in hits.values() for token in matches}
 
 
 def allocate_unseen_seeds(
@@ -170,10 +135,6 @@ def verify_fresh_namespace(
     directories: world receipts, namespace receipts, and label data remain
     searchable even when they sit beside an excluded handoff document.
     """
-    import os
-    import subprocess
-    import tempfile
-
     root = Path(root).resolve()
     excluded: dict[Path, str] = {}
     for raw_path in declaration_exclusions:
@@ -189,34 +150,11 @@ def verify_fresh_namespace(
         excluded[path] = str(relative)
     seeds = [int(seed) for seed in seeds]
     needles = [NAMESPACE, *(str(seed) for seed in seeds)]
-    handle = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False)
-    try:
-        handle.write("\n".join(needles) + "\n")
-        handle.close()
-        result = subprocess.run(
-            [
-                "rg",
-                "-l",
-                "--fixed-strings",
-                "--word-regexp",
-                "--file",
-                handle.name,
-                str(root),
-            ],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode not in (0, 1):
-            raise RuntimeError(f"namespace search failed: exit {result.returncode}")
-        matches = [
-            Path(line).resolve() for line in result.stdout.splitlines() if ".git" not in line
-        ]
-    finally:
-        if not handle.closed:
-            handle.close()
-        os.unlink(handle.name)
+    matches = [
+        path.resolve()
+        for path in fixed_string_hits(root, needles, word_regexp=True)
+        if ".git" not in str(path)
+    ]
     found = [str(path.relative_to(root)) for path in matches if path not in excluded]
     excluded_matches = [str(path.relative_to(root)) for path in matches if path in excluded]
     hits = {"matching_files": found[:20]} if found else {}
