@@ -6,14 +6,30 @@ uses no T3 screen worlds (rounds 62/63), and grants no promotion authority.
 
 ## Part 1: update cadence
 
-Implementation and required CPU tests are in progress. `--update-every M` defaults to 1;
+`--update-every M` is implemented and defaults to 1;
 one learner update consumes credit for `M * 128 * batch_scale` ingested agent transitions.
-Batch size is unchanged. Target synchronization remains counted in learner updates, so
-increasing M increases transitions between target synchronizations.
+Batch size is unchanged. Target synchronization retains the existing `round(1000 / batch_scale)`
+learner-update interval (500 at K=2), and actor publication retains its existing K-adjusted
+update interval. Neither interval is multiplied by M; increasing M therefore increases
+transitions between synchronization/publication events. Nondefault M is written to log rows
+and checkpoint/summary nondefault options. M < 1 and nondefault M with zero actors are rejected.
 
 The A/B training is deferred. No A/B or other training is authorized by this task.
-The complete one-seed B8_s0, 8M, LABELS_KEEPV8_LO command will be recorded here after
-flag validation; it is intended for a quiet Mac, not the active T3 lanes.
+The complete one-seed B8_s0, 8M, LABELS_KEEPV8_LO command appears below for a future quiet Mac.
+
+Validation: **40 passed, 1 deselected in 118.88 seconds** across `test_update_every.py` and all
+four specified test files. Only the hardcoded MPS test
+`test_perf_learner.py::test_mps_fast_and_fp16_stay_finite_and_close` was deselected; the CPU
+multi-actor integration test passed. The new cadence tests exercise reference and fast
+learner updates, default intervals, same-K batch/target/publication invariance, CLI validation,
+and nondefault metadata. All numerical tests used CPU and single-thread limits.
+
+[Hash-bound validation receipt](../../research/t4_curve_20261015/results/update_every_validation.json):
+clean baseline commit `48ab33fd7d64890fc7972dee14826be932faa8b2` versus the modified source;
+both default traces have SHA256 `597219dea8a97ac05dad6dd1f041da6f152c3fce0d39af43e6d3a8484746e6ab`.
+All four b/bv8 × reference/fast cases preserve exact network tensors, loss/counter traces,
+and RNG state. An independent reviewer reproduced exact equality against the same baseline.
+This establishes deterministic default learner parity, not asynchronous actor scheduling identity.
 
 ## Part 2: diagnostic protocol (declared before outcomes)
 

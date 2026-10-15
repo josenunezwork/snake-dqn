@@ -30,6 +30,10 @@ pre-perf-learner update, moved here verbatim (``_update_reference``):
   ``--lr-scale linear|sqrt`` multiplies Adam's lr by K or sqrt(K). This CHANGES the training
   dynamics (K x fewer, larger-batch optimizer steps for the same data): it is a new recipe,
   not a speed-up of the old one, and needs its own evaluation.
+* **T4 ``update_every M``** (``--update-every M``): one same-sized learner batch per
+  M x K x 128 ingested transitions.  Target synchronization and actor publication retain
+  their existing K-adjusted, update-count intervals; M changes the training recipe, but not
+  the definition of an update.
 
 * **perf-compile** (``--compile-learner MODE``, needs ``fast``; 2026-10-13): the T1 update's
   forwards and losses (:func:`loss_terms`, scope ``loss``) or only the network forwards
@@ -94,6 +98,7 @@ class LearnerOpts:
     precision: str = "fp32"  # T2 (needs fast)
     batch_scale: int = 1  # T3
     lr_scale: str = "none"  # T3
+    update_every: int = 1  # T4: cadence multiplier, batches remain unchanged
     channels_last: bool = False  # bench only
     compile: str = "off"  # perf-compile (needs fast): a torch.compile mode
     compile_scope: str = "loss"  # perf-compile: "loss" (forwards + losses) or "forward"
@@ -107,6 +112,8 @@ class LearnerOpts:
             raise ValueError("--learner-precision needs --learner-fast")
         if int(self.batch_scale) < 1:
             raise ValueError("--batch-scale must be >= 1")
+        if int(self.update_every) < 1:
+            raise ValueError("--update-every must be >= 1")
         if self.lr_scale != "none" and self.batch_scale == 1:
             raise ValueError("--lr-scale needs --batch-scale > 1")
         if self.compile not in COMPILE_MODES:
@@ -123,6 +130,7 @@ class LearnerOpts:
             precision=getattr(args, "learner_precision", "fp32"),
             batch_scale=int(getattr(args, "batch_scale", 1)),
             lr_scale=getattr(args, "lr_scale", "none"),
+            update_every=int(getattr(args, "update_every", 1)),
             compile=getattr(args, "compile_learner", "off"),
             compile_scope=getattr(args, "compile_learner_scope", "loss"),
         )
@@ -371,7 +379,7 @@ class Learner:
         self.a_rows, self.d_rows, self.min_rows = agent_rows * k, anchor_rows * k, min_rows * k
         self.target_every = max(1, round(TARGET_EVERY / k))
         self.publish_every = max(1, round(int(args.actor_sync_updates) / k))
-        self.update_every = UPDATE_EVERY * k
+        self.update_every = UPDATE_EVERY * k * int(self.opts.update_every)
         if self.opts.channels_last:
             for net in (online, target):
                 net.to(memory_format=torch.channels_last)
@@ -937,6 +945,8 @@ def learner_flags(args) -> dict:
         out["batch_scale"] = int(args.batch_scale)
     if getattr(args, "lr_scale", "none") != "none":
         out["lr_scale"] = args.lr_scale
+    if int(getattr(args, "update_every", 1)) != 1:
+        out["update_every"] = int(args.update_every)
     if getattr(args, "compile_learner", "off") != "off":
         out["compile_learner"] = args.compile_learner
         out["compile_learner_scope"] = getattr(args, "compile_learner_scope", "loss")

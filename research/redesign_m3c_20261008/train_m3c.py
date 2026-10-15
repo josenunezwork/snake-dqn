@@ -27,7 +27,8 @@ Everything new is behind a flag:
   acts with a copy of the online network refreshed every ``--actor-sync-updates`` updates,
   builds the n-step transitions itself and writes observations into its own shared-memory
   ring; the learner keeps the replay index, does one update per 128 ingested transitions
-  (replay ratio 4, as M3) and back-pressures the actors through bounded queues. Not
+  (or ``--update-every M`` x ``--batch-scale K`` x 128) and back-pressures the actors through
+  bounded queues. Target synchronization remains counted in learner updates. Not
   bit-reproducible (policy lag, scheduling); ``--actors 0`` (default) is the M3 trainer.
 * ``--obs-version bv8`` (M4-B; multi-actor only): the ``ego2s-bv8`` observation (``ego2s-b``
   plus the v8 veto's 30 per-action features as scalars 30..59; ``--init`` must be an
@@ -51,6 +52,9 @@ Everything new is behind a flag:
   plain Adam), ``--learner-precision fp16|bf16`` (T2: autocast, numerics change),
   ``--batch-scale K`` / ``--lr-scale`` (T3: K x larger batches at the same replay ratio -
   CHANGES the training dynamics). Benchmark: ``research/perf_learner_20261013``.
+  ``--update-every M`` (T4: one unchanged-size update per M x K x 128 ingested transitions)
+  is a separate, default-off recipe lever; target synchronization retains its existing
+  K-adjusted update interval.
 
 * perf-opp (2026-10-13; multi-actor only; default ``per-group`` = unchanged): ``--opp-forward``
   (or env ``M3C_OPP_FORWARD``) ``merged-cpu`` runs the vector61 opponents (one group per
@@ -1405,6 +1409,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "learner_precision",
         "batch_scale",
         "lr_scale",
+        "update_every",
         "obs_pack",
         "demo_mmap",
         "compile_learner",
@@ -1539,6 +1544,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("none", "linear", "sqrt"),
         default="none",
         help="T3: Adam lr x K (linear) or x sqrt(K) with --batch-scale K",
+    )
+    ap.add_argument(
+        "--update-every",
+        type=int,
+        default=1,
+        help="T4 (CHANGES training dynamics): one unchanged-size learner update per M x "
+        "--batch-scale x 128 ingested transitions; target sync remains counted in updates",
     )
     # --- perf-ram options (multi-actor trainer only; RAM only, same math) ---
     ap.add_argument(
@@ -1681,6 +1693,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         or args.learner_precision != "fp32"
         or args.batch_scale != 1
         or args.lr_scale != "none"
+        or args.update_every != 1
         or args.compile_learner != "off"
     )
     if args.compile_learner_scope != "loss" and args.compile_learner == "off":
@@ -2800,6 +2813,8 @@ def main_multi(args) -> int:
                 if bv8:
                     row["obs_version"] = "bv8"
                     row["label_buffer"] = labels.size if labels is not None else 0
+                if lopts.update_every != 1:
+                    row["update_every"] = lopts.update_every
                 if bank is not None:
                     row["bank_rows_mean"] = (
                         float(np.mean(st["bank_rows"])) if st["bank_rows"] else 0.0
