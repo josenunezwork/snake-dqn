@@ -117,7 +117,12 @@ def extract_prepared_env(prepared: Replay, env: int) -> Replay:
 
 
 def batched_rollout(
-    prepared: Replay, actions: Sequence[int], decision: int, depth: int = 300
+    prepared: Replay,
+    actions: Sequence[int],
+    decision: int,
+    depth: int = 300,
+    *,
+    record_outcomes: bool = False,
 ) -> dict[int, dict]:
     """Roll every candidate first action through B8 greedy continuations.
 
@@ -155,7 +160,7 @@ def batched_rollout(
     for env, action in enumerate(choices):
         end = int(executed[env])
         alive = bool(sim.alive[env, 0])
-        outcomes[action] = {
+        outcome = {
             "action": action,
             "survives": alive and end == horizon,
             "horizon": horizon,
@@ -165,6 +170,9 @@ def batched_rollout(
             "control_reproduced": None,
             "env_frames": end,
         }
+        if record_outcomes:
+            outcome["final_length"] = int(sim.length[env, 0]) if alive else 0
+        outcomes[action] = outcome
     outcomes["_batch_receipt"] = {
         "candidate_count": len(choices),
         "env_frames": int(executed.sum()),

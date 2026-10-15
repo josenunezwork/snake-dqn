@@ -26,9 +26,11 @@ from research.t3_rollout_labels_20261015.bank_engine import (
     counterweight_trim,
     cycle_jobs,
     dense_eligible,
+    label_set,
     manifest,
-    prepared_q,
+    outcome_arrays,
     planned_rosters,
+    prepared_q,
     rollout_all,
     sha256,
     summarize_rows,
@@ -56,23 +58,29 @@ def _row(
     frame: int,
     length: int,
     q: np.ndarray,
+    *,
+    outcomes: dict[int, dict[str, Any]] | None = None,
+    label_policy: str = "surviving-set",
 ) -> dict:
     q_values = np.asarray(q, dtype=np.float32)
     if q_values.shape != (6,) or not np.isfinite(q_values).all():
         raise ValueError("prepared B8 Q vector must be six finite float32 values")
-    return {
+    row = {
         "local": np.asarray(obs["local"][0], dtype=np.uint8).copy(),
         "global": np.asarray(obs["global"][0], dtype=np.uint8).copy(),
         "scalars": np.asarray(obs["scalars"][0], dtype=np.float32).copy(),
         "mask": np.asarray(obs["mask"][0], dtype=bool).copy(),
         "action": int(action),
-        "surviving": np.asarray(surviving, dtype=bool).copy(),
+        "surviving": label_set(surviving, label_policy),
         "decisive": bool(decisive),
         "decision": int(decision),
         "frame": int(frame),
         "length": int(length),
         "q": q_values.copy(),
     }
+    if outcomes is not None:
+        row.update(outcome_arrays(outcomes))
+    return row
 
 
 def _key(job: dict[str, Any], plan: dict[str, Any]) -> str:
@@ -163,6 +171,9 @@ def collect_world(
     out: Path,
     run_identity: dict[str, Any],
     threshold: float = float("-inf"),
+    record_outcomes: bool = False,
+    label_policy: str = "surviving-set",
+    hero_checkpoint: Path | None = None,
 ) -> dict[str, Any]:
     """Collect one resumable world; raw rows are trimmed only after global merge."""
     from research.t3_rollout_labels_20261015.bank_engine import build_world
@@ -179,7 +190,11 @@ def collect_world(
         raise RuntimeError(
             f"parent failed to resolve an existing world before worker launch: {key}"
         )
-    world: CapturedWorld = build_world(job["arm"], plan)
+    world: CapturedWorld = (
+        build_world(job["arm"], plan)
+        if hero_checkpoint is None
+        else build_world(job["arm"], plan, hero_checkpoint=hero_checkpoint)
+    )
     trigger = DenseTrigger(min_length=700)
     rows, batches, eligible = [], 0, 0
     dense_candidates, prefilter_skipped, q_action_mismatches = 0, 0, 0
@@ -235,7 +250,11 @@ def collect_world(
             if b8_action != int(np.argmax(q_advisory)):
                 q_action_mismatches += 1
                 raise RuntimeError(f"B8 Q/advisory action mismatch at decision {decision}")
-            outcomes = rollout_all(selected["branch"], legal, DEPTH, decision)
+            outcomes = (
+                rollout_all(selected["branch"], legal, DEPTH, decision)
+                if not record_outcomes
+                else rollout_all(selected["branch"], legal, DEPTH, decision, record_outcomes=True)
+            )
             controls.append(
                 (
                     decision,
@@ -255,6 +274,8 @@ def collect_world(
                         selected["frame"],
                         selected["length"],
                         selected["q"],
+                        outcomes=outcomes if record_outcomes else None,
+                        label_policy=label_policy,
                     )
                 )
             batches += 1
@@ -369,11 +390,20 @@ def merge_world_rows(
                 if row_key in row_keys:
                     raise RuntimeError(f"duplicate source decision row during merge: {row_key}")
                 row_keys.add(row_key)
+                row = {
+                    key: data[key][index].copy()
+                    for key in ("local", "global", "scalars", "mask", "surviving", "action")
+                }
+                for field in (
+                    "outcome_survived",
+                    "outcome_recorded",
+                    "outcome_death_frame",
+                    "outcome_final_length",
+                ):
+                    if field in data.files:
+                        row[field] = data[field][index].copy()
                 rows.append(
-                    {
-                        key: data[key][index].copy()
-                        for key in ("local", "global", "scalars", "mask", "surviving", "action")
-                    }
+                    row
                     | {"decisive": bool(decisive[index])}
                     | {
                         "decision": int(data["decision"][index]),
@@ -569,6 +599,10 @@ def main() -> None:
     parser.add_argument("--death-window", action="store_true")
     parser.add_argument("--retained-resume", type=Path)
     parser.add_argument("--death-window-validation", type=Path)
+    parser.add_argument("--record-outcomes", action="store_true")
+    parser.add_argument(
+        "--label-policy", choices=("surviving-set", "prefer-nonboost"), default="surviving-set"
+    )
     args = parser.parse_args()
     go = json.loads(args.dense_go_receipt.read_text())
     if (
@@ -713,6 +747,10 @@ def main() -> None:
             if spec[0] == "checkpoint"
         },
     }
+    if args.record_outcomes:
+        run_identity["record_outcomes"] = True
+    if args.label_policy != "surviving-set":
+        run_identity["label_policy"] = args.label_policy
     if args.death_window:
         run_identity.update(
             {
@@ -761,7 +799,9 @@ def main() -> None:
     _write_progress(args.out, receipts, stats, [])
     worker = collect_world
     if args.death_window:
-        from research.t3_rollout_labels_20261015.death_window import collect_world_death_window
+        from research.t3_rollout_labels_20261015.death_window import (
+            collect_world_death_window,
+        )
 
         worker = collect_world_death_window
     # A cycle has every final and the exact 27:9:4 mix.  Stop only between
@@ -778,7 +818,16 @@ def main() -> None:
             max_workers=args.workers, mp_context=multiprocessing.get_context("spawn")
         ) as pool:
             futures = [
-                pool.submit(worker, job, plan, args.out, run_identity, threshold)
+                pool.submit(
+                    worker,
+                    job,
+                    plan,
+                    args.out,
+                    run_identity,
+                    threshold,
+                    args.record_outcomes,
+                    args.label_policy,
+                )
                 for job, plan in pending
             ]
             for finished, future in enumerate(concurrent.futures.as_completed(futures), start=1):

@@ -292,6 +292,54 @@ def classify(outcomes: dict[int, dict], b8_action: int) -> tuple[bool, np.ndarra
     return decisive, surviving if decisive or counterweight else np.zeros(6, dtype=bool)
 
 
+def label_set(surviving: np.ndarray, policy: str = "surviving-set") -> np.ndarray:
+    """Apply a collection label policy without changing the rollout outcome set.
+
+    ``prefer-nonboost`` is deliberately a smallest-sufficient-set policy: when
+    normal-speed actions survived, boost actions are omitted; a boost-only
+    escape remains fully represented.  The raw per-action outcomes (when
+    requested) are never affected by this presentation choice.
+    """
+    values = np.asarray(surviving, dtype=bool)
+    if values.shape != (6,):
+        raise ValueError("surviving set must have shape (6,)")
+    if policy == "surviving-set":
+        return values.copy()
+    if policy == "prefer-nonboost":
+        normal = values.copy()
+        if normal[:3].any():
+            normal[3:] = False
+        return normal
+    raise ValueError(f"unknown label policy: {policy}")
+
+
+def outcome_arrays(outcomes: dict[int, dict[str, Any]]) -> dict[str, np.ndarray]:
+    """Pack optional all-action branch outcomes with null deaths encoded as -1."""
+    survived = np.zeros(6, dtype=bool)
+    recorded = np.zeros(6, dtype=bool)
+    death_frame = np.full(6, -1, dtype=np.int64)
+    final_length = np.zeros(6, dtype=np.int64)
+    for action, outcome in outcomes.items():
+        if not isinstance(action, int):
+            continue
+        if not 0 <= action < 6:
+            raise ValueError("outcome action outside [0, 5]")
+        if "final_length" not in outcome:
+            raise ValueError("recorded outcome requires final_length")
+        recorded[action] = True
+        survived[action] = bool(outcome["survives"])
+        death = outcome.get("death_decision")
+        if death is not None:
+            death_frame[action] = int(death)
+        final_length[action] = int(outcome.get("final_length", 0))
+    return {
+        "outcome_recorded": recorded,
+        "outcome_survived": survived,
+        "outcome_death_frame": death_frame,
+        "outcome_final_length": final_length,
+    }
+
+
 def validate_b8_controls(
     controls: Sequence[tuple[int, bool, int]], death_decision: int | None, depth: int = DEPTH
 ) -> int:
@@ -411,7 +459,9 @@ def planned_rosters(
     return planned
 
 
-def build_world(arm: str, plan: dict[str, Any]) -> CapturedWorld:
+def build_world(
+    arm: str, plan: dict[str, Any], *, hero_checkpoint: Path | None = None
+) -> CapturedWorld:
     """Capture an untouched evaluator world through its public construction path."""
     # The census context alone has only scripted rows.  The grid identity
     # context is the pinned all-mix roster/profile authority.
@@ -449,7 +499,7 @@ def build_world(arm: str, plan: dict[str, Any]) -> CapturedWorld:
             vector61=True,
             vector61_forward="rowwise",
             sim_engine="grid",
-            hero_ego2s=str(census.b8_path(arm)),
+            hero_ego2s=str(hero_checkpoint if hero_checkpoint is not None else census.b8_path(arm)),
             ego2s_forward="rowwise",
             ego2s_mask="advisory",
             vector61_backend="numba",
@@ -527,7 +577,12 @@ def choose_and_step(
 
 
 def rollout_all(
-    world: CapturedWorld, legal: Sequence[int], depth: int = DEPTH, decision: int = 0
+    world: CapturedWorld,
+    legal: Sequence[int],
+    depth: int = DEPTH,
+    decision: int = 0,
+    *,
+    record_outcomes: bool = False,
 ) -> dict[int, dict[str, Any]]:
     """Exact D-step continuations for all legal first actions, including vector opponents."""
     if world.mix == "scripted":
@@ -537,7 +592,9 @@ def rollout_all(
         from research.t3_rollout_labels_20261015.engine import batched_rollout
 
         prepared = Replay(world.sim, world.hero, [world.opponents], [world.seed], [world.kinds])
-        outcomes = batched_rollout(prepared, legal, decision, depth)
+        outcomes = batched_rollout(
+            prepared, legal, decision, depth, record_outcomes=record_outcomes
+        )
         outcomes.pop("_batch_receipt")
         return outcomes
     outcomes: dict[int, dict[str, Any]] = {}
@@ -549,10 +606,19 @@ def rollout_all(
         while executed < depth and bool(branch.sim.alive[0, 0]):
             choose_and_step(branch, capture_obs=False)
             executed += 1
-        outcomes[int(action)] = {
+        outcome = {
             "survives": bool(branch.sim.alive[0, 0]) and executed == depth,
             "frames_executed": executed,
         }
+        if record_outcomes:
+            outcome.update(
+                death_decision=(
+                    None if bool(branch.sim.alive[0, 0]) else int(decision) + executed - 1
+                ),
+                # Dead heroes contribute zero logical mass at the branch horizon.
+                final_length=int(branch.sim.length[0, 0]) if bool(branch.sim.alive[0, 0]) else 0,
+            )
+        outcomes[int(action)] = outcome
     return outcomes
 
 
@@ -567,7 +633,14 @@ def write_rows(path: Path, rows: Sequence[dict[str, Any]], *, packed: bool = Fal
     }
     arrays["action"] = np.asarray([row["action"] for row in rows], dtype=np.int64)
     arrays["weight"] = np.ones(len(rows), dtype=np.float32)
-    for key, dtype in (("q", np.float32), ("length", np.int64)):
+    for key, dtype in (
+        ("q", np.float32),
+        ("length", np.int64),
+        ("outcome_recorded", bool),
+        ("outcome_survived", bool),
+        ("outcome_death_frame", np.int64),
+        ("outcome_final_length", np.int64),
+    ):
         if all(key in row for row in rows):
             arrays[key] = np.asarray([row[key] for row in rows], dtype=dtype)
     if packed:
@@ -606,7 +679,14 @@ def write_world_rows(path: Path, rows: Sequence[dict[str, Any]]) -> None:
         arrays["decisive"] = np.asarray([row["decisive"] for row in rows], dtype=bool)
         arrays["decision"] = np.asarray([row["decision"] for row in rows], dtype=np.int64)
         arrays["frame"] = np.asarray([row["frame"] for row in rows], dtype=np.int64)
-        for key, dtype in (("q", np.float32), ("length", np.int64)):
+        for key, dtype in (
+            ("q", np.float32),
+            ("length", np.int64),
+            ("outcome_recorded", bool),
+            ("outcome_survived", bool),
+            ("outcome_death_frame", np.int64),
+            ("outcome_final_length", np.int64),
+        ):
             if all(key in row for row in rows):
                 arrays[key] = np.asarray([row[key] for row in rows], dtype=dtype)
     path.parent.mkdir(parents=True, exist_ok=True)
