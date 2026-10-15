@@ -5,10 +5,11 @@ The served policy remains a bare network. No training run or push is authorized 
 
 ## Status
 
-Part D is transitioning to the death-window addendum in the owned `tmux t3-run` session.
-The target is at least 10,000 decisive rows plus `floor(0.5 * decisive)` counter rows,
-with 12 single-threaded CPU workers on AC. Five completed-key replays passed before
-relaunch. Completion and final throughput will be recorded after the independent audit.
+Part D is **COMPLETE; independent artifact audit PASS**. The final bank contains
+**10,885 decisive rows + 5,442 counter rows = 16,327 rows** from **1,400 completed worlds**
+(seven balanced cycles, 280 worlds per B8 final). All completed prefix worlds were retained.
+The 12-worker CPU collector finished with exit 0 at 2026-10-15T18:05:22Z; its workers exited.
+Five completed-key replays passed before each death-window launch. No training or push occurred.
 
 The preserved dense ceiling is GO: 54/64 episode survival (0.843750), alive-frame
 survival 0.942434, versus B8 38/64 (0.593750), alive-frame 0.861206.
@@ -90,6 +91,56 @@ bytes; source code, namespace, shards, and checkpoints are hash-bound. **PASS:**
 mismatches. Serial validation took 315.941 seconds. The collector independently verified
 the proof against the frozen source and input files before admission.
 
+## Final bank and audit
+
+The seven cycles contain 945 scripted, 315 mixed and 140 frozen worlds. All 10,885 decisive
+rows are retained. The final deterministic uniform sample selects 5,442 of 5,981 raw counter
+candidates, exactly `floor(0.5 * 10,885)`. The audit verifies immutable prefixes, both
+validation epochs and their source hashes, namespace/rosters, source-to-export row bytes,
+unique source-world/decision pairs, exact sampling, and loading all 16,327 rows through the
+training bank loader. `bank-audit.json` reports **PASS** and the audit command exited 0.
+
+| Final-bank statistic | Value |
+|---|---:|
+| Boost actions as a share of surviving action labels | 55.8620% |
+| Rows with at least one surviving boost action | 96.0434% |
+| Label density: surviving labels / all six actions | 60.9573% |
+| Raw six-action B8 Q argmax belongs to the surviving set | 33.2823% (5,434 / 16,327) |
+| Advisory-legal B8 argmax belongs to the surviving set (`b8_agree`) | 33.3313% (5,442 / 16,327) |
+| Retained rows / all play decisions | 0.27603% |
+
+The label is a set, so argmax agreement means membership in that set. The manifest's
+`b8_agree` uses the stored advisory-legal action; the raw argmax diagnostic is separately
+recorded in `death-window-completion-metrics.json`. Raw argmax and the advisory-legal action
+match on 99.8346% of rows. These data statistics are not a gameplay improvement result.
+
+Across the 1,266 new death-window worlds, all **743 sampled window controls** and **18,685
+counter-rollout controls** passed their actual-trajectory fatal-decision/survival checks.
+The older 134 worlds retain their original controls. The final audit reports zero
+Q/action/advisory mismatches.
+
+### Collection time and throughput
+
+The new mode added **9,774 decisive rows**, above the preserved 1,111-row prefix:
+
+| Epoch | New worlds | New decisive | Raw new counters | Active wall time |
+|---|---:|---:|---:|---:|
+| Initial 32-snapshot reservoir | 266 | 1,910 | 142 | 14m 39s |
+| Final 96-snapshot reservoir | 1,000 | 7,864 | 2,071 | 1h 24m 52s |
+| Total death-window collection | 1,266 | 9,774 | 2,213 | **1h 39m 31s** |
+
+This is **5,892.88 new decisive rows/hour** during active collection. Elapsed time from the
+first launch (16:19:33Z) through completion (18:05:22Z), including the reservoir restart
+and second validation, was **1h 45m 49s**, or **5,542.04 new decisive rows/hour**.
+The final epoch alone achieved 5,559.78/hour. These times use command start/finish receipts;
+they exclude the preceding filtered collector and the initial 315.941-second validation.
+No MPS rollout acceleration was needed. The optional two-hour trigger was not reached.
+
+Final immutable artifact hashes:
+
+- `bank/manifest.json`: `0b216da882b634e79ac640a9970a58157828da96e93ec4dbe68e6924c8141391`
+- `bank/bank-00000.npz`: `96da3b448fc7ebd708304d4fc50d661b5771df23a2cd6a70051a1c5ae32aea67`
+
 ## Part C interface (preserved)
 
 The multi-actor trainer has three new flags. All defaults leave the previous numeric path
@@ -150,8 +201,9 @@ belongs to their surviving set. Bank-only runs safely retain `label_buffer=0`.
 
 The existing default-off Part C flags are retained: `--label-bank`, `--label-bank-frac`,
 and `--label-bank-margin-scale`. Bank rows use the weighted surviving-set DQfD margin;
-fast/reference paths and bank-only anchors are supported. The required trainer and bank
-suite passed 46 tests in 99.95 seconds. No research training was launched.
+fast/reference paths and bank-only anchors are supported. The death-window regression suite
+passed **81 tests with 8 existing opt-in parity skips** in 98.57 seconds. The final reservoir/resume/audit checks passed **25 tests** in 0.58 seconds.
+Changed Python files passed formatting and lint checks. No research training was launched.
 
 The shell template is `t3_lanes.sh.template` at the artifact root, with a repository copy
 under `research/t3_rollout_labels_20261015/`. It provides CTRL/LABELS, five paired seeds
@@ -172,7 +224,11 @@ Root: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-202610
 - `bank/death-window-retained.json`, `bank/source-history/`: preserved first two cycles and original proof sources.
 - `bank/prefilter.json`, `bank/calibration/`: threshold, enrichment, actual dense-score audit data.
 - `bank/worlds/`: immutable completed world shards and receipts.
-- `bank/progress.json`: live keys, cycles and decisive count.
+- `bank/progress.json`: completed keys, cycles and decisive count.
+- `bank/README.md`, `bank/manifest.json`: final bank description and immutable artifact hashes.
+- `bank/bank-00000.npz`, `bank/bank-00000.provenance.jsonl`: packed rows and source mapping.
+- `bank-audit.json`: final independent audit PASS, including training-loader validation.
+- `death-window-completion-metrics.json`: final epoch counts, timing, rates and argmax diagnostics.
 - `speedup-calibration.*`, `speedup-bank.*`: previous-stage command and timing receipts.
 - `death-window-*`: current-stage command, timing, validation, test and exit receipts.
 - `t3_lanes.sh.template`: unexecuted Part E hand-back.
