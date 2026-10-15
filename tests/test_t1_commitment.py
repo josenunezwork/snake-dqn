@@ -2,6 +2,8 @@
 
 import copy
 import hashlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -228,3 +230,51 @@ def test_routing_keeps_censored_deaths_in_late_median(horizons, eligible, off) -
     rules = route({"late": late, "all": overall})
     assert rules["R1"]["fires"] is eligible
     assert rules["R1_prime"]["fires"] is off
+
+
+def test_sealer_backups_reject_other_runs_and_unknown_rows(tmp_path: Path) -> None:
+    from research.t1_commitment_20261015.sealer_refresh import bind_original_rows
+
+    (tmp_path / "rows").mkdir()
+    canonical = tmp_path / "rows/b8_s0.jsonl"
+    canonical.write_text('{"outcome":"first run"}\n')
+    run = tmp_path / "run.json"
+    run.write_text('{"run":"first"}\n')
+    backup, binding = bind_original_rows("b8_s0", tmp_path)
+    original = backup.read_bytes()
+    assert canonical.read_bytes() == original
+    assert bind_original_rows("b8_s0", tmp_path)[1] == binding
+    canonical.write_text('{"outcome":"unrelated rows"}\n')
+    with pytest.raises(AssertionError, match="canonical rows differ"):
+        bind_original_rows("b8_s0", tmp_path)
+    canonical.write_bytes(original)
+    run.write_text('{"run":"second"}\n')
+    with pytest.raises(AssertionError, match="different run"):
+        bind_original_rows("b8_s0", tmp_path)
+    assert backup.read_bytes() == original
+
+
+def test_sealer_backup_allows_known_refresh_without_replacing_original(tmp_path: Path) -> None:
+    from research.b8_death_census_20261014.census import sha256_file
+    from research.t1_commitment_20261015.sealer_refresh import bind_original_rows
+
+    (tmp_path / "rows").mkdir()
+    (tmp_path / "sealer-review").mkdir()
+    canonical = tmp_path / "rows/b8_s0.jsonl"
+    canonical.write_text('{"outcome":"immutable intervention"}\n')
+    (tmp_path / "run.json").write_text('{"run":"first"}\n')
+    backup, binding = bind_original_rows("b8_s0", tmp_path)
+    original = backup.read_bytes()
+    canonical.write_text('{"outcome":"immutable intervention","sealer":"reviewed"}\n')
+    (tmp_path / "sealer-review/b8_s0.json").write_text(
+        json.dumps(
+            {
+                **binding,
+                "reviewed_output_sha256": sha256_file(canonical),
+            }
+        )
+    )
+    assert bind_original_rows("b8_s0", tmp_path)[0].read_bytes() == original
+    backup.write_text("tampered backup\n")
+    with pytest.raises(AssertionError, match="backup changed"):
+        bind_original_rows("b8_s0", tmp_path)

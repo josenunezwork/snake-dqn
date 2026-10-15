@@ -110,3 +110,23 @@ def test_joint_neck_seal_is_explicitly_unresolved():
     assert sealer["candidate_cells"] == []
     assert sealer["joint_candidate_cells"] == [[2, 1], [3, 1]]
     assert sealer["joint_evidence"][0]["post_fragment_labels"]
+
+
+def test_mixed_singleton_and_joint_seals_remain_unresolved():
+    # x=2 alone rejoins the left and middle fragments; x=5,x=6 jointly rejoin
+    # the middle and right fragments.  The two causal closure groups make owner
+    # attribution ambiguous, even though the singleton would otherwise resolve.
+    walls = [
+        *((x, 0) for x in range(9)),
+        *((x, 2) for x in range(9)),
+    ]
+    before = _sim(9, 3, [[(0, 1)], walls])
+    after = _sim(9, 3, [[(0, 1)], walls + [(2, 1), (5, 1), (6, 1)]])
+
+    sealer = sealer_identity(before, after, ["greedy_food"])
+
+    assert sealer["status"] == "unresolved"
+    assert sealer["owner"] == "unresolved"
+    assert sealer["candidate_cells"] == [[2, 1]]
+    assert sealer["joint_candidate_cells"] == [[5, 1], [6, 1]]
+    assert len(sealer["joint_evidence"]) == 2

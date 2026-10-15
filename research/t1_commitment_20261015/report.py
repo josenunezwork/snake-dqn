@@ -94,7 +94,11 @@ def summarize_group(rows: Sequence[dict]) -> dict:
         ),
         "recorded_death_controls_passed": sum(r["recorded_death_reproduced"] for r in rows),
         "rollout_env_frames": sum(r["rollout_env_frames"] for r in rows),
-        "all_step1_env_frames": sum(r["env_frames"] for r in rows),
+        "all_step1_env_frames": sum(
+            r.get("env_frames_before_sealer_review", r["env_frames"]) for r in rows
+        ),
+        "sealer_review_env_frames": sum(r.get("sealer_review_replay_env_frames", 0) for r in rows),
+        "all_study_env_frames": sum(r["env_frames"] for r in rows),
         "summed_worker_seconds": sum(r["wall_seconds"] for r in rows),
     }
 
@@ -368,6 +372,7 @@ def build_report(out: Path) -> dict:
         f"Counterfactual/control rollout env-frames: {groups['all']['rollout_env_frames']:,}.",
         "All Step 1 env-frames, including recorded/refinement replay: "
         f"{groups['all']['all_step1_env_frames']:,}.",
+        f"Combined study and sealer-review env-frames: {groups['all']['all_study_env_frames']:,}.",
         "Parity/timing and the preliminary pilot are separate from those totals.",
         "Rollout workers used the frozen launch commit in launch-head.txt. A reviewed",
         "joint-cell seal correction was applied in a separate recorded-action replay only:",

@@ -322,48 +322,83 @@ def _kind_for(kinds: Any, e: int, slot: int) -> Optional[str]:
     return None if value is None else str(value)
 
 
+def _connected_cells(mask: np.ndarray) -> List[List[Tuple[int, int]]]:
+    """Return four-connected ``(x, y)`` groups for a small boolean board mask."""
+    height, width = mask.shape
+    seen = np.zeros_like(mask, dtype=bool)
+    groups: List[List[Tuple[int, int]]] = []
+    for y0, x0 in np.argwhere(mask):
+        x0, y0 = int(x0), int(y0)
+        if seen[y0, x0]:
+            continue
+        seen[y0, x0] = True
+        queue = deque([(x0, y0)])
+        group: List[Tuple[int, int]] = []
+        while queue:
+            x, y = queue.popleft()
+            group.append((x, y))
+            for dx, dy in _NEIGHBORS:
+                nx, ny = x + dx, y + dy
+                if _in_bounds(nx, ny, width, height) and mask[ny, nx] and not seen[ny, nx]:
+                    seen[ny, nx] = True
+                    queue.append((nx, ny))
+        groups.append(sorted(group))
+    return groups
+
+
 def sealer_identity(before: Any, after: Any, kinds: Any, e: int = 0) -> Dict[str, Any]:
     """Conservatively identify a newly occupied cell that seals the head region.
 
-    A singleton candidate must have been free before, occupied after, and split
-    one of the free components adjacent to the pre-step hero head into two or
-    more distinct post-step components.  The aggregate of newly blocked cells is
-    also tested: a joint neck seal is evidence, but always resolves to
-    ``unresolved`` because no individual owner is causally identifiable.  Any
-    ambiguous occupancy, multiple singleton candidates, or uncertain owner also
-    yields ``status='unresolved'``; this diagnostic never guesses.
+    Newly occupied *and blocked* cells are clustered into four-connected closure
+    groups.  A group is causal only if reopening it reconnects distinct post-step
+    fragments of a pre-step head-side component.  Exactly one causal singleton
+    can be attributed; a joint group or multiple causal groups is unresolved.
     """
     pre, post = component_geometry(before, e), component_geometry(after, e)
     pre_labels = _head_side_labels(pre)
     pre_occ = pre["owners"] >= 0
     post_occ = post["owners"] >= 0
     new_cells = np.argwhere(~pre_occ & post_occ)
-    candidates: List[Tuple[int, int]] = []
-    joint_candidates: List[Tuple[int, int]] = []
-    joint_evidence: List[Dict[str, Any]] = []
-    for y, x in new_cells:
-        x, y = int(x), int(y)
-        old_label = int(pre["labels"][y, x])
-        if old_label < 0 or old_label not in pre_labels:
-            continue
-        # All other old members of this region retain a post label if they remain
-        # free.  Splitting is real only when at least two post labels survive.
-        members = (pre["labels"] == old_label) & ~post["blocked"]
-        after_labels = set(int(v) for v in post["labels"][members] if int(v) >= 0)
-        if len(after_labels) < 2:
-            continue
-        # Causal proof: restoring *this* newly blocked cell must reconnect at
-        # least two of the split remnants.  A remote new cell during an unrelated
-        # split therefore cannot be blamed merely for sharing the old component.
-        touching = set()
-        for dx, dy in _NEIGHBORS:
-            nx, ny = x + dx, y + dy
-            if _in_bounds(nx, ny, post["width"], post["height"]):
-                post_label = int(post["labels"][ny, nx])
-                if post_label in after_labels:
-                    touching.add(post_label)
-        if len(touching) >= 2:
-            candidates.append((x, y))
+    new_blocked = (~pre_occ & post_occ) & post["blocked"]
+    causal_groups: List[Dict[str, Any]] = []
+    for group in _connected_cells(new_blocked):
+        restored_blocked = post["blocked"].copy()
+        for x, y in group:
+            restored_blocked[y, x] = False
+        restored_labels, _ = _label_components(restored_blocked)
+        evidence = []
+        for old_label in pre_labels:
+            members = (pre["labels"] == old_label) & ~post["blocked"]
+            post_parts = sorted(set(int(v) for v in post["labels"][members] if int(v) >= 0))
+            if len(post_parts) < 2:
+                continue
+            restored_parts = {}
+            for part in post_parts:
+                py, px = np.argwhere(post["labels"] == part)[0]
+                restored_parts[part] = int(restored_labels[py, px])
+            reconnects = {}
+            for part, restored in restored_parts.items():
+                if restored >= 0:
+                    reconnects.setdefault(restored, []).append(part)
+            bridge_labels = [label for label, parts in reconnects.items() if len(parts) >= 2]
+            if bridge_labels:
+                bridge_label = min(bridge_labels)
+                evidence.append(
+                    {
+                        "pre_component_label": old_label,
+                        "post_fragment_labels": post_parts,
+                        "reconnected_fragment_labels": reconnects[bridge_label],
+                        "restored_component_label": bridge_label,
+                        "cells": [[x, y] for x, y in group],
+                    }
+                )
+        if evidence:
+            causal_groups.append({"cells": group, "evidence": evidence})
+    candidates = [entry["cells"][0] for entry in causal_groups if len(entry["cells"]) == 1]
+    joint_candidates = [
+        cell for entry in causal_groups if len(entry["cells"]) > 1 for cell in entry["cells"]
+    ]
+    joint_evidence = [item for entry in causal_groups for item in entry["evidence"]]
     result: Dict[str, Any] = {
         "status": "none",
         "owner": "none",
@@ -372,13 +407,13 @@ def sealer_identity(before: Any, after: Any, kinds: Any, e: int = 0) -> Dict[str
         "cell": None,
         "candidate_cells": [[x, y] for x, y in candidates],
         "newly_occupied_cells": [[int(x), int(y)] for y, x in new_cells],
-        "joint_candidate_cells": [],
-        "joint_evidence": [],
+        "joint_candidate_cells": [[x, y] for x, y in sorted(set(joint_candidates))],
+        "joint_evidence": joint_evidence,
     }
-    if len(candidates) > 1:
+    if len(causal_groups) > 1:
         result.update({"status": "unresolved", "owner": "unresolved"})
         return result
-    if len(candidates) == 1:
+    if len(causal_groups) == 1 and len(causal_groups[0]["cells"]) == 1:
         x, y = candidates[0]
         owner = int(post["owners"][y, x])
         if bool(post["ambiguous"][y, x]) or owner < 0:
@@ -395,54 +430,12 @@ def sealer_identity(before: Any, after: Any, kinds: Any, e: int = 0) -> Dict[str
             return result
         result.update({"status": "resolved", "owner": "opponent", "kind": kind})
         return result
-
-    # No singleton bridges the fragments.  Check whether the complete new-cell
-    # set in a prior head-side component reconnects those same post-step fragments
-    # when opened together.  This proves a joint seal without pretending that a
-    # particular cell (or its potentially shared owner) was the sealer.
-    for old_label in pre_labels:
-        members = (pre["labels"] == old_label) & ~post["blocked"]
-        post_parts = sorted(set(int(v) for v in post["labels"][members] if int(v) >= 0))
-        if len(post_parts) < 2:
-            continue
-        cells = [
-            (int(x), int(y))
-            for y, x in new_cells
-            if int(pre["labels"][int(y), int(x)]) == old_label
-            and bool(post["blocked"][int(y), int(x)])
-        ]
-        if len(cells) < 2:
-            continue
-        restored_blocked = post["blocked"].copy()
-        for x, y in cells:
-            restored_blocked[y, x] = False
-        restored_labels, _ = _label_components(restored_blocked)
-        restored_parts = set()
-        for part in post_parts:
-            py, px = np.argwhere(post["labels"] == part)[0]
-            restored_parts.add(int(restored_labels[py, px]))
-        if len(restored_parts) != 1 or next(iter(restored_parts)) < 0:
-            continue
-        joint_candidates.extend(cells)
-        joint_evidence.append(
-            {
-                "pre_component_label": old_label,
-                "post_fragment_labels": post_parts,
-                "restored_component_label": next(iter(restored_parts)),
-                "cells": [[x, y] for x, y in cells],
-            }
-        )
     if joint_candidates:
-        unique_joint = sorted(set(joint_candidates))
         result.update(
             {
                 "status": "unresolved",
                 "owner": "unresolved",
-                "joint_candidate_cells": [[x, y] for x, y in unique_joint],
-                "joint_evidence": joint_evidence,
             }
         )
         return result
-    if not candidates:
-        return result
-    raise AssertionError("unreachable sealer classification")
+    return result

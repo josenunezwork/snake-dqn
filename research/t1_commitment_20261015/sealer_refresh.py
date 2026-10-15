@@ -7,6 +7,7 @@ it performs no hero forwards or counterfactual rollouts. Original rows are retai
 
 from __future__ import annotations
 
+import argparse
 import concurrent.futures
 import json
 import multiprocessing
@@ -26,15 +27,40 @@ from research.t1_commitment_20261015.replay import (
 from research.t1_commitment_20261015.topology import sealer_identity
 
 
+def bind_original_rows(arm: str, out: Path) -> tuple:
+    """Reject stale backups or unrelated canonical rows instead of mixing runs."""
+    canonical = out / "rows" / f"{arm}.jsonl"
+    backup = out / "rows-before-sealer-review" / f"{arm}.jsonl"
+    binding_path = backup.with_suffix(".binding.json")
+    run_hash = census.sha256_file(out / "run.json")
+    canonical_hash = census.sha256_file(canonical)
+    if backup.exists():
+        binding = json.loads(binding_path.read_text())
+        assert binding["run_sha256"] == run_hash, "backup belongs to a different run"
+        assert census.sha256_file(backup) == binding["original_rows_sha256"], "backup changed"
+        accepted = {binding["original_rows_sha256"]}
+        prior_path = out / "sealer-review" / f"{arm}.json"
+        if prior_path.exists():
+            prior = json.loads(prior_path.read_text())
+            assert prior["run_sha256"] == run_hash, "review receipt belongs to a different run"
+            assert prior["original_rows_sha256"] == binding["original_rows_sha256"]
+            accepted.add(prior["reviewed_output_sha256"])
+        assert canonical_hash in accepted, "canonical rows differ from this bound run/review"
+    else:
+        assert not binding_path.exists(), "orphan backup binding; inspect before resuming"
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(canonical, backup)
+        binding = {"run_sha256": run_hash, "original_rows_sha256": canonical_hash}
+        write_json(binding_path, binding)
+    return backup, binding
+
+
 def refresh_arm(arm: str, out: Path) -> dict:
     """Recompute sealers on unchanged recorded paths, with explicit cost receipts."""
     configure_cpu()
     started = time.perf_counter()
     canonical = out / "rows" / f"{arm}.jsonl"
-    backup = out / "rows-before-sealer-review" / f"{arm}.jsonl"
-    backup.parent.mkdir(parents=True, exist_ok=True)
-    if not backup.exists():
-        shutil.copyfile(canonical, backup)
+    backup, binding = bind_original_rows(arm, out)
     rows = [json.loads(line) for line in backup.read_text().splitlines()]
     _, series = load_inputs(arm)
     context = census.load_context()
@@ -93,13 +119,17 @@ def refresh_arm(arm: str, out: Path) -> dict:
         "env_frames": env_frames,
         "wall_seconds": time.perf_counter() - started,
         "corrections": corrections,
+        **binding,
+        "reviewed_output_sha256": census.sha256_file(canonical),
     }
     write_json(out / "sealer-review" / f"{arm}.json", receipt)
     return receipt
 
 
 def main() -> None:
-    out = ARTIFACTS
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", type=Path, default=ARTIFACTS)
+    out = parser.parse_args().out
     run = json.loads((out / "run.json").read_text())
     assert run["status"] == "PASS" and not run["partial_pilot"]
     start = time.perf_counter()
@@ -119,6 +149,7 @@ def main() -> None:
             "git": census._git(),
             "topology_sha256": census.sha256_file(Path(__file__).with_name("topology.py")),
             "rollout_launch_commit": (out / "launch-head.txt").read_text().strip(),
+            "run_sha256": census.sha256_file(out / "run.json"),
         },
     )
 
