@@ -7,8 +7,9 @@ Reads the ensemble rows written by ``ensemble_probe.py run`` and the members' ex
 dev-probe rows (same worlds: round 52, 32 per mix, H5000). Per arm: mean mass (all 96 worlds),
 per-mix mass / survival, paired mass delta vs the incumbent (95% t CI over worlds), deaths
 and deaths at length >= 800 (ensembles: length at the hero's last decision; B8 members:
-scripted mix from the B8 death census), the GO check, paired ensemble-minus-member-average
-mass / survival, and the Q-calibration summary.
+scripted mix from the B8 death census), the GO check (ensembles with K > 1 only),
+paired ensemble-minus-member-average mass / survival, and the Q-calibration summary (per mix
+and decision-weighted over the mixes: ``calibration_pooled``).
 """
 
 from __future__ import annotations
@@ -255,6 +256,61 @@ def scripted96(b8: Dict[str, Dict[str, dict]]) -> Dict[str, Any]:
     return out
 
 
+def calibration_pooled(cal: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """Decision-weighted pool of the per-mix calibration stats, one entry per length bucket.
+
+    Is averaging Q across independently trained seeds meaningful? Compare the members'
+    value level (masked max Q) and advantage scale (sd of centered Q), their correlation, and
+    how often the mean-Q rule disagrees with the scale-free z-mean rule.
+    """
+    out: Dict[str, Any] = {}
+    for bucket in ("lt800", "ge800"):
+        parts = [c[bucket] for c in cal.values() if c.get(bucket, {}).get("decisions")]
+        if not parts:
+            continue
+        n = sum(p["decisions"] for p in parts)
+        k = len(parts[0]["vmax_mean"])
+
+        def wavg(key: str) -> Any:
+            first = parts[0][key]
+            if isinstance(first, list):
+                return [
+                    sum(p[key][i] * p["decisions"] for p in parts) / n for i in range(len(first))
+                ]
+            return sum(p[key] * p["decisions"] for p in parts) / n
+
+        def offdiag(key: str) -> List[float]:
+            return [
+                sum(p[key][i][j] * p["decisions"] for p in parts) / n
+                for i in range(k)
+                for j in range(i + 1, k)
+            ]
+
+        vmax = wavg("vmax_mean")
+        adv = wavg("adv_sd")
+        agree = wavg("member_agree_chosen")
+        pair = offdiag("pair_agree")
+        vcorr = offdiag("vmax_corr")
+        acorr = offdiag("adv_corr")
+        out[bucket] = {
+            "decisions": n,
+            "vmax_mean_per_member": vmax,
+            "vmax_mean_range": max(vmax) - min(vmax),
+            "adv_sd_per_member": adv,
+            "adv_sd_max_over_min": max(adv) / max(min(adv), 1e-12),
+            "vmax_corr_min_mean": [min(vcorr), sum(vcorr) / len(vcorr)] if vcorr else None,
+            "adv_corr_min_mean": [min(acorr), sum(acorr) / len(acorr)] if acorr else None,
+            "top2_gap_mean": sum(wavg("gap_mean")) / k,
+            "vmax_member_spread": wavg("vmax_member_spread"),
+            "unanimous_frac": wavg("unanimous_frac"),
+            "pair_agree_mean": sum(pair) / len(pair) if pair else 1.0,
+            "chosen_ne_member_frac": [1.0 - a for a in agree],
+            "mean_ne_vote_frac": wavg("mean_ne_vote_frac"),
+            "mean_ne_zmean_frac": wavg("mean_ne_zmean_frac"),
+        }
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=OUT_DIR / "results.json")
@@ -295,6 +351,9 @@ def main() -> int:
         elif "B8x5" in name:
             e["vs_member_average"] = paired_vs_members(rows, b8)
         e["calibration"] = {m: rows[m]["diag"]["calibration"] for m in rows if rows[m].get("diag")}
+        e["calibration_pooled"] = calibration_pooled(e["calibration"])
+        # GO is a property of a real ensemble; the K=1 identity row is only a replay check
+        e["go"] = bool(e["go"] and len(ens_members) > 1)
         res["ensembles"][name] = e
     res["scripted96"] = scripted96(b8)
     args.out.write_text(json.dumps(res, indent=1) + "\n")
@@ -323,6 +382,18 @@ def main() -> int:
         print(line(k, s))
     for k, s in res["ensembles"].items():
         print(line(k, s), "GO" if s["go"] else "")
+    for k, s in res["ensembles"].items():
+        for b, c in s.get("calibration_pooled", {}).items():
+            if len(c["vmax_mean_per_member"]) < 2:
+                continue
+            print(
+                f"calib {k:12s} {b}: n={c['decisions']} vmax range {c['vmax_mean_range']:.2f} "
+                f"adv_sd max/min {c['adv_sd_max_over_min']:.2f} "
+                f"adv_corr min {c['adv_corr_min_mean'][0]:.3f} top2 gap {c['top2_gap_mean']:.3f} "
+                f"vmax spread {c['vmax_member_spread']:.2f} unanimous {c['unanimous_frac']:.3f} "
+                f"mean!=z {c['mean_ne_zmean_frac']:.4f} mean!=vote {c['mean_ne_vote_frac']:.4f} "
+                f"chosen!=member {max(c['chosen_ne_member_frac']):.3f} max"
+            )
     return 0
 
 
