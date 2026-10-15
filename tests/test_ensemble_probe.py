@@ -85,3 +85,36 @@ def test_zmean_is_scale_free():
     m[0, 3:] = False
     scaled = q * np.array([1.0, 10.0, 0.1])[:, None, None] + 7.0
     assert np.array_equal(zmean_actions(q, m), zmean_actions(scaled, m))
+
+
+def test_calibration_pooled_weights_mixes_by_decisions():
+    from research.ensemble_20261014.analyze import calibration_pooled
+
+    def bucket(n, vmax, adv, agree):
+        return {
+            "decisions": n,
+            "vmax_mean": vmax,
+            "adv_sd": adv,
+            "member_agree_chosen": agree,
+            "pair_agree": [[1.0, agree[0]], [agree[0], 1.0]],
+            "vmax_corr": [[1.0, 0.9], [0.9, 1.0]],
+            "adv_corr": [[1.0, 0.95], [0.95, 1.0]],
+            "gap_mean": [0.1, 0.3],
+            "vmax_member_spread": 0.5,
+            "unanimous_frac": agree[0],
+            "mean_ne_vote_frac": 0.0,
+            "mean_ne_zmean_frac": 0.01,
+        }
+
+    cal = {
+        "frozen": {"lt800": bucket(1, [1.0, 2.0], [1.0, 1.0], [1.0, 0.5]), "ge800": {}},
+        "mixed": {"lt800": bucket(3, [3.0, 2.0], [1.0, 2.0], [0.5, 0.5])},
+    }
+    out = calibration_pooled(cal)
+    assert set(out) == {"lt800"}
+    c = out["lt800"]
+    assert c["decisions"] == 4
+    assert c["vmax_mean_per_member"] == [2.5, 2.0]
+    assert c["adv_sd_max_over_min"] == 1.75
+    assert c["chosen_ne_member_frac"] == [0.375, 0.5]
+    assert abs(c["top2_gap_mean"] - 0.2) < 1e-12
