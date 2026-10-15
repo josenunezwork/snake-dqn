@@ -3,11 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from research.t3_screen_20261015.analyze_t3 import (ARMS, EXTENSION_ROUND,
-                                                    analyze,
-                                                    extension_requirements,
-                                                    read_telemetry,
-                                                    write_results)
+from research.t3_screen_20261015.analyze_t3 import (
+    ARMS,
+    EXTENSION_ROUND,
+    analyze,
+    extension_requirements,
+    read_telemetry,
+    write_results,
+)
 
 
 def _row(name, mix, deaths, mass=100.0, round_index=62, offset=0):
@@ -160,3 +163,17 @@ def test_death_lengths_are_descriptive_when_deaths_differ_by_policy():
     lengths = result["arms"]["LABELS"]["death_lengths"]["scripted"]
     assert lengths["candidate"][0]["mean"] == 30.0
     assert lengths["ctrl"][0]["mean"] == 10.0
+
+
+def test_attribution_applies_registered_both_go_and_low_anchor_cases():
+    rows, statuses = _dataset({(arm, "scripted"): ([0, 0], 100.0) for arm in ARMS})
+    result = analyze(rows, statuses)
+    assert "labels carry the effect" in result["attribution"]
+    assert "LABELS_KEEPV8_LO also GO" in result["attribution"]
+
+
+def test_attribution_complete_after_exhausted_extension():
+    rows, statuses = _dataset()
+    result = analyze(rows, statuses)
+    assert "pending" not in result["attribution"]
+    assert all(arm in result["attribution"] for arm in ARMS)

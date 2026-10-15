@@ -197,7 +197,9 @@ def _verify_lineage(receipt: Mapping[str, Any], cache: dict[Path, str]) -> None:
     paths = {census.b8_path(name): digest for name, digest in expected_b8.items()}
     paths.update({Path(name): digest for name, digest in expected_roster.items()})
     for path, expected in paths.items():
-        actual = cache.setdefault(path, sha256(path))
+        if path not in cache:
+            cache[path] = sha256(path)
+        actual = cache[path]
         if actual != expected:
             raise RuntimeError(f"receipt checkpoint lineage mismatch: {path}")
 

@@ -11,11 +11,9 @@ import argparse
 import json
 import math
 from pathlib import Path
-from typing import (Any, Dict, Iterable, List, Mapping, Optional, Sequence,
-                    Tuple, Union)
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
-from research.t2_screen_20261015.analyze_t2 import (_mean, _number_map, _se,
-                                                    _survival_maps)
+from research.t2_screen_20261015.analyze_t2 import _mean, _number_map, _se, _survival_maps
 
 ARMS = ("LABELS", "LABELS_KEEPV8", "LABELS_KEEPV8_LO")
 MIXES = ("scripted", "frozen", "mixed")
@@ -332,12 +330,7 @@ def analyze(
         "rerolls_by_run": dict(rerolls),
         "attribution": "descriptive comparison pending complete endpoints",
     }
-    decisions = {arm: data["decision"] for arm, data in arms.items()}
-    if all(value in ("GO", "KILL") for value in decisions.values()):
-        result["attribution"] = {
-            arm: data["vs_ctrl"]["scripted"]["episode_survival"]["mean"]
-            for arm, data in arms.items()
-        }
+    result["attribution"] = attribution(arms)
     if any(data["extension_started"] for data in arms.values()):
         initial = analyze(
             [row for row in rows if int(row["round_index"]) == INITIAL_ROUND],
@@ -348,6 +341,41 @@ def analyze(
         for arm, data in arms.items():
             data["initial_decision"] = initial["arms"][arm]["decision"]
     return result
+
+
+def attribution(arms: Mapping[str, Any]) -> str:
+    """Apply registered cases without inventing a numerical similarity threshold."""
+    primary = {
+        arm: data["vs_ctrl"]["scripted"]["episode_survival"]["mean"] for arm, data in arms.items()
+    }
+    decisions = {arm: data["decision"] for arm, data in arms.items()}
+    if decisions["LABELS"] == decisions["LABELS_KEEPV8"] == "GO":
+        note = "Both scheduled arms GO: under the registered attribution rule, labels carry the effect."
+    elif primary["LABELS"] > 0 and primary["LABELS_KEEPV8"] <= 0:
+        note = (
+            "Only LABELS moves positively among the two scheduled arms: the registered "
+            "interpretation favors the anchor regime, not an isolated label effect."
+        )
+    else:
+        note = (
+            "The registered decisive attribution cases do not establish an isolated label "
+            "effect. Similarity had no registered numerical cutoff; compare the reported "
+            "paired deltas descriptively."
+        )
+    if decisions["LABELS_KEEPV8_LO"] == "GO":
+        note += (
+            " LABELS_KEEPV8_LO also GO: label contents meet the screen under CTRL's low "
+            "anchor weight without the initial high-weight schedule."
+        )
+    else:
+        note += (
+            " LABELS_KEEPV8_LO does not meet GO under CTRL's low anchor weight; its "
+            "endpoint does not establish that changing label contents alone is sufficient."
+        )
+    note += " Scripted deltas: " + ", ".join(f"{arm}={primary[arm]:+.4f}" for arm in ARMS) + "."
+    if any(data["failed_runs"] for data in arms.values()):
+        note += " Halted arms have incomplete numerical comparisons; interpret these descriptively."
+    return note
 
 
 def extension_requirements(
@@ -446,7 +474,7 @@ def _fmt(value: Mapping[str, Any]) -> str:
 
 def markdown(result: Mapping[str, Any]) -> str:
     lines = [
-        "# T3 label-bank screen result (2026-10-15)",
+        "# T3 development screen, not gate evidence (2026-10-15)",
         "",
         "**Development screen, not gate evidence.**",
         "",
@@ -518,7 +546,10 @@ def markdown(result: Mapping[str, Any]) -> str:
         "",
         "### Death-length distributions",
         "",
-        "| arm | mix | policy | deaths | mean | median | q25 | q75 |",
+        "Statistics below average the per-training-seed death distributions; they are not "
+        "quantiles of a pooled death sample.",
+        "",
+        "| arm | mix | policy | deaths | mean | mean median | mean q25 | mean q75 |",
         "|---|---|---|---:|---:|---:|---:|---:|",
     ]
     for arm, data in result["arms"].items():
