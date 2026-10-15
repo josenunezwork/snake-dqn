@@ -154,7 +154,7 @@ def study_death(arm: str, death: dict, series: Any, context: Any) -> dict:
                 measured = evaluate_decision(r, int(series["action"][env, t]), t, fatal)
                 env_frames += sum(o["env_frames"] for o in measured["outcomes"].values())
                 scans[t] = measured
-                if t < fatal and measured["surviving_actions"]:
+                if max(0, fatal - 300) <= t < fatal and measured["surviving_actions"]:
                     last_positive, last_snapshot = t, r.clone(prepared=True)
                 if t == t0:
                     onset_measurement = add_geometry(r, measured)
@@ -168,6 +168,7 @@ def study_death(arm: str, death: dict, series: Any, context: Any) -> dict:
         replay.step([int(series["action"][env, t])], observe)
     assert not replay.sim.alive[0, 0], ("recorded replay did not die", arm, env, fatal)
     lad = None
+    refinement_env_frames = 0
     if last_positive is not None:
         # Refine every decision in the last positive stride-10 window, even
         # when survival is nonmonotonic inside that window.
@@ -187,7 +188,7 @@ def study_death(arm: str, death: dict, series: Any, context: Any) -> dict:
                     lad = add_geometry(r, measured)
 
             refined.step([int(series["action"][env, t])], refine)
-        env_frames += refined.env_frames
+        refinement_env_frames = refined.env_frames
     assert all(m["outcomes"][str(m["chosen_action"])]["control_reproduced"] for m in scans.values())
     return {
         "schema": "t1a-death/v1",
@@ -209,7 +210,10 @@ def study_death(arm: str, death: dict, series: Any, context: Any) -> dict:
         "scans": [scans[k] for k in sorted(scans)],
         "recorded_death_reproduced": True,
         "length_values_compared": lengths_checked,
-        "env_frames": env_frames + replay.env_frames,
+        "rollout_env_frames": env_frames,
+        "recorded_replay_env_frames": replay.env_frames,
+        "refinement_replay_env_frames": refinement_env_frames,
+        "env_frames": env_frames + replay.env_frames + refinement_env_frames,
         "wall_seconds": time.perf_counter() - start,
     }
 

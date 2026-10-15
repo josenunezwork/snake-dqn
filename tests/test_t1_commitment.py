@@ -1,5 +1,6 @@
 """Exact replay, full-state clone isolation and intervention endpoint checks."""
 
+import copy
 import hashlib
 from types import SimpleNamespace
 
@@ -138,3 +139,63 @@ def test_scan_contains_start_and_last_coarse_decision(fatal: int) -> None:
     assert decisions[-1] == fatal - 10
     assert len(decisions) == len(set(decisions))
     assert all(0 <= d < fatal for d in decisions)
+
+
+@pytest.mark.parametrize("coarse_positive", [False, True])
+def test_onset_positive_can_be_latest_lad_and_region_includes_fatal(
+    monkeypatch: pytest.MonkeyPatch, coarse_positive: bool
+) -> None:
+    from research.t1_commitment_20261015 import study, topology
+
+    fatal = 80
+
+    class RecordedWorld:
+        def __init__(self) -> None:
+            self.sim = SimpleNamespace(
+                frame=np.array([0]), alive=np.ones((1, 1), bool), length=np.ones((1, 1), int)
+            )
+            self.env_frames = 0
+            self.kinds = [["scripted:greedy_food"]]
+
+        def clone(self, prepared: bool = False) -> "RecordedWorld":
+            return copy.deepcopy(self)
+
+        def first(self, action: int) -> None:
+            self.env_frames += 1
+            self.sim.alive[0, 0] = int(self.sim.frame[0]) <= fatal
+
+        def step(self, forced=None, observer=None) -> None:
+            self.sim.frame[0] += 1
+            if observer is not None:
+                observer(self)
+            self.first(1)
+
+    def measured(replay, chosen, decision, fatal):
+        positive = decision in (76, 77) or (coarse_positive and decision == 10)
+        return {
+            "decision": decision,
+            "chosen_action": chosen,
+            "surviving_actions": [2] if positive else [],
+            "outcomes": {str(chosen): {"env_frames": 1, "control_reproduced": True}},
+        }
+
+    monkeypatch.setattr(study, "build_replay", lambda *a: RecordedWorld())
+    monkeypatch.setattr(study, "evaluate_decision", measured)
+    monkeypatch.setattr(study, "add_geometry", lambda replay, row: dict(row))
+    monkeypatch.setattr(topology, "head_region", lambda sim: {"component_size": 1})
+    monkeypatch.setattr(topology, "sealer_identity", lambda *a: {"owner": "none"})
+    death = {
+        "env": 0,
+        "fatal_t": fatal,
+        "frame": fatal + 1,
+        "length": 1,
+        "trap_onset": {"t0": 76},
+        "world_seed": 123,
+    }
+    series = {"action": np.ones((1, fatal + 1), int), "length": np.ones((1, fatal + 1), int)}
+    row = study.study_death("b8_s0", death, series, None)
+    assert row["lad"]["decision"] == 77
+    assert row["H_LAD"] == 3
+    assert len(row["region_series"]) == 60
+    assert row["region_series"][0]["decision"] == 21
+    assert row["region_series"][-1]["decision"] == fatal
