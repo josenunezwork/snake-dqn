@@ -152,6 +152,24 @@ def _masked_argmax(torch, q, m):
     return torch.where(m, q, torch.full_like(q, -1e9)).argmax(dim=1)
 
 
+def _bank_anchor_terms(torch, qd, db, n_bank: int, margin: float, scale: float):
+    """Combine ordinary anchors and weighted surviving-set anchors by row count."""
+    from research.t3_rollout_labels_20261015.bank import surviving_margin
+
+    regular = len(qd) - n_bank
+    qb = qd[regular:]
+    bank_loss = surviving_margin(torch, qb, db["surviving"], db["weight"], margin * scale)
+    agree = db["surviving"].gather(1, qb.argmax(dim=1)[:, None]).float().mean()
+    if regular:
+        ordinary = anchor_loss_margin(
+            torch, qd[:regular], db["a_v8"][:regular], db["mask_resolved"][:regular], margin
+        )
+        anchor = (regular * ordinary + n_bank * bank_loss) / len(qd)
+    else:
+        anchor = bank_loss
+    return anchor, bank_loss, agree
+
+
 def loss_terms(
     torch,
     online,
@@ -176,6 +194,11 @@ def loss_terms(
     boost_weight: float,
     margin: float,
     td_delta: float = 1.0,
+    n_bank: int = 0,
+    bank_surviving=None,
+    bank_weight=None,
+    bank_margin_scale: float = 1.0,
+    bank_metrics=None,
 ):
     """The T1 update's forwards and loss terms on one uploaded staging batch.
 
@@ -211,7 +234,14 @@ def loss_terms(
         "a_v8": a_v8[:m],
         "mask_resolved": mask_resolved[:m],
     }
-    if m == 0:
+    if n_bank:
+        db.update(surviving=bank_surviving, weight=bank_weight)
+        anc, bank_loss, bank_agree = _bank_anchor_terms(
+            torch, qd, db, n_bank, margin, bank_margin_scale
+        )
+        if bank_metrics is not None:
+            bank_metrics.update(loss=bank_loss.detach(), agree=bank_agree.detach())
+    elif m == 0:
         anc = torch.zeros((), device=q.device)
     elif anchor_mode == "v8margin":
         anc = anchor_loss_margin(torch, qd, db["a_v8"], db["mask_resolved"], margin)
@@ -319,6 +349,7 @@ class Learner:
         agent_rows: int = AGENT_ROWS,
         anchor_rows: int = ANCHOR_ROWS,
         min_rows: int = MIN_ROWS,
+        bank=None,
     ) -> None:
         self.torch = torch
         self.online, self.target, self.opt = online, target, opt
@@ -327,6 +358,15 @@ class Learner:
         self.nscal, self.margin = int(nscal), margin
         self.device = torch.device(device)
         self.opts = opts or LearnerOpts()
+        self.bank = bank if float(getattr(args, "label_bank_frac", 0.0)) > 0 else None
+        if float(getattr(args, "label_bank_frac", 0.0)) > 0 and self.bank is None:
+            raise ValueError("--label-bank-frac needs a loaded label bank")
+        if self.bank is not None:
+            if args.anchor_mode != "v8margin":
+                raise ValueError("--label-bank needs --anchor-mode v8margin")
+            for key in ("bank_rows", "bank_margin_loss", "bank_agree"):
+                st.setdefault(key, [])
+            self._bank_loss, self._bank_agree = [], []
         k = int(self.opts.batch_scale)
         self.a_rows, self.d_rows, self.min_rows = agent_rows * k, anchor_rows * k, min_rows * k
         self.target_every = max(1, round(TARGET_EVERY / k))
@@ -437,6 +477,15 @@ class Learner:
         if self._qmax is not None:
             self.st["qmax"] = max(self.st["qmax"], float(self._qmax))
             self._qmax = None
+        if self.bank is not None:
+            self._flush_bank_stats()
+
+    def _flush_bank_stats(self) -> None:
+        """Move optional bank telemetry to CPU only at existing flush boundaries."""
+        if self._bank_loss:
+            self.st["bank_margin_loss"].extend(self.torch.stack(self._bank_loss).cpu().tolist())
+            self.st["bank_agree"].extend(self.torch.stack(self._bank_agree).cpu().tolist())
+            self._bank_loss, self._bank_agree = [], []
 
     # ------------------------------------------------------------------ reference (M3-C)
     def _update_reference(self, lam: float) -> None:
@@ -471,6 +520,7 @@ class Learner:
         a = to_dev(replay.a[idx])
         R = to_dev(replay.R[idx])
         disc = to_dev(replay.disc[idx])
+        n_bank = int(round(self.d_rows * args.label_bank_frac)) if self.bank is not None else 0
         n_lab = 0
         if labels is not None and labels.size >= LABEL_ANCHOR_MIN_ROWS:
             n_lab = int(round(self.d_rows * args.label_frac))
@@ -484,7 +534,7 @@ class Learner:
                 "q_teacher": np.zeros((0, 6), dtype=np.float32),
             }
         else:
-            d = demos.sample(rng, self.d_rows - n_lab)
+            d = demos.sample(rng, self.d_rows - n_lab - n_bank)
         if n_lab:
             li = labels.sample(rng, n_lab, multi)
             lids = labels.ids[li]
@@ -501,6 +551,10 @@ class Learner:
                 "q_teacher": d["q_teacher"],  # demo rows only (unused by v8margin)
             }
         st["label_rows"].append(n_lab)
+        if n_bank:
+            bank_rows = self.bank.sample(rng, n_bank)
+            for key in ("local", "global", "scalars"):
+                d[key] = np.concatenate([d[key], bank_rows[key]])
         n_agent = len(idx)
         q_all = online(
             to_dev(np.concatenate([sl, d["local"]])),
@@ -518,7 +572,12 @@ class Learner:
         td = torch.nn.functional.huber_loss(qa, y, delta=td_delta)
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         has_anchor = qd.shape[0] > 0
-        if not has_anchor:  # bv8 before enough on-policy labels: TD only
+        if n_bank:
+            db.update(surviving=to_dev(bank_rows["surviving"]), weight=to_dev(bank_rows["weight"]))
+            anc, bank_loss, bank_agree = _bank_anchor_terms(
+                torch, qd, db, n_bank, margin, args.label_bank_margin_scale
+            )
+        elif not has_anchor:  # bv8 before enough on-policy labels: TD only
             anc = torch.zeros((), device=q.device)
         elif args.anchor_mode == "v8margin":
             anc = anchor_loss_margin(torch, qd, db["a_v8"], db["mask_resolved"], margin)
@@ -534,6 +593,10 @@ class Learner:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
         opt.step()
+        if self.bank is not None:
+            st["bank_rows"].append(n_bank)
+            st["bank_margin_loss"].append(float(bank_loss.detach()) if n_bank else 0.0)
+            st["bank_agree"].append(float(bank_agree.detach()) if n_bank else 0.0)
         st["updates"] += 1
         st["td"].append(float(td.detach()))
         if has_anchor:
@@ -608,13 +671,14 @@ class Learner:
         v["a"][:n] = replay.a[idx]
         v["R"][:n] = replay.R[idx]
         v["disc"][:n] = replay.disc[idx]
+        n_bank = int(round(self.d_rows * args.label_bank_frac)) if self.bank is not None else 0
         n_lab = 0
         if labels is not None and labels.size >= LABEL_ANCHOR_MIN_ROWS:
             n_lab = int(round(self.d_rows * args.label_frac))
         base = 2 * n
         n_demo = 0
         if demos is not None:
-            n_demo = self.d_rows - n_lab
+            n_demo = self.d_rows - n_lab - n_bank
             di = rng.integers(0, demos.size, size=n_demo)  # == DemoStream.sample
             demos.gather_into(di, v, base)
         if n_lab:
@@ -631,7 +695,14 @@ class Learner:
             v["a_v8"][n_demo : n_demo + len(keep)] = labels.a[li][keep]
             n_lab = len(keep)
         st["label_rows"].append(n_lab)
-        return {"stage": stage, "n": n, "m": n_demo + n_lab, "n_demo": n_demo}
+        result = {"stage": stage, "n": n, "m": n_demo + n_lab, "n_demo": n_demo}
+        if n_bank:
+            bank_rows = self.bank.sample(rng, n_bank)
+            start = base + n_demo + n_lab
+            for key in ("local", "global", "scalars"):
+                v[key][start : start + n_bank] = bank_rows[key]
+            result.update(m=result["m"] + n_bank, n_bank=n_bank, bank=bank_rows)
+        return result
 
     def _finalize(self) -> None:
         """Wait for the pending update's finite-loss flag, then apply its step (reference
@@ -649,6 +720,10 @@ class Learner:
         else:
             opt.step()
         st["updates"] += 1
+        if "bank_rows" in p:
+            st["bank_rows"].append(p["bank_rows"])
+            self._bank_loss.append(p["bank_loss"])
+            self._bank_agree.append(p["bank_agree"])
         self._td.append(p["td"])
         if p["has_anchor"]:
             self._anc.append(p["anc"])
@@ -670,6 +745,8 @@ class Learner:
         if self._anc:
             self.st["anc"].extend(torch.stack(self._anc).cpu().tolist())
             self._anc = []
+        if self.bank is not None:
+            self._flush_bank_stats()
 
     def _backward(self, td, anc, lam: float):
         """``loss = td + lam * anc``; zero the gradients, backward (scaled under fp16).
@@ -712,6 +789,10 @@ class Learner:
             cs["first_call_s"] = round(time.perf_counter() - t0, 3)
         if self._cudagraphs:  # CUDA-graph outputs are overwritten by the next replay
             td, anc, qmax = td.detach().clone(), anc.detach().clone(), qmax.clone()
+            metrics = kw.get("bank_metrics")
+            if metrics:
+                for name in ("loss", "agree"):
+                    metrics[name] = metrics[name].detach().clone()
         key = (kw["n"], kw["m"], kw["n_demo"])
         if self._verified.get(key, 0) < VERIFY_CALLS:
             return self._verify(key, tensors, kw, lam, (td, anc, qmax))
@@ -804,6 +885,16 @@ class Learner:
             margin=margin,
             td_delta=float(getattr(args, "td_huber_delta", 1.0)),
         )
+        bank_metrics = {}
+        n_bank = batch.get("n_bank", 0)
+        if n_bank:
+            kw.update(
+                n_bank=n_bank,
+                bank_surviving=torch.from_numpy(batch["bank"]["surviving"]).to(self.device),
+                bank_weight=torch.from_numpy(batch["bank"]["weight"]).to(self.device),
+                bank_margin_scale=float(args.label_bank_margin_scale),
+                bank_metrics=bank_metrics,
+            )
         has_anchor = m > 0
         out = None
         if self._cstat is not None:
@@ -823,6 +914,13 @@ class Learner:
             "has_anchor": has_anchor,
             "qmax": qmax,
         }
+        if self.bank is not None:
+            zero = torch.zeros((), device=self.device)
+            self._pending.update(
+                bank_rows=n_bank,
+                bank_loss=bank_metrics.get("loss", zero),
+                bank_agree=bank_metrics.get("agree", zero),
+            )
         if self.demos is not None:
             self.demos.swap_if_ready()
         st["learn_s"] += time.perf_counter() - t0

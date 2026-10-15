@@ -1394,6 +1394,9 @@ def m3c_flags(args) -> Dict[str, Any]:
         "shield_off_at",
         "onpolicy_labels",
         "label_frac",
+        "label_bank",
+        "label_bank_frac",
+        "label_bank_margin_scale",
         "v8_backend",
         "obs_version",
         "v61_backend",
@@ -1414,7 +1417,8 @@ def m3c_flags(args) -> Dict[str, Any]:
         "tight_telemetry",
     ):
         if getattr(args, k) != getattr(d, k):
-            out[k] = getattr(args, k)
+            value = getattr(args, k)
+            out[k] = str(value) if k == "label_bank" and value is not None else value
     if (args.tight_cost or args.tight_telemetry) and "tight_min_len" not in out:
         out["tight_min_len"] = args.tight_min_len  # in effect: record it with its lever
     return out
@@ -1498,6 +1502,11 @@ def build_parser() -> argparse.ArgumentParser:
         "reference, tested) or reference (the per-row loops)",
     )
     ap.add_argument("--label-frac", type=float, default=0.5, help="on-policy share of anchor rows")
+    ap.add_argument(
+        "--label-bank", type=Path, default=None, help="directory of T3 rollout-label npz shards"
+    )
+    ap.add_argument("--label-bank-frac", type=float, default=0.0)
+    ap.add_argument("--label-bank-margin-scale", type=float, default=1.0)
     ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument(
         "--obs-version",
@@ -1627,6 +1636,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         or args.gamma_start != Schedules.gamma_start
         or args.gamma_end != Schedules.gamma_end
         or args.obs_version != "b"
+        or args.label_bank_frac > 0.0
     )
     if m4a and not args.actors:
         raise SystemExit("the M4-A options need the multi-actor trainer (--actors >= 1)")
@@ -1635,8 +1645,31 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--onpolicy-labels needs --anchor-mode v8margin")
     if not args.shield_full_until <= args.shield_off_at:
         raise SystemExit("--shield-full-until must be <= --shield-off-at")
+    if not math.isfinite(args.label_bank_frac) or not math.isfinite(args.label_bank_margin_scale):
+        raise SystemExit("label-bank fractions and scale must be finite")
+    if args.label_bank_frac < 0.0 or args.label_bank_frac > 1.0:
+        raise SystemExit("--label-bank-frac must be in [0, 1]")
+    if args.label_bank_frac and args.label_bank is None:
+        raise SystemExit("--label-bank-frac needs --label-bank")
+    if args.label_bank_frac and args.anchor_mode != "v8margin":
+        raise SystemExit("--label-bank-frac needs --anchor-mode v8margin")
+    if args.label_bank_frac and args.obs_version != "bv8":
+        raise SystemExit("--label-bank-frac needs --obs-version bv8")
+    if args.label_bank_frac and not (math.isfinite(args.label_frac) and 0 <= args.label_frac <= 1):
+        raise SystemExit("--label-frac must be finite and in [0, 1] for a label bank")
+    if args.label_bank_frac and args.label_bank_margin_scale < 0:
+        raise SystemExit("--label-bank-margin-scale must be >= 0")
+    if args.label_bank_frac and args.label_frac + args.label_bank_frac > 1.0:
+        raise SystemExit("--label-frac + --label-bank-frac must be <= 1")
+    bank_only_bv8 = (
+        args.label_bank is not None
+        and args.label_bank_frac > 0.0
+        and args.label_frac + args.label_bank_frac == 1.0
+        and (args.label_frac == 0.0 or args.onpolicy_labels)
+    )
     if args.obs_version == "bv8" and not (
-        args.onpolicy_labels and args.label_frac == 1.0 and args.anchor_mode == "v8margin"
+        (args.onpolicy_labels and args.label_frac == 1.0 and args.anchor_mode == "v8margin")
+        or bank_only_bv8
     ):
         # The demonstration shards carry only the 30 ego2s-b scalars: every anchor row must
         # be an on-policy label (observed with the v8 features by the actor).
@@ -2442,6 +2475,18 @@ def main_multi(args) -> int:
         def guard_ok():  # noqa: F811
             return []
 
+    # Validate the immutable bank before output allocation, shared memory, or actors.
+    # Keep this whole branch absent for default runs so their startup/RNG path is unchanged.
+    bank = None
+    if args.label_bank_frac > 0.0:
+        from research.t3_rollout_labels_20261015.bank import LabelBank
+
+        bank_pack = None
+        if args.obs_pack:
+            from research.redesign_m3c_20261008.obs_pack import train_layout
+
+            bank_pack = train_layout()
+        bank = LabelBank(Path(args.label_bank), nscal_for(args), pack=bank_pack)
     if args.out.exists():
         print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
         return 2
@@ -2617,6 +2662,8 @@ def main_multi(args) -> int:
         "lag": [],
         "action_window": deque(maxlen=100_000),
     }
+    if bank is not None:
+        st.update(bank_rows=[], bank_margin_loss=[], bank_agree=[])
     m6 = M6Levers.from_args(args)  # None: every M6 lever off (no M6 keys anywhere)
     if m6 is not None:
         st["m6"], st["m6_total"] = {}, {"decisions": 0, "deaths": 0}
@@ -2647,6 +2694,7 @@ def main_multi(args) -> int:
         margin=margin,
         device=device,
         opts=lopts,
+        **({"bank": bank} if bank is not None else {}),
     )
 
     code = 0
@@ -2751,7 +2799,17 @@ def main_multi(args) -> int:
                     st["m6"] = {}
                 if bv8:
                     row["obs_version"] = "bv8"
-                    row["label_buffer"] = labels.size
+                    row["label_buffer"] = labels.size if labels is not None else 0
+                if bank is not None:
+                    row["bank_rows_mean"] = (
+                        float(np.mean(st["bank_rows"])) if st["bank_rows"] else 0.0
+                    )
+                    row["bank_margin_loss"] = (
+                        float(np.mean(st["bank_margin_loss"])) if st["bank_margin_loss"] else 0.0
+                    )
+                    row["bank_agree"] = (
+                        float(np.mean(st["bank_agree"])) if st["bank_agree"] else 0.0
+                    )
                 if args.shield != "none" or labels is not None:
                     row["v8_override_rate"] = st["v8_override"] / max(1, st["decisions"])
                     row["shield_p"] = (
@@ -2785,6 +2843,8 @@ def main_multi(args) -> int:
                 )
                 st.update(td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0)
                 st.update(v8_override=0, label_rows=[])
+                if bank is not None:
+                    st.update(bank_rows=[], bank_margin_loss=[], bank_agree=[])
                 st["lag"] = []
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")

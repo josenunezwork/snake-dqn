@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Template only; never executed by the T3 implementation task.
+# Dense ceiling: GO, 54/64. LABELS requires the audited death-window bank
+# with >=10,000 decisive rows and floor(0.5 * decisive) counter rows.
+# LABELS_RETURN is reserved for a separately specified rollout-return target/regression arm.
+# Sequential arms: two actors plus one learner, at most three numerical workers.
+set -euo pipefail
+
+repo=/Users/josenunez/Projects/ml/snake-dqn-t3
+artifact_root=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015
+initials=/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013
+demos=/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data
+runs=/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015
+bank=${T3_LABEL_BANK:-$artifact_root/bank}
+ceiling_result=${T3_CEILING_RESULT:-$artifact_root/dense/ceiling-go-for-bank.json}
+
+# Replace with T2's chosen --td-huber-delta / --anchor-floor flags before use.
+# LABELS then overrides the anchor schedule to the specified 2M hold / 0.1 floor.
+td_flags=( {TD_FLAGS} )
+if [[ "${td_flags[*]}" == *'{TD_FLAGS}'* ]]; then
+    echo 'Replace {TD_FLAGS} with the T2-selected flags before using this template.' >&2
+    exit 2
+fi
+
+arms=(CTRL LABELS)
+if (( $# > 0 )); then arms=("$@"); fi
+cd "$repo"
+export PYTHONPATH="$PWD"
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+
+# Validate every selected arm before any training process could start.
+for arm in "${arms[@]}"; do
+    case "$arm" in
+        CTRL) ;;
+        LABELS)
+            [[ -d "$bank" && -f "$bank/manifest.json" ]] \
+                && compgen -G "$bank/*.npz" > /dev/null || {
+                echo "LABELS has no generated bank: $bank" >&2; exit 2;
+            }
+            ./venv/bin/python - "$ceiling_result" "$bank" <<'PY'
+import hashlib, json, pathlib, sys
+receipt_path, bank = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+receipt = json.loads(receipt_path.read_text())
+if receipt.get("status") != "PASS" or receipt.get("verdict") != "GO":
+    raise SystemExit("LABELS requires the qualifying dense ceiling GO receipt.")
+manifest = json.loads((bank / "manifest.json").read_text())
+if manifest.get("schema") != "t3-label-bank/v1":
+    raise SystemExit("LABELS requires a t3-label-bank/v1 manifest.")
+provenance = manifest.get("provenance")
+stats = provenance.get("stats") if isinstance(provenance, dict) else None
+if not isinstance(stats, dict):
+    raise SystemExit("LABELS bank manifest has no completed Part D statistics.")
+if (stats.get("decisive_rows", 0) < 10000
+        or stats.get("counterweight_rows", 0) != stats.get("decisive_rows", 0) // 2
+        or provenance.get("collection_mode") != "death-window"):
+    raise SystemExit("LABELS requires a completed, balanced >=10,000-decisive Part D bank.")
+if hashlib.sha256(receipt_path.read_bytes()).hexdigest() != provenance["run_identity"]["dense_go_receipt_sha256"]:
+    raise SystemExit("Bank and ceiling GO receipt hashes differ.")
+files = manifest.get("files")
+if not isinstance(files, dict) or not files:
+    raise SystemExit("LABELS bank manifest has no hash-bound files.")
+for name, expected in files.items():
+    digest = hashlib.sha256()
+    with (bank / name).open("rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    if digest.hexdigest() != expected:
+        raise SystemExit(f"Bank artifact hash mismatch: {name}")
+PY
+            ;;
+        LABELS_RETURN)
+            echo "LABELS_RETURN is reserved: rollout-return targets/regression are not implemented." >&2
+            exit 2
+            ;;
+        *) echo "Supported arms: CTRL LABELS (LABELS_RETURN is reserved). Unknown arm: $arm" >&2; exit 2 ;;
+    esac
+done
+
+common=(
+    --demo-data "$demos" --transitions 8000000 --device mps
+    --actors 2 --worlds 128 --segment-frames 5000
+    --reward mass --mass-kappa 1.0 --kill-scale 0
+    --gamma-start 0.998 --gamma-end 0.998 --gamma-hold 0 --gamma-anneal-end 1
+    --eps-end-at 1 --mixed-frac 0.25
+    --anchor-mode v8margin --anchor-hold 0 --anchor-floor-at 1 --anchor-floor 0.1
+    --obs-version bv8 --v61-backend numba --learner-fast --batch-scale 2 --obs-pack
+    --checkpoint-every 2000000 --tight-telemetry
+)
+mkdir -p "$runs"
+for seed in 10 11 12 13 14; do
+    k=$((seed - 10))
+    init="$initials/B8_s$k/final.pth"
+    [[ -f "$init" ]] || { echo "Missing init: $init" >&2; exit 2; }
+    for arm in "${arms[@]}"; do
+        case "$arm" in
+            CTRL) extra=(--onpolicy-labels --label-frac 1 "${td_flags[@]}") ;;
+            LABELS)
+                extra=("${td_flags[@]}" --label-frac 0 --label-bank "$bank"
+                    --label-bank-frac 1 --label-bank-margin-scale 1.0
+                    --anchor-hold 2000000 --anchor-floor-at 2000001 --anchor-floor 0.1)
+                ;;
+        esac
+        out="$runs/${arm}_s$seed"
+        [[ ! -e "$out" ]] || { echo "Refusing to reuse existing output: $out" >&2; exit 2; }
+        ./venv/bin/python research/redesign_m3c_20261008/train_m3c.py \
+            --seed "$seed" --init "$init" --out "$out" \
+            "${common[@]}" "${extra[@]}" 2>&1 | tee "$runs/${arm}_s${seed}.log"
+    done
+done
