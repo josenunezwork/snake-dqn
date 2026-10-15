@@ -239,6 +239,14 @@ def render(root: Path = ROOT) -> None:
     inputs += [
         REPO / p
         for p in (
+            "docs/research/panel_review_summary_2026-10-14.md",
+            "docs/research/panel_mac_answers_2026-10-14.md",
+            "research/t1_fuse_probe_20261015/__init__.py",
+            "research/t1_fuse_probe_20261015/collect.py",
+            "research/t1_fuse_probe_20261015/analyze.py",
+            "research/t1_fuse_probe_20261015/report.py",
+            "tests/test_t1_fuse_probe.py",
+            "tests/test_td_huber_delta.py",
             "research/m7_feature_auc_20261014/collect.py",
             "research/m7_feature_auc_20261014/analyze.py",
             "src/model/ego2s_network.py",
