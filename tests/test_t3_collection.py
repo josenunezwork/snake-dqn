@@ -175,6 +175,23 @@ def test_world_shard_preserves_merge_class(tmp_path: Path) -> None:
         assert data["decisive"].tolist() == [True, False]
 
 
+def test_empty_world_retains_metadata_schema(tmp_path: Path) -> None:
+    path = tmp_path / "empty.npz"
+    bank.write_world_rows(path, [])
+    with np.load(path) as data:
+        assert data["q"].shape == (0, 6)
+        assert data["q"].dtype == np.float32
+        assert all(data[key].shape == (0,) for key in ("length", "frame", "decision"))
+
+
+def test_export_retains_calibration_fields(tmp_path: Path) -> None:
+    row = _row(True) | {"q": np.arange(6, dtype=np.float32), "length": 1001}
+    bank.write_rows(tmp_path / "bank.npz", [row], packed=True)
+    with np.load(tmp_path / "bank.npz") as data:
+        np.testing.assert_array_equal(data["q"], row["q"][None])
+        assert data["length"].tolist() == [1001]
+
+
 def test_resume_refuses_a_mismatched_receipt_before_world_build(tmp_path: Path) -> None:
     from research.t3_rollout_labels_20261015 import collect
 

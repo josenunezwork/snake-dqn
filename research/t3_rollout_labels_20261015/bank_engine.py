@@ -482,6 +482,16 @@ def step_prepared(world: CapturedWorld, forced: int) -> None:
     world.runtime.observe_step(sim)
 
 
+def prepared_q(world: CapturedWorld, obs: dict[str, np.ndarray]) -> np.ndarray:
+    """Evaluate stored decision-time observations with the exact rowwise B8 forward."""
+    from src.simd_env.ego2s_policy import forward_q
+
+    q = forward_q(world.hero.net, obs, "rowwise").numpy()[0].copy()
+    if q.shape != (6,) or not np.isfinite(q).all():
+        raise RuntimeError("nonfinite or malformed B8 Q vector")
+    return q
+
+
 def choose_and_step(
     world: CapturedWorld, *, capture_obs: bool = True
 ) -> tuple[np.ndarray, np.ndarray, dict[str, np.ndarray] | None]:
@@ -553,6 +563,9 @@ def write_rows(path: Path, rows: Sequence[dict[str, Any]], *, packed: bool = Fal
     }
     arrays["action"] = np.asarray([row["action"] for row in rows], dtype=np.int64)
     arrays["weight"] = np.ones(len(rows), dtype=np.float32)
+    for key, dtype in (("q", np.float32), ("length", np.int64)):
+        if all(key in row for row in rows):
+            arrays[key] = np.asarray([row[key] for row in rows], dtype=dtype)
     if packed:
         from research.redesign_m3c_20261008.obs_pack import pack_ref, train_layout
 
@@ -575,6 +588,10 @@ def write_world_rows(path: Path, rows: Sequence[dict[str, Any]]) -> None:
             "surviving": np.zeros((0, 6), bool),
             "action": np.zeros(0, np.int64),
             "decisive": np.zeros(0, bool),
+            "decision": np.zeros(0, np.int64),
+            "frame": np.zeros(0, np.int64),
+            "length": np.zeros(0, np.int64),
+            "q": np.zeros((0, 6), np.float32),
         }
     else:
         arrays = {
@@ -585,6 +602,9 @@ def write_world_rows(path: Path, rows: Sequence[dict[str, Any]]) -> None:
         arrays["decisive"] = np.asarray([row["decisive"] for row in rows], dtype=bool)
         arrays["decision"] = np.asarray([row["decision"] for row in rows], dtype=np.int64)
         arrays["frame"] = np.asarray([row["frame"] for row in rows], dtype=np.int64)
+        for key, dtype in (("q", np.float32), ("length", np.int64)):
+            if all(key in row for row in rows):
+                arrays[key] = np.asarray([row[key] for row in rows], dtype=dtype)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_suffix(".tmp.npz")
     np.savez_compressed(temp, **arrays)
@@ -611,12 +631,17 @@ def manifest(out: Path, provenance: dict[str, Any]) -> dict[str, Any]:
     """Build a hash-bound bank manifest after all shard writes complete."""
     shards = sorted(out.glob("*.npz"))
     files = sorted([*shards, *(out.glob("bank-*.provenance.jsonl"))])
+    for name in ("namespace.json", "legacy-resume.json", "prefilter.json", "progress.json"):
+        if (out / name).exists():
+            files.append(out / name)
+    if (out / "calibration").is_dir():
+        files.extend(sorted((out / "calibration").glob("*")))
     receipts = sorted((out / "worlds").glob("*.json")) if (out / "worlds").is_dir() else []
     value = {
         "schema": "t3-label-bank/v1",
         "provenance": provenance,
         "shards": {p.name: sha256(p) for p in shards},
-        "files": {p.name: sha256(p) for p in files},
+        "files": {p.relative_to(out).as_posix(): sha256(p) for p in files if p.is_file()},
         "world_receipts": {p.name: sha256(p) for p in receipts},
     }
     (out / "manifest.json").write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
