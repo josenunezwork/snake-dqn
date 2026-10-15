@@ -141,3 +141,17 @@ Artifacts: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-commitment-20261
 `parity.json`, `timing.json`, `run.json`, `manifest.json`, README, detached-run logs
 and verification receipts retain the evidence. The manifest pins input/checkpoint
 SHA256s and implementation/dependency source hashes.
+
+## Reviewer notes (Claude, 2026-10-15)
+
+- Of the 46 late deaths (L >= 800) with a last avoidable decision, 17 could be escaped only by a
+  boost and 29 also had a non-boost survivor. B8 chose a boost at only 2 of the 46.
+- Q(chosen) − Q(best surviving) at LAD, late deaths: p10 0.13, p25 0.22, median 0.45, p75 1.28,
+  p90 2.55. B8 prefers the fatal action, but by a fraction of one Q unit.
+- Combined with Part C (fuse probe AUC 0.84 at H100; −max Q AUC 0.85, not a length proxy):
+  B8 knows the state is dangerous but ranks the escape marginally below the fatal action. That is
+  a value-ranking failure, not missing information, and a third of the escapes need a boost, which
+  B8 almost never uses (0.1-0.2% of frames).
+- R1 (51% within 150 decisions vs 60%) and R1' both miss, a zone the panel left undefined. The
+  survivors exist (43 of 46 within 300 decisions), so the T3 ceiling test is justified on
+  evidence; whether training-time rollout labels count as "no veto" is still the owner's ruling.
