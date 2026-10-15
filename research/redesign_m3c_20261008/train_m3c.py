@@ -1379,6 +1379,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "anchor_hold",
         "anchor_floor_at",
         "anchor_floor",
+        "td_huber_beta",
         "eps_end_at",
         "namespace",
         "mixed_frac",
@@ -1446,6 +1447,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--anchor-hold", type=int, default=Schedules.anchor_hold)
     ap.add_argument("--anchor-floor-at", type=int, default=Schedules.anchor_floor_at)
     ap.add_argument("--anchor-floor", type=float, default=Schedules.anchor_floor)
+    ap.add_argument(
+        "--td-huber-beta",
+        type=float,
+        default=1.0,
+        help="T2: Huber beta of the TD loss (1.0 = the M3 loss; ~100 puts a death delta of "
+        "Phi(L)+3 inside the quadratic regime: an expectation fit, not a median fit)",
+    )
     ap.add_argument("--eps-end-at", type=int, default=Schedules.eps_end_at)
     ap.add_argument("--namespace", default=TRAIN_NAMESPACE)
     ap.add_argument(
@@ -1784,7 +1792,7 @@ def main_sync(args) -> int:
             a_star = masked_argmax(online(nlt, ngt, nst), nmt)
             q_next = target(nlt, ngt, nst).gather(1, a_star[:, None]).squeeze(1)
             y = R + disc * q_next
-        td = torch.nn.functional.smooth_l1_loss(qa, y)
+        td = torch.nn.functional.smooth_l1_loss(qa, y, beta=float(args.td_huber_beta))
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         if args.anchor_boost_weight == 1.0:
             anc = anchor_loss(torch, qd, db, margin)
