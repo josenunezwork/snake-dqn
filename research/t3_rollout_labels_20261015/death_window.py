@@ -39,12 +39,12 @@ WINDOW_SNAPSHOTS = 60
 CONTROL_EVERY = 20
 """Re-roll B8 exactly once in every twenty eligible death-window batches."""
 
-COUNTER_RESERVOIR = 32
+COUNTER_RESERVOIR = 96
 """Bounded, deterministic older-snapshot sample per dying world.
 
-The previous completed prefix already has 3,768 raw counter candidates.  A
-32-element reservoir caps the new work while producing enough all-action
-counter opportunities to keep the planner's 0.5:1 global selection supplied.
+The initial 32-snapshot epoch supplied only 142 counters for 1,910 new
+decisive rows. A 96-element reservoir increases counter coverage while keeping
+survivor worlds play-only and retaining the same decisive-window contract.
 """
 
 

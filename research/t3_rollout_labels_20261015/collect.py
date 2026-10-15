@@ -567,6 +567,7 @@ def main() -> None:
     parser.add_argument("--prefilter", type=Path, required=True)
     parser.add_argument("--legacy-resume", type=Path)
     parser.add_argument("--death-window", action="store_true")
+    parser.add_argument("--retained-resume", type=Path)
     parser.add_argument("--death-window-validation", type=Path)
     args = parser.parse_args()
     go = json.loads(args.dense_go_receipt.read_text())
@@ -650,6 +651,11 @@ def main() -> None:
         retained = _legacy_entries(resume_path)
         if not retained or any(retained.get(key) != value for key, value in legacy.items()):
             raise SystemExit("death-window resume must preserve the complete original allowlist")
+        if args.retained_resume is not None:
+            extended = _legacy_entries(args.retained_resume)
+            if any(extended.get(key) != value for key, value in retained.items()):
+                raise SystemExit("retained resume must preserve all pre-death-window entries")
+            retained = extended
         legacy = retained
         validation_path = args.death_window_validation
         if validation_path is None:
@@ -717,10 +723,20 @@ def main() -> None:
                 "window_maxlen": 60,
                 "window_depth": DEPTH,
                 "window_strict": True,
-                "counter_reservoir": 32,
+                "counter_reservoir": 96,
+                "death_window_validation_file": validation_path.name,
                 "b8_control_every": 20,
             }
         )
+        if args.retained_resume is not None:
+            if args.retained_resume.resolve().parent != args.out.resolve():
+                raise SystemExit("retained resume must reside in the bank directory")
+            run_identity.update(
+                {
+                    "retained_resume_path": args.retained_resume.name,
+                    "retained_resume_sha256": sha256(args.retained_resume),
+                }
+            )
     started = time.perf_counter()
     receipts: list[dict[str, Any]] = []
     stats: dict[str, Any] = {"decisive_rows": 0}

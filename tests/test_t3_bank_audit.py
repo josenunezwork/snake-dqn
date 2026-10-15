@@ -268,6 +268,11 @@ def test_death_window_identity_requires_mode_sources_and_validation_binding() ->
     }
     audit_bank._audit_death_window_identity(receipt, "dw")
 
+    receipt["run_identity"]["counter_reservoir"] = 96
+    receipt["death_window"]["counter_reservoir_seen"] = 96
+    receipt["death_window"]["counter_reservoir_size"] = 96
+    audit_bank._audit_death_window_identity(receipt, "dw")
+
     receipt["run_identity"]["counterweight_ratio"] = 1.0
     with pytest.raises(audit_bank.AuditError, match="counterweight ratio"):
         audit_bank._audit_death_window_identity(receipt, "dw")

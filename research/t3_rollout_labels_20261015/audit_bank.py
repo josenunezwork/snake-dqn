@@ -306,10 +306,12 @@ def _audit_death_window_identity(receipt: dict[str, Any], key: str) -> None:
         ("window_maxlen", 60),
         ("window_depth", DEPTH),
         ("window_strict", True),
-        ("counter_reservoir", 32),
         ("b8_control_every", 20),
     ):
         _same(identity.get(field), expected, f"death-window {field} {key}")
+    reservoir_limit = identity.get("counter_reservoir")
+    if reservoir_limit not in (32, 96):
+        _fail(f"death-window counter reservoir is not a registered epoch: {key}")
 
     window = receipt.get("death_window")
     if not isinstance(window, dict):
@@ -326,7 +328,7 @@ def _audit_death_window_identity(receipt: dict[str, Any], key: str) -> None:
     if any(not isinstance(window.get(name), int) or window[name] < 0 for name in counter_names):
         _fail(f"death-window receipt has invalid counters: {key}")
     if (
-        window["counter_reservoir_size"] > 32
+        window["counter_reservoir_size"] > reservoir_limit
         or window["counter_reservoir_size"] > window["counter_reservoir_seen"]
     ):
         _fail(f"death-window receipt reservoir is invalid: {key}")
@@ -367,10 +369,16 @@ def _audit_death_window_identity(receipt: dict[str, Any], key: str) -> None:
             _fail(f"death-window B8 control is not the recorded fatal trajectory: {key}")
 
 
-def _audit_death_window_validation(bank: Path, identity: dict[str, Any]) -> None:
+def _audit_death_window_validation(
+    bank: Path, identity: dict[str, Any], *, historical: bool
+) -> None:
     """Verify the five-key legacy replay proof bound into the active identity."""
-    path = bank / "death-window-validation.json"
-    if not path.is_file() or identity.get("death_window_validation_sha256") != sha256(path):
+    filename = identity.get("death_window_validation_file", "death-window-validation.json")
+    if not isinstance(filename, str) or Path(filename).name != filename:
+        _fail("death-window validation filename is invalid")
+    path = bank / filename
+    proof_digest = identity.get("death_window_validation_sha256")
+    if not path.is_file() or not isinstance(proof_digest, str) or proof_digest != sha256(path):
         _fail("death-window validation receipt is absent or not hash-bound")
     value = _json(path)
     keys = value.get("keys")
@@ -409,9 +417,13 @@ def _audit_death_window_validation(bank: Path, identity: dict[str, Any]) -> None
     }
     if not required <= set(sources):
         _fail("death-window validation source bindings are incomplete")
-    repo = Path(__file__).resolve().parents[2]
+    source_root = (
+        bank / "source-history" / proof_digest
+        if historical
+        else Path(__file__).resolve().parents[2]
+    )
     if any(
-        not isinstance(digest, str) or sha256(repo / name) != digest
+        not isinstance(digest, str) or sha256(source_root / name) != digest
         for name, digest in sources.items()
     ):
         _fail("death-window validation source bytes changed")
@@ -867,16 +879,63 @@ def audit_bank(bank: Path, out: Path, *, min_decisive: int = 10_000) -> dict[str
     pre_death_window_keys = set(receipts) - death_window_keys
     if pre_death_window_keys != death_window_resume_keys:
         _fail("death-window resume must allowlist exactly all pre-death-window worlds")
+    retained_entries = _resume_entries(bank, "death-window-retained.json")
+    retained_keys = set(retained_entries)
+    _verify_immutable_entries(bank, retained_entries, receipts, label="death-window retained")
+    if not death_window_resume_keys <= retained_keys:
+        _fail("death-window retained allowlist omits a pre-death-window world")
+    if any(retained_entries[key] != death_window_entries[key] for key in death_window_resume_keys):
+        _fail("death-window retained allowlist changed a pre-death-window binding")
+    retained_dw_keys = retained_keys - pre_death_window_keys
+    if not retained_dw_keys <= death_window_keys:
+        _fail("death-window retained allowlist contains an unknown world")
     current_identity = manifest.get("provenance", {}).get("run_identity")
+    if not isinstance(current_identity, dict):
+        _fail("manifest provenance lacks death-window run identity")
+    current_keys = death_window_keys - retained_dw_keys
+    if not current_keys:
+        _fail("bank has no current 96-reservoir death-window worlds")
+    _same(
+        current_identity.get("retained_resume_path"),
+        "death-window-retained.json",
+        "active retained resume path",
+    )
+    _same(
+        current_identity.get("retained_resume_sha256"),
+        sha256(bank / "death-window-retained.json"),
+        "active retained resume hash",
+    )
+    proof_identities: dict[str, tuple[dict[str, Any], bool]] = {}
     for key in death_window_keys:
-        if receipts[key].get("run_identity") != current_identity:
-            _fail(f"death-window world run identity differs from manifest: {key}")
+        identity = receipts[key].get("run_identity")
+        historical = key in retained_dw_keys
+        if not historical and identity != current_identity:
+            _fail(f"current death-window world run identity differs from manifest: {key}")
         if receipts[key].get("q_action_mismatches") != 0:
             _fail(f"death-window world has Q action mismatches: {key}")
         _audit_death_window_identity(receipts[key], key)
-    if not isinstance(current_identity, dict):
-        _fail("manifest provenance lacks death-window run identity")
-    _audit_death_window_validation(bank, current_identity)
+        if not isinstance(identity, dict):
+            _fail(f"death-window world has no identity: {key}")
+        digest = identity.get("death_window_validation_sha256")
+        if not isinstance(digest, str):
+            _fail(f"death-window world has no proof digest: {key}")
+        prior = proof_identities.setdefault(digest, (identity, historical))
+        if prior[0] != identity or prior[1] != historical:
+            _fail(f"death-window proof digest spans conflicting epochs: {key}")
+    if current_identity.get("counter_reservoir") != 96:
+        _fail("manifest active identity is not the 96-reservoir epoch")
+    _same(
+        current_identity.get("death_window_validation_file"),
+        "death-window-validation-v2.json",
+        "active death-window validation filename",
+    )
+    if any(
+        receipts[key].get("run_identity", {}).get("counter_reservoir") != 32
+        for key in retained_dw_keys
+    ):
+        _fail("retained death-window world is not from the 32-reservoir epoch")
+    for identity, historical in proof_identities.values():
+        _audit_death_window_validation(bank, identity, historical=historical)
     prefilter = _audit_prefilter(bank, legacy_keys, receipts, manifest_meta)
     export = _audit_export(
         bank,
@@ -935,6 +994,9 @@ def audit_bank(bank: Path, out: Path, *, min_decisive: int = 10_000) -> dict[str
         "legacy": {"worlds": len(legacy_keys), "immutable": True},
         "death_window": {
             "worlds": len(death_window_keys),
+            "retained_worlds": len(retained_keys),
+            "retained_death_window_worlds": len(retained_dw_keys),
+            "current_worlds": len(current_keys),
             "pre_death_window_worlds": len(death_window_resume_keys),
             "counterweight_ratio": COUNTERWEIGHT_RATIO,
         },

@@ -642,11 +642,15 @@ def manifest(out: Path, provenance: dict[str, Any]) -> dict[str, Any]:
         "progress.json",
         "death-window-resume.json",
         "death-window-validation.json",
+        "death-window-validation-v2.json",
+        "death-window-retained.json",
     ):
         if (out / name).exists():
             files.append(out / name)
     if (out / "calibration").is_dir():
         files.extend(sorted((out / "calibration").glob("*")))
+    if (out / "source-history").is_dir():
+        files.extend(sorted((out / "source-history").rglob("*")))
     receipts = sorted((out / "worlds").glob("*.json")) if (out / "worlds").is_dir() else []
     value = {
         "schema": "t3-label-bank/v1",

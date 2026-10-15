@@ -63,12 +63,20 @@ Q filter. B8's actual trajectory supplies its fatal label. The surviving set and
 rule are unchanged. Every twentieth window batch also replays B8 and checks the exact
 fatal decision; each check has a receipt. Unavoidable states produce no label.
 
-A deterministic reservoir of up to 32 prefiltered snapshots per world supplies counter
+A deterministic reservoir of up to 96 prefiltered snapshots per world supplies counter
 candidates. After death, only sampled snapshots outside the strict window are rolled out,
 with all legal actions including B8. Every such B8 branch must match the actual trajectory.
 Survivor worlds incur play and snapshot costs only. Thus new counters are sampled from
 out-of-window decisions in dying worlds; the preserved prefix also retains its original
 counter candidates. The fixed Q threshold applies only to these new counter candidates.
+The initial 32-snapshot death-window epoch was stopped at a full 400-world boundary:
+3,021 decisive rows and 3,910 counter candidates. It added 1,910 decisive rows but only
+142 counters, a marginal ratio of 0.0743. This projected a counter shortfall at the decisive
+target. The reservoir was increased to 96 without changing the decisive-window rule.
+`death-window-retained.json` preserves all 400 completed worlds; the original proof and
+its exact source bytes remain under `source-history/`. The separate v2 five-key proof passed **262/262** decisive rows exactly in
+233.934 seconds with five single-threaded replay workers; it gates the new epoch. The final audit checks both identities independently.
+
 The final uniform counter sample uses seed 20261015 and contains exactly
 `floor(0.5 * decisive_rows)` rows. Collection finishes at a full balanced cycle after both
 row targets are satisfied.
@@ -159,7 +167,9 @@ Root: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-202610
 - `bank/namespace.json`: original seed allocation, exclusions and materialized rosters.
 - `bank/legacy-resume.json`: original 50-world prefix and source identities.
 - `bank/death-window-resume.json`: all 134 completed worlds before the mode change.
-- `bank/death-window-validation.json`: five-key replay proof.
+- `bank/death-window-validation.json`: original five-key replay proof.
+- `bank/death-window-validation-v2.json`: 96-reservoir five-key replay proof.
+- `bank/death-window-retained.json`, `bank/source-history/`: preserved first two cycles and original proof sources.
 - `bank/prefilter.json`, `bank/calibration/`: threshold, enrichment, actual dense-score audit data.
 - `bank/worlds/`: immutable completed world shards and receipts.
 - `bank/progress.json`: live keys, cycles and decisive count.

@@ -12,6 +12,8 @@ read-only drop-in while the worker's receipt fields evolve.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import multiprocessing
 import hashlib
 import importlib
 import inspect
@@ -284,6 +286,31 @@ def _source_hashes(repo: Path, relative_paths: Iterable[str]) -> dict[str, str]:
     return result
 
 
+def _validate_one_key(
+    selection: dict[str, Any],
+    job: dict[str, Any],
+    plan: dict[str, Any],
+    bank: Path,
+    work_dir: Path,
+    threshold: float,
+    worker_spec: str,
+) -> dict[str, Any]:
+    """Replay one independent world in a single-threaded validation process."""
+    key = selection["key"]
+    old_rows = _load_rows(bank / "worlds" / f"{key}.npz", decisive_only=True)
+    world_out = work_dir / key
+    world_out.mkdir(parents=True)
+    started = time.perf_counter()
+    result = _call_worker(_worker_from_spec(worker_spec), job, plan, world_out, threshold)
+    new_rows = _find_rows(result, world_out, key)
+    return {
+        **selection,
+        "elapsed_seconds": time.perf_counter() - started,
+        "comparison": compare_rows(old_rows, new_rows),
+        "worker_result": _json_safe(result),
+    }
+
+
 def validate(
     bank: Path,
     namespace: Path,
@@ -305,7 +332,7 @@ def validate(
     )
     if len(selected) != 5 or len({item["key"] for item in selected}) != 5:
         raise ValueError("validation requires exactly five unique suitable dying keys")
-    worker = _worker_from_spec(worker_spec)
+    _worker_from_spec(worker_spec)
     repo = Path(__file__).resolve().parents[2]
     prefilter_path = bank / "prefilter.json"
     prefilter = _json(prefilter_path)
@@ -355,30 +382,22 @@ def validate(
         raise RuntimeError(f"validation output must be empty: {work_dir}")
     started = time.perf_counter()
     results: list[dict[str, Any]] = []
-    for selection in selected:
-        key = selection["key"]
-        if key not in by_key:
-            raise KeyError(f"legacy key is absent from namespace receipt: {key}")
-        old_path = bank / "worlds" / f"{key}.npz"
-        old_rows = _load_rows(old_path, decisive_only=True)
-        world_out = work_dir / key
-        world_out.mkdir(parents=True)
-        world_started = time.perf_counter()
-        result = _call_worker(worker, *by_key[key], world_out, threshold)
-        new_rows = _find_rows(result, world_out, key)
-        comparison = compare_rows(old_rows, new_rows)
-        results.append(
-            {
-                **selection,
-                "elapsed_seconds": time.perf_counter() - world_started,
-                "comparison": comparison,
-                "worker_result": (
-                    _json_safe(result)
-                    if isinstance(result, dict)
-                    else {"type": type(result).__name__}
-                ),
-            }
-        )
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=5, mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
+        futures = [
+            pool.submit(
+                _validate_one_key,
+                selection,
+                *by_key[selection["key"]],
+                bank,
+                work_dir,
+                threshold,
+                worker_spec,
+            )
+            for selection in selected
+        ]
+        results = [future.result() for future in futures]
     source_after = _source_hashes(repo, source_relatives)
     if source_before != source_after:
         raise RuntimeError("death-window source drifted during validation")
