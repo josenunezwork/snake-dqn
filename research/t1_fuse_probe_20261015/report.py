@@ -50,7 +50,7 @@ def render(root: Path = ROOT) -> None:
     lines = [
         "# T1 Part C: B8 fuse representation probe (2026-10-15)",
         "",
-        "**Development diagnostic, not gate evidence.** No training or promotion decision.",
+        "**Development diagnostic, not gate evidence.** No policy training or promotion decision.",
         "",
         f"R2/R2' verdict: **{verdict}**, using the pooled-five-B8 nested LR H100 point AUC ",
         f"**{auc(pooled['100']['models']['lr_nested'])}**. The rule uses the point estimate ",
