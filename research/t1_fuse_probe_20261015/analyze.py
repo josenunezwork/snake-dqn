@@ -44,10 +44,7 @@ from typing import (  # noqa: E402
 
 import numpy as np  # noqa: E402
 
-
-DEFAULT_ROOT = Path(
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-fuse-probe-20261015/runs"
-)
+DEFAULT_ROOT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-fuse-probe-20261015/runs")
 HORIZONS = (50, 100, 300)
 CS = (0.01, 0.1, 1.0)
 
@@ -493,8 +490,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         same_methods = previous.get("methods") == output["methods"]
         same_inputs = previous.get("capture_sha256") == output["capture_sha256"]
         oof_present = all((root / f"oof_{scope}_h{horizon}.npz").is_file() for horizon in HORIZONS)
-        return same_methods and same_inputs and oof_present and all(
-            str(horizon) in old_horizons for horizon in HORIZONS
+        return (
+            same_methods
+            and same_inputs
+            and oof_present
+            and all(str(horizon) in old_horizons for horizon in HORIZONS)
         )
 
     def save_progress(scope: str, horizon: int, result: Dict[str, Any]) -> None:
@@ -504,6 +504,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         progress.write_text(
             json.dumps({"scope": scope, "horizon": horizon, "complete": True}, indent=2) + "\n"
         )
+
     for name, arm_names in scopes.items():
         if args.resume and scope_complete(name):
             print(f"resuming: retaining completed scope {name}", flush=True)

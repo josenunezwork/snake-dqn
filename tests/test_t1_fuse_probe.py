@@ -71,13 +71,6 @@ def test_resume_recomputes_partial_scope(tmp_path: Path, monkeypatch: pytest.Mon
     data = {"world": np.array([1, 2])}
     monkeypatch.setattr(analyze, "_load_capture", lambda path: data)
     monkeypatch.setattr(analyze, "_sklearn_dependencies", lambda: None)
-    old = {
-        "methods": {"ci": "7-sample world-cluster percentile bootstrap, no bootstrap refits"},
-        "scopes": {"B8_s0": {"by_horizon": {"50": {"rows": 2}}}},
-    }
-    (tmp_path / "metrics.json").write_text(json.dumps(old))
-    for h in (50, 100, 300):
-        (tmp_path / f"oof_B8_s0_h{h}.npz").touch()
     calls = []
 
     def fake_scope(name: str, arrays: dict, root: Path, boot: int, completed: object) -> dict:
@@ -85,6 +78,14 @@ def test_resume_recomputes_partial_scope(tmp_path: Path, monkeypatch: pytest.Mon
         return {"by_horizon": {str(h): {"rows": 2} for h in (50, 100, 300)}}
 
     monkeypatch.setattr(analyze, "_analyze_scope", fake_scope)
+    args = ["--root", str(tmp_path), "--boot", "7"]
+    assert analyze.main(args) == 0
+    old = json.loads((tmp_path / "metrics.json").read_text())
+    old["scopes"]["B8_s0"]["by_horizon"] = {"50": {"rows": 2}}
+    (tmp_path / "metrics.json").write_text(json.dumps(old))
+    for h in (50, 100, 300):
+        (tmp_path / f"oof_B8_s0_h{h}.npz").touch()
+    calls.clear()
     assert analyze.main(["--root", str(tmp_path), "--boot", "7", "--resume"]) == 0
     assert calls == ["B8_s0"]
     result = json.loads((tmp_path / "metrics.json").read_text())
