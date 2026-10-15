@@ -608,6 +608,16 @@ def _audit_prefilter(
                 _fail(f"prefilter lacks {name} bucket: {key}")
             for field in values:
                 _same(int(item.get(field, -1)), values[field], f"prefilter {name} {key} {field}")
+    decisive_total = sum(item["decisive_rows"] for item in coverage_by_arm.values())
+    retained_total = sum(item["retained_decisive_rows"] for item in coverage_by_arm.values())
+    _same(prefilter.get("decisive_rows"), decisive_total, "calibration decisive population")
+    _same(
+        prefilter.get("retained_decisive_rows"), retained_total, "calibration retained population"
+    )
+    if not decisive_total or not math.isclose(
+        float(prefilter["coverage"]), retained_total / decisive_total
+    ):
+        _fail("pooled calibration coverage differs from recovered source rows")
     return {
         "threshold": threshold,
         "coverage": float(prefilter["coverage"]),
@@ -635,6 +645,12 @@ def audit_bank(bank: Path, out: Path, *, min_decisive: int = 10_000) -> dict[str
     legacy_keys = set(legacy_entries)
     if not legacy_keys <= set(receipts):
         _fail("legacy resume has missing world receipts")
+    current_identity = manifest.get("provenance", {}).get("run_identity")
+    for key in set(receipts) - legacy_keys:
+        if receipts[key].get("run_identity") != current_identity:
+            _fail(f"current world run identity differs from manifest: {key}")
+        if receipts[key].get("q_action_mismatches") != 0:
+            _fail(f"current world has Q action mismatches: {key}")
     for key, entry in legacy_entries.items():
         receipt_path = bank / "worlds" / f"{key}.json"
         rows_path = bank / "worlds" / f"{key}.npz"
