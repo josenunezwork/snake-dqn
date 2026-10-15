@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -35,6 +36,16 @@ def _seed_values(value: Any) -> set[int]:
                 found.add(int(child))
             elif key == "world_seeds" and isinstance(child, list):
                 found.update(int(seed) for seed in child if isinstance(seed, int) and seed >= 0)
+            elif key in {
+                "mass",
+                "deaths",
+                "alive_frames",
+                "death_frame",
+                "length_at_death",
+                "death_lengths",
+                "causes",
+            } and isinstance(child, Mapping):
+                found.update(int(seed) for seed in child if str(seed).isdigit())
             else:
                 found.update(_seed_values(child))
     elif isinstance(value, list):
@@ -48,7 +59,7 @@ def _json_inventory(root: Path, *, exclude: Path | None = None) -> dict[str, Any
     if not root.is_dir():
         return {"exists": False, "file_count": 0, "seed_count": 0, "seeds": [], "digest": None}
     paths = []
-    for path in sorted(root.rglob("*.json")):
+    for path in sorted((*root.rglob("*.json"), *root.rglob("*.jsonl"))):
         if exclude is not None and (path == exclude or exclude in path.parents):
             continue
         paths.append(path)
@@ -59,7 +70,12 @@ def _json_inventory(root: Path, *, exclude: Path | None = None) -> dict[str, Any
         raw = path.read_bytes()
         digest.update(str(path.relative_to(root)).encode() + b":" + hashlib.sha256(raw).digest())
         try:
-            seeds.update(_seed_values(json.loads(raw)))
+            if path.suffix == ".jsonl":
+                records = [json.loads(line) for line in raw.decode().splitlines() if line.strip()]
+            else:
+                records = [json.loads(raw)]
+            for record in records:
+                seeds.update(_seed_values(record))
             valid += 1
         except (UnicodeDecodeError, json.JSONDecodeError):
             continue
@@ -80,6 +96,32 @@ def _compact_inventory(item: Mapping[str, Any]) -> dict[str, Any]:
     return compact
 
 
+def _manifest_binding(bank: Path, namespace_path: Path) -> dict[str, Any]:
+    """Verify every manifest file digest, including the namespace declaration."""
+    manifest_path = bank / "manifest.json"
+    if not manifest_path.is_file():
+        return {"ok": False, "reason": "manifest.json missing"}
+    manifest = json.loads(manifest_path.read_text())
+    files = manifest.get("files")
+    if manifest.get("schema") != "t3-label-bank/v1" or not isinstance(files, Mapping) or not files:
+        return {"ok": False, "reason": "invalid manifest schema or files map"}
+    namespace_key = str(namespace_path.relative_to(bank))
+    if namespace_key not in files:
+        return {"ok": False, "reason": "namespace absent from manifest files map"}
+    mismatches = []
+    for relative, expected in files.items():
+        path = bank / str(relative)
+        if not path.is_file() or _sha256(path) != expected:
+            mismatches.append(str(relative))
+    return {
+        "ok": not mismatches,
+        "manifest_sha256": _sha256(manifest_path),
+        "file_count": len(files),
+        "namespace_manifest_sha256": files[namespace_key],
+        "mismatches": mismatches[:20],
+    }
+
+
 def _registered_t2(repo: Path) -> dict[str, Any]:
     from research.t2_screen_20261015 import banks as t2_banks
 
@@ -97,7 +139,7 @@ def seed_bank_audit(
     artifacts, and the manifest-bound T3 label-training namespace.  It does not
     claim a search of arbitrary binary files or unrecorded external experiments.
     """
-    from research.redesign_m2_20261008 import ni_spec
+    from research.redesign_m2_20261008 import ni_spec, ni_spec_m2b
 
     repo_path = Path(repo).resolve()
     artifact_root = (
@@ -120,6 +162,7 @@ def seed_bank_audit(
         else _json_inventory(label_namespace)
     )
     label_manifest_ok = False
+    binding: dict[str, Any] = {"ok": False, "reason": "namespace.json missing"}
     if label_namespace.is_file():
         namespace = json.loads(label_namespace.read_text())
         declared = {int(seed) for seed in namespace.get("seeds", []) if isinstance(seed, int)}
@@ -132,11 +175,16 @@ def seed_bank_audit(
             "declared_seed_unique": len(declared) == len(namespace.get("seeds", [])),
             "seeds": sorted(declared),
         }
-        label_manifest_ok = namespace.get("schema") == "t3-label-namespace/v1" and bool(declared)
+        binding = _manifest_binding(label_namespace.parent, label_namespace)
+        label_manifest_ok = (
+            namespace.get("schema") == "t3-label-namespace/v1" and bool(declared) and binding["ok"]
+        )
     observed_seeds = set().union(
         *(set(item["seeds"]) for item in observed.values()), set(labels["seeds"])
     )
     registered_seeds: set[int] = set()
+    ni = set(ni_spec.ni_seeds()) | set(ni_spec_m2b.ni_seeds())
+    registered_seeds.update(ni)
     for values in t2["registered_rounds"].values():
         registered_seeds.update(values)
     for item in t2["historical_distillation"].values():
@@ -167,12 +215,22 @@ def seed_bank_audit(
     return {
         "schema": "t3-seed-bank-audit/v1",
         "status": "PASS" if passed else "FAIL",
+        "generated_utc": datetime.now(timezone.utc).isoformat(),
         "scope": (
             "registered NI/distillation, JSON probe artifacts, and manifest-bound "
             "T3 label namespace"
         ),
         "excluded_output": str(output) if output is not None else None,
         "t2_registered_audit": {"pass": t2["pass"], "schema": t2["schema"]},
+        "registered_ni": {"count": len(ni), "seed_digest": _seed_digest(ni)},
+        "expected_rounds": {
+            round_index: {
+                "count": len(seeds),
+                "seed_digest": _seed_digest(seeds),
+                "seeds": sorted(seeds),
+            }
+            for round_index, seeds in expected.items()
+        },
         "registered_t2": {
             "rounds": {
                 name: {"count": len(values), "seed_digest": _seed_digest(values)}
@@ -186,7 +244,10 @@ def seed_bank_audit(
         "observed_probe_artifacts": {
             name: _compact_inventory(item) for name, item in observed.items()
         },
-        "t3_rollout_training_namespace": _compact_inventory(labels),
+        "t3_rollout_training_namespace": {
+            **_compact_inventory(labels),
+            "manifest_binding": binding,
+        },
         "checks": checks,
         "pass": passed,
         "limit": (
