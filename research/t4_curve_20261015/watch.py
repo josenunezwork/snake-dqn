@@ -158,11 +158,13 @@ def run(args: argparse.Namespace) -> int:
                 key = job["name"]
                 if key in completed or key in active:
                     continue
+                if not ready(job, statuses):
+                    continue
                 path = out / "rows" / f"{key}.json"
                 if valid_row(path, job, Path(job["checkpoint"])):
                     completed[key] = json.loads(path.read_text())
                     continue
-                if len(active) >= 4 or not ready(job, statuses):
+                if len(active) >= 4:
                     continue
                 identities[key] = _sha256(Path(job["checkpoint"]))
                 cmd = command(job, path)
@@ -198,11 +200,14 @@ def run(args: argparse.Namespace) -> int:
                 ),
             )
             if len(completed) == 70 and not active:
+                if not all(statuses.get(name) == 0 for name in NAMES):
+                    raise ValueError("All 15 successful terminal training statuses are required")
                 # Revalidate every saved artifact against its final checkpoint identity.
                 for job in all_jobs:
-                    assert valid_row(
+                    if not ready(job, statuses) or not valid_row(
                         out / "rows" / f"{job['name']}.json", job, Path(job["checkpoint"])
-                    )
+                    ):
+                        raise ValueError(f"Final validation failed: {job['name']}")
                 rows = [completed[job["name"]] for job in all_jobs]
                 atomic_json(out / "probes.json", rows)
                 event("complete", rows=70, runs=15, audit_sha256=_sha256(audit_path))

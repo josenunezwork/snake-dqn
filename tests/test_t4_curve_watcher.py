@@ -50,3 +50,37 @@ def test_candidate_waits_for_successful_complete_run(tmp_path):
     summary.write_text(json.dumps({"transitions": 7_000_000, "halt": None}))
     with pytest.raises(ValueError, match="Incomplete"):
         watch.ready(job, {job["run"]: 0})
+
+
+def test_cached_rows_cannot_bypass_terminal_training_status(tmp_path, monkeypatch):
+    from argparse import Namespace
+
+    from research.redesign_m2_20261008.dev_probe import probe_seeds
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "seed_bank_audit.json").write_text(
+        json.dumps(
+            {"pass": True, "round_index": 64, "worlds": 32, "seeds": sorted(probe_seeds(32, 64))}
+        )
+    )
+    job = watch.jobs(tmp_path, tmp_path)[10]
+    checkpoint = Path(job["checkpoint"])
+    checkpoint.parent.mkdir()
+    checkpoint.write_bytes(b"checkpoint")
+    (checkpoint.parent / "summary.json").write_text(
+        json.dumps({"transitions": 8_000_000, "halt": None})
+    )
+    monkeypatch.setattr(watch, "jobs", lambda *_: [job])
+    monkeypatch.setattr(watch, "valid_row", lambda *_: True)
+    monkeypatch.setattr(watch, "training_status", lambda *_: {})
+
+    def stop_after_poll(_seconds):
+        raise InterruptedError("test ended after first poll")
+
+    monkeypatch.setattr(watch.time, "sleep", stop_after_poll)
+    with pytest.raises(InterruptedError, match="first poll"):
+        watch.run(Namespace(out=out, train=tmp_path, ctrl=tmp_path, poll_seconds=1))
+    progress = json.loads((out / "progress.json").read_text())
+    assert progress["completed"] == 0
+    assert progress["active"] == []

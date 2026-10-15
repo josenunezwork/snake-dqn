@@ -46,3 +46,37 @@ This does not claim knowledge of unrecorded experiments or arbitrary binary file
 Artifacts: `/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-curve-probes-20261015/`.
 Reproducible watcher: `research/t4_curve_20261015/watch.py`; seed audit: `banks.py`.
 Completion requires all 70 valid probe rows and all 15 T3 runs. Results pending.
+
+## Deferred paired A/B command (not executed)
+
+Run sequentially on a quiet Mac only, after separately authorizing training/device use.
+Both arms use seed 10, B8_s0, 8M transitions, batch-scale 2, and LABELS_KEEPV8_LO.
+`AB_DEVICE` must be explicitly set for that future session; this preparation task uses CPU
+only and does not set or invoke an accelerator device. Do not change any other flag between arms.
+
+```bash
+cd /Users/josenunez/Projects/ml/snake-dqn-t4prep
+: "${AB_DEVICE:?Set the authorized device for a future quiet-Mac A/B session}"
+artifacts=/Users/josenunez/Projects/ml/snake-dqn-artifacts
+export SNAKE_DQN_DEVICE="$AB_DEVICE"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
+for m in 1 2; do
+  out="$artifacts/t4-update-every-ab-20261015/M${m}_s10"
+  test ! -e "$out" || exit 1
+  ./venv/bin/python research/redesign_m3c_20261008/train_m3c.py \
+    --seed 10 --init "$artifacts/redesign-m4b-mac-20261013/B8_s0/final.pth" \
+    --out "$out" --demo-data "$artifacts/redesign-m2b-20261008/data" \
+    --transitions 8000000 --device "$AB_DEVICE" \
+    --actors 2 --worlds 128 --segment-frames 5000 \
+    --reward mass --mass-kappa 1.0 --kill-scale 0 \
+    --gamma-start 0.998 --gamma-end 0.998 --gamma-hold 0 --gamma-anneal-end 1 \
+    --eps-end-at 1 --mixed-frac 0.25 --anchor-mode v8margin \
+    --anchor-hold 0 --anchor-floor-at 1 --anchor-floor 0.1 \
+    --obs-version bv8 --v61-backend numba --learner-fast --obs-pack --batch-scale 2 \
+    --checkpoint-every 2000000 --tight-telemetry --td-huber-delta 1.0 \
+    --onpolicy-labels --label-frac 0.5 \
+    --label-bank "$artifacts/t3-rollout-labels-20261015/bank" \
+    --label-bank-frac 0.5 --label-bank-margin-scale 1.0 --update-every "$m"
+done
+```

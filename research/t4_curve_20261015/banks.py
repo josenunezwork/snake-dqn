@@ -9,10 +9,13 @@ from typing import Any
 
 from research.redesign_m2_20261008 import ni_spec, ni_spec_m2b
 from research.t2_screen_20261015.banks import seed_bank_audit as t2_audit
-from research.t3_screen_20261015.banks import (_compact_inventory,
-                                               _json_inventory,
-                                               _manifest_binding, _seed_digest,
-                                               _sha256)
+from research.t3_screen_20261015.banks import (
+    _compact_inventory,
+    _json_inventory,
+    _manifest_binding,
+    _seed_digest,
+    _sha256,
+)
 
 
 def audit(repo: Path, artifacts: Path, output: Path) -> dict[str, Any]:
@@ -38,6 +41,14 @@ def audit(repo: Path, artifacts: Path, output: Path) -> dict[str, Any]:
     for path in paths:
         namespace = json.loads(path.read_text())
         seeds = namespace.get("seeds", [])
+        valid_namespace = (
+            namespace.get("schema") == "t3-label-namespace/v1"
+            and isinstance(seeds, list)
+            and bool(seeds)
+            and all(type(seed) is int and 0 <= seed < 2**32 for seed in seeds)
+        )
+        if not valid_namespace:
+            raise ValueError(f"Invalid or empty T3 label namespace: {path}")
         binding = _manifest_binding(path.parent, path)
         namespaces[str(path)] = dict(
             sha256=_sha256(path),
