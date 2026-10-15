@@ -412,8 +412,8 @@ def _analyze_scope(
             arm=np.asarray(data["arm"])[keep],
             frame=np.asarray(data["frame"])[keep].astype(np.int16),
             y=y.astype(np.int8),
-            lr_prediction=lr_prediction.astype(np.float32),
-            hgb_prediction=hgb_prediction.astype(np.float32),
+            lr_prediction=lr_prediction.astype(np.float64),
+            hgb_prediction=hgb_prediction.astype(np.float64),
         )
         print(f"{name} H{horizon}: complete in {result['fit_seconds']:.1f}s", flush=True)
         if completed:

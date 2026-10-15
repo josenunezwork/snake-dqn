@@ -47,6 +47,13 @@ def render(root: Path = ROOT) -> None:
     metas = {arm: json.loads((root / "runs" / f"{arm}.json").read_text()) for arm in arms}
     capture_seconds = sum(meta["total_seconds"] for meta in metas.values())
     analysis_seconds = metrics["wall_seconds"]
+    precision_note = (
+        "CTRL_s12 OOF probabilities are float64 after repair; other archives are float32. "
+        "All archived-prediction AUCs reproduce the float64 metrics within 0.000001. "
+        "Rounded table values are unaffected."
+        if "precision_repair_seconds" in metrics
+        else "OOF archives preserve float64 probability precision."
+    )
     lines = [
         "# T1 Part C: B8 fuse representation probe (2026-10-15)",
         "",
@@ -76,13 +83,16 @@ def render(root: Path = ROOT) -> None:
         "For every outer training set, C is selected by three inner folds grouped by world, ",
         "maximizing concatenated inner out-of-fold AUC. Five outer world folds produce every ",
         "reported prediction. Numeric worlds stay together across all five B8 arms in the ",
-        "pooled model. HistGradientBoostingClassifier is a fixed-parameter comparison; exact ",
+        "pooled model. HistGradientBoostingClassifier is a fixed-parameter comparison.",
         "Settings, selected C values, warnings and timings are in metrics.json.",
         "",
         "CIs are percentile 95% intervals from 2,000 bootstrap resamples of numeric worlds, ",
         "with replacement, carrying all rows and arms for each sampled world together. They ",
         "condition on the fitted out-of-fold predictions; models are not refit in each bootstrap. ",
         "Rows are decision weighted, and world clustering accounts for temporal dependence.",
+        "Of 2,000 attempted draws, CTRL_s12 has 1,999 valid draws at each horizon: one ",
+        "single-class draw has undefined AUC and is omitted. All other intervals use 2,000 ",
+        "valid draws. Valid and discarded counts are recorded for every metric.",
         "",
         "## Capture compatibility and integrity",
         "",
@@ -92,6 +102,7 @@ def render(root: Path = ROOT) -> None:
         "For every full capture, compared selected row coordinates, lengths, actions, all six Q ",
         "values, world seeds, death frames and death causes bitwise against M7, with matching ",
         "checkpoint sha256. Observer checks also verify the actions actually executed.",
+        "",
     ]
     for arm, meta in metas.items():
         lines.append(
@@ -160,6 +171,13 @@ def render(root: Path = ROOT) -> None:
             "",
             "## Hero Q signals",
             "",
+            "At pooled B8 H100, lower max Q predicts death with AUC ",
+            f"**{auc(pooled['100']['q_signals']['max_q']['auc_negative_score'])}**. ",
+            "The top-two gap in its raw orientation gives ",
+            f"**{auc(pooled['100']['q_signals']['top2_gap']['auc_raw_score'])}**. ",
+            "The hero's Q therefore already contains a useful death-ranking signal; this ",
+            "does not establish that it identifies a surviving alternative or an early commitment.",
+            "",
             "Raw-score orientation: larger max Q or top-two gap predicts death. ",
             "The negative-score AUC is 1 minus this AUC (CI endpoints reversed); both ",
             "orientations and their CIs are preserved in metrics.json. No sign was chosen ",
@@ -223,6 +241,7 @@ def render(root: Path = ROOT) -> None:
             "are not guaranteed to align across checkpoints. Read the per-arm results ",
             "alongside the pooled point estimate; the 5-arm pool is not a seed bootstrap. ",
             "AUC measures ranking rather than intervention benefit or calibration quality.",
+            precision_note,
             "",
             "## Reproduction and artifacts",
             "",
@@ -339,6 +358,9 @@ def render(root: Path = ROOT) -> None:
             "results too. World-bootstrap intervals condition on OOF fits and do not ",
             "measure training-seed or model-selection uncertainty. Historical M7 scalar ",
             "baselines used all nine arms, so comparisons are contextual rather than paired.",
+            "CTRL_s12 intervals use 1,999 valid draws from 2,000 attempts; one sampled world set ",
+            "was single-class.",
+            precision_note,
             "",
             f"Capture total {capture_seconds:.1f}s; analysis {analysis_seconds:.1f}s.",
         ]
