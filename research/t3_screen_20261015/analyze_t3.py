@@ -350,7 +350,10 @@ def attribution(arms: Mapping[str, Any]) -> str:
     }
     decisions = {arm: data["decision"] for arm, data in arms.items()}
     if decisions["LABELS"] == decisions["LABELS_KEEPV8"] == "GO":
-        note = "Both scheduled arms GO: under the registered attribution rule, labels carry the effect."
+        note = (
+            "Both scheduled arms GO: under the registered attribution rule, "
+            "labels carry the effect."
+        )
     elif primary["LABELS"] > 0 and primary["LABELS_KEEPV8"] <= 0:
         note = (
             "Only LABELS moves positively among the two scheduled arms: the registered "
