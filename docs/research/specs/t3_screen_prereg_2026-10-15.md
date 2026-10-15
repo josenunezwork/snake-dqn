@@ -34,3 +34,14 @@ Primary: paired scripted episode-survival delta, 5 seeds.
 Secondary (reported, not deciding): alive-frame survival; mass vs the incumbent per mix; death
 lengths; final greedy boost rate; `bank_agree` at 2M and 8M (ignore 2.0-2.3M transient); post-hoc
 re-roll of 200 bank states under each final (fraction of labelled survivors that still survive).
+
+## Amendment 1 (before any screen run; informed only by the 200k smoke test)
+Smoke (LABELS, seed 10, 200k, scratch dir): bank loads, 256 bank rows per anchor batch,
+`bank_agree` 0.84 -> 0.92, ~5k transitions/s, no tripwire. But greedy boost rate was 16.6% at 100k
+and 12.0% at 200k (CTRL 0.02-0.06%; T2 ANCHOR0 4.7%). 56% of the bank's surviving actions are
+boosts, and at lambda 1.0 the margin appears to teach boosting beyond the states that need it: the
+advisor's risk 2 (mass tax). Added arm, same rule and evaluation:
+- LABELS_KEEPV8_LO: `--td-huber-delta 1.0 --anchor-hold 0 --anchor-floor-at 1 --anchor-floor 0.1
+  --onpolicy-labels --label-frac 0.5 --label-bank BANK --label-bank-frac 0.5
+  --label-bank-margin-scale 1.0` (CTRL's anchor weight throughout; only the anchor contents change).
+The two registered arms are unchanged. Greedy boost rate per 100k is a reported secondary for all.
