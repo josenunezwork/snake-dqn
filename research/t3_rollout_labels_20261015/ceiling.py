@@ -17,6 +17,7 @@ import numpy as np
 from research.b8_death_census_20261014 import census
 from research.t1_commitment_20261015.replay import build_replay, configure_cpu, load_inputs
 from research.t3_rollout_labels_20261015.engine import batched_rollout
+from research.t3_rollout_labels_20261015.trigger import DenseTrigger
 
 ARMS = ("b8_s0", "b8_s3")
 HORIZON = 5000
@@ -37,6 +38,7 @@ def source_identity() -> dict[str, str]:
     paths = (
         Path(__file__),
         repo / "research/t3_rollout_labels_20261015/engine.py",
+        repo / "research/t3_rollout_labels_20261015/trigger.py",
         repo / "research/t1_commitment_20261015/replay.py",
         repo / "research/t1_commitment_20261015/study.py",
         repo / "research/b8_death_census_20261014/census.py",
@@ -80,7 +82,12 @@ def _atomic_json(path: Path, value: dict) -> None:
 
 
 def run_episode(
-    arm: str, env: int, threshold: float, source_sha: str, identity: dict[str, str]
+    arm: str,
+    env: int,
+    threshold: float | None,
+    source_sha: str,
+    identity: dict[str, str],
+    trigger_mode: str = "sparse",
 ) -> dict:
     """Run one exact census world, applying at most one shadow batch per five decisions."""
     configure_cpu()
@@ -93,6 +100,7 @@ def run_episode(
     raw_triggers = decisions = 0
     trigger_rows = []
     last_batch = -5
+    dense_trigger = DenseTrigger(min_length=600)
     prefix_ok = True
     death_t = death_length = None
     for decision in range(HORIZON):
@@ -114,7 +122,11 @@ def run_episode(
                 assert chosen == baseline_action and length == baseline_length, (env, decision)
             in_scope = bool(sim.alive[0, 0] and length >= 600)
             eligible_decisions += int(in_scope)
-            eligible = bool(in_scope and -float(q.max()) > threshold)
+            eligible = (
+                dense_trigger.fires(decision, length, bool(sim.alive[0, 0]))
+                if trigger_mode == "dense"
+                else bool(in_scope and -float(q.max()) > threshold)
+            )
             if eligible:
                 triggers += 1
                 raw_triggers += 1
@@ -166,7 +178,8 @@ def run_episode(
         "arm": arm,
         "env": env,
         "world_seed": seed,
-        "threshold": float(threshold),
+        "threshold": float(threshold) if threshold is not None else None,
+        "trigger_mode": trigger_mode,
         "threshold_source_sha256": source_sha,
         "source_identity": identity,
         "checkpoint": {"path": str(checkpoint), "sha256": _sha(checkpoint)},
@@ -202,9 +215,8 @@ def run_episode(
     return result
 
 
-def _worker(job: tuple[str, int, float, str, dict[str, str]]) -> tuple[str, int, dict]:
-    arm, env, threshold, source_sha, identity = job
-    return arm, env, run_episode(arm, env, threshold, source_sha, identity)
+def _worker(job: tuple) -> tuple[str, int, dict]:
+    return job[0], job[1], run_episode(*job)
 
 
 def summarize(out: Path, worlds: int, total_wall_seconds: float) -> dict:
@@ -250,16 +262,26 @@ def summarize(out: Path, worlds: int, total_wall_seconds: float) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--threshold-path", type=Path, required=True)
+    parser.add_argument("--threshold-path", type=Path)
+    parser.add_argument("--trigger-mode", choices=("sparse", "dense"), default="sparse")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=3, choices=(1, 2, 3))
     parser.add_argument("--worlds", type=int, default=32, choices=range(1, 33))
     args = parser.parse_args()
-    trigger = json.loads(args.threshold_path.read_text())
-    if trigger.get("status") != "PASS":
-        raise RuntimeError("trigger calibration must PASS")
-    threshold = float(trigger["threshold"])
-    source_sha = _sha(args.threshold_path)
+    if args.trigger_mode == "sparse":
+        if args.threshold_path is None:
+            parser.error("--threshold-path is required for sparse mode")
+        trigger = json.loads(args.threshold_path.read_text())
+        if trigger.get("status") != "PASS":
+            raise RuntimeError("trigger calibration must PASS")
+        threshold = float(trigger["threshold"])
+        source_sha = _sha(args.threshold_path)
+    else:
+        threshold = None
+        source_sha = _sha(
+            Path(__file__).resolve().parents[2]
+            / "docs/research/specs/t3_ceiling_dense_spec_2026-10-15.md"
+        )
     identity = source_identity()
     started = time.perf_counter()
     out = args.out / "ceiling"
@@ -272,13 +294,14 @@ def main() -> None:
             if path.exists():
                 prior = json.loads(path.read_text())
                 if (
-                    prior.get("threshold_source_sha256") != source_sha
+                    prior.get("trigger_mode", "sparse") != args.trigger_mode
+                    or prior.get("threshold_source_sha256") != source_sha
                     or prior.get("checkpoint", {}).get("sha256") != checkpoint_sha
                     or prior.get("source_identity") != identity
                 ):
                     raise RuntimeError(f"resume receipt mismatch: {path}")
                 continue
-            jobs.append((arm, env, threshold, source_sha, identity))
+            jobs.append((arm, env, threshold, source_sha, identity, args.trigger_mode))
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=args.workers, mp_context=multiprocessing.get_context("spawn")
     ) as pool:

@@ -17,6 +17,30 @@ ROOT = census.ARTIFACTS / "t3-rollout-labels-20261015"
 M7_ROOT = census.ARTIFACTS / "m7-diagnostics-20261014" / "feature_auc" / "runs"
 
 
+class DenseTrigger:
+    """Episode-local decision clock anchored at the first length-eligible decision.
+
+    The clock advances with episode decisions even if length later falls below the
+    cutoff. Frame eligibility gates collection without resetting the clock.
+    """
+
+    def __init__(self, min_length: int, min_frame: int = 0, interval: int = 5) -> None:
+        if interval < 1:
+            raise ValueError("interval must be positive")
+        self.min_length = min_length
+        self.min_frame = min_frame
+        self.interval = interval
+        self.first_decision: int | None = None
+
+    def fires(self, decision: int, length: int, alive: bool = True) -> bool:
+        """Fire at clock indices 0, 5, ... when all eligibility conditions hold."""
+        if not alive or length < self.min_length:
+            return False
+        if self.first_decision is None:
+            self.first_decision = decision
+        return decision >= self.min_frame and (decision - self.first_decision) % self.interval == 0
+
+
 def capped_triggers(frames: np.ndarray, eligible: np.ndarray, interval: int = 5) -> np.ndarray:
     """Accept eligible chronological decisions with at least interval separation."""
     if interval < 1:

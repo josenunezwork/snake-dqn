@@ -63,3 +63,28 @@ def test_trigger_cap_uses_decision_distance_and_resets_for_each_world() -> None:
         capped_triggers(frames, np.array([False, True, True, True, True, True, True])),
         np.array([False, True, False, False, True, False, True]),
     )
+
+
+def test_dense_trigger_anchors_to_first_length_eligible_decision() -> None:
+    from research.t3_rollout_labels_20261015.trigger import DenseTrigger
+
+    trigger = DenseTrigger(600)
+    assert not trigger.fires(12, 599)
+    assert trigger.fires(13, 600)
+    assert not trigger.fires(14, 700)
+    assert not trigger.fires(18, 599)
+    assert not trigger.fires(19, 700)
+    assert trigger.fires(23, 700)
+    assert not trigger.fires(28, 700, alive=False)
+    assert DenseTrigger(600).fires(19, 600)
+
+
+def test_dense_collection_clock_is_not_reset_by_frame_filter() -> None:
+    from research.t3_rollout_labels_20261015.trigger import DenseTrigger
+
+    trigger = DenseTrigger(700, min_frame=2000)
+    assert not trigger.fires(1998, 700)
+    assert not trigger.fires(2000, 700)
+    assert trigger.fires(2003, 700)
+    with pytest.raises(ValueError, match="positive"):
+        DenseTrigger(600, interval=0)
