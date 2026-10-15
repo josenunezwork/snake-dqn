@@ -175,7 +175,7 @@ def loss_terms(
     anchor_mode: str,
     boost_weight: float,
     margin: float,
-    td_beta: float = 1.0,
+    td_delta: float = 1.0,
 ):
     """The T1 update's forwards and loss terms on one uploaded staging batch.
 
@@ -205,7 +205,7 @@ def loss_terms(
         a_star = _masked_argmax(torch, qn_online, nmask[:n])
         q_next = qn_target.gather(1, a_star[:, None]).squeeze(1)
         y = R + disc * q_next
-    td = torch.nn.functional.smooth_l1_loss(qa, y, beta=td_beta)
+    td = torch.nn.functional.huber_loss(qa, y, delta=td_delta)
     db = {
         "q_teacher": q_teacher[:n_demo],
         "a_v8": a_v8[:m],
@@ -514,8 +514,8 @@ class Learner:
             a_star = masked_argmax(online(nlt, ngt, nst), nmt)
             q_next = target(nlt, ngt, nst).gather(1, a_star[:, None]).squeeze(1)
             y = R + disc * q_next
-        td_beta = float(getattr(args, "td_huber_beta", 1.0))
-        td = torch.nn.functional.smooth_l1_loss(qa, y, beta=td_beta)
+        td_delta = float(getattr(args, "td_huber_delta", 1.0))
+        td = torch.nn.functional.huber_loss(qa, y, delta=td_delta)
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         has_anchor = qd.shape[0] > 0
         if not has_anchor:  # bv8 before enough on-policy labels: TD only
@@ -802,7 +802,7 @@ class Learner:
             anchor_mode=args.anchor_mode,
             boost_weight=float(args.anchor_boost_weight),
             margin=margin,
-            td_beta=float(getattr(args, "td_huber_beta", 1.0)),
+            td_delta=float(getattr(args, "td_huber_delta", 1.0)),
         )
         has_anchor = m > 0
         out = None

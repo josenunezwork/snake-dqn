@@ -1379,7 +1379,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "anchor_hold",
         "anchor_floor_at",
         "anchor_floor",
-        "td_huber_beta",
+        "td_huber_delta",
         "eps_end_at",
         "namespace",
         "mixed_frac",
@@ -1448,11 +1448,14 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--anchor-floor-at", type=int, default=Schedules.anchor_floor_at)
     ap.add_argument("--anchor-floor", type=float, default=Schedules.anchor_floor)
     ap.add_argument(
-        "--td-huber-beta",
+        "--td-huber-delta",
         type=float,
         default=1.0,
-        help="T2: Huber beta of the TD loss (1.0 = the M3 loss; ~100 puts a death delta of "
-        "Phi(L)+3 inside the quadratic regime: an expectation fit, not a median fit)",
+        help="T2: Huber delta of the TD loss, huber_loss(delta) (1.0 = the M3 loss, identical "
+        "to smooth_l1 beta 1). Quadratic 0.5*e^2 below delta (gradients of small errors "
+        "unchanged), linear above; ~100 puts a death delta of Phi(L)+3 in the quadratic "
+        "regime: an expectation fit, not a median fit. NB smooth_l1(beta) would instead "
+        "divide small-error gradients by beta.",
     )
     ap.add_argument("--eps-end-at", type=int, default=Schedules.eps_end_at)
     ap.add_argument("--namespace", default=TRAIN_NAMESPACE)
@@ -1792,7 +1795,7 @@ def main_sync(args) -> int:
             a_star = masked_argmax(online(nlt, ngt, nst), nmt)
             q_next = target(nlt, ngt, nst).gather(1, a_star[:, None]).squeeze(1)
             y = R + disc * q_next
-        td = torch.nn.functional.smooth_l1_loss(qa, y, beta=float(args.td_huber_beta))
+        td = torch.nn.functional.huber_loss(qa, y, delta=float(args.td_huber_delta))
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         if args.anchor_boost_weight == 1.0:
             anc = anchor_loss(torch, qd, db, margin)
