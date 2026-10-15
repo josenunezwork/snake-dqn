@@ -93,3 +93,20 @@ def test_sealer_identity_does_not_guess_when_no_cell_splits_a_region():
     after = _sim(4, 3, [[(0, 1)], [(3, 0), (3, 2)]])
 
     assert sealer_identity(before, after, [["random_safe"]])["status"] == "none"
+
+
+def test_joint_neck_seal_is_explicitly_unresolved():
+    # Neither x=2 nor x=3 reconnects the two corridor fragments by itself, but
+    # restoring both does.  The study must preserve that evidence without naming
+    # an owner, even though both cells happen to share an opponent snake here.
+    walls = [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0), (0, 2), (1, 2), (2, 2), (3, 2), (4, 2)]
+    before = _sim(5, 3, [[(0, 1)], walls])
+    after = _sim(5, 3, [[(0, 1)], walls + [(2, 1), (3, 1)]])
+
+    sealer = sealer_identity(before, after, ["greedy_food"])
+
+    assert sealer["status"] == "unresolved"
+    assert sealer["owner"] == "unresolved"
+    assert sealer["candidate_cells"] == []
+    assert sealer["joint_candidate_cells"] == [[2, 1], [3, 1]]
+    assert sealer["joint_evidence"][0]["post_fragment_labels"]

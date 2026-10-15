@@ -199,3 +199,32 @@ def test_onset_positive_can_be_latest_lad_and_region_includes_fatal(
     assert len(row["region_series"]) == 60
     assert row["region_series"][0]["decision"] == 21
     assert row["region_series"][-1]["decision"] == fatal
+
+
+@pytest.mark.parametrize(
+    "horizons,eligible,off",
+    [
+        ([10] * 20 + [130] * 10 + [None] * 19, False, False),
+        ([10] * 20 + [None] * 29, False, True),
+        ([10] * 30 + [None] * 19, True, False),
+    ],
+)
+def test_routing_keeps_censored_deaths_in_late_median(horizons, eligible, off) -> None:
+    from research.t1_commitment_20261015.report import censored_quartiles, fraction, route
+
+    late = {
+        "H_LAD_quartiles_censored": censored_quartiles([{"H_LAD": h} for h in horizons]),
+        "survivor_within": {
+            str(h): fraction(sum(x is not None and x <= h for x in horizons), 49)
+            for h in (150, 300)
+        },
+        "boost_survives_at_LAD": fraction(0, 49),
+    }
+    overall = {
+        "Q_gap_below_2": fraction(0, 1),
+        "Q_gap_above_5": fraction(0, 1),
+        "tail_or_boundary_TTL_diff": fraction(0, 1),
+    }
+    rules = route({"late": late, "all": overall})
+    assert rules["R1"]["fires"] is eligible
+    assert rules["R1_prime"]["fires"] is off

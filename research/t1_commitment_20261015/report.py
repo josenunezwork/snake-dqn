@@ -30,6 +30,16 @@ def fraction(numerator: int, denominator: int) -> dict:
     }
 
 
+def censored_quartiles(rows: Sequence[dict]) -> list:
+    """Empirical inverse-CDF ranks, retaining missing horizons above 300."""
+    known = sorted(r["H_LAD"] for r in rows if r["H_LAD"] is not None)
+    result = []
+    for p in (0.25, 0.5, 0.75):
+        rank = int(np.ceil(p * len(rows)))
+        result.append(known[rank - 1] if 0 < rank <= len(known) else ">300 (censored)")
+    return result
+
+
 def topology_diff(lad: dict) -> bool:
     chosen, survivor = lad["chosen_geometry"], lad["best_surviving_geometry"]
     return (
@@ -46,6 +56,7 @@ def summarize_group(rows: Sequence[dict]) -> dict:
         "deaths": n,
         "lad_available": len(lads),
         "none_within_300": n - len(lads),
+        "H_LAD_quartiles_censored": censored_quartiles(rows),
         "H_LAD_quartiles_observed": quartiles([r["H_LAD"] for r in rows if r["H_LAD"] is not None]),
         "survivor_within": {
             str(h): fraction(sum(r["H_LAD"] is not None and r["H_LAD"] <= h for r in rows), n)
@@ -90,12 +101,10 @@ def summarize_group(rows: Sequence[dict]) -> dict:
 
 def route(groups: dict) -> dict:
     all_rows, late = groups["all"], groups["late"]
-    observed_h = late["H_LAD_quartiles_observed"]
-    median = observed_h[1] if observed_h else None
+    censored_median = late["H_LAD_quartiles_censored"][1]
+    median = censored_median if isinstance(censored_median, (int, float)) else None
     r1 = late["survivor_within"]["150"]["fraction"] >= 0.6 and median is not None and median <= 100
-    r1_off = late["survivor_within"]["300"]["fraction"] < 0.3 or (
-        median is not None and median > 300
-    )
+    r1_off = late["survivor_within"]["300"]["fraction"] < 0.3 or median is None
     r2 = (all_rows["Q_gap_below_2"]["fraction"] or 0) > 0.5
     r2_prime = (all_rows["Q_gap_above_5"]["fraction"] or 0) > 0.5
     topology = all_rows["tail_or_boundary_TTL_diff"]["fraction"]
@@ -170,8 +179,14 @@ def load_rows(out: Path) -> list:
 
 def manifest(out: Path) -> dict:
     """Pin inputs/checkpoints and all Python implementation dependencies."""
+    from research.apex_safety_20260926 import dev_screen
+    from research.redesign_m2_20261008 import ni_spec
+
     inputs = sorted(INPUTS.glob("*.json")) + sorted(INPUTS.glob("*.npz"))
     inputs += [census.b8_path(arm) for arm in census.B8_ARMS]
+    inputs += [dev_screen.DEFAULT_CONFIG]
+    inputs += [dev_screen.DEFAULT_CHECKPOINT_DIR / name for name, _ in dev_screen.POOL]
+    inputs += [dev_screen.DEFAULT_CHECKPOINT_DIR / ni_spec.FRP3_S12[0]]
     inputs += [
         REPO / p
         for p in (
@@ -204,7 +219,9 @@ def build_report(out: Path) -> dict:
     rows = load_rows(out)
     run = json.loads((out / "run.json").read_text())
     parity = json.loads((out / "parity.json").read_text())
+    sealer_review = json.loads((out / "sealer-review.json").read_text())
     assert parity["status"] == run["status"] == "PASS"
+    assert sealer_review["status"] == "PASS"
     assert not run["partial_pilot"]
     groups = {
         "all": summarize_group(rows),
@@ -216,7 +233,13 @@ def build_report(out: Path) -> dict:
         "authority": "development diagnostic, not gate evidence",
         "groups": groups,
         "rules": route(groups),
-        "wall_seconds": run["wall_seconds"],
+        "wall_seconds": run["wall_seconds"] + sealer_review["wall_seconds"],
+        "rollout_phase_wall_seconds": run["wall_seconds"],
+        "sealer_review_wall_seconds": sealer_review["wall_seconds"],
+        "sealer_review_env_frames": sealer_review["env_frames"],
+        "sealer_review_classifications_changed": sum(
+            c["classification_changed"] for arm in sealer_review["arms"] for c in arm["corrections"]
+        ),
         "references_run": False,
         "part_c_run": False,
     }
@@ -258,6 +281,7 @@ def build_report(out: Path) -> dict:
     for label, key in (
         ("LAD observed", "lad_available"),
         ("None within 300", "none_within_300"),
+        ("H_LAD quartiles (all deaths, censored ranks)", "H_LAD_quartiles_censored"),
         ("H_LAD quartiles (observed)", "H_LAD_quartiles_observed"),
         ("Q-gap quartiles at LAD", "Q_gap_quartiles"),
         ("Head-side region at t0 quartiles", "head_side_region_at_t0_quartiles"),
@@ -285,9 +309,11 @@ def build_report(out: Path) -> dict:
     lines += [f"| {rule} | {verdict['verdict']} |" for rule, verdict in summary["rules"].items()]
     lines += [
         "",
-        "R1 uses the median of observed late LADs and the full 49-death denominator",
-        "for its survivor fraction. Missing LADs are right-censored beyond the scan;",
-        "their exact horizon is unknown. R2/R2' use all observed LADs and retain the",
+        "R1 uses the full late-death median (rank 25 of 49) and the full 49-death denominator",
+        "for its survivor fraction. Censored quartiles use inverse empirical-CDF ranks",
+        "ceil(p*N), with missing horizons retained above 300 under the prescribed search.",
+        "Observed-only quartiles use NumPy's linear interpolation and are shown separately.",
+        "Missing LADs' exact horizons are unknown. R2/R2' use all observed LADs and retain the",
         "Part C qualification. R3 compares the highest-Q surviving alternative with the",
         "chosen action; empty boundary TTL is represented by null, not zero.",
         "",
@@ -335,10 +361,18 @@ def build_report(out: Path) -> dict:
     lines += [
         "",
         f"Step 1 wall time: {run['wall_seconds']:.2f} s with {run['workers']} worker processes.",
+        f"Separately timed sealer review: {sealer_review['wall_seconds']:.2f} s, "
+        f"{sealer_review['env_frames']:,} recorded replay env-frames; "
+        f"{summary['sealer_review_classifications_changed']} owner classifications changed.",
+        f"Combined study and sealer-review wall time: {summary['wall_seconds']:.2f} s.",
         f"Counterfactual/control rollout env-frames: {groups['all']['rollout_env_frames']:,}.",
         "All Step 1 env-frames, including recorded/refinement replay: "
         f"{groups['all']['all_step1_env_frames']:,}.",
         "Parity/timing and the preliminary pilot are separate from those totals.",
+        "Rollout workers used the frozen launch commit in launch-head.txt. A reviewed",
+        "joint-cell seal correction was applied in a separate recorded-action replay only:",
+        "no counterfactual outcome, LAD, Q-gap or action geometry was changed. Original",
+        "rows remain in rows-before-sealer-review; sealer-review.json pins source and costs.",
         "Raw verification output is in `verification.log` under the artifact directory.",
         "",
         "## Caveats and artifacts",
@@ -370,6 +404,8 @@ def build_report(out: Path) -> dict:
         "`manifest.json`: exact SHA256s of inputs/checkpoints and Python dependencies.",
         "`parity.json` / `timing.json`: mandatory precondition and early-state benchmarks.",
         "`run.json` / `rows/*.status.json`: bounded workers, completion and PIDs.",
+        "`rows-before-sealer-review/`: original frozen rollout rows, retained verbatim.",
+        "`sealer-review.json` / `sealer-review/`: reviewed sealer replay provenance and costs.",
         "`pilot/` is an implementation pilot, excluded from final analysis totals.",
         "`*.exit` and `*.log`: detached tmux t1a-run receipts; no t2 session was touched.",
         "",
@@ -380,6 +416,7 @@ def build_report(out: Path) -> dict:
         "export MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 SNAKE_DQN_DEVICE=cpu",
         "./venv/bin/python -m research.t1_commitment_20261015.parity",
         "./venv/bin/python -m research.t1_commitment_20261015.study --workers 2",
+        "./venv/bin/python -m research.t1_commitment_20261015.sealer_refresh",
         "./venv/bin/python -m research.t1_commitment_20261015.report",
         "```",
         "",
