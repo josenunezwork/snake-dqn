@@ -137,7 +137,9 @@ def _write_grouped_bank(tmp_path: Path) -> Path:
         b8_action=np.repeat(np.array([0, 3], np.int64), 6),
     )
     (tmp_path / "manifest.json").write_text(
-        json.dumps({**manifest, "shards": {shard.name: hashlib.sha256(shard.read_bytes()).hexdigest()}})
+        json.dumps(
+            {**manifest, "shards": {shard.name: hashlib.sha256(shard.read_bytes()).hexdigest()}}
+        )
     )
     return shard
 

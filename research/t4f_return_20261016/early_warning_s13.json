@@ -1,0 +1,6 @@
+{
+  "output_dir": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4f-mac-20261016/RETURN_C_s13/early_warning",
+  "initial_checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s3/final.pth",
+  "holdout_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-20261016/banks/holdout",
+  "outside_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-heldout-outside-v2-20261016"
+}
