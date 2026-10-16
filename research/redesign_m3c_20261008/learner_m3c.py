@@ -935,11 +935,14 @@ class Learner:
             n_return = max(1, n_return)
         ret = None
         if n_return:
+            sample_kwargs = (
+                {"grouped": True} if getattr(args, "return_mode", "level") == "contrast" else {}
+            )
             return_rows = self.return_bank.sample(
                 rng,
                 n_return,
                 kappa=float(args.mass_kappa),
-                grouped=getattr(args, "return_mode", "level") == "contrast",
+                **sample_kwargs,
             )
             n_return = int(return_rows["selected"].sum()) if "selected" in return_rows else n_return
             return_rows = {
@@ -1397,11 +1400,14 @@ class Learner:
         return_rows = None
         if self.return_bank is not None:
             n_return = max(1, n_return)
+            sample_kwargs = (
+                {"grouped": True} if getattr(args, "return_mode", "level") == "contrast" else {}
+            )
             sampled = self.return_bank.sample(
                 self.rng,
                 n_return,
                 kappa=float(args.mass_kappa),
-                grouped=getattr(args, "return_mode", "level") == "contrast",
+                **sample_kwargs,
             )
             n_return = int(sampled["selected"].sum()) if "selected" in sampled else n_return
             return_rows = {
