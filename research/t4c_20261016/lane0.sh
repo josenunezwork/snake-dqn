@@ -48,6 +48,10 @@ for name, expected in binding["files"].items():
             digest.update(block)
     if digest.hexdigest() != expected:
         raise SystemExit(f"Registered input changed: {path}")
+    if path.name == "manifest.json" and path.parent.name in {"bank-v3", "outside-bank"}:
+        manifest = json.loads(path.read_text())
+        if {p.name for p in path.parent.glob("*.npz")} != set(manifest["shards"]):
+            raise SystemExit(f"Bank shard set differs from its manifest: {path.parent}")
 print(f"Verified {len(binding['files'])} registered input files.")
 CHECK_INPUTS
 

@@ -59,6 +59,10 @@ def main() -> int:
     binding_path = root / "research/t4c_20261016/launch_inputs.json"
     binding = json.loads(binding_path.read_text())
     bank = artifacts / "t4c-data-20261016/bank-v3"
+    for directory in (bank, artifacts / "t4c-data-20261016/outside-bank"):
+        manifest = json.loads((directory / "manifest.json").read_text())
+        if {p.name for p in directory.glob("*.npz")} != set(manifest["shards"]):
+            raise SystemExit(f"Bank shard set differs from its manifest: {directory}")
     init = artifacts / "redesign-m4b-mac-20261013/B8_s0/final.pth"
     demos = artifacts / "redesign-m2b-20261008/data"
     held = sorted((demos / "round-12").glob("chunk-*-part-*.npz"))[0]
@@ -183,8 +187,24 @@ def main() -> int:
         )
         return 124
     if result.returncode:
+        failure_path = out.parent / f"{out.name}-failure.json"
+        with failure_path.open("x") as stream:
+            json.dump(
+                {
+                    "schema": "t4c-real-bank-cpu-smoke-failure/v1",
+                    "command": command,
+                    "returncode": result.returncode,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "source_sha256": source_hashes,
+                },
+                stream,
+                indent=2,
+            )
         print(result.stdout[-4000:] + result.stderr[-4000:], file=sys.stderr)
         return result.returncode
+    (out / "stdout.log").write_text(result.stdout)
+    (out / "stderr.log").write_text(result.stderr)
     summary_path = out / "summary.json"
     summary = json.loads(summary_path.read_text())
     assert summary["halt"] is None and summary["actor_exitcodes"] == [0], summary
@@ -192,7 +212,9 @@ def main() -> int:
     assert summary["args"]["device"] == "cpu"
     assert summary["m3c"]["label_bank_counter_mode"] == "single-action"
     assert summary["m3c"]["label_bank_counter_ratio"] == 1.0
-    assert summary["m3c"]["label_bank_outside_margin_scale"] == 1.0
+    # m3c_flags deliberately emits only non-default values; CLI args retain all values.
+    assert float(summary["args"]["label_bank_outside_margin_scale"]) == 1.0
+    assert summary["m3c"].get("label_bank_outside_margin_scale", 1.0) == 1.0
     assert summary["m3c"]["label_bank_outside"]
     assert (out / "final.pth").is_file()
     assert all(

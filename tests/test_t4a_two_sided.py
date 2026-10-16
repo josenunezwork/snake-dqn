@@ -1,5 +1,6 @@
 """T4a two-sided bank routing: raw provenance, ratio sampling, and both losses."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -213,6 +214,29 @@ def test_t4c_outside_flags_require_explicit_two_sided_mode(tmp_path: Path) -> No
     ]
     with pytest.raises(SystemExit, match="outside needs --label-bank-frac"):
         m3c.main(args)
+
+
+def test_t4c_outside_path_is_json_safe_in_summary_flags(tmp_path: Path) -> None:
+    args = m3c.default_args()
+    args.label_bank_outside = tmp_path / "outside"
+    flags = m3c.m3c_flags(args)
+    assert flags["label_bank_outside"] == str(args.label_bank_outside)
+    json.dumps({"m3c": flags})
+
+
+@pytest.mark.parametrize("manifest_names", [{"bank-v2.npz"}, {"missing.npz"}])
+def test_t4c_strict_bank_manifest_rejects_extra_or_missing_shards(
+    tmp_path: Path, manifest_names: set[str]
+) -> None:
+    bank = _write_v2_bank(tmp_path)
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"shards": {name: "registered" for name in manifest_names}})
+    )
+    if manifest_names == {"bank-v2.npz"}:
+        np.savez(tmp_path / "extra.npz", x=np.zeros(1))
+    with pytest.raises(ValueError, match="shard set"):
+        LabelBank(tmp_path, 60, strict_shards=True)
+    assert bank.size == 4
 
 
 def test_t4c_outside_cpu_reference_and_fast_match(tmp_path: Path) -> None:

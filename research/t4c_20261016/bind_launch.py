@@ -39,6 +39,8 @@ def main() -> None:
         manifest = json.loads(manifest_path.read_text())
         if manifest["schema"] != expected_schema:
             raise SystemExit(f"Wrong data manifest schema: {manifest_path}")
+        if {p.name for p in directory.glob("*.npz")} != set(manifest["shards"]):
+            raise SystemExit(f"Bank shard set differs from its manifest: {directory}")
         files[str(manifest_path)] = sha256(manifest_path)
         for name, digest in manifest["shards"].items():
             shard = directory / name

@@ -1454,7 +1454,7 @@ def m3c_flags(args) -> Dict[str, Any]:
     ):
         if getattr(args, k) != getattr(d, k):
             value = getattr(args, k)
-            out[k] = str(value) if k == "label_bank" and value is not None else value
+            out[k] = str(value) if isinstance(value, Path) else value
     if args.restart_frac > 0.0:
         out["restart_bank"] = str(args.restart_bank)
         out["restart_frac"] = args.restart_frac
@@ -2634,11 +2634,19 @@ def main_multi(args) -> int:
             from research.redesign_m3c_20261008.obs_pack import train_layout
 
             bank_pack = train_layout()
-        bank = LabelBank(Path(args.label_bank), nscal_for(args), pack=bank_pack)
+        strict_shards = args.label_bank_outside is not None
+        bank = LabelBank(
+            Path(args.label_bank), nscal_for(args), pack=bank_pack, strict_shards=strict_shards
+        )
         if args.label_bank_counter_ratio is not None:
             bank.validate_counter_ratio(args.label_bank_counter_ratio)
         if args.label_bank_outside is not None:
-            outside_bank = LabelBank(Path(args.label_bank_outside), nscal_for(args), pack=bank_pack)
+            outside_bank = LabelBank(
+                Path(args.label_bank_outside),
+                nscal_for(args),
+                pack=bank_pack,
+                strict_shards=True,
+            )
     if args.out.exists():
         print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
         return 2

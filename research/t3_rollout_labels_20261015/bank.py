@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -10,10 +11,26 @@ import numpy as np
 class LabelBank:
     """In-memory `.npz` shards sampled with the learner's existing NumPy RNG."""
 
-    def __init__(self, directory: Path, nscal: int, pack=None) -> None:
-        shards = sorted(Path(directory).glob("*.npz"))
+    def __init__(self, directory: Path, nscal: int, pack=None, strict_shards: bool = False) -> None:
+        directory = Path(directory)
+        shards = sorted(directory.glob("*.npz"))
         if not shards:
             raise ValueError(f"label bank has no .npz shards: {directory}")
+        if strict_shards:
+            manifest_path = directory / "manifest.json"
+            try:
+                manifest = json.loads(manifest_path.read_text())
+                expected = manifest["shards"]
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                raise ValueError(f"invalid strict label-bank manifest: {manifest_path}") from exc
+            if not isinstance(expected, dict) or not all(
+                isinstance(name, str) for name in expected
+            ):
+                raise ValueError(f"invalid strict label-bank manifest: {manifest_path}")
+            actual_names = {path.name for path in shards}
+            expected_names = set(expected)
+            if actual_names != expected_names:
+                raise ValueError("label-bank shard set does not exactly match its manifest")
         rows = []
         for path in shards:
             with np.load(path) as archive:

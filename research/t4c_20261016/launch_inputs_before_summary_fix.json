@@ -1,0 +1,39 @@
+{
+  "authority": "prepared CPU-only launch; no training started",
+  "files": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data/margin.json": "498c9fb8484d20e798efa928a55efa8314a9135dd40a9f3e40db5209840254a2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data/round-12/chunk-0000-part-00.npz": "6c91341075ed3a8287008dde12bed2232f418dc1e174909e237b9fff9414272e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s0/final.pth": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s1/final.pth": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s2/final.pth": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s3/final.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s4/final.pth": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/final.pth": "262da904c67c79d306006179bebcc7ce236dc6907147e303316e828d5ebcdd11",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/summary.json": "0cebf9f61c66a16a60a4c4c5c076402319285cc493ba73b06d6241f68734722b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/final.pth": "b3b1c9a62388dd7624a57c900bfd837c1064d71fe23043b38a3d8d793bdf79db",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/summary.json": "5111a797bfa964611c9335b7bfa4fd5fa36d9fedab2363f56464590945a152c8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/final.pth": "a94b456f63e4e887b3f3aa52e6918fcff8fbf916453207a1b6b230ac6c11cbc8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/summary.json": "7ef430847ce8974371adabc81cc001416388a800133422092d97a469b238ed0f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/final.pth": "5920cc7f14de4a99a1be6524a8215c40dd15f29c6ecee1e826d74a739d514302",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/summary.json": "715b2324c09eab1341308ac9f53f46103dbdc09d3e2a74e793407f79a845f7f4",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/final.pth": "b9eaf9e7120e233f5d32df30270ea67868597a3ad55cade80c42424fdc08f79c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/summary.json": "8db3c4568e2401f7698adbff3ece8dcd3579bf7601793932762c177bb49dd496",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4-prep-20261015/bank-v2/bank-00000.npz": "759b94e6e8e5f336abca542dceed42009c3df88de97c935707e0950d742172b2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4-prep-20261015/bank-v2/manifest.json": "340415402e04cd938a7e66e5f9e7294968d34b5a78b789b4fe02ae503c8bd221",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016/bank-v3/bank-00000.npz": "3dc58d3123329486082dd6722adf8558ca00b06cdf2f13b46349e3db3c2797d8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016/bank-v3/manifest.json": "4b1ea37d8c24b550e3038a16da1c025bc00198cba83fa7c7c157953e927d406c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016/outside-bank/bank-00000.npz": "81d279944e2ad40bb319fc2cb71094af1a85267b08a654dd32e16b61065cf8b6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-data-20261016/outside-bank/manifest.json": "bb8be65c31a61242dbb30d7462ac3e85e7a83a325a8d4860d536ac812ee9dd44",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4c/docs/research/specs/t4c_prereg_2026-10-16.md": "f25e930ba241337244bee8a710c3d84e16beffdcc0d658047ee708afb17f5d3e",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4c/research/redesign_m3c_20261008/learner_m3c.py": "ef8d7a2d065871e457166885b6ee20e4b5e482f8d2c9ca34ee65ebb12be556fb",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4c/research/redesign_m3c_20261008/train_m3c.py": "7e7a97e2c407c7fed8d41d55205f76986330a9b9fd8dddd1e20817a1898fe91b",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4c/research/t3_rollout_labels_20261015/bank.py": "b782d6585c567d9856ea973a597069f6fa8f9be552bfee4cedd23fb916e4063f",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4c/research/t4c_20261016/lane0.sh": "6c7b062a19835d179e4974dfd2b30fe93fbd7abb18c82e6435bdc38dcf34110b",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4c/research/t4c_20261016/lane1.sh": "72184428b80354a4f412e0bbe090d9731441c74fb68360ba4ce4f28dc260c82e"
+  },
+  "historical_binding": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-t4c/research/t4a_two_sided_20261016/launch_inputs.json",
+    "sha256": "30f6cb77100e8a0582249b426abe2580aace813f632869fc5b4b3265b2f0b921"
+  },
+  "schema": "t4c-launch-inputs/v1"
+}
