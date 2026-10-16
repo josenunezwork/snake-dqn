@@ -1,0 +1,13 @@
+{
+  "chosen_weight": 0.00053,
+  "diagnostic_recomputed_interpolated_weight_in_final_summary": 0.00044713851610921626,
+  "explanation": "The final summary included the confirmation pair in its descriptive grid and retained the summarizer interpolated_weight field recomputed over that grid. This field did not select the launch weight. Selection was frozen from bracket-summary.json before the confirmation pair. The launch weight remains 0.00053; the confirmation pooled initial ratio is 0.5955114987694134. Original hash-bound receipts are unchanged.",
+  "receipt_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-20261016/bracket-summary.json": "783f0390b88b058458754b223b3cb04169e8343bb85c76a3204ca7a5519bc741",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-20261016/final-summary.json": "92ab7ee752f37a1c974f2f3b9990461ec4aa75e8db97a1920aee5d398c2d679d",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/t4f_calibration_2026-10-16.json": "92ab7ee752f37a1c974f2f3b9990461ec4aa75e8db97a1920aee5d398c2d679d"
+  },
+  "schema": "t4f-calibration-clarification/v1",
+  "selection_interpolated_weight_from_bracket": 0.0005262020855082572,
+  "status": "DOCUMENTARY_CLARIFICATION_NO_RESELECTION"
+}
