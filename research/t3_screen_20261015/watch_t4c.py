@@ -115,6 +115,14 @@ def _controls_complete(done: list[dict[str, Any]], jobs: list[dict[str, Any]]) -
     return {job_key(job) for job in control}.issubset({job_key(job) for job in done})
 
 
+def extension_jobs() -> list[dict[str, Any]]:
+    """Return the one registered round-67 scripted extension, if required."""
+    return [
+        {"name": name, "mix": "scripted", "worlds": 96, "round_index": 67}
+        for name in [*(f"CTRL_s{seed}" for seed in range(10, 15)), *NAMES]
+    ]
+
+
 def environment() -> dict[str, str]:
     return dict(
         os.environ,
@@ -214,22 +222,75 @@ def _finish(
     statuses: dict[str, int],
     audit: dict[str, Any],
 ) -> int:
-    """Load analysis lazily so control probes need no diagnostic implementation."""
-    from research.t3_screen_20261015 import analyze_t4c, diagnostics_t4c
+    """Produce the one resumable post-probe analysis and CPU diagnostic receipt."""
+    from research.t3_screen_20261015 import analyze_t4c, diagnostics_t4c, drift_t4c
 
     roots = {
         name: checkpoint(name, args.train, args.ctrl).parent
         for name in [*NAMES, *(f"CTRL_s{s}" for s in range(10, 15))]
     }
+    phase = args.out / "diagnostic_phase.json"
+    atomic_json(phase, {"phase": "final_bank_and_drift", "status": "running"})
+    summary = diagnostics_t4c.load_drift_summary()
+    if summary is None:
+        raise ValueError("missing verified T4c drift baseline summary")
+    drift_root = args.out / "t4c-final-drift"
+    receipts = []
+    complete_finals = all(
+        statuses.get(name) == 0 and (roots[name] / "final.pth").is_file() for name in NAMES
+    )
+    for seed in range(10, 15) if complete_finals else ():
+        checkpoint_path = roots[f"{ARM}_s{seed}"] / "final.pth"
+        capture_path = drift_root / "captures" / f"CTRL_s{seed}__r62__scripted.npz"
+        receipt_path = capture_path.with_suffix(".t4c-final.receipt.json")
+        if receipt_path.exists():
+            receipt = json.loads(receipt_path.read_text())
+            if (
+                receipt.get("schema") != "t4c-final-drift-capture/v1"
+                or receipt.get("checkpoint_sha256") != drift_t4c.sha256(checkpoint_path)
+                or not capture_path.is_file()
+                or receipt.get("capture_sha256") != drift_t4c.sha256(capture_path)
+            ):
+                raise ValueError(f"invalid existing T4c final drift receipt: {receipt_path}")
+        elif capture_path.exists():
+            raise ValueError(
+                f"T4c drift capture exists without its terminal receipt: {capture_path}"
+            )
+        else:
+            receipt = drift_t4c.capture(seed, checkpoint_path, drift_root)
+        receipts.append(receipt)
+        atomic_json(
+            phase,
+            {
+                "phase": "final_bank_and_drift",
+                "status": "running",
+                "completed_seeds": len(receipts),
+            },
+        )
+    candidate_drift = (
+        drift_t4c.summarize(drift_root, summary)
+        if complete_finals
+        else {"candidate_consequential_change_rate": None, "within_ten_percentage_points": None}
+    )
     telemetry = diagnostics_t4c.read_telemetry(roots)
-    diagnostics = diagnostics_t4c.diagnose(rows, roots)
-    result = analyze_t4c.analyze(rows, statuses, telemetry, diagnostics)
+    diagnostics = diagnostics_t4c.diagnose(rows, roots, summary, candidate_drift)
+    context = {}
+    for name, path in (
+        ("t4a", REPO / "research/t4a_screen_20261016/results/analysis.json"),
+        ("t3", REPO / "research/t3_screen_20261015/results/analysis.json"),
+    ):
+        if path.is_file():
+            context[name] = json.loads(path.read_text())
+    result = analyze_t4c.analyze(rows, statuses, telemetry, diagnostics, context)
+    diagnostics["declared_fork"] = diagnostics_t4c.declared_fork(result, diagnostics["drift"])
+    result = analyze_t4c.analyze(rows, statuses, telemetry, diagnostics, context)
     result["seed_bank_audit"] = audit
     atomic_json(args.out / "telemetry.json", telemetry)
     atomic_json(args.out / "diagnostics.json", diagnostics)
     atomic_json(args.out / "analysis.json", result)
     args.results.parent.mkdir(parents=True, exist_ok=True)
     args.results.write_text(analyze_t4c.markdown(result))
+    atomic_json(phase, {"phase": "complete", "status": "complete", "captures": receipts})
     return 0
 
 
@@ -248,6 +309,16 @@ def run(args: argparse.Namespace) -> int:
         audit = banks_t4c.initial_audit(REPO, ARTIFACTS, audit_path)
         atomic_json(audit_path, audit)
     jobs, active, refreshed = base_jobs(), {}, False
+    recovered_extension = [job for job in extension_jobs() if row_path(out, job).exists()]
+    if recovered_extension:
+        # A partial owned extension consumes its bank. Reuse its original passing
+        # receipt rather than treating those own rows as a new collision.
+        receipts = sorted(out.glob("seed_bank_audit_round67_launch-*.json"))
+        if not receipts:
+            raise ValueError("T4c round-67 rows exist without a launch audit receipt")
+        _load_audit(receipts[-1], extension=True)
+        jobs.extend(extension_jobs())
+        refreshed = True
     _event(out, "started", pid=os.getpid(), worker_limit=WORKER_LIMIT, audit=str(audit_path))
     with owned_workers(active):
         while True:
@@ -279,12 +350,15 @@ def run(args: argparse.Namespace) -> int:
                 extra = analyze_t4c.extension_requirements(result, rows)
                 if extra:
                     if not refreshed:
-                        refresh_path = out / "seed_bank_audit_round67.json"
-                        if refresh_path.exists():
-                            _load_audit(refresh_path, extension=True)
-                        else:
-                            refresh = banks_t4c.extension_audit(REPO, ARTIFACTS, refresh_path)
-                            atomic_json(refresh_path, refresh)
+                        # No owned r67 row exists yet, so save a new launch-time
+                        # receipt rather than trusting an older unconsumed one.
+                        refresh_path = out / (
+                            "seed_bank_audit_round67_launch-"
+                            + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+                            + ".json"
+                        )
+                        refresh = banks_t4c.extension_audit(REPO, ARTIFACTS, refresh_path)
+                        atomic_json(refresh_path, refresh)
                         refreshed = True
                     known = {job_key(job) for job in jobs}
                     jobs.extend(job for job in extra if job_key(job) not in known)
