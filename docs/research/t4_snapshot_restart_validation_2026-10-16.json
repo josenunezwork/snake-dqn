@@ -1,0 +1,70 @@
+{
+  "artifact_store": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4b-snapshot-restart-20261016/benchmark-1000-v2",
+  "benchmark_processes": 1,
+  "benchmark_source_commit": "d30296a993eba6c18f5160d98f535386fe852fda",
+  "compressed_snapshot_bytes": 56736379,
+  "device": "cpu",
+  "machine": "arm64",
+  "manifest_sha256": "2fe2a95e847ae5d8429548ae2bb4370a8a68ec44d5198b64c8efdb91fee942af",
+  "numerical_threads_per_process": 1,
+  "parity": [
+    {
+      "frames": 300,
+      "key": "b8_s2-scripted-c6-i26-s129877605",
+      "mix": "scripted"
+    },
+    {
+      "frames": 300,
+      "key": "b8_s0-frozen-c2-i39-s3816534586",
+      "mix": "frozen"
+    },
+    {
+      "frames": 300,
+      "key": "b8_s3-mixed-c5-i27-s3786645910",
+      "mix": "mixed"
+    }
+  ],
+  "python": "3.12.3",
+  "reconstruction_seconds_per_1000": 512.2485202858225,
+  "schema": "t4b-build-validation/v1",
+  "snapshots": 1000,
+  "snapshots_by_mix": {
+    "frozen": 66,
+    "mixed": 226,
+    "scripted": 708
+  },
+  "source_sha256": {
+    "research/redesign_m3c_20261008/train_m3c.py": "7453135153ac0bb011c3f61a3848e8266d18ca3cb710646f84906e3040f911d7",
+    "research/t3_rollout_labels_20261015/bank_engine.py": "c4446dad0b2323b5ce6efd1b53b6266fdca64dc3407bc2ea957e3dd77082d157",
+    "research/t4_snapshot_restart_20261016/actor.py": "d19e172d38239a29bf14c9547dbf0f99f1e06c63d1f4a32033f9d59b4c8854c8",
+    "research/t4_snapshot_restart_20261016/build.py": "4741b3edcb5c9c817158d3042eec59dfbb2bdf22d047b769eff37db362b5e802",
+    "research/t4_snapshot_restart_20261016/snapshots.py": "30746659576aafcc0f4502de6c53e28cb3d864ca9330a576012714c8040442ad",
+    "src/simd_env/batch_sim.py": "beb0421be2e526b512b5fc44464042cb03786f5636518dd0e60cb90a2bb7caad",
+    "src/simd_env/fast_anchors.py": "7146a76dc978c6b7c29dac0dff771f05b44de39603945b580f8eb9555eecaafc",
+    "src/simd_env/grid_sim.py": "6f186bb66933ad5609ee43206054f127afd4c6071a609dd9e51d02d9cd567cd7",
+    "src/simd_env/vector61_featurizer.py": "c1cbdd6373b52ad72dc707ab0f68208402e592638206a0ace56a77e2d035efbe",
+    "src/simd_env/vector61_nb.py": "ffc1aa4c3c929922c0556f6d76a7774f84efb7c90b8020271014bcafa8877013",
+    "src/simd_env/vector61_policy.py": "d7c3087db2a76e6cb62bcc5cda541e9810969a59014aee3ba7040f14da27ca23",
+    "tests/test_t4_restart_actor.py": "64329fefbe5d509715f930a8a2c2f7a90c1681f27234d8a548cfa1b51c86c8b7",
+    "tests/test_t4_snapshots.py": "7b2346a44c8af694079395c01503afaabce949a024495895da92f3b87cd5e386"
+  },
+  "status": "PASS",
+  "tests": {
+    "command": "SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q tests/test_t4_snapshots.py tests/test_t4_restart_actor.py tests/test_perf_actor.py tests/test_m3c_trainer.py tests/test_t4a_two_sided.py -k 'not default_flags_reproduce and not mass_reward_and_multi_actor_smoke'",
+    "default_actor_trace_baseline": "865ae05",
+    "deselected_training_run_tests": 2,
+    "passed": 50,
+    "real_bank_actor_mixes": [
+      "scripted",
+      "frozen",
+      "mixed"
+    ],
+    "seconds": 25.75,
+    "smoke_restart_fractions": [
+      0.2,
+      1.0
+    ]
+  },
+  "training_launched": false,
+  "worlds": 32
+}
