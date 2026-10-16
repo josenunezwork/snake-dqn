@@ -1401,6 +1401,8 @@ def m3c_flags(args) -> Dict[str, Any]:
         "label_bank",
         "label_bank_frac",
         "label_bank_margin_scale",
+        "label_bank_counter_mode",
+        "label_bank_counter_ratio",
         "v8_backend",
         "obs_version",
         "v61_backend",
@@ -1512,6 +1514,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--label-bank-frac", type=float, default=0.0)
     ap.add_argument("--label-bank-margin-scale", type=float, default=1.0)
+    ap.add_argument(
+        "--label-bank-counter-mode", choices=("inert", "single-action"), default="inert"
+    )
+    ap.add_argument(
+        "--label-bank-counter-ratio",
+        type=float,
+        default=None,
+        help="counter:decisive bank rows; default preserves the bank's stored mixture",
+    )
     ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument(
         "--obs-version",
@@ -1659,10 +1670,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--shield-full-until must be <= --shield-off-at")
     if not math.isfinite(args.label_bank_frac) or not math.isfinite(args.label_bank_margin_scale):
         raise SystemExit("label-bank fractions and scale must be finite")
+    if args.label_bank_counter_ratio is not None and (
+        not math.isfinite(args.label_bank_counter_ratio) or args.label_bank_counter_ratio < 0
+    ):
+        raise SystemExit("--label-bank-counter-ratio must be finite and >= 0")
     if args.label_bank_frac < 0.0 or args.label_bank_frac > 1.0:
         raise SystemExit("--label-bank-frac must be in [0, 1]")
     if args.label_bank_frac and args.label_bank is None:
         raise SystemExit("--label-bank-frac needs --label-bank")
+    if args.label_bank_counter_mode != "inert" and not args.label_bank_frac:
+        raise SystemExit("--label-bank-counter-mode needs --label-bank-frac > 0")
+    if args.label_bank_counter_ratio is not None and not args.label_bank_frac:
+        raise SystemExit("--label-bank-counter-ratio needs --label-bank-frac > 0")
     if args.label_bank_frac and args.anchor_mode != "v8margin":
         raise SystemExit("--label-bank-frac needs --anchor-mode v8margin")
     if args.label_bank_frac and args.obs_version != "bv8":
@@ -2500,6 +2519,8 @@ def main_multi(args) -> int:
 
             bank_pack = train_layout()
         bank = LabelBank(Path(args.label_bank), nscal_for(args), pack=bank_pack)
+        if args.label_bank_counter_ratio is not None:
+            bank.validate_counter_ratio(args.label_bank_counter_ratio)
     if args.out.exists():
         print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
         return 2
@@ -2676,7 +2697,13 @@ def main_multi(args) -> int:
         "action_window": deque(maxlen=100_000),
     }
     if bank is not None:
-        st.update(bank_rows=[], bank_margin_loss=[], bank_agree=[])
+        st.update(
+            bank_rows=[],
+            bank_margin_loss=[],
+            bank_agree=[],
+            bank_agree_decisive=[],
+            bank_agree_counter=[],
+        )
     m6 = M6Levers.from_args(args)  # None: every M6 lever off (no M6 keys anywhere)
     if m6 is not None:
         st["m6"], st["m6_total"] = {}, {"decisions": 0, "deaths": 0}
@@ -2825,6 +2852,16 @@ def main_multi(args) -> int:
                     row["bank_agree"] = (
                         float(np.mean(st["bank_agree"])) if st["bank_agree"] else 0.0
                     )
+                    row["bank_agree_decisive"] = (
+                        float(np.mean(st["bank_agree_decisive"]))
+                        if st["bank_agree_decisive"]
+                        else None
+                    )
+                    row["bank_agree_counter"] = (
+                        float(np.mean(st["bank_agree_counter"]))
+                        if st["bank_agree_counter"]
+                        else None
+                    )
                 if args.shield != "none" or labels is not None:
                     row["v8_override_rate"] = st["v8_override"] / max(1, st["decisions"])
                     row["shield_p"] = (
@@ -2859,7 +2896,13 @@ def main_multi(args) -> int:
                 st.update(td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0)
                 st.update(v8_override=0, label_rows=[])
                 if bank is not None:
-                    st.update(bank_rows=[], bank_margin_loss=[], bank_agree=[])
+                    st.update(
+                        bank_rows=[],
+                        bank_margin_loss=[],
+                        bank_agree=[],
+                        bank_agree_decisive=[],
+                        bank_agree_counter=[],
+                    )
                 st["lag"] = []
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")
