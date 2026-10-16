@@ -136,3 +136,10 @@ the original seed split and 8M command, create-only output refusal, and
 `--check` behavior. They use the new `launch_inputs_amendment1.json` binding,
 the calibrated W, and gradient telemetry. The original launch receipt is
 preserved. Only `--check` is executed here; the 8M scripts remain unstarted.
+
+## Deviation 1 (planner, 2026-10-16): RETURN halted at ~0.8M, no screen data
+Both started seeds (s10, s11) showed greedy boost rising 1.4% -> 34% (CTRL ~0.1%), return/TD grad
+ratio rising 1.3 -> 2.5-3.6, max|Q| stuck at ~16-30 (CTRL climbs to 110-140). The planner stopped the
+lanes at ~0.7-0.8M and set the partial runs aside as `HALTED_boost_RETURN_s1{0,1}` (never probed).
+No RETURN final exists; the screen has not run. A bug check and an advisor review precede any
+relaunch, which will be pre-registered as a new arm/amendment.
