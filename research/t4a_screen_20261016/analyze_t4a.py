@@ -422,7 +422,11 @@ def t3_context_from_result(t3_result: Mapping[str, Any]) -> Dict[str, Dict[str, 
         output[str(arm)] = {
             "scripted_episode_delta": scripted.get("episode_survival", {}).get("mean"),
             "scripted_mass_delta": scripted.get("mass", {}).get("mean"),
-            "decision": data.get("decision"),
+            "decision": (
+                "EXTEND exhausted / stop"
+                if data.get("extension_exhausted")
+                else data.get("decision")
+            ),
         }
     return output
 
@@ -707,6 +711,12 @@ def markdown(result: Mapping[str, Any]) -> str:
             "",
             "| arm | scripted episode delta CTRL | scripted mass delta CTRL | final decision |",
             "|---|---:|---:|---|",
+            "| TWO_SIDED | %+.6f | %+.6f | %s |"
+            % (
+                data["vs_ctrl"]["scripted"]["episode_survival"]["mean"],
+                data["vs_ctrl"]["scripted"]["mass"]["mean"],
+                data["decision"],
+            ),
         ]
         for arm, value in sorted(context.items()):
             lines.append(
@@ -719,6 +729,15 @@ def markdown(result: Mapping[str, Any]) -> str:
                 )
             )
         lines.append("")
+        binding = result.get("t3_context_binding", {})
+        if binding:
+            lines += [
+                "T3 source: [final screen](t3_screen_result_2026-10-15.md), commit `%s`; "
+                "analysis SHA-256 `%s`. T3 uses rounds 62/63 and T4a uses rounds 65/66; "
+                "these are separate development screens, not a paired T3-vs-T4a comparison."
+                % (binding["source_commit"], binding["sha256"]),
+                "",
+            ]
     return "\n".join(lines)
 
 

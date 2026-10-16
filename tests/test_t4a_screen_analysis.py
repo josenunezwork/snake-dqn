@@ -234,3 +234,30 @@ def test_bank_agreement_diagnostic_thresholds_are_strict():
     )
     assert "inconclusive" in _telemetry_for(telemetry(0.8, 0.91))["bank_agree_readout_verdict"]
     assert "input limit" in _telemetry_for(telemetry(0.799999, 0.91))["bank_agree_readout_verdict"]
+
+
+def test_t3_context_preserves_exhausted_extension_and_source_binding():
+    from research.t4a_screen_20261016.analyze_t4a import markdown, t3_context_from_result
+
+    context = t3_context_from_result(
+        {
+            "arms": {
+                "LABELS": {
+                    "decision": "EXTEND",
+                    "extension_exhausted": True,
+                    "vs_ctrl": {
+                        "scripted": {"episode_survival": {"mean": 0.01}, "mass": {"mean": -80.0}}
+                    },
+                }
+            }
+        }
+    )
+    assert context["LABELS"]["decision"] == "EXTEND exhausted / stop"
+    rows, statuses = _dataset()
+    result = analyze(rows, statuses, t3_context=context)
+    result["t3_context_binding"] = {"source_commit": "abc123", "sha256": "deadbeef"}
+    report = markdown(result)
+    assert "| TWO_SIDED |" in report
+    assert "| LABELS |" in report
+    assert "EXTEND exhausted / stop" in report
+    assert "abc123" in report and "deadbeef" in report
