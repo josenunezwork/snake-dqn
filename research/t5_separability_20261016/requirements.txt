@@ -1,0 +1,4 @@
+# Optional CPU-only analysis dependencies; install in a task-local --target directory.
+scikit-learn==1.7.2
+joblib==1.5.2
+threadpoolctl==3.6.0
