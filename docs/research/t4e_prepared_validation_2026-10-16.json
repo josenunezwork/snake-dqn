@@ -1,0 +1,247 @@
+{
+  "artifacts": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/binding.json",
+      "sha256": "ad53a1814c26229521da406cc261d1c5f468cbc651e8f8ae8a4a22405de86f51"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/completion.json",
+      "sha256": "a4437243c7899de2ab6498c3d6b27efc5179e96ec784e2afde3b631e2acab089"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/publication.json",
+      "sha256": "bafb976998bdf4f83cef4087cef4fcaac41f39e6713e37c3ca29be572eabf2b3"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json",
+      "sha256": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json",
+      "sha256": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/specs/t4e_prereg_2026-10-16.md",
+      "sha256": "d404e5d95e3671d12b0c0761246862448b0f84a1fbc7ffecc3046ac1b1fdd6a0"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/t4e_collection_result_2026-10-16.md",
+      "sha256": "b9f496f01c679e6bab184d33d06a6cd9e967356fb3a4fc90e7cbbb1b93d07ed5"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/t4e_return_20261016/launch_inputs.json",
+      "sha256": "dc1b6e5633fd7946441a4f9e940dca8ac88c3b08a121f528663e30c8aefe9d2f"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/bank-independent-verification.json",
+      "sha256": "e76279ceb368ac31b6c405b59b8d1c6b0749466efdb6f99a77a56b71094a9dc6"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/bank-independent-verification-initial-fail.json",
+      "sha256": "cd6e31663623b271b23f6ffda56ce2eb57b9f5eb617dc8d106ff7e07c3f7c1af"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/bank-independent-verifier.py",
+      "sha256": "646891a020bfe00094e9004c5b3b6efd4c4efaa5bf1ebe9ec264dc2a3b1fae80"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/seed_audit_postcollection.json",
+      "sha256": "bca5a5522c54120bd338a5659733e8f7af8dec2fa28a8af772e20678800cd3cc"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/launch-checks-final.json",
+      "sha256": "472b142cb62ecf06b3c09ae43ac700e3a93d0b937e86952ef1621061207cdb9f"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/collection-exit-verification.json",
+      "sha256": "fd25730d68f4c3d1f429cb7461768ac724350c1525dc9b92b6b1fa7eefdcbaad"
+    }
+  ],
+  "bank_validation": {
+    "holdout_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout",
+    "holdout_rows": 5418,
+    "status": "PASS",
+    "train_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train",
+    "train_rows": 97846
+  },
+  "branches": {
+    "holdout_decisive": 5418,
+    "total": 103264,
+    "train_total": 97846,
+    "training_decisive": 49653,
+    "training_outside": 48193
+  },
+  "collection": {
+    "cycles": 6,
+    "holdout_decisive_fraction": 0.1000570667681187,
+    "holdout_decisive_states": 1052,
+    "holdout_world_fraction": 0.1,
+    "holdout_worlds": 120,
+    "phase_a_worlds": 1200,
+    "training_decisive_states": 9462,
+    "training_outside_states": 9462,
+    "wall_seconds": 7216.263218124863
+  },
+  "collection_source_commit": "f134914535d4139ee56e05c854b69cfe3a6157fd",
+  "cpu_threads_per_worker": 1,
+  "evaluation_seed_audit": {
+    "68": {
+      "count": 96,
+      "observed_json_collisions": [],
+      "other_reserved_round_collisions": [],
+      "registered_collisions": [],
+      "seed_digest": "59bd22625f824c73d4350e8e337a9bc257f0cb14eadcae1724ce9e7efd5a2cab",
+      "unique": true
+    },
+    "69": {
+      "count": 96,
+      "observed_json_collisions": [],
+      "other_reserved_round_collisions": [],
+      "registered_collisions": [],
+      "seed_digest": "e81677df82c467111ed08a8c769c265661db5ce1255e17a3a1a6f29803a971b7",
+      "unique": true
+    }
+  },
+  "evaluation_started": false,
+  "exact_matching": {
+    "decisive_states": 9462,
+    "missing_by_stratum": {},
+    "outside_states": 9462,
+    "quota_by_stratum": {
+      "700_999:D1": 436,
+      "700_999:D10": 305,
+      "700_999:D2": 478,
+      "700_999:D3": 498,
+      "700_999:D4": 518,
+      "700_999:D5": 550,
+      "700_999:D6": 495,
+      "700_999:D7": 442,
+      "700_999:D8": 273,
+      "700_999:D9": 84,
+      "ge1000:D1": 322,
+      "ge1000:D10": 687,
+      "ge1000:D2": 331,
+      "ge1000:D3": 341,
+      "ge1000:D4": 338,
+      "ge1000:D5": 451,
+      "ge1000:D6": 552,
+      "ge1000:D7": 666,
+      "ge1000:D8": 976,
+      "ge1000:D9": 719
+    },
+    "selected_by_stratum": {
+      "700_999:D1": 436,
+      "700_999:D10": 305,
+      "700_999:D2": 478,
+      "700_999:D3": 498,
+      "700_999:D4": 518,
+      "700_999:D5": 550,
+      "700_999:D6": 495,
+      "700_999:D7": 442,
+      "700_999:D8": 273,
+      "700_999:D9": 84,
+      "ge1000:D1": 322,
+      "ge1000:D10": 687,
+      "ge1000:D2": 331,
+      "ge1000:D3": 341,
+      "ge1000:D4": 338,
+      "ge1000:D5": 451,
+      "ge1000:D6": 552,
+      "ge1000:D7": 666,
+      "ge1000:D8": 976,
+      "ge1000:D9": 719
+    },
+    "selection": "fixed-plan-order; exact new-decisive stratum quota; no substitution"
+  },
+  "independent_audit_checks": {
+    "all_legal_branches_and_decisive_outcomes": "PASS",
+    "canonical_fingerprint_disjointness": "PASS",
+    "completion_counts": "PASS",
+    "completion_exit": "PASS",
+    "decisive_arm_mix_accounting": "PASS",
+    "manifests_and_shards": "PASS",
+    "outcomes_and_terminal_data": "PASS",
+    "provenance_hashes": "PASS",
+    "reference_observation_exclusion": "PASS",
+    "world_split_and_mix": "PASS"
+  },
+  "launches": [
+    {
+      "check_exit": 0,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4e-mac-20261016/lane0.sh",
+      "preflight": {
+        "files": 25,
+        "holdout_rows": 5418,
+        "holdout_shards": 30,
+        "training_rows": 97846,
+        "training_shards": 330
+      },
+      "seeds": [
+        10,
+        12,
+        14
+      ],
+      "sha256": "082a0a49ead0c2cbabbe2dbb0d2308d8d2b0d1de9ff6f32260272778521753ac"
+    },
+    {
+      "check_exit": 0,
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4e-mac-20261016/lane1.sh",
+      "preflight": {
+        "files": 25,
+        "holdout_rows": 5418,
+        "holdout_shards": 30,
+        "training_rows": 97846,
+        "training_shards": 330
+      },
+      "seeds": [
+        11,
+        13
+      ],
+      "sha256": "f034cf5be164b3e486a83db0b219eaa9057e9fa71a70e61d2da40823ada21543"
+    }
+  ],
+  "limitations": [
+    "Outside matched-state publication is fixed plan order; final outside rows are heavily concentrated in B8_s0/B8_s1 (as recorded in completion outside_by_arm_mix), so this does not establish balanced outside sampling per final.",
+    "No fresh gameplay reroll was performed; branch checks validate preserved phase-A legal metadata and persisted D300 outcomes."
+  ],
+  "new_launch_tests": {
+    "passed": 4,
+    "training_invocation_in_check_mode": false
+  },
+  "outside_by_arm_mix": {
+    "B8_s0/frozen": 148,
+    "B8_s0/mixed": 913,
+    "B8_s0/scripted": 7510,
+    "B8_s1/mixed": 4,
+    "B8_s1/scripted": 514,
+    "B8_s2/frozen": 7,
+    "B8_s2/mixed": 55,
+    "B8_s2/scripted": 311
+  },
+  "prior_test_receipts": [
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/t4e_precollection_validation_2026-10-16.json",
+      "sha256": "05c91aa1048c630df56ffbab1493935890d5664c66fbc60e175de9ded703d45b"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/t4e_default_trace_2026-10-16.json",
+      "sha256": "1f78d1912a558d308bbec22df0a970c43ab9d5d0847cd4889cc2e6620976f567"
+    },
+    {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/t4e_collection_preflight_repair_2026-10-16.json",
+      "sha256": "1af6f31d67a7c337b45ceeb8a00b2d0de8b769764b33748222a2976a05ffffbc"
+    }
+  ],
+  "review": "No actionable findings in frozen launch slice; independent saved-bank audit PASS after audit-predicate corrections.",
+  "schema": "t4e-prepared-return-arm-validation/v1",
+  "status": "PASS_PREPARED_NOT_STARTED",
+  "style": {
+    "bash_syntax": "PASS",
+    "black_check": "PASS",
+    "diff_check": "PASS",
+    "flake8": "PASS",
+    "isort_check": "PASS"
+  },
+  "training_started": false,
+  "workers": 12
+}
