@@ -1,0 +1,798 @@
+{
+  "authority": "independent diagnostic verification, not gate evidence",
+  "checks": [
+    {
+      "name": "bank receipt TWO_SIDED_s10",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt TWO_SIDED_s11",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt TWO_SIDED_s12",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt TWO_SIDED_s13",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt TWO_SIDED_s14",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_s10",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_s11",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_s12",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_s13",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_s14",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_KEEPV8_s10",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_KEEPV8_s11",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_KEEPV8_s12",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_KEEPV8_s13",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "name": "bank receipt LABELS_KEEPV8_s14",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "LABELS": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        },
+        "LABELS_KEEPV8": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        }
+      },
+      "name": "CTRL trajectory identity seed 10",
+      "rows": 363608,
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "alive": true,
+        "length": true,
+        "seeds": true
+      },
+      "name": "captured CTRL series equals T3 seed 10",
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "LABELS": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        },
+        "LABELS_KEEPV8": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        }
+      },
+      "name": "CTRL trajectory identity seed 11",
+      "rows": 425001,
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "alive": true,
+        "length": true,
+        "seeds": true
+      },
+      "name": "captured CTRL series equals T3 seed 11",
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "LABELS": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        },
+        "LABELS_KEEPV8": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        }
+      },
+      "name": "CTRL trajectory identity seed 12",
+      "rows": 407231,
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "alive": true,
+        "length": true,
+        "seeds": true
+      },
+      "name": "captured CTRL series equals T3 seed 12",
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "LABELS": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        },
+        "LABELS_KEEPV8": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        }
+      },
+      "name": "CTRL trajectory identity seed 13",
+      "rows": 394060,
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "alive": true,
+        "length": true,
+        "seeds": true
+      },
+      "name": "captured CTRL series equals T3 seed 13",
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "LABELS": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        },
+        "LABELS_KEEPV8": {
+          "ctrl_q": true,
+          "fingerprint": true,
+          "frame": true,
+          "length": true,
+          "seed_slot": true
+        }
+      },
+      "name": "CTRL trajectory identity seed 14",
+      "rows": 395809,
+      "status": "pass"
+    },
+    {
+      "fields": {
+        "alive": true,
+        "length": true,
+        "seeds": true
+      },
+      "name": "captured CTRL series equals T3 seed 14",
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_s10",
+      "rows": 363608,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_s10",
+      "rows": 363608,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_s10",
+      "rows": 363608,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_s11",
+      "rows": 425001,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_s11",
+      "rows": 425001,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_s11",
+      "rows": 425001,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_s12",
+      "rows": 407231,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_s12",
+      "rows": 407231,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_s12",
+      "rows": 407231,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_s13",
+      "rows": 394060,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_s13",
+      "rows": 394060,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_s13",
+      "rows": 394060,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_s14",
+      "rows": 395809,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_s14",
+      "rows": 395809,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_s14",
+      "rows": 395809,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_KEEPV8_s10",
+      "rows": 363608,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_KEEPV8_s10",
+      "rows": 363608,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_KEEPV8_s10",
+      "rows": 363608,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_KEEPV8_s11",
+      "rows": 425001,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_KEEPV8_s11",
+      "rows": 425001,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_KEEPV8_s11",
+      "rows": 425001,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_KEEPV8_s12",
+      "rows": 407231,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_KEEPV8_s12",
+      "rows": 407231,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_KEEPV8_s12",
+      "rows": 407231,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_KEEPV8_s13",
+      "rows": 394060,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_KEEPV8_s13",
+      "rows": 394060,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_KEEPV8_s13",
+      "rows": 394060,
+      "status": "pass"
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "raw CTRL Q identity LABELS_KEEPV8_s14",
+      "rows": 395809,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "action_mismatches": 0,
+      "length_mismatches": 0,
+      "name": "T3 advisory action/length identity LABELS_KEEPV8_s14",
+      "rows": 395809,
+      "status": "pass",
+      "support": true
+    },
+    {
+      "mismatches": 0,
+      "name": "raw candidate argmax identity LABELS_KEEPV8_s14",
+      "rows": 395809,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts TWO_SIDED_s10",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts TWO_SIDED_s11",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts TWO_SIDED_s12",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts TWO_SIDED_s13",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts TWO_SIDED_s14",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_s10",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_s11",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_s12",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_s13",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_s14",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_KEEPV8_s10",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_KEEPV8_s11",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_KEEPV8_s12",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_KEEPV8_s13",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "counter": 5442,
+      "decisive": 10885,
+      "name": "bank per-seed side counts LABELS_KEEPV8_s14",
+      "rows": 16327,
+      "status": "pass"
+    },
+    {
+      "bank_weight_count": 81635,
+      "max_abs_diff": 1.1102230246251565e-16,
+      "name": "independent standardized spillover TWO_SIDED",
+      "raw_stratum_counts": {
+        "700_999:D1": 478,
+        "700_999:D10": 5189,
+        "700_999:D2": 1161,
+        "700_999:D3": 1407,
+        "700_999:D4": 1779,
+        "700_999:D5": 2802,
+        "700_999:D6": 4738,
+        "700_999:D7": 8494,
+        "700_999:D8": 9673,
+        "700_999:D9": 5669,
+        "ge1000:D1": 77,
+        "ge1000:D10": 13626,
+        "ge1000:D2": 545,
+        "ge1000:D3": 701,
+        "ge1000:D4": 710,
+        "ge1000:D5": 1141,
+        "ge1000:D6": 2033,
+        "ge1000:D7": 3829,
+        "ge1000:D8": 7137,
+        "ge1000:D9": 10446
+      },
+      "status": "pass",
+      "support": [
+        "700_999:D1",
+        "700_999:D10",
+        "700_999:D2",
+        "700_999:D3",
+        "700_999:D4",
+        "700_999:D5",
+        "700_999:D6",
+        "700_999:D7",
+        "700_999:D8",
+        "700_999:D9",
+        "ge1000:D1",
+        "ge1000:D10",
+        "ge1000:D2",
+        "ge1000:D3",
+        "ge1000:D4",
+        "ge1000:D5",
+        "ge1000:D6",
+        "ge1000:D7",
+        "ge1000:D8",
+        "ge1000:D9"
+      ]
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "pooled CTRL cutpoints TWO_SIDED",
+      "status": "pass"
+    },
+    {
+      "bank_weight_count": 81635,
+      "max_abs_diff": 1.1102230246251565e-16,
+      "name": "independent standardized spillover LABELS",
+      "raw_stratum_counts": {
+        "700_999:D1": 478,
+        "700_999:D10": 5189,
+        "700_999:D2": 1161,
+        "700_999:D3": 1407,
+        "700_999:D4": 1779,
+        "700_999:D5": 2802,
+        "700_999:D6": 4738,
+        "700_999:D7": 8494,
+        "700_999:D8": 9673,
+        "700_999:D9": 5669,
+        "ge1000:D1": 77,
+        "ge1000:D10": 13626,
+        "ge1000:D2": 545,
+        "ge1000:D3": 701,
+        "ge1000:D4": 710,
+        "ge1000:D5": 1141,
+        "ge1000:D6": 2033,
+        "ge1000:D7": 3829,
+        "ge1000:D8": 7137,
+        "ge1000:D9": 10446
+      },
+      "status": "pass",
+      "support": [
+        "700_999:D1",
+        "700_999:D10",
+        "700_999:D2",
+        "700_999:D3",
+        "700_999:D4",
+        "700_999:D5",
+        "700_999:D6",
+        "700_999:D7",
+        "700_999:D8",
+        "700_999:D9",
+        "ge1000:D1",
+        "ge1000:D10",
+        "ge1000:D2",
+        "ge1000:D3",
+        "ge1000:D4",
+        "ge1000:D5",
+        "ge1000:D6",
+        "ge1000:D7",
+        "ge1000:D8",
+        "ge1000:D9"
+      ]
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "pooled CTRL cutpoints LABELS",
+      "status": "pass"
+    },
+    {
+      "bank_weight_count": 81635,
+      "max_abs_diff": 2.220446049250313e-16,
+      "name": "independent standardized spillover LABELS_KEEPV8",
+      "raw_stratum_counts": {
+        "700_999:D1": 478,
+        "700_999:D10": 5189,
+        "700_999:D2": 1161,
+        "700_999:D3": 1407,
+        "700_999:D4": 1779,
+        "700_999:D5": 2802,
+        "700_999:D6": 4738,
+        "700_999:D7": 8494,
+        "700_999:D8": 9673,
+        "700_999:D9": 5669,
+        "ge1000:D1": 77,
+        "ge1000:D10": 13626,
+        "ge1000:D2": 545,
+        "ge1000:D3": 701,
+        "ge1000:D4": 710,
+        "ge1000:D5": 1141,
+        "ge1000:D6": 2033,
+        "ge1000:D7": 3829,
+        "ge1000:D8": 7137,
+        "ge1000:D9": 10446
+      },
+      "status": "pass",
+      "support": [
+        "700_999:D1",
+        "700_999:D10",
+        "700_999:D2",
+        "700_999:D3",
+        "700_999:D4",
+        "700_999:D5",
+        "700_999:D6",
+        "700_999:D7",
+        "700_999:D8",
+        "700_999:D9",
+        "ge1000:D1",
+        "ge1000:D10",
+        "ge1000:D2",
+        "ge1000:D3",
+        "ge1000:D4",
+        "ge1000:D5",
+        "ge1000:D6",
+        "ge1000:D7",
+        "ge1000:D8",
+        "ge1000:D9"
+      ]
+    },
+    {
+      "max_abs_diff": 0.0,
+      "name": "pooled CTRL cutpoints LABELS_KEEPV8",
+      "status": "pass"
+    },
+    {
+      "errors": [],
+      "name": "TWO_SIDED evaluator closure seed 10",
+      "status": "pass",
+      "worlds": 96
+    },
+    {
+      "errors": [],
+      "name": "TWO_SIDED evaluator closure seed 11",
+      "status": "pass",
+      "worlds": 96
+    },
+    {
+      "errors": [],
+      "name": "TWO_SIDED evaluator closure seed 12",
+      "status": "pass",
+      "worlds": 96
+    },
+    {
+      "errors": [],
+      "name": "TWO_SIDED evaluator closure seed 13",
+      "status": "pass",
+      "worlds": 96
+    },
+    {
+      "errors": [],
+      "name": "TWO_SIDED evaluator closure seed 14",
+      "status": "pass",
+      "worlds": 96
+    },
+    {
+      "fixed5000_delta": -134.5107913669065,
+      "max_abs_diff": 0.0,
+      "mismatches": [],
+      "name": "independent pooled growth TWO_SIDED",
+      "status": "pass"
+    },
+    {
+      "fixed5000_delta": -460.37908496732024,
+      "max_abs_diff": 0.0,
+      "mismatches": [],
+      "name": "independent pooled growth LABELS",
+      "status": "pass"
+    },
+    {
+      "fixed5000_delta": -446.158940397351,
+      "max_abs_diff": 0.0,
+      "mismatches": [],
+      "name": "independent pooled growth LABELS_KEEPV8",
+      "status": "pass"
+    },
+    {
+      "arms": [
+        "LABELS",
+        "LABELS_KEEPV8",
+        "TWO_SIDED"
+      ],
+      "name": "posthoc summary complete",
+      "status": "pass"
+    }
+  ],
+  "counts": {
+    "fail": 0,
+    "pass": 85,
+    "total": 85
+  },
+  "cpu_only": true,
+  "findings": {
+    "advisory_identity": "T4a advisory actions and pre-length matched old T3 decision arm/action rows exactly; raw candidate argmax matched candidate_q exactly",
+    "bank_per_seed_counter": 5442,
+    "bank_per_seed_decisive": 10885,
+    "bank_per_seed_rows": 16327,
+    "bank_pooled_counter": 27210,
+    "bank_pooled_decisive": 54425,
+    "ctrl_q_identity": "T4a raw CTRL -max-Q matched old T3 decision_ctrl_neg_max_q exactly for all LABELS and LABELS_KEEPV8 CTRL rows",
+    "ctrl_series_identity": "T4a captured CTRL series matched old T3 CTRL seeds/length/alive arrays exactly for seeds 10-14",
+    "ctrl_trajectory_identity": "TWO_SIDED, LABELS and LABELS_KEEPV8 raw CTRL length/fingerprint/Q matched by seed_slot/frame for all five seeds",
+    "fixed_h5000_deltas": {
+      "LABELS": -460.37908496732024,
+      "LABELS_KEEPV8": -446.158940397351,
+      "TWO_SIDED": -134.5107913669065
+    },
+    "growth_identity": "independently pooled frame-specific and fixed-H5000 shared-survivor growth curves matched posthoc-summary.json",
+    "spillover_identity": "independently recomputed raw common-support and standardized per-decile change/cross-boost rates matched posthoc-summary.json",
+    "two_sided_closure": "all 480 TWO_SIDED series rows matched evaluator receipt alive/death/decision frames, mass integral, mean alive mass, max mass and survival fraction; dead lengths are zero"
+  },
+  "processes": 1,
+  "schema": "t4a-part2-independent-audit/v1",
+  "status": "PASS"
+}
