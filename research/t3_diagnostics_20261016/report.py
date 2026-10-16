@@ -64,8 +64,9 @@ def render(bank: dict[str, Any], replay: dict[str, Any]) -> str:
         f"The effective margin is **{margin['base_value']:.10f} × "
         f"{margin['label_bank_margin_scale']:.1f} = {margin['effective_value']:.10f} Q units**. "
         "This is well below the T1 median fatal-versus-survivor gap of 0.45 Q. The advisory "
-        "note's proposed oversized-margin explanation is ruled out; observed separation is "
-        "also sub-unit rather than several Q units. This does not establish whether a different "
+        "note's proposed oversized-margin explanation is ruled out; the reported separation "
+        "quartiles are also sub-unit rather than several Q units. This does not establish "
+        "whether a different "
         "margin would improve gameplay.",
         "",
         f"Fixed sample seed `{bank['sample']['seed']}` selects 2,000 rows without replacement: "
@@ -252,7 +253,15 @@ def render(bank: dict[str, Any], replay: dict[str, Any]) -> str:
     d = replay["disagreements"]
     rows = []
     for arm, result in d["arms"].items():
-        for bucket, metric in {"all": result["overall"], **result["by_length"]}.items():
+        for bucket in ("all", "lt400", "400_699", "700_999", "ge1000"):
+            metric = result["overall"] if bucket == "all" else result["by_length"][bucket]
+            label = {
+                "all": "all",
+                "lt400": "<400",
+                "400_699": "400–<700",
+                "700_999": "700–<1000",
+                "ge1000": "≥1000",
+            }[bucket]
             n, diff, boost = (
                 metric["decisions"],
                 metric["disagreements"],
@@ -261,7 +270,7 @@ def render(bank: dict[str, Any], replay: dict[str, Any]) -> str:
             rows.append(
                 [
                     arm,
-                    bucket,
+                    label,
                     n,
                     diff,
                     number(None if metric["rate"] is None else 100 * metric["rate"], 2) + "%",

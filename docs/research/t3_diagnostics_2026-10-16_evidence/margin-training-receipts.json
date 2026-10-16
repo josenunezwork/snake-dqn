@@ -1,0 +1,77 @@
+{
+  "LABELS_KEEPV8_LO_s10": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s10/summary.json",
+    "sha256": "7715944f8ab26a4ba762001bb355dba0a57c2248d613eea1cccd2fe2881501f9"
+  },
+  "LABELS_KEEPV8_LO_s11": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s11/summary.json",
+    "sha256": "f2e82c4a6347a8538a2c1e3800d58cd46399b866825c76dc76041b5968a4b910"
+  },
+  "LABELS_KEEPV8_LO_s12": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s12/summary.json",
+    "sha256": "9466f9c538880758fe8c53b8a71c6b40e77e4e846d7e3b02312ea9b220412732"
+  },
+  "LABELS_KEEPV8_LO_s13": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s13/summary.json",
+    "sha256": "2951e8b0659bb9e3f997df294288a87ff2bd5d35924ddeb353afa5aa0af545a6"
+  },
+  "LABELS_KEEPV8_LO_s14": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s14/summary.json",
+    "sha256": "637c5eacf6118644eab34f86638d5491ba3d913e13e7d24bdabac02d8d9516d9"
+  },
+  "LABELS_KEEPV8_s10": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/summary.json",
+    "sha256": "f7bfcaf7e1b6d9a4be8eab636ec16efd7d13ca1217c37c018e2a84cb25c6734a"
+  },
+  "LABELS_KEEPV8_s11": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/summary.json",
+    "sha256": "853288501ae28cd1f1e141ce38606baeae95ba607bc1c0e92973886cc6435b59"
+  },
+  "LABELS_KEEPV8_s12": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/summary.json",
+    "sha256": "dfbe0165f4031e95ee0ccf358963b23edfba6bdcf8af9268579814987a398802"
+  },
+  "LABELS_KEEPV8_s13": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/summary.json",
+    "sha256": "af4e992b94591f2d1e50349a5e822fa33343d1ac7e63f288f22ee13c2fdc3efa"
+  },
+  "LABELS_KEEPV8_s14": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/summary.json",
+    "sha256": "2e3147e256f847745cdeea066854f8851d8ce83506dd09290a27541956636f0f"
+  },
+  "LABELS_s10": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/summary.json",
+    "sha256": "41feff6af882c9a9cd55c0e27dd5d8933fbd87d4f601a9073b624d19a0a660ed"
+  },
+  "LABELS_s11": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/summary.json",
+    "sha256": "243bfe28a25e5190990988251aa2de3fbc3465e4094df9b34994cf94eeadfbec"
+  },
+  "LABELS_s12": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/summary.json",
+    "sha256": "ded5af21a93e6fa370ea913b6f04ec62b696b6e827955a880edc8e31cdf29f5e"
+  },
+  "LABELS_s13": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/summary.json",
+    "sha256": "c2b727437487e06e86c7a0560a4b0875cb0ebe0fadc180bbabeae27a40e7185d"
+  },
+  "LABELS_s14": {
+    "label_bank_margin_scale": 1.0,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/summary.json",
+    "sha256": "ad55355ab65aaed14be7f22724864db407794beba447214a9f1a7ff8091cbdc3"
+  }
+}
