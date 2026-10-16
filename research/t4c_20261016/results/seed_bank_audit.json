@@ -215,185 +215,1047 @@
   },
   "excluded_output": "/Users/josenunez/Projects/ml/snake-dqn-t4c/research/t4c_20261016/results/seed_bank_audit.json",
   "excluded_repository_results": "/Users/josenunez/Projects/ml/snake-dqn-t4c/research/t4c_20261016/results/seed_bank_audit.json",
-  "generated_utc": "2026-10-16T05:53:58.060918+00:00",
+  "generated_utc": "2026-10-16T06:27:41.884264+00:00",
   "inventories": {
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-strict-20260927": {
-      "digest": "51cf659f3cfa87469b23ba45f275f2a4ed3cec1d3c4cc3eedbe2d401300b8b6a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts": {
+      "digest": "6070a2ab59c1936683fa49e14cb0d10869224041717e6f98a1fcc62e2a348973",
       "exists": true,
-      "file_count": 1978,
-      "seed_count": 904,
-      "seed_digest": "3cd1e71310456518c623d311905eb8bd2f4c8639bade279a47d25a5bc376c991",
-      "valid_json_count": 1978
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v5-strict-20261001": {
-      "digest": "037d73b1d36083c00b450e434e85a3363793b9c1b5553789b4db81e555cbf4ad",
-      "exists": true,
-      "file_count": 1746,
-      "seed_count": 335,
-      "seed_digest": "799d0a70e57412cfeb1b8e3ba5e74832032f7921606093dcca499a3baf29fb8f",
-      "valid_json_count": 1746
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v7-strict-20261002": {
-      "digest": "67070bc5dc15859af6770ddf6e9e7b0f0774fc552fb3d4f1942877b7c9f7c5c0",
-      "exists": true,
-      "file_count": 1590,
-      "seed_count": 309,
-      "seed_digest": "bb947ab234a17df6f68045ca35d017cdc29b098e9f4fcec99afe6748bbf356d5",
-      "valid_json_count": 1590
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/apex-veto-v8-strict-20261003": {
-      "digest": "d976fe21f0b7d8f18c75cb2c719ff5c19decd563fcfc3ab24774495db01834fe",
-      "exists": true,
-      "file_count": 1226,
-      "seed_count": 265,
-      "seed_digest": "94834c5404003375cb97492aa1b6754b7e05d068f147bb3d0d6b7b453355c8aa",
-      "valid_json_count": 1226
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp3-m3s12-strict-20261005": {
-      "digest": "a5a7a0949f8ce11c2e24df0c224dab341f2d1d4feb1382d36d4721db7bb6befb",
-      "exists": true,
-      "file_count": 1348,
-      "seed_count": 292,
-      "seed_digest": "8ddfd7381d8b47f1d7479459a04c7ccad9bbe4a4ccff07bac0b12c3e6b9fa94d",
-      "valid_json_count": 1348
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/perf-ab-probes-20261014": {
-      "digest": "a6765d95259b7e92485a5287a893fab3e0d17f4c945ff42a4ec89bb1bdb941a0",
-      "exists": true,
-      "file_count": 4,
-      "seed_count": 32,
-      "seed_digest": "83b40337e3ab7a509878195d9fb7ddcee7a0a4dddd97abf6ec80065b663f936c",
-      "valid_json_count": 4
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3b-probes-20261008": {
-      "digest": "d9929335f815811749cf652008699cfdbda0797e8610537e4bb37e9970f5e458",
-      "exists": true,
-      "file_count": 42,
-      "seed_count": 16,
-      "seed_digest": "4e8e826b9cc45306c17c00ea1415b23beec69255e896e1bb01c4c7e99ca57b6e",
-      "valid_json_count": 42
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-probes-20261008": {
-      "digest": "c0f00f35de77ce8c155bcc3590876afc108427944d2b24fb198124cd6ac25262",
-      "exists": true,
-      "file_count": 11,
-      "seed_count": 32,
-      "seed_digest": "83b40337e3ab7a509878195d9fb7ddcee7a0a4dddd97abf6ec80065b663f936c",
-      "valid_json_count": 11
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m3c-probes-20261008-recovery": {
-      "digest": "127f7db8273714909737bd3e2904ae9d6b42dbb0c2b9f1170b28c3a88973caac",
-      "exists": true,
-      "file_count": 77,
-      "seed_count": 32,
-      "seed_digest": "83b40337e3ab7a509878195d9fb7ddcee7a0a4dddd97abf6ec80065b663f936c",
-      "valid_json_count": 77
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4-mac-probes-20261013": {
-      "digest": "42727131699a07d29fb1afa928b5e16b5253c11875b6b7ebac6190665cc5589d",
-      "exists": true,
-      "file_count": 28,
-      "seed_count": 32,
-      "seed_digest": "83b40337e3ab7a509878195d9fb7ddcee7a0a4dddd97abf6ec80065b663f936c",
-      "valid_json_count": 28
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a-probes-20261012": {
-      "digest": "eef857ff8107411e2cf347a996f090540fb12918493cffa3a498467324e6c08d",
-      "exists": true,
-      "file_count": 15,
-      "seed_count": 32,
-      "seed_digest": "83b40337e3ab7a509878195d9fb7ddcee7a0a4dddd97abf6ec80065b663f936c",
-      "valid_json_count": 15
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4a2-probes-20261012": {
-      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "exists": true,
-      "file_count": 0,
-      "seed_count": 0,
-      "seed_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "valid_json_count": 0
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m5-probes-20261013": {
-      "digest": "c8bbae37c7908ece5437ad8d9722d15784cddb883d5e0d271cf59ec386f914d5",
-      "exists": true,
-      "file_count": 5,
-      "seed_count": 32,
-      "seed_digest": "83b40337e3ab7a509878195d9fb7ddcee7a0a4dddd97abf6ec80065b663f936c",
-      "valid_json_count": 5
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-probes-20261014": {
-      "digest": "96653143f26d7f561c848928a976d7256e6d8ddf45dc4f60104bce9731990c21",
-      "exists": true,
-      "file_count": 15,
-      "seed_count": 32,
-      "seed_digest": "83b40337e3ab7a509878195d9fb7ddcee7a0a4dddd97abf6ec80065b663f936c",
-      "valid_json_count": 15
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-probes-20261014": {
-      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "exists": true,
-      "file_count": 0,
-      "seed_count": 0,
-      "seed_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "valid_json_count": 0
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t2-probes-20261015": {
-      "digest": "f847c3a0e5821c04b258decbe9b09ee80a2a35b56999ec27cb08ab70c9d1a04e",
-      "exists": true,
-      "file_count": 133,
-      "seed_count": 192,
-      "seed_digest": "31e04ae6d813ef1ef4f8a69c421b2b01852fa55c357a9850334666a89f657390",
-      "valid_json_count": 133
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-curve-probes-20261015": {
-      "digest": "90c28c089df8ed7c40ac997b8aa23f21f2d46b219f83eaa7693c47598fb63e9a",
-      "exists": true,
-      "file_count": 74,
-      "seed_count": 32,
-      "seed_digest": "374f99d569e6b4d6ba75b8a6d84347ca6f62a3a82781e475efbce45a14804102",
-      "valid_json_count": 74
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015": {
-      "digest": "4a04024f609563865ea7628626d244e8fbcdbee5203d2d096bfa22eb263cb429",
-      "exists": true,
-      "file_count": 107,
-      "seed_count": 193,
-      "seed_digest": "c59b69c6fa611daa5d58a168c2a62578d6f6c9a55ec957cd0522edcc28279c25",
-      "valid_json_count": 107
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4a-probes-20261016": {
-      "digest": "e08ff23bc2f43e43de89d21293967b0437134101f4326c1da470c491a87be3d6",
-      "exists": true,
-      "file_count": 51,
-      "seed_count": 97,
-      "seed_digest": "4fab63daf6c83162f88d5a16415f468b4f6781571d9460fc9c863a0c870ebf6b",
-      "valid_json_count": 51
-    },
-    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-fuse-probe-20261015": {
-      "digest": "d47d9b78c407c0ffe835a54ab9262e61b86d6a70fdca474c6c597c389ae81475",
-      "exists": true,
-      "file_count": 14,
-      "seed_count": 32,
-      "seed_digest": "83b40337e3ab7a509878195d9fb7ddcee7a0a4dddd97abf6ec80065b663f936c",
-      "valid_json_count": 14
+      "file_count": 65839,
+      "invalid_json": [
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-0-3-0db78ba0--run-20261007T224353Z-1/quarantine/phaseR/run-v1/shard-0/records/C-u60000-s30-frozen-1953401905.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-0-3-0db78ba0--run-20261007T224353Z-1/quarantine/phaseR/run-v1/shard-3/records/C-u60000-s30-frozen-4016862066.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-12-15-0db78ba0--run-20261007T224841Z-1/quarantine/phaseR/run-v1/shard-12/records/C-u60000-s31-frozen-3912367079.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-16-19-0db78ba0--run-20261007T224514Z-1/quarantine/phaseR/run-v1/shard-16/records/C-u60000-s32-mixed-756698494.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-16-19-0db78ba0--run-20261007T224514Z-1/quarantine/phaseR/run-v1/shard-17/records/C-u60000-s32-scripted-756698494.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-16-19-0db78ba0--run-20261007T224514Z-1/quarantine/phaseR/run-v1/shard-18/records/C-u60000-s33-frozen-4099207317.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-16-19-0db78ba0--run-20261007T224514Z-1/quarantine/phaseR/run-v1/shard-19/records/C-u60000-s33-mixed-4099207317.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-20-23-0db78ba0--run-20261007T224920Z-1/quarantine/phaseR/run-v1/shard-20/records/control-H5-u60000-s33-scripted-4099207317.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-20-23-0db78ba0--run-20261007T224920Z-1/quarantine/phaseR/run-v1/shard-21/records/control-H5-u60000-s34-frozen-146889070.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-20-23-0db78ba0--run-20261007T224920Z-1/quarantine/phaseR/run-v1/shard-23/records/control-H5-u60000-s34-scripted-146889070.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-24-27-0db78ba0--run-20261007T224941Z-1/quarantine/phaseR/run-v1/shard-24/records/control-C-u60000-s35-frozen-3230353923.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-24-27-0db78ba0--run-20261007T224941Z-1/quarantine/phaseR/run-v1/shard-25/records/control-C-u60000-s35-mixed-3230353923.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-24-27-0db78ba0--run-20261007T224941Z-1/quarantine/phaseR/run-v1/shard-26/records/control-C-u60000-s35-scripted-3230353923.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-24-27-0db78ba0--run-20261007T224941Z-1/quarantine/phaseR/run-v1/shard-27/records/control-C-u60000-s36-frozen-3176684445.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-36-39-0db78ba0--run-20261007T225040Z-1/quarantine/phaseR/run-v1/shard-36/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-36-39-0db78ba0--run-20261007T225040Z-1/quarantine/phaseR/run-v1/shard-37/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-36-39-0db78ba0--run-20261007T225040Z-1/quarantine/phaseR/run-v1/shard-38/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-36-39-0db78ba0--run-20261007T225040Z-1/quarantine/phaseR/run-v1/shard-39/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-40-43-0db78ba0--run-20261007T225100Z-1/quarantine/phaseR/run-v1/shard-40/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-40-43-0db78ba0--run-20261007T225100Z-1/quarantine/phaseR/run-v1/shard-41/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-40-43-0db78ba0--run-20261007T225100Z-1/quarantine/phaseR/run-v1/shard-42/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-40-43-0db78ba0--run-20261007T225100Z-1/quarantine/phaseR/run-v1/shard-43/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-44-47-0db78ba0--run-20261007T225120Z-1/quarantine/phaseR/run-v1/shard-44/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-44-47-0db78ba0--run-20261007T225120Z-1/quarantine/phaseR/run-v1/shard-45/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-44-47-0db78ba0--run-20261007T225120Z-1/quarantine/phaseR/run-v1/shard-46/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-44-47-0db78ba0--run-20261007T225120Z-1/quarantine/phaseR/run-v1/shard-47/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-48-51-0db78ba0--run-20261007T225917Z-1/quarantine/phaseR/run-v1/shard-48/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-48-51-0db78ba0--run-20261007T225917Z-1/quarantine/phaseR/run-v1/shard-49/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-48-51-0db78ba0--run-20261007T225917Z-1/quarantine/phaseR/run-v1/shard-50/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-48-51-0db78ba0--run-20261007T225917Z-1/quarantine/phaseR/run-v1/shard-51/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-52-55-0db78ba0--run-20261007T225619Z-1/quarantine/phaseR/run-v1/shard-52/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-52-55-0db78ba0--run-20261007T225619Z-1/quarantine/phaseR/run-v1/shard-53/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-52-55-0db78ba0--run-20261007T225619Z-1/quarantine/phaseR/run-v1/shard-54/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-52-55-0db78ba0--run-20261007T225619Z-1/quarantine/phaseR/run-v1/shard-55/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-56-59-0db78ba0--run-20261007T225611Z-1/quarantine/phaseR/run-v1/shard-56/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-56-59-0db78ba0--run-20261007T225611Z-1/quarantine/phaseR/run-v1/shard-57/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-56-59-0db78ba0--run-20261007T225611Z-1/quarantine/phaseR/run-v1/shard-58/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-56-59-0db78ba0--run-20261007T225611Z-1/quarantine/phaseR/run-v1/shard-59/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-60-63-0db78ba0--run-20261007T225629Z-1/quarantine/phaseR/run-v1/shard-60/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-60-63-0db78ba0--run-20261007T225629Z-1/quarantine/phaseR/run-v1/shard-61/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-60-63-0db78ba0--run-20261007T225629Z-1/quarantine/phaseR/run-v1/shard-62/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-60-63-0db78ba0--run-20261007T225629Z-1/quarantine/phaseR/run-v1/shard-63/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-64-67-0db78ba0--run-20261007T230108Z-2/quarantine/phaseR/run-v1/shard-64/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-64-67-0db78ba0--run-20261007T230108Z-2/quarantine/phaseR/run-v1/shard-65/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-64-67-0db78ba0--run-20261007T230108Z-2/quarantine/phaseR/run-v1/shard-66/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-64-67-0db78ba0--run-20261007T230108Z-2/quarantine/phaseR/run-v1/shard-67/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-76-79-0db78ba0--run-20261007T225402Z-1/quarantine/phaseR/run-v1/shard-76/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-76-79-0db78ba0--run-20261007T225402Z-1/quarantine/phaseR/run-v1/shard-77/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-76-79-0db78ba0--run-20261007T225402Z-1/quarantine/phaseR/run-v1/shard-78/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-76-79-0db78ba0--run-20261007T225402Z-1/quarantine/phaseR/run-v1/shard-79/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-80-83-0db78ba0--run-20261007T225424Z-1/quarantine/phaseR/run-v1/shard-80/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-80-83-0db78ba0--run-20261007T225424Z-1/quarantine/phaseR/run-v1/shard-81/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-80-83-0db78ba0--run-20261007T225424Z-1/quarantine/phaseR/run-v1/shard-82/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-80-83-0db78ba0--run-20261007T225424Z-1/quarantine/phaseR/run-v1/shard-83/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-84-87-0db78ba0--run-20261007T225441Z-1/quarantine/phaseR/run-v1/shard-84/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-84-87-0db78ba0--run-20261007T225441Z-1/quarantine/phaseR/run-v1/shard-85/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-84-87-0db78ba0--run-20261007T225441Z-1/quarantine/phaseR/run-v1/shard-86/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-84-87-0db78ba0--run-20261007T225441Z-1/quarantine/phaseR/run-v1/shard-87/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-88-91-0db78ba0--run-20261007T225502Z-1/quarantine/phaseR/run-v1/shard-88/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-88-91-0db78ba0--run-20261007T225502Z-1/quarantine/phaseR/run-v1/shard-89/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-88-91-0db78ba0--run-20261007T225502Z-1/quarantine/phaseR/run-v1/shard-90/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-88-91-0db78ba0--run-20261007T225502Z-1/quarantine/phaseR/run-v1/shard-91/intent.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-saved-growth-td-census/report.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-native-td-learning/evaluation/seed2026098001/report.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-value-offset/qualification-tests/native-smoke-proof.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v3/run/fixtures/output/pytest-tmp/test_metadata_ceiling_precedes0/oversized.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-autonomous-20261010/verification/s9-technical-capture-intent-v1.json"
+      ],
+      "seed_count": 39547,
+      "seed_digest": "a09464eac6565d021a405490790f1bb0ecd36c4c4c1029b86bf766b0cc4b1f19",
+      "valid_json_count": 65772
     },
     "/Users/josenunez/Projects/ml/snake-dqn-t4c/research": {
       "digest": "277aa4ec35cce52e9ae545d87d7824a0439d03330d4ed335ccb71f4fd2bd2888",
       "exists": true,
       "file_count": 442,
+      "invalid_json": [],
       "seed_count": 3306,
       "seed_digest": "7be9933e296626d8e9b1b3ceae3a9f62f2029ad1aff8cc12b9132838a9dbf9ef",
       "valid_json_count": 442
     }
   },
   "limit": "No claim is made about unrecorded experiments, arbitrary binary files, or external systems.",
+  "malformed_byte_coverage": {
+    "files": [
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-0-3-0db78ba0--run-20261007T224353Z-1/quarantine/phaseR/run-v1/shard-0/records/C-u60000-s30-frozen-1953401905.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-0-3-0db78ba0--run-20261007T224353Z-1/quarantine/phaseR/run-v1/shard-3/records/C-u60000-s30-frozen-4016862066.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-12-15-0db78ba0--run-20261007T224841Z-1/quarantine/phaseR/run-v1/shard-12/records/C-u60000-s31-frozen-3912367079.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-16-19-0db78ba0--run-20261007T224514Z-1/quarantine/phaseR/run-v1/shard-16/records/C-u60000-s32-mixed-756698494.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-16-19-0db78ba0--run-20261007T224514Z-1/quarantine/phaseR/run-v1/shard-17/records/C-u60000-s32-scripted-756698494.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-16-19-0db78ba0--run-20261007T224514Z-1/quarantine/phaseR/run-v1/shard-18/records/C-u60000-s33-frozen-4099207317.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-16-19-0db78ba0--run-20261007T224514Z-1/quarantine/phaseR/run-v1/shard-19/records/C-u60000-s33-mixed-4099207317.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-20-23-0db78ba0--run-20261007T224920Z-1/quarantine/phaseR/run-v1/shard-20/records/control-H5-u60000-s33-scripted-4099207317.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-20-23-0db78ba0--run-20261007T224920Z-1/quarantine/phaseR/run-v1/shard-21/records/control-H5-u60000-s34-frozen-146889070.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-20-23-0db78ba0--run-20261007T224920Z-1/quarantine/phaseR/run-v1/shard-23/records/control-H5-u60000-s34-scripted-146889070.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-24-27-0db78ba0--run-20261007T224941Z-1/quarantine/phaseR/run-v1/shard-24/records/control-C-u60000-s35-frozen-3230353923.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-24-27-0db78ba0--run-20261007T224941Z-1/quarantine/phaseR/run-v1/shard-25/records/control-C-u60000-s35-mixed-3230353923.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-24-27-0db78ba0--run-20261007T224941Z-1/quarantine/phaseR/run-v1/shard-26/records/control-C-u60000-s35-scripted-3230353923.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-24-27-0db78ba0--run-20261007T224941Z-1/quarantine/phaseR/run-v1/shard-27/records/control-C-u60000-s36-frozen-3176684445.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-36-39-0db78ba0--run-20261007T225040Z-1/quarantine/phaseR/run-v1/shard-36/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-36-39-0db78ba0--run-20261007T225040Z-1/quarantine/phaseR/run-v1/shard-37/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-36-39-0db78ba0--run-20261007T225040Z-1/quarantine/phaseR/run-v1/shard-38/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-36-39-0db78ba0--run-20261007T225040Z-1/quarantine/phaseR/run-v1/shard-39/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-40-43-0db78ba0--run-20261007T225100Z-1/quarantine/phaseR/run-v1/shard-40/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-40-43-0db78ba0--run-20261007T225100Z-1/quarantine/phaseR/run-v1/shard-41/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-40-43-0db78ba0--run-20261007T225100Z-1/quarantine/phaseR/run-v1/shard-42/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-40-43-0db78ba0--run-20261007T225100Z-1/quarantine/phaseR/run-v1/shard-43/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-44-47-0db78ba0--run-20261007T225120Z-1/quarantine/phaseR/run-v1/shard-44/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-44-47-0db78ba0--run-20261007T225120Z-1/quarantine/phaseR/run-v1/shard-45/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-44-47-0db78ba0--run-20261007T225120Z-1/quarantine/phaseR/run-v1/shard-46/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-44-47-0db78ba0--run-20261007T225120Z-1/quarantine/phaseR/run-v1/shard-47/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-48-51-0db78ba0--run-20261007T225917Z-1/quarantine/phaseR/run-v1/shard-48/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-48-51-0db78ba0--run-20261007T225917Z-1/quarantine/phaseR/run-v1/shard-49/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-48-51-0db78ba0--run-20261007T225917Z-1/quarantine/phaseR/run-v1/shard-50/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-48-51-0db78ba0--run-20261007T225917Z-1/quarantine/phaseR/run-v1/shard-51/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-52-55-0db78ba0--run-20261007T225619Z-1/quarantine/phaseR/run-v1/shard-52/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-52-55-0db78ba0--run-20261007T225619Z-1/quarantine/phaseR/run-v1/shard-53/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-52-55-0db78ba0--run-20261007T225619Z-1/quarantine/phaseR/run-v1/shard-54/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-52-55-0db78ba0--run-20261007T225619Z-1/quarantine/phaseR/run-v1/shard-55/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-56-59-0db78ba0--run-20261007T225611Z-1/quarantine/phaseR/run-v1/shard-56/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-56-59-0db78ba0--run-20261007T225611Z-1/quarantine/phaseR/run-v1/shard-57/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-56-59-0db78ba0--run-20261007T225611Z-1/quarantine/phaseR/run-v1/shard-58/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-56-59-0db78ba0--run-20261007T225611Z-1/quarantine/phaseR/run-v1/shard-59/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-60-63-0db78ba0--run-20261007T225629Z-1/quarantine/phaseR/run-v1/shard-60/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-60-63-0db78ba0--run-20261007T225629Z-1/quarantine/phaseR/run-v1/shard-61/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-60-63-0db78ba0--run-20261007T225629Z-1/quarantine/phaseR/run-v1/shard-62/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-60-63-0db78ba0--run-20261007T225629Z-1/quarantine/phaseR/run-v1/shard-63/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-64-67-0db78ba0--run-20261007T230108Z-2/quarantine/phaseR/run-v1/shard-64/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-64-67-0db78ba0--run-20261007T230108Z-2/quarantine/phaseR/run-v1/shard-65/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-64-67-0db78ba0--run-20261007T230108Z-2/quarantine/phaseR/run-v1/shard-66/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-64-67-0db78ba0--run-20261007T230108Z-2/quarantine/phaseR/run-v1/shard-67/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-76-79-0db78ba0--run-20261007T225402Z-1/quarantine/phaseR/run-v1/shard-76/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-76-79-0db78ba0--run-20261007T225402Z-1/quarantine/phaseR/run-v1/shard-77/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-76-79-0db78ba0--run-20261007T225402Z-1/quarantine/phaseR/run-v1/shard-78/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-76-79-0db78ba0--run-20261007T225402Z-1/quarantine/phaseR/run-v1/shard-79/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-80-83-0db78ba0--run-20261007T225424Z-1/quarantine/phaseR/run-v1/shard-80/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-80-83-0db78ba0--run-20261007T225424Z-1/quarantine/phaseR/run-v1/shard-81/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-80-83-0db78ba0--run-20261007T225424Z-1/quarantine/phaseR/run-v1/shard-82/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-80-83-0db78ba0--run-20261007T225424Z-1/quarantine/phaseR/run-v1/shard-83/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-84-87-0db78ba0--run-20261007T225441Z-1/quarantine/phaseR/run-v1/shard-84/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-84-87-0db78ba0--run-20261007T225441Z-1/quarantine/phaseR/run-v1/shard-85/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-84-87-0db78ba0--run-20261007T225441Z-1/quarantine/phaseR/run-v1/shard-86/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-84-87-0db78ba0--run-20261007T225441Z-1/quarantine/phaseR/run-v1/shard-87/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-88-91-0db78ba0--run-20261007T225502Z-1/quarantine/phaseR/run-v1/shard-88/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-88-91-0db78ba0--run-20261007T225502Z-1/quarantine/phaseR/run-v1/shard-89/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-88-91-0db78ba0--run-20261007T225502Z-1/quarantine/phaseR/run-v1/shard-90/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 0,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v5h-20261008/pods/rpf-frp5h-phaser-88-91-0db78ba0--run-20261007T225502Z-1/quarantine/phaseR/run-v1/shard-91/intent.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 24379,
+        "parse_error": {
+          "offset": 24379,
+          "reason": "Expecting value: line 196 column 31 (char 24379)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/apex-saved-growth-td-census/report.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "5716d0e653f887c53a0857cc49259b5a46d8af5b675eb12b31977cfe3e51bb1c",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 768770708,
+        "parse_error": {
+          "offset": 768770708,
+          "reason": "Expecting value: line 37401391 column 17 (char 768770708)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/controlled-encounter-native-td-learning/evaluation/seed2026098001/report.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "ce1dba806ae20d3ccb65bfc538616edcb25106a22c5c345c1cb9d5199ee8ad73",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 7559,
+        "parse_error": {
+          "offset": 7559,
+          "reason": "Expecting value: line 204 column 34 (char 7559)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/solo-food-pqn-value-offset/qualification-tests/native-smoke-proof.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "70d60e7a4a3b22184e5d0894715bccebd26858d645966766409350ff22bbcbed",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 33,
+        "parse_error": {
+          "offset": 0,
+          "reason": "Expecting value: line 1 column 1 (char 0)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/ongoing-research-20260913/task-aligned-bridge-qualification-20260924/admission-v3/run/fixtures/output/pytest-tmp/test_metadata_ceiling_precedes0/oversized.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "11ba55a3a7c1ee0f8eb8867dc40a62c67240eb4a5ea125ee5c383fe996b57cd6",
+        "unicode_escape": false
+      },
+      {
+        "ascii_without_nul": true,
+        "bytes": 987,
+        "parse_error": {
+          "offset": 987,
+          "reason": "Expecting property name enclosed in double quotes: line 29 column 5 (char 987)"
+        },
+        "pass": true,
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-autonomous-20261010/verification/s9-technical-capture-intent-v1.json",
+        "reserved_literals": [],
+        "reserved_round_metadata": false,
+        "sha256": "ba998e426194a4cd3a7fa6a0273ffdeb224ce956afcc5e7b6b9994a673936252",
+        "unicode_escape": false
+      }
+    ],
+    "limit": "Negative byte coverage proves no complete reserved integer ID in retained ASCII bytes. It does not prove that missing/truncated records never used these worlds. Malformed files are not treated as valid JSON.",
+    "pass": true
+  },
   "pass": true,
   "registered_t2_audit": {
     "pass": true,
     "schema": "t2-seed-bank-audit/v1"
   },
   "schema": "t4c-seed-bank-audit/v1",
-  "scope": "registered NI/distillation rounds, used rounds 62-65, repository research JSON, artifact probe/eval/strict/gate JSON, and immutable T3 label namespace",
+  "scope": "registered NI/distillation rounds, used rounds 62-65, repository research JSON, all artifact-directory JSON/JSONL, and immutable T3 label namespace",
   "status": "PASS",
   "t3_rollout_training_namespace": {
     "count": 20000,

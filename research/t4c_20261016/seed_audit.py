@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,9 +21,10 @@ def inventory_json(root: Path, *, exclude: Path | None = None) -> dict[str, Any]
     """Collect explicit seed fields during JSON decoding, skipping a second tree walk.
 
     JSONL is streamed one record at a time. Every byte still contributes to the
-    inventory digest. Malformed files are reported; they never silently establish
-    freshness. This deliberately inspects nested explicit seed fields even inside
-    metric mappings, a conservative superset of the historical inventory helper.
+    inventory digest. Malformed files are reported for explicit separate byte-coverage checks;
+    they are never silently skipped or counted as valid JSON. This deliberately
+    inspects nested explicit seed fields even inside metric mappings, a
+    conservative superset of the historical inventory helper.
     """
     if not root.is_dir():
         return {
@@ -98,6 +100,44 @@ def inventory_json(root: Path, *, exclude: Path | None = None) -> dict[str, Any]
     }
 
 
+def malformed_byte_coverage(paths: list[str], reserved: set[int]) -> dict[str, Any]:
+    """Check complete reserved IDs in retained malformed ASCII bytes, never missing bytes."""
+    results = []
+    needles = {str(seed).encode("ascii"): seed for seed in reserved}
+    round_pattern = re.compile(rb'"(?:round_index|round)"\s*:\s*(?:66|67)(?![0-9])')
+    for name in paths:
+        raw = Path(name).read_bytes()  # one immutable bytes object binds search and digest
+        try:
+            json.loads(raw)
+            error = None
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            error = {"reason": str(exc), "offset": getattr(exc, "pos", None)}
+        ascii_compatible = raw.isascii() and b"\x00" not in raw
+        escapes = b"\\u" in raw or b"\\U" in raw
+        matches = sorted(seed for literal, seed in needles.items() if literal in raw)
+        round_metadata = bool(round_pattern.search(raw))
+        results.append(
+            {
+                "path": name,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+                "parse_error": error,
+                "ascii_without_nul": ascii_compatible,
+                "unicode_escape": escapes,
+                "reserved_literals": matches,
+                "reserved_round_metadata": round_metadata,
+                "pass": ascii_compatible and not escapes and not matches and not round_metadata,
+            }
+        )
+    return {
+        "pass": all(item["pass"] for item in results),
+        "files": results,
+        "limit": "Negative byte coverage proves no complete reserved integer ID in retained "
+        "ASCII bytes. It does not prove that missing/truncated records never used "
+        "these worlds. Malformed files are not treated as valid JSON.",
+    }
+
+
 def seed_bank_audit(
     repo: str | Path = ".",
     artifacts: str | Path | None = None,
@@ -138,6 +178,10 @@ def seed_bank_audit(
         for root in roots
     }
     observed = set().union(*(set(item["seeds"]) for item in inventories.values()))
+    malformed = malformed_byte_coverage(
+        [path for item in inventories.values() for path in item["invalid_json"]],
+        set().union(*expected.values()),
+    )
     namespace_path = artifact_root / "t3-rollout-labels-20261015/bank/namespace.json"
     binding: dict[str, Any] = {"ok": False, "reason": "namespace.json missing"}
     namespace: dict[str, Any] = {"exists": False, "seeds": []}
@@ -175,7 +219,7 @@ def seed_bank_audit(
         t2["pass"]
         and binding["ok"]
         and namespace_valid
-        and not any(item["invalid_json"] for item in inventories.values())
+        and malformed["pass"]
         and all(
             item["unique"]
             and not item["registered_collisions"]
@@ -199,6 +243,7 @@ def seed_bank_audit(
         "inventories": {
             name: prior_banks._compact_inventory(item) for name, item in inventories.items()
         },
+        "malformed_byte_coverage": malformed,
         "checks": checks,
         "pass": passed,
         "limit": (

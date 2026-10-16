@@ -138,3 +138,21 @@ def test_streamed_inventory_matches_seed_fields_and_hashes(tmp_path):
     partial = banks.inventory_json(tmp_path)
     assert 71 in partial["seeds"]
     assert partial["invalid_json"] == [str(tmp_path / "records.jsonl")]
+
+
+def test_malformed_byte_coverage_is_bounded_and_encoding_safe(tmp_path):
+    path = tmp_path / "truncated.json"
+    path.write_bytes(b'{"seed": 123, "missing":')
+    result = banks.malformed_byte_coverage([str(path)], {99999999})
+    assert result["pass"] and result["files"][0]["parse_error"]
+    for raw in (
+        b'{"seed":99999999',
+        b"\\u0039",
+        b'{"round_index": 66,',
+        b"9\x00",
+        "١٢٣".encode("utf-8"),
+    ):
+        path.write_bytes(raw)
+        assert not banks.malformed_byte_coverage([str(path)], {99999999})["pass"]
+    path.write_bytes(b"")
+    assert banks.malformed_byte_coverage([str(path)], {99999999})["pass"]
