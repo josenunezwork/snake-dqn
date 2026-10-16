@@ -35,3 +35,22 @@ Never touch tmux sessions or processes you did not start. Git: branch t4d-202610
 after each commit `git fetch origin && git merge origin/main`, `git push origin HEAD:main`,
 `git push origin t4d-20261016`. Final message: code/tests, macro re-roll stats + wall time, chosen W,
 prereg + script paths, sha.
+
+## Planner addendum 1 (binding; from `docs/research/advice/2026-10-16_return_c_review.md`)
+Supersedes the corresponding parts above:
+1. Anchor: NOT a_B8. Use a_ref = argmax_a y(a) over the state's recorded branches (every legal action
+   was rolled out), with stopgrad on Q(s, a_ref): loss on (Q(s,a) - stopgrad Q(s,a_ref)) - (y(a) - y(a_ref))
+   for every recorded a != a_ref. Do not use the student's current greedy action.
+2. Weighting: drop w_a = min(1, |dy|/10). Use an epsilon-insensitive Huber: zero loss while the
+   contrast error |e| <= 2 Q, Huber (delta 100) on |e| - 2 beyond; uniform weight 1.0 on every row
+   (decisive and outside). Flag `--return-contrast-epsilon` (arm: 2.0).
+3. Tripwires (pre-registered, halt = KILL for the arm): greedy boost rate at L < 700 above 1% at any
+   100k row; overall greedy boost rate above 2%. Replace the single 5% tripwire; log the boost rate
+   per length bucket (<400, 400-700, 700-1000, >=1000) every 100k.
+4. Early warning (pre-registered, binding stop): at 0.5M and 1M evaluate on the held-out decisive set
+   the median Q(fatal) - Q(best surviving) and on held-out outside states the gap change; save
+   checkpoints at 0.5M and 1M for this (`--checkpoint-every` or explicit). Stop the arm if, at 1M,
+   the held-out decisive gap has not moved toward -3 (still >= 0) while the training-row contrast
+   error has fallen, or the outside gap moved by more than 0.5 Q, or the L < 700 boost rate > 1%.
+   Implement the 0.5M/1M evaluation as a small script the planner can run on those checkpoints.
+5. Recalibrate W after these changes (far fewer active rows); report the active-row fraction.
