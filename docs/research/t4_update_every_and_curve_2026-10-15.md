@@ -96,3 +96,8 @@ for m in 1 2; do
     --label-bank-frac 0.5 --label-bank-margin-scale 1.0 --update-every "$m"
 done
 ```
+
+The identical recipe is saved as
+[`ab_update_every.sh.template`](../../research/t4_curve_20261015/ab_update_every.sh.template).
+It was checked with `bash -n` only; no A/B training was run. Set `AB_DEVICE` explicitly
+for a future quiet-Mac session, then invoke `bash research/t4_curve_20261015/ab_update_every.sh.template`.
