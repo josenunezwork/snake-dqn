@@ -285,3 +285,39 @@ def test_restart_default_actor_trace_matches_git_865ae05(tmp_path, monkeypatch):
     for key in ref_ring:
         assert ref_ring[key].dtype == got_ring[key].dtype
         assert ref_ring[key].tobytes() == got_ring[key].tobytes(), key
+
+
+@pytest.mark.skipif(not HAVE_CKPT, reason="needs the pinned frp3-s12 checkpoints")
+@pytest.mark.parametrize("mix", ["scripted", "frozen", "mixed"])
+def test_real_decisive_bank_snapshot_enters_actor_td_pipeline(tmp_path, mix):
+    source = Path(
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/"
+        "t4b-snapshot-restart-20261016/benchmark-1000-v2"
+    )
+    if not (source / "manifest.json").exists():
+        pytest.skip("needs the measured T4b decisive snapshot store")
+    manifest = json.loads((source / "manifest.json").read_text())
+    entry = next(
+        entry
+        for entry in manifest["snapshots"]
+        if S.load_snapshot(source / entry["file"])["provenance"]["roster"]["mix"] == mix
+    )
+    bank = tmp_path / "bank"
+    bank.mkdir()
+    (bank / entry["file"]).write_bytes((source / entry["file"]).read_bytes())
+    (bank / "manifest.json").write_text(
+        json.dumps(
+            {"schema": S.SCHEMA, "snapshots": [entry], "checkpoints": manifest["checkpoints"]}
+        )
+    )
+    messages, _ = _run_actor(
+        T,
+        tmp_path / "run",
+        _init(tmp_path),
+        8,
+        ("--restart-bank", str(bank), "--restart-frac", "0.2", "--segment-frames", "5000"),
+    )
+    assert messages[0]["restart_decisions"] == 1
+    assert messages[0]["fresh_decisions"] == 4
+    assert all(m["decisions"] == m["restart_decisions"] + m["fresh_decisions"] for m in messages)
+    assert any(len(m["s"]) for m in messages)
