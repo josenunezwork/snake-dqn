@@ -1,0 +1,6045 @@
+{
+  "authority": "independent diagnostic audit, not gate evidence",
+  "captures": {
+    "CTRL_s10__on__CTRL_s10": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 989,
+          "boost_rate": 0.0027199621570482497,
+          "counts": [
+            63837,
+            234385,
+            64397,
+            272,
+            423,
+            294
+          ],
+          "decisions": 363608
+        },
+        "raw": {
+          "boost_argmax": 1077,
+          "boost_rate": 0.0029619810345206925,
+          "counts": [
+            63857,
+            234352,
+            64322,
+            314,
+            449,
+            314
+          ],
+          "decisions": 363608
+        },
+        "resolved": {
+          "boost_argmax": 993,
+          "boost_rate": 0.002730963015115179,
+          "counts": [
+            63834,
+            234384,
+            64397,
+            276,
+            423,
+            294
+          ],
+          "decisions": 363608
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 147,
+            "boost_rate": 0.0020736644613409696,
+            "counts": [
+              12747,
+              45183,
+              12812,
+              82,
+              26,
+              39
+            ],
+            "decisions": 70889
+          },
+          "raw": {
+            "boost_argmax": 155,
+            "boost_rate": 0.0021865169490329953,
+            "counts": [
+              12755,
+              45172,
+              12807,
+              86,
+              27,
+              42
+            ],
+            "decisions": 70889
+          },
+          "resolved": {
+            "boost_argmax": 147,
+            "boost_rate": 0.0020736644613409696,
+            "counts": [
+              12747,
+              45183,
+              12812,
+              82,
+              26,
+              39
+            ],
+            "decisions": 70889
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 271,
+            "boost_rate": 0.003586174041922507,
+            "counts": [
+              13990,
+              47241,
+              14066,
+              75,
+              132,
+              64
+            ],
+            "decisions": 75568
+          },
+          "raw": {
+            "boost_argmax": 298,
+            "boost_rate": 0.003943468134660174,
+            "counts": [
+              13977,
+              47248,
+              14045,
+              78,
+              148,
+              72
+            ],
+            "decisions": 75568
+          },
+          "resolved": {
+            "boost_argmax": 271,
+            "boost_rate": 0.003586174041922507,
+            "counts": [
+              13990,
+              47241,
+              14066,
+              75,
+              132,
+              64
+            ],
+            "decisions": 75568
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 512,
+            "boost_rate": 0.004748082683408604,
+            "counts": [
+              19494,
+              68318,
+              19509,
+              80,
+              257,
+              175
+            ],
+            "decisions": 107833
+          },
+          "raw": {
+            "boost_argmax": 562,
+            "boost_rate": 0.005211762632960226,
+            "counts": [
+              19501,
+              68297,
+              19473,
+              115,
+              266,
+              181
+            ],
+            "decisions": 107833
+          },
+          "resolved": {
+            "boost_argmax": 516,
+            "boost_rate": 0.004785177079372734,
+            "counts": [
+              19491,
+              68317,
+              19509,
+              84,
+              257,
+              175
+            ],
+            "decisions": 107833
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 59,
+            "boost_rate": 0.0005397098373552388,
+            "counts": [
+              17606,
+              73643,
+              18010,
+              35,
+              8,
+              16
+            ],
+            "decisions": 109318
+          },
+          "raw": {
+            "boost_argmax": 62,
+            "boost_rate": 0.0005671527104410984,
+            "counts": [
+              17624,
+              73635,
+              17997,
+              35,
+              8,
+              19
+            ],
+            "decisions": 109318
+          },
+          "resolved": {
+            "boost_argmax": 59,
+            "boost_rate": 0.0005397098373552388,
+            "counts": [
+              17606,
+              73643,
+              18010,
+              35,
+              8,
+              16
+            ],
+            "decisions": 109318
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/CTRL_s10__on__CTRL_s10.npz",
+      "bucket_counts": {
+        "400_699": 70889,
+        "700_999": 75568,
+        "ge1000": 107833,
+        "lt400": 109318
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 363608,
+        "decisions": 363608
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/final.pth",
+      "checkpoint_sha256": "262da904c67c79d306006179bebcc7ce236dc6907147e303316e828d5ebcdd11",
+      "decisions": 363608,
+      "fatal_predecision_row_included": 52,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s10__on__CTRL_s10.json",
+      "source_alive_frames": 363556,
+      "source_deaths": 52,
+      "student": "CTRL_s10",
+      "trajectory": "CTRL_s10"
+    },
+    "CTRL_s11__on__CTRL_s11": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 1267,
+          "boost_rate": 0.002981169456071868,
+          "counts": [
+            64424,
+            294970,
+            64340,
+            428,
+            389,
+            450
+          ],
+          "decisions": 425001
+        },
+        "raw": {
+          "boost_argmax": 1348,
+          "boost_rate": 0.0031717572429241342,
+          "counts": [
+            64371,
+            294889,
+            64393,
+            449,
+            430,
+            469
+          ],
+          "decisions": 425001
+        },
+        "resolved": {
+          "boost_argmax": 1274,
+          "boost_rate": 0.002997640005552928,
+          "counts": [
+            64424,
+            294963,
+            64340,
+            428,
+            395,
+            451
+          ],
+          "decisions": 425001
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 183,
+            "boost_rate": 0.0021628649095851555,
+            "counts": [
+              12715,
+              59050,
+              12662,
+              51,
+              49,
+              83
+            ],
+            "decisions": 84610
+          },
+          "raw": {
+            "boost_argmax": 199,
+            "boost_rate": 0.0023519678524997045,
+            "counts": [
+              12700,
+              59056,
+              12655,
+              56,
+              51,
+              92
+            ],
+            "decisions": 84610
+          },
+          "resolved": {
+            "boost_argmax": 183,
+            "boost_rate": 0.0021628649095851555,
+            "counts": [
+              12715,
+              59050,
+              12662,
+              51,
+              49,
+              83
+            ],
+            "decisions": 84610
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 405,
+            "boost_rate": 0.004417250179962045,
+            "counts": [
+              14271,
+              62818,
+              14192,
+              120,
+              140,
+              145
+            ],
+            "decisions": 91686
+          },
+          "raw": {
+            "boost_argmax": 420,
+            "boost_rate": 0.004580852038479157,
+            "counts": [
+              14255,
+              62820,
+              14191,
+              124,
+              145,
+              151
+            ],
+            "decisions": 91686
+          },
+          "resolved": {
+            "boost_argmax": 405,
+            "boost_rate": 0.004417250179962045,
+            "counts": [
+              14271,
+              62818,
+              14192,
+              120,
+              140,
+              145
+            ],
+            "decisions": 91686
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 608,
+            "boost_rate": 0.00455785780683079,
+            "counts": [
+              21370,
+              90104,
+              21314,
+              225,
+              183,
+              200
+            ],
+            "decisions": 133396
+          },
+          "raw": {
+            "boost_argmax": 655,
+            "boost_rate": 0.004910192209661459,
+            "counts": [
+              21348,
+              90018,
+              21375,
+              236,
+              215,
+              204
+            ],
+            "decisions": 133396
+          },
+          "resolved": {
+            "boost_argmax": 615,
+            "boost_rate": 0.004610333143422591,
+            "counts": [
+              21370,
+              90097,
+              21314,
+              225,
+              189,
+              201
+            ],
+            "decisions": 133396
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 71,
+            "boost_rate": 0.0006157368462132184,
+            "counts": [
+              16068,
+              82998,
+              16172,
+              32,
+              17,
+              22
+            ],
+            "decisions": 115309
+          },
+          "raw": {
+            "boost_argmax": 74,
+            "boost_rate": 0.0006417538960532135,
+            "counts": [
+              16068,
+              82995,
+              16172,
+              33,
+              19,
+              22
+            ],
+            "decisions": 115309
+          },
+          "resolved": {
+            "boost_argmax": 71,
+            "boost_rate": 0.0006157368462132184,
+            "counts": [
+              16068,
+              82998,
+              16172,
+              32,
+              17,
+              22
+            ],
+            "decisions": 115309
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/CTRL_s11__on__CTRL_s11.npz",
+      "bucket_counts": {
+        "400_699": 84610,
+        "700_999": 91686,
+        "ge1000": 133396,
+        "lt400": 115309
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 425001,
+        "decisions": 425001
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/final.pth",
+      "checkpoint_sha256": "b3b1c9a62388dd7624a57c900bfd837c1064d71fe23043b38a3d8d793bdf79db",
+      "decisions": 425001,
+      "fatal_predecision_row_included": 33,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s11__on__CTRL_s11.json",
+      "source_alive_frames": 424968,
+      "source_deaths": 33,
+      "student": "CTRL_s11",
+      "trajectory": "CTRL_s11"
+    },
+    "CTRL_s12__on__CTRL_s12": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 1470,
+          "boost_rate": 0.003609744837696541,
+          "counts": [
+            58533,
+            288418,
+            58810,
+            336,
+            946,
+            188
+          ],
+          "decisions": 407231
+        },
+        "raw": {
+          "boost_argmax": 1653,
+          "boost_rate": 0.004059121235858763,
+          "counts": [
+            58407,
+            288421,
+            58750,
+            422,
+            1006,
+            225
+          ],
+          "decisions": 407231
+        },
+        "resolved": {
+          "boost_argmax": 1482,
+          "boost_rate": 0.0036392121424940636,
+          "counts": [
+            58532,
+            288408,
+            58809,
+            337,
+            957,
+            188
+          ],
+          "decisions": 407231
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 113,
+            "boost_rate": 0.0013968552215189874,
+            "counts": [
+              10910,
+              58994,
+              10879,
+              19,
+              72,
+              22
+            ],
+            "decisions": 80896
+          },
+          "raw": {
+            "boost_argmax": 124,
+            "boost_rate": 0.0015328322784810126,
+            "counts": [
+              10907,
+              58997,
+              10868,
+              20,
+              76,
+              28
+            ],
+            "decisions": 80896
+          },
+          "resolved": {
+            "boost_argmax": 113,
+            "boost_rate": 0.0013968552215189874,
+            "counts": [
+              10910,
+              58994,
+              10879,
+              19,
+              72,
+              22
+            ],
+            "decisions": 80896
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 240,
+            "boost_rate": 0.0028674177708216345,
+            "counts": [
+              11094,
+              61261,
+              11104,
+              40,
+              161,
+              39
+            ],
+            "decisions": 83699
+          },
+          "raw": {
+            "boost_argmax": 269,
+            "boost_rate": 0.003213897418129249,
+            "counts": [
+              11073,
+              61276,
+              11081,
+              49,
+              169,
+              51
+            ],
+            "decisions": 83699
+          },
+          "resolved": {
+            "boost_argmax": 240,
+            "boost_rate": 0.0028674177708216345,
+            "counts": [
+              11094,
+              61261,
+              11104,
+              40,
+              161,
+              39
+            ],
+            "decisions": 83699
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 1086,
+            "boost_rate": 0.008584640923283664,
+            "counts": [
+              21227,
+              82812,
+              21380,
+              269,
+              697,
+              120
+            ],
+            "decisions": 126505
+          },
+          "raw": {
+            "boost_argmax": 1229,
+            "boost_rate": 0.009715031026441643,
+            "counts": [
+              21127,
+              82791,
+              21358,
+              345,
+              745,
+              139
+            ],
+            "decisions": 126505
+          },
+          "resolved": {
+            "boost_argmax": 1098,
+            "boost_rate": 0.00867949883403818,
+            "counts": [
+              21226,
+              82802,
+              21379,
+              270,
+              708,
+              120
+            ],
+            "decisions": 126505
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 31,
+            "boost_rate": 0.00026693992129577806,
+            "counts": [
+              15302,
+              85351,
+              15447,
+              8,
+              16,
+              7
+            ],
+            "decisions": 116131
+          },
+          "raw": {
+            "boost_argmax": 31,
+            "boost_rate": 0.00026693992129577806,
+            "counts": [
+              15300,
+              85357,
+              15443,
+              8,
+              16,
+              7
+            ],
+            "decisions": 116131
+          },
+          "resolved": {
+            "boost_argmax": 31,
+            "boost_rate": 0.00026693992129577806,
+            "counts": [
+              15302,
+              85351,
+              15447,
+              8,
+              16,
+              7
+            ],
+            "decisions": 116131
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/CTRL_s12__on__CTRL_s12.npz",
+      "bucket_counts": {
+        "400_699": 80896,
+        "700_999": 83699,
+        "ge1000": 126505,
+        "lt400": 116131
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 407231,
+        "decisions": 407231
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/final.pth",
+      "checkpoint_sha256": "a94b456f63e4e887b3f3aa52e6918fcff8fbf916453207a1b6b230ac6c11cbc8",
+      "decisions": 407231,
+      "fatal_predecision_row_included": 46,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s12__on__CTRL_s12.json",
+      "source_alive_frames": 407185,
+      "source_deaths": 46,
+      "student": "CTRL_s12",
+      "trajectory": "CTRL_s12"
+    },
+    "CTRL_s13__on__CTRL_s13": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 732,
+          "boost_rate": 0.0018575851393188853,
+          "counts": [
+            45396,
+            302492,
+            45440,
+            426,
+            85,
+            221
+          ],
+          "decisions": 394060
+        },
+        "raw": {
+          "boost_argmax": 789,
+          "boost_rate": 0.002002233162462569,
+          "counts": [
+            45419,
+            302456,
+            45396,
+            450,
+            93,
+            246
+          ],
+          "decisions": 394060
+        },
+        "resolved": {
+          "boost_argmax": 733,
+          "boost_rate": 0.0018601228239354412,
+          "counts": [
+            45396,
+            302491,
+            45440,
+            426,
+            86,
+            221
+          ],
+          "decisions": 394060
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 176,
+            "boost_rate": 0.0022384737678855324,
+            "counts": [
+              9077,
+              60207,
+              9165,
+              121,
+              11,
+              44
+            ],
+            "decisions": 78625
+          },
+          "raw": {
+            "boost_argmax": 194,
+            "boost_rate": 0.002467408585055644,
+            "counts": [
+              9065,
+              60216,
+              9150,
+              131,
+              14,
+              49
+            ],
+            "decisions": 78625
+          },
+          "resolved": {
+            "boost_argmax": 176,
+            "boost_rate": 0.0022384737678855324,
+            "counts": [
+              9077,
+              60207,
+              9165,
+              121,
+              11,
+              44
+            ],
+            "decisions": 78625
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 202,
+            "boost_rate": 0.0023659213623959054,
+            "counts": [
+              9229,
+              66681,
+              9267,
+              134,
+              24,
+              44
+            ],
+            "decisions": 85379
+          },
+          "raw": {
+            "boost_argmax": 211,
+            "boost_rate": 0.0024713337003244356,
+            "counts": [
+              9248,
+              66622,
+              9298,
+              143,
+              21,
+              47
+            ],
+            "decisions": 85379
+          },
+          "resolved": {
+            "boost_argmax": 202,
+            "boost_rate": 0.0023659213623959054,
+            "counts": [
+              9229,
+              66681,
+              9267,
+              134,
+              24,
+              44
+            ],
+            "decisions": 85379
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 278,
+            "boost_rate": 0.0024478726401803326,
+            "counts": [
+              13702,
+              86025,
+              13563,
+              131,
+              39,
+              108
+            ],
+            "decisions": 113568
+          },
+          "raw": {
+            "boost_argmax": 288,
+            "boost_rate": 0.00253592561284869,
+            "counts": [
+              13716,
+              86055,
+              13509,
+              136,
+              45,
+              107
+            ],
+            "decisions": 113568
+          },
+          "resolved": {
+            "boost_argmax": 279,
+            "boost_rate": 0.002456677937447168,
+            "counts": [
+              13702,
+              86024,
+              13563,
+              131,
+              40,
+              108
+            ],
+            "decisions": 113568
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 76,
+            "boost_rate": 0.0006524277178765194,
+            "counts": [
+              13388,
+              89579,
+              13445,
+              40,
+              11,
+              25
+            ],
+            "decisions": 116488
+          },
+          "raw": {
+            "boost_argmax": 96,
+            "boost_rate": 0.0008241192225808667,
+            "counts": [
+              13390,
+              89563,
+              13439,
+              40,
+              13,
+              43
+            ],
+            "decisions": 116488
+          },
+          "resolved": {
+            "boost_argmax": 76,
+            "boost_rate": 0.0006524277178765194,
+            "counts": [
+              13388,
+              89579,
+              13445,
+              40,
+              11,
+              25
+            ],
+            "decisions": 116488
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/CTRL_s13__on__CTRL_s13.npz",
+      "bucket_counts": {
+        "400_699": 78625,
+        "700_999": 85379,
+        "ge1000": 113568,
+        "lt400": 116488
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 394060,
+        "decisions": 394060
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/final.pth",
+      "checkpoint_sha256": "5920cc7f14de4a99a1be6524a8215c40dd15f29c6ecee1e826d74a739d514302",
+      "decisions": 394060,
+      "fatal_predecision_row_included": 41,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s13__on__CTRL_s13.json",
+      "source_alive_frames": 394019,
+      "source_deaths": 41,
+      "student": "CTRL_s13",
+      "trajectory": "CTRL_s13"
+    },
+    "CTRL_s14__on__CTRL_s14": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 1538,
+          "boost_rate": 0.0038857125532769593,
+          "counts": [
+            45907,
+            301852,
+            46512,
+            682,
+            404,
+            452
+          ],
+          "decisions": 395809
+        },
+        "raw": {
+          "boost_argmax": 1672,
+          "boost_rate": 0.004224259680805641,
+          "counts": [
+            45849,
+            301837,
+            46451,
+            718,
+            425,
+            529
+          ],
+          "decisions": 395809
+        },
+        "resolved": {
+          "boost_argmax": 1539,
+          "boost_rate": 0.0038882390243779198,
+          "counts": [
+            45906,
+            301852,
+            46512,
+            683,
+            404,
+            452
+          ],
+          "decisions": 395809
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 181,
+            "boost_rate": 0.002321524767206218,
+            "counts": [
+              8870,
+              59978,
+              8937,
+              95,
+              50,
+              36
+            ],
+            "decisions": 77966
+          },
+          "raw": {
+            "boost_argmax": 202,
+            "boost_rate": 0.0025908729446168844,
+            "counts": [
+              8857,
+              59972,
+              8935,
+              106,
+              53,
+              43
+            ],
+            "decisions": 77966
+          },
+          "resolved": {
+            "boost_argmax": 181,
+            "boost_rate": 0.002321524767206218,
+            "counts": [
+              8870,
+              59978,
+              8937,
+              95,
+              50,
+              36
+            ],
+            "decisions": 77966
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 442,
+            "boost_rate": 0.004963726613211149,
+            "counts": [
+              10379,
+              67871,
+              10354,
+              182,
+              134,
+              126
+            ],
+            "decisions": 89046
+          },
+          "raw": {
+            "boost_argmax": 479,
+            "boost_rate": 0.005379242189430182,
+            "counts": [
+              10368,
+              67864,
+              10335,
+              193,
+              134,
+              152
+            ],
+            "decisions": 89046
+          },
+          "resolved": {
+            "boost_argmax": 442,
+            "boost_rate": 0.004963726613211149,
+            "counts": [
+              10379,
+              67871,
+              10354,
+              182,
+              134,
+              126
+            ],
+            "decisions": 89046
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 744,
+            "boost_rate": 0.006656765026931267,
+            "counts": [
+              14381,
+              82369,
+              14272,
+              299,
+              183,
+              262
+            ],
+            "decisions": 111766
+          },
+          "raw": {
+            "boost_argmax": 816,
+            "boost_rate": 0.007300968094053647,
+            "counts": [
+              14362,
+              82355,
+              14233,
+              309,
+              201,
+              306
+            ],
+            "decisions": 111766
+          },
+          "resolved": {
+            "boost_argmax": 745,
+            "boost_rate": 0.006665712291752411,
+            "counts": [
+              14380,
+              82369,
+              14272,
+              300,
+              183,
+              262
+            ],
+            "decisions": 111766
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 171,
+            "boost_rate": 0.0014611513188813221,
+            "counts": [
+              12277,
+              91634,
+              12949,
+              106,
+              37,
+              28
+            ],
+            "decisions": 117031
+          },
+          "raw": {
+            "boost_argmax": 175,
+            "boost_rate": 0.0014953302971007683,
+            "counts": [
+              12262,
+              91646,
+              12948,
+              110,
+              37,
+              28
+            ],
+            "decisions": 117031
+          },
+          "resolved": {
+            "boost_argmax": 171,
+            "boost_rate": 0.0014611513188813221,
+            "counts": [
+              12277,
+              91634,
+              12949,
+              106,
+              37,
+              28
+            ],
+            "decisions": 117031
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/CTRL_s14__on__CTRL_s14.npz",
+      "bucket_counts": {
+        "400_699": 77966,
+        "700_999": 89046,
+        "ge1000": 111766,
+        "lt400": 117031
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 395809,
+        "decisions": 395809
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/final.pth",
+      "checkpoint_sha256": "b9eaf9e7120e233f5d32df30270ea67868597a3ad55cade80c42424fdc08f79c",
+      "decisions": 395809,
+      "fatal_predecision_row_included": 45,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s14__on__CTRL_s14.json",
+      "source_alive_frames": 395764,
+      "source_deaths": 45,
+      "student": "CTRL_s14",
+      "trajectory": "CTRL_s14"
+    },
+    "LABELS_KEEPV8_s10__on__CTRL_s10": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 147195,
+          "boost_rate": 0.40481782579041165,
+          "counts": [
+            43874,
+            120673,
+            51866,
+            43717,
+            46724,
+            56754
+          ],
+          "decisions": 363608
+        },
+        "raw": {
+          "boost_argmax": 147655,
+          "boost_rate": 0.4060829244681085,
+          "counts": [
+            43764,
+            120559,
+            51630,
+            43951,
+            46805,
+            56899
+          ],
+          "decisions": 363608
+        },
+        "resolved": {
+          "boost_argmax": 147220,
+          "boost_rate": 0.40488658115333,
+          "counts": [
+            43868,
+            120657,
+            51863,
+            43727,
+            46737,
+            56756
+          ],
+          "decisions": 363608
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 5492,
+            "boost_rate": 0.07747323280057555,
+            "counts": [
+              13115,
+              37853,
+              14429,
+              1161,
+              2345,
+              1986
+            ],
+            "decisions": 70889
+          },
+          "raw": {
+            "boost_argmax": 5494,
+            "boost_rate": 0.07750144592249855,
+            "counts": [
+              13125,
+              37849,
+              14421,
+              1163,
+              2346,
+              1985
+            ],
+            "decisions": 70889
+          },
+          "resolved": {
+            "boost_argmax": 5492,
+            "boost_rate": 0.07747323280057555,
+            "counts": [
+              13115,
+              37853,
+              14429,
+              1161,
+              2345,
+              1986
+            ],
+            "decisions": 70889
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 49052,
+            "boost_rate": 0.6491107347025196,
+            "counts": [
+              6728,
+              11944,
+              7844,
+              11146,
+              20276,
+              17630
+            ],
+            "decisions": 75568
+          },
+          "raw": {
+            "boost_argmax": 49128,
+            "boost_rate": 0.6501164514080033,
+            "counts": [
+              6707,
+              11931,
+              7802,
+              11159,
+              20314,
+              17655
+            ],
+            "decisions": 75568
+          },
+          "resolved": {
+            "boost_argmax": 49056,
+            "boost_rate": 0.649163667160703,
+            "counts": [
+              6727,
+              11942,
+              7843,
+              11147,
+              20278,
+              17631
+            ],
+            "decisions": 75568
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 92150,
+            "boost_rate": 0.8545621470236384,
+            "counts": [
+              3830,
+              3425,
+              8428,
+              31332,
+              23989,
+              36829
+            ],
+            "decisions": 107833
+          },
+          "raw": {
+            "boost_argmax": 92532,
+            "boost_rate": 0.8581046618382128,
+            "counts": [
+              3709,
+              3331,
+              8261,
+              31551,
+              24031,
+              36950
+            ],
+            "decisions": 107833
+          },
+          "resolved": {
+            "boost_argmax": 92171,
+            "boost_rate": 0.8547568926024501,
+            "counts": [
+              3825,
+              3411,
+              8426,
+              31341,
+              24000,
+              36830
+            ],
+            "decisions": 107833
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 501,
+            "boost_rate": 0.004582959805338554,
+            "counts": [
+              20201,
+              67451,
+              21165,
+              78,
+              114,
+              309
+            ],
+            "decisions": 109318
+          },
+          "raw": {
+            "boost_argmax": 501,
+            "boost_rate": 0.004582959805338554,
+            "counts": [
+              20223,
+              67448,
+              21146,
+              78,
+              114,
+              309
+            ],
+            "decisions": 109318
+          },
+          "resolved": {
+            "boost_argmax": 501,
+            "boost_rate": 0.004582959805338554,
+            "counts": [
+              20201,
+              67451,
+              21165,
+              78,
+              114,
+              309
+            ],
+            "decisions": 109318
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s10__on__CTRL_s10.npz",
+      "bucket_counts": {
+        "400_699": 70889,
+        "700_999": 75568,
+        "ge1000": 107833,
+        "lt400": 109318
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 363608,
+        "decisions": 363608
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/final.pth",
+      "checkpoint_sha256": "e0e3364da51b99db351accf2dca7ff7a6992acd369bfb6487dc60733b302efe7",
+      "decisions": 363608,
+      "fatal_predecision_row_included": 52,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s10__on__CTRL_s10.json",
+      "source_alive_frames": 363556,
+      "source_deaths": 52,
+      "student": "LABELS_KEEPV8_s10",
+      "trajectory": "CTRL_s10"
+    },
+    "LABELS_KEEPV8_s10__on__LABELS_KEEPV8_s10": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 75849,
+          "boost_rate": 0.20035713436652236,
+          "counts": [
+            67756,
+            172073,
+            62891,
+            23474,
+            24795,
+            27580
+          ],
+          "decisions": 378569
+        },
+        "raw": {
+          "boost_argmax": 76050,
+          "boost_rate": 0.2008880811688226,
+          "counts": [
+            67697,
+            172051,
+            62771,
+            23551,
+            24847,
+            27652
+          ],
+          "decisions": 378569
+        },
+        "resolved": {
+          "boost_argmax": 75859,
+          "boost_rate": 0.20038354963031837,
+          "counts": [
+            67754,
+            172067,
+            62889,
+            23476,
+            24799,
+            27584
+          ],
+          "decisions": 378569
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 1788,
+            "boost_rate": 0.023858768898199916,
+            "counts": [
+              15324,
+              42848,
+              14981,
+              522,
+              611,
+              655
+            ],
+            "decisions": 74941
+          },
+          "raw": {
+            "boost_argmax": 1791,
+            "boost_rate": 0.02389880038963985,
+            "counts": [
+              15346,
+              42859,
+              14945,
+              523,
+              611,
+              657
+            ],
+            "decisions": 74941
+          },
+          "resolved": {
+            "boost_argmax": 1788,
+            "boost_rate": 0.023858768898199916,
+            "counts": [
+              15324,
+              42848,
+              14981,
+              522,
+              611,
+              655
+            ],
+            "decisions": 74941
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 59842,
+            "boost_rate": 0.3667306054162045,
+            "counts": [
+              26461,
+              54015,
+              22859,
+              18179,
+              20230,
+              21433
+            ],
+            "decisions": 163177
+          },
+          "raw": {
+            "boost_argmax": 60002,
+            "boost_rate": 0.3677111357605545,
+            "counts": [
+              26380,
+              53993,
+              22802,
+              18239,
+              20280,
+              21483
+            ],
+            "decisions": 163177
+          },
+          "resolved": {
+            "boost_argmax": 59850,
+            "boost_rate": 0.366779631933422,
+            "counts": [
+              26459,
+              54010,
+              22858,
+              18181,
+              20233,
+              21436
+            ],
+            "decisions": 163177
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 14026,
+            "boost_rate": 0.5306045244760536,
+            "counts": [
+              3534,
+              6030,
+              2844,
+              4733,
+              3909,
+              5384
+            ],
+            "decisions": 26434
+          },
+          "raw": {
+            "boost_argmax": 14063,
+            "boost_rate": 0.5320042369675418,
+            "counts": [
+              3518,
+              6020,
+              2833,
+              4749,
+              3911,
+              5403
+            ],
+            "decisions": 26434
+          },
+          "resolved": {
+            "boost_argmax": 14028,
+            "boost_rate": 0.5306801846107286,
+            "counts": [
+              3534,
+              6029,
+              2843,
+              4733,
+              3910,
+              5385
+            ],
+            "decisions": 26434
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 193,
+            "boost_rate": 0.0016927300314865327,
+            "counts": [
+              22437,
+              69180,
+              22207,
+              40,
+              45,
+              108
+            ],
+            "decisions": 114017
+          },
+          "raw": {
+            "boost_argmax": 194,
+            "boost_rate": 0.0017015006534113334,
+            "counts": [
+              22453,
+              69179,
+              22191,
+              40,
+              45,
+              109
+            ],
+            "decisions": 114017
+          },
+          "resolved": {
+            "boost_argmax": 193,
+            "boost_rate": 0.0016927300314865327,
+            "counts": [
+              22437,
+              69180,
+              22207,
+              40,
+              45,
+              108
+            ],
+            "decisions": 114017
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s10__on__LABELS_KEEPV8_s10.npz",
+      "bucket_counts": {
+        "400_699": 74941,
+        "700_999": 163177,
+        "ge1000": 26434,
+        "lt400": 114017
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 378569,
+        "decisions": 378569
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/final.pth",
+      "checkpoint_sha256": "e0e3364da51b99db351accf2dca7ff7a6992acd369bfb6487dc60733b302efe7",
+      "decisions": 378569,
+      "fatal_predecision_row_included": 39,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s10__on__LABELS_KEEPV8_s10.json",
+      "source_alive_frames": 378530,
+      "source_deaths": 39,
+      "student": "LABELS_KEEPV8_s10",
+      "trajectory": "LABELS_KEEPV8_s10"
+    },
+    "LABELS_KEEPV8_s11__on__CTRL_s11": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 196267,
+          "boost_rate": 0.4618036192856017,
+          "counts": [
+            44295,
+            139773,
+            44666,
+            86865,
+            37512,
+            71890
+          ],
+          "decisions": 425001
+        },
+        "raw": {
+          "boost_argmax": 196522,
+          "boost_rate": 0.4624036178738403,
+          "counts": [
+            44091,
+            139690,
+            44698,
+            87012,
+            37557,
+            71953
+          ],
+          "decisions": 425001
+        },
+        "resolved": {
+          "boost_argmax": 196277,
+          "boost_rate": 0.4618271486420032,
+          "counts": [
+            44295,
+            139766,
+            44663,
+            86865,
+            37516,
+            71896
+          ],
+          "decisions": 425001
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 12558,
+            "boost_rate": 0.14842217232005672,
+            "counts": [
+              12991,
+              46648,
+              12413,
+              4421,
+              1421,
+              6716
+            ],
+            "decisions": 84610
+          },
+          "raw": {
+            "boost_argmax": 12574,
+            "boost_rate": 0.14861127526297127,
+            "counts": [
+              12977,
+              46647,
+              12412,
+              4426,
+              1428,
+              6720
+            ],
+            "decisions": 84610
+          },
+          "resolved": {
+            "boost_argmax": 12559,
+            "boost_rate": 0.1484339912539889,
+            "counts": [
+              12991,
+              46647,
+              12413,
+              4421,
+              1422,
+              6716
+            ],
+            "decisions": 84610
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 66755,
+            "boost_rate": 0.7280828043539908,
+            "counts": [
+              6418,
+              12221,
+              6292,
+              29833,
+              11754,
+              25168
+            ],
+            "decisions": 91686
+          },
+          "raw": {
+            "boost_argmax": 66807,
+            "boost_rate": 0.7286499574635168,
+            "counts": [
+              6378,
+              12216,
+              6285,
+              29865,
+              11765,
+              25177
+            ],
+            "decisions": 91686
+          },
+          "resolved": {
+            "boost_argmax": 66756,
+            "boost_rate": 0.7280937111445586,
+            "counts": [
+              6418,
+              12221,
+              6291,
+              29833,
+              11754,
+              25169
+            ],
+            "decisions": 91686
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 115832,
+            "boost_rate": 0.8683318840145132,
+            "counts": [
+              7563,
+              1905,
+              8096,
+              52122,
+              24232,
+              39478
+            ],
+            "decisions": 133396
+          },
+          "raw": {
+            "boost_argmax": 116018,
+            "boost_rate": 0.8697262286725239,
+            "counts": [
+              7413,
+              1829,
+              8136,
+              52232,
+              24258,
+              39528
+            ],
+            "decisions": 133396
+          },
+          "resolved": {
+            "boost_argmax": 115840,
+            "boost_rate": 0.8683918558277609,
+            "counts": [
+              7563,
+              1899,
+              8094,
+              52122,
+              24235,
+              39483
+            ],
+            "decisions": 133396
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 1122,
+            "boost_rate": 0.009730376640158184,
+            "counts": [
+              17323,
+              78999,
+              17865,
+              489,
+              105,
+              528
+            ],
+            "decisions": 115309
+          },
+          "raw": {
+            "boost_argmax": 1123,
+            "boost_rate": 0.009739048990104849,
+            "counts": [
+              17323,
+              78998,
+              17865,
+              489,
+              106,
+              528
+            ],
+            "decisions": 115309
+          },
+          "resolved": {
+            "boost_argmax": 1122,
+            "boost_rate": 0.009730376640158184,
+            "counts": [
+              17323,
+              78999,
+              17865,
+              489,
+              105,
+              528
+            ],
+            "decisions": 115309
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s11__on__CTRL_s11.npz",
+      "bucket_counts": {
+        "400_699": 84610,
+        "700_999": 91686,
+        "ge1000": 133396,
+        "lt400": 115309
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 425001,
+        "decisions": 425001
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/final.pth",
+      "checkpoint_sha256": "4c16704bc1358ba9f50cede805a491d5f74dca790ed7cd62f79d770fee1a0ca0",
+      "decisions": 425001,
+      "fatal_predecision_row_included": 33,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s11__on__CTRL_s11.json",
+      "source_alive_frames": 424968,
+      "source_deaths": 33,
+      "student": "LABELS_KEEPV8_s11",
+      "trajectory": "CTRL_s11"
+    },
+    "LABELS_KEEPV8_s11__on__LABELS_KEEPV8_s11": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 74936,
+          "boost_rate": 0.18935425589710547,
+          "counts": [
+            53847,
+            210438,
+            56524,
+            32988,
+            11967,
+            29981
+          ],
+          "decisions": 395745
+        },
+        "raw": {
+          "boost_argmax": 75050,
+          "boost_rate": 0.18964232018092458,
+          "counts": [
+            53808,
+            210460,
+            56427,
+            33053,
+            11986,
+            30011
+          ],
+          "decisions": 395745
+        },
+        "resolved": {
+          "boost_argmax": 74942,
+          "boost_rate": 0.1893694171752012,
+          "counts": [
+            53843,
+            210437,
+            56523,
+            32992,
+            11967,
+            29983
+          ],
+          "decisions": 395745
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 2758,
+            "boost_rate": 0.03348631650518443,
+            "counts": [
+              13922,
+              52432,
+              13250,
+              879,
+              470,
+              1409
+            ],
+            "decisions": 82362
+          },
+          "raw": {
+            "boost_argmax": 2757,
+            "boost_rate": 0.03347417498360895,
+            "counts": [
+              13920,
+              52462,
+              13223,
+              881,
+              473,
+              1403
+            ],
+            "decisions": 82362
+          },
+          "resolved": {
+            "boost_argmax": 2758,
+            "boost_rate": 0.03348631650518443,
+            "counts": [
+              13922,
+              52432,
+              13250,
+              879,
+              470,
+              1409
+            ],
+            "decisions": 82362
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 49860,
+            "boost_rate": 0.3311724541034565,
+            "counts": [
+              17782,
+              63131,
+              19783,
+              22273,
+              7311,
+              20276
+            ],
+            "decisions": 150556
+          },
+          "raw": {
+            "boost_argmax": 49929,
+            "boost_rate": 0.33163075533356356,
+            "counts": [
+              17759,
+              63130,
+              19738,
+              22310,
+              7319,
+              20300
+            ],
+            "decisions": 150556
+          },
+          "resolved": {
+            "boost_argmax": 49861,
+            "boost_rate": 0.3311790961502697,
+            "counts": [
+              17781,
+              63131,
+              19783,
+              22274,
+              7311,
+              20276
+            ],
+            "decisions": 150556
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 22080,
+            "boost_rate": 0.4656950625355915,
+            "counts": [
+              4285,
+              15258,
+              5790,
+              9723,
+              4151,
+              8206
+            ],
+            "decisions": 47413
+          },
+          "raw": {
+            "boost_argmax": 22124,
+            "boost_rate": 0.46662307805876024,
+            "counts": [
+              4271,
+              15250,
+              5768,
+              9749,
+              4157,
+              8218
+            ],
+            "decisions": 47413
+          },
+          "resolved": {
+            "boost_argmax": 22085,
+            "boost_rate": 0.4658005188450425,
+            "counts": [
+              4282,
+              15257,
+              5789,
+              9726,
+              4151,
+              8208
+            ],
+            "decisions": 47413
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 238,
+            "boost_rate": 0.002062141507962639,
+            "counts": [
+              17858,
+              79617,
+              17701,
+              113,
+              35,
+              90
+            ],
+            "decisions": 115414
+          },
+          "raw": {
+            "boost_argmax": 240,
+            "boost_rate": 0.0020794704281976192,
+            "counts": [
+              17858,
+              79618,
+              17698,
+              113,
+              37,
+              90
+            ],
+            "decisions": 115414
+          },
+          "resolved": {
+            "boost_argmax": 238,
+            "boost_rate": 0.002062141507962639,
+            "counts": [
+              17858,
+              79617,
+              17701,
+              113,
+              35,
+              90
+            ],
+            "decisions": 115414
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s11__on__LABELS_KEEPV8_s11.npz",
+      "bucket_counts": {
+        "400_699": 82362,
+        "700_999": 150556,
+        "ge1000": 47413,
+        "lt400": 115414
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 395745,
+        "decisions": 395745
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/final.pth",
+      "checkpoint_sha256": "4c16704bc1358ba9f50cede805a491d5f74dca790ed7cd62f79d770fee1a0ca0",
+      "decisions": 395745,
+      "fatal_predecision_row_included": 42,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s11__on__LABELS_KEEPV8_s11.json",
+      "source_alive_frames": 395703,
+      "source_deaths": 42,
+      "student": "LABELS_KEEPV8_s11",
+      "trajectory": "LABELS_KEEPV8_s11"
+    },
+    "LABELS_KEEPV8_s12__on__CTRL_s12": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 177444,
+          "boost_rate": 0.43573303604096936,
+          "counts": [
+            32582,
+            154158,
+            43047,
+            61824,
+            42192,
+            73428
+          ],
+          "decisions": 407231
+        },
+        "raw": {
+          "boost_argmax": 177886,
+          "boost_rate": 0.4368184151010115,
+          "counts": [
+            32448,
+            154063,
+            42834,
+            61912,
+            42400,
+            73574
+          ],
+          "decisions": 407231
+        },
+        "resolved": {
+          "boost_argmax": 177461,
+          "boost_rate": 0.43577478138943254,
+          "counts": [
+            32579,
+            154146,
+            43045,
+            61827,
+            42204,
+            73430
+          ],
+          "decisions": 407231
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 7352,
+            "boost_rate": 0.09088212025316456,
+            "counts": [
+              10271,
+              53688,
+              9585,
+              2630,
+              1002,
+              3720
+            ],
+            "decisions": 80896
+          },
+          "raw": {
+            "boost_argmax": 7353,
+            "boost_rate": 0.09089448180379747,
+            "counts": [
+              10271,
+              53694,
+              9578,
+              2630,
+              1002,
+              3721
+            ],
+            "decisions": 80896
+          },
+          "resolved": {
+            "boost_argmax": 7352,
+            "boost_rate": 0.09088212025316456,
+            "counts": [
+              10271,
+              53688,
+              9585,
+              2630,
+              1002,
+              3720
+            ],
+            "decisions": 80896
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 62629,
+            "boost_rate": 0.7482646148699507,
+            "counts": [
+              2838,
+              14573,
+              3659,
+              23520,
+              14008,
+              25101
+            ],
+            "decisions": 83699
+          },
+          "raw": {
+            "boost_argmax": 62688,
+            "boost_rate": 0.748969521738611,
+            "counts": [
+              2821,
+              14584,
+              3606,
+              23526,
+              14033,
+              25129
+            ],
+            "decisions": 83699
+          },
+          "resolved": {
+            "boost_argmax": 62630,
+            "boost_rate": 0.7482765624439958,
+            "counts": [
+              2838,
+              14572,
+              3659,
+              23520,
+              14009,
+              25101
+            ],
+            "decisions": 83699
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 106994,
+            "boost_rate": 0.8457689419390538,
+            "counts": [
+              3499,
+              1833,
+              14179,
+              35516,
+              27123,
+              44355
+            ],
+            "decisions": 126505
+          },
+          "raw": {
+            "boost_argmax": 107375,
+            "boost_rate": 0.8487806806055097,
+            "counts": [
+              3384,
+              1715,
+              14031,
+              35598,
+              27306,
+              44471
+            ],
+            "decisions": 126505
+          },
+          "resolved": {
+            "boost_argmax": 107010,
+            "boost_rate": 0.8458954191533932,
+            "counts": [
+              3496,
+              1822,
+              14177,
+              35519,
+              27134,
+              44357
+            ],
+            "decisions": 126505
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 469,
+            "boost_rate": 0.004038542680249029,
+            "counts": [
+              15974,
+              84064,
+              15624,
+              158,
+              59,
+              252
+            ],
+            "decisions": 116131
+          },
+          "raw": {
+            "boost_argmax": 470,
+            "boost_rate": 0.004047153645452118,
+            "counts": [
+              15972,
+              84070,
+              15619,
+              158,
+              59,
+              253
+            ],
+            "decisions": 116131
+          },
+          "resolved": {
+            "boost_argmax": 469,
+            "boost_rate": 0.004038542680249029,
+            "counts": [
+              15974,
+              84064,
+              15624,
+              158,
+              59,
+              252
+            ],
+            "decisions": 116131
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s12__on__CTRL_s12.npz",
+      "bucket_counts": {
+        "400_699": 80896,
+        "700_999": 83699,
+        "ge1000": 126505,
+        "lt400": 116131
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 407231,
+        "decisions": 407231
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/final.pth",
+      "checkpoint_sha256": "745715cb98093aec42f92969bf8e95ea86f6f72753cd77c55e06c45b38eb3ec4",
+      "decisions": 407231,
+      "fatal_predecision_row_included": 46,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s12__on__CTRL_s12.json",
+      "source_alive_frames": 407185,
+      "source_deaths": 46,
+      "student": "LABELS_KEEPV8_s12",
+      "trajectory": "CTRL_s12"
+    },
+    "LABELS_KEEPV8_s12__on__LABELS_KEEPV8_s12": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 93671,
+          "boost_rate": 0.238692974342117,
+          "counts": [
+            34824,
+            227363,
+            36575,
+            38557,
+            18879,
+            36235
+          ],
+          "decisions": 392433
+        },
+        "raw": {
+          "boost_argmax": 93892,
+          "boost_rate": 0.23925612779761132,
+          "counts": [
+            34696,
+            227363,
+            36482,
+            38649,
+            18899,
+            36344
+          ],
+          "decisions": 392433
+        },
+        "resolved": {
+          "boost_argmax": 93674,
+          "boost_rate": 0.2387006189591599,
+          "counts": [
+            34822,
+            227363,
+            36574,
+            38559,
+            18879,
+            36236
+          ],
+          "decisions": 392433
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 1843,
+            "boost_rate": 0.022446866816880823,
+            "counts": [
+              9655,
+              61473,
+              9134,
+              602,
+              292,
+              949
+            ],
+            "decisions": 82105
+          },
+          "raw": {
+            "boost_argmax": 1845,
+            "boost_rate": 0.022471225869313684,
+            "counts": [
+              9653,
+              61478,
+              9129,
+              602,
+              292,
+              951
+            ],
+            "decisions": 82105
+          },
+          "resolved": {
+            "boost_argmax": 1843,
+            "boost_rate": 0.022446866816880823,
+            "counts": [
+              9655,
+              61473,
+              9134,
+              602,
+              292,
+              949
+            ],
+            "decisions": 82105
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 90433,
+            "boost_rate": 0.4619514412835929,
+            "counts": [
+              10645,
+              81658,
+              13027,
+              37412,
+              18339,
+              34682
+            ],
+            "decisions": 195763
+          },
+          "raw": {
+            "boost_argmax": 90648,
+            "boost_rate": 0.4630497080653648,
+            "counts": [
+              10541,
+              81629,
+              12945,
+              37503,
+              18359,
+              34786
+            ],
+            "decisions": 195763
+          },
+          "resolved": {
+            "boost_argmax": 90436,
+            "boost_rate": 0.4619667659363618,
+            "counts": [
+              10643,
+              81658,
+              13026,
+              37414,
+              18339,
+              34683
+            ],
+            "decisions": 195763
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 1193,
+            "boost_rate": 0.6114812916453101,
+            "counts": [
+              63,
+              607,
+              88,
+              500,
+              215,
+              478
+            ],
+            "decisions": 1951
+          },
+          "raw": {
+            "boost_argmax": 1196,
+            "boost_rate": 0.6130189646335212,
+            "counts": [
+              61,
+              607,
+              87,
+              501,
+              215,
+              480
+            ],
+            "decisions": 1951
+          },
+          "resolved": {
+            "boost_argmax": 1193,
+            "boost_rate": 0.6114812916453101,
+            "counts": [
+              63,
+              607,
+              88,
+              500,
+              215,
+              478
+            ],
+            "decisions": 1951
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 202,
+            "boost_rate": 0.0017937379011490578,
+            "counts": [
+              14461,
+              83625,
+              14326,
+              43,
+              33,
+              126
+            ],
+            "decisions": 112614
+          },
+          "raw": {
+            "boost_argmax": 203,
+            "boost_rate": 0.0018026177917488057,
+            "counts": [
+              14441,
+              83649,
+              14321,
+              43,
+              33,
+              127
+            ],
+            "decisions": 112614
+          },
+          "resolved": {
+            "boost_argmax": 202,
+            "boost_rate": 0.0017937379011490578,
+            "counts": [
+              14461,
+              83625,
+              14326,
+              43,
+              33,
+              126
+            ],
+            "decisions": 112614
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s12__on__LABELS_KEEPV8_s12.npz",
+      "bucket_counts": {
+        "400_699": 82105,
+        "700_999": 195763,
+        "ge1000": 1951,
+        "lt400": 112614
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 392433,
+        "decisions": 392433
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/final.pth",
+      "checkpoint_sha256": "745715cb98093aec42f92969bf8e95ea86f6f72753cd77c55e06c45b38eb3ec4",
+      "decisions": 392433,
+      "fatal_predecision_row_included": 44,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s12__on__LABELS_KEEPV8_s12.json",
+      "source_alive_frames": 392389,
+      "source_deaths": 44,
+      "student": "LABELS_KEEPV8_s12",
+      "trajectory": "LABELS_KEEPV8_s12"
+    },
+    "LABELS_KEEPV8_s13__on__CTRL_s13": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 180977,
+          "boost_rate": 0.4592625488504289,
+          "counts": [
+            32550,
+            149352,
+            31181,
+            72391,
+            43831,
+            64755
+          ],
+          "decisions": 394060
+        },
+        "raw": {
+          "boost_argmax": 181337,
+          "boost_rate": 0.460176115312389,
+          "counts": [
+            32405,
+            149233,
+            31085,
+            72550,
+            43930,
+            64857
+          ],
+          "decisions": 394060
+        },
+        "resolved": {
+          "boost_argmax": 180985,
+          "boost_rate": 0.4592828503273613,
+          "counts": [
+            32548,
+            149351,
+            31176,
+            72393,
+            43836,
+            64756
+          ],
+          "decisions": 394060
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 8654,
+            "boost_rate": 0.11006677265500794,
+            "counts": [
+              10062,
+              51349,
+              8560,
+              2340,
+              1674,
+              4640
+            ],
+            "decisions": 78625
+          },
+          "raw": {
+            "boost_argmax": 8662,
+            "boost_rate": 0.11016852146263911,
+            "counts": [
+              10055,
+              51351,
+              8557,
+              2343,
+              1674,
+              4645
+            ],
+            "decisions": 78625
+          },
+          "resolved": {
+            "boost_argmax": 8654,
+            "boost_rate": 0.11006677265500794,
+            "counts": [
+              10062,
+              51349,
+              8560,
+              2340,
+              1674,
+              4640
+            ],
+            "decisions": 78625
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 66890,
+            "boost_rate": 0.7834479204488223,
+            "counts": [
+              3416,
+              12395,
+              2678,
+              24879,
+              17247,
+              24764
+            ],
+            "decisions": 85379
+          },
+          "raw": {
+            "boost_argmax": 66943,
+            "boost_rate": 0.7840686819944014,
+            "counts": [
+              3409,
+              12328,
+              2699,
+              24902,
+              17256,
+              24785
+            ],
+            "decisions": 85379
+          },
+          "resolved": {
+            "boost_argmax": 66891,
+            "boost_rate": 0.7834596329308143,
+            "counts": [
+              3415,
+              12395,
+              2678,
+              24880,
+              17247,
+              24764
+            ],
+            "decisions": 85379
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 103725,
+            "boost_rate": 0.9133294590025359,
+            "counts": [
+              4088,
+              805,
+              4950,
+              44695,
+              24701,
+              34329
+            ],
+            "decisions": 113568
+          },
+          "raw": {
+            "boost_argmax": 104017,
+            "boost_rate": 0.915900605804452,
+            "counts": [
+              3953,
+              756,
+              4842,
+              44825,
+              24789,
+              34403
+            ],
+            "decisions": 113568
+          },
+          "resolved": {
+            "boost_argmax": 103732,
+            "boost_rate": 0.9133910960834037,
+            "counts": [
+              4087,
+              804,
+              4945,
+              44696,
+              24706,
+              34330
+            ],
+            "decisions": 113568
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 1708,
+            "boost_rate": 0.014662454501751254,
+            "counts": [
+              14984,
+              84803,
+              14993,
+              477,
+              209,
+              1022
+            ],
+            "decisions": 116488
+          },
+          "raw": {
+            "boost_argmax": 1715,
+            "boost_rate": 0.014722546528397775,
+            "counts": [
+              14988,
+              84798,
+              14987,
+              480,
+              211,
+              1024
+            ],
+            "decisions": 116488
+          },
+          "resolved": {
+            "boost_argmax": 1708,
+            "boost_rate": 0.014662454501751254,
+            "counts": [
+              14984,
+              84803,
+              14993,
+              477,
+              209,
+              1022
+            ],
+            "decisions": 116488
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s13__on__CTRL_s13.npz",
+      "bucket_counts": {
+        "400_699": 78625,
+        "700_999": 85379,
+        "ge1000": 113568,
+        "lt400": 116488
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 394060,
+        "decisions": 394060
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/final.pth",
+      "checkpoint_sha256": "967a38eb2452673abe687bcfe72c0976f3116574ee6f7e4d1c11af931edaa97c",
+      "decisions": 394060,
+      "fatal_predecision_row_included": 41,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s13__on__CTRL_s13.json",
+      "source_alive_frames": 394019,
+      "source_deaths": 41,
+      "student": "LABELS_KEEPV8_s13",
+      "trajectory": "CTRL_s13"
+    },
+    "LABELS_KEEPV8_s13__on__LABELS_KEEPV8_s13": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 90890,
+          "boost_rate": 0.23355552243561742,
+          "counts": [
+            39718,
+            221039,
+            37511,
+            35382,
+            18392,
+            37116
+          ],
+          "decisions": 389158
+        },
+        "raw": {
+          "boost_argmax": 91027,
+          "boost_rate": 0.2339075645367691,
+          "counts": [
+            39642,
+            221042,
+            37447,
+            35424,
+            18434,
+            37169
+          ],
+          "decisions": 389158
+        },
+        "resolved": {
+          "boost_argmax": 90894,
+          "boost_rate": 0.2335658010371109,
+          "counts": [
+            39717,
+            221037,
+            37510,
+            35383,
+            18394,
+            37117
+          ],
+          "decisions": 389158
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 4871,
+            "boost_rate": 0.057675002368097,
+            "counts": [
+              10752,
+              59081,
+              9752,
+              1467,
+              1043,
+              2361
+            ],
+            "decisions": 84456
+          },
+          "raw": {
+            "boost_argmax": 4878,
+            "boost_rate": 0.05775788576300085,
+            "counts": [
+              10752,
+              59101,
+              9725,
+              1471,
+              1042,
+              2365
+            ],
+            "decisions": 84456
+          },
+          "resolved": {
+            "boost_argmax": 4871,
+            "boost_rate": 0.057675002368097,
+            "counts": [
+              10752,
+              59081,
+              9752,
+              1467,
+              1043,
+              2361
+            ],
+            "decisions": 84456
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 83057,
+            "boost_rate": 0.4469948119604762,
+            "counts": [
+              13654,
+              76303,
+              12798,
+              32761,
+              16881,
+              33415
+            ],
+            "decisions": 185812
+          },
+          "raw": {
+            "boost_argmax": 83182,
+            "boost_rate": 0.44766753492777644,
+            "counts": [
+              13590,
+              76294,
+              12746,
+              32795,
+              16923,
+              33464
+            ],
+            "decisions": 185812
+          },
+          "resolved": {
+            "boost_argmax": 83061,
+            "boost_rate": 0.4470163390954298,
+            "counts": [
+              13653,
+              76301,
+              12797,
+              32762,
+              16883,
+              33416
+            ],
+            "decisions": 185812
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 2330,
+            "boost_rate": 0.5803237858032378,
+            "counts": [
+              223,
+              1227,
+              235,
+              965,
+              410,
+              955
+            ],
+            "decisions": 4015
+          },
+          "raw": {
+            "boost_argmax": 2333,
+            "boost_rate": 0.5810709838107099,
+            "counts": [
+              220,
+              1229,
+              233,
+              968,
+              410,
+              955
+            ],
+            "decisions": 4015
+          },
+          "resolved": {
+            "boost_argmax": 2330,
+            "boost_rate": 0.5803237858032378,
+            "counts": [
+              223,
+              1227,
+              235,
+              965,
+              410,
+              955
+            ],
+            "decisions": 4015
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 632,
+            "boost_rate": 0.005501632208922742,
+            "counts": [
+              15089,
+              84428,
+              14726,
+              189,
+              58,
+              385
+            ],
+            "decisions": 114875
+          },
+          "raw": {
+            "boost_argmax": 634,
+            "boost_rate": 0.005519042437431992,
+            "counts": [
+              15080,
+              84418,
+              14743,
+              190,
+              59,
+              385
+            ],
+            "decisions": 114875
+          },
+          "resolved": {
+            "boost_argmax": 632,
+            "boost_rate": 0.005501632208922742,
+            "counts": [
+              15089,
+              84428,
+              14726,
+              189,
+              58,
+              385
+            ],
+            "decisions": 114875
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s13__on__LABELS_KEEPV8_s13.npz",
+      "bucket_counts": {
+        "400_699": 84456,
+        "700_999": 185812,
+        "ge1000": 4015,
+        "lt400": 114875
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 389158,
+        "decisions": 389158
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/final.pth",
+      "checkpoint_sha256": "967a38eb2452673abe687bcfe72c0976f3116574ee6f7e4d1c11af931edaa97c",
+      "decisions": 389158,
+      "fatal_predecision_row_included": 39,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s13__on__LABELS_KEEPV8_s13.json",
+      "source_alive_frames": 389119,
+      "source_deaths": 39,
+      "student": "LABELS_KEEPV8_s13",
+      "trajectory": "LABELS_KEEPV8_s13"
+    },
+    "LABELS_KEEPV8_s14__on__CTRL_s14": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 156205,
+          "boost_rate": 0.3946474183255055,
+          "counts": [
+            40104,
+            163637,
+            35863,
+            43685,
+            45473,
+            67047
+          ],
+          "decisions": 395809
+        },
+        "raw": {
+          "boost_argmax": 156516,
+          "boost_rate": 0.39543315083790415,
+          "counts": [
+            39988,
+            163564,
+            35741,
+            43708,
+            45663,
+            67145
+          ],
+          "decisions": 395809
+        },
+        "resolved": {
+          "boost_argmax": 156224,
+          "boost_rate": 0.3946954212764237,
+          "counts": [
+            40100,
+            163627,
+            35858,
+            43689,
+            45480,
+            67055
+          ],
+          "decisions": 395809
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 3280,
+            "boost_rate": 0.042069620090808814,
+            "counts": [
+              10829,
+              55798,
+              8059,
+              709,
+              845,
+              1726
+            ],
+            "decisions": 77966
+          },
+          "raw": {
+            "boost_argmax": 3284,
+            "boost_rate": 0.0421209245055537,
+            "counts": [
+              10814,
+              55810,
+              8058,
+              709,
+              847,
+              1728
+            ],
+            "decisions": 77966
+          },
+          "resolved": {
+            "boost_argmax": 3281,
+            "boost_rate": 0.042082446194495034,
+            "counts": [
+              10829,
+              55798,
+              8058,
+              709,
+              845,
+              1727
+            ],
+            "decisions": 77966
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 58460,
+            "boost_rate": 0.656514610426072,
+            "counts": [
+              6512,
+              18287,
+              5787,
+              14288,
+              18228,
+              25944
+            ],
+            "decisions": 89046
+          },
+          "raw": {
+            "boost_argmax": 58497,
+            "boost_rate": 0.656930126002291,
+            "counts": [
+              6495,
+              18281,
+              5773,
+              14290,
+              18242,
+              25965
+            ],
+            "decisions": 89046
+          },
+          "resolved": {
+            "boost_argmax": 58461,
+            "boost_rate": 0.6565258405767805,
+            "counts": [
+              6512,
+              18286,
+              5787,
+              14288,
+              18229,
+              25944
+            ],
+            "decisions": 89046
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 94205,
+            "boost_rate": 0.8428770824758871,
+            "counts": [
+              5642,
+              3270,
+              8649,
+              28618,
+              26351,
+              39236
+            ],
+            "decisions": 111766
+          },
+          "raw": {
+            "boost_argmax": 94476,
+            "boost_rate": 0.8453017912424172,
+            "counts": [
+              5565,
+              3177,
+              8548,
+              28639,
+              26525,
+              39312
+            ],
+            "decisions": 111766
+          },
+          "resolved": {
+            "boost_argmax": 94222,
+            "boost_rate": 0.8430291859778466,
+            "counts": [
+              5638,
+              3261,
+              8645,
+              28622,
+              26357,
+              39243
+            ],
+            "decisions": 111766
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 260,
+            "boost_rate": 0.0022216335842639985,
+            "counts": [
+              17121,
+              86282,
+              13368,
+              70,
+              49,
+              141
+            ],
+            "decisions": 117031
+          },
+          "raw": {
+            "boost_argmax": 259,
+            "boost_rate": 0.002213088839709137,
+            "counts": [
+              17114,
+              86296,
+              13362,
+              70,
+              49,
+              140
+            ],
+            "decisions": 117031
+          },
+          "resolved": {
+            "boost_argmax": 260,
+            "boost_rate": 0.0022216335842639985,
+            "counts": [
+              17121,
+              86282,
+              13368,
+              70,
+              49,
+              141
+            ],
+            "decisions": 117031
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s14__on__CTRL_s14.npz",
+      "bucket_counts": {
+        "400_699": 77966,
+        "700_999": 89046,
+        "ge1000": 111766,
+        "lt400": 117031
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 395809,
+        "decisions": 395809
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/final.pth",
+      "checkpoint_sha256": "39dc6609c9e39f35cef2c34c945b78e169fcdb20de5af93b1675efcf78b3dcb9",
+      "decisions": 395809,
+      "fatal_predecision_row_included": 45,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s14__on__CTRL_s14.json",
+      "source_alive_frames": 395764,
+      "source_deaths": 45,
+      "student": "LABELS_KEEPV8_s14",
+      "trajectory": "CTRL_s14"
+    },
+    "LABELS_KEEPV8_s14__on__LABELS_KEEPV8_s14": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 67357,
+          "boost_rate": 0.16936678241584716,
+          "counts": [
+            42903,
+            251264,
+            36175,
+            21293,
+            19504,
+            26560
+          ],
+          "decisions": 397699
+        },
+        "raw": {
+          "boost_argmax": 67449,
+          "boost_rate": 0.16959811314587162,
+          "counts": [
+            42844,
+            251199,
+            36207,
+            21305,
+            19534,
+            26610
+          ],
+          "decisions": 397699
+        },
+        "resolved": {
+          "boost_argmax": 67361,
+          "boost_rate": 0.1693768402736743,
+          "counts": [
+            42902,
+            251263,
+            36173,
+            21294,
+            19505,
+            26562
+          ],
+          "decisions": 397699
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 1347,
+            "boost_rate": 0.016520107435888002,
+            "counts": [
+              9641,
+              61526,
+              9023,
+              272,
+              355,
+              720
+            ],
+            "decisions": 81537
+          },
+          "raw": {
+            "boost_argmax": 1348,
+            "boost_rate": 0.016532371806664458,
+            "counts": [
+              9641,
+              61526,
+              9022,
+              272,
+              357,
+              719
+            ],
+            "decisions": 81537
+          },
+          "resolved": {
+            "boost_argmax": 1347,
+            "boost_rate": 0.016520107435888002,
+            "counts": [
+              9641,
+              61526,
+              9023,
+              272,
+              355,
+              720
+            ],
+            "decisions": 81537
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 63544,
+            "boost_rate": 0.3206831119544592,
+            "counts": [
+              18729,
+              102529,
+              13350,
+              20227,
+              18469,
+              24848
+            ],
+            "decisions": 198152
+          },
+          "raw": {
+            "boost_argmax": 63629,
+            "boost_rate": 0.3211120755783439,
+            "counts": [
+              18692,
+              102445,
+              13386,
+              20238,
+              18496,
+              24895
+            ],
+            "decisions": 198152
+          },
+          "resolved": {
+            "boost_argmax": 63548,
+            "boost_rate": 0.3207032984779361,
+            "counts": [
+              18728,
+              102528,
+              13348,
+              20228,
+              18470,
+              24850
+            ],
+            "decisions": 198152
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 2312,
+            "boost_rate": 0.4298995909259948,
+            "counts": [
+              424,
+              2375,
+              267,
+              765,
+              644,
+              903
+            ],
+            "decisions": 5378
+          },
+          "raw": {
+            "boost_argmax": 2315,
+            "boost_rate": 0.4304574191149126,
+            "counts": [
+              423,
+              2373,
+              267,
+              766,
+              645,
+              904
+            ],
+            "decisions": 5378
+          },
+          "resolved": {
+            "boost_argmax": 2312,
+            "boost_rate": 0.4298995909259948,
+            "counts": [
+              424,
+              2375,
+              267,
+              765,
+              644,
+              903
+            ],
+            "decisions": 5378
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 154,
+            "boost_rate": 0.0013672846082818382,
+            "counts": [
+              14109,
+              84834,
+              13535,
+              29,
+              36,
+              89
+            ],
+            "decisions": 112632
+          },
+          "raw": {
+            "boost_argmax": 157,
+            "boost_rate": 0.001393920022728887,
+            "counts": [
+              14088,
+              84855,
+              13532,
+              29,
+              36,
+              92
+            ],
+            "decisions": 112632
+          },
+          "resolved": {
+            "boost_argmax": 154,
+            "boost_rate": 0.0013672846082818382,
+            "counts": [
+              14109,
+              84834,
+              13535,
+              29,
+              36,
+              89
+            ],
+            "decisions": 112632
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_KEEPV8_s14__on__LABELS_KEEPV8_s14.npz",
+      "bucket_counts": {
+        "400_699": 81537,
+        "700_999": 198152,
+        "ge1000": 5378,
+        "lt400": 112632
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 397699,
+        "decisions": 397699
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/final.pth",
+      "checkpoint_sha256": "39dc6609c9e39f35cef2c34c945b78e169fcdb20de5af93b1675efcf78b3dcb9",
+      "decisions": 397699,
+      "fatal_predecision_row_included": 36,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s14__on__LABELS_KEEPV8_s14.json",
+      "source_alive_frames": 397663,
+      "source_deaths": 36,
+      "student": "LABELS_KEEPV8_s14",
+      "trajectory": "LABELS_KEEPV8_s14"
+    },
+    "LABELS_s10__on__CTRL_s10": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 170752,
+          "boost_rate": 0.46960462916107454,
+          "counts": [
+            42492,
+            87661,
+            62703,
+            61919,
+            45046,
+            63787
+          ],
+          "decisions": 363608
+        },
+        "raw": {
+          "boost_argmax": 171240,
+          "boost_rate": 0.47094673384523994,
+          "counts": [
+            42378,
+            87519,
+            62471,
+            62103,
+            45229,
+            63908
+          ],
+          "decisions": 363608
+        },
+        "resolved": {
+          "boost_argmax": 170772,
+          "boost_rate": 0.4696596334514092,
+          "counts": [
+            42485,
+            87651,
+            62700,
+            61927,
+            45056,
+            63789
+          ],
+          "decisions": 363608
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 12123,
+            "boost_rate": 0.17101383853630323,
+            "counts": [
+              12604,
+              28888,
+              17274,
+              3714,
+              4942,
+              3467
+            ],
+            "decisions": 70889
+          },
+          "raw": {
+            "boost_argmax": 12126,
+            "boost_rate": 0.17105615821918774,
+            "counts": [
+              12614,
+              28877,
+              17272,
+              3714,
+              4946,
+              3466
+            ],
+            "decisions": 70889
+          },
+          "resolved": {
+            "boost_argmax": 12123,
+            "boost_rate": 0.17101383853630323,
+            "counts": [
+              12604,
+              28888,
+              17274,
+              3714,
+              4942,
+              3467
+            ],
+            "decisions": 70889
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 59137,
+            "boost_rate": 0.782566694897311,
+            "counts": [
+              3998,
+              3800,
+              8633,
+              22946,
+              16503,
+              19688
+            ],
+            "decisions": 75568
+          },
+          "raw": {
+            "boost_argmax": 59212,
+            "boost_rate": 0.783559178488249,
+            "counts": [
+              3974,
+              3782,
+              8600,
+              22972,
+              16540,
+              19700
+            ],
+            "decisions": 75568
+          },
+          "resolved": {
+            "boost_argmax": 59139,
+            "boost_rate": 0.7825931611264028,
+            "counts": [
+              3997,
+              3799,
+              8633,
+              22947,
+              16504,
+              19688
+            ],
+            "decisions": 75568
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 92281,
+            "boost_rate": 0.8557769884914637,
+            "counts": [
+              4269,
+              1576,
+              9707,
+              33461,
+              20896,
+              37924
+            ],
+            "decisions": 107833
+          },
+          "raw": {
+            "boost_argmax": 92656,
+            "boost_rate": 0.8592545881131008,
+            "counts": [
+              4176,
+              1471,
+              9530,
+              33612,
+              21012,
+              38032
+            ],
+            "decisions": 107833
+          },
+          "resolved": {
+            "boost_argmax": 92299,
+            "boost_rate": 0.8559439132733022,
+            "counts": [
+              4263,
+              1567,
+              9704,
+              33468,
+              20905,
+              37926
+            ],
+            "decisions": 107833
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 7211,
+            "boost_rate": 0.06596351927404454,
+            "counts": [
+              21621,
+              53397,
+              27089,
+              1798,
+              2705,
+              2708
+            ],
+            "decisions": 109318
+          },
+          "raw": {
+            "boost_argmax": 7246,
+            "boost_rate": 0.0662836861267129,
+            "counts": [
+              21614,
+              53389,
+              27069,
+              1805,
+              2731,
+              2710
+            ],
+            "decisions": 109318
+          },
+          "resolved": {
+            "boost_argmax": 7211,
+            "boost_rate": 0.06596351927404454,
+            "counts": [
+              21621,
+              53397,
+              27089,
+              1798,
+              2705,
+              2708
+            ],
+            "decisions": 109318
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s10__on__CTRL_s10.npz",
+      "bucket_counts": {
+        "400_699": 70889,
+        "700_999": 75568,
+        "ge1000": 107833,
+        "lt400": 109318
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 363608,
+        "decisions": 363608
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth",
+      "checkpoint_sha256": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3",
+      "decisions": 363608,
+      "fatal_predecision_row_included": 52,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s10__on__CTRL_s10.json",
+      "source_alive_frames": 363556,
+      "source_deaths": 52,
+      "student": "LABELS_s10",
+      "trajectory": "CTRL_s10"
+    },
+    "LABELS_s10__on__LABELS_s10": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 95325,
+          "boost_rate": 0.230683787158663,
+          "counts": [
+            72694,
+            159033,
+            86176,
+            36920,
+            34801,
+            23604
+          ],
+          "decisions": 413228
+        },
+        "raw": {
+          "boost_argmax": 95497,
+          "boost_rate": 0.2311000222637382,
+          "counts": [
+            72624,
+            158988,
+            86119,
+            36961,
+            34928,
+            23608
+          ],
+          "decisions": 413228
+        },
+        "resolved": {
+          "boost_argmax": 95335,
+          "boost_rate": 0.23070798687407437,
+          "counts": [
+            72694,
+            159025,
+            86174,
+            36921,
+            34808,
+            23606
+          ],
+          "decisions": 413228
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 7461,
+            "boost_rate": 0.08786847404929868,
+            "counts": [
+              17393,
+              41996,
+              18061,
+              2485,
+              3240,
+              1736
+            ],
+            "decisions": 84911
+          },
+          "raw": {
+            "boost_argmax": 7464,
+            "boost_rate": 0.08790380516069767,
+            "counts": [
+              17384,
+              42003,
+              18060,
+              2486,
+              3243,
+              1735
+            ],
+            "decisions": 84911
+          },
+          "resolved": {
+            "boost_argmax": 7461,
+            "boost_rate": 0.08786847404929868,
+            "counts": [
+              17393,
+              41996,
+              18061,
+              2485,
+              3240,
+              1736
+            ],
+            "decisions": 84911
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 72393,
+            "boost_rate": 0.38248331757110177,
+            "counts": [
+              28971,
+              47954,
+              39953,
+              28759,
+              25770,
+              17864
+            ],
+            "decisions": 189271
+          },
+          "raw": {
+            "boost_argmax": 72495,
+            "boost_rate": 0.38302222738824226,
+            "counts": [
+              28940,
+              47919,
+              39917,
+              28785,
+              25844,
+              17866
+            ],
+            "decisions": 189271
+          },
+          "resolved": {
+            "boost_argmax": 72402,
+            "boost_rate": 0.38253086843732004,
+            "counts": [
+              28971,
+              47947,
+              39951,
+              28759,
+              25777,
+              17866
+            ],
+            "decisions": 189271
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 12250,
+            "boost_rate": 0.45283158361673814,
+            "counts": [
+              3536,
+              5870,
+              5396,
+              4902,
+              4268,
+              3080
+            ],
+            "decisions": 27052
+          },
+          "raw": {
+            "boost_argmax": 12275,
+            "boost_rate": 0.4537557297057519,
+            "counts": [
+              3521,
+              5862,
+              5394,
+              4910,
+              4282,
+              3083
+            ],
+            "decisions": 27052
+          },
+          "resolved": {
+            "boost_argmax": 12251,
+            "boost_rate": 0.4528685494602987,
+            "counts": [
+              3536,
+              5869,
+              5396,
+              4903,
+              4268,
+              3080
+            ],
+            "decisions": 27052
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 3221,
+            "boost_rate": 0.02876046931085594,
+            "counts": [
+              22794,
+              63213,
+              22766,
+              774,
+              1523,
+              924
+            ],
+            "decisions": 111994
+          },
+          "raw": {
+            "boost_argmax": 3263,
+            "boost_rate": 0.029135489401217924,
+            "counts": [
+              22779,
+              63204,
+              22748,
+              780,
+              1559,
+              924
+            ],
+            "decisions": 111994
+          },
+          "resolved": {
+            "boost_argmax": 3221,
+            "boost_rate": 0.02876046931085594,
+            "counts": [
+              22794,
+              63213,
+              22766,
+              774,
+              1523,
+              924
+            ],
+            "decisions": 111994
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s10__on__LABELS_s10.npz",
+      "bucket_counts": {
+        "400_699": 84911,
+        "700_999": 189271,
+        "ge1000": 27052,
+        "lt400": 111994
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 413228,
+        "decisions": 413228
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth",
+      "checkpoint_sha256": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3",
+      "decisions": 413228,
+      "fatal_predecision_row_included": 32,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s10__on__LABELS_s10.json",
+      "source_alive_frames": 413196,
+      "source_deaths": 32,
+      "student": "LABELS_s10",
+      "trajectory": "LABELS_s10"
+    },
+    "LABELS_s11__on__CTRL_s11": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 237284,
+          "boost_rate": 0.5583139804376931,
+          "counts": [
+            46900,
+            79246,
+            61571,
+            86360,
+            76484,
+            74440
+          ],
+          "decisions": 425001
+        },
+        "raw": {
+          "boost_argmax": 237662,
+          "boost_rate": 0.5592033901096704,
+          "counts": [
+            46707,
+            79152,
+            61480,
+            86457,
+            76601,
+            74604
+          ],
+          "decisions": 425001
+        },
+        "resolved": {
+          "boost_argmax": 237295,
+          "boost_rate": 0.5583398627297348,
+          "counts": [
+            46900,
+            79238,
+            61568,
+            86360,
+            76489,
+            74446
+          ],
+          "decisions": 425001
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 20796,
+            "boost_rate": 0.2457865500531852,
+            "counts": [
+              14911,
+              31745,
+              17158,
+              4765,
+              11524,
+              4507
+            ],
+            "decisions": 84610
+          },
+          "raw": {
+            "boost_argmax": 20811,
+            "boost_rate": 0.2459638340621676,
+            "counts": [
+              14894,
+              31748,
+              17157,
+              4769,
+              11530,
+              4512
+            ],
+            "decisions": 84610
+          },
+          "resolved": {
+            "boost_argmax": 20796,
+            "boost_rate": 0.2457865500531852,
+            "counts": [
+              14911,
+              31745,
+              17158,
+              4765,
+              11524,
+              4507
+            ],
+            "decisions": 84610
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 73829,
+            "boost_rate": 0.8052374408306612,
+            "counts": [
+              4662,
+              5007,
+              8188,
+              26180,
+              23899,
+              23750
+            ],
+            "decisions": 91686
+          },
+          "raw": {
+            "boost_argmax": 73920,
+            "boost_rate": 0.8062299587723316,
+            "counts": [
+              4611,
+              4989,
+              8166,
+              26213,
+              23941,
+              23766
+            ],
+            "decisions": 91686
+          },
+          "resolved": {
+            "boost_argmax": 73831,
+            "boost_rate": 0.8052592544117968,
+            "counts": [
+              4662,
+              5006,
+              8187,
+              26180,
+              23900,
+              23751
+            ],
+            "decisions": 91686
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 120057,
+            "boost_rate": 0.9000044978859936,
+            "counts": [
+              4566,
+              1245,
+              7528,
+              48976,
+              28921,
+              42160
+            ],
+            "decisions": 133396
+          },
+          "raw": {
+            "boost_argmax": 120314,
+            "boost_rate": 0.9019310923865783,
+            "counts": [
+              4439,
+              1180,
+              7463,
+              49038,
+              28973,
+              42303
+            ],
+            "decisions": 133396
+          },
+          "resolved": {
+            "boost_argmax": 120066,
+            "boost_rate": 0.9000719661758974,
+            "counts": [
+              4566,
+              1238,
+              7526,
+              48976,
+              28925,
+              42165
+            ],
+            "decisions": 133396
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 22602,
+            "boost_rate": 0.1960124534945234,
+            "counts": [
+              22761,
+              41249,
+              28697,
+              6439,
+              12140,
+              4023
+            ],
+            "decisions": 115309
+          },
+          "raw": {
+            "boost_argmax": 22617,
+            "boost_rate": 0.1961425387437234,
+            "counts": [
+              22763,
+              41235,
+              28694,
+              6437,
+              12157,
+              4023
+            ],
+            "decisions": 115309
+          },
+          "resolved": {
+            "boost_argmax": 22602,
+            "boost_rate": 0.1960124534945234,
+            "counts": [
+              22761,
+              41249,
+              28697,
+              6439,
+              12140,
+              4023
+            ],
+            "decisions": 115309
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s11__on__CTRL_s11.npz",
+      "bucket_counts": {
+        "400_699": 84610,
+        "700_999": 91686,
+        "ge1000": 133396,
+        "lt400": 115309
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 425001,
+        "decisions": 425001
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/final.pth",
+      "checkpoint_sha256": "c8520d205a98695ed8ad01d0fb7db8a31e232d3dd20028950ea093582d2cdf3e",
+      "decisions": 425001,
+      "fatal_predecision_row_included": 33,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s11__on__CTRL_s11.json",
+      "source_alive_frames": 424968,
+      "source_deaths": 33,
+      "student": "LABELS_s11",
+      "trajectory": "CTRL_s11"
+    },
+    "LABELS_s11__on__LABELS_s11": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 114233,
+          "boost_rate": 0.2673480277662059,
+          "counts": [
+            71488,
+            154900,
+            86661,
+            43212,
+            42906,
+            28115
+          ],
+          "decisions": 427282
+        },
+        "raw": {
+          "boost_argmax": 114368,
+          "boost_rate": 0.2676639783562144,
+          "counts": [
+            71419,
+            154870,
+            86625,
+            43234,
+            42994,
+            28140
+          ],
+          "decisions": 427282
+        },
+        "resolved": {
+          "boost_argmax": 114241,
+          "boost_rate": 0.26736675076413235,
+          "counts": [
+            71487,
+            154896,
+            86658,
+            43213,
+            42909,
+            28119
+          ],
+          "decisions": 427282
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 8036,
+            "boost_rate": 0.09833578071463533,
+            "counts": [
+              15972,
+              41237,
+              16475,
+              1756,
+              5054,
+              1226
+            ],
+            "decisions": 81720
+          },
+          "raw": {
+            "boost_argmax": 8040,
+            "boost_rate": 0.09838472834067548,
+            "counts": [
+              15970,
+              41237,
+              16473,
+              1757,
+              5056,
+              1227
+            ],
+            "decisions": 81720
+          },
+          "resolved": {
+            "boost_argmax": 8036,
+            "boost_rate": 0.09833578071463533,
+            "counts": [
+              15972,
+              41237,
+              16475,
+              1756,
+              5054,
+              1226
+            ],
+            "decisions": 81720
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 76677,
+            "boost_rate": 0.39914109471382836,
+            "counts": [
+              24979,
+              55183,
+              35266,
+              29973,
+              26810,
+              19894
+            ],
+            "decisions": 192105
+          },
+          "raw": {
+            "boost_argmax": 76745,
+            "boost_rate": 0.39949506780146277,
+            "counts": [
+              24938,
+              55177,
+              35245,
+              29987,
+              26855,
+              19903
+            ],
+            "decisions": 192105
+          },
+          "resolved": {
+            "boost_argmax": 76681,
+            "boost_rate": 0.3991619166601598,
+            "counts": [
+              24978,
+              55182,
+              35264,
+              29974,
+              26811,
+              19896
+            ],
+            "decisions": 192105
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 21762,
+            "boost_rate": 0.49098662094172324,
+            "counts": [
+              4307,
+              10395,
+              7859,
+              9596,
+              6139,
+              6027
+            ],
+            "decisions": 44323
+          },
+          "raw": {
+            "boost_argmax": 21810,
+            "boost_rate": 0.4920695801276989,
+            "counts": [
+              4288,
+              10378,
+              7847,
+              9604,
+              6164,
+              6042
+            ],
+            "decisions": 44323
+          },
+          "resolved": {
+            "boost_argmax": 21766,
+            "boost_rate": 0.4910768675405546,
+            "counts": [
+              4307,
+              10392,
+              7858,
+              9596,
+              6141,
+              6029
+            ],
+            "decisions": 44323
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 7758,
+            "boost_rate": 0.0710869206663368,
+            "counts": [
+              26230,
+              48085,
+              27061,
+              1887,
+              4903,
+              968
+            ],
+            "decisions": 109134
+          },
+          "raw": {
+            "boost_argmax": 7773,
+            "boost_rate": 0.07122436637528176,
+            "counts": [
+              26223,
+              48078,
+              27060,
+              1886,
+              4919,
+              968
+            ],
+            "decisions": 109134
+          },
+          "resolved": {
+            "boost_argmax": 7758,
+            "boost_rate": 0.0710869206663368,
+            "counts": [
+              26230,
+              48085,
+              27061,
+              1887,
+              4903,
+              968
+            ],
+            "decisions": 109134
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s11__on__LABELS_s11.npz",
+      "bucket_counts": {
+        "400_699": 81720,
+        "700_999": 192105,
+        "ge1000": 44323,
+        "lt400": 109134
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 427282,
+        "decisions": 427282
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/final.pth",
+      "checkpoint_sha256": "c8520d205a98695ed8ad01d0fb7db8a31e232d3dd20028950ea093582d2cdf3e",
+      "decisions": 427282,
+      "fatal_predecision_row_included": 34,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s11__on__LABELS_s11.json",
+      "source_alive_frames": 427248,
+      "source_deaths": 34,
+      "student": "LABELS_s11",
+      "trajectory": "LABELS_s11"
+    },
+    "LABELS_s12__on__CTRL_s12": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 192529,
+          "boost_rate": 0.47277589378018864,
+          "counts": [
+            44169,
+            98148,
+            72385,
+            58711,
+            47422,
+            86396
+          ],
+          "decisions": 407231
+        },
+        "raw": {
+          "boost_argmax": 193013,
+          "boost_rate": 0.4739644084070221,
+          "counts": [
+            44011,
+            98012,
+            72195,
+            58821,
+            47620,
+            86572
+          ],
+          "decisions": 407231
+        },
+        "resolved": {
+          "boost_argmax": 192551,
+          "boost_rate": 0.4728299171723174,
+          "counts": [
+            44163,
+            98133,
+            72384,
+            58716,
+            47439,
+            86396
+          ],
+          "decisions": 407231
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 11726,
+            "boost_rate": 0.144951542721519,
+            "counts": [
+              13576,
+              36504,
+              19090,
+              2074,
+              5338,
+              4314
+            ],
+            "decisions": 80896
+          },
+          "raw": {
+            "boost_argmax": 11728,
+            "boost_rate": 0.1449762658227848,
+            "counts": [
+              13574,
+              36510,
+              19084,
+              2074,
+              5340,
+              4314
+            ],
+            "decisions": 80896
+          },
+          "resolved": {
+            "boost_argmax": 11726,
+            "boost_rate": 0.144951542721519,
+            "counts": [
+              13576,
+              36504,
+              19090,
+              2074,
+              5338,
+              4314
+            ],
+            "decisions": 80896
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 67200,
+            "boost_rate": 0.8028769758300577,
+            "counts": [
+              4575,
+              5788,
+              6136,
+              21342,
+              16899,
+              28959
+            ],
+            "decisions": 83699
+          },
+          "raw": {
+            "boost_argmax": 67265,
+            "boost_rate": 0.8036535681429886,
+            "counts": [
+              4556,
+              5776,
+              6102,
+              21350,
+              16937,
+              28978
+            ],
+            "decisions": 83699
+          },
+          "resolved": {
+            "boost_argmax": 67202,
+            "boost_rate": 0.8029008709781479,
+            "counts": [
+              4575,
+              5786,
+              6136,
+              21342,
+              16901,
+              28959
+            ],
+            "decisions": 83699
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 107008,
+            "boost_rate": 0.8458796095016007,
+            "counts": [
+              4306,
+              2039,
+              13152,
+              34972,
+              21148,
+              50888
+            ],
+            "decisions": 126505
+          },
+          "raw": {
+            "boost_argmax": 107402,
+            "boost_rate": 0.8489941109047073,
+            "counts": [
+              4174,
+              1921,
+              13008,
+              35074,
+              21282,
+              51046
+            ],
+            "decisions": 126505
+          },
+          "resolved": {
+            "boost_argmax": 107028,
+            "boost_rate": 0.8460377060195249,
+            "counts": [
+              4300,
+              2026,
+              13151,
+              34977,
+              21163,
+              50888
+            ],
+            "decisions": 126505
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 6595,
+            "boost_rate": 0.05678931551437601,
+            "counts": [
+              21712,
+              53817,
+              34007,
+              323,
+              4037,
+              2235
+            ],
+            "decisions": 116131
+          },
+          "raw": {
+            "boost_argmax": 6618,
+            "boost_rate": 0.05698736771404707,
+            "counts": [
+              21707,
+              53805,
+              34001,
+              323,
+              4061,
+              2234
+            ],
+            "decisions": 116131
+          },
+          "resolved": {
+            "boost_argmax": 6595,
+            "boost_rate": 0.05678931551437601,
+            "counts": [
+              21712,
+              53817,
+              34007,
+              323,
+              4037,
+              2235
+            ],
+            "decisions": 116131
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s12__on__CTRL_s12.npz",
+      "bucket_counts": {
+        "400_699": 80896,
+        "700_999": 83699,
+        "ge1000": 126505,
+        "lt400": 116131
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 407231,
+        "decisions": 407231
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/final.pth",
+      "checkpoint_sha256": "52f2f2f1eaef8014cd70bc970e30291410661ace565aecbcb193588e45be24cd",
+      "decisions": 407231,
+      "fatal_predecision_row_included": 46,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s12__on__CTRL_s12.json",
+      "source_alive_frames": 407185,
+      "source_deaths": 46,
+      "student": "LABELS_s12",
+      "trajectory": "CTRL_s12"
+    },
+    "LABELS_s12__on__LABELS_s12": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 89059,
+          "boost_rate": 0.23265698514332886,
+          "counts": [
+            65824,
+            161385,
+            66523,
+            32923,
+            23640,
+            32496
+          ],
+          "decisions": 382791
+        },
+        "raw": {
+          "boost_argmax": 89216,
+          "boost_rate": 0.2330671306274181,
+          "counts": [
+            65764,
+            161354,
+            66457,
+            32961,
+            23705,
+            32550
+          ],
+          "decisions": 382791
+        },
+        "resolved": {
+          "boost_argmax": 89062,
+          "boost_rate": 0.23266482231818408,
+          "counts": [
+            65824,
+            161384,
+            66521,
+            32923,
+            23641,
+            32498
+          ],
+          "decisions": 382791
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 4482,
+            "boost_rate": 0.05436021831412977,
+            "counts": [
+              15638,
+              47261,
+              15069,
+              844,
+              2381,
+              1257
+            ],
+            "decisions": 82450
+          },
+          "raw": {
+            "boost_argmax": 4488,
+            "boost_rate": 0.05443298969072165,
+            "counts": [
+              15633,
+              47267,
+              15062,
+              844,
+              2380,
+              1264
+            ],
+            "decisions": 82450
+          },
+          "resolved": {
+            "boost_argmax": 4482,
+            "boost_rate": 0.05436021831412977,
+            "counts": [
+              15638,
+              47261,
+              15069,
+              844,
+              2381,
+              1257
+            ],
+            "decisions": 82450
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 80377,
+            "boost_rate": 0.4344843616549726,
+            "counts": [
+              26008,
+              51740,
+              26869,
+              31056,
+              19141,
+              30180
+            ],
+            "decisions": 184994
+          },
+          "raw": {
+            "boost_argmax": 80486,
+            "boost_rate": 0.4350735699536201,
+            "counts": [
+              25966,
+              51725,
+              26817,
+              31091,
+              19172,
+              30223
+            ],
+            "decisions": 184994
+          },
+          "resolved": {
+            "boost_argmax": 80380,
+            "boost_rate": 0.4345005783971372,
+            "counts": [
+              26008,
+              51739,
+              26867,
+              31056,
+              19142,
+              30182
+            ],
+            "decisions": 184994
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 2295,
+            "boost_rate": 0.4811320754716981,
+            "counts": [
+              453,
+              1421,
+              601,
+              961,
+              522,
+              812
+            ],
+            "decisions": 4770
+          },
+          "raw": {
+            "boost_argmax": 2303,
+            "boost_rate": 0.4828092243186583,
+            "counts": [
+              449,
+              1419,
+              599,
+              964,
+              523,
+              816
+            ],
+            "decisions": 4770
+          },
+          "resolved": {
+            "boost_argmax": 2295,
+            "boost_rate": 0.4811320754716981,
+            "counts": [
+              453,
+              1421,
+              601,
+              961,
+              522,
+              812
+            ],
+            "decisions": 4770
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 1905,
+            "boost_rate": 0.01722781410239019,
+            "counts": [
+              23725,
+              60963,
+              23984,
+              62,
+              1596,
+              247
+            ],
+            "decisions": 110577
+          },
+          "raw": {
+            "boost_argmax": 1939,
+            "boost_rate": 0.017535292149361982,
+            "counts": [
+              23716,
+              60943,
+              23979,
+              62,
+              1630,
+              247
+            ],
+            "decisions": 110577
+          },
+          "resolved": {
+            "boost_argmax": 1905,
+            "boost_rate": 0.01722781410239019,
+            "counts": [
+              23725,
+              60963,
+              23984,
+              62,
+              1596,
+              247
+            ],
+            "decisions": 110577
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s12__on__LABELS_s12.npz",
+      "bucket_counts": {
+        "400_699": 82450,
+        "700_999": 184994,
+        "ge1000": 4770,
+        "lt400": 110577
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 382791,
+        "decisions": 382791
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/final.pth",
+      "checkpoint_sha256": "52f2f2f1eaef8014cd70bc970e30291410661ace565aecbcb193588e45be24cd",
+      "decisions": 382791,
+      "fatal_predecision_row_included": 43,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s12__on__LABELS_s12.json",
+      "source_alive_frames": 382748,
+      "source_deaths": 43,
+      "student": "LABELS_s12",
+      "trajectory": "LABELS_s12"
+    },
+    "LABELS_s13__on__CTRL_s13": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 215044,
+          "boost_rate": 0.5457138506826371,
+          "counts": [
+            44840,
+            88542,
+            45634,
+            83221,
+            69387,
+            62436
+          ],
+          "decisions": 394060
+        },
+        "raw": {
+          "boost_argmax": 215348,
+          "boost_rate": 0.5464853068060701,
+          "counts": [
+            44717,
+            88440,
+            45555,
+            83326,
+            69529,
+            62493
+          ],
+          "decisions": 394060
+        },
+        "resolved": {
+          "boost_argmax": 215054,
+          "boost_rate": 0.5457392275288028,
+          "counts": [
+            44839,
+            88537,
+            45630,
+            83222,
+            69394,
+            62438
+          ],
+          "decisions": 394060
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 14957,
+            "boost_rate": 0.1902321144674086,
+            "counts": [
+              15329,
+              35459,
+              12880,
+              3327,
+              8312,
+              3318
+            ],
+            "decisions": 78625
+          },
+          "raw": {
+            "boost_argmax": 14961,
+            "boost_rate": 0.19028298887122416,
+            "counts": [
+              15321,
+              35466,
+              12877,
+              3328,
+              8313,
+              3320
+            ],
+            "decisions": 78625
+          },
+          "resolved": {
+            "boost_argmax": 14957,
+            "boost_rate": 0.1902321144674086,
+            "counts": [
+              15329,
+              35459,
+              12880,
+              3327,
+              8312,
+              3318
+            ],
+            "decisions": 78625
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 71299,
+            "boost_rate": 0.8350882535518102,
+            "counts": [
+              4229,
+              5378,
+              4473,
+              29387,
+              20675,
+              21237
+            ],
+            "decisions": 85379
+          },
+          "raw": {
+            "boost_argmax": 71326,
+            "boost_rate": 0.8354044905655957,
+            "counts": [
+              4225,
+              5350,
+              4478,
+              29399,
+              20669,
+              21258
+            ],
+            "decisions": 85379
+          },
+          "resolved": {
+            "boost_argmax": 71299,
+            "boost_rate": 0.8350882535518102,
+            "counts": [
+              4229,
+              5378,
+              4473,
+              29387,
+              20675,
+              21237
+            ],
+            "decisions": 85379
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 102256,
+            "boost_rate": 0.9003944773175543,
+            "counts": [
+              3561,
+              1438,
+              6313,
+              43112,
+              24964,
+              34180
+            ],
+            "decisions": 113568
+          },
+          "raw": {
+            "boost_argmax": 102493,
+            "boost_rate": 0.9024813327697943,
+            "counts": [
+              3456,
+              1382,
+              6237,
+              43201,
+              25079,
+              34213
+            ],
+            "decisions": 113568
+          },
+          "resolved": {
+            "boost_argmax": 102266,
+            "boost_rate": 0.9004825302902226,
+            "counts": [
+              3560,
+              1433,
+              6309,
+              43113,
+              24971,
+              34182
+            ],
+            "decisions": 113568
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 26532,
+            "boost_rate": 0.22776595014078704,
+            "counts": [
+              21721,
+              46267,
+              21968,
+              7395,
+              15436,
+              3701
+            ],
+            "decisions": 116488
+          },
+          "raw": {
+            "boost_argmax": 26568,
+            "boost_rate": 0.22807499484925486,
+            "counts": [
+              21715,
+              46242,
+              21963,
+              7398,
+              15468,
+              3702
+            ],
+            "decisions": 116488
+          },
+          "resolved": {
+            "boost_argmax": 26532,
+            "boost_rate": 0.22776595014078704,
+            "counts": [
+              21721,
+              46267,
+              21968,
+              7395,
+              15436,
+              3701
+            ],
+            "decisions": 116488
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s13__on__CTRL_s13.npz",
+      "bucket_counts": {
+        "400_699": 78625,
+        "700_999": 85379,
+        "ge1000": 113568,
+        "lt400": 116488
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 394060,
+        "decisions": 394060
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/final.pth",
+      "checkpoint_sha256": "6acf5a7eaef6e6d2aedc07ca2285ef1325accf63b12467b3d1154063eaa76179",
+      "decisions": 394060,
+      "fatal_predecision_row_included": 41,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s13__on__CTRL_s13.json",
+      "source_alive_frames": 394019,
+      "source_deaths": 41,
+      "student": "LABELS_s13",
+      "trajectory": "CTRL_s13"
+    },
+    "LABELS_s13__on__LABELS_s13": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 91568,
+          "boost_rate": 0.2411181681254674,
+          "counts": [
+            58118,
+            171234,
+            58844,
+            30390,
+            31530,
+            29648
+          ],
+          "decisions": 379764
+        },
+        "raw": {
+          "boost_argmax": 91664,
+          "boost_rate": 0.24137095669942385,
+          "counts": [
+            58032,
+            171255,
+            58813,
+            30412,
+            31584,
+            29668
+          ],
+          "decisions": 379764
+        },
+        "resolved": {
+          "boost_argmax": 91572,
+          "boost_rate": 0.24112870098271558,
+          "counts": [
+            58118,
+            171233,
+            58841,
+            30390,
+            31532,
+            29650
+          ],
+          "decisions": 379764
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 6944,
+            "boost_rate": 0.08408102970201121,
+            "counts": [
+              13747,
+              48218,
+              13678,
+              1391,
+              4063,
+              1490
+            ],
+            "decisions": 82587
+          },
+          "raw": {
+            "boost_argmax": 6952,
+            "boost_rate": 0.08417789724775086,
+            "counts": [
+              13728,
+              48228,
+              13679,
+              1395,
+              4069,
+              1488
+            ],
+            "decisions": 82587
+          },
+          "resolved": {
+            "boost_argmax": 6944,
+            "boost_rate": 0.08408102970201121,
+            "counts": [
+              13747,
+              48218,
+              13678,
+              1391,
+              4063,
+              1490
+            ],
+            "decisions": 82587
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 70964,
+            "boost_rate": 0.4128550318234179,
+            "counts": [
+              21258,
+              58302,
+              21362,
+              25197,
+              20608,
+              25159
+            ],
+            "decisions": 171886
+          },
+          "raw": {
+            "boost_argmax": 71026,
+            "boost_rate": 0.4132157360110771,
+            "counts": [
+              21207,
+              58311,
+              21342,
+              25208,
+              20641,
+              25177
+            ],
+            "decisions": 171886
+          },
+          "resolved": {
+            "boost_argmax": 70967,
+            "boost_rate": 0.412872485251853,
+            "counts": [
+              21258,
+              58301,
+              21360,
+              25197,
+              20610,
+              25160
+            ],
+            "decisions": 171886
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 6443,
+            "boost_rate": 0.5306811630014002,
+            "counts": [
+              1290,
+              3167,
+              1241,
+              2436,
+              1505,
+              2502
+            ],
+            "decisions": 12141
+          },
+          "raw": {
+            "boost_argmax": 6454,
+            "boost_rate": 0.5315871839222469,
+            "counts": [
+              1283,
+              3165,
+              1239,
+              2440,
+              1508,
+              2506
+            ],
+            "decisions": 12141
+          },
+          "resolved": {
+            "boost_argmax": 6444,
+            "boost_rate": 0.530763528539659,
+            "counts": [
+              1290,
+              3167,
+              1240,
+              2436,
+              1505,
+              2503
+            ],
+            "decisions": 12141
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 7217,
+            "boost_rate": 0.06378258948298718,
+            "counts": [
+              21823,
+              61547,
+              22563,
+              1366,
+              5354,
+              497
+            ],
+            "decisions": 113150
+          },
+          "raw": {
+            "boost_argmax": 7232,
+            "boost_rate": 0.06391515687140964,
+            "counts": [
+              21814,
+              61551,
+              22553,
+              1369,
+              5366,
+              497
+            ],
+            "decisions": 113150
+          },
+          "resolved": {
+            "boost_argmax": 7217,
+            "boost_rate": 0.06378258948298718,
+            "counts": [
+              21823,
+              61547,
+              22563,
+              1366,
+              5354,
+              497
+            ],
+            "decisions": 113150
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s13__on__LABELS_s13.npz",
+      "bucket_counts": {
+        "400_699": 82587,
+        "700_999": 171886,
+        "ge1000": 12141,
+        "lt400": 113150
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 379764,
+        "decisions": 379764
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/final.pth",
+      "checkpoint_sha256": "6acf5a7eaef6e6d2aedc07ca2285ef1325accf63b12467b3d1154063eaa76179",
+      "decisions": 379764,
+      "fatal_predecision_row_included": 47,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s13__on__LABELS_s13.json",
+      "source_alive_frames": 379717,
+      "source_deaths": 47,
+      "student": "LABELS_s13",
+      "trajectory": "LABELS_s13"
+    },
+    "LABELS_s14__on__CTRL_s14": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 193428,
+          "boost_rate": 0.48869025211655115,
+          "counts": [
+            65747,
+            95465,
+            41169,
+            83011,
+            41058,
+            69359
+          ],
+          "decisions": 395809
+        },
+        "raw": {
+          "boost_argmax": 193806,
+          "boost_rate": 0.48964525819271415,
+          "counts": [
+            65593,
+            95379,
+            41031,
+            83143,
+            41233,
+            69430
+          ],
+          "decisions": 395809
+        },
+        "resolved": {
+          "boost_argmax": 193449,
+          "boost_rate": 0.4887433080096713,
+          "counts": [
+            65746,
+            95446,
+            41168,
+            83012,
+            41076,
+            69361
+          ],
+          "decisions": 395809
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 10458,
+            "boost_rate": 0.13413539235051175,
+            "counts": [
+              21092,
+              35611,
+              10805,
+              2933,
+              3581,
+              3944
+            ],
+            "decisions": 77966
+          },
+          "raw": {
+            "boost_argmax": 10463,
+            "boost_rate": 0.13419952286894288,
+            "counts": [
+              21079,
+              35626,
+              10798,
+              2933,
+              3581,
+              3949
+            ],
+            "decisions": 77966
+          },
+          "resolved": {
+            "boost_argmax": 10458,
+            "boost_rate": 0.13413539235051175,
+            "counts": [
+              21092,
+              35611,
+              10805,
+              2933,
+              3581,
+              3944
+            ],
+            "decisions": 77966
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 71480,
+            "boost_rate": 0.802731172652337,
+            "counts": [
+              6632,
+              5581,
+              5353,
+              29969,
+              16481,
+              25030
+            ],
+            "decisions": 89046
+          },
+          "raw": {
+            "boost_argmax": 71535,
+            "boost_rate": 0.8033488309413113,
+            "counts": [
+              6606,
+              5575,
+              5330,
+              29997,
+              16496,
+              25042
+            ],
+            "decisions": 89046
+          },
+          "resolved": {
+            "boost_argmax": 71482,
+            "boost_rate": 0.8027536329537542,
+            "counts": [
+              6632,
+              5580,
+              5352,
+              29969,
+              16481,
+              25032
+            ],
+            "decisions": 89046
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 97965,
+            "boost_rate": 0.8765187982033892,
+            "counts": [
+              4507,
+              2047,
+              7247,
+              44232,
+              18346,
+              35387
+            ],
+            "decisions": 111766
+          },
+          "raw": {
+            "boost_argmax": 98278,
+            "boost_rate": 0.8793192920924073,
+            "counts": [
+              4393,
+              1949,
+              7146,
+              44336,
+              18503,
+              35439
+            ],
+            "decisions": 111766
+          },
+          "resolved": {
+            "boost_argmax": 97984,
+            "boost_rate": 0.876688796234991,
+            "counts": [
+              4506,
+              2029,
+              7247,
+              44233,
+              18364,
+              35387
+            ],
+            "decisions": 111766
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 13525,
+            "boost_rate": 0.11556767010450222,
+            "counts": [
+              33516,
+              52226,
+              17764,
+              5877,
+              2650,
+              4998
+            ],
+            "decisions": 117031
+          },
+          "raw": {
+            "boost_argmax": 13530,
+            "boost_rate": 0.11561039382727653,
+            "counts": [
+              33515,
+              52229,
+              17757,
+              5877,
+              2653,
+              5000
+            ],
+            "decisions": 117031
+          },
+          "resolved": {
+            "boost_argmax": 13525,
+            "boost_rate": 0.11556767010450222,
+            "counts": [
+              33516,
+              52226,
+              17764,
+              5877,
+              2650,
+              4998
+            ],
+            "decisions": 117031
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s14__on__CTRL_s14.npz",
+      "bucket_counts": {
+        "400_699": 77966,
+        "700_999": 89046,
+        "ge1000": 111766,
+        "lt400": 117031
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 395809,
+        "decisions": 395809
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/final.pth",
+      "checkpoint_sha256": "420948f3e777272b3e329a01e0682bbe6b97267f0ea8416936b20a40fc0e21a4",
+      "decisions": 395809,
+      "fatal_predecision_row_included": 45,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s14__on__CTRL_s14.json",
+      "source_alive_frames": 395764,
+      "source_deaths": 45,
+      "student": "LABELS_s14",
+      "trajectory": "CTRL_s14"
+    },
+    "LABELS_s14__on__LABELS_s14": {
+      "actions": {
+        "advisory": {
+          "boost_argmax": 93298,
+          "boost_rate": 0.23617474774578648,
+          "counts": [
+            71641,
+            163279,
+            66820,
+            32089,
+            25331,
+            35878
+          ],
+          "decisions": 395038
+        },
+        "raw": {
+          "boost_argmax": 93407,
+          "boost_rate": 0.23645067056840102,
+          "counts": [
+            71605,
+            163288,
+            66738,
+            32109,
+            25385,
+            35913
+          ],
+          "decisions": 395038
+        },
+        "resolved": {
+          "boost_argmax": 93307,
+          "boost_rate": 0.2361975303641675,
+          "counts": [
+            71640,
+            163272,
+            66819,
+            32091,
+            25337,
+            35879
+          ],
+          "decisions": 395038
+        }
+      },
+      "actions_by_bucket": {
+        "400_699": {
+          "advisory": {
+            "boost_argmax": 5298,
+            "boost_rate": 0.06306842531308032,
+            "counts": [
+              16750,
+              46724,
+              15232,
+              1105,
+              1712,
+              2481
+            ],
+            "decisions": 84004
+          },
+          "raw": {
+            "boost_argmax": 5302,
+            "boost_rate": 0.06311604209323365,
+            "counts": [
+              16752,
+              46737,
+              15213,
+              1105,
+              1713,
+              2484
+            ],
+            "decisions": 84004
+          },
+          "resolved": {
+            "boost_argmax": 5298,
+            "boost_rate": 0.06306842531308032,
+            "counts": [
+              16750,
+              46724,
+              15232,
+              1105,
+              1712,
+              2481
+            ],
+            "decisions": 84004
+          }
+        },
+        "700_999": {
+          "advisory": {
+            "boost_argmax": 79570,
+            "boost_rate": 0.4253237902299004,
+            "counts": [
+              30120,
+              49798,
+              27593,
+              27805,
+              21709,
+              30056
+            ],
+            "decisions": 187081
+          },
+          "raw": {
+            "boost_argmax": 79662,
+            "boost_rate": 0.4258155558287587,
+            "counts": [
+              30087,
+              49797,
+              27535,
+              27827,
+              21752,
+              30083
+            ],
+            "decisions": 187081
+          },
+          "resolved": {
+            "boost_argmax": 79578,
+            "boost_rate": 0.4253665524558881,
+            "counts": [
+              30119,
+              49792,
+              27592,
+              27807,
+              21714,
+              30057
+            ],
+            "decisions": 187081
+          }
+        },
+        "ge1000": {
+          "advisory": {
+            "boost_argmax": 3523,
+            "boost_rate": 0.4122878876535986,
+            "counts": [
+              1186,
+              2245,
+              1591,
+              1525,
+              874,
+              1124
+            ],
+            "decisions": 8545
+          },
+          "raw": {
+            "boost_argmax": 3533,
+            "boost_rate": 0.41345816266822705,
+            "counts": [
+              1184,
+              2241,
+              1587,
+              1523,
+              884,
+              1126
+            ],
+            "decisions": 8545
+          },
+          "resolved": {
+            "boost_argmax": 3524,
+            "boost_rate": 0.41240491515506145,
+            "counts": [
+              1186,
+              2244,
+              1591,
+              1525,
+              875,
+              1124
+            ],
+            "decisions": 8545
+          }
+        },
+        "lt400": {
+          "advisory": {
+            "boost_argmax": 4907,
+            "boost_rate": 0.042518716206848745,
+            "counts": [
+              23585,
+              64512,
+              22404,
+              1654,
+              1036,
+              2217
+            ],
+            "decisions": 115408
+          },
+          "raw": {
+            "boost_argmax": 4910,
+            "boost_rate": 0.042544710938583113,
+            "counts": [
+              23582,
+              64513,
+              22403,
+              1654,
+              1036,
+              2220
+            ],
+            "decisions": 115408
+          },
+          "resolved": {
+            "boost_argmax": 4907,
+            "boost_rate": 0.042518716206848745,
+            "counts": [
+              23585,
+              64512,
+              22404,
+              1654,
+              1036,
+              2217
+            ],
+            "decisions": 115408
+          }
+        }
+      },
+      "array": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/boost/LABELS_s14__on__LABELS_s14.npz",
+      "bucket_counts": {
+        "400_699": 84004,
+        "700_999": 187081,
+        "ge1000": 8545,
+        "lt400": 115408
+      },
+      "bucket_partition": {
+        "complete": true,
+        "counts_sum": 395038,
+        "decisions": 395038
+      },
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/final.pth",
+      "checkpoint_sha256": "420948f3e777272b3e329a01e0682bbe6b97267f0ea8416936b20a40fc0e21a4",
+      "decisions": 395038,
+      "fatal_predecision_row_included": 43,
+      "receipt": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s14__on__LABELS_s14.json",
+      "source_alive_frames": 394995,
+      "source_deaths": 43,
+      "student": "LABELS_s14",
+      "trajectory": "LABELS_s14"
+    }
+  },
+  "cpu_only": true,
+  "ctrl_action_comparisons": {
+    "LABELS_KEEPV8_s10__on__CTRL_s10": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 363608,
+      "status": "pass"
+    },
+    "LABELS_KEEPV8_s11__on__CTRL_s11": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 425001,
+      "status": "pass"
+    },
+    "LABELS_KEEPV8_s12__on__CTRL_s12": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 407231,
+      "status": "pass"
+    },
+    "LABELS_KEEPV8_s13__on__CTRL_s13": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 394060,
+      "status": "pass"
+    },
+    "LABELS_KEEPV8_s14__on__CTRL_s14": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 395809,
+      "status": "pass"
+    },
+    "LABELS_s10__on__CTRL_s10": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 363608,
+      "status": "pass"
+    },
+    "LABELS_s11__on__CTRL_s11": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 425001,
+      "status": "pass"
+    },
+    "LABELS_s12__on__CTRL_s12": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 407231,
+      "status": "pass"
+    },
+    "LABELS_s13__on__CTRL_s13": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 394060,
+      "status": "pass"
+    },
+    "LABELS_s14__on__CTRL_s14": {
+      "action_mismatches": 0,
+      "first_mismatch": null,
+      "length_mismatches": 0,
+      "rows": 395809,
+      "status": "pass"
+    }
+  },
+  "errors": [],
+  "missing": [],
+  "own_prelength_comparisons": {
+    "CTRL_s10": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 363512,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "CTRL_s11": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 424905,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "CTRL_s12": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 407135,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "CTRL_s13": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 393964,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "CTRL_s14": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 395713,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_KEEPV8_s10": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 378473,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_KEEPV8_s11": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 395649,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_KEEPV8_s12": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 392337,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_KEEPV8_s13": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 389062,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_KEEPV8_s14": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 397603,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_s10": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 413132,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_s11": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 427186,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_s12": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 382695,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_s13": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 379668,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    },
+    "LABELS_s14": {
+      "ambiguous_comparisons": [
+        "frame 1 initial pre-action length has no prior post-transition series value"
+      ],
+      "frame_support_mismatches": 0,
+      "initial_mass_comparison": "unavailable: prior series starts post-transition",
+      "initial_prelength_rows_unchecked": 96,
+      "invalid_initial_frames": 0,
+      "length_mismatches": 0,
+      "shifted_rows_checked": 394942,
+      "status": "pass",
+      "terminal_contract": "one-based fatal pre-action row aligned to prior zero-based post-transition frame - 2",
+      "terminal_shift_mismatches": 0
+    }
+  },
+  "required_captures": 25,
+  "schema": "t4a-posthoc-part1-audit/v1",
+  "status": "complete"
+}

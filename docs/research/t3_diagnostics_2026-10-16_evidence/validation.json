@@ -1,0 +1,31 @@
+{
+  "all_owned_replay_workers_reaped": true,
+  "authority": "development diagnostics, not gate evidence",
+  "cpu_only": true,
+  "evidence_sha256": {
+    "bank-separation.json": "2b22d3f3364748a6f1601b396ac152f53d598b8119e51e704d04080706921c92",
+    "margin-training-receipts.json": "9b4b8f4f80cc7139f3456b566bd00b68d8f3445199c03c6bcea53194ceb5dcb3",
+    "replay-summary.json": "7bfd97310d7839b964df70bd7c185b5342e263b13add7174946175d057cf6751"
+  },
+  "independent_artifact_checks": {
+    "15_seed_arm_mass_closures_and_probe_delta_parity": "PASS",
+    "1920_world_series_vs_source_probe_mass_and_alive": "PASS",
+    "all20_input_and_series_hashes": "PASS",
+    "bank_2000_unique_rows_20_finals": "PASS",
+    "ctrl_shadow_observation_identity_and_decision_counts": "PASS",
+    "death_counts_vs_source_probe": "PASS",
+    "fixed_H5000_survivor_cohort": "PASS",
+    "length_decile_seed_partition_counts": "PASS"
+  },
+  "max_numerical_workers": 4,
+  "replay_checkpoints": 20,
+  "replayed_world_checkpoint_pairs": 1920,
+  "source_commit": "d5797de509fd4db2126187abc76c2f864467bcee",
+  "style": "black, isort, flake8 passed on new diagnostic code and tests",
+  "tests": {
+    "command": "env SNAKE_DQN_DEVICE=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 ./venv/bin/python -m pytest -q tests/test_t3_diagnostics_bank.py tests/test_t3_diagnostics_replay.py tests/test_t3_label_bank_trainer.py",
+    "elapsed_seconds": 11.35,
+    "passed": 21
+  },
+  "threads_per_worker": 1
+}

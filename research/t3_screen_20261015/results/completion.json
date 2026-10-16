@@ -1,0 +1,54 @@
+{
+  "schema": "t3-screen-completion/v1",
+  "completed_utc": "2026-10-16T04:35:11.193085+00:00",
+  "source_commit": "f6b0fb9bdc5aa342805c3732f7dcc9541d4fbddd",
+  "probe_rows": 83,
+  "training_statuses": {
+    "LABELS_s10": 0,
+    "LABELS_s11": 0,
+    "LABELS_s12": 0,
+    "LABELS_s13": 0,
+    "LABELS_s14": 0,
+    "LABELS_KEEPV8_s10": 0,
+    "LABELS_KEEPV8_s11": 0,
+    "LABELS_KEEPV8_s12": 0,
+    "LABELS_KEEPV8_s13": 0,
+    "LABELS_KEEPV8_s14": 0,
+    "LABELS_KEEPV8_LO_s10": 0,
+    "LABELS_KEEPV8_LO_s11": 0,
+    "LABELS_KEEPV8_LO_s12": 0,
+    "LABELS_KEEPV8_LO_s13": 0,
+    "LABELS_KEEPV8_LO_s14": 0
+  },
+  "reroll_finals": 15,
+  "sample_states": 200,
+  "labelled_actions_per_final": 707,
+  "watcher_complete_event": {
+    "utc": "2026-10-16T04:34:46.840420+00:00",
+    "event": "complete",
+    "results": "/Users/josenunez/Projects/ml/snake-dqn-t3p/docs/research/t3_screen_result_2026-10-15.md",
+    "analysis": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/analysis.json"
+  },
+  "verification": {
+    "tests": "45 passed in 34.74s",
+    "command": "OMP_NUM_THREADS=1 ./venv/bin/python -m pytest -q tests/test_t3_screen.py tests/test_t3_screen_banks.py tests/test_t3_screen_watcher.py tests/test_t3_screen_reroll.py tests/test_t2_screen.py tests/test_t2b_screen.py tests/test_t2b_watcher.py",
+    "lint": "./venv/bin/python -m flake8 research/t3_screen_20261015 tests/test_t3_screen*.py: PASS",
+    "whitespace": "git diff --check: PASS",
+    "tested_commit": "f6b0fb9"
+  },
+  "binding_inputs": {
+    "docs/research/specs/t3_probe_spec_2026-10-15.md": "30b209e2465f43ceac28e0d6f757e58ee0e56edcc09258712b86d011e0fff787",
+    "docs/research/specs/t3_screen_prereg_2026-10-15.md": "d5503b30107b0fb781b0eeafbf20cad5bc86953e570980509dd24d5b9c2ebf4a",
+    "docs/research/advice/2026-10-15_t3_launch_review.md": "c0c7fbe555d23f5029d535bcc24ff2c5137f5c888f395817eb7df79baa8428f8"
+  },
+  "artifacts_sha256": {
+    "analysis.json": "febb02330e77f6a4d3237ccd0e13db9c368bc0788e1bb89c28cdb7af5fe50f3e",
+    "greedy_boost_rate.svg": "f367ce7a098feb3a4df175189aa1560091b791ad6dcd3e032d01331e575102be",
+    "probes.jsonl": "5ea5dfb9642cf18cd8283997d49f25211873494b4bae73a081de2a81769df281",
+    "reroll_sample.json": "260a52d19acc148ddecb4d8377a05b20757b44bc6dcb38e4af85e9fffea5fa8f",
+    "rerolls.json": "510c9519f7d343f20ba0b759163572fb42acee15caecce333fb5f4091fa65e48",
+    "seed_bank_audit.json": "731cc42f02d1bd617cf24d70f4772b7488458ae26424de907d34314ea52d9f3f",
+    "telemetry.json": "e1d3912832ef9c99eccbdc06ef18053531b7c99b8e4996eede20f2aa93b7ee0e"
+  },
+  "results_doc_sha256": "e4380b91e78a411deaee069e4f79573703aaa2842e5f4cd0507101850db7cda9"
+}

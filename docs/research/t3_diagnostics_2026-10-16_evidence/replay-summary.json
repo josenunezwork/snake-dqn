@@ -1,0 +1,2193 @@
+{
+  "authority": "development diagnostic, not a T3 decision",
+  "disagreements": {
+    "arms": {
+      "LABELS": {
+        "by_decile": {
+          "1": {
+            "boost_disagreements": 39263,
+            "decisions": 198571,
+            "disagreements": 80950,
+            "rate": 0.40766275035125976
+          },
+          "10": {
+            "boost_disagreements": 141574,
+            "decisions": 198571,
+            "disagreements": 168815,
+            "rate": 0.8501493168690292
+          },
+          "2": {
+            "boost_disagreements": 53683,
+            "decisions": 198571,
+            "disagreements": 92882,
+            "rate": 0.46775208867357265
+          },
+          "3": {
+            "boost_disagreements": 57946,
+            "decisions": 198571,
+            "disagreements": 97807,
+            "rate": 0.4925543004769075
+          },
+          "4": {
+            "boost_disagreements": 61383,
+            "decisions": 198571,
+            "disagreements": 102648,
+            "rate": 0.5169334897845104
+          },
+          "5": {
+            "boost_disagreements": 71860,
+            "decisions": 198570,
+            "disagreements": 112110,
+            "rate": 0.5645867955884575
+          },
+          "6": {
+            "boost_disagreements": 96425,
+            "decisions": 198570,
+            "disagreements": 131831,
+            "rate": 0.6639018985748099
+          },
+          "7": {
+            "boost_disagreements": 142090,
+            "decisions": 198572,
+            "disagreements": 167225,
+            "rate": 0.8421378643514695
+          },
+          "8": {
+            "boost_disagreements": 169175,
+            "decisions": 198571,
+            "disagreements": 187804,
+            "rate": 0.9457775808149226
+          },
+          "9": {
+            "boost_disagreements": 172522,
+            "decisions": 198571,
+            "disagreements": 193728,
+            "rate": 0.9756107387282131
+          }
+        },
+        "by_length": {
+          "400_699": {
+            "boost_disagreements": 70244,
+            "decisions": 392986,
+            "disagreements": 161155,
+            "rate": 0.4100782216160372
+          },
+          "700_999": {
+            "boost_disagreements": 341969,
+            "decisions": 425378,
+            "disagreements": 382279,
+            "rate": 0.8986807028102064
+          },
+          "ge1000": {
+            "boost_disagreements": 517063,
+            "decisions": 593068,
+            "disagreements": 569942,
+            "rate": 0.961006157809897
+          },
+          "lt400": {
+            "boost_disagreements": 76645,
+            "decisions": 574277,
+            "disagreements": 222424,
+            "rate": 0.387311349749337
+          }
+        },
+        "overall": {
+          "boost_disagreements": 1005921,
+          "decisions": 1985709,
+          "disagreements": 1335800,
+          "rate": 0.6727068266296824
+        },
+        "per_seed": {
+          "10": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 6082,
+                "decisions": 37625,
+                "disagreements": 13688,
+                "rate": 0.36380066445182724
+              },
+              "10": {
+                "boost_disagreements": 22044,
+                "decisions": 34147,
+                "disagreements": 27543,
+                "rate": 0.8066008726974552
+              },
+              "2": {
+                "boost_disagreements": 8576,
+                "decisions": 36165,
+                "disagreements": 15443,
+                "rate": 0.42701506981888565
+              },
+              "3": {
+                "boost_disagreements": 9352,
+                "decisions": 37319,
+                "disagreements": 16699,
+                "rate": 0.4474664380074493
+              },
+              "4": {
+                "boost_disagreements": 10247,
+                "decisions": 38370,
+                "disagreements": 18002,
+                "rate": 0.4691686213187386
+              },
+              "5": {
+                "boost_disagreements": 12266,
+                "decisions": 37731,
+                "disagreements": 20128,
+                "rate": 0.5334605496806339
+              },
+              "6": {
+                "boost_disagreements": 16229,
+                "decisions": 35652,
+                "disagreements": 23240,
+                "rate": 0.6518568383260406
+              },
+              "7": {
+                "boost_disagreements": 23420,
+                "decisions": 33085,
+                "disagreements": 28077,
+                "rate": 0.8486323107148255
+              },
+              "8": {
+                "boost_disagreements": 29812,
+                "decisions": 35657,
+                "disagreements": 33739,
+                "rate": 0.946209720391508
+              },
+              "9": {
+                "boost_disagreements": 32189,
+                "decisions": 37857,
+                "disagreements": 36963,
+                "rate": 0.9763848165464776
+              }
+            },
+            "overall": {
+              "boost_disagreements": 170217,
+              "decisions": 363608,
+              "disagreements": 233522,
+              "rate": 0.6422355943763614
+            }
+          },
+          "11": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 12574,
+                "decisions": 46274,
+                "disagreements": 21381,
+                "rate": 0.46205212430306436
+              },
+              "10": {
+                "boost_disagreements": 30131,
+                "decisions": 40140,
+                "disagreements": 35376,
+                "rate": 0.8813153961136024
+              },
+              "2": {
+                "boost_disagreements": 14929,
+                "decisions": 46707,
+                "disagreements": 23490,
+                "rate": 0.502922474147344
+              },
+              "3": {
+                "boost_disagreements": 16203,
+                "decisions": 46769,
+                "disagreements": 24903,
+                "rate": 0.5324680878359597
+              },
+              "4": {
+                "boost_disagreements": 15994,
+                "decisions": 41613,
+                "disagreements": 24050,
+                "rate": 0.577944392377382
+              },
+              "5": {
+                "boost_disagreements": 18242,
+                "decisions": 40429,
+                "disagreements": 25916,
+                "rate": 0.641025006802048
+              },
+              "6": {
+                "boost_disagreements": 23732,
+                "decisions": 39826,
+                "disagreements": 29570,
+                "rate": 0.7424797870737709
+              },
+              "7": {
+                "boost_disagreements": 33043,
+                "decisions": 41988,
+                "disagreements": 37196,
+                "rate": 0.8858721539487473
+              },
+              "8": {
+                "boost_disagreements": 36708,
+                "decisions": 41976,
+                "disagreements": 40059,
+                "rate": 0.9543310463121784
+              },
+              "9": {
+                "boost_disagreements": 35031,
+                "decisions": 39279,
+                "disagreements": 38389,
+                "rate": 0.9773415820158354
+              }
+            },
+            "overall": {
+              "boost_disagreements": 236587,
+              "decisions": 425001,
+              "disagreements": 300330,
+              "rate": 0.7066571608066805
+            }
+          },
+          "12": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 4034,
+                "decisions": 37940,
+                "disagreements": 13128,
+                "rate": 0.3460200316288877
+              },
+              "10": {
+                "boost_disagreements": 33066,
+                "decisions": 46027,
+                "disagreements": 39509,
+                "rate": 0.8583874682251722
+              },
+              "2": {
+                "boost_disagreements": 7956,
+                "decisions": 38213,
+                "disagreements": 16858,
+                "rate": 0.44115876795854814
+              },
+              "3": {
+                "boost_disagreements": 8877,
+                "decisions": 37404,
+                "disagreements": 17441,
+                "rate": 0.4662870281253342
+              },
+              "4": {
+                "boost_disagreements": 9709,
+                "decisions": 40369,
+                "disagreements": 19596,
+                "rate": 0.4854219822140752
+              },
+              "5": {
+                "boost_disagreements": 11535,
+                "decisions": 38424,
+                "disagreements": 20383,
+                "rate": 0.5304757443264626
+              },
+              "6": {
+                "boost_disagreements": 16042,
+                "decisions": 40469,
+                "disagreements": 24634,
+                "rate": 0.6087128419283896
+              },
+              "7": {
+                "boost_disagreements": 27025,
+                "decisions": 42089,
+                "disagreements": 33546,
+                "rate": 0.7970253510418399
+              },
+              "8": {
+                "boost_disagreements": 36006,
+                "decisions": 42558,
+                "disagreements": 40039,
+                "rate": 0.9408101884487053
+              },
+              "9": {
+                "boost_disagreements": 37401,
+                "decisions": 43738,
+                "disagreements": 42737,
+                "rate": 0.9771137226210618
+              }
+            },
+            "overall": {
+              "boost_disagreements": 191651,
+              "decisions": 407231,
+              "disagreements": 267871,
+              "rate": 0.6577863669514354
+            }
+          },
+          "13": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 11391,
+                "decisions": 40169,
+                "disagreements": 17968,
+                "rate": 0.4473101147651174
+              },
+              "10": {
+                "boost_disagreements": 27012,
+                "decisions": 35681,
+                "disagreements": 31303,
+                "rate": 0.8773016451332643
+              },
+              "2": {
+                "boost_disagreements": 12926,
+                "decisions": 38726,
+                "disagreements": 18848,
+                "rate": 0.4867014408924237
+              },
+              "3": {
+                "boost_disagreements": 13314,
+                "decisions": 37757,
+                "disagreements": 19447,
+                "rate": 0.5150568106576264
+              },
+              "4": {
+                "boost_disagreements": 14641,
+                "decisions": 39273,
+                "disagreements": 21129,
+                "rate": 0.5380032083110534
+              },
+              "5": {
+                "boost_disagreements": 16302,
+                "decisions": 41451,
+                "disagreements": 23723,
+                "rate": 0.5723142988106439
+              },
+              "6": {
+                "boost_disagreements": 21021,
+                "decisions": 42006,
+                "disagreements": 27821,
+                "rate": 0.6623101461695948
+              },
+              "7": {
+                "boost_disagreements": 30180,
+                "decisions": 40856,
+                "disagreements": 34560,
+                "rate": 0.8458977873506951
+              },
+              "8": {
+                "boost_disagreements": 33105,
+                "decisions": 38739,
+                "disagreements": 36496,
+                "rate": 0.9420996928160252
+              },
+              "9": {
+                "boost_disagreements": 34946,
+                "decisions": 39402,
+                "disagreements": 38433,
+                "rate": 0.9754073397289478
+              }
+            },
+            "overall": {
+              "boost_disagreements": 214838,
+              "decisions": 394060,
+              "disagreements": 269728,
+              "rate": 0.6844845962543775
+            }
+          },
+          "14": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 5182,
+                "decisions": 36563,
+                "disagreements": 14785,
+                "rate": 0.4043705385225501
+              },
+              "10": {
+                "boost_disagreements": 29321,
+                "decisions": 42576,
+                "disagreements": 35084,
+                "rate": 0.8240323186771891
+              },
+              "2": {
+                "boost_disagreements": 9296,
+                "decisions": 38760,
+                "disagreements": 18243,
+                "rate": 0.4706656346749226
+              },
+              "3": {
+                "boost_disagreements": 10200,
+                "decisions": 39322,
+                "disagreements": 19317,
+                "rate": 0.4912517165963074
+              },
+              "4": {
+                "boost_disagreements": 10792,
+                "decisions": 38946,
+                "disagreements": 19871,
+                "rate": 0.5102192779746315
+              },
+              "5": {
+                "boost_disagreements": 13515,
+                "decisions": 40535,
+                "disagreements": 21960,
+                "rate": 0.5417540397187616
+              },
+              "6": {
+                "boost_disagreements": 19401,
+                "decisions": 40617,
+                "disagreements": 26566,
+                "rate": 0.6540611074180762
+              },
+              "7": {
+                "boost_disagreements": 28422,
+                "decisions": 40554,
+                "disagreements": 33846,
+                "rate": 0.8345909158159491
+              },
+              "8": {
+                "boost_disagreements": 33544,
+                "decisions": 39641,
+                "disagreements": 37471,
+                "rate": 0.9452586968038142
+              },
+              "9": {
+                "boost_disagreements": 32955,
+                "decisions": 38295,
+                "disagreements": 37206,
+                "rate": 0.9715628672150411
+              }
+            },
+            "overall": {
+              "boost_disagreements": 192628,
+              "decisions": 395809,
+              "disagreements": 264349,
+              "rate": 0.6678701090677575
+            }
+          }
+        }
+      },
+      "LABELS_KEEPV8": {
+        "by_decile": {
+          "1": {
+            "boost_disagreements": 12690,
+            "decisions": 198571,
+            "disagreements": 24591,
+            "rate": 0.12383983562554451
+          },
+          "10": {
+            "boost_disagreements": 133346,
+            "decisions": 198571,
+            "disagreements": 164198,
+            "rate": 0.8268981875500451
+          },
+          "2": {
+            "boost_disagreements": 30106,
+            "decisions": 198571,
+            "disagreements": 42235,
+            "rate": 0.2126947036576338
+          },
+          "3": {
+            "boost_disagreements": 37324,
+            "decisions": 198571,
+            "disagreements": 50000,
+            "rate": 0.251799104602384
+          },
+          "4": {
+            "boost_disagreements": 43145,
+            "decisions": 198571,
+            "disagreements": 56572,
+            "rate": 0.2848955789113214
+          },
+          "5": {
+            "boost_disagreements": 56729,
+            "decisions": 198570,
+            "disagreements": 70164,
+            "rate": 0.3533464269527119
+          },
+          "6": {
+            "boost_disagreements": 82532,
+            "decisions": 198570,
+            "disagreements": 96478,
+            "rate": 0.4858639270786121
+          },
+          "7": {
+            "boost_disagreements": 128286,
+            "decisions": 198572,
+            "disagreements": 141164,
+            "rate": 0.7108957959833209
+          },
+          "8": {
+            "boost_disagreements": 161167,
+            "decisions": 198571,
+            "disagreements": 175615,
+            "rate": 0.8843939950949534
+          },
+          "9": {
+            "boost_disagreements": 169643,
+            "decisions": 198571,
+            "disagreements": 190310,
+            "rate": 0.9583977519375941
+          }
+        },
+        "by_length": {
+          "400_699": {
+            "boost_disagreements": 37362,
+            "decisions": 392986,
+            "disagreements": 69122,
+            "rate": 0.17588921742759284
+          },
+          "700_999": {
+            "boost_disagreements": 302834,
+            "decisions": 425378,
+            "disagreements": 330033,
+            "rate": 0.7758581779029475
+          },
+          "ge1000": {
+            "boost_disagreements": 510542,
+            "decisions": 593068,
+            "disagreements": 564317,
+            "rate": 0.9515215793129962
+          },
+          "lt400": {
+            "boost_disagreements": 4230,
+            "decisions": 574277,
+            "disagreements": 47855,
+            "rate": 0.08333086646339659
+          }
+        },
+        "overall": {
+          "boost_disagreements": 854968,
+          "decisions": 1985709,
+          "disagreements": 1011327,
+          "rate": 0.5093027226043695
+        },
+        "per_seed": {
+          "10": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 2312,
+                "decisions": 37625,
+                "disagreements": 4728,
+                "rate": 0.12566112956810632
+              },
+              "10": {
+                "boost_disagreements": 21479,
+                "decisions": 34147,
+                "disagreements": 26709,
+                "rate": 0.7821770580138812
+              },
+              "2": {
+                "boost_disagreements": 5367,
+                "decisions": 36165,
+                "disagreements": 8033,
+                "rate": 0.22212083506152358
+              },
+              "3": {
+                "boost_disagreements": 6505,
+                "decisions": 37319,
+                "disagreements": 9687,
+                "rate": 0.25957287172753823
+              },
+              "4": {
+                "boost_disagreements": 7653,
+                "decisions": 38370,
+                "disagreements": 11133,
+                "rate": 0.29014855355746677
+              },
+              "5": {
+                "boost_disagreements": 10147,
+                "decisions": 37731,
+                "disagreements": 13459,
+                "rate": 0.3567093371498238
+              },
+              "6": {
+                "boost_disagreements": 13296,
+                "decisions": 35652,
+                "disagreements": 16550,
+                "rate": 0.46420958151015373
+              },
+              "7": {
+                "boost_disagreements": 20226,
+                "decisions": 33085,
+                "disagreements": 23037,
+                "rate": 0.6962974157473175
+              },
+              "8": {
+                "boost_disagreements": 27585,
+                "decisions": 35657,
+                "disagreements": 30740,
+                "rate": 0.8621028129119107
+              },
+              "9": {
+                "boost_disagreements": 32080,
+                "decisions": 37857,
+                "disagreements": 36224,
+                "rate": 0.956863988165993
+              }
+            },
+            "overall": {
+              "boost_disagreements": 146650,
+              "decisions": 363608,
+              "disagreements": 180300,
+              "rate": 0.4958636773668346
+            }
+          },
+          "11": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 3040,
+                "decisions": 46274,
+                "disagreements": 5848,
+                "rate": 0.12637766348273327
+              },
+              "10": {
+                "boost_disagreements": 27585,
+                "decisions": 40140,
+                "disagreements": 35101,
+                "rate": 0.87446437468859
+              },
+              "2": {
+                "boost_disagreements": 7910,
+                "decisions": 46707,
+                "disagreements": 10875,
+                "rate": 0.23283447877191857
+              },
+              "3": {
+                "boost_disagreements": 10164,
+                "decisions": 46769,
+                "disagreements": 13137,
+                "rate": 0.2808911886078385
+              },
+              "4": {
+                "boost_disagreements": 11831,
+                "decisions": 41613,
+                "disagreements": 14846,
+                "rate": 0.35676351140268664
+              },
+              "5": {
+                "boost_disagreements": 15255,
+                "decisions": 40429,
+                "disagreements": 18240,
+                "rate": 0.45116129510994585
+              },
+              "6": {
+                "boost_disagreements": 21255,
+                "decisions": 39826,
+                "disagreements": 24130,
+                "rate": 0.6058856023703109
+              },
+              "7": {
+                "boost_disagreements": 30751,
+                "decisions": 41988,
+                "disagreements": 33596,
+                "rate": 0.8001333714394588
+              },
+              "8": {
+                "boost_disagreements": 34968,
+                "decisions": 41976,
+                "disagreements": 38185,
+                "rate": 0.9096864875166762
+              },
+              "9": {
+                "boost_disagreements": 32885,
+                "decisions": 39279,
+                "disagreements": 37463,
+                "rate": 0.9537666437536597
+              }
+            },
+            "overall": {
+              "boost_disagreements": 195644,
+              "decisions": 425001,
+              "disagreements": 231421,
+              "rate": 0.5445187187794852
+            }
+          },
+          "12": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 2693,
+                "decisions": 37940,
+                "disagreements": 4845,
+                "rate": 0.12770163415919875
+              },
+              "10": {
+                "boost_disagreements": 30817,
+                "decisions": 46027,
+                "disagreements": 38349,
+                "rate": 0.8331848697503639
+              },
+              "2": {
+                "boost_disagreements": 5814,
+                "decisions": 38213,
+                "disagreements": 7910,
+                "rate": 0.20699761861146732
+              },
+              "3": {
+                "boost_disagreements": 6889,
+                "decisions": 37404,
+                "disagreements": 8950,
+                "rate": 0.23927922147363917
+              },
+              "4": {
+                "boost_disagreements": 8011,
+                "decisions": 40369,
+                "disagreements": 10232,
+                "rate": 0.2534618147588496
+              },
+              "5": {
+                "boost_disagreements": 10138,
+                "decisions": 38424,
+                "disagreements": 12248,
+                "rate": 0.3187591088902769
+              },
+              "6": {
+                "boost_disagreements": 14718,
+                "decisions": 40469,
+                "disagreements": 16965,
+                "rate": 0.41920976549951816
+              },
+              "7": {
+                "boost_disagreements": 25109,
+                "decisions": 42089,
+                "disagreements": 27288,
+                "rate": 0.6483404214877997
+              },
+              "8": {
+                "boost_disagreements": 34750,
+                "decisions": 42558,
+                "disagreements": 37237,
+                "rate": 0.874970628319
+              },
+              "9": {
+                "boost_disagreements": 37659,
+                "decisions": 43738,
+                "disagreements": 42169,
+                "rate": 0.9641273034889569
+              }
+            },
+            "overall": {
+              "boost_disagreements": 176598,
+              "decisions": 407231,
+              "disagreements": 206193,
+              "rate": 0.5063293315096346
+            }
+          },
+          "13": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 2811,
+                "decisions": 40169,
+                "disagreements": 4845,
+                "rate": 0.12061539993527347
+              },
+              "10": {
+                "boost_disagreements": 27845,
+                "decisions": 35681,
+                "disagreements": 31426,
+                "rate": 0.880748857935596
+              },
+              "2": {
+                "boost_disagreements": 6169,
+                "decisions": 38726,
+                "disagreements": 8053,
+                "rate": 0.2079481485307029
+              },
+              "3": {
+                "boost_disagreements": 7456,
+                "decisions": 37757,
+                "disagreements": 9362,
+                "rate": 0.24795402177079748
+              },
+              "4": {
+                "boost_disagreements": 8837,
+                "decisions": 39273,
+                "disagreements": 10904,
+                "rate": 0.2776462200493978
+              },
+              "5": {
+                "boost_disagreements": 11614,
+                "decisions": 41451,
+                "disagreements": 13934,
+                "rate": 0.3361559431618055
+              },
+              "6": {
+                "boost_disagreements": 18159,
+                "decisions": 42006,
+                "disagreements": 20690,
+                "rate": 0.4925486835214017
+              },
+              "7": {
+                "boost_disagreements": 28692,
+                "decisions": 40856,
+                "disagreements": 30538,
+                "rate": 0.747454474251028
+              },
+              "8": {
+                "boost_disagreements": 33218,
+                "decisions": 38739,
+                "disagreements": 34949,
+                "rate": 0.9021657760912776
+              },
+              "9": {
+                "boost_disagreements": 35762,
+                "decisions": 39402,
+                "disagreements": 38214,
+                "rate": 0.9698492462311558
+              }
+            },
+            "overall": {
+              "boost_disagreements": 180563,
+              "decisions": 394060,
+              "disagreements": 202915,
+              "rate": 0.5149342739684312
+            }
+          },
+          "14": {
+            "by_decile": {
+              "1": {
+                "boost_disagreements": 1834,
+                "decisions": 36563,
+                "disagreements": 4325,
+                "rate": 0.11828898066351229
+              },
+              "10": {
+                "boost_disagreements": 25620,
+                "decisions": 42576,
+                "disagreements": 32613,
+                "rate": 0.7659949267192785
+              },
+              "2": {
+                "boost_disagreements": 4846,
+                "decisions": 38760,
+                "disagreements": 7364,
+                "rate": 0.18998968008255934
+              },
+              "3": {
+                "boost_disagreements": 6310,
+                "decisions": 39322,
+                "disagreements": 8864,
+                "rate": 0.22542088398352067
+              },
+              "4": {
+                "boost_disagreements": 6813,
+                "decisions": 38946,
+                "disagreements": 9457,
+                "rate": 0.24282339649771478
+              },
+              "5": {
+                "boost_disagreements": 9575,
+                "decisions": 40535,
+                "disagreements": 12283,
+                "rate": 0.3030220796842235
+              },
+              "6": {
+                "boost_disagreements": 15104,
+                "decisions": 40617,
+                "disagreements": 18143,
+                "rate": 0.44668488563901815
+              },
+              "7": {
+                "boost_disagreements": 23508,
+                "decisions": 40554,
+                "disagreements": 26705,
+                "rate": 0.6585047097696898
+              },
+              "8": {
+                "boost_disagreements": 30646,
+                "decisions": 39641,
+                "disagreements": 34504,
+                "rate": 0.8704119472263565
+              },
+              "9": {
+                "boost_disagreements": 31257,
+                "decisions": 38295,
+                "disagreements": 36240,
+                "rate": 0.9463376419898158
+              }
+            },
+            "overall": {
+              "boost_disagreements": 155513,
+              "decisions": 395809,
+              "disagreements": 190498,
+              "rate": 0.48128769179073744
+            }
+          }
+        }
+      }
+    },
+    "global_decile_cutpoints": [
+      -13.908135032653808,
+      -12.892413902282716,
+      -12.219147872924804,
+      -11.692276191711425,
+      -11.186625480651855,
+      -10.655344009399414,
+      -10.031732749938966,
+      -9.33360252380371,
+      -8.340591049194337
+    ],
+    "q_score": "-max of all six raw CTRL Q outputs"
+  },
+  "mass": {
+    "LABELS": {
+      "common_survivor_length_delta": {
+        "2000": {
+          "arm_mean": 665.1699346405229,
+          "arm_minus_ctrl_mean": -2.241830065359477,
+          "ctrl_mean": 667.4117647058823,
+          "worlds": 153
+        },
+        "3000": {
+          "arm_mean": 839.4901960784314,
+          "arm_minus_ctrl_mean": -125.07843137254902,
+          "ctrl_mean": 964.5686274509804,
+          "worlds": 153
+        },
+        "4000": {
+          "arm_mean": 931.3529411764706,
+          "arm_minus_ctrl_mean": -290.47058823529414,
+          "ctrl_mean": 1221.8235294117646,
+          "worlds": 153
+        },
+        "5000": {
+          "arm_mean": 984.3725490196078,
+          "arm_minus_ctrl_mean": -460.37908496732024,
+          "ctrl_mean": 1444.751633986928,
+          "worlds": 153
+        }
+      },
+      "deaths": {
+        "arm_count": 199,
+        "arm_frame_quartiles": {
+          "q25": 1879.5,
+          "q50": 3151.0,
+          "q75": 4075.5
+        },
+        "ctrl_count": 217,
+        "ctrl_frame_quartiles": {
+          "q25": 1982.0,
+          "q50": 3379.0,
+          "q75": 4269.0
+        },
+        "survivors_censored": true
+      },
+      "mean_components": {
+        "arm_only_survival": 106.89350625,
+        "common_alive_growth": -55.32734458333334,
+        "ctrl_only_survival": 126.71136333333334,
+        "total_delta": -75.14520166666667
+      },
+      "per_seed": [
+        {
+          "arm_only_survival": 153.43769791666668,
+          "common_alive_growth": -60.2546625,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 678.6333333333333,
+              "arm_minus_ctrl_mean": -6.666666666666667,
+              "ctrl_mean": 685.3,
+              "worlds": 30
+            },
+            "3000": {
+              "arm_mean": 839.7666666666667,
+              "arm_minus_ctrl_mean": -152.5,
+              "ctrl_mean": 992.2666666666667,
+              "worlds": 30
+            },
+            "4000": {
+              "arm_mean": 927.5333333333333,
+              "arm_minus_ctrl_mean": -332.53333333333336,
+              "ctrl_mean": 1260.0666666666666,
+              "worlds": 30
+            },
+            "5000": {
+              "arm_mean": 986.0333333333333,
+              "arm_minus_ctrl_mean": -507.23333333333335,
+              "ctrl_mean": 1493.2666666666667,
+              "worlds": 30
+            }
+          },
+          "ctrl_only_survival": 86.40166666666667,
+          "deaths": {
+            "arm_count": 32,
+            "arm_frame_quartiles": {
+              "q25": 1950.0,
+              "q50": 3144.0,
+              "q75": 3925.25
+            },
+            "ctrl_count": 52,
+            "ctrl_frame_quartiles": {
+              "q25": 1419.75,
+              "q50": 2920.5,
+              "q75": 4021.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 10,
+          "total_delta": 6.78136875
+        },
+        {
+          "arm_only_survival": 87.44384166666667,
+          "common_alive_growth": -49.124289583333336,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 699.1794871794872,
+              "arm_minus_ctrl_mean": 40.205128205128204,
+              "ctrl_mean": 658.974358974359,
+              "worlds": 39
+            },
+            "3000": {
+              "arm_mean": 879.2051282051282,
+              "arm_minus_ctrl_mean": -75.74358974358974,
+              "ctrl_mean": 954.9487179487179,
+              "worlds": 39
+            },
+            "4000": {
+              "arm_mean": 981.8205128205128,
+              "arm_minus_ctrl_mean": -235.82051282051282,
+              "ctrl_mean": 1217.6410256410256,
+              "worlds": 39
+            },
+            "5000": {
+              "arm_mean": 1035.8461538461538,
+              "arm_minus_ctrl_mean": -397.35897435897436,
+              "ctrl_mean": 1433.2051282051282,
+              "worlds": 39
+            }
+          },
+          "ctrl_only_survival": 102.41025833333333,
+          "deaths": {
+            "arm_count": 34,
+            "arm_frame_quartiles": {
+              "q25": 2783.25,
+              "q50": 3849.5,
+              "q75": 4406.25
+            },
+            "ctrl_count": 33,
+            "ctrl_frame_quartiles": {
+              "q25": 2101.0,
+              "q50": 3440.0,
+              "q75": 4422.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 11,
+          "total_delta": -64.09070625
+        },
+        {
+          "arm_only_survival": 90.4346375,
+          "common_alive_growth": -65.36625833333333,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 640.0,
+              "arm_minus_ctrl_mean": -24.76923076923077,
+              "ctrl_mean": 664.7692307692307,
+              "worlds": 26
+            },
+            "3000": {
+              "arm_mean": 832.2692307692307,
+              "arm_minus_ctrl_mean": -146.96153846153845,
+              "ctrl_mean": 979.2307692307693,
+              "worlds": 26
+            },
+            "4000": {
+              "arm_mean": 904.3461538461538,
+              "arm_minus_ctrl_mean": -328.96153846153845,
+              "ctrl_mean": 1233.3076923076924,
+              "worlds": 26
+            },
+            "5000": {
+              "arm_mean": 941.5,
+              "arm_minus_ctrl_mean": -519.2692307692307,
+              "ctrl_mean": 1460.7692307692307,
+              "worlds": 26
+            }
+          },
+          "ctrl_only_survival": 156.71790625,
+          "deaths": {
+            "arm_count": 43,
+            "arm_frame_quartiles": {
+              "q25": 1671.0,
+              "q50": 2892.0,
+              "q75": 3747.0
+            },
+            "ctrl_count": 46,
+            "ctrl_frame_quartiles": {
+              "q25": 2748.75,
+              "q50": 3438.0,
+              "q75": 4329.5
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 12,
+          "total_delta": -131.64952708333334
+        },
+        {
+          "arm_only_survival": 98.41783541666666,
+          "common_alive_growth": -46.81318541666667,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 646.5333333333333,
+              "arm_minus_ctrl_mean": -16.533333333333335,
+              "ctrl_mean": 663.0666666666667,
+              "worlds": 30
+            },
+            "3000": {
+              "arm_mean": 822.3,
+              "arm_minus_ctrl_mean": -115.9,
+              "ctrl_mean": 938.2,
+              "worlds": 30
+            },
+            "4000": {
+              "arm_mean": 917.3,
+              "arm_minus_ctrl_mean": -270.96666666666664,
+              "ctrl_mean": 1188.2666666666667,
+              "worlds": 30
+            },
+            "5000": {
+              "arm_mean": 976.4333333333333,
+              "arm_minus_ctrl_mean": -428.23333333333335,
+              "ctrl_mean": 1404.6666666666667,
+              "worlds": 30
+            }
+          },
+          "ctrl_only_survival": 152.1912375,
+          "deaths": {
+            "arm_count": 47,
+            "arm_frame_quartiles": {
+              "q25": 1711.0,
+              "q50": 2817.0,
+              "q75": 4104.5
+            },
+            "ctrl_count": 41,
+            "ctrl_frame_quartiles": {
+              "q25": 1980.0,
+              "q50": 2825.0,
+              "q75": 4132.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 13,
+          "total_delta": -100.5865875
+        },
+        {
+          "arm_only_survival": 104.73351875,
+          "common_alive_growth": -55.078327083333335,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 646.7142857142857,
+              "arm_minus_ctrl_mean": -20.392857142857142,
+              "ctrl_mean": 667.1071428571429,
+              "worlds": 28
+            },
+            "3000": {
+              "arm_mean": 809.0,
+              "arm_minus_ctrl_mean": -153.92857142857142,
+              "ctrl_mean": 962.9285714285714,
+              "worlds": 28
+            },
+            "4000": {
+              "arm_mean": 905.2857142857143,
+              "arm_minus_ctrl_mean": -306.67857142857144,
+              "ctrl_mean": 1211.9642857142858,
+              "worlds": 28
+            },
+            "5000": {
+              "arm_mean": 959.2142857142857,
+              "arm_minus_ctrl_mean": -477.7142857142857,
+              "ctrl_mean": 1436.9285714285713,
+              "worlds": 28
+            }
+          },
+          "ctrl_only_survival": 135.83574791666666,
+          "deaths": {
+            "arm_count": 43,
+            "arm_frame_quartiles": {
+              "q25": 1926.0,
+              "q50": 3181.0,
+              "q75": 3930.0
+            },
+            "ctrl_count": 45,
+            "ctrl_frame_quartiles": {
+              "q25": 2011.0,
+              "q50": 3658.0,
+              "q75": 4247.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 14,
+          "total_delta": -86.18055625
+        }
+      ]
+    },
+    "LABELS_KEEPV8": {
+      "common_survivor_length_delta": {
+        "2000": {
+          "arm_mean": 648.2715231788079,
+          "arm_minus_ctrl_mean": -19.397350993377483,
+          "ctrl_mean": 667.6688741721854,
+          "worlds": 151
+        },
+        "3000": {
+          "arm_mean": 845.0397350993378,
+          "arm_minus_ctrl_mean": -113.24503311258277,
+          "ctrl_mean": 958.2847682119206,
+          "worlds": 151
+        },
+        "4000": {
+          "arm_mean": 936.4304635761589,
+          "arm_minus_ctrl_mean": -276.8543046357616,
+          "ctrl_mean": 1213.2847682119204,
+          "worlds": 151
+        },
+        "5000": {
+          "arm_mean": 985.6490066225166,
+          "arm_minus_ctrl_mean": -446.158940397351,
+          "ctrl_mean": 1431.8079470198675,
+          "worlds": 151
+        }
+      },
+      "deaths": {
+        "arm_count": 200,
+        "arm_frame_quartiles": {
+          "q25": 1599.5,
+          "q50": 2958.5,
+          "q75": 3843.25
+        },
+        "ctrl_count": 217,
+        "ctrl_frame_quartiles": {
+          "q25": 1982.0,
+          "q50": 3379.0,
+          "q75": 4269.0
+        },
+        "survivors_censored": true
+      },
+      "mean_components": {
+        "arm_only_survival": 101.67432249999999,
+        "common_alive_growth": -53.3538375,
+        "ctrl_only_survival": 138.52903,
+        "total_delta": -90.208545
+      },
+      "per_seed": [
+        {
+          "arm_only_survival": 140.56751041666666,
+          "common_alive_growth": -47.900022916666664,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 638.3913043478261,
+              "arm_minus_ctrl_mean": -40.608695652173914,
+              "ctrl_mean": 679.0,
+              "worlds": 23
+            },
+            "3000": {
+              "arm_mean": 860.8695652173913,
+              "arm_minus_ctrl_mean": -117.78260869565217,
+              "ctrl_mean": 978.6521739130435,
+              "worlds": 23
+            },
+            "4000": {
+              "arm_mean": 955.3913043478261,
+              "arm_minus_ctrl_mean": -285.5652173913044,
+              "ctrl_mean": 1240.9565217391305,
+              "worlds": 23
+            },
+            "5000": {
+              "arm_mean": 1022.5217391304348,
+              "arm_minus_ctrl_mean": -435.3478260869565,
+              "ctrl_mean": 1457.8695652173913,
+              "worlds": 23
+            }
+          },
+          "ctrl_only_survival": 139.47848958333333,
+          "deaths": {
+            "arm_count": 39,
+            "arm_frame_quartiles": {
+              "q25": 1240.0,
+              "q50": 2298.0,
+              "q75": 3344.0
+            },
+            "ctrl_count": 52,
+            "ctrl_frame_quartiles": {
+              "q25": 1419.75,
+              "q50": 2920.5,
+              "q75": 4021.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 10,
+          "total_delta": -46.811002083333335
+        },
+        {
+          "arm_only_survival": 76.36202083333333,
+          "common_alive_growth": -52.553975,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 643.6756756756756,
+              "arm_minus_ctrl_mean": -20.89189189189189,
+              "ctrl_mean": 664.5675675675676,
+              "worlds": 37
+            },
+            "3000": {
+              "arm_mean": 854.6216216216217,
+              "arm_minus_ctrl_mean": -96.70270270270271,
+              "ctrl_mean": 951.3243243243244,
+              "worlds": 37
+            },
+            "4000": {
+              "arm_mean": 977.5675675675676,
+              "arm_minus_ctrl_mean": -230.7027027027027,
+              "ctrl_mean": 1208.2702702702702,
+              "worlds": 37
+            },
+            "5000": {
+              "arm_mean": 1050.027027027027,
+              "arm_minus_ctrl_mean": -393.8918918918919,
+              "ctrl_mean": 1443.918918918919,
+              "worlds": 37
+            }
+          },
+          "ctrl_only_survival": 155.46195208333333,
+          "deaths": {
+            "arm_count": 42,
+            "arm_frame_quartiles": {
+              "q25": 1823.25,
+              "q50": 3407.5,
+              "q75": 4046.75
+            },
+            "ctrl_count": 33,
+            "ctrl_frame_quartiles": {
+              "q25": 2101.0,
+              "q50": 3440.0,
+              "q75": 4422.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 11,
+          "total_delta": -131.65390625
+        },
+        {
+          "arm_only_survival": 86.856,
+          "common_alive_growth": -63.04665833333333,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 672.1111111111111,
+              "arm_minus_ctrl_mean": -3.3333333333333335,
+              "ctrl_mean": 675.4444444444445,
+              "worlds": 27
+            },
+            "3000": {
+              "arm_mean": 851.8518518518518,
+              "arm_minus_ctrl_mean": -132.37037037037038,
+              "ctrl_mean": 984.2222222222222,
+              "worlds": 27
+            },
+            "4000": {
+              "arm_mean": 913.4444444444445,
+              "arm_minus_ctrl_mean": -342.14814814814815,
+              "ctrl_mean": 1255.5925925925926,
+              "worlds": 27
+            },
+            "5000": {
+              "arm_mean": 948.0,
+              "arm_minus_ctrl_mean": -512.0,
+              "ctrl_mean": 1460.0,
+              "worlds": 27
+            }
+          },
+          "ctrl_only_survival": 139.13693333333333,
+          "deaths": {
+            "arm_count": 44,
+            "arm_frame_quartiles": {
+              "q25": 2242.0,
+              "q50": 3136.0,
+              "q75": 3936.75
+            },
+            "ctrl_count": 46,
+            "ctrl_frame_quartiles": {
+              "q25": 2748.75,
+              "q50": 3438.0,
+              "q75": 4329.5
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 12,
+          "total_delta": -115.32759166666666
+        },
+        {
+          "arm_only_survival": 106.82909583333333,
+          "common_alive_growth": -53.580983333333336,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 632.5483870967741,
+              "arm_minus_ctrl_mean": -24.870967741935484,
+              "ctrl_mean": 657.4193548387096,
+              "worlds": 31
+            },
+            "3000": {
+              "arm_mean": 818.1290322580645,
+              "arm_minus_ctrl_mean": -118.51612903225806,
+              "ctrl_mean": 936.6451612903226,
+              "worlds": 31
+            },
+            "4000": {
+              "arm_mean": 899.1290322580645,
+              "arm_minus_ctrl_mean": -288.35483870967744,
+              "ctrl_mean": 1187.483870967742,
+              "worlds": 31
+            },
+            "5000": {
+              "arm_mean": 938.3870967741935,
+              "arm_minus_ctrl_mean": -462.2258064516129,
+              "ctrl_mean": 1400.6129032258063,
+              "worlds": 31
+            }
+          },
+          "ctrl_only_survival": 143.55519375,
+          "deaths": {
+            "arm_count": 39,
+            "arm_frame_quartiles": {
+              "q25": 1573.0,
+              "q50": 2691.0,
+              "q75": 3707.0
+            },
+            "ctrl_count": 41,
+            "ctrl_frame_quartiles": {
+              "q25": 1980.0,
+              "q50": 2825.0,
+              "q75": 4132.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 13,
+          "total_delta": -90.30708125
+        },
+        {
+          "arm_only_survival": 97.75698541666667,
+          "common_alive_growth": -49.68754791666667,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 655.5757575757576,
+              "arm_minus_ctrl_mean": -10.93939393939394,
+              "ctrl_mean": 666.5151515151515,
+              "worlds": 33
+            },
+            "3000": {
+              "arm_mean": 842.969696969697,
+              "arm_minus_ctrl_mean": -108.03030303030303,
+              "ctrl_mean": 951.0,
+              "worlds": 33
+            },
+            "4000": {
+              "arm_mean": 930.939393939394,
+              "arm_minus_ctrl_mean": -258.3030303030303,
+              "ctrl_mean": 1189.2424242424242,
+              "worlds": 33
+            },
+            "5000": {
+              "arm_mean": 962.969696969697,
+              "arm_minus_ctrl_mean": -443.3333333333333,
+              "ctrl_mean": 1406.3030303030303,
+              "worlds": 33
+            }
+          },
+          "ctrl_only_survival": 115.01258125,
+          "deaths": {
+            "arm_count": 36,
+            "arm_frame_quartiles": {
+              "q25": 1814.75,
+              "q50": 2977.5,
+              "q75": 3833.0
+            },
+            "ctrl_count": 45,
+            "ctrl_frame_quartiles": {
+              "q25": 2011.0,
+              "q50": 3658.0,
+              "q75": 4247.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 14,
+          "total_delta": -66.94314375
+        }
+      ]
+    },
+    "LABELS_KEEPV8_LO": {
+      "common_survivor_length_delta": {
+        "2000": {
+          "arm_mean": 662.6875,
+          "arm_minus_ctrl_mean": -6.770833333333333,
+          "ctrl_mean": 669.4583333333334,
+          "worlds": 144
+        },
+        "3000": {
+          "arm_mean": 854.8402777777778,
+          "arm_minus_ctrl_mean": -105.67361111111111,
+          "ctrl_mean": 960.5138888888889,
+          "worlds": 144
+        },
+        "4000": {
+          "arm_mean": 941.2013888888889,
+          "arm_minus_ctrl_mean": -272.1736111111111,
+          "ctrl_mean": 1213.375,
+          "worlds": 144
+        },
+        "5000": {
+          "arm_mean": 988.2916666666666,
+          "arm_minus_ctrl_mean": -442.52777777777777,
+          "ctrl_mean": 1430.8194444444443,
+          "worlds": 144
+        }
+      },
+      "deaths": {
+        "arm_count": 212,
+        "arm_frame_quartiles": {
+          "q25": 2061.75,
+          "q50": 3122.0,
+          "q75": 3982.5
+        },
+        "ctrl_count": 217,
+        "ctrl_frame_quartiles": {
+          "q25": 1982.0,
+          "q50": 3379.0,
+          "q75": 4269.0
+        },
+        "survivors_censored": true
+      },
+      "mean_components": {
+        "arm_only_survival": 104.901535,
+        "common_alive_growth": -48.72154958333333,
+        "ctrl_only_survival": 139.42585333333335,
+        "total_delta": -83.24586791666667
+      },
+      "per_seed": [
+        {
+          "arm_only_survival": 138.0358,
+          "common_alive_growth": -43.880579166666664,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 640.6111111111111,
+              "arm_minus_ctrl_mean": -28.444444444444443,
+              "ctrl_mean": 669.0555555555555,
+              "worlds": 18
+            },
+            "3000": {
+              "arm_mean": 845.1666666666666,
+              "arm_minus_ctrl_mean": -127.27777777777777,
+              "ctrl_mean": 972.4444444444445,
+              "worlds": 18
+            },
+            "4000": {
+              "arm_mean": 944.2777777777778,
+              "arm_minus_ctrl_mean": -305.55555555555554,
+              "ctrl_mean": 1249.8333333333333,
+              "worlds": 18
+            },
+            "5000": {
+              "arm_mean": 991.4444444444445,
+              "arm_minus_ctrl_mean": -473.3333333333333,
+              "ctrl_mean": 1464.7777777777778,
+              "worlds": 18
+            }
+          },
+          "ctrl_only_survival": 165.32506041666667,
+          "deaths": {
+            "arm_count": 51,
+            "arm_frame_quartiles": {
+              "q25": 1607.0,
+              "q50": 3114.0,
+              "q75": 3716.0
+            },
+            "ctrl_count": 52,
+            "ctrl_frame_quartiles": {
+              "q25": 1419.75,
+              "q50": 2920.5,
+              "q75": 4021.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 10,
+          "total_delta": -71.16983958333333
+        },
+        {
+          "arm_only_survival": 70.63224583333333,
+          "common_alive_growth": -39.90039375,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 685.6470588235294,
+              "arm_minus_ctrl_mean": 15.529411764705882,
+              "ctrl_mean": 670.1176470588235,
+              "worlds": 34
+            },
+            "3000": {
+              "arm_mean": 887.4411764705883,
+              "arm_minus_ctrl_mean": -73.67647058823529,
+              "ctrl_mean": 961.1176470588235,
+              "worlds": 34
+            },
+            "4000": {
+              "arm_mean": 991.1176470588235,
+              "arm_minus_ctrl_mean": -221.58823529411765,
+              "ctrl_mean": 1212.7058823529412,
+              "worlds": 34
+            },
+            "5000": {
+              "arm_mean": 1061.1470588235295,
+              "arm_minus_ctrl_mean": -379.8235294117647,
+              "ctrl_mean": 1440.9705882352941,
+              "worlds": 34
+            }
+          },
+          "ctrl_only_survival": 148.21647083333335,
+          "deaths": {
+            "arm_count": 41,
+            "arm_frame_quartiles": {
+              "q25": 2094.0,
+              "q50": 3114.0,
+              "q75": 3832.0
+            },
+            "ctrl_count": 33,
+            "ctrl_frame_quartiles": {
+              "q25": 2101.0,
+              "q50": 3440.0,
+              "q75": 4422.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 11,
+          "total_delta": -117.48461875
+        },
+        {
+          "arm_only_survival": 90.60949375,
+          "common_alive_growth": -54.968604166666665,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 664.52,
+              "arm_minus_ctrl_mean": -27.44,
+              "ctrl_mean": 691.96,
+              "worlds": 25
+            },
+            "3000": {
+              "arm_mean": 868.44,
+              "arm_minus_ctrl_mean": -127.12,
+              "ctrl_mean": 995.56,
+              "worlds": 25
+            },
+            "4000": {
+              "arm_mean": 946.68,
+              "arm_minus_ctrl_mean": -307.92,
+              "ctrl_mean": 1254.6,
+              "worlds": 25
+            },
+            "5000": {
+              "arm_mean": 981.0,
+              "arm_minus_ctrl_mean": -483.04,
+              "ctrl_mean": 1464.04,
+              "worlds": 25
+            }
+          },
+          "ctrl_only_survival": 151.70265,
+          "deaths": {
+            "arm_count": 46,
+            "arm_frame_quartiles": {
+              "q25": 2223.5,
+              "q50": 3164.5,
+              "q75": 3927.25
+            },
+            "ctrl_count": 46,
+            "ctrl_frame_quartiles": {
+              "q25": 2748.75,
+              "q50": 3438.0,
+              "q75": 4329.5
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 12,
+          "total_delta": -116.06176041666667
+        },
+        {
+          "arm_only_survival": 109.87450625,
+          "common_alive_growth": -54.88645833333333,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 661.0,
+              "arm_minus_ctrl_mean": -3.787878787878788,
+              "ctrl_mean": 664.7878787878788,
+              "worlds": 33
+            },
+            "3000": {
+              "arm_mean": 835.4848484848485,
+              "arm_minus_ctrl_mean": -105.3030303030303,
+              "ctrl_mean": 940.7878787878788,
+              "worlds": 33
+            },
+            "4000": {
+              "arm_mean": 917.060606060606,
+              "arm_minus_ctrl_mean": -265.6666666666667,
+              "ctrl_mean": 1182.7272727272727,
+              "worlds": 33
+            },
+            "5000": {
+              "arm_mean": 959.0,
+              "arm_minus_ctrl_mean": -438.06060606060606,
+              "ctrl_mean": 1397.060606060606,
+              "worlds": 33
+            }
+          },
+          "ctrl_only_survival": 101.24196875,
+          "deaths": {
+            "arm_count": 36,
+            "arm_frame_quartiles": {
+              "q25": 2450.25,
+              "q50": 3282.0,
+              "q75": 4285.0
+            },
+            "ctrl_count": 41,
+            "ctrl_frame_quartiles": {
+              "q25": 1980.0,
+              "q50": 2825.0,
+              "q75": 4132.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 13,
+          "total_delta": -46.25392083333333
+        },
+        {
+          "arm_only_survival": 115.35562916666667,
+          "common_alive_growth": -49.9717125,
+          "common_survivor_length_delta": {
+            "2000": {
+              "arm_mean": 651.7058823529412,
+              "arm_minus_ctrl_mean": -5.294117647058823,
+              "ctrl_mean": 657.0,
+              "worlds": 34
+            },
+            "3000": {
+              "arm_mean": 836.1470588235294,
+              "arm_minus_ctrl_mean": -110.82352941176471,
+              "ctrl_mean": 946.9705882352941,
+              "worlds": 34
+            },
+            "4000": {
+              "arm_mean": 909.0588235294117,
+              "arm_minus_ctrl_mean": -285.11764705882354,
+              "ctrl_mean": 1194.1764705882354,
+              "worlds": 34
+            },
+            "5000": {
+              "arm_mean": 947.5588235294117,
+              "arm_minus_ctrl_mean": -463.47058823529414,
+              "ctrl_mean": 1411.0294117647059,
+              "worlds": 34
+            }
+          },
+          "ctrl_only_survival": 130.64311666666666,
+          "deaths": {
+            "arm_count": 38,
+            "arm_frame_quartiles": {
+              "q25": 1642.5,
+              "q50": 3203.5,
+              "q75": 4110.0
+            },
+            "ctrl_count": 45,
+            "ctrl_frame_quartiles": {
+              "q25": 2011.0,
+              "q50": 3658.0,
+              "q75": 4247.0
+            }
+          },
+          "identity_residual_mass_frames": 0,
+          "seed": 14,
+          "total_delta": -65.2592
+        }
+      ]
+    }
+  },
+  "replays": {
+    "CTRL_s10": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/final.pth",
+      "checkpoint_sha256": "262da904c67c79d306006179bebcc7ce236dc6907147e303316e828d5ebcdd11",
+      "decision_observations": 727216,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/final.pth": "262da904c67c79d306006179bebcc7ce236dc6907147e303316e828d5ebcdd11",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/final.pth": "e0e3364da51b99db351accf2dca7ff7a6992acd369bfb6487dc60733b302efe7",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s10__r62__scripted.json": "34d4b78220984272706ba05675e59875f46c95b2abce781f0152a99597702a2d",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s10__r62__scripted.json": "30e6d5675b74b9be99a9fcf50b4e9616b0eb62681861575ee6dc32929f6ab069",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s10__r62__scripted.json": "7202771f3ae1c45e515ad64b18945fec3725218697c0afa96de3d3590af901a3"
+      },
+      "name": "CTRL_s10",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/CTRL_s10.npz",
+      "series_sha256": "723bcea979a67c0c7bfef0a09a26dc1cb8555b931474d862ce6967ae5ff8e861",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s10__r62__scripted.json",
+      "source_row_sha256": "34d4b78220984272706ba05675e59875f46c95b2abce781f0152a99597702a2d",
+      "worlds": 96
+    },
+    "CTRL_s11": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/final.pth",
+      "checkpoint_sha256": "b3b1c9a62388dd7624a57c900bfd837c1064d71fe23043b38a3d8d793bdf79db",
+      "decision_observations": 850002,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/final.pth": "b3b1c9a62388dd7624a57c900bfd837c1064d71fe23043b38a3d8d793bdf79db",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/final.pth": "4c16704bc1358ba9f50cede805a491d5f74dca790ed7cd62f79d770fee1a0ca0",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/final.pth": "c8520d205a98695ed8ad01d0fb7db8a31e232d3dd20028950ea093582d2cdf3e",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s11__r62__scripted.json": "171d3268f476672a9d585263045ad287eb93f66a9ec9385c1b5222350cca251a",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s11__r62__scripted.json": "15558a609849ceaa7ee0f77423b1de07b61e6f0ccba48ea92d4452cb703f91b8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s11__r62__scripted.json": "c13a342d48b74bfe70d29f5332a13e7cb8e12243fcbf81c3e0949074433ebc22"
+      },
+      "name": "CTRL_s11",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/CTRL_s11.npz",
+      "series_sha256": "e265e4cd0b886509b6f761f0790a70076084b98a47e0ce44adbaad9367a685e4",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s11__r62__scripted.json",
+      "source_row_sha256": "171d3268f476672a9d585263045ad287eb93f66a9ec9385c1b5222350cca251a",
+      "worlds": 96
+    },
+    "CTRL_s12": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/final.pth",
+      "checkpoint_sha256": "a94b456f63e4e887b3f3aa52e6918fcff8fbf916453207a1b6b230ac6c11cbc8",
+      "decision_observations": 814462,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/final.pth": "a94b456f63e4e887b3f3aa52e6918fcff8fbf916453207a1b6b230ac6c11cbc8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/final.pth": "745715cb98093aec42f92969bf8e95ea86f6f72753cd77c55e06c45b38eb3ec4",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/final.pth": "52f2f2f1eaef8014cd70bc970e30291410661ace565aecbcb193588e45be24cd",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s12__r62__scripted.json": "db972cca6df25ba4d97738b9c201234b2fe2e89ec8045bfbfefa1ae8ef21a6e6",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s12__r62__scripted.json": "8d1d47100e12aca675b1512b21f91f895653c44f127700e0dcf4558bf1184192",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s12__r62__scripted.json": "3af9aecb92e8d49edf825df95550a9df53a09767d064bc198ee64b111dd0db7c"
+      },
+      "name": "CTRL_s12",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/CTRL_s12.npz",
+      "series_sha256": "69a1983d444e72676ff8ae4b8c3871b1366b9fe108f09b05357d9ca4a0bea98b",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s12__r62__scripted.json",
+      "source_row_sha256": "db972cca6df25ba4d97738b9c201234b2fe2e89ec8045bfbfefa1ae8ef21a6e6",
+      "worlds": 96
+    },
+    "CTRL_s13": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/final.pth",
+      "checkpoint_sha256": "5920cc7f14de4a99a1be6524a8215c40dd15f29c6ecee1e826d74a739d514302",
+      "decision_observations": 788120,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/final.pth": "5920cc7f14de4a99a1be6524a8215c40dd15f29c6ecee1e826d74a739d514302",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/final.pth": "967a38eb2452673abe687bcfe72c0976f3116574ee6f7e4d1c11af931edaa97c",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/final.pth": "6acf5a7eaef6e6d2aedc07ca2285ef1325accf63b12467b3d1154063eaa76179",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s13__r62__scripted.json": "19853667f0fdea90c396080b0917c0b52fd90fbafa62e5e7e29ff46a6b8864c9",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s13__r62__scripted.json": "08e03be60f715335a7acc1c34eedc406045492039706cdae0acb36c66e2fc783",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s13__r62__scripted.json": "0d9ca2f9ca5f9eebf2f2c3e118dd963b01efb88e4c1cfad0a926dd1472399ce7"
+      },
+      "name": "CTRL_s13",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/CTRL_s13.npz",
+      "series_sha256": "bda9651bcce47fc069e9df4474f2217fc68f03b82685b0c69dd42d8c2320d942",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s13__r62__scripted.json",
+      "source_row_sha256": "19853667f0fdea90c396080b0917c0b52fd90fbafa62e5e7e29ff46a6b8864c9",
+      "worlds": 96
+    },
+    "CTRL_s14": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/final.pth",
+      "checkpoint_sha256": "b9eaf9e7120e233f5d32df30270ea67868597a3ad55cade80c42424fdc08f79c",
+      "decision_observations": 791618,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/final.pth": "b9eaf9e7120e233f5d32df30270ea67868597a3ad55cade80c42424fdc08f79c",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/final.pth": "39dc6609c9e39f35cef2c34c945b78e169fcdb20de5af93b1675efcf78b3dcb9",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/final.pth": "420948f3e777272b3e329a01e0682bbe6b97267f0ea8416936b20a40fc0e21a4",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s14__r62__scripted.json": "b96bc5c64e238e7c223e6fb119152d5f111d4b1ea9425187a6d7eb5d8ecf0ed8",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s14__r62__scripted.json": "0602e980a2638d622c7bf7bea37c340c203e014024faa2fe90f0c111c68dd2a6",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s14__r62__scripted.json": "992d953df7504957fa0538e7773b581bc439d77a4b963427053cd1622dfb1436"
+      },
+      "name": "CTRL_s14",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/CTRL_s14.npz",
+      "series_sha256": "592c4347b5c836c059080ce42450b4b037dd73e73f293f64dc80312889385160",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/CTRL_s14__r62__scripted.json",
+      "source_row_sha256": "b96bc5c64e238e7c223e6fb119152d5f111d4b1ea9425187a6d7eb5d8ecf0ed8",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_LO_s10": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s10/final.pth",
+      "checkpoint_sha256": "18ff30094f6a6471a98392c8621d465f1e55869e0530eb2f1ece4d2c1b2dedf3",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s10/final.pth": "18ff30094f6a6471a98392c8621d465f1e55869e0530eb2f1ece4d2c1b2dedf3",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s10__r62__scripted.json": "0bd7ad1f02403d7a8aa36c49ee99bc1bf832a527ad481ad3d5188289ad0a0460"
+      },
+      "name": "LABELS_KEEPV8_LO_s10",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_LO_s10.npz",
+      "series_sha256": "aaf9a2cd974b9f5a247ad8455f9b8b93e7d9cba92f832a915c0e416fbc4c7d5e",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s10__r62__scripted.json",
+      "source_row_sha256": "0bd7ad1f02403d7a8aa36c49ee99bc1bf832a527ad481ad3d5188289ad0a0460",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_LO_s11": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s11/final.pth",
+      "checkpoint_sha256": "aa9a358227ddbdbbca016320c0cf15ac3db7b86ebe28d0968b6cd33aa1bedeb9",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s11/final.pth": "aa9a358227ddbdbbca016320c0cf15ac3db7b86ebe28d0968b6cd33aa1bedeb9",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s11__r62__scripted.json": "f4097de6552e2ea2d59ac80f8d71499965b5bc8bd690c97fd464b559d7ad00fe"
+      },
+      "name": "LABELS_KEEPV8_LO_s11",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_LO_s11.npz",
+      "series_sha256": "be67e89643a8eecacde9c1df6ad3c6602372db6e33728e8e6569d6aa3ba765da",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s11__r62__scripted.json",
+      "source_row_sha256": "f4097de6552e2ea2d59ac80f8d71499965b5bc8bd690c97fd464b559d7ad00fe",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_LO_s12": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s12/final.pth",
+      "checkpoint_sha256": "a04df0e6dd0a6bb90e2fdc0a3aca3593522a89ddbb78c0ab402b175fdb101775",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s12/final.pth": "a04df0e6dd0a6bb90e2fdc0a3aca3593522a89ddbb78c0ab402b175fdb101775",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s12__r62__scripted.json": "25c9570020ef7625c9901e13db734bb831779f2c276950565493860a8b833075"
+      },
+      "name": "LABELS_KEEPV8_LO_s12",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_LO_s12.npz",
+      "series_sha256": "2282736cff5e836b7cde8fc5d2508ac8dcf98368df91d5c328a7d6bd943a295e",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s12__r62__scripted.json",
+      "source_row_sha256": "25c9570020ef7625c9901e13db734bb831779f2c276950565493860a8b833075",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_LO_s13": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s13/final.pth",
+      "checkpoint_sha256": "252d11f82f9e5aa9d2e0e0b1e8801dabcf2cdcca2878b5736d23508c0a1167e6",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s13/final.pth": "252d11f82f9e5aa9d2e0e0b1e8801dabcf2cdcca2878b5736d23508c0a1167e6",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s13__r62__scripted.json": "469415b7871b007de794cc252314b17a748ae5a29cb7014cb3b32e6072dbdb97"
+      },
+      "name": "LABELS_KEEPV8_LO_s13",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_LO_s13.npz",
+      "series_sha256": "56cb1aa79f778da753195cc49948e22f94a7109048ac5ddfcc773d485cb5a88b",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s13__r62__scripted.json",
+      "source_row_sha256": "469415b7871b007de794cc252314b17a748ae5a29cb7014cb3b32e6072dbdb97",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_LO_s14": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s14/final.pth",
+      "checkpoint_sha256": "34c5fdef57582229bf9666b6b52aa4229882475ee88ec0dc7b9cfd5b40333420",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s14/final.pth": "34c5fdef57582229bf9666b6b52aa4229882475ee88ec0dc7b9cfd5b40333420",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s14__r62__scripted.json": "0047ac79b592e628ddb521402d98fdbe7591aa2a7c9985d395f5478d5b95fe0f"
+      },
+      "name": "LABELS_KEEPV8_LO_s14",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_LO_s14.npz",
+      "series_sha256": "0639c147b109c026c1c88355b0ed80e756755d4d7934490c72edfdb2383197f2",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_LO_s14__r62__scripted.json",
+      "source_row_sha256": "0047ac79b592e628ddb521402d98fdbe7591aa2a7c9985d395f5478d5b95fe0f",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_s10": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/final.pth",
+      "checkpoint_sha256": "e0e3364da51b99db351accf2dca7ff7a6992acd369bfb6487dc60733b302efe7",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/final.pth": "e0e3364da51b99db351accf2dca7ff7a6992acd369bfb6487dc60733b302efe7",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s10__r62__scripted.json": "30e6d5675b74b9be99a9fcf50b4e9616b0eb62681861575ee6dc32929f6ab069"
+      },
+      "name": "LABELS_KEEPV8_s10",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_s10.npz",
+      "series_sha256": "d6af3a0b5bd6b74a46f48b9f486c4efef697b1089f81c33e0ca50c700d9af7e8",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s10__r62__scripted.json",
+      "source_row_sha256": "30e6d5675b74b9be99a9fcf50b4e9616b0eb62681861575ee6dc32929f6ab069",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_s11": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/final.pth",
+      "checkpoint_sha256": "4c16704bc1358ba9f50cede805a491d5f74dca790ed7cd62f79d770fee1a0ca0",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/final.pth": "4c16704bc1358ba9f50cede805a491d5f74dca790ed7cd62f79d770fee1a0ca0",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s11__r62__scripted.json": "15558a609849ceaa7ee0f77423b1de07b61e6f0ccba48ea92d4452cb703f91b8"
+      },
+      "name": "LABELS_KEEPV8_s11",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_s11.npz",
+      "series_sha256": "dc70e206e67b9b81479320ecd9e8f7098a227c4a1aec788722efce1b179c3918",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s11__r62__scripted.json",
+      "source_row_sha256": "15558a609849ceaa7ee0f77423b1de07b61e6f0ccba48ea92d4452cb703f91b8",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_s12": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/final.pth",
+      "checkpoint_sha256": "745715cb98093aec42f92969bf8e95ea86f6f72753cd77c55e06c45b38eb3ec4",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/final.pth": "745715cb98093aec42f92969bf8e95ea86f6f72753cd77c55e06c45b38eb3ec4",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s12__r62__scripted.json": "8d1d47100e12aca675b1512b21f91f895653c44f127700e0dcf4558bf1184192"
+      },
+      "name": "LABELS_KEEPV8_s12",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_s12.npz",
+      "series_sha256": "144e8ac787f8b4d881d4d4dc4764ae53cc3581965faf5a46cb97e22208f6cc7a",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s12__r62__scripted.json",
+      "source_row_sha256": "8d1d47100e12aca675b1512b21f91f895653c44f127700e0dcf4558bf1184192",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_s13": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/final.pth",
+      "checkpoint_sha256": "967a38eb2452673abe687bcfe72c0976f3116574ee6f7e4d1c11af931edaa97c",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/final.pth": "967a38eb2452673abe687bcfe72c0976f3116574ee6f7e4d1c11af931edaa97c",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s13__r62__scripted.json": "08e03be60f715335a7acc1c34eedc406045492039706cdae0acb36c66e2fc783"
+      },
+      "name": "LABELS_KEEPV8_s13",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_s13.npz",
+      "series_sha256": "5f9a040bcf84094709e8be4e2f6a109e68768eff5ba346a85f7c164e5d63c428",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s13__r62__scripted.json",
+      "source_row_sha256": "08e03be60f715335a7acc1c34eedc406045492039706cdae0acb36c66e2fc783",
+      "worlds": 96
+    },
+    "LABELS_KEEPV8_s14": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/final.pth",
+      "checkpoint_sha256": "39dc6609c9e39f35cef2c34c945b78e169fcdb20de5af93b1675efcf78b3dcb9",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/final.pth": "39dc6609c9e39f35cef2c34c945b78e169fcdb20de5af93b1675efcf78b3dcb9",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s14__r62__scripted.json": "0602e980a2638d622c7bf7bea37c340c203e014024faa2fe90f0c111c68dd2a6"
+      },
+      "name": "LABELS_KEEPV8_s14",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_KEEPV8_s14.npz",
+      "series_sha256": "8ba09b1d471ccfb5e4cd45ce8e6df55fcefdc540306fda2bf3abc53842194827",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_KEEPV8_s14__r62__scripted.json",
+      "source_row_sha256": "0602e980a2638d622c7bf7bea37c340c203e014024faa2fe90f0c111c68dd2a6",
+      "worlds": 96
+    },
+    "LABELS_s10": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth",
+      "checkpoint_sha256": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s10__r62__scripted.json": "7202771f3ae1c45e515ad64b18945fec3725218697c0afa96de3d3590af901a3"
+      },
+      "name": "LABELS_s10",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_s10.npz",
+      "series_sha256": "4ad728a073d922a3302c1ec9b3ce125e06a01e677daeb46f222e7329cc3503f3",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s10__r62__scripted.json",
+      "source_row_sha256": "7202771f3ae1c45e515ad64b18945fec3725218697c0afa96de3d3590af901a3",
+      "worlds": 96
+    },
+    "LABELS_s11": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/final.pth",
+      "checkpoint_sha256": "c8520d205a98695ed8ad01d0fb7db8a31e232d3dd20028950ea093582d2cdf3e",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/final.pth": "c8520d205a98695ed8ad01d0fb7db8a31e232d3dd20028950ea093582d2cdf3e",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s11__r62__scripted.json": "c13a342d48b74bfe70d29f5332a13e7cb8e12243fcbf81c3e0949074433ebc22"
+      },
+      "name": "LABELS_s11",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_s11.npz",
+      "series_sha256": "652d6264b700fd99345850f658911eece63b89d0b9efba55553edaf892daab10",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s11__r62__scripted.json",
+      "source_row_sha256": "c13a342d48b74bfe70d29f5332a13e7cb8e12243fcbf81c3e0949074433ebc22",
+      "worlds": 96
+    },
+    "LABELS_s12": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/final.pth",
+      "checkpoint_sha256": "52f2f2f1eaef8014cd70bc970e30291410661ace565aecbcb193588e45be24cd",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/final.pth": "52f2f2f1eaef8014cd70bc970e30291410661ace565aecbcb193588e45be24cd",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s12__r62__scripted.json": "3af9aecb92e8d49edf825df95550a9df53a09767d064bc198ee64b111dd0db7c"
+      },
+      "name": "LABELS_s12",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_s12.npz",
+      "series_sha256": "48fe983a1138ee621a477a04f76d38afb7ac6fe5435e4880bfa7a850b73bc607",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s12__r62__scripted.json",
+      "source_row_sha256": "3af9aecb92e8d49edf825df95550a9df53a09767d064bc198ee64b111dd0db7c",
+      "worlds": 96
+    },
+    "LABELS_s13": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/final.pth",
+      "checkpoint_sha256": "6acf5a7eaef6e6d2aedc07ca2285ef1325accf63b12467b3d1154063eaa76179",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/final.pth": "6acf5a7eaef6e6d2aedc07ca2285ef1325accf63b12467b3d1154063eaa76179",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s13__r62__scripted.json": "0d9ca2f9ca5f9eebf2f2c3e118dd963b01efb88e4c1cfad0a926dd1472399ce7"
+      },
+      "name": "LABELS_s13",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_s13.npz",
+      "series_sha256": "3f92d2b324bf81859be313c34da1e366a1025d4b368e59a64e6b5558b5a34bc9",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s13__r62__scripted.json",
+      "source_row_sha256": "0d9ca2f9ca5f9eebf2f2c3e118dd963b01efb88e4c1cfad0a926dd1472399ce7",
+      "worlds": 96
+    },
+    "LABELS_s14": {
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/final.pth",
+      "checkpoint_sha256": "420948f3e777272b3e329a01e0682bbe6b97267f0ea8416936b20a40fc0e21a4",
+      "decision_observations": 0,
+      "frames": 5000,
+      "inputs_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/final.pth": "420948f3e777272b3e329a01e0682bbe6b97267f0ea8416936b20a40fc0e21a4",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/status.txt": "c983ec790b69b21cbb3e942323aa2ae55a2f8c7d9d0b849b5668cdcf11552d79",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s14__r62__scripted.json": "992d953df7504957fa0538e7773b581bc439d77a4b963427053cd1622dfb1436"
+      },
+      "name": "LABELS_s14",
+      "parity": "exact mass/deaths/alive_frames/death_frame/length_at_death",
+      "schema": "t3-diagnostics-replay/v1",
+      "series": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-diagnostics-20261016/series/LABELS_s14.npz",
+      "series_sha256": "33e6aff4d3170ca81c2453b6bb90798a1a5b96b0502a727142acfc35eae6144c",
+      "source_row": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-probes-20261015/rows/LABELS_s14__r62__scripted.json",
+      "source_row_sha256": "992d953df7504957fa0538e7773b581bc439d77a4b963427053cd1622dfb1436",
+      "worlds": 96
+    }
+  },
+  "schema": "t3-diagnostics-summary/v1"
+}

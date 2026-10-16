@@ -1,0 +1,2945 @@
+{
+  "arms": {
+    "CTRL": {
+      "ctrl_trajectory": {
+        "10": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 147,
+                "decisions": 70889,
+                "rate": 0.0020736644613409696
+              },
+              "own_decision_share": 0.19495995687663636,
+              "raw": {
+                "boost_argmax": 155,
+                "decisions": 70889,
+                "rate": 0.0021865169490329953
+              },
+              "resolved": {
+                "boost_argmax": 147,
+                "decisions": 70889,
+                "rate": 0.0020736644613409696
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 271,
+                "decisions": 75568,
+                "rate": 0.003586174041922507
+              },
+              "own_decision_share": 0.20782821060042683,
+              "raw": {
+                "boost_argmax": 298,
+                "decisions": 75568,
+                "rate": 0.003943468134660174
+              },
+              "resolved": {
+                "boost_argmax": 271,
+                "decisions": 75568,
+                "rate": 0.003586174041922507
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 512,
+                "decisions": 107833,
+                "rate": 0.004748082683408604
+              },
+              "own_decision_share": 0.29656388198279465,
+              "raw": {
+                "boost_argmax": 562,
+                "decisions": 107833,
+                "rate": 0.005211762632960226
+              },
+              "resolved": {
+                "boost_argmax": 516,
+                "decisions": 107833,
+                "rate": 0.004785177079372734
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 59,
+                "decisions": 109318,
+                "rate": 0.0005397098373552388
+              },
+              "own_decision_share": 0.30064795054014215,
+              "raw": {
+                "boost_argmax": 62,
+                "decisions": 109318,
+                "rate": 0.0005671527104410984
+              },
+              "resolved": {
+                "boost_argmax": 59,
+                "decisions": 109318,
+                "rate": 0.0005397098373552388
+              }
+            }
+          },
+          "decisions": 363608,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 989,
+              "decisions": 363608,
+              "rate": 0.0027199621570482497
+            },
+            "raw": {
+              "boost_argmax": 1077,
+              "decisions": 363608,
+              "rate": 0.0029619810345206925
+            },
+            "resolved": {
+              "boost_argmax": 993,
+              "decisions": 363608,
+              "rate": 0.002730963015115179
+            }
+          }
+        },
+        "11": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 183,
+                "decisions": 84610,
+                "rate": 0.0021628649095851555
+              },
+              "own_decision_share": 0.1990818845132129,
+              "raw": {
+                "boost_argmax": 199,
+                "decisions": 84610,
+                "rate": 0.0023519678524997045
+              },
+              "resolved": {
+                "boost_argmax": 183,
+                "decisions": 84610,
+                "rate": 0.0021628649095851555
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 405,
+                "decisions": 91686,
+                "rate": 0.004417250179962045
+              },
+              "own_decision_share": 0.21573125710292446,
+              "raw": {
+                "boost_argmax": 420,
+                "decisions": 91686,
+                "rate": 0.004580852038479157
+              },
+              "resolved": {
+                "boost_argmax": 405,
+                "decisions": 91686,
+                "rate": 0.004417250179962045
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 608,
+                "decisions": 133396,
+                "rate": 0.00455785780683079
+              },
+              "own_decision_share": 0.3138722026536408,
+              "raw": {
+                "boost_argmax": 655,
+                "decisions": 133396,
+                "rate": 0.004910192209661459
+              },
+              "resolved": {
+                "boost_argmax": 615,
+                "decisions": 133396,
+                "rate": 0.004610333143422591
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 71,
+                "decisions": 115309,
+                "rate": 0.0006157368462132184
+              },
+              "own_decision_share": 0.2713146557302218,
+              "raw": {
+                "boost_argmax": 74,
+                "decisions": 115309,
+                "rate": 0.0006417538960532135
+              },
+              "resolved": {
+                "boost_argmax": 71,
+                "decisions": 115309,
+                "rate": 0.0006157368462132184
+              }
+            }
+          },
+          "decisions": 425001,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 1267,
+              "decisions": 425001,
+              "rate": 0.002981169456071868
+            },
+            "raw": {
+              "boost_argmax": 1348,
+              "decisions": 425001,
+              "rate": 0.0031717572429241342
+            },
+            "resolved": {
+              "boost_argmax": 1274,
+              "decisions": 425001,
+              "rate": 0.002997640005552928
+            }
+          }
+        },
+        "12": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 113,
+                "decisions": 80896,
+                "rate": 0.0013968552215189874
+              },
+              "own_decision_share": 0.19864892407503357,
+              "raw": {
+                "boost_argmax": 124,
+                "decisions": 80896,
+                "rate": 0.0015328322784810126
+              },
+              "resolved": {
+                "boost_argmax": 113,
+                "decisions": 80896,
+                "rate": 0.0013968552215189874
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 240,
+                "decisions": 83699,
+                "rate": 0.0028674177708216345
+              },
+              "own_decision_share": 0.20553199535398828,
+              "raw": {
+                "boost_argmax": 269,
+                "decisions": 83699,
+                "rate": 0.003213897418129249
+              },
+              "resolved": {
+                "boost_argmax": 240,
+                "decisions": 83699,
+                "rate": 0.0028674177708216345
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 1086,
+                "decisions": 126505,
+                "rate": 0.008584640923283664
+              },
+              "own_decision_share": 0.3106467827842183,
+              "raw": {
+                "boost_argmax": 1229,
+                "decisions": 126505,
+                "rate": 0.009715031026441643
+              },
+              "resolved": {
+                "boost_argmax": 1098,
+                "decisions": 126505,
+                "rate": 0.00867949883403818
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 31,
+                "decisions": 116131,
+                "rate": 0.00026693992129577806
+              },
+              "own_decision_share": 0.28517229778675984,
+              "raw": {
+                "boost_argmax": 31,
+                "decisions": 116131,
+                "rate": 0.00026693992129577806
+              },
+              "resolved": {
+                "boost_argmax": 31,
+                "decisions": 116131,
+                "rate": 0.00026693992129577806
+              }
+            }
+          },
+          "decisions": 407231,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 1470,
+              "decisions": 407231,
+              "rate": 0.003609744837696541
+            },
+            "raw": {
+              "boost_argmax": 1653,
+              "decisions": 407231,
+              "rate": 0.004059121235858763
+            },
+            "resolved": {
+              "boost_argmax": 1482,
+              "decisions": 407231,
+              "rate": 0.0036392121424940636
+            }
+          }
+        },
+        "13": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 176,
+                "decisions": 78625,
+                "rate": 0.0022384737678855324
+              },
+              "own_decision_share": 0.19952545297670404,
+              "raw": {
+                "boost_argmax": 194,
+                "decisions": 78625,
+                "rate": 0.002467408585055644
+              },
+              "resolved": {
+                "boost_argmax": 176,
+                "decisions": 78625,
+                "rate": 0.0022384737678855324
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 202,
+                "decisions": 85379,
+                "rate": 0.0023659213623959054
+              },
+              "own_decision_share": 0.2166649748769223,
+              "raw": {
+                "boost_argmax": 211,
+                "decisions": 85379,
+                "rate": 0.0024713337003244356
+              },
+              "resolved": {
+                "boost_argmax": 202,
+                "decisions": 85379,
+                "rate": 0.0023659213623959054
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 278,
+                "decisions": 113568,
+                "rate": 0.0024478726401803326
+              },
+              "own_decision_share": 0.28819976653301527,
+              "raw": {
+                "boost_argmax": 288,
+                "decisions": 113568,
+                "rate": 0.00253592561284869
+              },
+              "resolved": {
+                "boost_argmax": 279,
+                "decisions": 113568,
+                "rate": 0.002456677937447168
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 76,
+                "decisions": 116488,
+                "rate": 0.0006524277178765194
+              },
+              "own_decision_share": 0.29560980561335837,
+              "raw": {
+                "boost_argmax": 96,
+                "decisions": 116488,
+                "rate": 0.0008241192225808667
+              },
+              "resolved": {
+                "boost_argmax": 76,
+                "decisions": 116488,
+                "rate": 0.0006524277178765194
+              }
+            }
+          },
+          "decisions": 394060,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 732,
+              "decisions": 394060,
+              "rate": 0.0018575851393188853
+            },
+            "raw": {
+              "boost_argmax": 789,
+              "decisions": 394060,
+              "rate": 0.002002233162462569
+            },
+            "resolved": {
+              "boost_argmax": 733,
+              "decisions": 394060,
+              "rate": 0.0018601228239354412
+            }
+          }
+        },
+        "14": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 181,
+                "decisions": 77966,
+                "rate": 0.002321524767206218
+              },
+              "own_decision_share": 0.19697884585747166,
+              "raw": {
+                "boost_argmax": 202,
+                "decisions": 77966,
+                "rate": 0.0025908729446168844
+              },
+              "resolved": {
+                "boost_argmax": 181,
+                "decisions": 77966,
+                "rate": 0.002321524767206218
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 442,
+                "decisions": 89046,
+                "rate": 0.004963726613211149
+              },
+              "own_decision_share": 0.2249721456561119,
+              "raw": {
+                "boost_argmax": 479,
+                "decisions": 89046,
+                "rate": 0.005379242189430182
+              },
+              "resolved": {
+                "boost_argmax": 442,
+                "decisions": 89046,
+                "rate": 0.004963726613211149
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 744,
+                "decisions": 111766,
+                "rate": 0.006656765026931267
+              },
+              "own_decision_share": 0.2823735690699302,
+              "raw": {
+                "boost_argmax": 816,
+                "decisions": 111766,
+                "rate": 0.007300968094053647
+              },
+              "resolved": {
+                "boost_argmax": 745,
+                "decisions": 111766,
+                "rate": 0.006665712291752411
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 171,
+                "decisions": 117031,
+                "rate": 0.0014611513188813221
+              },
+              "own_decision_share": 0.2956754394164862,
+              "raw": {
+                "boost_argmax": 175,
+                "decisions": 117031,
+                "rate": 0.0014953302971007683
+              },
+              "resolved": {
+                "boost_argmax": 171,
+                "decisions": 117031,
+                "rate": 0.0014611513188813221
+              }
+            }
+          },
+          "decisions": 395809,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 1538,
+              "decisions": 395809,
+              "rate": 0.0038857125532769593
+            },
+            "raw": {
+              "boost_argmax": 1672,
+              "decisions": 395809,
+              "rate": 0.004224259680805641
+            },
+            "resolved": {
+              "boost_argmax": 1539,
+              "decisions": 395809,
+              "rate": 0.0038882390243779198
+            }
+          }
+        }
+      },
+      "own_trajectory": {
+        "10": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 147,
+                "decisions": 70889,
+                "rate": 0.0020736644613409696
+              },
+              "own_decision_share": 0.19495995687663636,
+              "raw": {
+                "boost_argmax": 155,
+                "decisions": 70889,
+                "rate": 0.0021865169490329953
+              },
+              "resolved": {
+                "boost_argmax": 147,
+                "decisions": 70889,
+                "rate": 0.0020736644613409696
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 271,
+                "decisions": 75568,
+                "rate": 0.003586174041922507
+              },
+              "own_decision_share": 0.20782821060042683,
+              "raw": {
+                "boost_argmax": 298,
+                "decisions": 75568,
+                "rate": 0.003943468134660174
+              },
+              "resolved": {
+                "boost_argmax": 271,
+                "decisions": 75568,
+                "rate": 0.003586174041922507
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 512,
+                "decisions": 107833,
+                "rate": 0.004748082683408604
+              },
+              "own_decision_share": 0.29656388198279465,
+              "raw": {
+                "boost_argmax": 562,
+                "decisions": 107833,
+                "rate": 0.005211762632960226
+              },
+              "resolved": {
+                "boost_argmax": 516,
+                "decisions": 107833,
+                "rate": 0.004785177079372734
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 59,
+                "decisions": 109318,
+                "rate": 0.0005397098373552388
+              },
+              "own_decision_share": 0.30064795054014215,
+              "raw": {
+                "boost_argmax": 62,
+                "decisions": 109318,
+                "rate": 0.0005671527104410984
+              },
+              "resolved": {
+                "boost_argmax": 59,
+                "decisions": 109318,
+                "rate": 0.0005397098373552388
+              }
+            }
+          },
+          "decisions": 363608,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 989,
+              "decisions": 363608,
+              "rate": 0.0027199621570482497
+            },
+            "raw": {
+              "boost_argmax": 1077,
+              "decisions": 363608,
+              "rate": 0.0029619810345206925
+            },
+            "resolved": {
+              "boost_argmax": 993,
+              "decisions": 363608,
+              "rate": 0.002730963015115179
+            }
+          }
+        },
+        "11": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 183,
+                "decisions": 84610,
+                "rate": 0.0021628649095851555
+              },
+              "own_decision_share": 0.1990818845132129,
+              "raw": {
+                "boost_argmax": 199,
+                "decisions": 84610,
+                "rate": 0.0023519678524997045
+              },
+              "resolved": {
+                "boost_argmax": 183,
+                "decisions": 84610,
+                "rate": 0.0021628649095851555
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 405,
+                "decisions": 91686,
+                "rate": 0.004417250179962045
+              },
+              "own_decision_share": 0.21573125710292446,
+              "raw": {
+                "boost_argmax": 420,
+                "decisions": 91686,
+                "rate": 0.004580852038479157
+              },
+              "resolved": {
+                "boost_argmax": 405,
+                "decisions": 91686,
+                "rate": 0.004417250179962045
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 608,
+                "decisions": 133396,
+                "rate": 0.00455785780683079
+              },
+              "own_decision_share": 0.3138722026536408,
+              "raw": {
+                "boost_argmax": 655,
+                "decisions": 133396,
+                "rate": 0.004910192209661459
+              },
+              "resolved": {
+                "boost_argmax": 615,
+                "decisions": 133396,
+                "rate": 0.004610333143422591
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 71,
+                "decisions": 115309,
+                "rate": 0.0006157368462132184
+              },
+              "own_decision_share": 0.2713146557302218,
+              "raw": {
+                "boost_argmax": 74,
+                "decisions": 115309,
+                "rate": 0.0006417538960532135
+              },
+              "resolved": {
+                "boost_argmax": 71,
+                "decisions": 115309,
+                "rate": 0.0006157368462132184
+              }
+            }
+          },
+          "decisions": 425001,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 1267,
+              "decisions": 425001,
+              "rate": 0.002981169456071868
+            },
+            "raw": {
+              "boost_argmax": 1348,
+              "decisions": 425001,
+              "rate": 0.0031717572429241342
+            },
+            "resolved": {
+              "boost_argmax": 1274,
+              "decisions": 425001,
+              "rate": 0.002997640005552928
+            }
+          }
+        },
+        "12": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 113,
+                "decisions": 80896,
+                "rate": 0.0013968552215189874
+              },
+              "own_decision_share": 0.19864892407503357,
+              "raw": {
+                "boost_argmax": 124,
+                "decisions": 80896,
+                "rate": 0.0015328322784810126
+              },
+              "resolved": {
+                "boost_argmax": 113,
+                "decisions": 80896,
+                "rate": 0.0013968552215189874
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 240,
+                "decisions": 83699,
+                "rate": 0.0028674177708216345
+              },
+              "own_decision_share": 0.20553199535398828,
+              "raw": {
+                "boost_argmax": 269,
+                "decisions": 83699,
+                "rate": 0.003213897418129249
+              },
+              "resolved": {
+                "boost_argmax": 240,
+                "decisions": 83699,
+                "rate": 0.0028674177708216345
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 1086,
+                "decisions": 126505,
+                "rate": 0.008584640923283664
+              },
+              "own_decision_share": 0.3106467827842183,
+              "raw": {
+                "boost_argmax": 1229,
+                "decisions": 126505,
+                "rate": 0.009715031026441643
+              },
+              "resolved": {
+                "boost_argmax": 1098,
+                "decisions": 126505,
+                "rate": 0.00867949883403818
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 31,
+                "decisions": 116131,
+                "rate": 0.00026693992129577806
+              },
+              "own_decision_share": 0.28517229778675984,
+              "raw": {
+                "boost_argmax": 31,
+                "decisions": 116131,
+                "rate": 0.00026693992129577806
+              },
+              "resolved": {
+                "boost_argmax": 31,
+                "decisions": 116131,
+                "rate": 0.00026693992129577806
+              }
+            }
+          },
+          "decisions": 407231,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 1470,
+              "decisions": 407231,
+              "rate": 0.003609744837696541
+            },
+            "raw": {
+              "boost_argmax": 1653,
+              "decisions": 407231,
+              "rate": 0.004059121235858763
+            },
+            "resolved": {
+              "boost_argmax": 1482,
+              "decisions": 407231,
+              "rate": 0.0036392121424940636
+            }
+          }
+        },
+        "13": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 176,
+                "decisions": 78625,
+                "rate": 0.0022384737678855324
+              },
+              "own_decision_share": 0.19952545297670404,
+              "raw": {
+                "boost_argmax": 194,
+                "decisions": 78625,
+                "rate": 0.002467408585055644
+              },
+              "resolved": {
+                "boost_argmax": 176,
+                "decisions": 78625,
+                "rate": 0.0022384737678855324
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 202,
+                "decisions": 85379,
+                "rate": 0.0023659213623959054
+              },
+              "own_decision_share": 0.2166649748769223,
+              "raw": {
+                "boost_argmax": 211,
+                "decisions": 85379,
+                "rate": 0.0024713337003244356
+              },
+              "resolved": {
+                "boost_argmax": 202,
+                "decisions": 85379,
+                "rate": 0.0023659213623959054
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 278,
+                "decisions": 113568,
+                "rate": 0.0024478726401803326
+              },
+              "own_decision_share": 0.28819976653301527,
+              "raw": {
+                "boost_argmax": 288,
+                "decisions": 113568,
+                "rate": 0.00253592561284869
+              },
+              "resolved": {
+                "boost_argmax": 279,
+                "decisions": 113568,
+                "rate": 0.002456677937447168
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 76,
+                "decisions": 116488,
+                "rate": 0.0006524277178765194
+              },
+              "own_decision_share": 0.29560980561335837,
+              "raw": {
+                "boost_argmax": 96,
+                "decisions": 116488,
+                "rate": 0.0008241192225808667
+              },
+              "resolved": {
+                "boost_argmax": 76,
+                "decisions": 116488,
+                "rate": 0.0006524277178765194
+              }
+            }
+          },
+          "decisions": 394060,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 732,
+              "decisions": 394060,
+              "rate": 0.0018575851393188853
+            },
+            "raw": {
+              "boost_argmax": 789,
+              "decisions": 394060,
+              "rate": 0.002002233162462569
+            },
+            "resolved": {
+              "boost_argmax": 733,
+              "decisions": 394060,
+              "rate": 0.0018601228239354412
+            }
+          }
+        },
+        "14": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 181,
+                "decisions": 77966,
+                "rate": 0.002321524767206218
+              },
+              "own_decision_share": 0.19697884585747166,
+              "raw": {
+                "boost_argmax": 202,
+                "decisions": 77966,
+                "rate": 0.0025908729446168844
+              },
+              "resolved": {
+                "boost_argmax": 181,
+                "decisions": 77966,
+                "rate": 0.002321524767206218
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 442,
+                "decisions": 89046,
+                "rate": 0.004963726613211149
+              },
+              "own_decision_share": 0.2249721456561119,
+              "raw": {
+                "boost_argmax": 479,
+                "decisions": 89046,
+                "rate": 0.005379242189430182
+              },
+              "resolved": {
+                "boost_argmax": 442,
+                "decisions": 89046,
+                "rate": 0.004963726613211149
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 744,
+                "decisions": 111766,
+                "rate": 0.006656765026931267
+              },
+              "own_decision_share": 0.2823735690699302,
+              "raw": {
+                "boost_argmax": 816,
+                "decisions": 111766,
+                "rate": 0.007300968094053647
+              },
+              "resolved": {
+                "boost_argmax": 745,
+                "decisions": 111766,
+                "rate": 0.006665712291752411
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 171,
+                "decisions": 117031,
+                "rate": 0.0014611513188813221
+              },
+              "own_decision_share": 0.2956754394164862,
+              "raw": {
+                "boost_argmax": 175,
+                "decisions": 117031,
+                "rate": 0.0014953302971007683
+              },
+              "resolved": {
+                "boost_argmax": 171,
+                "decisions": 117031,
+                "rate": 0.0014611513188813221
+              }
+            }
+          },
+          "decisions": 395809,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 1538,
+              "decisions": 395809,
+              "rate": 0.0038857125532769593
+            },
+            "raw": {
+              "boost_argmax": 1672,
+              "decisions": 395809,
+              "rate": 0.004224259680805641
+            },
+            "resolved": {
+              "boost_argmax": 1539,
+              "decisions": 395809,
+              "rate": 0.0038882390243779198
+            }
+          }
+        }
+      }
+    },
+    "LABELS": {
+      "ctrl_trajectory": {
+        "10": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 12123,
+                "decisions": 70889,
+                "rate": 0.17101383853630323
+              },
+              "own_decision_share": 0.19495995687663636,
+              "raw": {
+                "boost_argmax": 12126,
+                "decisions": 70889,
+                "rate": 0.17105615821918774
+              },
+              "resolved": {
+                "boost_argmax": 12123,
+                "decisions": 70889,
+                "rate": 0.17101383853630323
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 59137,
+                "decisions": 75568,
+                "rate": 0.782566694897311
+              },
+              "own_decision_share": 0.20782821060042683,
+              "raw": {
+                "boost_argmax": 59212,
+                "decisions": 75568,
+                "rate": 0.783559178488249
+              },
+              "resolved": {
+                "boost_argmax": 59139,
+                "decisions": 75568,
+                "rate": 0.7825931611264028
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 92281,
+                "decisions": 107833,
+                "rate": 0.8557769884914637
+              },
+              "own_decision_share": 0.29656388198279465,
+              "raw": {
+                "boost_argmax": 92656,
+                "decisions": 107833,
+                "rate": 0.8592545881131008
+              },
+              "resolved": {
+                "boost_argmax": 92299,
+                "decisions": 107833,
+                "rate": 0.8559439132733022
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 7211,
+                "decisions": 109318,
+                "rate": 0.06596351927404454
+              },
+              "own_decision_share": 0.30064795054014215,
+              "raw": {
+                "boost_argmax": 7246,
+                "decisions": 109318,
+                "rate": 0.0662836861267129
+              },
+              "resolved": {
+                "boost_argmax": 7211,
+                "decisions": 109318,
+                "rate": 0.06596351927404454
+              }
+            }
+          },
+          "decisions": 363608,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 170752,
+              "decisions": 363608,
+              "rate": 0.46960462916107454
+            },
+            "raw": {
+              "boost_argmax": 171240,
+              "decisions": 363608,
+              "rate": 0.47094673384523994
+            },
+            "resolved": {
+              "boost_argmax": 170772,
+              "decisions": 363608,
+              "rate": 0.4696596334514092
+            }
+          }
+        },
+        "11": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 20796,
+                "decisions": 84610,
+                "rate": 0.2457865500531852
+              },
+              "own_decision_share": 0.1990818845132129,
+              "raw": {
+                "boost_argmax": 20811,
+                "decisions": 84610,
+                "rate": 0.2459638340621676
+              },
+              "resolved": {
+                "boost_argmax": 20796,
+                "decisions": 84610,
+                "rate": 0.2457865500531852
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 73829,
+                "decisions": 91686,
+                "rate": 0.8052374408306612
+              },
+              "own_decision_share": 0.21573125710292446,
+              "raw": {
+                "boost_argmax": 73920,
+                "decisions": 91686,
+                "rate": 0.8062299587723316
+              },
+              "resolved": {
+                "boost_argmax": 73831,
+                "decisions": 91686,
+                "rate": 0.8052592544117968
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 120057,
+                "decisions": 133396,
+                "rate": 0.9000044978859936
+              },
+              "own_decision_share": 0.3138722026536408,
+              "raw": {
+                "boost_argmax": 120314,
+                "decisions": 133396,
+                "rate": 0.9019310923865783
+              },
+              "resolved": {
+                "boost_argmax": 120066,
+                "decisions": 133396,
+                "rate": 0.9000719661758974
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 22602,
+                "decisions": 115309,
+                "rate": 0.1960124534945234
+              },
+              "own_decision_share": 0.2713146557302218,
+              "raw": {
+                "boost_argmax": 22617,
+                "decisions": 115309,
+                "rate": 0.1961425387437234
+              },
+              "resolved": {
+                "boost_argmax": 22602,
+                "decisions": 115309,
+                "rate": 0.1960124534945234
+              }
+            }
+          },
+          "decisions": 425001,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 237284,
+              "decisions": 425001,
+              "rate": 0.5583139804376931
+            },
+            "raw": {
+              "boost_argmax": 237662,
+              "decisions": 425001,
+              "rate": 0.5592033901096704
+            },
+            "resolved": {
+              "boost_argmax": 237295,
+              "decisions": 425001,
+              "rate": 0.5583398627297348
+            }
+          }
+        },
+        "12": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 11726,
+                "decisions": 80896,
+                "rate": 0.144951542721519
+              },
+              "own_decision_share": 0.19864892407503357,
+              "raw": {
+                "boost_argmax": 11728,
+                "decisions": 80896,
+                "rate": 0.1449762658227848
+              },
+              "resolved": {
+                "boost_argmax": 11726,
+                "decisions": 80896,
+                "rate": 0.144951542721519
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 67200,
+                "decisions": 83699,
+                "rate": 0.8028769758300577
+              },
+              "own_decision_share": 0.20553199535398828,
+              "raw": {
+                "boost_argmax": 67265,
+                "decisions": 83699,
+                "rate": 0.8036535681429886
+              },
+              "resolved": {
+                "boost_argmax": 67202,
+                "decisions": 83699,
+                "rate": 0.8029008709781479
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 107008,
+                "decisions": 126505,
+                "rate": 0.8458796095016007
+              },
+              "own_decision_share": 0.3106467827842183,
+              "raw": {
+                "boost_argmax": 107402,
+                "decisions": 126505,
+                "rate": 0.8489941109047073
+              },
+              "resolved": {
+                "boost_argmax": 107028,
+                "decisions": 126505,
+                "rate": 0.8460377060195249
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 6595,
+                "decisions": 116131,
+                "rate": 0.05678931551437601
+              },
+              "own_decision_share": 0.28517229778675984,
+              "raw": {
+                "boost_argmax": 6618,
+                "decisions": 116131,
+                "rate": 0.05698736771404707
+              },
+              "resolved": {
+                "boost_argmax": 6595,
+                "decisions": 116131,
+                "rate": 0.05678931551437601
+              }
+            }
+          },
+          "decisions": 407231,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 192529,
+              "decisions": 407231,
+              "rate": 0.47277589378018864
+            },
+            "raw": {
+              "boost_argmax": 193013,
+              "decisions": 407231,
+              "rate": 0.4739644084070221
+            },
+            "resolved": {
+              "boost_argmax": 192551,
+              "decisions": 407231,
+              "rate": 0.4728299171723174
+            }
+          }
+        },
+        "13": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 14957,
+                "decisions": 78625,
+                "rate": 0.1902321144674086
+              },
+              "own_decision_share": 0.19952545297670404,
+              "raw": {
+                "boost_argmax": 14961,
+                "decisions": 78625,
+                "rate": 0.19028298887122416
+              },
+              "resolved": {
+                "boost_argmax": 14957,
+                "decisions": 78625,
+                "rate": 0.1902321144674086
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 71299,
+                "decisions": 85379,
+                "rate": 0.8350882535518102
+              },
+              "own_decision_share": 0.2166649748769223,
+              "raw": {
+                "boost_argmax": 71326,
+                "decisions": 85379,
+                "rate": 0.8354044905655957
+              },
+              "resolved": {
+                "boost_argmax": 71299,
+                "decisions": 85379,
+                "rate": 0.8350882535518102
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 102256,
+                "decisions": 113568,
+                "rate": 0.9003944773175543
+              },
+              "own_decision_share": 0.28819976653301527,
+              "raw": {
+                "boost_argmax": 102493,
+                "decisions": 113568,
+                "rate": 0.9024813327697943
+              },
+              "resolved": {
+                "boost_argmax": 102266,
+                "decisions": 113568,
+                "rate": 0.9004825302902226
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 26532,
+                "decisions": 116488,
+                "rate": 0.22776595014078704
+              },
+              "own_decision_share": 0.29560980561335837,
+              "raw": {
+                "boost_argmax": 26568,
+                "decisions": 116488,
+                "rate": 0.22807499484925486
+              },
+              "resolved": {
+                "boost_argmax": 26532,
+                "decisions": 116488,
+                "rate": 0.22776595014078704
+              }
+            }
+          },
+          "decisions": 394060,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 215044,
+              "decisions": 394060,
+              "rate": 0.5457138506826371
+            },
+            "raw": {
+              "boost_argmax": 215348,
+              "decisions": 394060,
+              "rate": 0.5464853068060701
+            },
+            "resolved": {
+              "boost_argmax": 215054,
+              "decisions": 394060,
+              "rate": 0.5457392275288028
+            }
+          }
+        },
+        "14": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 10458,
+                "decisions": 77966,
+                "rate": 0.13413539235051175
+              },
+              "own_decision_share": 0.19697884585747166,
+              "raw": {
+                "boost_argmax": 10463,
+                "decisions": 77966,
+                "rate": 0.13419952286894288
+              },
+              "resolved": {
+                "boost_argmax": 10458,
+                "decisions": 77966,
+                "rate": 0.13413539235051175
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 71480,
+                "decisions": 89046,
+                "rate": 0.802731172652337
+              },
+              "own_decision_share": 0.2249721456561119,
+              "raw": {
+                "boost_argmax": 71535,
+                "decisions": 89046,
+                "rate": 0.8033488309413113
+              },
+              "resolved": {
+                "boost_argmax": 71482,
+                "decisions": 89046,
+                "rate": 0.8027536329537542
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 97965,
+                "decisions": 111766,
+                "rate": 0.8765187982033892
+              },
+              "own_decision_share": 0.2823735690699302,
+              "raw": {
+                "boost_argmax": 98278,
+                "decisions": 111766,
+                "rate": 0.8793192920924073
+              },
+              "resolved": {
+                "boost_argmax": 97984,
+                "decisions": 111766,
+                "rate": 0.876688796234991
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 13525,
+                "decisions": 117031,
+                "rate": 0.11556767010450222
+              },
+              "own_decision_share": 0.2956754394164862,
+              "raw": {
+                "boost_argmax": 13530,
+                "decisions": 117031,
+                "rate": 0.11561039382727653
+              },
+              "resolved": {
+                "boost_argmax": 13525,
+                "decisions": 117031,
+                "rate": 0.11556767010450222
+              }
+            }
+          },
+          "decisions": 395809,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 193428,
+              "decisions": 395809,
+              "rate": 0.48869025211655115
+            },
+            "raw": {
+              "boost_argmax": 193806,
+              "decisions": 395809,
+              "rate": 0.48964525819271415
+            },
+            "resolved": {
+              "boost_argmax": 193449,
+              "decisions": 395809,
+              "rate": 0.4887433080096713
+            }
+          }
+        }
+      },
+      "own_trajectory": {
+        "10": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 7461,
+                "decisions": 84911,
+                "rate": 0.08786847404929868
+              },
+              "own_decision_share": 0.2054822035292865,
+              "raw": {
+                "boost_argmax": 7464,
+                "decisions": 84911,
+                "rate": 0.08790380516069767
+              },
+              "resolved": {
+                "boost_argmax": 7461,
+                "decisions": 84911,
+                "rate": 0.08786847404929868
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 72393,
+                "decisions": 189271,
+                "rate": 0.38248331757110177
+              },
+              "own_decision_share": 0.4580304335621013,
+              "raw": {
+                "boost_argmax": 72495,
+                "decisions": 189271,
+                "rate": 0.38302222738824226
+              },
+              "resolved": {
+                "boost_argmax": 72402,
+                "decisions": 189271,
+                "rate": 0.38253086843732004
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 12250,
+                "decisions": 27052,
+                "rate": 0.45283158361673814
+              },
+              "own_decision_share": 0.06546507013077527,
+              "raw": {
+                "boost_argmax": 12275,
+                "decisions": 27052,
+                "rate": 0.4537557297057519
+              },
+              "resolved": {
+                "boost_argmax": 12251,
+                "decisions": 27052,
+                "rate": 0.4528685494602987
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 3221,
+                "decisions": 111994,
+                "rate": 0.02876046931085594
+              },
+              "own_decision_share": 0.27102229277783696,
+              "raw": {
+                "boost_argmax": 3263,
+                "decisions": 111994,
+                "rate": 0.029135489401217924
+              },
+              "resolved": {
+                "boost_argmax": 3221,
+                "decisions": 111994,
+                "rate": 0.02876046931085594
+              }
+            }
+          },
+          "decisions": 413228,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 95325,
+              "decisions": 413228,
+              "rate": 0.230683787158663
+            },
+            "raw": {
+              "boost_argmax": 95497,
+              "decisions": 413228,
+              "rate": 0.2311000222637382
+            },
+            "resolved": {
+              "boost_argmax": 95335,
+              "decisions": 413228,
+              "rate": 0.23070798687407437
+            }
+          }
+        },
+        "11": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 8036,
+                "decisions": 81720,
+                "rate": 0.09833578071463533
+              },
+              "own_decision_share": 0.1912554238184618,
+              "raw": {
+                "boost_argmax": 8040,
+                "decisions": 81720,
+                "rate": 0.09838472834067548
+              },
+              "resolved": {
+                "boost_argmax": 8036,
+                "decisions": 81720,
+                "rate": 0.09833578071463533
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 76677,
+                "decisions": 192105,
+                "rate": 0.39914109471382836
+              },
+              "own_decision_share": 0.44959768958205587,
+              "raw": {
+                "boost_argmax": 76745,
+                "decisions": 192105,
+                "rate": 0.39949506780146277
+              },
+              "resolved": {
+                "boost_argmax": 76681,
+                "decisions": 192105,
+                "rate": 0.3991619166601598
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 21762,
+                "decisions": 44323,
+                "rate": 0.49098662094172324
+              },
+              "own_decision_share": 0.10373242963663341,
+              "raw": {
+                "boost_argmax": 21810,
+                "decisions": 44323,
+                "rate": 0.4920695801276989
+              },
+              "resolved": {
+                "boost_argmax": 21766,
+                "decisions": 44323,
+                "rate": 0.4910768675405546
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 7758,
+                "decisions": 109134,
+                "rate": 0.0710869206663368
+              },
+              "own_decision_share": 0.25541445696284887,
+              "raw": {
+                "boost_argmax": 7773,
+                "decisions": 109134,
+                "rate": 0.07122436637528176
+              },
+              "resolved": {
+                "boost_argmax": 7758,
+                "decisions": 109134,
+                "rate": 0.0710869206663368
+              }
+            }
+          },
+          "decisions": 427282,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 114233,
+              "decisions": 427282,
+              "rate": 0.2673480277662059
+            },
+            "raw": {
+              "boost_argmax": 114368,
+              "decisions": 427282,
+              "rate": 0.2676639783562144
+            },
+            "resolved": {
+              "boost_argmax": 114241,
+              "decisions": 427282,
+              "rate": 0.26736675076413235
+            }
+          }
+        },
+        "12": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 4482,
+                "decisions": 82450,
+                "rate": 0.05436021831412977
+              },
+              "own_decision_share": 0.2153916889373052,
+              "raw": {
+                "boost_argmax": 4488,
+                "decisions": 82450,
+                "rate": 0.05443298969072165
+              },
+              "resolved": {
+                "boost_argmax": 4482,
+                "decisions": 82450,
+                "rate": 0.05436021831412977
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 80377,
+                "decisions": 184994,
+                "rate": 0.4344843616549726
+              },
+              "own_decision_share": 0.48327677505479494,
+              "raw": {
+                "boost_argmax": 80486,
+                "decisions": 184994,
+                "rate": 0.4350735699536201
+              },
+              "resolved": {
+                "boost_argmax": 80380,
+                "decisions": 184994,
+                "rate": 0.4345005783971372
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 2295,
+                "decisions": 4770,
+                "rate": 0.4811320754716981
+              },
+              "own_decision_share": 0.01246110801978103,
+              "raw": {
+                "boost_argmax": 2303,
+                "decisions": 4770,
+                "rate": 0.4828092243186583
+              },
+              "resolved": {
+                "boost_argmax": 2295,
+                "decisions": 4770,
+                "rate": 0.4811320754716981
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 1905,
+                "decisions": 110577,
+                "rate": 0.01722781410239019
+              },
+              "own_decision_share": 0.28887042798811885,
+              "raw": {
+                "boost_argmax": 1939,
+                "decisions": 110577,
+                "rate": 0.017535292149361982
+              },
+              "resolved": {
+                "boost_argmax": 1905,
+                "decisions": 110577,
+                "rate": 0.01722781410239019
+              }
+            }
+          },
+          "decisions": 382791,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 89059,
+              "decisions": 382791,
+              "rate": 0.23265698514332886
+            },
+            "raw": {
+              "boost_argmax": 89216,
+              "decisions": 382791,
+              "rate": 0.2330671306274181
+            },
+            "resolved": {
+              "boost_argmax": 89062,
+              "decisions": 382791,
+              "rate": 0.23266482231818408
+            }
+          }
+        },
+        "13": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 6944,
+                "decisions": 82587,
+                "rate": 0.08408102970201121
+              },
+              "own_decision_share": 0.21746927038897843,
+              "raw": {
+                "boost_argmax": 6952,
+                "decisions": 82587,
+                "rate": 0.08417789724775086
+              },
+              "resolved": {
+                "boost_argmax": 6944,
+                "decisions": 82587,
+                "rate": 0.08408102970201121
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 70964,
+                "decisions": 171886,
+                "rate": 0.4128550318234179
+              },
+              "own_decision_share": 0.4526126752404125,
+              "raw": {
+                "boost_argmax": 71026,
+                "decisions": 171886,
+                "rate": 0.4132157360110771
+              },
+              "resolved": {
+                "boost_argmax": 70967,
+                "decisions": 171886,
+                "rate": 0.412872485251853
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 6443,
+                "decisions": 12141,
+                "rate": 0.5306811630014002
+              },
+              "own_decision_share": 0.031969854962555694,
+              "raw": {
+                "boost_argmax": 6454,
+                "decisions": 12141,
+                "rate": 0.5315871839222469
+              },
+              "resolved": {
+                "boost_argmax": 6444,
+                "decisions": 12141,
+                "rate": 0.530763528539659
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 7217,
+                "decisions": 113150,
+                "rate": 0.06378258948298718
+              },
+              "own_decision_share": 0.29794819940805345,
+              "raw": {
+                "boost_argmax": 7232,
+                "decisions": 113150,
+                "rate": 0.06391515687140964
+              },
+              "resolved": {
+                "boost_argmax": 7217,
+                "decisions": 113150,
+                "rate": 0.06378258948298718
+              }
+            }
+          },
+          "decisions": 379764,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 91568,
+              "decisions": 379764,
+              "rate": 0.2411181681254674
+            },
+            "raw": {
+              "boost_argmax": 91664,
+              "decisions": 379764,
+              "rate": 0.24137095669942385
+            },
+            "resolved": {
+              "boost_argmax": 91572,
+              "decisions": 379764,
+              "rate": 0.24112870098271558
+            }
+          }
+        },
+        "14": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 5298,
+                "decisions": 84004,
+                "rate": 0.06306842531308032
+              },
+              "own_decision_share": 0.21264789716432342,
+              "raw": {
+                "boost_argmax": 5302,
+                "decisions": 84004,
+                "rate": 0.06311604209323365
+              },
+              "resolved": {
+                "boost_argmax": 5298,
+                "decisions": 84004,
+                "rate": 0.06306842531308032
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 79570,
+                "decisions": 187081,
+                "rate": 0.4253237902299004
+              },
+              "own_decision_share": 0.4735772254821055,
+              "raw": {
+                "boost_argmax": 79662,
+                "decisions": 187081,
+                "rate": 0.4258155558287587
+              },
+              "resolved": {
+                "boost_argmax": 79578,
+                "decisions": 187081,
+                "rate": 0.4253665524558881
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 3523,
+                "decisions": 8545,
+                "rate": 0.4122878876535986
+              },
+              "own_decision_share": 0.02163083045175401,
+              "raw": {
+                "boost_argmax": 3533,
+                "decisions": 8545,
+                "rate": 0.41345816266822705
+              },
+              "resolved": {
+                "boost_argmax": 3524,
+                "decisions": 8545,
+                "rate": 0.41240491515506145
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 4907,
+                "decisions": 115408,
+                "rate": 0.042518716206848745
+              },
+              "own_decision_share": 0.29214404690181706,
+              "raw": {
+                "boost_argmax": 4910,
+                "decisions": 115408,
+                "rate": 0.042544710938583113
+              },
+              "resolved": {
+                "boost_argmax": 4907,
+                "decisions": 115408,
+                "rate": 0.042518716206848745
+              }
+            }
+          },
+          "decisions": 395038,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 93298,
+              "decisions": 395038,
+              "rate": 0.23617474774578648
+            },
+            "raw": {
+              "boost_argmax": 93407,
+              "decisions": 395038,
+              "rate": 0.23645067056840102
+            },
+            "resolved": {
+              "boost_argmax": 93307,
+              "decisions": 395038,
+              "rate": 0.2361975303641675
+            }
+          }
+        }
+      }
+    },
+    "LABELS_KEEPV8": {
+      "ctrl_trajectory": {
+        "10": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 5492,
+                "decisions": 70889,
+                "rate": 0.07747323280057555
+              },
+              "own_decision_share": 0.19495995687663636,
+              "raw": {
+                "boost_argmax": 5494,
+                "decisions": 70889,
+                "rate": 0.07750144592249855
+              },
+              "resolved": {
+                "boost_argmax": 5492,
+                "decisions": 70889,
+                "rate": 0.07747323280057555
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 49052,
+                "decisions": 75568,
+                "rate": 0.6491107347025196
+              },
+              "own_decision_share": 0.20782821060042683,
+              "raw": {
+                "boost_argmax": 49128,
+                "decisions": 75568,
+                "rate": 0.6501164514080033
+              },
+              "resolved": {
+                "boost_argmax": 49056,
+                "decisions": 75568,
+                "rate": 0.649163667160703
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 92150,
+                "decisions": 107833,
+                "rate": 0.8545621470236384
+              },
+              "own_decision_share": 0.29656388198279465,
+              "raw": {
+                "boost_argmax": 92532,
+                "decisions": 107833,
+                "rate": 0.8581046618382128
+              },
+              "resolved": {
+                "boost_argmax": 92171,
+                "decisions": 107833,
+                "rate": 0.8547568926024501
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 501,
+                "decisions": 109318,
+                "rate": 0.004582959805338554
+              },
+              "own_decision_share": 0.30064795054014215,
+              "raw": {
+                "boost_argmax": 501,
+                "decisions": 109318,
+                "rate": 0.004582959805338554
+              },
+              "resolved": {
+                "boost_argmax": 501,
+                "decisions": 109318,
+                "rate": 0.004582959805338554
+              }
+            }
+          },
+          "decisions": 363608,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 147195,
+              "decisions": 363608,
+              "rate": 0.40481782579041165
+            },
+            "raw": {
+              "boost_argmax": 147655,
+              "decisions": 363608,
+              "rate": 0.4060829244681085
+            },
+            "resolved": {
+              "boost_argmax": 147220,
+              "decisions": 363608,
+              "rate": 0.40488658115333
+            }
+          }
+        },
+        "11": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 12558,
+                "decisions": 84610,
+                "rate": 0.14842217232005672
+              },
+              "own_decision_share": 0.1990818845132129,
+              "raw": {
+                "boost_argmax": 12574,
+                "decisions": 84610,
+                "rate": 0.14861127526297127
+              },
+              "resolved": {
+                "boost_argmax": 12559,
+                "decisions": 84610,
+                "rate": 0.1484339912539889
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 66755,
+                "decisions": 91686,
+                "rate": 0.7280828043539908
+              },
+              "own_decision_share": 0.21573125710292446,
+              "raw": {
+                "boost_argmax": 66807,
+                "decisions": 91686,
+                "rate": 0.7286499574635168
+              },
+              "resolved": {
+                "boost_argmax": 66756,
+                "decisions": 91686,
+                "rate": 0.7280937111445586
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 115832,
+                "decisions": 133396,
+                "rate": 0.8683318840145132
+              },
+              "own_decision_share": 0.3138722026536408,
+              "raw": {
+                "boost_argmax": 116018,
+                "decisions": 133396,
+                "rate": 0.8697262286725239
+              },
+              "resolved": {
+                "boost_argmax": 115840,
+                "decisions": 133396,
+                "rate": 0.8683918558277609
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 1122,
+                "decisions": 115309,
+                "rate": 0.009730376640158184
+              },
+              "own_decision_share": 0.2713146557302218,
+              "raw": {
+                "boost_argmax": 1123,
+                "decisions": 115309,
+                "rate": 0.009739048990104849
+              },
+              "resolved": {
+                "boost_argmax": 1122,
+                "decisions": 115309,
+                "rate": 0.009730376640158184
+              }
+            }
+          },
+          "decisions": 425001,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 196267,
+              "decisions": 425001,
+              "rate": 0.4618036192856017
+            },
+            "raw": {
+              "boost_argmax": 196522,
+              "decisions": 425001,
+              "rate": 0.4624036178738403
+            },
+            "resolved": {
+              "boost_argmax": 196277,
+              "decisions": 425001,
+              "rate": 0.4618271486420032
+            }
+          }
+        },
+        "12": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 7352,
+                "decisions": 80896,
+                "rate": 0.09088212025316456
+              },
+              "own_decision_share": 0.19864892407503357,
+              "raw": {
+                "boost_argmax": 7353,
+                "decisions": 80896,
+                "rate": 0.09089448180379747
+              },
+              "resolved": {
+                "boost_argmax": 7352,
+                "decisions": 80896,
+                "rate": 0.09088212025316456
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 62629,
+                "decisions": 83699,
+                "rate": 0.7482646148699507
+              },
+              "own_decision_share": 0.20553199535398828,
+              "raw": {
+                "boost_argmax": 62688,
+                "decisions": 83699,
+                "rate": 0.748969521738611
+              },
+              "resolved": {
+                "boost_argmax": 62630,
+                "decisions": 83699,
+                "rate": 0.7482765624439958
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 106994,
+                "decisions": 126505,
+                "rate": 0.8457689419390538
+              },
+              "own_decision_share": 0.3106467827842183,
+              "raw": {
+                "boost_argmax": 107375,
+                "decisions": 126505,
+                "rate": 0.8487806806055097
+              },
+              "resolved": {
+                "boost_argmax": 107010,
+                "decisions": 126505,
+                "rate": 0.8458954191533932
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 469,
+                "decisions": 116131,
+                "rate": 0.004038542680249029
+              },
+              "own_decision_share": 0.28517229778675984,
+              "raw": {
+                "boost_argmax": 470,
+                "decisions": 116131,
+                "rate": 0.004047153645452118
+              },
+              "resolved": {
+                "boost_argmax": 469,
+                "decisions": 116131,
+                "rate": 0.004038542680249029
+              }
+            }
+          },
+          "decisions": 407231,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 177444,
+              "decisions": 407231,
+              "rate": 0.43573303604096936
+            },
+            "raw": {
+              "boost_argmax": 177886,
+              "decisions": 407231,
+              "rate": 0.4368184151010115
+            },
+            "resolved": {
+              "boost_argmax": 177461,
+              "decisions": 407231,
+              "rate": 0.43577478138943254
+            }
+          }
+        },
+        "13": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 8654,
+                "decisions": 78625,
+                "rate": 0.11006677265500794
+              },
+              "own_decision_share": 0.19952545297670404,
+              "raw": {
+                "boost_argmax": 8662,
+                "decisions": 78625,
+                "rate": 0.11016852146263911
+              },
+              "resolved": {
+                "boost_argmax": 8654,
+                "decisions": 78625,
+                "rate": 0.11006677265500794
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 66890,
+                "decisions": 85379,
+                "rate": 0.7834479204488223
+              },
+              "own_decision_share": 0.2166649748769223,
+              "raw": {
+                "boost_argmax": 66943,
+                "decisions": 85379,
+                "rate": 0.7840686819944014
+              },
+              "resolved": {
+                "boost_argmax": 66891,
+                "decisions": 85379,
+                "rate": 0.7834596329308143
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 103725,
+                "decisions": 113568,
+                "rate": 0.9133294590025359
+              },
+              "own_decision_share": 0.28819976653301527,
+              "raw": {
+                "boost_argmax": 104017,
+                "decisions": 113568,
+                "rate": 0.915900605804452
+              },
+              "resolved": {
+                "boost_argmax": 103732,
+                "decisions": 113568,
+                "rate": 0.9133910960834037
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 1708,
+                "decisions": 116488,
+                "rate": 0.014662454501751254
+              },
+              "own_decision_share": 0.29560980561335837,
+              "raw": {
+                "boost_argmax": 1715,
+                "decisions": 116488,
+                "rate": 0.014722546528397775
+              },
+              "resolved": {
+                "boost_argmax": 1708,
+                "decisions": 116488,
+                "rate": 0.014662454501751254
+              }
+            }
+          },
+          "decisions": 394060,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 180977,
+              "decisions": 394060,
+              "rate": 0.4592625488504289
+            },
+            "raw": {
+              "boost_argmax": 181337,
+              "decisions": 394060,
+              "rate": 0.460176115312389
+            },
+            "resolved": {
+              "boost_argmax": 180985,
+              "decisions": 394060,
+              "rate": 0.4592828503273613
+            }
+          }
+        },
+        "14": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 3280,
+                "decisions": 77966,
+                "rate": 0.042069620090808814
+              },
+              "own_decision_share": 0.19697884585747166,
+              "raw": {
+                "boost_argmax": 3284,
+                "decisions": 77966,
+                "rate": 0.0421209245055537
+              },
+              "resolved": {
+                "boost_argmax": 3281,
+                "decisions": 77966,
+                "rate": 0.042082446194495034
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 58460,
+                "decisions": 89046,
+                "rate": 0.656514610426072
+              },
+              "own_decision_share": 0.2249721456561119,
+              "raw": {
+                "boost_argmax": 58497,
+                "decisions": 89046,
+                "rate": 0.656930126002291
+              },
+              "resolved": {
+                "boost_argmax": 58461,
+                "decisions": 89046,
+                "rate": 0.6565258405767805
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 94205,
+                "decisions": 111766,
+                "rate": 0.8428770824758871
+              },
+              "own_decision_share": 0.2823735690699302,
+              "raw": {
+                "boost_argmax": 94476,
+                "decisions": 111766,
+                "rate": 0.8453017912424172
+              },
+              "resolved": {
+                "boost_argmax": 94222,
+                "decisions": 111766,
+                "rate": 0.8430291859778466
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 260,
+                "decisions": 117031,
+                "rate": 0.0022216335842639985
+              },
+              "own_decision_share": 0.2956754394164862,
+              "raw": {
+                "boost_argmax": 259,
+                "decisions": 117031,
+                "rate": 0.002213088839709137
+              },
+              "resolved": {
+                "boost_argmax": 260,
+                "decisions": 117031,
+                "rate": 0.0022216335842639985
+              }
+            }
+          },
+          "decisions": 395809,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 156205,
+              "decisions": 395809,
+              "rate": 0.3946474183255055
+            },
+            "raw": {
+              "boost_argmax": 156516,
+              "decisions": 395809,
+              "rate": 0.39543315083790415
+            },
+            "resolved": {
+              "boost_argmax": 156224,
+              "decisions": 395809,
+              "rate": 0.3946954212764237
+            }
+          }
+        }
+      },
+      "own_trajectory": {
+        "10": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 1788,
+                "decisions": 74941,
+                "rate": 0.023858768898199916
+              },
+              "own_decision_share": 0.19795862841384265,
+              "raw": {
+                "boost_argmax": 1791,
+                "decisions": 74941,
+                "rate": 0.02389880038963985
+              },
+              "resolved": {
+                "boost_argmax": 1788,
+                "decisions": 74941,
+                "rate": 0.023858768898199916
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 59842,
+                "decisions": 163177,
+                "rate": 0.3667306054162045
+              },
+              "own_decision_share": 0.43103635004450974,
+              "raw": {
+                "boost_argmax": 60002,
+                "decisions": 163177,
+                "rate": 0.3677111357605545
+              },
+              "resolved": {
+                "boost_argmax": 59850,
+                "decisions": 163177,
+                "rate": 0.366779631933422
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 14026,
+                "decisions": 26434,
+                "rate": 0.5306045244760536
+              },
+              "own_decision_share": 0.06982610831843072,
+              "raw": {
+                "boost_argmax": 14063,
+                "decisions": 26434,
+                "rate": 0.5320042369675418
+              },
+              "resolved": {
+                "boost_argmax": 14028,
+                "decisions": 26434,
+                "rate": 0.5306801846107286
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 193,
+                "decisions": 114017,
+                "rate": 0.0016927300314865327
+              },
+              "own_decision_share": 0.3011789132232169,
+              "raw": {
+                "boost_argmax": 194,
+                "decisions": 114017,
+                "rate": 0.0017015006534113334
+              },
+              "resolved": {
+                "boost_argmax": 193,
+                "decisions": 114017,
+                "rate": 0.0016927300314865327
+              }
+            }
+          },
+          "decisions": 378569,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 75849,
+              "decisions": 378569,
+              "rate": 0.20035713436652236
+            },
+            "raw": {
+              "boost_argmax": 76050,
+              "decisions": 378569,
+              "rate": 0.2008880811688226
+            },
+            "resolved": {
+              "boost_argmax": 75859,
+              "decisions": 378569,
+              "rate": 0.20038354963031837
+            }
+          }
+        },
+        "11": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 2758,
+                "decisions": 82362,
+                "rate": 0.03348631650518443
+              },
+              "own_decision_share": 0.20811886442027064,
+              "raw": {
+                "boost_argmax": 2757,
+                "decisions": 82362,
+                "rate": 0.03347417498360895
+              },
+              "resolved": {
+                "boost_argmax": 2758,
+                "decisions": 82362,
+                "rate": 0.03348631650518443
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 49860,
+                "decisions": 150556,
+                "rate": 0.3311724541034565
+              },
+              "own_decision_share": 0.38043689749712567,
+              "raw": {
+                "boost_argmax": 49929,
+                "decisions": 150556,
+                "rate": 0.33163075533356356
+              },
+              "resolved": {
+                "boost_argmax": 49861,
+                "decisions": 150556,
+                "rate": 0.3311790961502697
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 22080,
+                "decisions": 47413,
+                "rate": 0.4656950625355915
+              },
+              "own_decision_share": 0.11980694639224754,
+              "raw": {
+                "boost_argmax": 22124,
+                "decisions": 47413,
+                "rate": 0.46662307805876024
+              },
+              "resolved": {
+                "boost_argmax": 22085,
+                "decisions": 47413,
+                "rate": 0.4658005188450425
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 238,
+                "decisions": 115414,
+                "rate": 0.002062141507962639
+              },
+              "own_decision_share": 0.2916372916903562,
+              "raw": {
+                "boost_argmax": 240,
+                "decisions": 115414,
+                "rate": 0.0020794704281976192
+              },
+              "resolved": {
+                "boost_argmax": 238,
+                "decisions": 115414,
+                "rate": 0.002062141507962639
+              }
+            }
+          },
+          "decisions": 395745,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 74936,
+              "decisions": 395745,
+              "rate": 0.18935425589710547
+            },
+            "raw": {
+              "boost_argmax": 75050,
+              "decisions": 395745,
+              "rate": 0.18964232018092458
+            },
+            "resolved": {
+              "boost_argmax": 74942,
+              "decisions": 395745,
+              "rate": 0.1893694171752012
+            }
+          }
+        },
+        "12": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 1843,
+                "decisions": 82105,
+                "rate": 0.022446866816880823
+              },
+              "own_decision_share": 0.20922042743602093,
+              "raw": {
+                "boost_argmax": 1845,
+                "decisions": 82105,
+                "rate": 0.022471225869313684
+              },
+              "resolved": {
+                "boost_argmax": 1843,
+                "decisions": 82105,
+                "rate": 0.022446866816880823
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 90433,
+                "decisions": 195763,
+                "rate": 0.4619514412835929
+              },
+              "own_decision_share": 0.4988443887236802,
+              "raw": {
+                "boost_argmax": 90648,
+                "decisions": 195763,
+                "rate": 0.4630497080653648
+              },
+              "resolved": {
+                "boost_argmax": 90436,
+                "decisions": 195763,
+                "rate": 0.4619667659363618
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 1193,
+                "decisions": 1951,
+                "rate": 0.6114812916453101
+              },
+              "own_decision_share": 0.004971549283571973,
+              "raw": {
+                "boost_argmax": 1196,
+                "decisions": 1951,
+                "rate": 0.6130189646335212
+              },
+              "resolved": {
+                "boost_argmax": 1193,
+                "decisions": 1951,
+                "rate": 0.6114812916453101
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 202,
+                "decisions": 112614,
+                "rate": 0.0017937379011490578
+              },
+              "own_decision_share": 0.28696363455672685,
+              "raw": {
+                "boost_argmax": 203,
+                "decisions": 112614,
+                "rate": 0.0018026177917488057
+              },
+              "resolved": {
+                "boost_argmax": 202,
+                "decisions": 112614,
+                "rate": 0.0017937379011490578
+              }
+            }
+          },
+          "decisions": 392433,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 93671,
+              "decisions": 392433,
+              "rate": 0.238692974342117
+            },
+            "raw": {
+              "boost_argmax": 93892,
+              "decisions": 392433,
+              "rate": 0.23925612779761132
+            },
+            "resolved": {
+              "boost_argmax": 93674,
+              "decisions": 392433,
+              "rate": 0.2387006189591599
+            }
+          }
+        },
+        "13": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 4871,
+                "decisions": 84456,
+                "rate": 0.057675002368097
+              },
+              "own_decision_share": 0.21702239193335354,
+              "raw": {
+                "boost_argmax": 4878,
+                "decisions": 84456,
+                "rate": 0.05775788576300085
+              },
+              "resolved": {
+                "boost_argmax": 4871,
+                "decisions": 84456,
+                "rate": 0.057675002368097
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 83057,
+                "decisions": 185812,
+                "rate": 0.4469948119604762
+              },
+              "own_decision_share": 0.47747187517666345,
+              "raw": {
+                "boost_argmax": 83182,
+                "decisions": 185812,
+                "rate": 0.44766753492777644
+              },
+              "resolved": {
+                "boost_argmax": 83061,
+                "decisions": 185812,
+                "rate": 0.4470163390954298
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 2330,
+                "decisions": 4015,
+                "rate": 0.5803237858032378
+              },
+              "own_decision_share": 0.01031714624908135,
+              "raw": {
+                "boost_argmax": 2333,
+                "decisions": 4015,
+                "rate": 0.5810709838107099
+              },
+              "resolved": {
+                "boost_argmax": 2330,
+                "decisions": 4015,
+                "rate": 0.5803237858032378
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 632,
+                "decisions": 114875,
+                "rate": 0.005501632208922742
+              },
+              "own_decision_share": 0.29518858664090164,
+              "raw": {
+                "boost_argmax": 634,
+                "decisions": 114875,
+                "rate": 0.005519042437431992
+              },
+              "resolved": {
+                "boost_argmax": 632,
+                "decisions": 114875,
+                "rate": 0.005501632208922742
+              }
+            }
+          },
+          "decisions": 389158,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 90890,
+              "decisions": 389158,
+              "rate": 0.23355552243561742
+            },
+            "raw": {
+              "boost_argmax": 91027,
+              "decisions": 389158,
+              "rate": 0.2339075645367691
+            },
+            "resolved": {
+              "boost_argmax": 90894,
+              "decisions": 389158,
+              "rate": 0.2335658010371109
+            }
+          }
+        },
+        "14": {
+          "by_length": {
+            "400_699": {
+              "advisory": {
+                "boost_argmax": 1347,
+                "decisions": 81537,
+                "rate": 0.016520107435888002
+              },
+              "own_decision_share": 0.20502188841309635,
+              "raw": {
+                "boost_argmax": 1348,
+                "decisions": 81537,
+                "rate": 0.016532371806664458
+              },
+              "resolved": {
+                "boost_argmax": 1347,
+                "decisions": 81537,
+                "rate": 0.016520107435888002
+              }
+            },
+            "700_999": {
+              "advisory": {
+                "boost_argmax": 63544,
+                "decisions": 198152,
+                "rate": 0.3206831119544592
+              },
+              "own_decision_share": 0.4982461610413906,
+              "raw": {
+                "boost_argmax": 63629,
+                "decisions": 198152,
+                "rate": 0.3211120755783439
+              },
+              "resolved": {
+                "boost_argmax": 63548,
+                "decisions": 198152,
+                "rate": 0.3207032984779361
+              }
+            },
+            "ge1000": {
+              "advisory": {
+                "boost_argmax": 2312,
+                "decisions": 5378,
+                "rate": 0.4298995909259948
+              },
+              "own_decision_share": 0.013522789848604095,
+              "raw": {
+                "boost_argmax": 2315,
+                "decisions": 5378,
+                "rate": 0.4304574191149126
+              },
+              "resolved": {
+                "boost_argmax": 2312,
+                "decisions": 5378,
+                "rate": 0.4298995909259948
+              }
+            },
+            "lt400": {
+              "advisory": {
+                "boost_argmax": 154,
+                "decisions": 112632,
+                "rate": 0.0013672846082818382
+              },
+              "own_decision_share": 0.283209160696909,
+              "raw": {
+                "boost_argmax": 157,
+                "decisions": 112632,
+                "rate": 0.001393920022728887
+              },
+              "resolved": {
+                "boost_argmax": 154,
+                "decisions": 112632,
+                "rate": 0.0013672846082818382
+              }
+            }
+          },
+          "decisions": 397699,
+          "overall": {
+            "advisory": {
+              "boost_argmax": 67357,
+              "decisions": 397699,
+              "rate": 0.16936678241584716
+            },
+            "raw": {
+              "boost_argmax": 67449,
+              "decisions": 397699,
+              "rate": 0.16959811314587162
+            },
+            "resolved": {
+              "boost_argmax": 67361,
+              "decisions": 397699,
+              "rate": 0.1693768402736743
+            }
+          }
+        }
+      }
+    }
+  },
+  "receipts": {
+    "CTRL_s10__on__CTRL_s10": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s10__on__CTRL_s10.json",
+      "sha256": "4d92abf3a71e7019d3a4a5b2fa112e4a3afdcd92755cd06483cad8b83d0eff45"
+    },
+    "CTRL_s11__on__CTRL_s11": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s11__on__CTRL_s11.json",
+      "sha256": "d829f497cf4107ba3b3ba500e7f84e2f79867db730c80ba7083f973ff6e4498c"
+    },
+    "CTRL_s12__on__CTRL_s12": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s12__on__CTRL_s12.json",
+      "sha256": "1c74d9210572db525001302e980e1e58489dc81577f5728d037125564f9fbe36"
+    },
+    "CTRL_s13__on__CTRL_s13": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s13__on__CTRL_s13.json",
+      "sha256": "12584afdebb97c4ed6f0611d4e4566c8173020c7a4f16baa97238def3c46d0f2"
+    },
+    "CTRL_s14__on__CTRL_s14": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-CTRL_s14__on__CTRL_s14.json",
+      "sha256": "bb41df8584854b8b80d595687e8c23df561a04f59a44839588f555b660d1a1d5"
+    },
+    "LABELS_KEEPV8_s10__on__CTRL_s10": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s10__on__CTRL_s10.json",
+      "sha256": "4b88a3d52dbe663d95f27ca4345dfbd306b1313500d00d529fc39f6f72c84c0c"
+    },
+    "LABELS_KEEPV8_s10__on__LABELS_KEEPV8_s10": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s10__on__LABELS_KEEPV8_s10.json",
+      "sha256": "8b53abd7de06cbc97f6ed1bf16b56c3240512c8ea19266720770dda1a3886464"
+    },
+    "LABELS_KEEPV8_s11__on__CTRL_s11": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s11__on__CTRL_s11.json",
+      "sha256": "2381d992b4cf29dd9a48da5e52fe70d491ba007c4886c175bdd9c5ec03b1dafa"
+    },
+    "LABELS_KEEPV8_s11__on__LABELS_KEEPV8_s11": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s11__on__LABELS_KEEPV8_s11.json",
+      "sha256": "46e88e663ebd398dd7e5607676f259e90537ece6bc2d404aa324cb27bc2b528a"
+    },
+    "LABELS_KEEPV8_s12__on__CTRL_s12": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s12__on__CTRL_s12.json",
+      "sha256": "9674b921e2d8646d9df1b7e962daf86ff725ec11d64d3bdd374b0a2b720c72c9"
+    },
+    "LABELS_KEEPV8_s12__on__LABELS_KEEPV8_s12": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s12__on__LABELS_KEEPV8_s12.json",
+      "sha256": "2b1ed87a26f30adbb2d8ee715e3eb4aafa361d521582055d5d9d25d743186bec"
+    },
+    "LABELS_KEEPV8_s13__on__CTRL_s13": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s13__on__CTRL_s13.json",
+      "sha256": "9ee427a3de1b147ba93a23b25dc2965277f77fb14215a8db36f2cc2fc01cfab9"
+    },
+    "LABELS_KEEPV8_s13__on__LABELS_KEEPV8_s13": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s13__on__LABELS_KEEPV8_s13.json",
+      "sha256": "6058a43cf4ef132b0b073991e186d737a6b2c67079ef4b0364307e90b8c294cf"
+    },
+    "LABELS_KEEPV8_s14__on__CTRL_s14": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s14__on__CTRL_s14.json",
+      "sha256": "0a26733fce7d87951218750780cc50899df35ffc84a29d25c04b1e5e52411589"
+    },
+    "LABELS_KEEPV8_s14__on__LABELS_KEEPV8_s14": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_KEEPV8_s14__on__LABELS_KEEPV8_s14.json",
+      "sha256": "e7932783efdc2221de5e57e3a99b0d41bc32c29cd98c9cef0dad16e8e062e617"
+    },
+    "LABELS_s10__on__CTRL_s10": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s10__on__CTRL_s10.json",
+      "sha256": "408eae773fb298740bc75bc4aa4fa15faa7f5ec370894b55855dd389b1a241e5"
+    },
+    "LABELS_s10__on__LABELS_s10": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s10__on__LABELS_s10.json",
+      "sha256": "13ce0b9c5836c37aff4c59a8e3afababd3395f2b2775eec0038934d0317dc71c"
+    },
+    "LABELS_s11__on__CTRL_s11": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s11__on__CTRL_s11.json",
+      "sha256": "cf719cb562a9834ce532d9f0b5c4692821454dd2209e914a21a59e4bf1098a94"
+    },
+    "LABELS_s11__on__LABELS_s11": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s11__on__LABELS_s11.json",
+      "sha256": "f324556fcbd27b56b386cd988ddc997a3370c7a11cd1d9b7c315e1409ca6625d"
+    },
+    "LABELS_s12__on__CTRL_s12": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s12__on__CTRL_s12.json",
+      "sha256": "9eef3985ba641895118879073a721f723e4191d9bda7c0ba6a0885efbfe6c8e2"
+    },
+    "LABELS_s12__on__LABELS_s12": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s12__on__LABELS_s12.json",
+      "sha256": "5d3633f1812eb96b5b57713c89bd3e06c4d5d2f26e8e6350e63ea42f5f17c37e"
+    },
+    "LABELS_s13__on__CTRL_s13": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s13__on__CTRL_s13.json",
+      "sha256": "d13a141d7e4e7a3417477866a333db2404632181d657769a828824872eb1b93e"
+    },
+    "LABELS_s13__on__LABELS_s13": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s13__on__LABELS_s13.json",
+      "sha256": "88f888527fc819747fccedc7af43430ccaba2f43c92a7aa1f2d035f7228b9126"
+    },
+    "LABELS_s14__on__CTRL_s14": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s14__on__CTRL_s14.json",
+      "sha256": "8914903f8d5c81f8e78b39cf1f5e679ffc05fba35408afcd6a4a5300db6f2305"
+    },
+    "LABELS_s14__on__LABELS_s14": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4a-posthoc-20261016/receipts/boost-LABELS_s14__on__LABELS_s14.json",
+      "sha256": "60a32e2c9007b55c586ead6a0ad5bce38d4dacaa86da6c87af39ee6c3edf2d42"
+    }
+  },
+  "schema": "t4a-posthoc-boost-summary/v1"
+}
