@@ -6,9 +6,9 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from research.t4c_20261016 import data
-
 import numpy as np
+
+from research.t4c_20261016 import data
 
 
 def audit(root: Path = data.ROOT, source: Path = data.V2) -> dict:

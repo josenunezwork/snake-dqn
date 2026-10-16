@@ -1,0 +1,28 @@
+{
+  "schema": "t4c-drift-retrospective-provenance/v1",
+  "timing": "after captures, before final handoff",
+  "runtime_source_attestation": false,
+  "limitation": "Original runtime receipts did not bind Python source. These exact archived bytes are contextual evidence from after capture, not proof of the code bytes executing in each process.",
+  "report": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/drift-summary-verified.json",
+    "sha256": "c85a14412b0c3774d2d8c7d4d3b2ebb1dbca7797b0e1f712182d20d0d07697c0"
+  },
+  "source_snapshots": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/source-snapshots/2437a91396219d5b62299e1e1ee3d548c3016ee545f30f2808a83444ca64f92a.py": "2437a91396219d5b62299e1e1ee3d548c3016ee545f30f2808a83444ca64f92a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/source-snapshots/5810cf2fb08ac67752c78008cd634b11169dd7f7cbab3ea44b6a596d0ddf34c6.py": "5810cf2fb08ac67752c78008cd634b11169dd7f7cbab3ea44b6a596d0ddf34c6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/source-snapshots/6c908a53d45bc96a2417f8351586081159cc9c0ed595a8422e3a2f000d8daa25.py": "6c908a53d45bc96a2417f8351586081159cc9c0ed595a8422e3a2f000d8daa25",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/source-snapshots/fb47b5353e8db9ab7300ff87ab43e6169d5071536f25bbd7e595fca6884adcdf.py": "fb47b5353e8db9ab7300ff87ab43e6169d5071536f25bbd7e595fca6884adcdf"
+  },
+  "original_receipts": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s10__r62__scripted.receipt.json": "5b7706aadd71cdef81d4d75e5f94319daa25826050a5fe51e2a3564d9c994cea",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s10__r65__scripted.receipt.json": "fa53369f20adeb38836ba9050b7679427fb06fa389610f28ad459651e036503d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s11__r62__scripted.receipt.json": "302cf7b171b0306ad892b536643cbad1d2bd3155b9bec355aab2fc46572155e7",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s11__r65__scripted.receipt.json": "b651ebbef8a7276e06c558c86e33e7e3c4275e95a54aca6229654ddf9822f567",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s12__r62__scripted.receipt.json": "52c2608d9eeb02f416f8392202e0f2f3003386519e4a7ec9d1ab75e77b73aa21",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s12__r65__scripted.receipt.json": "2a8e968d461cf1771491c974f0df771a0e605bd62c0634fdc4b9e3faaf0f356d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s13__r62__scripted.receipt.json": "90ad7871f315a7700b2b872240040b7256090814b17fdb61d4aa2111fcb3b4a6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s13__r65__scripted.receipt.json": "a89e444eac9aa9db497397be273a668adcd066a777a699fac611779e6fb2e80e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s14__r62__scripted.receipt.json": "35ca3d367ce4437429f914b839fc4ada3068787c0f6af7ef766b1d24f8be2957",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4c-drift-20261016/captures/CTRL_s14__r65__scripted.receipt.json": "1dcef58b5802dbb002d418430ee40b6b7d70e334e690e7af31ffa8105cf5bcb1"
+  }
+}

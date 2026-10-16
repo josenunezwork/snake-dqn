@@ -16,9 +16,9 @@ def run(seed: int, out: Path = ROOT / "candidates") -> dict:
     import torch
 
     from research.b8_death_census_20261014.census import b8_path
+    from research.redesign_m2_20261008 import ni_spec
     from research.t3_diagnostics_20261016 import replay as t3
     from research.t4a_posthoc_20261016.capture import _context
-    from research.redesign_m2_20261008 import ni_spec
     from src.core.device_manager import DeviceManager
     from src.simd_env import ego2s_policy, eval_engine
     from src.simd_env.ego_raster import build_ego_raster
