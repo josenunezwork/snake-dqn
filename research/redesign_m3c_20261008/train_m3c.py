@@ -264,6 +264,11 @@ def boost_bucket_rates(decisions: np.ndarray, boosts: np.ndarray) -> dict[str, f
     }
 
 
+def per_1k_or_none(numerator: int, denominator: int) -> float | None:
+    """Return a rate per 1,000, retaining an empty denominator as undefined."""
+    return 1000 * numerator / denominator if denominator else None
+
+
 def boost_halt_reason(args, row: dict, transitions: int) -> str | None:
     """Apply the independent overall and below-700 greedy-boost tripwires."""
     if args.boost_halt_rate is not None and row["greedy_boost_rate"] > args.boost_halt_rate:
@@ -3108,8 +3113,12 @@ def main_multi(args) -> int:
         st["restart_total"] = {
             "restart_decisions": 0,
             "fresh_decisions": 0,
+            "restart_decisions_ge800": 0,
+            "fresh_decisions_ge800": 0,
             "restart_deaths": 0,
             "fresh_deaths": 0,
+            "restart_deaths_ge800": 0,
+            "fresh_deaths_ge800": 0,
             "restart_length_sum": 0,
             "fresh_length_sum": 0,
             "restart_death_length_sum": 0,
@@ -3273,8 +3282,24 @@ def main_multi(args) -> int:
                         ),
                         restart_decisions=rst.get("restart_decisions", 0),
                         fresh_decisions=rst.get("fresh_decisions", 0),
+                        restart_decisions_ge800=rst.get("restart_decisions_ge800", 0),
+                        fresh_decisions_ge800=rst.get("fresh_decisions_ge800", 0),
                         restart_deaths=rst.get("restart_deaths", 0),
                         fresh_deaths=rst.get("fresh_deaths", 0),
+                        restart_deaths_ge800=rst.get("restart_deaths_ge800", 0),
+                        fresh_deaths_ge800=rst.get("fresh_deaths_ge800", 0),
+                        restart_deaths_per_1k_ge800=(
+                            per_1k_or_none(
+                                rst.get("restart_deaths_ge800", 0),
+                                rst.get("restart_decisions_ge800", 0),
+                            )
+                        ),
+                        fresh_deaths_per_1k_ge800=(
+                            per_1k_or_none(
+                                rst.get("fresh_deaths_ge800", 0),
+                                rst.get("fresh_decisions_ge800", 0),
+                            )
+                        ),
                         restart_length_mean=(
                             rst.get("restart_length_sum", 0)
                             / max(1, rst.get("restart_decisions", 0))
@@ -3541,6 +3566,12 @@ def main_multi(args) -> int:
         rst = st["restart_total"]
         summary["restart_totals"] = {
             **rst,
+            "restart_deaths_per_1k_ge800": per_1k_or_none(
+                rst["restart_deaths_ge800"], rst["restart_decisions_ge800"]
+            ),
+            "fresh_deaths_per_1k_ge800": per_1k_or_none(
+                rst["fresh_deaths_ge800"], rst["fresh_decisions_ge800"]
+            ),
             "restart_length_mean": rst["restart_length_sum"] / max(1, rst["restart_decisions"]),
             "fresh_length_mean": rst["fresh_length_sum"] / max(1, rst["fresh_decisions"]),
             "restart_death_length_mean": (

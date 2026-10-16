@@ -116,7 +116,9 @@ def _run_actor(mod, tmp_path, init, frames, extra=(), worlds=5):
 
 
 def _baseline(tmp_path, monkeypatch):
-    rev = "865ae05"
+    # T4f's length-stratified boost telemetry is part of the frozen pre-T6
+    # contract, so 865ae05 is no longer a valid default-path reference.
+    rev = "f3375b26d410c4de0feb2cd049c6021171902e53"
     source = subprocess.check_output(
         ["git", "show", f"{rev}:research/redesign_m3c_20261008/train_m3c.py"], text=True
     )
@@ -141,14 +143,38 @@ def test_restart_actor_telemetry_splits_decisions_deaths_and_lengths():
     assert telemetry.take() == {
         "restart_decisions": 2,
         "fresh_decisions": 1,
+        "restart_decisions_ge800": 0,
+        "fresh_decisions_ge800": 0,
         "restart_deaths": 1,
         "fresh_deaths": 1,
+        "restart_deaths_ge800": 0,
+        "fresh_deaths_ge800": 0,
         "restart_length_sum": 30,
         "fresh_length_sum": 30,
         "restart_death_length_sum": 20,
         "fresh_death_length_sum": 30,
     }
     assert all(value == 0 for value in telemetry.take().values())
+
+
+def test_restart_actor_telemetry_counts_ge800_at_decision_time():
+    telemetry = RestartActorTelemetry()
+    telemetry.record(
+        worlds=np.array([0, 1, 2, 3]),
+        lengths=np.array([799, 800, 801, 900]),
+        died=np.array([True, True, False, True]),
+        restarted=np.array([True, True, False, False]),
+    )
+    values = telemetry.take()
+    assert values["restart_decisions_ge800"] == 1
+    assert values["restart_deaths_ge800"] == 1
+    assert values["fresh_decisions_ge800"] == 2
+    assert values["fresh_deaths_ge800"] == 1
+
+
+def test_ge800_death_rate_is_null_without_decisions():
+    assert T.per_1k_or_none(0, 0) is None
+    assert T.per_1k_or_none(2, 800) == 2.5
 
 
 def test_nstep_boundary_flushes_only_expired_world():
@@ -264,10 +290,14 @@ def test_restart_actor_cpu_smoke_retires_snapshot_worlds_at_their_clock_boundary
     assert sum(msg["restart_decisions"] for msg in messages) == 30
     assert sum(msg["fresh_decisions"] for msg in messages) == 240
     assert all("restart_length_sum" in msg and "fresh_length_sum" in msg for msg in messages)
+    assert all(
+        "restart_decisions_ge800" in msg and "fresh_decisions_ge800" in msg for msg in messages
+    )
+    assert all("restart_deaths_ge800" in msg and "fresh_deaths_ge800" in msg for msg in messages)
 
 
 @pytest.mark.skipif(not HAVE_CKPT, reason="needs the pinned frp3-s12 checkpoints")
-def test_restart_default_actor_trace_matches_git_865ae05(tmp_path, monkeypatch):
+def test_restart_default_actor_trace_matches_frozen_pre_t6_baseline(tmp_path, monkeypatch):
     baseline = _baseline(tmp_path, monkeypatch)
     init = _init(tmp_path)
     ref_messages, ref_ring = _run_actor(baseline, tmp_path / "base", init, 50)
