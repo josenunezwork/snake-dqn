@@ -9,6 +9,7 @@ extension, then produce the same result from the complete evidence set.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -185,6 +186,7 @@ def _telemetry_for(telemetry: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]
             samples = window(key, "bank_agree_" + point)
             values["%s_%s_mean" % (key, point)] = _mean(samples)
             values["%s_%s_n" % (key, point)] = len(samples)
+    values["bank_agreement_per_100k_means"] = _per_100k_means(runs)
     decisive, counter = values["bank_agree_decisive_8m_mean"], values["bank_agree_counter_8m_mean"]
     if values["bank_agree_decisive_8m_n"] != len(SEEDS) or values["bank_agree_counter_8m_n"] != len(
         SEEDS
@@ -203,6 +205,27 @@ def _telemetry_for(telemetry: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]
         verdict = "inconclusive."
     values["bank_agree_readout_verdict"] = verdict
     return values
+
+
+def _per_100k_means(runs: Mapping[str, Mapping[str, Any]]) -> Dict[str, List[Dict[str, float]]]:
+    """Pool observed side agreement by nominal 100k telemetry bins.
+
+    Actor packets may place an observation slightly either side of its nominal
+    boundary.  Each observed side remains its own sample; absent sides do not
+    contribute a zero.
+    """
+    output: Dict[str, List[Dict[str, float]]] = {}
+    for key in ("bank_agree_decisive", "bank_agree_counter"):
+        bins: Dict[int, List[float]] = {}
+        for run in runs.values():
+            for point in run.get("bank_agreement_curves", {}).get(key, []):
+                nominal = int((int(point["transitions"]) + WINDOW // 2) // WINDOW) * WINDOW
+                bins.setdefault(nominal, []).append(float(point["value"]))
+        output[key] = [
+            {"transitions": transition, "mean": _mean(samples), "n": len(samples)}
+            for transition, samples in sorted(bins.items())
+        ]
+    return output
 
 
 def _decision(data: Mapping[str, Any], statuses: Mapping[str, int], extended: bool) -> str:
@@ -464,7 +487,7 @@ def _nearest(
 def read_telemetry(
     run_dirs: Union[Sequence[Path], Mapping[str, Path]],
 ) -> Dict[str, Dict[str, Any]]:
-    """Read every required bank-agreement window and greedy-boost curve from logs."""
+    """Read retained raw log records plus required derived telemetry summaries."""
     output: Dict[str, Dict[str, Any]] = {}
     roots = (
         run_dirs.items() if isinstance(run_dirs, Mapping) else ((None, root) for root in run_dirs)
@@ -475,7 +498,8 @@ def read_telemetry(
         for log_path in paths:
             if not log_path.exists():
                 continue
-            lines = [json.loads(line) for line in log_path.read_text().splitlines() if line.strip()]
+            source_text = log_path.read_text()
+            lines = [json.loads(line) for line in source_text.splitlines() if line.strip()]
             boost = [
                 {"transitions": int(row["transitions"]), "value": float(row["greedy_boost_rate"])}
                 for row in lines
@@ -496,7 +520,26 @@ def read_telemetry(
                     for key in ("bank_agree", "bank_agree_decisive", "bank_agree_counter")
                 }
 
+            final_record = lines[-1] if lines else {}
+            final_metrics = {
+                key: final_record.get(key)
+                for key in (
+                    "td",
+                    "anchor",
+                    "qmax",
+                    "bank_margin_loss",
+                    "bank_rows_mean",
+                    "tight_frac",
+                )
+            }
+
             output[supplied_name or log_path.parent.name] = {
+                "source_log": {
+                    "path": str(log_path),
+                    "sha256": hashlib.sha256(source_text.encode()).hexdigest(),
+                },
+                "telemetry_records": lines,
+                "final_telemetry": final_metrics,
                 "greedy_boost_rate": boost[-1]["value"] if boost else None,
                 "greedy_boost_rate_curve": boost,
                 "bank_agreement_curves": bank_curves,
@@ -658,6 +701,20 @@ def markdown(result: Mapping[str, Any]) -> str:
         )
     lines += [
         "",
+        "### Final retained learner telemetry",
+        "",
+        "| run | TD | anchor | Q max | bank margin loss | bank rows | tight fraction |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for name, item in sorted(result.get("telemetry_by_run", {}).items()):
+        final = item.get("final_telemetry", {})
+        rendered = [
+            "missing" if final.get(key) is None else "%.6g" % float(final[key])
+            for key in ("td", "anchor", "qmax", "bank_margin_loss", "bank_rows_mean", "tight_frac")
+        ]
+        lines.append("| %s | %s | %s | %s | %s | %s | %s |" % (name, *rendered))
+    lines += [
+        "",
         "### Bank agreement per 100k",
         "",
         "| run | ordinary | decisive | counter |",
@@ -675,6 +732,12 @@ def markdown(result: Mapping[str, Any]) -> str:
                 or "missing"
             )
         lines.append("| %s | %s | %s | %s |" % (name, *rendered))
+    lines += ["", "### Five-seed side means per nominal 100k", ""]
+    for key, label in (("bank_agree_decisive", "decisive"), ("bank_agree_counter", "counter")):
+        lines += ["#### %s" % label, "", "| nominal transitions | mean | n |", "|---:|---:|---:|"]
+        for point in telemetry["bank_agreement_per_100k_means"].get(key, []):
+            lines.append("| %d | %.6f | %d |" % (point["transitions"], point["mean"], point["n"]))
+        lines.append("")
     reroll = data["reroll"]
     lines += [
         "",
@@ -691,6 +754,38 @@ def markdown(result: Mapping[str, Any]) -> str:
             reroll["advisory_argmax_decisive_mean"],
             reroll["advisory_argmax_counter_mean"],
         ),
+        "",
+        "### Per-final re-roll",
+        "",
+        "| final | target survival | raw decisive / counter | advisory decisive / counter | "
+        "states decisive / counter |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for name, item in sorted(result.get("rerolls_by_run", {}).items()):
+        raw, advisory, counts = (
+            item.get("raw_argmax_matches_t4a_target_by_side", {}),
+            item.get("advisory_argmax_matches_t4a_target_by_side", {}),
+            item.get("states_by_side", {}),
+        )
+
+        def side(pair: Mapping[str, Any], key: str) -> str:
+            value = pair.get(key)
+            return "missing" if value is None else "%.4f" % float(value)
+
+        lines.append(
+            "| %s | %s | %s / %s | %s / %s | %s / %s |"
+            % (
+                name,
+                side(item, "target_action_survival_fraction"),
+                side(raw, "decisive"),
+                side(raw, "counter"),
+                side(advisory, "decisive"),
+                side(advisory, "counter"),
+                counts.get("decisive", "missing"),
+                counts.get("counter", "missing"),
+            )
+        )
+    lines += [
         "",
         "The re-roll uses the T4a target: v2 preferred set for decisive rows and the stored B8 "
         "action for counters, classified by `surviving_original`. It is descriptive and cannot "

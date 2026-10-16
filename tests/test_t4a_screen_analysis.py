@@ -120,6 +120,7 @@ def test_telemetry_uses_final_post_8m_window_and_side_verdict(tmp_path: Path):
                         "bank_agree_decisive": 0.91,
                         "bank_agree_counter": 0.92,
                         "greedy_boost_rate": 0.03,
+                        "qmax": 17.0,
                     },
                 )
             )
@@ -135,6 +136,11 @@ def test_telemetry_uses_final_post_8m_window_and_side_verdict(tmp_path: Path):
     assert (
         telemetry[f"{ARM}_s10"]["bank_agree_8m"]["bank_agree_decisive"]["transitions"] == 8_000_128
     )
+    run = telemetry[f"{ARM}_s10"]
+    assert run["source_log"]["path"].endswith("log.jsonl")
+    assert len(run["source_log"]["sha256"]) == 64
+    assert run["telemetry_records"][-1]["qmax"] == 17.0
+    assert run["final_telemetry"]["qmax"] == 17.0
 
 
 def test_missing_side_is_not_zero_or_a_verdict_of_input_limit(tmp_path: Path):
@@ -234,6 +240,64 @@ def test_bank_agreement_diagnostic_thresholds_are_strict():
     )
     assert "inconclusive" in _telemetry_for(telemetry(0.8, 0.91))["bank_agree_readout_verdict"]
     assert "input limit" in _telemetry_for(telemetry(0.799999, 0.91))["bank_agree_readout_verdict"]
+
+
+def test_retained_telemetry_has_raw_records_nominal_bins_and_report_tables(tmp_path: Path):
+    from research.t4a_screen_20261016.analyze_t4a import markdown
+
+    roots = {}
+    for seed in range(10, 15):
+        root = tmp_path / f"{ARM}_s{seed}"
+        root.mkdir()
+        (root / "log.jsonl").write_text(
+            "\n".join(
+                json.dumps(row)
+                for row in (
+                    {
+                        "transitions": 100_128,
+                        "bank_agree_decisive": 0.2 + seed / 1000,
+                        "bank_agree_counter": 0.8,
+                    },
+                    {
+                        "transitions": 8_000_128,
+                        "bank_agree_decisive": 0.91,
+                        "bank_agree_counter": 0.92,
+                        "td": 0.12,
+                        "anchor": 0.03,
+                        "qmax": 12.0,
+                        "bank_margin_loss": 0.04,
+                        "bank_rows_mean": 128.0,
+                        "tight_frac": None,
+                    },
+                )
+            )
+            + "\n"
+        )
+        roots[root.name] = root
+    telemetry = read_telemetry(roots)
+    rows, statuses = _dataset()
+    rerolls = {
+        f"{ARM}_s{seed}": {
+            "target_action_survival_fraction": 0.7,
+            "raw_argmax_matches_t4a_target_by_side": {"decisive": 0.6, "counter": 0.8},
+            "advisory_argmax_matches_t4a_target_by_side": {"decisive": 0.65, "counter": 0.85},
+            "states_by_side": {"decisive": 120, "counter": 80},
+        }
+        for seed in range(10, 15)
+    }
+    result = analyze(rows, statuses, telemetry, rerolls)
+    aggregate = result["arms"][ARM]["telemetry"]["bank_agreement_per_100k_means"]
+    assert aggregate["bank_agree_decisive"][0] == {
+        "transitions": 100_000,
+        "mean": pytest.approx(0.212),
+        "n": 5,
+    }
+    assert telemetry[f"{ARM}_s10"]["final_telemetry"]["bank_rows_mean"] == 128.0
+    report = markdown(result)
+    assert "Final retained learner telemetry" in report
+    assert "Five-seed side means per nominal 100k" in report
+    assert "Per-final re-roll" in report
+    assert f"| {ARM}_s10 | 0.7000 | 0.6000 / 0.8000" in report
 
 
 def test_t3_context_preserves_exhausted_extension_and_source_binding():
