@@ -122,3 +122,12 @@ The five 8M RETURN_C runs are **UNSTARTED**. Only the collection, evaluator smok
 and capped calibration described here were executed. No unrelated tmux session
 or process was manipulated. Once bound, preserve this amendment's bytes; further
 changes require a sibling amendment.
+
+## Result (planner, 2026-10-16): RETURN_C = KILL by the pre-registered boost tripwire
+RETURN_C_s11 halted at 200,064 transitions: overall greedy boost 4.75% > 2% (receipt
+`redesign-t4f-mac-20261016/KILL.json`); RETURN_C_s10 stopped by the shared arm-halt receipt at
+200,192 with greedy boost 0.98% (all at L < 700, at the 1% low-length line). Per the
+pre-registration a halt is KILL for the arm; no probes were run. Fourth arm in which teaching the
+decisive boost escape generalised into broad boosting (T3 LABELS, RETURN, RETURN_C; margin arms when
+strong): the decisive boost advantage is real (+32 Q, 87% vs 50% survival) but not discriminable
+from bv8 inputs. Next per the declared fork: inputs.
