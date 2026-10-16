@@ -186,3 +186,21 @@ def summarize(out: Path, summary: Mapping[str, Any]) -> dict[str, Any]:
         "baseline_per_seed": summary["rounds"]["62"]["arms"]["B8"]["per_seed"],
         "within_ten_percentage_points": within,
     }
+
+
+def main() -> int:
+    """Capture one final in a watcher-owned single-threaded CPU worker."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    receipt = capture(args.seed, args.checkpoint, args.out)
+    print(json.dumps({"seed": args.seed, "capture": receipt["capture"]}), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

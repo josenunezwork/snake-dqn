@@ -16,6 +16,11 @@ probe workers throughout the run. The watcher never queries tmux and never
 controls training. Only its own child handles are cleaned up on failure.
 The abandoned CPU T4c run is pruned from freshness inventory discovery.
 
+After a final completes all three initial gameplay mixes, its historical r62
+drift capture may occupy an idle worker slot. Gameplay jobs take priority and
+both job types share the same two-worker cap. The final diagnostic phase
+revalidates each saved capture and its input hashes before computing readouts.
+
 The launch audit is preserved as `seed_bank_audit_round66.json`. If extension
 is needed, freshness is checked again and preserved separately as
 `seed_bank_audit_round67.json`. Resumed probes validate checkpoint identities,

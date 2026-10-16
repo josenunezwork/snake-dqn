@@ -190,6 +190,22 @@ def _event(out: Path, kind: str, **data: Any) -> None:
     print(json.dumps(record), flush=True)
 
 
+def pending_drift(completed: list[dict[str, Any]], out: Path) -> list[int]:
+    """Use idle slots only after a final has completed all initial gameplay mixes."""
+    done = {(job["name"], job["round_index"], job["mix"]) for job in completed}
+    return [
+        seed
+        for seed in range(10, 15)
+        if all((f"{ARM}_s{seed}", 66, mix) in done for mix in MIX_WORLDS)
+        and not (
+            out
+            / "t4c-final-drift"
+            / "captures"
+            / f"CTRL_s{seed}__r62__scripted.t4c-final.receipt.json"
+        ).exists()
+    ]
+
+
 def _load_audit(path: Path, *, extension: bool) -> dict[str, Any]:
     """Reuse a passing immutable audit receipt when resuming owned probes."""
     audit = json.loads(path.read_text())
@@ -390,6 +406,39 @@ def run(args: argparse.Namespace) -> int:
                 )
                 active[key] = process, log, job
                 _event(out, "probe_started", key=key, pid=process.pid)
+            # Historical-state diagnostics share the same cap, with gameplay
+            # jobs taking priority. Their outputs are validated again in _finish.
+            for seed in pending_drift(completed, out):
+                if len(active) >= WORKER_LIMIT:
+                    break
+                key = f"drift_s{seed}"
+                if key in active:
+                    continue
+                command = [
+                    "nice",
+                    "-n",
+                    "10",
+                    str(REPO / "venv/bin/python"),
+                    "-m",
+                    "research.t3_screen_20261015.drift_t4c",
+                    "--seed",
+                    str(seed),
+                    "--checkpoint",
+                    str(checkpoint(f"{ARM}_s{seed}", args.train, args.ctrl)),
+                    "--out",
+                    str(out / "t4c-final-drift"),
+                ]
+                log = (out / "logs" / f"{key}.log").open("a")
+                process = subprocess.Popen(
+                    command,
+                    cwd=REPO,
+                    env=environment(),
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    pass_fds=(lock.fileno(),),
+                )
+                active[key] = process, log, {"diagnostic_seed": seed}
+                _event(out, "diagnostic_started", key=key, pid=process.pid)
             atomic_json(
                 out / "progress.json",
                 {

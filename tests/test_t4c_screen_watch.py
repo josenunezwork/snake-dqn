@@ -69,3 +69,15 @@ def test_saved_audit_requires_exact_registered_seed_bank(tmp_path, monkeypatch):
     )
     with pytest.raises(ValueError, match="seed-audit bank"):
         watch._load_audit(path, extension=False)
+
+
+def test_idle_drift_requires_all_final_mixes_and_reuses_terminal_receipt(tmp_path):
+    jobs = [job for job in watch.base_jobs() if job["name"] == "TWO_SIDED_T_s10"]
+    assert watch.pending_drift(jobs[:2], tmp_path) == []
+    assert watch.pending_drift(jobs, tmp_path) == [10]
+    receipt = (
+        tmp_path / "t4c-final-drift" / "captures" / "CTRL_s10__r62__scripted.t4c-final.receipt.json"
+    )
+    receipt.parent.mkdir(parents=True)
+    receipt.write_text("{}")
+    assert watch.pending_drift(jobs, tmp_path) == []
