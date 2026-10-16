@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -50,3 +52,34 @@ def test_append_report_refuses_duplicate_section(tmp_path) -> None:
     report.write_text("# Existing\n\n## 4. Boost reconciliation (T4a post-hoc)\n")
     with pytest.raises(ValueError, match="already contains"):
         boost.append_report(report, summary)
+
+
+def test_load_summary_rejects_a_receipt_with_omitted_bound_input(tmp_path, monkeypatch) -> None:
+    out = tmp_path / "evidence"
+    array = out / "boost" / "LABELS_s10__on__CTRL_s10.npz"
+    array.parent.mkdir(parents=True)
+    np.savez_compressed(
+        array,
+        length=np.array([400], dtype=np.int32),
+        raw_action=np.array([3], dtype=np.int8),
+        resolved_action=np.array([3], dtype=np.int8),
+        advisory_action=np.array([3], dtype=np.int8),
+    )
+    bound = {"/bound/input": "expected-digest"}
+    monkeypatch.setattr(boost, "_bound_inputs", lambda trajectory, student: ({}, bound))
+    receipt = {
+        "schema": "t4a-posthoc-boost/v1",
+        "student": "LABELS_s10",
+        "trajectory": "CTRL_s10",
+        "array": str(array),
+        "array_sha256": boost.sha256(array),
+        "inputs_sha256": {},
+        "selection": "round62 scripted H5000 rowwise advisory",
+        "telemetry_greedy_mask": "resolved with normal-only fallback",
+    }
+    receipt_path = out / "receipts" / "boost-LABELS_s10__on__CTRL_s10.json"
+    receipt_path.parent.mkdir()
+    receipt_path.write_text(json.dumps(receipt))
+
+    with pytest.raises(ValueError, match="input binding mismatch"):
+        boost._load_summary(out, "LABELS_s10", "CTRL_s10")
