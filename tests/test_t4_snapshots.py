@@ -105,3 +105,23 @@ def test_graft_rejects_incompatible_arena():
     target = GridBatchSim(replace(source.cfg, mechanics_version=1), seeds=[1])
     with pytest.raises(ValueError, match="mechanics_version"):
         S._graft(target, rt, 0, snap)
+
+
+def test_restore_pins_opponent_featurizer_parameters(tmp_path, monkeypatch):
+    from src.simd_env.vector61_featurizer import Vector61Params
+
+    sim, rt = world()
+    snap = S.capture(sim, rt, [("scripted", "random_safe")] * 5)
+    S.save_snapshot(tmp_path / "s.npz", snap)
+
+    # A restore must not consult a different process's global GameConfig.
+    def forbidden(*args, **kwargs):
+        raise AssertionError("global featurizer configuration consulted during restore")
+
+    monkeypatch.setattr(Vector61Params, "from_game_config", forbidden)
+    restored, runtime, _, _ = S.restore(S.load_snapshot(tmp_path / "s.npz"))
+    assert runtime.featurizer.p == rt.featurizer.p
+    assert_state_equal(sim, rt, restored, runtime)
+    snap["runtime_params"]["max_length"] += 1
+    with pytest.raises(ValueError, match="featurizer parameters"):
+        S._graft(sim, rt, 0, snap)

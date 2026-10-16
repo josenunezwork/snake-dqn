@@ -11,11 +11,14 @@ from typing import Any
 
 import numpy as np
 
-from research.t4_snapshot_restart_20261016.snapshots import (SCHEMA, capture,
-                                                             restore,
-                                                             save_snapshot,
-                                                             sha256,
-                                                             step_recorded)
+from research.t4_snapshot_restart_20261016.snapshots import (
+    SCHEMA,
+    capture,
+    restore,
+    save_snapshot,
+    sha256,
+    step_recorded,
+)
 
 
 def state_hashes(sim: Any, runtime: Any) -> dict:
@@ -86,8 +89,7 @@ def reconstruct_world(
     bank: Path, receipt_path: Path, out: Path, limit: int, check_parity: bool
 ) -> tuple[list, dict]:
     from research.t3_rollout_labels_20261015 import bank_engine as be
-    from research.t3_rollout_labels_20261015.calibrate_bank import \
-        _check_b8_checkpoint
+    from research.t3_rollout_labels_20261015.calibrate_bank import _check_b8_checkpoint
     from research.t4_snapshot_restart_20261016.snapshots import load_snapshot
 
     receipt = json.loads(receipt_path.read_text())

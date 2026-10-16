@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-SCHEMA = "t4-snapshot-store/v1"
+SCHEMA = "t4-snapshot-store/v2"
 # Views are reconstructed from the exact padded storage; helpers are lazy caches.
 SIM_SKIP = {"cfg", "_owner", "_slot", "_food", "_det", "_kernels"}
 
@@ -100,6 +100,7 @@ def capture(sim: Any, runtime: Any, specs: list, provenance: dict | None = None)
             memory=vars(runtime.memory),
             runtime_counts=[runtime.fresh_rows, runtime.carried_rows],
             backend=runtime.backend,
+            runtime_params=asdict(runtime.featurizer.p),
             specs=[list(s) for s in specs],
             provenance=provenance or {},
         )
@@ -131,6 +132,7 @@ def restore(snapshot: dict) -> tuple:
     from src.simd_env.batch_sim import BatchSimConfig
     from src.simd_env.eval_engine import _terminal_hero_sim_class
     from src.simd_env.grid_sim import GridBatchSim
+    from src.simd_env.vector61_featurizer import Vector61Params
     from src.simd_env.vector61_policy import Vector61Runtime
 
     cls = _terminal_hero_sim_class("grid") if snapshot["terminal_hero"] else GridBatchSim
@@ -142,7 +144,9 @@ def restore(snapshot: dict) -> tuple:
 
     sim._kernels = grid_sim_nb if snapshot["jit"] else None
     _restore_grid_views(sim)
-    runtime = Vector61Runtime(backend=snapshot["backend"])
+    runtime = Vector61Runtime(
+        params=Vector61Params(**snapshot["runtime_params"]), backend=snapshot["backend"]
+    )
     runtime.bind(sim, snapshot["runtime"]["controlled"])
     for key, value in snapshot["runtime"].items():
         setattr(runtime, key, value.copy())
@@ -153,7 +157,7 @@ def restore(snapshot: dict) -> tuple:
     return sim, runtime, policies, groups
 
 
-def make_policies(sim: Any, runtime: Any, rosters: list) -> tuple:
+def make_policies(sim: Any, runtime: Any, rosters: list, forward: str = "rowwise") -> tuple:
     from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
     from src.simd_env.vector61_policy import Vector61SimdPolicy
 
@@ -166,8 +170,7 @@ def make_policies(sim: Any, runtime: Any, rosters: list) -> tuple:
         if spec[0] == "scripted":
             policies[spec] = FastProfileAnchorSimdPolicy(spec[1], sim.get_world_seeds())
         else:
-            # Original collector uses rowwise CPU evaluation, even after batch grafting.
-            policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward="rowwise")
+            policies[spec] = Vector61SimdPolicy(spec[1], runtime, forward=forward)
     return policies, {k: np.asarray(v, dtype=np.int64) for k, v in groups.items()}
 
 
@@ -186,6 +189,8 @@ def _graft(sim: Any, runtime: Any, e: int, snapshot: dict) -> None:
     for key, value in snapshot["config"].items():
         if key not in reward_fields and getattr(sim.cfg, key) != value:
             raise ValueError(f"snapshot arena/config mismatch: {key}")
+    if asdict(runtime.featurizer.p) != snapshot["runtime_params"]:
+        raise ValueError("snapshot opponent featurizer parameters mismatch")
     for key, value in snapshot["sim"].items():
         if key in {"E", "_env_index", "_snake_index"}:
             continue
@@ -259,5 +264,7 @@ class SnapshotStore:
             _graft(sim, runtime, int(e), snap)
             rosters[e] = snap["specs"]
             restarted[e] = True
-        policies, groups = make_policies(sim, runtime, rosters)
+        # Preserve the actor's existing numerical execution mode. Standalone
+        # source parity uses rowwise inference; the actor already acts batched.
+        policies, groups = make_policies(sim, runtime, rosters, forward="batched")
         return policies, groups, restarted
