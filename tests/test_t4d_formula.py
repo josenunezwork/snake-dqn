@@ -61,7 +61,11 @@ def short_branch(kind: str, gamma: float, kappa: float) -> dict:
     if kind == "growth":
         assert lengths[0] > 6
     if kind == "boost":
-        assert lengths[-1] < 6
+        assert lengths == [6, 6, 5]
+        # The third boosted frame burns the extra tail into a v2 trail pellet.
+        # No initial food or ordinary food replenishment exists in this fixture.
+        assert (13, 10) in sim.corpse_cells[0]
+        assert (13, 10) in sim.food_set[0]
     return {
         "T": len(rewards),
         "died": died,
