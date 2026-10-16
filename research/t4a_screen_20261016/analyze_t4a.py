@@ -661,6 +661,12 @@ def markdown(result: Mapping[str, Any]) -> str:
         "",
         telemetry["bank_agree_readout_verdict"],
         "",
+        "![Full five-seed boost and bank-agreement trajectories]"
+        "(../../research/t4a_screen_20261016/results/telemetry_curves.svg)",
+        "",
+        "Curves show every logged 100k window. The dashed boost curve is the five-seed "
+        "CTRL mean; the bank panels show the registered 0.9 and decisive 0.8 thresholds.",
+        "",
         "### Greedy boost rate per 100k",
         "",
         "| run | transition:value |",
