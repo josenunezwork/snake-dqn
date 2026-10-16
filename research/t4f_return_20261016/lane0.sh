@@ -8,8 +8,8 @@ check_only=${1:-}
 repo=/Users/josenunez/Projects/ml/snake-dqn-t4d
 art=/Users/josenunez/Projects/ml/snake-dqn-artifacts
 runs="$art/redesign-t4f-mac-20261016"
-bank="$art/t4f-return-bank-20261016/banks/train"
-binding=research/t4f_return_20261016/launch_inputs.json
+bank="$art/t4f-return-bank-v3-20261016/banks/train"
+binding=research/t4f_return_20261016/launch_inputs_addendum2.json
 seeds=(10 12 14)
 cd "$repo"
 export PYTHONPATH="$PWD"

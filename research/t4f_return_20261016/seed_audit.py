@@ -32,6 +32,9 @@ ROUNDS = (INITIAL_ROUND, EXTENSION_ROUND)
 CONSUMED_ROUNDS = (68, 69)
 COLLECTION_WORLD_COUNT = 1200
 WORLD_RE = re.compile(r"world-(\d+)-.*-s(\d+)(?:-|\.)")
+MACRO_SCHEMA = "t4f-return-bank/v3"
+MACRO_SCHEMA_VERSION = 2
+MACRO_POLICY = "first_branch_boost_then_B8_direction_boost_if_legal_k_frames_then_B8"
 
 
 def sha256(path: Path) -> str:
@@ -309,7 +312,8 @@ def _macro_bank_audit(macro_root: Path, source: Path) -> dict[str, Any]:
                 }
             )
             row["pass"] = (
-                binding.get("schema") == "t4f-return-bank/v2"
+                binding.get("schema") == MACRO_SCHEMA
+                and binding.get("policy") == MACRO_POLICY
                 and Path(str(binding.get("source", ""))).resolve() == source
                 and actual == expected
             )
@@ -333,6 +337,7 @@ def _macro_bank_audit(macro_root: Path, source: Path) -> dict[str, Any]:
             continue
         manifest = json.loads(path.read_text())
         binding = manifest.get("source_bank", {})
+        macro = manifest.get("macro")
         source_manifest = source / "banks" / kind / "manifest.json"
         shard_names = sorted(p.name for p in path.parent.glob("*.npz"))
         source_shard_names = sorted(p.name for p in source_manifest.parent.glob("*.npz"))
@@ -340,6 +345,7 @@ def _macro_bank_audit(macro_root: Path, source: Path) -> dict[str, Any]:
             {
                 "schema": manifest.get("collection_schema"),
                 "schema_version": manifest.get("schema_version"),
+                "macro_policy": macro.get("policy") if isinstance(macro, Mapping) else None,
                 "source_manifest_sha256": binding.get("manifest_sha256"),
                 "expected_source_manifest_sha256": sha256(source_manifest),
                 "shards": len(shard_names),
@@ -348,8 +354,10 @@ def _macro_bank_audit(macro_root: Path, source: Path) -> dict[str, Any]:
             }
         )
         row["pass"] = (
-            manifest.get("collection_schema") == "t4f-return-bank/v2"
-            and manifest.get("schema_version") == 2
+            manifest.get("collection_schema") == MACRO_SCHEMA
+            and manifest.get("schema_version") == MACRO_SCHEMA_VERSION
+            and isinstance(macro, Mapping)
+            and macro.get("policy") == MACRO_POLICY
             and row["source_manifest_sha256"] == row["expected_source_manifest_sha256"]
             and row["shard_set_matches"]
         )
@@ -383,7 +391,7 @@ def seed_bank_audit(
     macro = (
         Path(macro_bank).resolve()
         if macro_bank is not None
-        else artifact_root / "t4f-return-bank-20261016"
+        else artifact_root / "t4f-return-bank-v3-20261016"
     )
     output = Path(exclude_out).resolve() if exclude_out is not None else None
     if output is not None and (output.is_dir() or output.suffix != ".json"):

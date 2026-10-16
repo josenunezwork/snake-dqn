@@ -9,6 +9,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+COLLECTION_SCHEMA = "t4f-return-bank/v3"
+SCHEMA_VERSION = 2
+MACRO_POLICY = "first_branch_boost_then_B8_direction_boost_if_legal_k_frames_then_B8"
+MACRO_DEPTH = 300
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -18,6 +23,20 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _verify_corrected_macro(name: str, manifest: dict[str, Any]) -> None:
+    """Reject banks made with addendum 2's superseded repeated-turn macro."""
+    macro = manifest.get("macro")
+    if not isinstance(macro, dict):
+        raise ValueError(f"{name} macro-bank has no macro identity")
+    if macro.get("policy") != MACRO_POLICY:
+        raise ValueError(f"{name} macro-bank does not use addendum 2 boost geometry")
+    if macro.get("depth") != MACRO_DEPTH:
+        raise ValueError(f"{name} macro-bank has unexpected macro depth")
+    period = macro.get("boost_cost_period_frames")
+    if not isinstance(period, int) or isinstance(period, bool) or period < 1:
+        raise ValueError(f"{name} macro-bank has invalid boost cost period")
+
+
 def _verify_bank(name: str, bank: dict[str, Any]) -> dict[str, int]:
     root = Path(bank["path"])
     manifest_path = root / "manifest.json"
@@ -25,10 +44,11 @@ def _verify_bank(name: str, bank: dict[str, Any]) -> dict[str, int]:
         raise ValueError(f"{name} macro bank manifest missing")
     manifest = json.loads(manifest_path.read_text())
     if (
-        manifest.get("collection_schema") != "t4f-return-bank/v2"
-        or manifest.get("schema_version") != 2
+        manifest.get("collection_schema") != COLLECTION_SCHEMA
+        or manifest.get("schema_version") != SCHEMA_VERSION
     ):
         raise ValueError(f"unexpected {name} macro-bank schema")
+    _verify_corrected_macro(name, manifest)
     shards = manifest.get("shards")
     if not isinstance(shards, dict) or {p.name for p in root.glob("*.npz")} != set(shards):
         raise ValueError(f"{name} macro-bank shard set differs from its manifest")

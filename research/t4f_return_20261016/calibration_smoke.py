@@ -17,7 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 ART = ROOT.parent / "snake-dqn-artifacts"
 UPDATE_LIMIT = 300
-MACRO_BANK = ART / "t4f-return-bank-20261016/banks/train"
+# Addendum 2's direction-preserving boost geometry.  The v2 bank is retained
+# as immutable evidence and must never be reused for calibration or launch.
+MACRO_BANK = ART / "t4f-return-bank-v3-20261016/banks/train"
 
 
 def recipe(seed: int, weight: float, out: Path, *, bank: Path = MACRO_BANK) -> list[str]:
