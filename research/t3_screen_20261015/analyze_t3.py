@@ -502,7 +502,7 @@ def markdown(result: Mapping[str, Any]) -> str:
             % (
                 arm,
                 data.get("initial_decision", data["decision"]),
-                data["decision"],
+                ("EXTEND exhausted / stop" if data["extension_exhausted"] else data["decision"]),
                 _fmt(script["episode_survival"]),
                 _fmt(script["mass"]),
                 failed,
@@ -519,6 +519,12 @@ def markdown(result: Mapping[str, Any]) -> str:
         "episode-survival drop beyond -0.05. KILL applies to primary <= 0 or any halted run. "
         "Otherwise one automatic round-63 scripted extension (96 worlds for arm and CTRL) is "
         "allowed, then stops.",
+        "",
+        "Scripted final contrasts use 192 worlds per training seed after the one-time "
+        "extension. Frozen/mixed contrasts retain round 62 (32 worlds per seed). Incumbent "
+        "contrasts use round 62 only (96 scripted, 32 frozen, 32 mixed). An exhausted "
+        "EXTEND is stopped without GO; guard failures alone do not satisfy the registered "
+        "nonpositive-primary KILL condition.",
         "",
         "## Secondary outcomes",
         "",

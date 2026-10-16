@@ -17,7 +17,7 @@ status in `lane0-status.txt` / `lane1-status.txt`. CTRL = M6 CTRL finals; incumb
    incumbent per mix, death lengths, greedy boost curve).
 3. Also report T3's final arms next to TWO_SIDED (from the T3 analysis on main) for context only.
 4. Doc `docs/research/t4a_screen_result_2026-10-16.md`; tests for new analysis code; flake8.
-Git: branch t4prep-20261015; commit often; after each commit `git fetch origin && git merge
-origin/main`, `git push origin HEAD:main`, `git push origin t4prep-20261015`.
+Git: branch t4p-20261016 (worktree /Users/josenunez/Projects/ml/snake-dqn-t4p); commit often; after each commit `git fetch origin && git merge
+origin/main`, `git push origin HEAD:main`, `git push origin t4p-20261016`.
 Keep polling (~10 min) until the doc is pushed. Final message: decision with primary delta/SE, mass
 per mix, per-side bank_agree readout verdict, commit sha.

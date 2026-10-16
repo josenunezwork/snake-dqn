@@ -173,6 +173,17 @@ def run(args: argparse.Namespace) -> int:
                     event("extension_required", jobs=extra)
                     continue
                 (out / "probes.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+                atomic_json(
+                    out / "progress.json",
+                    dict(
+                        completed=len(completed),
+                        required=len(eligible),
+                        active=[],
+                        training_status=statuses,
+                        controls_complete=True,
+                        phase="rerolls",
+                    ),
+                )
                 event("probes_complete", rows=len(rows))
                 # Re-rolls are a separate, resumable phase, with no overlap with probes.
                 return finish(args, rows, statuses, audit, lock, event)
