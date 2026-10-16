@@ -1,0 +1,52 @@
+{
+  "audit_note": "Initial broad text audit matched only this task transcript containing the timed-out audit command and its own failed receipt. Corrected audit preserves and identifies those exact documentary files; actual results remain in scope. Full corrected receipt records scan-time identities and exclusions.",
+  "collection_check": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/collection-check.json",
+    "sha256": "696203dcbf68bc3694642142c47dd2669dd7a22438630ac285f4ae961e114dd9"
+  },
+  "collection_command": "research/t4e_return_20261016/collect.sh",
+  "collection_formula_trainer_regressions": {
+    "deselected": 2,
+    "passed": 55
+  },
+  "cpu_threads_per_worker": 1,
+  "default_trace": "docs/research/t4e_default_trace_2026-10-16.json",
+  "final_collection_tests": {
+    "passed": 25
+  },
+  "flake8": "PASS",
+  "initial_delta_tests": {
+    "deselected": 2,
+    "passed": 59
+  },
+  "preregistration": "docs/research/specs/t4e_prereg_2026-10-16.md",
+  "preregistration_sha256": "d404e5d95e3671d12b0c0761246862448b0f84a1fbc7ffecc3046ac1b1fdd6a0",
+  "review": "Independent implementation and collection launch reviews passed.",
+  "schema": "t4e-precollection-validation/v1",
+  "seed_audit": {
+    "checks": {
+      "68": {
+        "count": 96,
+        "observed_json_collisions": [],
+        "other_reserved_round_collisions": [],
+        "registered_collisions": [],
+        "seed_digest": "59bd22625f824c73d4350e8e337a9bc257f0cb14eadcae1724ce9e7efd5a2cab",
+        "unique": true
+      },
+      "69": {
+        "count": 96,
+        "observed_json_collisions": [],
+        "other_reserved_round_collisions": [],
+        "registered_collisions": [],
+        "seed_digest": "e81677df82c467111ed08a8c769c265661db5ce1255e17a3a1a6f29803a971b7",
+        "unique": true
+      }
+    },
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/seed_audit_corrected.json",
+    "sha256": "24e2bf5dfc9fde4e2bd38628eaaa67010370724847dac3afa8e180d43cb6a2b6",
+    "status": "PASS"
+  },
+  "tmux_session": "t4e-collect",
+  "training_started": false,
+  "workers": 12
+}
