@@ -43,13 +43,20 @@ def seed_bank_audit(
     for round_index in (62, 63, 64):
         registered.update(ni_spec.distill_seeds(96, round_index=round_index))
 
+    repository_results = repo_path / "research/t4a_screen_20261016/results"
     roots = [repo_path / "research"] + sorted(
         path
         for path in artifact_root.iterdir()
         if path.is_dir()
         and any(token in path.name for token in ("probe", "eval", "strict", "gate"))
     )
-    inventories = {str(root): prior_banks._json_inventory(root, exclude=output) for root in roots}
+    inventories = {
+        str(root): prior_banks._json_inventory(
+            root,
+            exclude=(repository_results if root == repo_path / "research" else output),
+        )
+        for root in roots
+    }
     observed = set().union(*(set(item["seeds"]) for item in inventories.values()))
     namespace_path = artifact_root / "t3-rollout-labels-20261015/bank/namespace.json"
     binding: dict[str, Any] = {"ok": False, "reason": "namespace.json missing"}
@@ -105,6 +112,7 @@ def seed_bank_audit(
             "artifact probe/eval/strict/gate JSON, and immutable T3 label namespace"
         ),
         "excluded_output": str(output) if output is not None else None,
+        "excluded_repository_results": str(repository_results),
         "registered_t2_audit": {"pass": t2["pass"], "schema": t2["schema"]},
         "t3_rollout_training_namespace": namespace,
         "inventories": {

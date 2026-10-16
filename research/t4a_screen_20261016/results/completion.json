@@ -1,0 +1,52 @@
+{
+  "schema": "t4a-screen-completion/v1",
+  "completed_utc": "2026-10-16T05:42:35.902095+00:00",
+  "decision": "KILL",
+  "primary": {
+    "mean": -0.027083333333333338,
+    "seed_se": 0.04547683323529807,
+    "pooled_world_se": 0.03125811771159172,
+    "seeds": [
+      10,
+      11,
+      12,
+      13,
+      14
+    ],
+    "seed_n": 5,
+    "world_n": 480,
+    "complete": true
+  },
+  "rounds": [
+    65
+  ],
+  "probe_rows": 33,
+  "reroll_finals": 5,
+  "reroll_states_each": 200,
+  "watcher_exit": 0,
+  "peak_owned_workers": 2,
+  "owned_job_starts": {
+    "probe_started": 33,
+    "reroll_started": 5
+  },
+  "watcher_log_sha256": "fbed6dfbcb0d5ea3c807514d4d6fb39664d44be8f6f4e217c92e13484b2b00af",
+  "registered_inputs_verified": 19,
+  "t3_context_binding": {
+    "source_ref": "origin/main",
+    "source_file": "research/t3_screen_20261015/results/analysis.json",
+    "source_commit": "2ea7ea74becd6eeb026f70117230612c6c62e280",
+    "sha256": "febb02330e77f6a4d3237ccd0e13db9c368bc0788e1bb89c28cdb7af5fe50f3e"
+  },
+  "files_sha256": {
+    "research/t4a_screen_20261016/results/analysis.json": "a62ea551547598172d3f75bc344dba6f3a295e19b1d947de40156f4f628d99e3",
+    "research/t4a_screen_20261016/results/probes.jsonl": "53091bd3196bc325a113eea09dd530b1836e1fc3bbc7d052a92cce5affa5a45d",
+    "research/t4a_screen_20261016/results/reroll_sample.json": "198de7fdc123cdc22d92f94be903c2902657fd26612d4a141588f3b9effc39dd",
+    "research/t4a_screen_20261016/results/rerolls.json": "d4d5897065ff707c7319fa3ae0b720e0cd7542a9ee8234b5e47676f4b35ece63",
+    "research/t4a_screen_20261016/results/seed_bank_audit.json": "eaecd1637b1eb130b36777323ad030c20f5d842c61a5748dcb04f315b07342b1",
+    "research/t4a_screen_20261016/results/t3_context_binding.json": "cc52417f42d522c61f9598f57491e162b85824cfccfdadd95a1ce19f2432c855",
+    "research/t4a_screen_20261016/results/telemetry.json": "9999958dc948bb003cf03bf363872d9afc235e1f71189b0e058ebc7adf03c0fa",
+    "research/t4a_screen_20261016/results/telemetry_curves.svg": "c62c1e35668363b4935a8499f85bb3957c416e5cbe3c7adcff930f82e3ea50d5",
+    "research/t4a_screen_20261016/results/training_receipts.json": "6f321dcf1a6c96d651e993985edb6d51035f08d85f1a3ec4699eef9de57234da",
+    "docs/research/t4a_screen_result_2026-10-16.md": "5c30bbd43448fd387ed2cbb31984177dd5e133e3799a4c929d3259dd5bca45ea"
+  }
+}

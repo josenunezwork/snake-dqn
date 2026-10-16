@@ -1,0 +1,2492 @@
+{
+  "bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4-prep-20261015/bank-v2",
+  "bank_manifest_sha256": "340415402e04cd938a7e66e5f9e7294968d34b5a78b789b4fe02ae503c8bd221",
+  "entries": [
+    {
+      "decision": 4248,
+      "digest": "e200e08f86bdb5202037efba4d054ae77f429a3e73eb6e893541b956cebfbce8",
+      "frame": 4249,
+      "row": 3,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-frozen-c5-i37-s172444232",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4438,
+      "digest": "aeed84dfec227643aa893a5b620118a770dd7b5a7570f8e8b0a0c847330203a2",
+      "frame": 4439,
+      "row": 41,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-frozen-c5-i37-s172444232",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 4610,
+      "digest": "6178cccaca8ef1821d7cdc11d78b62524a42541442162323055084799076567a",
+      "frame": 4611,
+      "row": 64,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-mixed-c0-i34-s4099930730",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 3663,
+      "digest": "0319fc2ddbe17a5dd7f265415865bc5c936adc4b12d29ea8b6736fddce7c4277",
+      "frame": 3664,
+      "row": 123,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-mixed-c1-i30-s3736807180",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3024,
+      "digest": "95ec2e245b3dea2d45a0cc75a922b2d42149c82569eb83847407c7ab0254145e",
+      "frame": 3025,
+      "row": 187,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-mixed-c4-i31-s3296819663",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3634,
+      "digest": "195ca8baa59030c09ced7888b3501ed6130dc88836afebd2bf64eb87a2f863e5",
+      "frame": 3635,
+      "row": 235,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-mixed-c6-i27-s2088977902",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3719,
+      "digest": "92d79781e861fff9d9b745c7ac4c223a7d543506bd738c222f07b9d526c5b99a",
+      "frame": 3720,
+      "row": 252,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-mixed-c6-i27-s2088977902",
+      "target_actions": [
+        5
+      ]
+    },
+    {
+      "decision": 2641,
+      "digest": "50df19e73d5fcec2590e7038dd81b9843ba76ead6b471c56cd3584bf09b77e9d",
+      "frame": 2642,
+      "row": 268,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-mixed-c6-i32-s2564988402",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4196,
+      "digest": "ee819dea6c6b2ed054e9808d7bb429ed24bde2baac62a418162ad3abc49b6a65",
+      "frame": 4197,
+      "row": 384,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c0-i14-s3921707978",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 2165,
+      "digest": "00a066856d39ce8cd248dbee5b9f01f2d784c4e3a0dbb742cd8702821a8c53fa",
+      "frame": 2166,
+      "row": 487,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c0-i2-s4012095132",
+      "target_actions": [
+        5
+      ]
+    },
+    {
+      "decision": 3229,
+      "digest": "9eb78723f796c930799ea1386416af8d3fd82a662c0410de80672e7f6b4684a7",
+      "frame": 3230,
+      "row": 547,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c0-i24-s1977845399",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3278,
+      "digest": "cdc610af11398784a79c4f4815a29b187c041b5f12acb97c9d2f77b21008beb1",
+      "frame": 3279,
+      "row": 782,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c1-i14-s2913899960",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2111,
+      "digest": "dca89ef722e54040e32dfb12cdc658150e8ed8b467ca10d6c14a57c1edd0c1ed",
+      "frame": 2112,
+      "row": 801,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c1-i15-s653495702",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 2241,
+      "digest": "876c1943c00378440898aaaaafd92086266ac0360b556d4d211bf2e8e8c053d6",
+      "frame": 2242,
+      "row": 827,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c1-i15-s653495702",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3345,
+      "digest": "1969b33a9e749ba6e0d1995993cc4bddc7dc56529cdc59e9bb045f161453b94f",
+      "frame": 3346,
+      "row": 898,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c1-i6-s2859224992",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3299,
+      "digest": "d740aaed74da690add991e52d2f2f324633895a7e130c53c3f539e72a3855e90",
+      "frame": 3300,
+      "row": 1022,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c2-i0-s1897287859",
+      "target_actions": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "decision": 3712,
+      "digest": "1c8fe14d81d8ce53d8b645332a59344188bb29b7dda83439783a0c007843b7cc",
+      "frame": 3713,
+      "row": 1206,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c2-i13-s2756300338",
+      "target_actions": [
+        4,
+        5
+      ]
+    },
+    {
+      "decision": 3732,
+      "digest": "4c68bc8ff68bc57e898ed2740777b6976c388d17ac0bbfe22e4b2c60107cc90b",
+      "frame": 3733,
+      "row": 1210,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c2-i13-s2756300338",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 2329,
+      "digest": "00fd2e902919054984233ef36341a1423ca1bf01095a63edf3f3d05f47c4c78b",
+      "frame": 2330,
+      "row": 1216,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c2-i16-s2410812688",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2449,
+      "digest": "0d20d936c283fdaa91b52b40a20a71cce9db84dcb157e862fbcc2fbf91a216f2",
+      "frame": 2450,
+      "row": 1240,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c2-i16-s2410812688",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2539,
+      "digest": "dbe792de196fb7a77a50a02eab722d33abc8eef64afc6a3e5b290a95c80d43ff",
+      "frame": 2540,
+      "row": 1258,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c2-i16-s2410812688",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2817,
+      "digest": "3a7494fc9f5b306249add53507dc877d20cb8e0e33a2bb044dfc11637dd58fc2",
+      "frame": 2818,
+      "row": 1440,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c2-i24-s190005917",
+      "target_actions": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "decision": 3727,
+      "digest": "8e8da7f13f025696a5c0c0b50c2dcf8204e9eebed2b9d8246e92a2d7839c11d0",
+      "frame": 3728,
+      "row": 1508,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c2-i8-s2778131036",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 2753,
+      "digest": "ecd086d128910fd0ab71dc09e116d67b9fc50d99b30894a67c6bfb7af8fe5468",
+      "frame": 2754,
+      "row": 1514,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c3-i1-s2847956643",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2910,
+      "digest": "50de57478ff6f3addce08a6c59dbe72c37b71a9772ffa3e01189c79818e76fe2",
+      "frame": 2911,
+      "row": 1636,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c3-i22-s208301658",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2995,
+      "digest": "af3040c3762a24806b1454b79806263bcfa63b4ce72c146277b654579f66197f",
+      "frame": 2996,
+      "row": 1653,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c3-i22-s208301658",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3007,
+      "digest": "297bae495429da4f87ef2408d53ae3bd065f32aae6447974c155b0c62fea9a6e",
+      "frame": 3008,
+      "row": 1788,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c3-i8-s1477423453",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 4298,
+      "digest": "3e2e8336594d88034af91f2863f1e0cb685388e97d6362d00c71a7b1bdb01f5f",
+      "frame": 4299,
+      "row": 1854,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c4-i12-s1936314109",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2243,
+      "digest": "d9953020db8c40b9358e41c953322576b1d76aa600a7e47a278f63e435127d98",
+      "frame": 2244,
+      "row": 1978,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c5-i11-s4086203743",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2589,
+      "digest": "2b45ee665313414067fa1a3b98017aaf4999d20957731c76c99686fbaa53fe9c",
+      "frame": 2590,
+      "row": 2033,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c5-i14-s1512333695",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 2704,
+      "digest": "2b8f0c9f1f2b7d9532d3d8af4bb72409a18d2c594dac2c1765deaf39459776f3",
+      "frame": 2705,
+      "row": 2056,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c5-i14-s1512333695",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4117,
+      "digest": "90b67b514708f0e23af8beb3736945a4bc501e2395adff48b202fc0926235531",
+      "frame": 4118,
+      "row": 2125,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c5-i16-s2734976723",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 3096,
+      "digest": "bb3fdcf31ac2a1c1656741a5d1b9676832351d3178850cfd95177adc7ef69660",
+      "frame": 3097,
+      "row": 2239,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c5-i26-s4119270665",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2987,
+      "digest": "de1f58548c3b271ff1c54b1ad1b6d844c0c572f5d65c495ac50d1ba1a7f927d2",
+      "frame": 2988,
+      "row": 2324,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c5-i4-s3638116599",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4687,
+      "digest": "6f9c748a830bcd176dfbca500d47ccbfa964cc0b0bf33529ea6aba2e011dd61f",
+      "frame": 4688,
+      "row": 2351,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c6-i10-s1023715466",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3072,
+      "digest": "d3962308c703f0a443ef7813df7e2f01e1a157dc2508f392ef869bd870e8f11f",
+      "frame": 3073,
+      "row": 2365,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c6-i17-s1411079556",
+      "target_actions": [
+        3,
+        5
+      ]
+    },
+    {
+      "decision": 4228,
+      "digest": "800172496ccc5e11eaf7ffca0d55c85e4694f104ed6b47f394f4bc02c7314eca",
+      "frame": 4229,
+      "row": 2419,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c6-i21-s1933636670",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2742,
+      "digest": "f5fe98fb9e2ee09764e550580ce908167e04ee5ea35ede32f0e86a35061aeb8e",
+      "frame": 2743,
+      "row": 2450,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c6-i24-s3234912699",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3059,
+      "digest": "b102d36f0747ea40163c224283cac5cc07fe13ccc55c75072a1181b981e244de",
+      "frame": 3060,
+      "row": 2543,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s0-scripted-c6-i3-s123793926",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 4456,
+      "digest": "aa5ccb2be3c342228c79dc52f198cdafbf66df09a99b8cbe620dcb3f02898b2d",
+      "frame": 4457,
+      "row": 2669,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-frozen-c2-i38-s2831590279",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4536,
+      "digest": "3ba457ad5d34b4a9ee61ad7dcbab7cfaf9dc7f1d8c67690170ab284333abeee9",
+      "frame": 4537,
+      "row": 2734,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-frozen-c3-i37-s4160991773",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3695,
+      "digest": "7164a91c64227303c491e333c499644da721b1e1d6c42c0dfc8acb55a4ab95b8",
+      "frame": 3696,
+      "row": 2845,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-frozen-c5-i36-s1685004131",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4669,
+      "digest": "79e64c7a160291ce49c016f7e159a2dbde831daa7137346c15197b2a60305e74",
+      "frame": 4670,
+      "row": 3012,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-mixed-c2-i29-s1653231728",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3895,
+      "digest": "e84424b2a7119db42166982412475ca8a41889d77a7005fa78a5c222dd035fc2",
+      "frame": 3896,
+      "row": 3217,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-mixed-c6-i33-s1195558343",
+      "target_actions": [
+        5
+      ]
+    },
+    {
+      "decision": 2269,
+      "digest": "1c4241a0099141ca3d6a9616ae2a1eea26614079a0e12e4a86d6fd12f724c44e",
+      "frame": 2270,
+      "row": 3295,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c0-i1-s1663060505",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3835,
+      "digest": "5b6142cd31f07cfb1d817fc47b20eacd5763ba814197fbfc901243e99bb9573b",
+      "frame": 3836,
+      "row": 3407,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c0-i18-s3516732976",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 2506,
+      "digest": "dff4163fad7b799e79db0bac4e5978357a2ea66884d2fcc4fe922b07b8588b74",
+      "frame": 2507,
+      "row": 3464,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c0-i19-s1522523974",
+      "target_actions": [
+        4,
+        5
+      ]
+    },
+    {
+      "decision": 4260,
+      "digest": "eaa064a3c55cabbb79abd6a57a956f6d692406fb5156c59972ecb2a7b0ec4569",
+      "frame": 4261,
+      "row": 3771,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c2-i22-s1073102862",
+      "target_actions": [
+        3
+      ]
+    },
+    {
+      "decision": 3055,
+      "digest": "ce0a09c0151f0a424335869f11a97b8ca5b29bac305d5128f93b6441d042d8c4",
+      "frame": 3056,
+      "row": 4099,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c4-i14-s2964886375",
+      "target_actions": [
+        4
+      ]
+    },
+    {
+      "decision": 2464,
+      "digest": "d189496853e1d75b089f63bc7f8945e9f3bc7fffa7fe4e09ede034620e361f5c",
+      "frame": 2465,
+      "row": 4143,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c4-i16-s1565227891",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 2572,
+      "digest": "90c65dd821b9076d8ec44cf35dcffc3496d7888966f4473fcbcc5549ea2ab5f9",
+      "frame": 2573,
+      "row": 4339,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c5-i10-s3806262093",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3491,
+      "digest": "22a5daf781c329c1d2ac1ef1f612ce7bb533bf76393067cc1bfe5900bccc1496",
+      "frame": 3492,
+      "row": 4501,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c5-i21-s521580456",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 3478,
+      "digest": "736e33411f7d95e65dc13135a0f1b633ca826640d78e0a7d65eb3655065b8ed6",
+      "frame": 3479,
+      "row": 4660,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c6-i0-s2376036930",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3588,
+      "digest": "a7e851ea022c8f3737f0766fda2158fc7388674e21b0625dbb8fca20bd22bcc5",
+      "frame": 3589,
+      "row": 4682,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c6-i0-s2376036930",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 2964,
+      "digest": "b5265b3597cb74dcbde33dd5f4b295304ebc8a6a0388b693a4ae033b71335891",
+      "frame": 2965,
+      "row": 4758,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s1-scripted-c6-i11-s2201954066",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 4594,
+      "digest": "5b6ec7d17c358780cd6655f46a9a1b69f5081608e9827420bd8935afbfe54a4c",
+      "frame": 4595,
+      "row": 4859,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-frozen-c2-i37-s4244141599",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4541,
+      "digest": "52fae12da6df201da58f5d593f5e6c443bdc0c801bfc0bf0596e085cafc77002",
+      "frame": 4542,
+      "row": 4894,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-frozen-c3-i39-s1894422336",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2623,
+      "digest": "1e907794354e1b37e47b115b79d27fc54a77827eb063537e7cb4ea66795b145f",
+      "frame": 2624,
+      "row": 5162,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c0-i25-s4112128591",
+      "target_actions": [
+        5
+      ]
+    },
+    {
+      "decision": 4107,
+      "digest": "51450904f1f164c01ce8b91e5f7d6b648e721e6ed02c76d1a4642e1e1249951c",
+      "frame": 4108,
+      "row": 5241,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c2-i13-s2298916797",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3236,
+      "digest": "1b0cd05adf49240b9b43ca59cde20deb78cd0a7e46552433d4d18b2cbc8af012",
+      "frame": 3237,
+      "row": 5333,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c2-i16-s1706811404",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3331,
+      "digest": "6eaafb2ffa840e6a346a62c5a0acecf54d1f442aed5ef20acae9a0284e32f6ea",
+      "frame": 3332,
+      "row": 5352,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c2-i16-s1706811404",
+      "target_actions": [
+        3,
+        4
+      ]
+    },
+    {
+      "decision": 2700,
+      "digest": "dcad733bac90e292007d368198f06e8c849168122ebe5c443f5f9789884dbccf",
+      "frame": 2701,
+      "row": 5413,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c2-i25-s1657220423",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 3369,
+      "digest": "36c5551ed3a17aa7c859eaacd622246e514589fc17e407dbc29b2ccf5696d8a8",
+      "frame": 3370,
+      "row": 5497,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c3-i1-s2415542203",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3459,
+      "digest": "4623563a40a62b3fdedc56f15dff0fb7cd1a9cd546d16e7a50f4ffd4369ff49e",
+      "frame": 3460,
+      "row": 5512,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c3-i1-s2415542203",
+      "target_actions": [
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "decision": 2741,
+      "digest": "7aa4da24496425b8c07e8b6c3288ee04e132fbc54fcfa7b50397fff3bdc44d7a",
+      "frame": 2742,
+      "row": 5566,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c3-i21-s1285067368",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 4208,
+      "digest": "ac6314cf024314d85dde15f3719280ee401c36e1ce2e9fdbb31449240f639f4a",
+      "frame": 4209,
+      "row": 5718,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c3-i8-s2070636182",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 4587,
+      "digest": "e6ad8410d6588f710c892a0ed056b1982a3f86dbb2780994925a55de50b21afb",
+      "frame": 4588,
+      "row": 5875,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c4-i24-s392398699",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2536,
+      "digest": "34980b4a6704c14b9606d3f26f4f717332ffe7e1f9d92bd25819792bdab3f3eb",
+      "frame": 2537,
+      "row": 5937,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c4-i25-s357925625",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3929,
+      "digest": "3ef58fd6ca7cb8e098b4a267d9248605f5927c4853ea95aeb3162e92fd07fc23",
+      "frame": 3930,
+      "row": 6020,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c5-i10-s4166717846",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 4019,
+      "digest": "90924d0f3c2bfa8c17be4c1df5749d1c275748c7f7d84f916cf9c1d672b26bf1",
+      "frame": 4020,
+      "row": 6038,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c5-i10-s4166717846",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3188,
+      "digest": "6fb60e7bbdbc13cf5d931fbff50540ab901e2cc9f6ae743e2db76e840038c846",
+      "frame": 3189,
+      "row": 6104,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c6-i4-s1741873581",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2140,
+      "digest": "e5b4c3e45439a319ef55ac2f4745fed6dda680b76f064e4d25045b53e6610716",
+      "frame": 2141,
+      "row": 6123,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c6-i7-s892384057",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2330,
+      "digest": "7e1618eac4ff880414d006fdeb850de4b9be4e0ad62c0ec01f12d4af90d7c996",
+      "frame": 2331,
+      "row": 6161,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s2-scripted-c6-i7-s892384057",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3651,
+      "digest": "c99962c7196603463bc1cfe1369a54814a6f65db8b7db82bdec5cb24b0288456",
+      "frame": 3652,
+      "row": 6206,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-frozen-c6-i39-s2725758393",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 4228,
+      "digest": "b9552ccefd79faf8036ea297a4f90fde6c549034fdd69803aedd9786937226f7",
+      "frame": 4229,
+      "row": 6301,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-mixed-c3-i32-s1744722674",
+      "target_actions": [
+        4
+      ]
+    },
+    {
+      "decision": 3961,
+      "digest": "84a78780790ff2fbde6d87a8e77b53c1329e6a2816441d4b8fe7708b06e7daec",
+      "frame": 3962,
+      "row": 6359,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-mixed-c5-i31-s1577754837",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4136,
+      "digest": "c82c5d2ae7e45b4f29f6b75428e323d38e6322d9c6b8c9f5075a648d2a2be1cb",
+      "frame": 4137,
+      "row": 6394,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-mixed-c5-i31-s1577754837",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4156,
+      "digest": "13209a12e081aefce1260b917f92c136b5fbe0256e155b14b170b367763ed345",
+      "frame": 4157,
+      "row": 6398,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-mixed-c5-i31-s1577754837",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3666,
+      "digest": "81896a5c8fdbeb245cb91578c42496780b28ff1e165fcc2daf1aff1e0ae45ef9",
+      "frame": 3667,
+      "row": 6456,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c0-i0-s49231461",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 4699,
+      "digest": "cb88da4ef6286671424f86abbd4799af1eb452015cd0aecd95f56433c2c26f65",
+      "frame": 4700,
+      "row": 6661,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c0-i23-s33581963",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3635,
+      "digest": "38527c2a46ba91d6f8ae963c11668284fab4bd71071d952857e0f6d5d309ee65",
+      "frame": 3636,
+      "row": 6674,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c0-i9-s2545798277",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 3450,
+      "digest": "34ca1d45dcad40912b7c77d5268ab53acb2e77d0b0ae0f42ee8ac11c8108833e",
+      "frame": 3451,
+      "row": 6739,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c1-i17-s1888970478",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 2232,
+      "digest": "d8c9e00716c7a7edd18443d6121c7a4f9318dadbc34ef94b2072dc30c8539417",
+      "frame": 2233,
+      "row": 6789,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c1-i3-s3753349342",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 2312,
+      "digest": "f8f3f59dc555ba450e57565e8584fea690f1c792f927cd9bf73a594e8bf229f3",
+      "frame": 2313,
+      "row": 6805,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c1-i3-s3753349342",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2656,
+      "digest": "edde407c15dcceb63d605a3a4279db8d02c80856cd4d5a44a65517dfa42a64c4",
+      "frame": 2657,
+      "row": 6885,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c1-i4-s1331921789",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2356,
+      "digest": "abc23401e005b17aceb595b0b8ffb1380504220aa36e653d62f15e7ecf801837",
+      "frame": 2357,
+      "row": 7106,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c2-i13-s1451384500",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2745,
+      "digest": "461aa9b0f2d17fabe9a660667b1f1b2d2d66310340136136ad0d7ecf0f1eb3f3",
+      "frame": 2746,
+      "row": 7150,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c2-i17-s2173532169",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2820,
+      "digest": "f7bb9ef4a3d6a31b68a5474df12a086c73616998359d5f38e2a6732d23d4a713",
+      "frame": 2821,
+      "row": 7222,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c2-i26-s913515401",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2010,
+      "digest": "dac7d4c9fd0645bea7ff0cc6a8b2900a53ff26112e268454b9010b1d0a2a4f24",
+      "frame": 2011,
+      "row": 7319,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c3-i11-s1503417004",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 2065,
+      "digest": "f760882e1fd1e1f5e9831eb3606296a8ebf58330914ab03a90b6e736b856796a",
+      "frame": 2066,
+      "row": 7330,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c3-i11-s1503417004",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3466,
+      "digest": "b8409a7682db7ad1acaf03a8df9f0235b39350bba7febb31ac499b363b8ed240",
+      "frame": 3467,
+      "row": 7465,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c3-i22-s3959813716",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3199,
+      "digest": "a309974268e7e6c70b4517fe0ae37ff725b7c1ca355056b283b4d95993a5ace4",
+      "frame": 3200,
+      "row": 7564,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c3-i6-s2138737368",
+      "target_actions": [
+        4
+      ]
+    },
+    {
+      "decision": 2783,
+      "digest": "5e39182592380132e16f9b2bfc98a651a3be4b517425fb2061c439b0173212a8",
+      "frame": 2784,
+      "row": 7586,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c3-i7-s209042451",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2158,
+      "digest": "c8f415294d4732f29a4071cc31f4570200a411d8c3c5fcd02ac67e0b7ab1eaaa",
+      "frame": 2159,
+      "row": 7764,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c4-i21-s1739796157",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2773,
+      "digest": "d5449d2b061145de6370634492f87aaa43b205e1c74518f98057f617acf4aea7",
+      "frame": 2774,
+      "row": 7861,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c4-i9-s3529805889",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2838,
+      "digest": "12d174bfa817ad55f15026114084a6d9f13df14d69e1d0f4af88d58108a49afd",
+      "frame": 2839,
+      "row": 7874,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c4-i9-s3529805889",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3030,
+      "digest": "786b5b439beb64d253f8be615063a19e1cf4a7f31e04c9d0102cd44100a7d067",
+      "frame": 3031,
+      "row": 7988,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c5-i11-s926738014",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2499,
+      "digest": "6fe8732ca44542aa1bc2523e2ab0f26fe534d2afc58e2830d04c3b2860526690",
+      "frame": 2500,
+      "row": 8027,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c5-i14-s656385165",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3223,
+      "digest": "afe41609e42bae21f26e658bec3ec0cb7632dd52133d07bf785473f44513a0e8",
+      "frame": 3224,
+      "row": 8057,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c5-i19-s3433807624",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3252,
+      "digest": "d3ccdbed38390ac647b64889b800e4c14fe21adb4ae8a153aa382efbc2369085",
+      "frame": 3253,
+      "row": 8180,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c5-i6-s1301164029",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4489,
+      "digest": "4d3c5e52c0a7bb288d8377538fbdbafdf5f58bbcf67e1ece8c88bacf63d71c56",
+      "frame": 4490,
+      "row": 8260,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c6-i15-s3744267477",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 4405,
+      "digest": "85790b0dd440d6d5777a7cb695b5687260d55f7c52ac765e481cd41718994b4a",
+      "frame": 4406,
+      "row": 8409,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c6-i22-s3762669869",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 2849,
+      "digest": "7cad70c6ab3c8dfc554fa91c5af595976cc9527d9d297fcfb21cdf56d7ad7853",
+      "frame": 2850,
+      "row": 8451,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c6-i23-s2063208102",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2859,
+      "digest": "7cef8c891eb9fcb852eeee7a9424dcf9efdb4d674e5d80b00d4760e427eeef73",
+      "frame": 2860,
+      "row": 8453,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c6-i23-s2063208102",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3063,
+      "digest": "069e5ceae21d90b13e090de6a2dbdf95867b8aa3323187aa5a70d6295f592a22",
+      "frame": 3064,
+      "row": 8501,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c6-i25-s4000194421",
+      "target_actions": [
+        4,
+        5
+      ]
+    },
+    {
+      "decision": 3639,
+      "digest": "c11b1ece046e5a0dc0b555b0f837aa9ac785b28b55700242628090acfe143d06",
+      "frame": 3640,
+      "row": 8525,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c6-i26-s2148766346",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3774,
+      "digest": "8f710baa688e9da59b47c94396b03ce9884592bbf23883ce87a4b69f60cba014",
+      "frame": 3775,
+      "row": 8552,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c6-i26-s2148766346",
+      "target_actions": [
+        4,
+        5
+      ]
+    },
+    {
+      "decision": 3445,
+      "digest": "a418a7f39b6df5f977d198fc869c883001e02b2171183394d1f474589e3ea79d",
+      "frame": 3446,
+      "row": 8590,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s3-scripted-c6-i9-s325025293",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3512,
+      "digest": "8cd886de4d231b35e236d8064238dfbb341c78f66db89106ada58ac938e123af",
+      "frame": 3513,
+      "row": 8702,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-frozen-c1-i39-s2373260157",
+      "target_actions": [
+        3,
+        5
+      ]
+    },
+    {
+      "decision": 3587,
+      "digest": "38a006f2639d85c6d84eb77f46e500b1f47e4c5460c25524b4bdc0f9acd3fe32",
+      "frame": 3588,
+      "row": 8717,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-frozen-c1-i39-s2373260157",
+      "target_actions": [
+        4
+      ]
+    },
+    {
+      "decision": 2986,
+      "digest": "b0b9b2e7a917c286fcf5f071c8b80a1e051a52240ceccd27a3a5e9f6b51f2ce7",
+      "frame": 2987,
+      "row": 8847,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-mixed-c2-i30-s200541396",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3136,
+      "digest": "a995c1ce20189543fb8a4a0d775492537d7e78eb60078243490e5100a771b4fe",
+      "frame": 3137,
+      "row": 8877,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-mixed-c2-i30-s200541396",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3525,
+      "digest": "9fe02047b15e76392510ec5736e58fec6a85d380fd76b8ec3d829c3807549e9c",
+      "frame": 3526,
+      "row": 8927,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-mixed-c4-i34-s1894029929",
+      "target_actions": [
+        1,
+        2
+      ]
+    },
+    {
+      "decision": 3570,
+      "digest": "78b3ecf217ad1d260b56536720e821cba20d038552df018d2950115d4dc65606",
+      "frame": 3571,
+      "row": 8936,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-mixed-c4-i34-s1894029929",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3420,
+      "digest": "dc2c30118ebef39a51fe5c2d36ce5d0c2d25339793f19dcca37bb3cae6d3880b",
+      "frame": 3421,
+      "row": 8980,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-mixed-c4-i35-s3740348236",
+      "target_actions": [
+        0,
+        1
+      ]
+    },
+    {
+      "decision": 4278,
+      "digest": "80688b019704c64c77c5505d9fd846fa297a1e6ca9a186b211254b599852e3a5",
+      "frame": 4279,
+      "row": 9048,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-mixed-c5-i31-s1858726715",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3794,
+      "digest": "7a7a0fd02ff179dc98e20065b331d683cc347ac004eb682b51971efb454ab9f4",
+      "frame": 3795,
+      "row": 9159,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-mixed-c6-i32-s2260271910",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2840,
+      "digest": "3367ca21ad36259cb1c241b122d7704dc34bbaceaa0d09e5bfd238616c72695a",
+      "frame": 2841,
+      "row": 9606,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c1-i11-s3167273515",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3545,
+      "digest": "4a9177338666d03bbe7016c9dc9181a7b8fdca49177433c3c599a6a015a036db",
+      "frame": 3546,
+      "row": 9679,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c1-i14-s1967614850",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2250,
+      "digest": "9e7ee8586658f1f5e1cf78ff32fd6ed45c6ca4b88ee8cfe60f9bfdcc295bd4c3",
+      "frame": 2251,
+      "row": 9815,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c1-i8-s2846497249",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 4287,
+      "digest": "53d60112b992b78e52c3f23cd745cf85471d81634fa1e36fec18eff6a557217e",
+      "frame": 4288,
+      "row": 9838,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c2-i15-s1608109391",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3496,
+      "digest": "5a9e27372a08b917a4d3ee23b75397a439934b7c5ec60328a59193e3b24379f2",
+      "frame": 3497,
+      "row": 10051,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c2-i3-s3424233525",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3746,
+      "digest": "b74cebff83d8181a9a80af9e1e37e5d345290e37163026d621c4be45a7ce86f8",
+      "frame": 3747,
+      "row": 10095,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c2-i3-s3424233525",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2644,
+      "digest": "6c8f4a5fff49a04434edf5618c20ca41e0bd2e2376d07eccc3918076015beb9e",
+      "frame": 2645,
+      "row": 10187,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c3-i14-s1742726757",
+      "target_actions": [
+        4
+      ]
+    },
+    {
+      "decision": 3431,
+      "digest": "905b2b78e96665f248ea3429d17dd8e6f45ab836585d32d39a0627f7d8eb92e7",
+      "frame": 3432,
+      "row": 10266,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c3-i22-s335616324",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 3944,
+      "digest": "3e57eca1ce3a7a8d39950e6bd6a39bfec1bfcc08696ff8832315a14599f1500f",
+      "frame": 3945,
+      "row": 10371,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c4-i20-s3637817970",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 2992,
+      "digest": "9e1b4248f3868fa39ddace1def72b178cbed48e7c9a64f48c23726a34bb66b9c",
+      "frame": 2993,
+      "row": 10502,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c4-i8-s2493974301",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 4433,
+      "digest": "d8fc9da3eaf72ff0b268d4231e71478071b2b01378376210b0de1f2ffefc9483",
+      "frame": 4434,
+      "row": 10776,
+      "shard": "bank-00000.npz",
+      "side": "decisive",
+      "source_key": "b8_s4-scripted-c6-i1-s338858349",
+      "target_actions": [
+        0,
+        2
+      ]
+    },
+    {
+      "decision": 4033,
+      "digest": "f8c9ef8038f07c4b1e7833a33f51e13e838ff4f1a79151bc8a29560f7b19a2fe",
+      "frame": 4034,
+      "row": 10997,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-frozen-c5-i37-s172444232",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4587,
+      "digest": "a2f6367851ea8bf708438e940ec4519359b3bd61515a8ee029575becc8622ce4",
+      "frame": 4588,
+      "row": 11077,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-mixed-c0-i30-s2294530",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 4649,
+      "digest": "ca31f212d7db6e7f57a34651a7254786effad3c54b24e7fa4fd4ee81be0137b0",
+      "frame": 4650,
+      "row": 11100,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-mixed-c0-i31-s833495988",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 2897,
+      "digest": "37c9ba40fec70ddce427fe3103b74fb4ad51ccfcbd56aaa91a721edf9c82cdc2",
+      "frame": 2898,
+      "row": 11212,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i0-s453397780",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2396,
+      "digest": "2009d76ba96746910215bc77591b42100c91966d74a1a0a671d1b00eafd2425e",
+      "frame": 2397,
+      "row": 11306,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i12-s3659020314",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3120,
+      "digest": "48baf32b8eabe30eabe294abce39b877690eab0a9c2ce71776bf96c39d8ee057",
+      "frame": 3121,
+      "row": 11428,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i18-s2850654520",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2605,
+      "digest": "32110a9cc0308295afc34b2caae2ce56fafec89a6889f84349af701596be614c",
+      "frame": 2606,
+      "row": 11468,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i23-s2585834906",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2587,
+      "digest": "3eee4ea3f429dcbaa6340a007d11dc541c7440dd5a3b9b83744288987eada4c0",
+      "frame": 2588,
+      "row": 11584,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i26-s299770390",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4132,
+      "digest": "a802dfb6bdacfbeee9ebc494d913a875f3a31fdebc3debec880d5d2b10462def",
+      "frame": 4133,
+      "row": 11609,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i26-s299770390",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3800,
+      "digest": "1b9d90b9f0bde4e9d8c055d75bc351b67cf2f757989ca66a438fbbca029ddb96",
+      "frame": 3801,
+      "row": 11661,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i4-s3442825133",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4295,
+      "digest": "8a406a15b9792d10cae2bcb0a2e6f8bcffc4951a20034cb7441910cf635f96dc",
+      "frame": 4296,
+      "row": 11678,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i4-s3442825133",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2856,
+      "digest": "f073fb23f3c0f498f023a113581a270d45a0aafbe0fb7c84e4af9777ba22d7aa",
+      "frame": 2857,
+      "row": 11739,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i5-s812485867",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3691,
+      "digest": "415626c6f0b7126593eca978ed4830b9425fcc63ad90b8990407c6981985fca0",
+      "frame": 3692,
+      "row": 11895,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i9-s3390446013",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3901,
+      "digest": "77986fe3b19d5de871c068b950ad5aff62e253214a278623859356ac86087483",
+      "frame": 3902,
+      "row": 11899,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c0-i9-s3390446013",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2443,
+      "digest": "8dd3e9b300f2e6cdaa98d6fb9560ed7b6d2d3d9d49816a645739140d2911778d",
+      "frame": 2444,
+      "row": 11964,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c2-i23-s2239032140",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2535,
+      "digest": "0f0113ee3e3640bee63a35d475e2d9c579c17029bc9808fdfc1602f9dbeeb240",
+      "frame": 2536,
+      "row": 11972,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c2-i25-s2762567258",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 4210,
+      "digest": "14dd190dcb1f8f4e8f5de952fd4d96f4c6d889247d35884c1b810e51b024dde7",
+      "frame": 4211,
+      "row": 12117,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c5-i15-s4089735852",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3299,
+      "digest": "abd31b2ab0a322f021cd57f5ded9162ff7a0824fb037c002617c697ea75cf7ec",
+      "frame": 3300,
+      "row": 12144,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c5-i17-s3117821075",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2597,
+      "digest": "e099c9e9e34b7b30cdce6a017b99942a346850c47ea6f8d40a96b9d609d2b75b",
+      "frame": 2598,
+      "row": 12188,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s0-scripted-c5-i4-s3638116599",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3197,
+      "digest": "e69a05d44e3a32f1606cb31fda01df652329121468e8e366828f358de03a6eb1",
+      "frame": 3198,
+      "row": 12353,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-frozen-c0-i39-s3994528642",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3856,
+      "digest": "1fd5956c34e340597449bed15c7416f4e1ef4b7f1e550fdec47dbc62eef365bc",
+      "frame": 3857,
+      "row": 12374,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-frozen-c2-i38-s2831590279",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3387,
+      "digest": "31b6ef6ee38c283f033491b7d599815e48ce5555919edf9b11d346623af629e9",
+      "frame": 3388,
+      "row": 12423,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-mixed-c0-i28-s3127976387",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3638,
+      "digest": "cc6319e9e80aeae83234f87af6f1764a8ec4cb565a9c7da5206bc548e598d82e",
+      "frame": 3639,
+      "row": 12490,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-mixed-c0-i31-s871577566",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3708,
+      "digest": "25d7daf1903fd6a8d3b59c8bac1f23302bf82010d5366c77f8a75b7885f8751d",
+      "frame": 3709,
+      "row": 12498,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-mixed-c0-i31-s871577566",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3462,
+      "digest": "ab80806c1eba452b7482af51e55b1ab98bca29679c817ff39ee9a5232fd4bec3",
+      "frame": 3463,
+      "row": 12561,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-mixed-c0-i33-s3727178878",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3223,
+      "digest": "5a00c94e0ccd847aa4e5f91cb6d7698629222bed28f01b6486818409250313d3",
+      "frame": 3224,
+      "row": 12665,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-mixed-c5-i34-s2156792018",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2633,
+      "digest": "69d6346d8adcb5e15a7b9e310871a8e9041564534741c6aa2f40578aeb490850",
+      "frame": 2634,
+      "row": 12842,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c0-i13-s1375455011",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2753,
+      "digest": "ae43522b0530f9e2189dba29bff8d0b37a57dd1c5f3785f8fd4269124c854b29",
+      "frame": 2754,
+      "row": 12861,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c0-i13-s1375455011",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4108,
+      "digest": "368b955eead738387e4a308daedad126237b570f84ec276729a227042e28dab8",
+      "frame": 4109,
+      "row": 12888,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c0-i13-s1375455011",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3195,
+      "digest": "d915a549fffbaca48a46b9d5591fba6d48258ac09e98e488351c02a1f2aa7769",
+      "frame": 3196,
+      "row": 13027,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c0-i20-s2142349056",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2673,
+      "digest": "8fce70c3357b24d11cfbfc50065bb4869aff343b84e846f5445f93b8fb8bc82a",
+      "frame": 2674,
+      "row": 13101,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c0-i25-s1160625134",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3998,
+      "digest": "6b9d5340e882ebb50a049927234eb6bbae3eb7edc758380bb6cd90d24ca91cf1",
+      "frame": 3999,
+      "row": 13117,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c0-i25-s1160625134",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2340,
+      "digest": "cfd469abc01e6a3d31d2e387573d33c067126d893cd0482debb496c1ef0f01e6",
+      "frame": 2341,
+      "row": 13335,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c0-i8-s2823353973",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2565,
+      "digest": "58cc655095f958d18afae5fcf3878e405d3d866f97220b3022353f21e2da9bad",
+      "frame": 2566,
+      "row": 13346,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c0-i8-s2823353973",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2213,
+      "digest": "585c624b0147ddb03ac6e069c4d97ed285e917627640e8b6c137fc7fa7d8755b",
+      "frame": 2214,
+      "row": 13554,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c4-i18-s1439551731",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3821,
+      "digest": "a2253b18468ef9b1fa33dce7352195f2e33c077354cb88457db3bd4aa3594b46",
+      "frame": 3822,
+      "row": 13591,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c4-i26-s3975923850",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2668,
+      "digest": "e87a25ee3244720fdd80238525e8e97dcb1dd1332d18838c25e2c7258641efeb",
+      "frame": 2669,
+      "row": 13629,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c5-i20-s2738580888",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 4002,
+      "digest": "dd3e01064cec1eb13d0312ff346fbdb17831a226e37d84882235da96fc2091b0",
+      "frame": 4003,
+      "row": 13708,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s1-scripted-c6-i15-s1056673567",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3432,
+      "digest": "8d19aeeececd5246a462b42adc384b92e29cd9c7587baa866308e2d7a305ba76",
+      "frame": 3433,
+      "row": 13920,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-mixed-c0-i29-s1301318368",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4696,
+      "digest": "f51a4e66adacf29e67eb5599c0b34069efe0893b92e201a89b75cd5a60fa7caf",
+      "frame": 4697,
+      "row": 13945,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-mixed-c0-i30-s956397242",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3216,
+      "digest": "a7caf287bba26344c87166da76ba2beecf91479ce6b1243a221ba8fb3c629de8",
+      "frame": 3217,
+      "row": 13959,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-mixed-c0-i31-s2733674030",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3689,
+      "digest": "683ed49e89a364ba703a18fb8204fbe87e0a75de52e618d8ee585cc873caf94d",
+      "frame": 3690,
+      "row": 13979,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-mixed-c0-i32-s3093270087",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2803,
+      "digest": "49c96cc2a63b1ca04472eda6b33e5f1b48d0cf345b60ce36b378e0d5ca0ee15b",
+      "frame": 2804,
+      "row": 14048,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-scripted-c0-i0-s2375474787",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3586,
+      "digest": "baa170ec3211abb2bf072d407091ccf67566581ab1e8b53e2f328ae552cfa37a",
+      "frame": 3587,
+      "row": 14085,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-scripted-c0-i1-s482392554",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 2654,
+      "digest": "40e33a6df5199d853a3159298600d3d9d75200bec3b0f9635b5289e0b85e1078",
+      "frame": 2655,
+      "row": 14110,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-scripted-c0-i11-s2580905092",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4325,
+      "digest": "298769add8ff0f3649b20922cca358636ba53e31a8cc2dc6b5735a019f4e126e",
+      "frame": 4326,
+      "row": 14281,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-scripted-c0-i18-s2422701014",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3704,
+      "digest": "2df0d820d75e6d7f8a75ee61d3190019b60c4c0cb8ccd372a34a9504a3a2b425",
+      "frame": 3705,
+      "row": 14364,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-scripted-c0-i20-s3390513585",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2880,
+      "digest": "1274a01e739dfdaf3d373123c0e5a78bd66c42ad6c013b52dc2a0344a4e0d617",
+      "frame": 2881,
+      "row": 14477,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-scripted-c0-i26-s2743854340",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3968,
+      "digest": "88967c1b65d58e5f8bba39e7f8ecee5784c9f242b661a9208a829aee512d9fa4",
+      "frame": 3969,
+      "row": 14528,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-scripted-c0-i3-s2005532353",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2998,
+      "digest": "a2f46bf8663693e661a688175008cbe185da6dd033921401ef58d2e18ad27956",
+      "frame": 2999,
+      "row": 15051,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s2-scripted-c6-i4-s1741873581",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4380,
+      "digest": "51ae811f9ae8a8880bbbf1b9515a2d0783106a5d4530a2c46cc317cb8310d8c3",
+      "frame": 4381,
+      "row": 15129,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-mixed-c6-i34-s2663042385",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3357,
+      "digest": "e6e5e27c4afa4070e17a5a80df0cad5cb1430643eceb62132233122e908266ad",
+      "frame": 3358,
+      "row": 15174,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c0-i1-s1538810678",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2194,
+      "digest": "b36929f5a97e1dde77232f9f10a014af739a0e041584d4fabc057a4e372956aa",
+      "frame": 2195,
+      "row": 15185,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c0-i2-s876178772",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2839,
+      "digest": "d06ae45621f2d3ea6748095f947a1710069b7f3abf23e6317b63fb056b5f3a12",
+      "frame": 2840,
+      "row": 15190,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c0-i2-s876178772",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 4639,
+      "digest": "ca91f42717956fd38f810f6a20264da43a8a0c2e03b878d7b010ee1d4093c54c",
+      "frame": 4640,
+      "row": 15245,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c0-i3-s616953834",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3864,
+      "digest": "b1fe84f596fbb6356a2e2f4986bf1d63379ad2a77c1dc67547d104b8b53cc27e",
+      "frame": 3865,
+      "row": 15292,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c0-i4-s1986824966",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2508,
+      "digest": "06b73012239fc389acc987ef29d839b4f90954b5326a00afd9ecc9aaf71839cc",
+      "frame": 2509,
+      "row": 15400,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c0-i7-s3090984136",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3088,
+      "digest": "f0a3539466def30206265e0efe705706fece3ba92e10b6dc5d4e2c78e8ab5996",
+      "frame": 3089,
+      "row": 15447,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c0-i8-s3628921723",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4073,
+      "digest": "e9d29f40533d2382bbdbb9dacc44c30c09b985eb95e301382014986863ef2929",
+      "frame": 4074,
+      "row": 15474,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c0-i8-s3628921723",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3056,
+      "digest": "9355824ff80f618f674d68b597f3153dab6171b84a019093491bbff18e284471",
+      "frame": 3057,
+      "row": 15563,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c2-i22-s3531164347",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 2941,
+      "digest": "9d59de06eb5a0a00f39f09197270d353739f0af37dfd25389f21e86799f271ca",
+      "frame": 2942,
+      "row": 15745,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c5-i10-s3951923726",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2811,
+      "digest": "9c4ef64a02eb07da7cf511379091abc41c217ffa9d6dfa893792c0abd90ee68d",
+      "frame": 2812,
+      "row": 15869,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c6-i13-s76363062",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3211,
+      "digest": "3eb697212df8830cf028666b7e0bc9ec29c31cb2a2898499c78ff3af3e5188bf",
+      "frame": 3212,
+      "row": 15871,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c6-i13-s76363062",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3420,
+      "digest": "e5fd085e73459fa7931e3f271c072d7bc08d134c58fd572d90d37c53d48f5580",
+      "frame": 3421,
+      "row": 15883,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s3-scripted-c6-i19-s3209040773",
+      "target_actions": [
+        0
+      ]
+    },
+    {
+      "decision": 3523,
+      "digest": "f40ced89a77b7b7bb791d02a684419d8846149874795ea3f90f22e3593cdf400",
+      "frame": 3524,
+      "row": 15992,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s4-mixed-c6-i31-s145052344",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2669,
+      "digest": "fb01a919ffcb87baa09fc50557fdd43f631ef04a856cc9c5c29538fec98c8a01",
+      "frame": 2670,
+      "row": 16016,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s4-scripted-c0-i26-s1636841725",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3093,
+      "digest": "a181dcc726ff37be83bcae29460f3ed384da63c8b5bb9750c131aabe515cec62",
+      "frame": 3094,
+      "row": 16155,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s4-scripted-c3-i8-s3626713925",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 3439,
+      "digest": "5e35adc43bf1288bafa7d085a83e1f8e66001e73ce61f78c1ab8e5786ff33ae3",
+      "frame": 3440,
+      "row": 16185,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s4-scripted-c4-i20-s3637817970",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4636,
+      "digest": "605f290834ca548f7ad89269b561cfdf97669ae6a7c5d2e3d53832296fe4ecb0",
+      "frame": 4637,
+      "row": 16233,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s4-scripted-c5-i11-s2947120470",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 4331,
+      "digest": "0ea2c34e2dbaced452e15e44b8be330d125d00ba3ca4e8a8c806ff316b85f4d6",
+      "frame": 4332,
+      "row": 16235,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s4-scripted-c5-i11-s2947120470",
+      "target_actions": [
+        1
+      ]
+    },
+    {
+      "decision": 2524,
+      "digest": "82f923ad2faff3d98f80691d8fe8cafe494309e5f40b86ae19fa1f7cadd030f1",
+      "frame": 2525,
+      "row": 16295,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s4-scripted-c6-i3-s3936280307",
+      "target_actions": [
+        2
+      ]
+    },
+    {
+      "decision": 3804,
+      "digest": "1965a8fc6fd46f4cc9fc9f7d616a28affd22a6505ef25b4025ea7ba11fbc71c4",
+      "frame": 3805,
+      "row": 16299,
+      "shard": "bank-00000.npz",
+      "side": "counter",
+      "source_key": "b8_s4-scripted-c6-i3-s3936280307",
+      "target_actions": [
+        1
+      ]
+    }
+  ],
+  "schema": "t4a-reroll-sample/v1",
+  "seed": 20261016,
+  "size": 200,
+  "source_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank",
+  "source_manifest_sha256": "0b216da882b634e79ac640a9970a58157828da96e93ec4dbe68e6924c8141391"
+}
