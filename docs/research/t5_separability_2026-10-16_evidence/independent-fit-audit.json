@@ -1,0 +1,19 @@
+{
+  "schema": "t5-independent-fits-audit/v1",
+  "status": "PASS",
+  "feature_data_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+  "fits_json_sha256": "ab519defc048ad08550174ebc15d6839c26c6a834f561de0a4848365b4910e93",
+  "folds_match_label_independent_world_allocation": true,
+  "all_worlds_exclusive_to_one_fold": true,
+  "all_saved_labels_actions_worlds_and_original_holdout_membership_match_bank": true,
+  "all_24_point_aucs_recomputed_from_saved_predictions": true,
+  "all_reported_row_world_positive_counts_match": true,
+  "all_ci_bounds_valid_and_2000_world_bootstraps_reported": true,
+  "all_paired_auc_deltas_recomputed": true,
+  "bootstrap_kernel_independently_checked_by_unit_tests": "20 focused tests passed including sklearn weighted-AUC reference on 2000 world draws",
+  "primary_delta": 0.00882599152814112,
+  "primary_24_alone_auc": 0.7475832782365625,
+  "advisor_verdict": "FAIL",
+  "bootstrap_recomputed_for_final_dataset": false,
+  "files_changed": []
+}

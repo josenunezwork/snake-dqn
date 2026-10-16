@@ -1,0 +1,44 @@
+{
+  "python": "3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]",
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "numpy": "1.26.4",
+  "scipy": "1.14.1",
+  "sklearn": "1.7.2",
+  "torch": "2.9.1",
+  "device": "cpu",
+  "torch_num_threads": 1,
+  "torch_num_interop_threads": 1,
+  "threadpools": [
+    {
+      "user_api": "blas",
+      "internal_api": "openblas",
+      "num_threads": 1,
+      "prefix": "libopenblas",
+      "filepath": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/numpy/.dylibs/libopenblas64_.0.dylib",
+      "version": "0.3.23.dev",
+      "threading_layer": "pthreads",
+      "architecture": "armv8"
+    },
+    {
+      "user_api": "openmp",
+      "internal_api": "openmp",
+      "num_threads": 1,
+      "prefix": "libomp",
+      "filepath": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/deps/sklearn/.dylibs/libomp.dylib",
+      "version": null
+    },
+    {
+      "user_api": "openmp",
+      "internal_api": "openmp",
+      "num_threads": 1,
+      "prefix": "libomp",
+      "filepath": "/Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/torch/lib/libomp.dylib",
+      "version": null
+    }
+  ],
+  "source_commit": "212d5e92bc7d8c773ad63b3774b5d7f39d615e7a",
+  "max_extraction_workers": 4,
+  "fits_workers": 1,
+  "policy_training": false,
+  "numba_port": false
+}

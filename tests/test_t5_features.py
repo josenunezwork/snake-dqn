@@ -6,8 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from src.simd_env.t5_features import (_advance, _flood, _release_map,
-                                      compute_features)
+from src.simd_env.t5_features import _advance, _flood, _release_map, compute_features
 
 
 def _sim(width, height, snakes, *, direction=1, lengths=None, boost_frames=None):

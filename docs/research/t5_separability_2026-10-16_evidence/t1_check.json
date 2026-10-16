@@ -1,0 +1,1474 @@
+{
+  "authority": "development diagnostic, not gate evidence",
+  "bar": {
+    "met": false,
+    "minimum_share": 0.7
+  },
+  "check_verdict": "FAIL",
+  "comparison": "T1 best_surviving_action has strictly higher area_log or boost3_area_log than T1 chosen_action",
+  "execution": "deterministic T1 replay; CPU only; one process; no training; no numba port",
+  "feature_state_count": 46,
+  "feature_state_store": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/t1_feature_states.final.npz",
+  "higher_either": 17,
+  "late_lads": 46,
+  "rows": [
+    {
+      "arm": "b8_s0",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 1.0000293254852295
+      },
+      "best_surviving_action": 1,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 3,
+      "decision": 4357,
+      "env": 3,
+      "frame": 4358,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        1,
+        2,
+        4
+      ],
+      "world_seed": 1229887956
+    },
+    {
+      "arm": "b8_s0",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.7908206582069397,
+        "boost3_area_log": 0.7901499271392822
+      },
+      "best_surviving_action": 5,
+      "chosen": {
+        "area_log": 0.7909877300262451,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 4280,
+      "env": 8,
+      "frame": 4281,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        5
+      ],
+      "world_seed": 3988821633
+    },
+    {
+      "arm": "b8_s0",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.6511484384536743,
+        "boost3_area_log": 0.6484466195106506
+      },
+      "best_surviving_action": 0,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 1.0000293254852295
+      },
+      "chosen_action": 2,
+      "decision": 4127,
+      "env": 11,
+      "frame": 4128,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0,
+        3
+      ],
+      "world_seed": 4046445356
+    },
+    {
+      "arm": "b8_s0",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.36602646112442017,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 1,
+      "chosen": {
+        "area_log": 0.36602646112442017,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 4873,
+      "env": 12,
+      "frame": 4874,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        1
+      ],
+      "world_seed": 3010307125
+    },
+    {
+      "arm": "b8_s0",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.13208021223545074,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 3,
+      "chosen": {
+        "area_log": 0.6761451959609985,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 3946,
+      "env": 15,
+      "frame": 3947,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0,
+        3
+      ],
+      "world_seed": 474182439
+    },
+    {
+      "arm": "b8_s0",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.0,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 3,
+      "chosen": {
+        "area_log": 0.6047823429107666,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 4586,
+      "env": 17,
+      "frame": 4587,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        3
+      ],
+      "world_seed": 1712899657
+    },
+    {
+      "arm": "b8_s0",
+      "best_higher_area_log": true,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.5,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 5,
+      "chosen": {
+        "area_log": 0.36602646112442017,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 3065,
+      "env": 21,
+      "frame": 3066,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2,
+        5
+      ],
+      "world_seed": 1247816794
+    },
+    {
+      "arm": "b8_s0",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 5,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 3692,
+      "env": 22,
+      "frame": 3693,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        5
+      ],
+      "world_seed": 15900433
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7389398813247681,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 5,
+      "chosen": {
+        "area_log": 0.7394536733627319,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 4582,
+      "env": 0,
+      "frame": 4583,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        5
+      ],
+      "world_seed": 2515367783
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 4,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 2691,
+      "env": 5,
+      "frame": 2692,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        4
+      ],
+      "world_seed": 2976813830
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7712523937225342,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 0,
+      "chosen": {
+        "area_log": 0.7712523937225342,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 4419,
+      "env": 11,
+      "frame": 4420,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0
+      ],
+      "world_seed": 4046445356
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7424910664558411,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 4,
+      "chosen": {
+        "area_log": 0.7427407503128052,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 3587,
+      "env": 12,
+      "frame": 3588,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        4
+      ],
+      "world_seed": 3010307125
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.5499927401542664,
+        "boost3_area_log": 0.36602646112442017
+      },
+      "best_surviving_action": 0,
+      "chosen": {
+        "area_log": 0.5499927401542664,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 2399,
+      "env": 17,
+      "frame": 2400,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0,
+        3
+      ],
+      "world_seed": 1712899657
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7206215262413025,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 0.7206215262413025,
+        "boost3_area_log": 0.7191130518913269
+      },
+      "chosen_action": 1,
+      "decision": 3432,
+      "env": 21,
+      "frame": 3433,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2
+      ],
+      "world_seed": 1247816794
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.8770451545715332,
+        "boost3_area_log": 0.580482006072998
+      },
+      "best_surviving_action": 3,
+      "chosen": {
+        "area_log": 0.8771267533302307,
+        "boost3_area_log": 0.580482006072998
+      },
+      "chosen_action": 0,
+      "decision": 4741,
+      "env": 24,
+      "frame": 4742,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        3
+      ],
+      "world_seed": 1181537111
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.918009340763092,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 5,
+      "chosen": {
+        "area_log": 0.9180673360824585,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 3984,
+      "env": 27,
+      "frame": 3985,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        4,
+        5
+      ],
+      "world_seed": 4114750927
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.7469080090522766,
+        "boost3_area_log": 0.7459403872489929
+      },
+      "best_surviving_action": 3,
+      "chosen": {
+        "area_log": 0.7471486926078796,
+        "boost3_area_log": 0.5983257293701172
+      },
+      "chosen_action": 1,
+      "decision": 3521,
+      "env": 28,
+      "frame": 3522,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        3
+      ],
+      "world_seed": 1562232037
+    },
+    {
+      "arm": "b8_s1",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 3092,
+      "env": 30,
+      "frame": 3093,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2,
+        5
+      ],
+      "world_seed": 1638785368
+    },
+    {
+      "arm": "b8_s2",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.1934940069913864,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 0.5312532782554626,
+        "boost3_area_log": 0.5237835049629211
+      },
+      "chosen_action": 0,
+      "decision": 2449,
+      "env": 1,
+      "frame": 2450,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2
+      ],
+      "world_seed": 539912944
+    },
+    {
+      "arm": "b8_s2",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7096416354179382,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 1,
+      "chosen": {
+        "area_log": 0.7096416354179382,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 4149,
+      "env": 2,
+      "frame": 4150,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        1,
+        2
+      ],
+      "world_seed": 3835332564
+    },
+    {
+      "arm": "b8_s2",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7317799925804138,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 5,
+      "chosen": {
+        "area_log": 0.7320529222488403,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 4327,
+      "env": 7,
+      "frame": 4328,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        5
+      ],
+      "world_seed": 1401204162
+    },
+    {
+      "arm": "b8_s2",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.8207185864448547,
+        "boost3_area_log": 0.7941192388534546
+      },
+      "best_surviving_action": 5,
+      "chosen": {
+        "area_log": 0.8208488821983337,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 3956,
+      "env": 8,
+      "frame": 3957,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        5
+      ],
+      "world_seed": 3988821633
+    },
+    {
+      "arm": "b8_s2",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.49022024869918823,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 0.49022024869918823,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 3915,
+      "env": 9,
+      "frame": 3916,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2,
+        5
+      ],
+      "world_seed": 1996812937
+    },
+    {
+      "arm": "b8_s2",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.7306820154190063,
+        "boost3_area_log": 0.7292953133583069
+      },
+      "best_surviving_action": 1,
+      "chosen": {
+        "area_log": 0.7306820154190063,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 3507,
+      "env": 17,
+      "frame": 3508,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        1
+      ],
+      "world_seed": 1712899657
+    },
+    {
+      "arm": "b8_s2",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.7203213572502136,
+        "boost3_area_log": 0.7191130518913269
+      },
+      "best_surviving_action": 4,
+      "chosen": {
+        "area_log": 0.7206215262413025,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 2423,
+      "env": 24,
+      "frame": 2424,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        4,
+        5
+      ],
+      "world_seed": 1181537111
+    },
+    {
+      "arm": "b8_s2",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 3,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 1.0000293254852295
+      },
+      "chosen_action": 1,
+      "decision": 4885,
+      "env": 26,
+      "frame": 4886,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0,
+        3,
+        4
+      ],
+      "world_seed": 1331460052
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.6236513257026672,
+        "boost3_area_log": 0.620934247970581
+      },
+      "best_surviving_action": 4,
+      "chosen": {
+        "area_log": 0.6236513257026672,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 3,
+      "decision": 2789,
+      "env": 1,
+      "frame": 2790,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        4
+      ],
+      "world_seed": 539912944
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.8919198513031006,
+        "boost3_area_log": 0.8915587067604065
+      },
+      "best_surviving_action": 1,
+      "chosen": {
+        "area_log": 0.8919198513031006,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 4049,
+      "env": 6,
+      "frame": 4050,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        1,
+        4
+      ],
+      "world_seed": 4130786071
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7596953511238098,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 1,
+      "chosen": {
+        "area_log": 0.7596953511238098,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 4155,
+      "env": 8,
+      "frame": 4156,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        1
+      ],
+      "world_seed": 3988821633
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7651995420455933,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 3,
+      "chosen": {
+        "area_log": 0.7654062509536743,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 4200,
+      "env": 9,
+      "frame": 4201,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        3
+      ],
+      "world_seed": 1996812937
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 1.0000293254852295
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 3490,
+      "env": 12,
+      "frame": 3491,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2,
+        3,
+        5
+      ],
+      "world_seed": 3010307125
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 1.0000293254852295
+      },
+      "best_surviving_action": 0,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 2607,
+      "env": 15,
+      "frame": 2608,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0
+      ],
+      "world_seed": 474182439
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.9792255759239197,
+        "boost3_area_log": 0.9790509939193726
+      },
+      "best_surviving_action": 1,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 4271,
+      "env": 17,
+      "frame": 4272,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0,
+        1,
+        3,
+        4
+      ],
+      "world_seed": 1712899657
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.7814342379570007,
+        "boost3_area_log": 0.7807088494300842
+      },
+      "best_surviving_action": 4,
+      "chosen": {
+        "area_log": 0.7816148400306702,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 4670,
+      "env": 19,
+      "frame": 4671,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        4
+      ],
+      "world_seed": 3774445511
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 0,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 3247,
+      "env": 26,
+      "frame": 3248,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0
+      ],
+      "world_seed": 1331460052
+    },
+    {
+      "arm": "b8_s3",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.5814399719238281,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 0,
+      "chosen": {
+        "area_log": 0.5814399719238281,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 2,
+      "decision": 3832,
+      "env": 30,
+      "frame": 3833,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0
+      ],
+      "world_seed": 1638785368
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7583885192871094,
+        "boost3_area_log": 0.7575093507766724
+      },
+      "best_surviving_action": 3,
+      "chosen": {
+        "area_log": 0.7586073279380798,
+        "boost3_area_log": 0.7575093507766724
+      },
+      "chosen_action": 1,
+      "decision": 4594,
+      "env": 0,
+      "frame": 4595,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        3
+      ],
+      "world_seed": 2515367783
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 5,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 0,
+      "decision": 2794,
+      "env": 2,
+      "frame": 2795,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        5
+      ],
+      "world_seed": 3835332564
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7409819960594177,
+        "boost3_area_log": 0.739709734916687
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 0.7409819960594177,
+        "boost3_area_log": 0.739709734916687
+      },
+      "chosen_action": 1,
+      "decision": 4755,
+      "env": 3,
+      "frame": 4756,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2,
+        5
+      ],
+      "world_seed": 1229887956
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.51581871509552
+      },
+      "best_surviving_action": 4,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.51581871509552
+      },
+      "chosen_action": 1,
+      "decision": 3747,
+      "env": 4,
+      "frame": 3748,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "world_seed": 4038340764
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 0.8009187579154968,
+        "boost3_area_log": 0.8003022074699402
+      },
+      "best_surviving_action": 3,
+      "chosen": {
+        "area_log": 0.801072359085083,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 2990,
+      "env": 5,
+      "frame": 2991,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0,
+        3
+      ],
+      "world_seed": 2976813830
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.7147857546806335,
+        "boost3_area_log": 0.7132017016410828
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 0.7147857546806335,
+        "boost3_area_log": 0.7132017016410828
+      },
+      "chosen_action": 0,
+      "decision": 3342,
+      "env": 12,
+      "frame": 3343,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2
+      ],
+      "world_seed": 3010307125
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 0.21541354060173035,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 0,
+      "chosen": {
+        "area_log": 0.21541354060173035,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 2743,
+      "env": 13,
+      "frame": 2744,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0
+      ],
+      "world_seed": 2570788724
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 1.0000293254852295
+      },
+      "best_surviving_action": 0,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.8251979351043701
+      },
+      "chosen_action": 1,
+      "decision": 4451,
+      "env": 22,
+      "frame": 4452,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        0
+      ],
+      "world_seed": 15900433
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": false,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 1.0000293254852295
+      },
+      "chosen_action": 1,
+      "decision": 3672,
+      "env": 28,
+      "frame": 3673,
+      "passes_either": false,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2
+      ],
+      "world_seed": 1562232037
+    },
+    {
+      "arm": "b8_s4",
+      "best_higher_area_log": false,
+      "best_higher_boost3_area_log": true,
+      "best_surviving": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 1.0000293254852295
+      },
+      "best_surviving_action": 2,
+      "chosen": {
+        "area_log": 1.0000293254852295,
+        "boost3_area_log": 0.0
+      },
+      "chosen_action": 1,
+      "decision": 3084,
+      "env": 31,
+      "frame": 3085,
+      "passes_either": true,
+      "restored_matches": {
+        "deterministic_tape_action": true,
+        "features_bitwise_after_clone": true,
+        "frame": true,
+        "full_clone_state": true,
+        "hero_length": true,
+        "world_seed": true
+      },
+      "surviving_actions": [
+        2,
+        5
+      ],
+      "world_seed": 3273584622
+    }
+  ],
+  "schema": "t5-t1-area-check/v1",
+  "share": 0.3695652173913043,
+  "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t1-commitment-20261015/rows.jsonl",
+  "status": "COMPLETE",
+  "validation_status": "PASS",
+  "wall_seconds": 14.809353208169341
+}

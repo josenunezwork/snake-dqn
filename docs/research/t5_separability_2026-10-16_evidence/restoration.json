@@ -1,0 +1,48 @@
+{
+  "counts": {
+    "branches": 103264,
+    "holdout_states": 1052,
+    "states": 19976,
+    "train_decisive_states": 9462,
+    "train_outside_states": 9462,
+    "train_states": 18924
+  },
+  "input_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0000.json": "42e17147006a3f5bebb16b1e60d5d53fd98a6e8debeecd154bd07c1949c9d75b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0001.json": "8e05fd627c81ef950d96ce3c2b91c76e255a690bec1911a43afb2f5ef3046ebc",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0002.json": "95c0bf269ff11367b1e9f8287e156491f1d793f7266c8689282801bfe44c0682",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0003.json": "6a081c2f9d0e4e1129752eca7ca1ba6e64177c188b5e00221f6fbeaac50409e8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0004.json": "19e83c939811d4fe250510219cc0bc456f2d020f2b9fbbc6dd4baccbb447b9b8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0005.json": "7a71c9dc873d519c1f327c06d7dedf23938b723679037b87bf8d45d0e16a6575"
+  },
+  "output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz",
+  "output_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+  "part_receipts": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-0.json": "9a499a3d30303f2bf18b2347131de85c01548406e05d77463e9d33d5633b8668",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-1.json": "68c5a8673f3bf5adbeac6eea811f5219e02275b1eec4950a96e6e49118dae14c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-2.json": "d970198c2e7344f067a4f7ef0bbaa0658aba5492a4405b424121001852db86d6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-3.json": "4158038fa8e14695a49babd8d5b0684425e4c6e1bd4230127ea1c2f599ba194e"
+  },
+  "parts": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-0.npz": "24b8f9c824aa2292364a4fbafb0b25d41829d3ef4fb582f3721d2f4f44335409",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-1.npz": "86f22f109c98edb8793ec06824046fbd8ff8c38dc871a1f087fd0a36592e56be",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-2.npz": "00abbae8c58085b6538c1149b916d1b6315a3ec48670bbb4163d3e60e1322ae7",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-3.npz": "5ac9049166c6236fe5c52862f3ff161b95a9e9cc663a4d3a392b3e9d7ad8cdb2"
+  },
+  "schema": "t5-separability-features/v1",
+  "source_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-t5/research/t5_separability_20261016/restore.py": "3a9c911397665a0c678d9b133a8ca9795e9915db80b0dd91c7241ffd99191645",
+    "src/simd_env/t5_features.py": "97b12443c4e233e144abddf28d49f40fbddcee627d883801fac4b40d5c8da6d4"
+  },
+  "validation": {
+    "all_part_observation_bytes_verified": 19976,
+    "all_real_legal_branches_retained": 103264,
+    "state_ids_disjoint": true
+  },
+  "worlds": {
+    "holdout": 30,
+    "train": 312
+  }
+}

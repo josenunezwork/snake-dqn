@@ -1,0 +1,347 @@
+{
+  "schema": "t5-separability-v1",
+  "data_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+  "data_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz",
+  "sklearn_version": "1.7.2",
+  "seed": 20261016,
+  "n_folds": 5,
+  "bootstrap_world_draws": 2000,
+  "primary": "pooled world-grouped out-of-fold predictions over train + holdout",
+  "secondary": "fit historical train only, score historical holdout only",
+  "action_context": "six one-hot action indicators appended equally to each per-action design",
+  "sample_weight": "one per observed legal branch; one per state for boost-only",
+  "boost_label": "some legal boost survives D300 and all legal normals die; require a legal normal",
+  "models": {
+    "hist_gradient_boosting": "HistGradientBoostingClassifier(early_stopping=False, l2_regularization=1.0,\n                               max_iter=200, random_state=20261016)",
+    "logistic_regression": "Pipeline(steps=[('standardscaler', StandardScaler()),\n                ('logisticregression', LogisticRegression(max_iter=3000))])"
+  },
+  "results": {
+    "death_d300": {
+      "hist_gradient_boosting": {
+        "grouped_oof": {
+          "worlds": 342,
+          "rows": 103264,
+          "positive": 19094,
+          "metrics": {
+            "60": {
+              "auc": 0.7261235631465491,
+              "ci95": [
+                0.7078538606326005,
+                0.7458539940514239
+              ],
+              "valid_bootstraps": 2000
+            },
+            "60+24": {
+              "auc": 0.7349495546746903,
+              "ci95": [
+                0.7160622693311351,
+                0.7551822115607062
+              ],
+              "valid_bootstraps": 2000
+            },
+            "24": {
+              "auc": 0.7475832782365625,
+              "ci95": [
+                0.731338730982797,
+                0.764370550308624
+              ],
+              "valid_bootstraps": 2000
+            },
+            "delta_60+24_minus_60": {
+              "auc_delta": 0.00882599152814112,
+              "ci95": [
+                0.005277060124692967,
+                0.012271004463334017
+              ],
+              "valid_bootstraps": 2000
+            }
+          }
+        },
+        "original_holdout": {
+          "worlds": 30,
+          "rows": 5418,
+          "positive": 1901,
+          "metrics": {
+            "60": {
+              "auc": 0.764435146819005,
+              "ci95": [
+                0.7223470596612959,
+                0.8071809379559046
+              ],
+              "valid_bootstraps": 2000
+            },
+            "60+24": {
+              "auc": 0.7720461089497364,
+              "ci95": [
+                0.7265843048796656,
+                0.8154375804654903
+              ],
+              "valid_bootstraps": 2000
+            },
+            "24": {
+              "auc": 0.7823272757839469,
+              "ci95": [
+                0.7435720236288126,
+                0.8209555935762994
+              ],
+              "valid_bootstraps": 2000
+            },
+            "delta_60+24_minus_60": {
+              "auc_delta": 0.0076109621307313136,
+              "ci95": [
+                -0.001722491177383592,
+                0.018199258267518694
+              ],
+              "valid_bootstraps": 2000
+            }
+          }
+        }
+      },
+      "logistic_regression": {
+        "grouped_oof": {
+          "worlds": 342,
+          "rows": 103264,
+          "positive": 19094,
+          "metrics": {
+            "60": {
+              "auc": 0.7293168479115952,
+              "ci95": [
+                0.71172058467579,
+                0.7469183156186228
+              ],
+              "valid_bootstraps": 2000
+            },
+            "60+24": {
+              "auc": 0.7334156220597261,
+              "ci95": [
+                0.7169050959818453,
+                0.7497309903498026
+              ],
+              "valid_bootstraps": 2000
+            },
+            "24": {
+              "auc": 0.7260939136192559,
+              "ci95": [
+                0.7082749080630697,
+                0.7443720229203464
+              ],
+              "valid_bootstraps": 2000
+            },
+            "delta_60+24_minus_60": {
+              "auc_delta": 0.004098774148130868,
+              "ci95": [
+                0.0010512616424282833,
+                0.007113430905190289
+              ],
+              "valid_bootstraps": 2000
+            }
+          }
+        },
+        "original_holdout": {
+          "worlds": 30,
+          "rows": 5418,
+          "positive": 1901,
+          "metrics": {
+            "60": {
+              "auc": 0.7649250645059534,
+              "ci95": [
+                0.7303904074778552,
+                0.8020059034186359
+              ],
+              "valid_bootstraps": 2000
+            },
+            "60+24": {
+              "auc": 0.7637993980391625,
+              "ci95": [
+                0.7280035882341466,
+                0.8020868142107902
+              ],
+              "valid_bootstraps": 2000
+            },
+            "24": {
+              "auc": 0.769022319934871,
+              "ci95": [
+                0.7347795425056547,
+                0.8036670109258977
+              ],
+              "valid_bootstraps": 2000
+            },
+            "delta_60+24_minus_60": {
+              "auc_delta": -0.0011256664667909089,
+              "ci95": [
+                -0.005242030571461156,
+                0.0033450835328491953
+              ],
+              "valid_bootstraps": 2000
+            }
+          }
+        }
+      }
+    },
+    "boost_only_escape": {
+      "hist_gradient_boosting": {
+        "grouped_oof": {
+          "worlds": 342,
+          "rows": 19976,
+          "positive": 1481,
+          "metrics": {
+            "60": {
+              "auc": 0.7268227319864358,
+              "ci95": [
+                0.6978393194179682,
+                0.7547492579521946
+              ],
+              "valid_bootstraps": 2000
+            },
+            "60+24": {
+              "auc": 0.7342727262272647,
+              "ci95": [
+                0.7077947123174535,
+                0.7604328562715866
+              ],
+              "valid_bootstraps": 2000
+            },
+            "24": {
+              "auc": 0.7304815488391391,
+              "ci95": [
+                0.7037437325736277,
+                0.7572370694934729
+              ],
+              "valid_bootstraps": 2000
+            },
+            "delta_60+24_minus_60": {
+              "auc_delta": 0.007449994240828928,
+              "ci95": [
+                0.00016484706542543306,
+                0.014816033630126539
+              ],
+              "valid_bootstraps": 2000
+            }
+          }
+        },
+        "original_holdout": {
+          "worlds": 30,
+          "rows": 1052,
+          "positive": 165,
+          "metrics": {
+            "60": {
+              "auc": 0.7211027979911857,
+              "ci95": [
+                0.6327919301308024,
+                0.7979774869142293
+              ],
+              "valid_bootstraps": 2000
+            },
+            "60+24": {
+              "auc": 0.7361005773632605,
+              "ci95": [
+                0.6537023242633323,
+                0.8109708396122967
+              ],
+              "valid_bootstraps": 2000
+            },
+            "24": {
+              "auc": 0.7464999487547401,
+              "ci95": [
+                0.6752636246327732,
+                0.8083415834968593
+              ],
+              "valid_bootstraps": 2000
+            },
+            "delta_60+24_minus_60": {
+              "auc_delta": 0.014997779372074804,
+              "ci95": [
+                -0.008951705880152988,
+                0.03746468262686965
+              ],
+              "valid_bootstraps": 2000
+            }
+          }
+        }
+      },
+      "logistic_regression": {
+        "grouped_oof": {
+          "worlds": 342,
+          "rows": 19976,
+          "positive": 1481,
+          "metrics": {
+            "60": {
+              "auc": 0.7554733755623861,
+              "ci95": [
+                0.72695200963326,
+                0.7825150844578029
+              ],
+              "valid_bootstraps": 2000
+            },
+            "60+24": {
+              "auc": 0.7587288496498589,
+              "ci95": [
+                0.7301132471087184,
+                0.7851764110760908
+              ],
+              "valid_bootstraps": 2000
+            },
+            "24": {
+              "auc": 0.7553325451209599,
+              "ci95": [
+                0.7257474904929567,
+                0.7823803063098755
+              ],
+              "valid_bootstraps": 2000
+            },
+            "delta_60+24_minus_60": {
+              "auc_delta": 0.0032554740874727317,
+              "ci95": [
+                -0.0037343967803543402,
+                0.010265886621819046
+              ],
+              "valid_bootstraps": 2000
+            }
+          }
+        },
+        "original_holdout": {
+          "worlds": 30,
+          "rows": 1052,
+          "positive": 165,
+          "metrics": {
+            "60": {
+              "auc": 0.7470124013528747,
+              "ci95": [
+                0.6539780881738094,
+                0.8252900098483154
+              ],
+              "valid_bootstraps": 2000
+            },
+            "60+24": {
+              "auc": 0.7527177069454409,
+              "ci95": [
+                0.6718646217784113,
+                0.8215787447902897
+              ],
+              "valid_bootstraps": 2000
+            },
+            "24": {
+              "auc": 0.7536162071675037,
+              "ci95": [
+                0.6714488673775248,
+                0.8236648920661966
+              ],
+              "valid_bootstraps": 2000
+            },
+            "delta_60+24_minus_60": {
+              "auc_delta": 0.005705305592566212,
+              "ci95": [
+                -0.019772196490887323,
+                0.029427560685141463
+              ],
+              "valid_bootstraps": 2000
+            }
+          }
+        }
+      }
+    }
+  },
+  "advisor_bar_verbatim": "Proceed if the 60 + 24 AUC on per-action death beats the 60-scalar AUC by at least 0.05 and the 24-alone AUC is at least 0.80.",
+  "separability_verdict": "FAIL",
+  "elapsed_s": 130.23014441737905
+}

@@ -1,0 +1,20 @@
+{
+  "schema": "t5-independent-feature-audit/v1",
+  "status": "PASS",
+  "feature_data_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+  "states": 19976,
+  "worlds": 342,
+  "source_manifest_shards_verified": 360,
+  "source_branch_rows": {"holdout": 5418, "train": 97846},
+  "source_unique_state_counts": {"holdout/decisive": 1052, "train/decisive": 9462, "train/outside": 9462},
+  "outside_state_counts_by_arm": {"B8_s0": 8571, "B8_s1": 518, "B8_s2": 373},
+  "all_state_ids_and_worlds_match_source": true,
+  "all_source_scalar_bytes_match": true,
+  "all_actions_deaths_horizons_and_censoring_match_source": true,
+  "all_boost_only_labels_match_source": true,
+  "all_states_have_a_legal_normal": true,
+  "new_features_finite_normalized_tail_binary_boost3_direction_pairs_equal": true,
+  "train_holdout_worlds_disjoint": true,
+  "all_partition_source_input_output_hashes_match": true,
+  "all_19976_states_observation_byte_verified_in_restore_receipts": true
+}

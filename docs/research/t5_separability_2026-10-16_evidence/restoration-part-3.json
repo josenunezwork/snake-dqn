@@ -1,0 +1,653 @@
+{
+  "bank_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016",
+  "by_split": {
+    "holdout": 359,
+    "train": 5362
+  },
+  "device": "cpu",
+  "input_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0000.json": "42e17147006a3f5bebb16b1e60d5d53fd98a6e8debeecd154bd07c1949c9d75b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0001.json": "8e05fd627c81ef950d96ce3c2b91c76e255a690bec1911a43afb2f5ef3046ebc",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0002.json": "95c0bf269ff11367b1e9f8287e156491f1d793f7266c8689282801bfe44c0682",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0003.json": "6a081c2f9d0e4e1129752eca7ca1ba6e64177c188b5e00221f6fbeaac50409e8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0004.json": "19e83c939811d4fe250510219cc0bc456f2d020f2b9fbbc6dd4baccbb447b9b8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0005.json": "7a71c9dc873d519c1f327c06d7dedf23938b723679037b87bf8d45d0e16a6575"
+  },
+  "labels": {
+    "died_within_300": "actual branch death at or before D300",
+    "truncated_at_300": "survived all 300 branch transitions; not a death label"
+  },
+  "observation_proof": {
+    "all_emitted_states_byte_verified": 5721,
+    "samples": {
+      "holdout/decisive": [
+        {
+          "decision": 4165,
+          "observation_bytes_match": true,
+          "world_id": 115
+        },
+        {
+          "decision": 4295,
+          "observation_bytes_match": true,
+          "world_id": 279
+        },
+        {
+          "decision": 4300,
+          "observation_bytes_match": true,
+          "world_id": 279
+        }
+      ],
+      "train/decisive": [
+        {
+          "decision": 3960,
+          "observation_bytes_match": true,
+          "world_id": 3
+        },
+        {
+          "decision": 3965,
+          "observation_bytes_match": true,
+          "world_id": 3
+        },
+        {
+          "decision": 3970,
+          "observation_bytes_match": true,
+          "world_id": 3
+        }
+      ],
+      "train/outside": [
+        {
+          "decision": 1910,
+          "observation_bytes_match": true,
+          "world_id": 3
+        },
+        {
+          "decision": 1915,
+          "observation_bytes_match": true,
+          "world_id": 3
+        },
+        {
+          "decision": 1920,
+          "observation_bytes_match": true,
+          "world_id": 3
+        }
+      ]
+    }
+  },
+  "output": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features-part-3.npz",
+  "output_sha256": "5ac9049166c6236fe5c52862f3ff161b95a9e9cc663a4d3a392b3e9d7ad8cdb2",
+  "performance": [
+    {
+      "feature_seconds": 34.05778083112091,
+      "split": "train",
+      "states": 460,
+      "wall_seconds": 44.28884604200721,
+      "world_id": 3
+    },
+    {
+      "feature_seconds": 37.85421458259225,
+      "split": "train",
+      "states": 584,
+      "wall_seconds": 49.88184629101306,
+      "world_id": 7
+    },
+    {
+      "feature_seconds": 35.3745077601634,
+      "split": "train",
+      "states": 495,
+      "wall_seconds": 46.56165895797312,
+      "world_id": 11
+    },
+    {
+      "feature_seconds": 34.88529850542545,
+      "split": "train",
+      "states": 467,
+      "wall_seconds": 46.02969308337197,
+      "world_id": 15
+    },
+    {
+      "feature_seconds": 28.054852463770658,
+      "split": "train",
+      "states": 442,
+      "wall_seconds": 38.81838645786047,
+      "world_id": 19
+    },
+    {
+      "feature_seconds": 18.450328460428864,
+      "split": "train",
+      "states": 231,
+      "wall_seconds": 27.907071833033115,
+      "world_id": 27
+    },
+    {
+      "feature_seconds": 12.153529251925647,
+      "split": "train",
+      "states": 172,
+      "wall_seconds": 20.86156849982217,
+      "world_id": 31
+    },
+    {
+      "feature_seconds": 3.858295795507729,
+      "split": "train",
+      "states": 55,
+      "wall_seconds": 10.977981416974217,
+      "world_id": 35
+    },
+    {
+      "feature_seconds": 1.4713686229661107,
+      "split": "train",
+      "states": 41,
+      "wall_seconds": 8.217552124988288,
+      "world_id": 39
+    },
+    {
+      "feature_seconds": 1.9456227137707174,
+      "split": "train",
+      "states": 138,
+      "wall_seconds": 8.427563874982297,
+      "world_id": 43
+    },
+    {
+      "feature_seconds": 0.10898837400600314,
+      "split": "train",
+      "states": 5,
+      "wall_seconds": 2.9977764999493957,
+      "world_id": 47
+    },
+    {
+      "feature_seconds": 0.10252812411636114,
+      "split": "train",
+      "states": 6,
+      "wall_seconds": 4.485703832935542,
+      "world_id": 55
+    },
+    {
+      "feature_seconds": 4.600371749140322,
+      "split": "train",
+      "states": 63,
+      "wall_seconds": 10.61648558313027,
+      "world_id": 75
+    },
+    {
+      "feature_seconds": 3.5846428745426238,
+      "split": "train",
+      "states": 57,
+      "wall_seconds": 7.810482083819807,
+      "world_id": 83
+    },
+    {
+      "feature_seconds": 0.023871208541095257,
+      "split": "train",
+      "states": 7,
+      "wall_seconds": 3.5822952087037265,
+      "world_id": 87
+    },
+    {
+      "feature_seconds": 3.879282919690013,
+      "split": "train",
+      "states": 55,
+      "wall_seconds": 8.408510874956846,
+      "world_id": 95
+    },
+    {
+      "feature_seconds": 0.5914396271109581,
+      "split": "train",
+      "states": 47,
+      "wall_seconds": 5.55329104186967,
+      "world_id": 103
+    },
+    {
+      "feature_seconds": 2.6588321644812822,
+      "split": "train",
+      "states": 40,
+      "wall_seconds": 9.398315082769841,
+      "world_id": 107
+    },
+    {
+      "feature_seconds": 0.5427912943996489,
+      "split": "train",
+      "states": 15,
+      "wall_seconds": 4.62293658265844,
+      "world_id": 127
+    },
+    {
+      "feature_seconds": 0.015703375451266766,
+      "split": "train",
+      "states": 3,
+      "wall_seconds": 4.728909416124225,
+      "world_id": 139
+    },
+    {
+      "feature_seconds": 2.2716691195964813,
+      "split": "train",
+      "states": 44,
+      "wall_seconds": 5.540951875038445,
+      "world_id": 143
+    },
+    {
+      "feature_seconds": 0.010247167199850082,
+      "split": "train",
+      "states": 4,
+      "wall_seconds": 4.502615875098854,
+      "world_id": 163
+    },
+    {
+      "feature_seconds": 0.05644562281668186,
+      "split": "train",
+      "states": 12,
+      "wall_seconds": 4.483399041928351,
+      "world_id": 167
+    },
+    {
+      "feature_seconds": 0.015706459060311317,
+      "split": "train",
+      "states": 1,
+      "wall_seconds": 4.823769707698375,
+      "world_id": 175
+    },
+    {
+      "feature_seconds": 5.126449957489967,
+      "split": "train",
+      "states": 56,
+      "wall_seconds": 11.903611207846552,
+      "world_id": 187
+    },
+    {
+      "feature_seconds": 3.6681688730604947,
+      "split": "train",
+      "states": 59,
+      "wall_seconds": 8.971769582945853,
+      "world_id": 203
+    },
+    {
+      "feature_seconds": 2.787825167644769,
+      "split": "train",
+      "states": 59,
+      "wall_seconds": 8.269421082921326,
+      "world_id": 215
+    },
+    {
+      "feature_seconds": 2.0320051619783044,
+      "split": "train",
+      "states": 48,
+      "wall_seconds": 7.321727459318936,
+      "world_id": 223
+    },
+    {
+      "feature_seconds": 3.09409074857831,
+      "split": "train",
+      "states": 40,
+      "wall_seconds": 6.054602082818747,
+      "world_id": 291
+    },
+    {
+      "feature_seconds": 0.009287915658205748,
+      "split": "train",
+      "states": 2,
+      "wall_seconds": 4.091756290756166,
+      "world_id": 339
+    },
+    {
+      "feature_seconds": 0.07226241519674659,
+      "split": "train",
+      "states": 12,
+      "wall_seconds": 4.525819041766226,
+      "world_id": 343
+    },
+    {
+      "feature_seconds": 1.9024078291840851,
+      "split": "train",
+      "states": 51,
+      "wall_seconds": 5.586761457845569,
+      "world_id": 371
+    },
+    {
+      "feature_seconds": 2.2175777475349605,
+      "split": "train",
+      "states": 53,
+      "wall_seconds": 7.435349375009537,
+      "world_id": 375
+    },
+    {
+      "feature_seconds": 4.23372958553955,
+      "split": "train",
+      "states": 57,
+      "wall_seconds": 10.630654957611114,
+      "world_id": 427
+    },
+    {
+      "feature_seconds": 1.7064782502129674,
+      "split": "train",
+      "states": 20,
+      "wall_seconds": 4.450889916159213,
+      "world_id": 483
+    },
+    {
+      "feature_seconds": 0.0033428752794861794,
+      "split": "train",
+      "states": 1,
+      "wall_seconds": 3.6485185408964753,
+      "world_id": 491
+    },
+    {
+      "feature_seconds": 4.7141907517798245,
+      "split": "train",
+      "states": 60,
+      "wall_seconds": 7.88569675013423,
+      "world_id": 535
+    },
+    {
+      "feature_seconds": 0.7496817521750927,
+      "split": "train",
+      "states": 9,
+      "wall_seconds": 4.989871666766703,
+      "world_id": 543
+    },
+    {
+      "feature_seconds": 2.8130549676716328,
+      "split": "train",
+      "states": 48,
+      "wall_seconds": 9.446800958365202,
+      "world_id": 591
+    },
+    {
+      "feature_seconds": 2.540992953814566,
+      "split": "train",
+      "states": 35,
+      "wall_seconds": 5.663085415959358,
+      "world_id": 607
+    },
+    {
+      "feature_seconds": 3.4408527961932123,
+      "split": "train",
+      "states": 56,
+      "wall_seconds": 10.403343209065497,
+      "world_id": 631
+    },
+    {
+      "feature_seconds": 5.686456547118723,
+      "split": "train",
+      "states": 58,
+      "wall_seconds": 11.282571750227362,
+      "world_id": 639
+    },
+    {
+      "feature_seconds": 2.812366833910346,
+      "split": "train",
+      "states": 54,
+      "wall_seconds": 6.824388499837369,
+      "world_id": 655
+    },
+    {
+      "feature_seconds": 2.741086748894304,
+      "split": "train",
+      "states": 43,
+      "wall_seconds": 9.379383792169392,
+      "world_id": 719
+    },
+    {
+      "feature_seconds": 3.335454585030675,
+      "split": "train",
+      "states": 58,
+      "wall_seconds": 7.2265057079494,
+      "world_id": 731
+    },
+    {
+      "feature_seconds": 2.0590888769365847,
+      "split": "train",
+      "states": 27,
+      "wall_seconds": 5.514342959038913,
+      "world_id": 735
+    },
+    {
+      "feature_seconds": 2.623602169100195,
+      "split": "train",
+      "states": 49,
+      "wall_seconds": 5.763880165759474,
+      "world_id": 739
+    },
+    {
+      "feature_seconds": 4.467014205176383,
+      "split": "train",
+      "states": 57,
+      "wall_seconds": 10.571147459093481,
+      "world_id": 751
+    },
+    {
+      "feature_seconds": 0.005692459177225828,
+      "split": "train",
+      "states": 2,
+      "wall_seconds": 3.6460213749669492,
+      "world_id": 771
+    },
+    {
+      "feature_seconds": 0.028654914814978838,
+      "split": "train",
+      "states": 6,
+      "wall_seconds": 6.185347042046487,
+      "world_id": 787
+    },
+    {
+      "feature_seconds": 3.543350792955607,
+      "split": "train",
+      "states": 56,
+      "wall_seconds": 8.86950849974528,
+      "world_id": 811
+    },
+    {
+      "feature_seconds": 0.9422364588826895,
+      "split": "train",
+      "states": 18,
+      "wall_seconds": 5.136255791876465,
+      "world_id": 827
+    },
+    {
+      "feature_seconds": 5.107638913672417,
+      "split": "train",
+      "states": 56,
+      "wall_seconds": 11.677772958762944,
+      "world_id": 835
+    },
+    {
+      "feature_seconds": 3.9825664991512895,
+      "split": "train",
+      "states": 49,
+      "wall_seconds": 7.351550874765962,
+      "world_id": 899
+    },
+    {
+      "feature_seconds": 3.2829408375546336,
+      "split": "train",
+      "states": 52,
+      "wall_seconds": 8.191534124780446,
+      "world_id": 927
+    },
+    {
+      "feature_seconds": 0.7198064173571765,
+      "split": "train",
+      "states": 59,
+      "wall_seconds": 5.89981420757249,
+      "world_id": 975
+    },
+    {
+      "feature_seconds": 1.393690002616495,
+      "split": "train",
+      "states": 58,
+      "wall_seconds": 8.046402667183429,
+      "world_id": 999
+    },
+    {
+      "feature_seconds": 0.8519806247204542,
+      "split": "train",
+      "states": 18,
+      "wall_seconds": 5.898021959234029,
+      "world_id": 1019
+    },
+    {
+      "feature_seconds": 3.2141563771292567,
+      "split": "train",
+      "states": 59,
+      "wall_seconds": 6.19342300016433,
+      "world_id": 1059
+    },
+    {
+      "feature_seconds": 0.9640152934007347,
+      "split": "train",
+      "states": 20,
+      "wall_seconds": 5.236737791914493,
+      "world_id": 1063
+    },
+    {
+      "feature_seconds": 3.928796961903572,
+      "split": "train",
+      "states": 58,
+      "wall_seconds": 8.897107209078968,
+      "world_id": 1071
+    },
+    {
+      "feature_seconds": 3.676754416897893,
+      "split": "train",
+      "states": 55,
+      "wall_seconds": 8.843201708979905,
+      "world_id": 1107
+    },
+    {
+      "feature_seconds": 2.679202626924962,
+      "split": "train",
+      "states": 58,
+      "wall_seconds": 9.17122216662392,
+      "world_id": 1115
+    },
+    {
+      "feature_seconds": 4.3805424971506,
+      "split": "train",
+      "states": 53,
+      "wall_seconds": 7.732054250314832,
+      "world_id": 1127
+    },
+    {
+      "feature_seconds": 2.953977335244417,
+      "split": "train",
+      "states": 60,
+      "wall_seconds": 7.0360960410907865,
+      "world_id": 1135
+    },
+    {
+      "feature_seconds": 1.0133901266381145,
+      "split": "train",
+      "states": 55,
+      "wall_seconds": 5.126764541957527,
+      "world_id": 1143
+    },
+    {
+      "feature_seconds": 1.8345871637575328,
+      "split": "train",
+      "states": 44,
+      "wall_seconds": 6.98266641702503,
+      "world_id": 1151
+    },
+    {
+      "feature_seconds": 1.8320219963788986,
+      "split": "train",
+      "states": 48,
+      "wall_seconds": 6.320241625420749,
+      "world_id": 1163
+    },
+    {
+      "feature_seconds": 0.02036500023677945,
+      "split": "train",
+      "states": 7,
+      "wall_seconds": 3.306382792070508,
+      "world_id": 1167
+    },
+    {
+      "feature_seconds": 1.1129885422997177,
+      "split": "train",
+      "states": 15,
+      "wall_seconds": 7.034969666041434,
+      "world_id": 1187
+    },
+    {
+      "feature_seconds": 0.004811041988432407,
+      "split": "holdout",
+      "states": 1,
+      "wall_seconds": 5.313998625148088,
+      "world_id": 115
+    },
+    {
+      "feature_seconds": 2.8293870016932487,
+      "split": "holdout",
+      "states": 44,
+      "wall_seconds": 9.587182959076017,
+      "world_id": 279
+    },
+    {
+      "feature_seconds": 4.820899962447584,
+      "split": "holdout",
+      "states": 57,
+      "wall_seconds": 7.870364082977176,
+      "world_id": 287
+    },
+    {
+      "feature_seconds": 1.9786776276305318,
+      "split": "holdout",
+      "states": 48,
+      "wall_seconds": 5.257508083246648,
+      "world_id": 419
+    },
+    {
+      "feature_seconds": 4.850878295022994,
+      "split": "holdout",
+      "states": 58,
+      "wall_seconds": 7.5004404168576,
+      "world_id": 463
+    },
+    {
+      "feature_seconds": 0.2248233323916793,
+      "split": "holdout",
+      "states": 34,
+      "wall_seconds": 3.9724224996753037,
+      "world_id": 563
+    },
+    {
+      "feature_seconds": 1.906327249482274,
+      "split": "holdout",
+      "states": 50,
+      "wall_seconds": 6.027475500013679,
+      "world_id": 783
+    },
+    {
+      "feature_seconds": 0.1967449993826449,
+      "split": "holdout",
+      "states": 6,
+      "wall_seconds": 4.7307817079126835,
+      "world_id": 871
+    },
+    {
+      "feature_seconds": 1.0013015791773796,
+      "split": "holdout",
+      "states": 60,
+      "wall_seconds": 4.687549374997616,
+      "world_id": 1051
+    },
+    {
+      "feature_seconds": 0.0047500417567789555,
+      "split": "holdout",
+      "states": 1,
+      "wall_seconds": 3.831135999877006,
+      "world_id": 1103
+    }
+  ],
+  "processes": 1,
+  "rows": 5721,
+  "schema": "t5-restored-return-bank/v1",
+  "shard": {
+    "count": 4,
+    "index": 3
+  },
+  "source_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-t5/research/t5_separability_20261016/restore.py": "3a9c911397665a0c678d9b133a8ca9795e9915db80b0dd91c7241ffd99191645",
+    "src/simd_env/t5_features.py": "97b12443c4e233e144abddf28d49f40fbddcee627d883801fac4b40d5c8da6d4"
+  }
+}
