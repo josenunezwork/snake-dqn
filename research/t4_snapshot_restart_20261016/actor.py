@@ -15,8 +15,12 @@ import numpy as np
 RESTART_KEYS = (
     "restart_decisions",
     "fresh_decisions",
+    "restart_decisions_ge800",
+    "fresh_decisions_ge800",
     "restart_deaths",
     "fresh_deaths",
+    "restart_deaths_ge800",
+    "fresh_deaths_ge800",
     "restart_length_sum",
     "fresh_length_sum",
     "restart_death_length_sum",
@@ -43,6 +47,9 @@ class RestartActorTelemetry:
             dead = selected & died
             self.values[f"{prefix}_deaths"] += int(dead.sum())
             self.values[f"{prefix}_death_length_sum"] += int(lengths[dead].sum())
+            ge800 = selected & (lengths >= 800)
+            self.values[f"{prefix}_decisions_ge800"] += int(ge800.sum())
+            self.values[f"{prefix}_deaths_ge800"] += int((ge800 & died).sum())
 
     def take(self) -> Dict[str, int]:
         out = self.values
