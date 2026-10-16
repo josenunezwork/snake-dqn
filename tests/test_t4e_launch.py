@@ -119,9 +119,10 @@ def test_check_mode_prints_the_registered_mps_recipe_without_training(
     assert result.stdout.count("--device mps") == len(seeds)
     assert result.stdout.count("--transitions 8000000") == len(seeds)
     assert result.stdout.count("--return-frac 0.5") == len(seeds)
-    assert result.stdout.count("--return-weight 1.0") == len(seeds)
+    assert result.stdout.count("--return-weight 0.0032") == len(seeds)
     assert result.stdout.count("--td-huber-delta 1.0") == len(seeds)
     assert result.stdout.count("--return-huber-delta 100") == len(seeds)
+    assert result.stdout.count("--return-gradient-telemetry") == len(seeds)
     assert "--margin-bank" not in result.stdout
     assert "--label-bank" not in result.stdout
     assert result.stdout.count("--label-frac 1") == len(seeds)
@@ -129,7 +130,7 @@ def test_check_mode_prints_the_registered_mps_recipe_without_training(
         assert f"RETURN_s{seed}" in result.stdout
     assert command_log.read_text().splitlines() == [
         "research/t4e_return_20261016/launch_check.py "
-        "research/t4e_return_20261016/launch_inputs.json"
+        "research/t4e_return_20261016/launch_inputs_amendment1.json"
     ]
 
 

@@ -4,8 +4,8 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from research.redesign_m3c_20261008.learner_m3c import Learner
-from research.redesign_m3c_20261008.train_m3c import build_parser
+from research.redesign_m3c_20261008.learner_m3c import Learner  # noqa: E402
+from research.redesign_m3c_20261008.train_m3c import build_parser  # noqa: E402
 
 
 def test_return_gradient_telemetry_is_default_off() -> None:

@@ -1,0 +1,561 @@
+{
+  "schema": "t4e-calibration-result/v1",
+  "runs": [
+    {
+      "run": "B8_s0_W0.001",
+      "seed": 10,
+      "weight": 0.001,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78080,
+      "first_ratio": 0.22464163122916336,
+      "init_ratio_gmean_1_50": 0.17393994020586676,
+      "middle_ratio_gmean_126_175": 0.5880422512336179,
+      "last_ratio_gmean_251_300": 0.4542509805996349,
+      "max_abs_q": 14.487689971923828,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 30.033256750088185,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.001/calibration_receipt.json": "59b94f545e7885c34963821518234e6083128ba6d77b295fa23bb65b644ae699",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.001/calibration_updates.jsonl": "5a8f36c587a4879dd153ca9bb07fdbcb3300aa0a355c67cc175e8b19fb092e91",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.001/summary.json": "aa178d64e8c0a0101b20ef15a7d4d9e3d8926c0716062d22afdc8ebf771eeb3d"
+      }
+    },
+    {
+      "run": "B8_s0_W0.01",
+      "seed": 10,
+      "weight": 0.01,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78208,
+      "first_ratio": 1.932765150046063,
+      "init_ratio_gmean_1_50": 1.6943738529037318,
+      "middle_ratio_gmean_126_175": 2.050557780372797,
+      "last_ratio_gmean_251_300": 2.999673484894624,
+      "max_abs_q": 13.609233856201172,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 32.92269933363423,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.01/calibration_receipt.json": "e0aa3112bc41fc0912ada2ccbd7239f003e61bdefc2a945f750fa98f79ed98f4",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.01/calibration_updates.jsonl": "ad1173c2803bd755324a06e770e179891ba02683e772324f63e03108386b76cb",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.01/summary.json": "d0cd831d14d63598d6b6f5b511f023dbfe7690b9491a95e417d89aba346b541f"
+      }
+    },
+    {
+      "run": "B8_s0_W0.02",
+      "seed": 10,
+      "weight": 0.02,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78080,
+      "first_ratio": 5.356004777389467,
+      "init_ratio_gmean_1_50": 2.366008940885823,
+      "middle_ratio_gmean_126_175": 3.4001468813737032,
+      "last_ratio_gmean_251_300": 4.289472970256629,
+      "max_abs_q": 13.330419540405273,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 32.98723516706377,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.02/calibration_receipt.json": "de7b8c2a3582d82f39cd502159aa8e146b3286efbd99b74d7dd32e8a6b232689",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.02/calibration_updates.jsonl": "5c4fc65656af9e7c50de7d1e9decf522f1da23adbf38f2a58502f77d20aa697f",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.02/summary.json": "a9d586fc9dc8f2a5e794c9dc81f2995240f20b0092c745f24fb3e88012fc60a2"
+      }
+    },
+    {
+      "run": "B8_s0_W0.05",
+      "seed": 10,
+      "weight": 0.05,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78208,
+      "first_ratio": 10.321733940355248,
+      "init_ratio_gmean_1_50": 2.585875265002083,
+      "middle_ratio_gmean_126_175": 5.515243983436661,
+      "last_ratio_gmean_251_300": 6.142893250770006,
+      "max_abs_q": 12.870980262756348,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 35.98577770777047,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.05/calibration_receipt.json": "7fd4111c2045dbd3838cf1a22ef2c319473be32753ae13bc3bbef4dd8fdab17e",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.05/calibration_updates.jsonl": "34ecd899460af8ee336d1557a90157f49887721e0f6e2eb3a060462ff65539af",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.05/summary.json": "e01cd4d08060ade893bf9462a57d6a20c46f93a20cfe9b67c711e76343bdb317"
+      }
+    },
+    {
+      "run": "B8_s0_W0.2",
+      "seed": 10,
+      "weight": 0.2,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78208,
+      "first_ratio": 44.3005223615725,
+      "init_ratio_gmean_1_50": 2.814946508237517,
+      "middle_ratio_gmean_126_175": 10.905860617805443,
+      "last_ratio_gmean_251_300": 12.087912378696577,
+      "max_abs_q": 12.440838813781738,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 41.132418000139296,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.2/calibration_receipt.json": "031d8f7702ff06db4c7d4b3234780372c7a1c7055cdef0c02d4d101d14f66675",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.2/calibration_updates.jsonl": "46a57241620c4c668b28ea87c8d4e3151a8a888c0161bc84f0cde449bc6826fd",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W0.2/summary.json": "6b0dabf8bdc23494447e94a472d22dd4f70a1dd90ae9cdfecb9ab4b40b18ead3"
+      }
+    },
+    {
+      "run": "B8_s0_W1.0",
+      "seed": 10,
+      "weight": 1.0,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78080,
+      "first_ratio": 203.5774924305271,
+      "init_ratio_gmean_1_50": 4.3537750023278745,
+      "middle_ratio_gmean_126_175": 20.678119198187073,
+      "last_ratio_gmean_251_300": 38.609290036144806,
+      "max_abs_q": 11.852150917053223,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 32.21997912507504,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W1.0/calibration_receipt.json": "4ef1e89282590489bd7b5ba2c64655d51755129640d7bacac4238d54a94bbe57",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W1.0/calibration_updates.jsonl": "d6d0c40a20ea75c9b7a2032f06979c871bfd28b7b5c2dc16c6fce868bc44851b",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s0_W1.0/summary.json": "c32106eae43ea0c80d875a86df950ca465b2c35a18e129d71680062428feddd9"
+      }
+    },
+    {
+      "run": "B8_s2_W0.001",
+      "seed": 12,
+      "weight": 0.001,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78080,
+      "first_ratio": 0.2105984818951566,
+      "init_ratio_gmean_1_50": 0.1834315225654522,
+      "middle_ratio_gmean_126_175": 0.28992210082211134,
+      "last_ratio_gmean_251_300": 0.3202100372063007,
+      "max_abs_q": 20.92508316040039,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 30.09664479177445,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.001/calibration_receipt.json": "c7dac15969ee52f6a49ab9632c2d163c3b0f5b742bacf48c42327a59c63ed67e",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.001/calibration_updates.jsonl": "38882f25b607411b90745a276f93c197a233d2ca5a43fec259c01bc4028e23ba",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.001/summary.json": "063b0714d8887575368e5a91801b577b8c0833e62dafb8c14abeb0584fdcaa38"
+      }
+    },
+    {
+      "run": "B8_s2_W0.01",
+      "seed": 12,
+      "weight": 0.01,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78080,
+      "first_ratio": 2.283070466637256,
+      "init_ratio_gmean_1_50": 1.129488023820267,
+      "middle_ratio_gmean_126_175": 2.1423718501787463,
+      "last_ratio_gmean_251_300": 2.816870935495754,
+      "max_abs_q": 17.480045318603516,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 31.33589741587639,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.01/calibration_receipt.json": "0a55497cd6efa6e91cad47b88cabf6fa39189c35f21b2608a8dfa88934871b94",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.01/calibration_updates.jsonl": "6cb2011441c3ec650350cafe126417f78a17f2135fd2de86689c051b35807bc0",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.01/summary.json": "97e2c11933c0507276fbb1a58cf6b6bdca2fd8a91b6160d43fdad3865d00d2ad"
+      }
+    },
+    {
+      "run": "B8_s2_W0.02",
+      "seed": 12,
+      "weight": 0.02,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78080,
+      "first_ratio": 4.259921504528309,
+      "init_ratio_gmean_1_50": 2.053924644265482,
+      "middle_ratio_gmean_126_175": 3.523680510915652,
+      "last_ratio_gmean_251_300": 5.152068138726824,
+      "max_abs_q": 18.014524459838867,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 31.747199333738536,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.02/calibration_receipt.json": "9dc018df74790e1c969619b0f084325640140cbc799c961dd97ab3bfc5eb7090",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.02/calibration_updates.jsonl": "1535d23c41f8e07e8be1b91f1afa53fa867ebaf3d96ed136aee5748083b2dc60",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.02/summary.json": "776a0c94ebbdf3bef00de4ada933b00623739f253ca0de501322fac321679d27"
+      }
+    },
+    {
+      "run": "B8_s2_W0.05",
+      "seed": 12,
+      "weight": 0.05,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78208,
+      "first_ratio": 9.583364514281298,
+      "init_ratio_gmean_1_50": 1.910938689866335,
+      "middle_ratio_gmean_126_175": 4.401049605062882,
+      "last_ratio_gmean_251_300": 6.4837439315605785,
+      "max_abs_q": 18.749496459960938,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 30.4878377080895,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.05/calibration_receipt.json": "da18396b8a12077a3e6d13f7426649c979151618ed3a697a8aeda5e8b209326b",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.05/calibration_updates.jsonl": "db974112aaf9bdd5136e890b4173edf7e7308be29d2ce51e8183871717c962b3",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.05/summary.json": "063c18143da6cbe3eb3c4295db55aab772bc32c7fec99c6f13cc29e01f93fb6c"
+      }
+    },
+    {
+      "run": "B8_s2_W0.2",
+      "seed": 12,
+      "weight": 0.2,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78208,
+      "first_ratio": 37.687067080370866,
+      "init_ratio_gmean_1_50": 1.9415534192609847,
+      "middle_ratio_gmean_126_175": 10.450282390132925,
+      "last_ratio_gmean_251_300": 10.513542463748822,
+      "max_abs_q": 19.729324340820312,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 33.01179862488061,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.2/calibration_receipt.json": "944414b8aad1741c55bbd381a68ed9a04c7e0c81c703c5b9a028d73c9c7f048e",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.2/calibration_updates.jsonl": "9712d7893e5b04f166ebbc6910c202cdffe08c220a98c94a6a9cbbeffacb8c2f",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W0.2/summary.json": "896d72459080f3b39ba7bbd5afef1b2552bb7e5d6d51b4a2dfd407f3016d0a3a"
+      }
+    },
+    {
+      "run": "B8_s2_W1.0",
+      "seed": 12,
+      "weight": 1.0,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78208,
+      "first_ratio": 194.57642488578148,
+      "init_ratio_gmean_1_50": 3.5163364673625934,
+      "middle_ratio_gmean_126_175": 20.476769680888278,
+      "last_ratio_gmean_251_300": 35.25172872703409,
+      "max_abs_q": 21.05721664428711,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "wall_seconds": 33.15106208389625,
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W1.0/calibration_receipt.json": "f3d8ebb318407145852ffadb3e89cbc996a5bb408eeacb16168389ba03a049ff",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W1.0/calibration_updates.jsonl": "e01bdaf8ad0cd1ca413b83b5c28ab44a03a5d7f6e463624688c84a1fd0f7c965",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/B8_s2_W1.0/summary.json": "cadb07e8ad603646c1ea467f2fe47568527d918263f7e1a44de5b75c5909aa69"
+      }
+    }
+  ],
+  "grid": [
+    {
+      "weight": 0.001,
+      "pooled_init_ratio": 0.17862269751323837
+    },
+    {
+      "weight": 0.01,
+      "pooled_init_ratio": 1.3833925598791428
+    },
+    {
+      "weight": 0.02,
+      "pooled_init_ratio": 2.204450968435874
+    },
+    {
+      "weight": 0.05,
+      "pooled_init_ratio": 2.222937041632273
+    },
+    {
+      "weight": 0.2,
+      "pooled_init_ratio": 2.3378128706347137
+    },
+    {
+      "weight": 1.0,
+      "pooled_init_ratio": 3.9127148901213293
+    }
+  ],
+  "selection": "log-log interpolation of equally pooled per-seed first-50 geometric means",
+  "target_ratio": 0.5,
+  "interpolated_weight": 0.003183059094684517,
+  "chosen_weight": 0.0032,
+  "confirmations": [
+    {
+      "init": "B8_s0",
+      "weight": 0.0032,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78080,
+      "init_ratio_gmean_1_50": 0.6458205192493857,
+      "middle_ratio_gmean_126_175": 0.861181994126597,
+      "last_ratio_gmean_251_300": 1.0732500974956114,
+      "max_abs_q": 14.321310043334961,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/confirmation_B8_s0_W0.0032/calibration_receipt.json": "5dea034218375f2859b2a08993e683cdfd43ff3cf490320f614e69054f54915e",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/confirmation_B8_s0_W0.0032/summary.json": "787dea9707f7a096cc7cfcbec9b04d037953114aef80f3c012a88b848d4fc367",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/confirmation_B8_s0_W0.0032/calibration_updates.jsonl": "f3e25bfc0291bf2a7217df8e6a639152d2a73d7da5f06ee4f956de38a54c3b71"
+      }
+    },
+    {
+      "init": "B8_s2",
+      "weight": 0.0032,
+      "device": "mps",
+      "updates": 300,
+      "transitions": 78080,
+      "init_ratio_gmean_1_50": 0.46551313452271376,
+      "middle_ratio_gmean_126_175": 1.010755447384676,
+      "last_ratio_gmean_251_300": 1.408856058603759,
+      "max_abs_q": 17.703628540039062,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "halt": null,
+      "flags": [],
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/confirmation_B8_s2_W0.0032/calibration_receipt.json": "b385f93e6d741b87130aaeed5c95744fcad07ca7a0735deb1d2e2d6cecc8d4aa",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/confirmation_B8_s2_W0.0032/summary.json": "eef5337fbaa4f6c63bd9ff004102fcceeadb5f4cd5d0bd59e036b1eb62987aa3",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/confirmation_B8_s2_W0.0032/calibration_updates.jsonl": "507031e341f06846ba6f64c518e1641dc338fd1958552110c89a0b966ce58ecd"
+      }
+    }
+  ],
+  "confirmation_pooled_init_ratio": 0.5483045998848342,
+  "telemetry_100k": {
+    "log_row": {
+      "transitions": 100224,
+      "updates": 386,
+      "wall": 37.68678179103881,
+      "rate": 2659.3939635310367,
+      "env_s": 15.364024384412915,
+      "learn_s": 34.20411512861028,
+      "eps": 0.010000000000000002,
+      "gamma": 0.998,
+      "lambda": 0.1,
+      "td": 0.014699424210443629,
+      "anchor": 0.007289296059526619,
+      "qmax": 15.402152061462402,
+      "boost_rate": 0.020234674329501916,
+      "greedy_boost_rate": 0.015445402298850575,
+      "deaths_per_1k": 0.0498882503192848,
+      "demo_shards_loaded": 0,
+      "demo_distinct": 0,
+      "actors": 2,
+      "tight_frac": null,
+      "tight_big_share": 0.0,
+      "tight_frac_1000": null,
+      "death_len_mean": 65.2,
+      "obs_version": "bv8",
+      "label_buffer": 100224,
+      "return_rows_mean": 128.0,
+      "return_loss": 317.40193713884895,
+      "return_to_td_grad_ratio": 1.215411408126946,
+      "weighted_return_grad_norm": 0.7381877036755566,
+      "td_grad_norm": 0.9566952607792276,
+      "anchor_rows": 256,
+      "return_rows": 128,
+      "agent_td_rows": 768,
+      "max_abs_q": 15.402152061462402,
+      "v8_override_rate": 0.0001297094508301405,
+      "shield_p": 0.0,
+      "label_rows_mean": 256.0
+    },
+    "updates": 386,
+    "transitions": 100224,
+    "halt": null,
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "evidence_sha256": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/telemetry_100k_B8_s0_W0.0032/summary.json": "e206cbdfe705d891585da0b4a9bef867d5128590c1e38064f54bd91c5261ca67",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/telemetry_100k_B8_s0_W0.0032/log.jsonl": "91507749803f8c7e2988e1547c8da8ba714835cd47f750ca1177e8bb90fdf718"
+    }
+  },
+  "batch_note": "Registered batch-scale 2 yields 256 full anchor rows, 128 additional RETURN rows, and 768 TD rows; unscaled 128-anchor wording is corrected without changing recipe.",
+  "training_8m_started": false,
+  "implementation_commit": "c40d5ed",
+  "validation": {
+    "trainer_regression_tests": {
+      "passed": 37,
+      "seconds": 373.74
+    },
+    "final_focused_tests": {
+      "passed": 14,
+      "seconds": 1.97
+    },
+    "independent_review_tests": {
+      "passed": 22,
+      "seconds": 111.43
+    },
+    "default_trace_receipt": "docs/research/t4e_calibration_default_trace_2026-10-16.json",
+    "world_exclusion_receipt": "docs/research/t4e_calibration_seed_audit_2026-10-16.json"
+  },
+  "calibration_input_hashes": {
+    "original_prereg": "d404e5d95e3671d12b0c0761246862448b0f84a1fbc7ffecc3046ac1b1fdd6a0",
+    "grid_summary": "00c07a8b1f02479d594b85e38d111950e27404df6dc981498edcd8d900e393dc",
+    "initial_grid_range": "5443763c6fa4b7bb084694fcea781c5eb87ab22108576ffcfb421a97da067b86"
+  },
+  "source_sha256": {
+    "research/redesign_m3c_20261008/train_m3c.py": "93dc37bdec90ec33cfdf76a4ecd3a9423f882867d36c50412b9c2ce4472f8c66",
+    "research/redesign_m3c_20261008/learner_m3c.py": "36ec46ff54adc20991bdd9d212baf0bbac3f806199f8f829a96bd616622389d2",
+    "research/t4e_return_20261016/calibration_smoke.py": "c756981134890974f361b26dc52d640108bfbe9d6072d50a0d5093f2b418e405",
+    "research/t4e_return_20261016/summarize_calibration.py": "df343b3a42cad176f8d66793b7b1908d510d709e5004d90633908d3486b38b48"
+  }
+}

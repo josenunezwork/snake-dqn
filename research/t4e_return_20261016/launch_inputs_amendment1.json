@@ -1,0 +1,58 @@
+{
+  "schema": "t4e-return-launch-inputs/v1",
+  "authority": "Amendment 1: calibrated W=0.0032, MPS launch prepared only; no 8M RETURN run started.",
+  "files": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data/margin.json": "498c9fb8484d20e798efa928a55efa8314a9135dd40a9f3e40db5209840254a2",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data/round-12/chunk-0000-part-00.npz": "6c91341075ed3a8287008dde12bed2232f418dc1e174909e237b9fff9414272e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s0/final.pth": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s1/final.pth": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s2/final.pth": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s3/final.pth": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s4/final.pth": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/final.pth": "262da904c67c79d306006179bebcc7ce236dc6907147e303316e828d5ebcdd11",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/summary.json": "0cebf9f61c66a16a60a4c4c5c076402319285cc493ba73b06d6241f68734722b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/final.pth": "b3b1c9a62388dd7624a57c900bfd837c1064d71fe23043b38a3d8d793bdf79db",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/summary.json": "5111a797bfa964611c9335b7bfa4fd5fa36d9fedab2363f56464590945a152c8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/final.pth": "a94b456f63e4e887b3f3aa52e6918fcff8fbf916453207a1b6b230ac6c11cbc8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/summary.json": "7ef430847ce8974371adabc81cc001416388a800133422092d97a469b238ed0f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/final.pth": "5920cc7f14de4a99a1be6524a8215c40dd15f29c6ecee1e826d74a739d514302",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/summary.json": "715b2324c09eab1341308ac9f53f46103dbdc09d3e2a74e793407f79a845f7f4",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/final.pth": "b9eaf9e7120e233f5d32df30270ea67868597a3ad55cade80c42424fdc08f79c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/summary.json": "8db3c4568e2401f7698adbff3ece8dcd3579bf7601793932762c177bb49dd496",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/completion.json": "a4437243c7899de2ab6498c3d6b27efc5179e96ec784e2afde3b631e2acab089",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/specs/t4e_prereg_2026-10-16.md": "d404e5d95e3671d12b0c0761246862448b0f84a1fbc7ffecc3046ac1b1fdd6a0",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/redesign_m3c_20261008/learner_m3c.py": "36ec46ff54adc20991bdd9d212baf0bbac3f806199f8f829a96bd616622389d2",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/redesign_m3c_20261008/train_m3c.py": "93dc37bdec90ec33cfdf76a4ecd3a9423f882867d36c50412b9c2ce4472f8c66",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/t4d_return_regression_20261016/bank.py": "1f18bbe634abba48a22a28ec19ee3a7037b8bf1c7f842c9ea78c8b08895f8fc4",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/t4e_return_20261016/launch_check.py": "e6a0203f4f1ac26b77f310323d586cef59577040b65e1c5402000fffe570906a",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/specs/t4e_prereg_amendment1_2026-10-16.md": "e1291430e2707999da90618571b33e7a3c115b2adccb917da461f24dcd102aa2",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/specs/t4e_calibration_spec_2026-10-16.md": "5711a0c1527b11d02d8d542608ae0b513b222bf2b6cbe93444a71229b9110b6d",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/advice/2026-10-16_return_arm_review.md": "8d8f18b17c6d32e307ee0cebba2b29128d78b624443eb3e15c4a28a548184429",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/t4e_calibration_result_2026-10-16.json": "dd16bfd129f6745433e1434363ef58efc831869fe298bec23d807d73b8e7fdf5",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/docs/research/t4e_calibration_seed_audit_2026-10-16.json": "88fea6aea2c7d85fd417040935c808dbf121f297a8b7f2d32387aecd383e0b44",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/t4e_return_20261016/launch_inputs.json": "dc1b6e5633fd7946441a4f9e940dca8ac88c3b08a121f528663e30c8aefe9d2f",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/t4e_return_20261016/lane0.sh": "2c41aa40326a6e400d700ba36566e4adb303f7a754a632782c19cc6f94072eed",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/t4e_return_20261016/lane1.sh": "8ac913587df50810d8b6c01405543e233bea54a4082433966d41bdc1b5ce0813",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4e-mac-20261016/lane0.sh": "2c41aa40326a6e400d700ba36566e4adb303f7a754a632782c19cc6f94072eed",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4e-mac-20261016/lane1.sh": "8ac913587df50810d8b6c01405543e233bea54a4082433966d41bdc1b5ce0813"
+  },
+  "training_return_bank": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train",
+    "completion_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/completion.json",
+    "completion_counts": {
+      "training_decisive_states": 9462,
+      "training_outside_states": 9462,
+      "holdout_decisive_states": 1052,
+      "wall_seconds": 7216.263218124863
+    },
+    "publication_rows": 97846
+  },
+  "holdout_return_bank": {
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout",
+    "publication_rows": 5418
+  },
+  "return_weight": 0.0032,
+  "return_gradient_telemetry": true
+}

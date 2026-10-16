@@ -16,7 +16,7 @@ export PYTHONPATH="$PWD"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 export NUMBA_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1
 SNAKE_DQN_DEVICE=cpu ./venv/bin/python research/t4e_return_20261016/launch_check.py \
-    research/t4e_return_20261016/launch_inputs.json
+    research/t4e_return_20261016/launch_inputs_amendment1.json
 for seed in "${seeds[@]}"; do
     if [[ -e "$runs/RETURN_s$seed" || -e "$runs/RETURN_s$seed.log" ]]; then
         echo "Refusing existing output or log for seed $seed" >&2; exit 2
@@ -32,7 +32,7 @@ common=(
     --onpolicy-labels --label-frac 1 --obs-version bv8 --v61-backend numba
     --learner-fast --batch-scale 2 --obs-pack --checkpoint-every 2000000
     --tight-telemetry --td-huber-delta 1.0 --return-bank "$bank" --return-frac 0.5
-    --return-weight 1.0 --return-huber-delta 100
+    --return-weight 0.0032 --return-huber-delta 100 --return-gradient-telemetry
 )
 for seed in "${seeds[@]}"; do
     init="$art/redesign-m4b-mac-20261013/B8_s$((seed - 10))/final.pth"
