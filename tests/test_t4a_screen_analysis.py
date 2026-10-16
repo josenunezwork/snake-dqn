@@ -6,6 +6,8 @@ import pytest
 from research.t4a_screen_20261016.analyze_t4a import (
     ARM,
     EXTENSION_ROUND,
+    _decision,
+    _telemetry_for,
     analyze,
     extension_requirements,
     read_telemetry,
@@ -156,3 +158,79 @@ def test_halted_lane_can_report_kill_without_fabricating_unstarted_statuses():
     assert data["decision"] == "KILL"
     assert data["failed_runs"] == [{"name": f"{ARM}_s10", "exit": 9}]
     assert data["unstarted_runs"] == [f"{ARM}_s{seed}" for seed in range(11, 15)]
+
+
+def test_primary_uses_nonzero_seed_paired_se_not_pooled_world_se():
+    rows, statuses = _dataset()
+    per_seed_survivors = [0, 12, 24, 36, 48]
+    for seed, survivors in zip(range(10, 15), per_seed_survivors):
+        row = next(
+            item for item in rows if item["name"] == f"{ARM}_s{seed}" and item["mix"] == "scripted"
+        )
+        deaths = {str(index): 0 if index < survivors else 1 for index in range(96)}
+        row["deaths"] = deaths
+        row["alive_frames"] = {
+            world: 5000 if death == 0 else 2500 for world, death in deaths.items()
+        }
+    primary = analyze(rows, statuses)["arms"][ARM]["vs_ctrl"]["scripted"]["episode_survival"]
+    values = [survivors / 96 for survivors in per_seed_survivors]
+    expected = (sum((value - sum(values) / 5) ** 2 for value in values) / 4) ** 0.5 / 5**0.5
+    assert primary["seed_se"] == pytest.approx(expected)
+    assert primary["pooled_world_se"] != pytest.approx(primary["seed_se"])
+
+
+def _complete_decision_data(primary=0.06, mass=-30.0, frozen=-0.05, mixed=-0.05):
+    def metric(mean):
+        return {"mean": mean, "complete": True}
+
+    return {
+        "vs_ctrl": {
+            "scripted": {
+                "episode_survival": metric(primary),
+                "alive_survival": metric(0.0),
+                "mass": metric(mass),
+            },
+            "frozen": {
+                "episode_survival": metric(frozen),
+                "alive_survival": metric(0.0),
+                "mass": metric(mass),
+            },
+            "mixed": {
+                "episode_survival": metric(mixed),
+                "alive_survival": metric(0.0),
+                "mass": metric(mass),
+            },
+        }
+    }
+
+
+def test_decision_exact_go_guards_and_nonpositive_kill():
+    statuses = {f"{ARM}_s{seed}": 0 for seed in range(10, 15)}
+    assert _decision(_complete_decision_data(), statuses, False) == "GO"
+    assert _decision(_complete_decision_data(primary=0.059999), statuses, False) == "EXTEND"
+    assert _decision(_complete_decision_data(mass=-30.000001), statuses, False) == "EXTEND"
+    assert _decision(_complete_decision_data(frozen=-0.050001), statuses, False) == "EXTEND"
+    assert _decision(_complete_decision_data(mixed=-0.050001), statuses, False) == "EXTEND"
+    assert _decision(_complete_decision_data(primary=0.0), statuses, False) == "KILL"
+    assert _decision(_complete_decision_data(primary=-0.000001), statuses, False) == "KILL"
+
+
+def test_bank_agreement_diagnostic_thresholds_are_strict():
+    def telemetry(decisive, counter):
+        return {
+            f"{ARM}_s{seed}": {
+                "bank_agree_2m": {},
+                "bank_agree_8m": {
+                    "bank_agree_decisive": {"value": decisive},
+                    "bank_agree_counter": {"value": counter},
+                },
+            }
+            for seed in range(10, 15)
+        }
+
+    assert "inconclusive" in _telemetry_for(telemetry(0.9, 0.91))["bank_agree_readout_verdict"]
+    assert (
+        "both >0.9" in _telemetry_for(telemetry(0.900001, 0.900001))["bank_agree_readout_verdict"]
+    )
+    assert "inconclusive" in _telemetry_for(telemetry(0.8, 0.91))["bank_agree_readout_verdict"]
+    assert "input limit" in _telemetry_for(telemetry(0.799999, 0.91))["bank_agree_readout_verdict"]

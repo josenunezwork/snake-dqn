@@ -414,6 +414,19 @@ def extension_requirements(
     return jobs
 
 
+def t3_context_from_result(t3_result: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """Extract only the final T3 arm endpoints for a context-only T4a table."""
+    output: Dict[str, Dict[str, Any]] = {}
+    for arm, data in t3_result.get("arms", {}).items():
+        scripted = data.get("vs_ctrl", {}).get("scripted", {})
+        output[str(arm)] = {
+            "scripted_episode_delta": scripted.get("episode_survival", {}).get("mean"),
+            "scripted_mass_delta": scripted.get("mass", {}).get("mean"),
+            "decision": data.get("decision"),
+        }
+    return output
+
+
 def _nearest(
     lines: Sequence[Mapping[str, Any]], target: int, field: str, *, crossing: bool = False
 ) -> Optional[Dict[str, float]]:
