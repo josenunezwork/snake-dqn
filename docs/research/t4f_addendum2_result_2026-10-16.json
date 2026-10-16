@@ -1,0 +1,125 @@
+{
+  "schema": "t4f-addendum2-result/v1",
+  "collection": {
+    "banks": {
+      "holdout": {
+        "boost_rows_replaced": 2622,
+        "rows": 5418,
+        "states": 1052
+      },
+      "train": {
+        "boost_rows_replaced": 47269,
+        "rows": 97846,
+        "states": 18924
+      }
+    },
+    "boost_cost_period_frames": 3,
+    "cpu_threads_per_worker": 1,
+    "schema": "t4f-return-bank/v3",
+    "source": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016",
+    "source_identity": {
+      "banks": {
+        "holdout": {
+          "manifest_sha256": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c",
+          "shards": 30
+        },
+        "train": {
+          "manifest_sha256": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d",
+          "shards": 330
+        }
+      },
+      "binding_sha256": "ad53a1814c26229521da406cc261d1c5f468cbc651e8f8ae8a4a22405de86f51",
+      "checkpoints": {
+        "B8_s0": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f",
+        "B8_s1": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753",
+        "B8_s2": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e",
+        "B8_s3": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+        "B8_s4": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f"
+      },
+      "plan_sha256": {
+        "cycle-0000.json": "42e17147006a3f5bebb16b1e60d5d53fd98a6e8debeecd154bd07c1949c9d75b",
+        "cycle-0001.json": "8e05fd627c81ef950d96ce3c2b91c76e255a690bec1911a43afb2f5ef3046ebc",
+        "cycle-0002.json": "95c0bf269ff11367b1e9f8287e156491f1d793f7266c8689282801bfe44c0682",
+        "cycle-0003.json": "6a081c2f9d0e4e1129752eca7ca1ba6e64177c188b5e00221f6fbeaac50409e8",
+        "cycle-0004.json": "19e83c939811d4fe250510219cc0bc456f2d020f2b9fbbc6dd4baccbb447b9b8",
+        "cycle-0005.json": "7a71c9dc873d519c1f327c06d7dedf23938b723679037b87bf8d45d0e16a6575"
+      }
+    },
+    "target_statistics": "reported separately by target_stats.py with source B8 online/target bootstrap",
+    "wall_seconds": 2463.705035000108,
+    "workers": 12
+  },
+  "gaps": {
+    "schema": "t4f-addendum2-gap-table/v1",
+    "metric": "mean of within-state mean boost target minus mean normal target; equal state weights",
+    "target_convention": "G + gamma^T masked source-B8 bootstrap for survivors; no bootstrap at death",
+    "rows": [
+      {
+        "split": "train",
+        "family": "decisive",
+        "states_with_both": 9457,
+        "source_gap": 31.985477721232087,
+        "repeated_turn_gap": -26.57251939746785,
+        "corrected_gap": 32.38128372243431,
+        "corrected_median_gap": 29.570205705872613,
+        "normal_survival": 0.5007221203013389,
+        "source_boost_survival": 0.8705583756345178,
+        "corrected_boost_survival": 0.8784638428892403
+      },
+      {
+        "split": "train",
+        "family": "outside",
+        "states_with_both": 9438,
+        "source_gap": -0.15877929697654078,
+        "repeated_turn_gap": -61.386293551547446,
+        "corrected_gap": -0.9259036024740434,
+        "corrected_median_gap": -0.07865458119719282,
+        "normal_survival": 0.9751983331997757,
+        "source_boost_survival": 0.971078114912847,
+        "corrected_boost_survival": 0.9634172584463094
+      },
+      {
+        "split": "holdout",
+        "family": "decisive",
+        "states_with_both": 1051,
+        "source_gap": 30.664968332488666,
+        "repeated_turn_gap": -25.262005917499756,
+        "corrected_gap": 31.923141533222974,
+        "corrected_median_gap": 30.68742812099448,
+        "normal_survival": 0.478898426323319,
+        "source_boost_survival": 0.8306636155606407,
+        "corrected_boost_survival": 0.8466819221967964
+      }
+    ],
+    "evidence_sha256": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-validation-20261016/source-train-targets-final.json": "85149c373e56cf0525688bff62b7cf4d91f1d2af6396c990e9fe8304302e5100",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-validation-20261016/macro-train-targets.json": "803743e7be797e1f04e2ce28591f7c1fbf2e7a3f0a293f0f7a4cbe76231d6ef4",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016/macro-train-targets.json": "35912d3cc91791a892ce5f95343069ce9713ebc749faa170e85c3165e450e4f3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-validation-20261016/source-holdout-targets-final.json": "048d2b40e91ba5c929ac87c991945ad14c4681807497ba7bfdfe18cea41e5794",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-validation-20261016/macro-holdout-targets.json": "45551c2936bd6a63554bde0c5fe1eefb97dfe74bdd5804c3e05ec9db4932edea",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016/macro-holdout-targets.json": "349a5c5d37a02144ddf9c067e0b68d16143d6518781e33bbb4624c9b2f44ecf5"
+    }
+  },
+  "chosen_weight": 0.0012,
+  "confirmation_pooled_init_ratio": 0.5452653449854958,
+  "launch_check": {
+    "files": 93,
+    "heldout_outside_states": 40559,
+    "holdout_rows": 5418,
+    "holdout_shards": 30,
+    "return_weight": 0.0012,
+    "training_rows": 97846,
+    "training_shards": 330
+  },
+  "campaign_started": false,
+  "evidence_sha256": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-v3-20261016/completion.json": "2e4af61695d8482e7c3ffc2291c2cfd7c1c61bdff87b9deb195233cf20da9613",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016/macro-validation.json": "2be7080466eba39948bd7c18e39caf4cf834f0fe3805eae587c8be742dee0d59",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016/gap-table.json": "e022bdede45bfa20d7a4b2f4a9f2a8e4a32fe332bae63300333516131346a065",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016/launch-binding-check.json": "845373f6433c35edb746a7b6d5c323dc88afa19a0c5a7ec8e0a581c01df3b0a7",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016/lane0-check.txt": "d9e6962a01ba664fcfb774746c257b6479bdbc6565c0bf957d1e77b0d50d0abf",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016/lane1-check.txt": "4fddb7c848aad6a9e837e8508f63c80be1eb959d062d1775aa6ae534ca39cf03",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-addendum2-validation-20261016/cleanup-and-boundary.json": "eb0f17bc6b80c69f912b56aca50d6e0cd262d9a146ad33068d0c9318081e041d",
+    "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/t4f_return_20261016/launch_inputs_addendum2.json": "a2ed180b750724cae1729dd1ba7ca08937102752cd85c936cd75134f4b3666d9"
+  }
+}

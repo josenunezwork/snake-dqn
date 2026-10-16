@@ -1,0 +1,236 @@
+{
+  "schema": "t4f-addendum2-calibration-summary/v1",
+  "selection": "log-log interpolation of pooled first-50 geometric means, narrowed after first candidate confirmation exceeded target",
+  "target_ratio": 0.5,
+  "initial_candidate_weight": 0.0021,
+  "initial_candidate_pooled_ratio": 0.8645767370291424,
+  "selection_bracket_weights": [
+    0.0001,
+    0.0021
+  ],
+  "selection_interpolated_weight": 0.0012010830232548168,
+  "selection_receipt_sha256": "60e786250a38805ef7ddfcc16316ca362053e093d8fd8caf019e2ec264b996c2",
+  "chosen_weight": 0.0012,
+  "confirmation_pooled_init_ratio": 0.5452653449854958,
+  "grid": [
+    {
+      "weight": 0.0001,
+      "pooled_init_ratio": 0.04373303093389333
+    },
+    {
+      "weight": 0.0012,
+      "pooled_init_ratio": 0.5452653449854958
+    },
+    {
+      "weight": 0.0021,
+      "pooled_init_ratio": 0.8645767370291424
+    },
+    {
+      "weight": 0.01,
+      "pooled_init_ratio": 1.7080206346225355
+    }
+  ],
+  "runs": [
+    {
+      "run": "B8_s0_W0.0001",
+      "seed": 10,
+      "weight": 0.0001,
+      "device": "mps",
+      "updates": 300,
+      "init_ratio_gmean_1_50": 0.04960613678888851,
+      "middle_ratio_gmean_126_175": 0.5150307479676297,
+      "last_ratio_gmean_251_300": 0.18837974204536334,
+      "max_abs_q": 35.20475769042969,
+      "active_fraction_mean_1_50": 0.523153367638588,
+      "active_fraction_mean_all": 0.6436316674947739,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0001/calibration_receipt.json": "e0a0c194c3113b6a9d9687c10dff5a6ba68aea237443600b8187f0d2e008f16a",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0001/calibration_updates.jsonl": "c030f93014d986e06a1e5027746d7c3e5b4381e261ccfe2fc656b29ae7fdbb7d",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0001/summary.json": "f00b692418d41a44e36e9e9f8b0eb5db5ac9b72ae1abfb4f4f1949e4b37ec0de"
+      }
+    },
+    {
+      "run": "B8_s0_W0.0012",
+      "seed": 10,
+      "weight": 0.0012,
+      "device": "mps",
+      "updates": 300,
+      "init_ratio_gmean_1_50": 0.6366988544841111,
+      "middle_ratio_gmean_126_175": 1.4716005474017195,
+      "last_ratio_gmean_251_300": 1.218067208014258,
+      "max_abs_q": 31.70785903930664,
+      "active_fraction_mean_1_50": 0.5264675164222717,
+      "active_fraction_mean_all": 0.6628774916132291,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0012/calibration_receipt.json": "5c217e4391fcadc63779d9ac230e78eb908d5538bdad0112ff57d41f7e4b3b71",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0012/calibration_updates.jsonl": "88e2f1b5b57a1f46f0cff47e611fdefe51b8354ca04fd6fc4cd0e8a57a9ec5cf",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0012/summary.json": "48a0024d56959eb4a5f92ecd0bd09347f223a1fef1e440ff296163353e2adb3b"
+      }
+    },
+    {
+      "run": "B8_s0_W0.0021",
+      "seed": 10,
+      "weight": 0.0021,
+      "device": "mps",
+      "updates": 300,
+      "init_ratio_gmean_1_50": 0.9467077087738801,
+      "middle_ratio_gmean_126_175": 1.7623592219819164,
+      "last_ratio_gmean_251_300": 0.9528890618731276,
+      "max_abs_q": 73.95002746582031,
+      "active_fraction_mean_1_50": 0.5263483148813247,
+      "active_fraction_mean_all": 0.6680491651097934,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0021/calibration_receipt.json": "ba02b04dc5b7037c3ae11cfd43a0ed710554ecd8e3e7b72a04b52dd0a96cabc4",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0021/calibration_updates.jsonl": "a385c0d33ed4680ba0f1da8638deaa0f93c8e298f75512f49fe17b70456d64c0",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.0021/summary.json": "914da432457bcfd67eafbb99d7e795850b7d2191603cb235a6e535dca1cbef24"
+      }
+    },
+    {
+      "run": "B8_s0_W0.01",
+      "seed": 10,
+      "weight": 0.01,
+      "device": "mps",
+      "updates": 300,
+      "init_ratio_gmean_1_50": 1.8748831471291847,
+      "middle_ratio_gmean_126_175": 1.7259053067054804,
+      "last_ratio_gmean_251_300": 3.084471071827452,
+      "max_abs_q": 135.5358123779297,
+      "active_fraction_mean_1_50": 0.5279278367757797,
+      "active_fraction_mean_all": 0.6651906233032544,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.01/calibration_receipt.json": "23e4cbee9e7fabbefe680fadb5b488c37f14c5fa5981c5671b727fe975b88306",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.01/calibration_updates.jsonl": "12dc501e3e120315029733857ae1456647cf47cf3b64d704901e344f38a9c897",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s0_W0.01/summary.json": "da6de321741ee0e4a1449edc9b0d646bc372775127d60bbc2c362876d19ff11f"
+      }
+    },
+    {
+      "run": "B8_s2_W0.0001",
+      "seed": 12,
+      "weight": 0.0001,
+      "device": "mps",
+      "updates": 300,
+      "init_ratio_gmean_1_50": 0.038555269941788275,
+      "middle_ratio_gmean_126_175": 0.49027818499157827,
+      "last_ratio_gmean_251_300": 0.1767905658867627,
+      "max_abs_q": 41.61508560180664,
+      "active_fraction_mean_1_50": 0.5359171587228775,
+      "active_fraction_mean_all": 0.616924533645312,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0001/calibration_receipt.json": "f0b4dbeaa1f6575eae29dd3437b0c65d30cb602f8319d01ab2456b8726047fdd",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0001/calibration_updates.jsonl": "b9ddda6be39efdd2c219278530fa684a5a92a7a1f386e9ae770e1108a95ffdab",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0001/summary.json": "172ce7b23ed73b5427e050c3a4c5798c36e047d4ecf7734dc2f1323cbda98452"
+      }
+    },
+    {
+      "run": "B8_s2_W0.0012",
+      "seed": 12,
+      "weight": 0.0012,
+      "device": "mps",
+      "updates": 300,
+      "init_ratio_gmean_1_50": 0.46696219782435827,
+      "middle_ratio_gmean_126_175": 1.0319481822538379,
+      "last_ratio_gmean_251_300": 0.5947270568729022,
+      "max_abs_q": 49.557029724121094,
+      "active_fraction_mean_1_50": 0.5352313375473022,
+      "active_fraction_mean_all": 0.6360611760616303,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0012/calibration_receipt.json": "9e297b866f83179972e2592a7fa21220d3711dfeaab1f783d07429e3f0c71dd7",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0012/calibration_updates.jsonl": "e4afe5da8b81a2d1d34cd0e0ad6d0dc18542687bf85316155977780b34b65e11",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0012/summary.json": "45f75cf9265f097e10568822377719bfb390ee4c61be5b997656cb6e34eb8636"
+      }
+    },
+    {
+      "run": "B8_s2_W0.0021",
+      "seed": 12,
+      "weight": 0.0021,
+      "device": "mps",
+      "updates": 300,
+      "init_ratio_gmean_1_50": 0.7895709808680734,
+      "middle_ratio_gmean_126_175": 1.5120125175371455,
+      "last_ratio_gmean_251_300": 1.1586175975198791,
+      "max_abs_q": 24.483211517333984,
+      "active_fraction_mean_1_50": 0.5358181947469711,
+      "active_fraction_mean_all": 0.640424514512221,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0021/calibration_receipt.json": "c8f59ce8bfaaac076c9341e1106322d50c1bb36e7373b192bf461f1a80a5986d",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0021/calibration_updates.jsonl": "eaf08c3b85934c780be73592e7e4b924e042184c0f49db9d8008d36fe0c09b04",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.0021/summary.json": "49bd4d2c411404a994ce249e932976a37664dd41d005dab4b533fc64a51d961d"
+      }
+    },
+    {
+      "run": "B8_s2_W0.01",
+      "seed": 12,
+      "weight": 0.01,
+      "device": "mps",
+      "updates": 300,
+      "init_ratio_gmean_1_50": 1.5560086999359841,
+      "middle_ratio_gmean_126_175": 1.3793683390467433,
+      "last_ratio_gmean_251_300": 1.576956854258598,
+      "max_abs_q": 69.89257049560547,
+      "active_fraction_mean_1_50": 0.5348514753580094,
+      "active_fraction_mean_all": 0.6439495343963305,
+      "batch_compositions": [
+        [
+          256,
+          128,
+          768
+        ]
+      ],
+      "evidence_sha256": {
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.01/calibration_receipt.json": "8afd1da3212cd2810c4f29a5476e745a85f939cac8d1cded8d4b0e1fc44aab24",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.01/calibration_updates.jsonl": "f8018df25798274ce1a419c434f9d1a15981b5cda0bd6528f2ff07e248defd86",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-calibration-addendum2-20261016/B8_s2_W0.01/summary.json": "5718aa6428e0509616d5ab0ecdfb9ab5fdeb9c4b41d7d017699125a3251ed91f"
+      }
+    }
+  ],
+  "confirmation_does_not_reselect_weight": true
+}
