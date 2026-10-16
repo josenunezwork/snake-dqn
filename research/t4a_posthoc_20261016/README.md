@@ -50,3 +50,53 @@ successful exits and all five `TWO_SIDED_s10..14/final.pth` files exist. Read on
 the artifact receipts; do not inspect or control tmux or enter the protected
 `snake-dqn-t4a` worktree. Round-62 diagnostic comparisons are separate from the
 registered round-65 gameplay evaluation.
+
+Check readiness with `python -m research.t4a_posthoc_20261016.pipeline --ready`.
+Only a `ready: true` result permits the commands below. Run each seed 10–14;
+at most three commands may execute concurrently across both parts of this task.
+
+```sh
+posthoc_seed=10
+posthoc_artifacts=/Users/josenunez/Projects/ml/snake-dqn-artifacts
+posthoc_t4="$posthoc_artifacts/redesign-t4a-mac-20261016"
+posthoc_t3="$posthoc_artifacts/redesign-t3-mac-20261015"
+posthoc_ctrl="$posthoc_artifacts/redesign-m6-mac-20261014"
+
+./venv/bin/python -m research.t4a_posthoc_20261016.capture \
+  --seed "$posthoc_seed" --out "$posthoc_out" \
+  --candidate "TWO_SIDED=$posthoc_t4/TWO_SIDED_s$posthoc_seed/final.pth" \
+  --candidate "LABELS=$posthoc_t3/LABELS_s$posthoc_seed/final.pth" \
+  --candidate "LABELS_KEEPV8=$posthoc_t3/LABELS_KEEPV8_s$posthoc_seed/final.pth" \
+  --two-sided "$posthoc_t4/TWO_SIDED_s$posthoc_seed/final.pth"
+
+./venv/bin/python -m research.t4a_posthoc_20261016.spillover \
+  --capture-bank "$posthoc_artifacts/t4-prep-20261015/bank-v2" \
+  --ctrl-checkpoint "$posthoc_ctrl/CTRL_s$posthoc_seed/final.pth" \
+  --candidate-checkpoint "$posthoc_t4/TWO_SIDED_s$posthoc_seed/final.pth" \
+  --out "$posthoc_out/bank/TWO_SIDED_s$posthoc_seed.npz"
+```
+
+Repeat the bank command for LABELS and LABELS_KEEPV8 using their corresponding
+T3 finals and output names. The candidate names passed to `capture` are arm
+names without the seed suffix; the writer adds the seed. All bank and trajectory
+inference is rowwise on CPU. TWO_SIDED-owned growth series have internal
+evaluator/series consistency checks; CTRL replay has historical probe parity.
+T3 growth series are reused only after receipt and input-hash validation.
+
+After all 15 bank captures, five shared CTRL captures, and five TWO_SIDED-owned
+series exist:
+
+```sh
+./venv/bin/python -m research.t4a_posthoc_20261016.pipeline \
+  --out "$posthoc_out" \
+  --report docs/research/t4a_posthoc_diagnostics_2026-10-16.md
+```
+
+The aggregator enforces all-five-final readiness again, reconstructs the named
+input bindings, validates producer receipts, and pools all five seeds before
+computing common decile cutpoints. It records unrestricted and common-support
+stratum counts/rates, standardizes a/b/c to identical pooled-bank weights, and
+reports cross-boost shares as ratios of standardized rates. The generated report
+includes the pre-registered interpretation verbatim; its application to the
+observed results is added after inspecting the completed evidence. No numerical
+threshold for "low" or "high" spillover is invented.
