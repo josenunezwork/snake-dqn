@@ -1,0 +1,453 @@
+{
+  "schema": "fuse-independent-audit/v1",
+  "authority": "independent read-only saved-artifact audit; diagnostic only; not gate evidence",
+  "status": "PASS",
+  "source": {
+    "t5_features_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz",
+    "t5_data_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+    "states": 19976,
+    "legal_branches": 103264,
+    "positive_labels": 19094,
+    "fold_receipt_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/fits/folds.npz",
+    "saved_fold_rows": 19976,
+    "source_manifests_sha256": {
+      "train": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d",
+      "holdout": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c"
+    },
+    "source_shards_verified": 360,
+    "source_shard_hash_mismatches": [],
+    "source_unique_world_decision_keys": 19976,
+    "source_missing_state_ids": [],
+    "source_duplicate_conflicts": [],
+    "source_scalars_byte_exact": true,
+    "source_scalar_mismatches": []
+  },
+  "saved_arms": {
+    "B8_s0": {
+      "features_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s0/B8_s0.features.npz",
+      "features_sha256": "2c9dcb71fb0e28aad9651837db5bd211d350af03be21705ab365b1fa0cb3176f",
+      "state_id_exact": true,
+      "feature_shape": [
+        19976,
+        256
+      ],
+      "q_shape": [
+        19976,
+        6
+      ],
+      "feature_dtype": "float32",
+      "q_dtype": "float32",
+      "finite_features_q": true,
+      "post_relu_nonnegative": true,
+      "fuse_q_predictions_sha256": "aae1d8c32ab88aa65e4b8bdc564c213fcfdc91703f9edbe51341fafe8b2b452c",
+      "fuse_q_prediction_rows": 103264,
+      "fuse_q_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      },
+      "fuse_q_60_24_predictions_sha256": "b433db1194a36c85fcad66e9a12fd30d143294ef604809fba578bd94d001a12b",
+      "fuse_q_60_24_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      }
+    },
+    "B8_s1": {
+      "features_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s1/B8_s1.features.npz",
+      "features_sha256": "ad0c91230a63d283f7f67747080ecf7379e7cc00b9acebf0b00ad11987231b70",
+      "state_id_exact": true,
+      "feature_shape": [
+        19976,
+        256
+      ],
+      "q_shape": [
+        19976,
+        6
+      ],
+      "feature_dtype": "float32",
+      "q_dtype": "float32",
+      "finite_features_q": true,
+      "post_relu_nonnegative": true,
+      "fuse_q_predictions_sha256": "eb6f6647ad6cdbe061d20935e6c580462bb91622c09137554e8e9d196ec98445",
+      "fuse_q_prediction_rows": 103264,
+      "fuse_q_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      },
+      "fuse_q_60_24_predictions_sha256": "29aee3dc8d648d3c4f1497b492b45d152fa54675737aaca7d71384beaec937f3",
+      "fuse_q_60_24_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      }
+    },
+    "B8_s2": {
+      "features_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s2/B8_s2.features.npz",
+      "features_sha256": "7a3d3416e91b31f4363851bb9ca0fa3d58f0c84f0aaca809b841e02a5e322d67",
+      "state_id_exact": true,
+      "feature_shape": [
+        19976,
+        256
+      ],
+      "q_shape": [
+        19976,
+        6
+      ],
+      "feature_dtype": "float32",
+      "q_dtype": "float32",
+      "finite_features_q": true,
+      "post_relu_nonnegative": true,
+      "fuse_q_predictions_sha256": "073f816f6f62545a817b2e618d6720dfbccb942e8d91863f3b92d75d0d968ea0",
+      "fuse_q_prediction_rows": 103264,
+      "fuse_q_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      },
+      "fuse_q_60_24_predictions_sha256": "1586d558bb069dbb248c2864ac07e6d475504c9ab2b3a9c31f01042fd7fbe586",
+      "fuse_q_60_24_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      }
+    },
+    "B8_s3": {
+      "features_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s3/B8_s3.features.npz",
+      "features_sha256": "63e3dc0a33b4e701b892165221697385cab580a24bfaa533dd554b82133b2e76",
+      "state_id_exact": true,
+      "feature_shape": [
+        19976,
+        256
+      ],
+      "q_shape": [
+        19976,
+        6
+      ],
+      "feature_dtype": "float32",
+      "q_dtype": "float32",
+      "finite_features_q": true,
+      "post_relu_nonnegative": true,
+      "fuse_q_predictions_sha256": "915f7906a9a83b14dd7d7e0c5f7cfe729630e6dd4190404fe9febfa37c13695c",
+      "fuse_q_prediction_rows": 103264,
+      "fuse_q_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      },
+      "fuse_q_60_24_predictions_sha256": "e68564ae0f8742509d0aac962eaca9656d8693b69f57b27170669cfbfda8ddc3",
+      "fuse_q_60_24_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      }
+    },
+    "B8_s4": {
+      "features_path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s4/B8_s4.features.npz",
+      "features_sha256": "2415b63740d38daf6f4f2da120ed781cfa88994b8ce89fad20b34c7a1e5dbc49",
+      "state_id_exact": true,
+      "feature_shape": [
+        19976,
+        256
+      ],
+      "q_shape": [
+        19976,
+        6
+      ],
+      "feature_dtype": "float32",
+      "q_dtype": "float32",
+      "finite_features_q": true,
+      "post_relu_nonnegative": true,
+      "fuse_q_predictions_sha256": "194b33fe6650ad8748d57a333de925e66e7bd1a5e075cb184d982e6537d438e5",
+      "fuse_q_prediction_rows": 103264,
+      "fuse_q_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      },
+      "fuse_q_60_24_predictions_sha256": "dfcdf7d58aee9b58ab73ab272f029a0742be4807aade89a3c2cf320a12c61fb6",
+      "fuse_q_60_24_prediction_design_exact": {
+        "y": true,
+        "state": true,
+        "action": true,
+        "world": true,
+        "fold": true,
+        "finite": true
+      }
+    }
+  },
+  "forward_sample": {
+    "indices": [
+      0,
+      1,
+      37,
+      1024,
+      10000,
+      19975
+    ],
+    "device": "cpu",
+    "saved_forward_batch_size": 128,
+    "independent_forward_batch_size": 6,
+    "fuse_exact": false,
+    "q_exact": false,
+    "max_abs_fuse_by_arm": {
+      "B8_s0": 2.5331974029541016e-06,
+      "B8_s1": 1.430511474609375e-06,
+      "B8_s2": 2.7418136596679688e-06,
+      "B8_s3": 2.4437904357910156e-06,
+      "B8_s4": 1.862645149230957e-06
+    },
+    "max_abs_q_by_arm": {
+      "B8_s0": 3.5762786865234375e-06,
+      "B8_s1": 3.5762786865234375e-06,
+      "B8_s2": 3.814697265625e-06,
+      "B8_s3": 5.125999450683594e-06,
+      "B8_s4": 4.76837158203125e-06
+    },
+    "interpretation": "Independent CPU re-forward on source-packed observations reproduces saved float32 values within batch-size-dependent BLAS/torch reductions; exact bitwise equality is not observed at batch size 6 versus saved batch size 128.",
+    "source_sample_files": [
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/world-00000-B8_s0-scripted-s873466857-outside.npz",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/world-00004-B8_s0-scripted-s10530980-outside.npz",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/world-01009-B8_s0-scripted-s3017096821-decisive.npz",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/world-01103-B8_s2-scripted-s1135396159-decisive.npz"
+    ]
+  },
+  "commands": {
+    "artifact_and_receipt_checks": "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -u independent artifact checks: canonical labels/state/action/world/fold arrays, saved feature shapes/dtypes/finiteness, and saved state IDs",
+    "bootstrap_check": "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -u independent weighted world-bootstrap kernel, seed 20261017, n_boot=2000",
+    "forward_sample": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 -u independent CPU source-packed sample forward"
+  },
+  "independent_world_bootstrap_2000": {
+    "B8_s0": {
+      "fuse_q": {
+        "hist_gradient_boosting": {
+          "auc": 0.7691391858235201,
+          "ci95": [
+            0.7511077046430478,
+            0.7876203016639807
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.7254756303484774,
+          "ci95": [
+            0.7088778538280609,
+            0.7424922406455577
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "fuse_q_60_24": {
+        "hist_gradient_boosting": {
+          "auc": 0.7678514576540401,
+          "ci95": [
+            0.7490491073530982,
+            0.7880160760024802
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.7276456178439195,
+          "ci95": [
+            0.7114156642636984,
+            0.7434178712005314
+          ],
+          "valid_bootstraps": 2000
+        }
+      }
+    },
+    "B8_s1": {
+      "fuse_q": {
+        "hist_gradient_boosting": {
+          "auc": 0.7693425997123167,
+          "ci95": [
+            0.7507064616180937,
+            0.7882033807758173
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.7262490175261305,
+          "ci95": [
+            0.7092633138152478,
+            0.7427963478547143
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "fuse_q_60_24": {
+        "hist_gradient_boosting": {
+          "auc": 0.7682909714050279,
+          "ci95": [
+            0.7495649487360265,
+            0.7880862327280533
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.729601159444544,
+          "ci95": [
+            0.7134478735246672,
+            0.7454325381637672
+          ],
+          "valid_bootstraps": 2000
+        }
+      }
+    },
+    "B8_s2": {
+      "fuse_q": {
+        "hist_gradient_boosting": {
+          "auc": 0.7664623675625721,
+          "ci95": [
+            0.7484152331794948,
+            0.7855145668562734
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.7259892103621113,
+          "ci95": [
+            0.7094838903913914,
+            0.7431966068698731
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "fuse_q_60_24": {
+        "hist_gradient_boosting": {
+          "auc": 0.7673000290864159,
+          "ci95": [
+            0.7486331082142806,
+            0.7872995807476839
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.728464822379912,
+          "ci95": [
+            0.712365588944199,
+            0.7443840894161308
+          ],
+          "valid_bootstraps": 2000
+        }
+      }
+    },
+    "B8_s3": {
+      "fuse_q": {
+        "hist_gradient_boosting": {
+          "auc": 0.765262952685736,
+          "ci95": [
+            0.747132658338008,
+            0.7836605564284386
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.7256163161141493,
+          "ci95": [
+            0.7088528344597539,
+            0.7426938507830044
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "fuse_q_60_24": {
+        "hist_gradient_boosting": {
+          "auc": 0.766099731897987,
+          "ci95": [
+            0.747130887691283,
+            0.7860740494995526
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.7281995153906689,
+          "ci95": [
+            0.7121260249052103,
+            0.7444461178535082
+          ],
+          "valid_bootstraps": 2000
+        }
+      }
+    },
+    "B8_s4": {
+      "fuse_q": {
+        "hist_gradient_boosting": {
+          "auc": 0.7629979561606623,
+          "ci95": [
+            0.7445589923957384,
+            0.7812167594621435
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.7274386616420785,
+          "ci95": [
+            0.710900123708751,
+            0.7441222793816549
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "fuse_q_60_24": {
+        "hist_gradient_boosting": {
+          "auc": 0.7631025978177733,
+          "ci95": [
+            0.7441728877143254,
+            0.7832072840714
+          ],
+          "valid_bootstraps": 2000
+        },
+        "logistic_regression": {
+          "auc": 0.7302425153501373,
+          "ci95": [
+            0.7145582289867437,
+            0.745708734020024
+          ],
+          "valid_bootstraps": 2000
+        }
+      }
+    }
+  },
+  "aggregate_checks": {
+    "all_state_ids_exact": true,
+    "all_feature_q_finite_float32": true,
+    "all_post_relu_nonnegative": true,
+    "all_fuse_q_receipts_exact": true,
+    "all_full_receipts_exact": true,
+    "all_auc_recomputed": true,
+    "all_bootstraps_valid_2000": true
+  },
+  "limitations": [
+    "Sample source-packed forward was six rows and CPU batch size 6 versus saved batch size 128; tiny nonzero differences are recorded per arm.",
+    "World bootstrap was independently recomputed with the published 20261017 RNG seed and 2000 draws; no policy rollout, training, or gate rescoring was performed."
+  ]
+}

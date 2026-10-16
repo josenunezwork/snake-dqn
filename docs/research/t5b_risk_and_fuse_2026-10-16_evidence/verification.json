@@ -1,0 +1,46 @@
+{
+  "schema": "t5b-root-verification/v1",
+  "implementation_commit": "b139d74c",
+  "pytest": {
+    "command": "PYTHONPATH=/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/deps:. OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 ./venv/bin/python -m pytest -q tests/test_t5b_risk.py tests/test_t5b_fuse.py tests/test_t5_fit.py",
+    "passed": 14,
+    "failed": 0,
+    "skipped": 0,
+    "seconds": 1.97
+  },
+  "style": {
+    "black_line_length_100": "PASS",
+    "isort_black_profile_line_length_100": "PASS",
+    "flake8": "PASS",
+    "git_diff_check": "PASS"
+  },
+  "scope": "Only new diagnostic package and focused tests; shared model/trainer/simulator unchanged",
+  "owned_fuse_sessions": {
+    "B8_s0": {
+      "session_id": 43072,
+      "exit_code": 0
+    },
+    "B8_s1": {
+      "session_id": 79276,
+      "exit_code": 0
+    },
+    "B8_s2": {
+      "session_id": 42395,
+      "exit_code": 0
+    },
+    "B8_s3": {
+      "session_id": 32596,
+      "exit_code": 0
+    },
+    "B8_s4": {
+      "session_id": 15153,
+      "exit_code": 0
+    }
+  },
+  "root_evidence_checks": [
+    "All20 compact AUC/CI triples match raw arm summaries to1e-9",
+    "All20 metrics have2000valid world bootstrap draws",
+    "All before/after source hashes match and match current bytes",
+    "All9 original baseline source files unchanged"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "python": "3.12.3",
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "numpy": "1.26.4",
+  "scipy": "1.14.1",
+  "scikit_learn": "1.7.2",
+  "torch": "2.9.1",
+  "device": "cpu",
+  "parallel_fuse_arm_processes": 5,
+  "numerical_threads_per_process": 1,
+  "analysis_dependencies": "Existing T5 task-local deps directory reused; shared environment unchanged",
+  "policy_training": false,
+  "new_gameplay": false,
+  "gate_rescoring": false
+}

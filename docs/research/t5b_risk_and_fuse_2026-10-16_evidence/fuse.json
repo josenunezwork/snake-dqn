@@ -1,0 +1,61 @@
+{
+  "schema": "t5b-fuse-evidence/v1",
+  "authority": "diagnostic only; not gate evidence",
+  "dataset": {
+    "sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+    "states": 19976,
+    "legal_branches": 103264,
+    "labels": "fixed published branch died-within-300 labels; not counterfactual labels for each final"
+  },
+  "method": {
+    "hook": "Ego2sNet.fuse[2] post-ReLU output, 256 float32 values",
+    "q": "all six float32 Q values",
+    "folds": "saved T5 five-fold world assignment; state counts [3615, 3782, 3135, 3271, 6173]",
+    "bootstrap": "2000 paired whole-world percentile resamples, seed 20261017",
+    "classifiers": "T5 fixed HistGradientBoosting and standardized logistic regression"
+  },
+  "provenance": {
+    "train_manifest_sha256": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d",
+    "holdout_manifest_sha256": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c",
+    "saved_folds_sha256": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+    "all_input_and_source_hashes_unchanged_after_each_run": true
+  },
+  "arms": {
+    "B8_s0": {
+      "checkpoint_sha256": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f",
+      "exit_code": 0,
+      "elapsed_s": 356.794,
+      "fuse_q": {"hgb": [0.769139186, 0.751107705, 0.787620302], "lr": [0.725475630, 0.708877854, 0.742492241]},
+      "fuse_q_60_24": {"hgb": [0.767851458, 0.749049107, 0.788016076], "lr": [0.727645618, 0.711415664, 0.743417871]}
+    },
+    "B8_s1": {
+      "checkpoint_sha256": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753",
+      "exit_code": 0,
+      "elapsed_s": 355.225,
+      "fuse_q": {"hgb": [0.769342600, 0.750706462, 0.788203381], "lr": [0.726249018, 0.709263314, 0.742796348]},
+      "fuse_q_60_24": {"hgb": [0.768290971, 0.749564949, 0.788086233], "lr": [0.729601159, 0.713447874, 0.745432538]}
+    },
+    "B8_s2": {
+      "checkpoint_sha256": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e",
+      "exit_code": 0,
+      "elapsed_s": 353.203,
+      "fuse_q": {"hgb": [0.766462368, 0.748415233, 0.785514567], "lr": [0.725989210, 0.709483890, 0.743196607]},
+      "fuse_q_60_24": {"hgb": [0.767300029, 0.748633108, 0.787299581], "lr": [0.728464822, 0.712365589, 0.744384089]}
+    },
+    "B8_s3": {
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "exit_code": 0,
+      "elapsed_s": 355.258,
+      "fuse_q": {"hgb": [0.765262953, 0.747132658, 0.783660556], "lr": [0.725616316, 0.708852834, 0.742693851]},
+      "fuse_q_60_24": {"hgb": [0.766099732, 0.747130888, 0.786074049], "lr": [0.728199515, 0.712126025, 0.744446118]}
+    },
+    "B8_s4": {
+      "checkpoint_sha256": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f",
+      "exit_code": 0,
+      "elapsed_s": 346.380,
+      "fuse_q": {"hgb": [0.762997956, 0.744558992, 0.781216759], "lr": [0.727438662, 0.710900124, 0.744122279]},
+      "fuse_q_60_24": {"hgb": [0.763102598, 0.744172888, 0.783207284], "lr": [0.730242515, 0.714558229, 0.745708734]}
+    }
+  },
+  "raw_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs"
+}
