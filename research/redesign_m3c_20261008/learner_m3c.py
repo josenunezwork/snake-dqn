@@ -554,6 +554,10 @@ class Learner:
             st.setdefault("return_rows", [])
             st.setdefault("return_loss", [])
             st.setdefault("return_totals", {"updates": 0, "rows": 0, "loss_sum": 0.0})
+        self.return_gradient_telemetry = bool(getattr(args, "return_gradient_telemetry", False))
+        self.last_return_gradient_telemetry: Optional[dict] = None
+        if self.return_gradient_telemetry:
+            st.setdefault("return_gradient_telemetry", [])
         k = int(self.opts.batch_scale)
         self.a_rows, self.anchor_rows, self.min_rows = agent_rows * k, anchor_rows * k, min_rows * k
         primary_rows = int(round(self.anchor_rows * args.label_bank_frac)) if self.bank else 0
@@ -643,6 +647,39 @@ class Learner:
             self._update_fast(lam)
         else:
             self._update_reference(lam)
+
+    def _return_gradient_measurement(
+        self, td, ret, return_weight: float, *, n: int, m: int, n_return: int, qmax
+    ) -> dict:
+        """Measure same-update, pre-clip gradients on parameters shared by both terms."""
+        torch = self.torch
+        params = tuple(self.online.parameters())
+        td_grads = torch.autograd.grad(td, params, retain_graph=True, allow_unused=True)
+        ret_grads = torch.autograd.grad(
+            return_weight * ret, params, retain_graph=True, allow_unused=True
+        )
+        td_sq = torch.zeros((), device=self.device)
+        ret_sq = torch.zeros((), device=self.device)
+        for td_grad, ret_grad in zip(td_grads, ret_grads):
+            if td_grad is not None and ret_grad is not None:
+                td_sq = td_sq + td_grad.detach().float().square().sum()
+                ret_sq = ret_sq + ret_grad.detach().float().square().sum()
+        td_norm, ret_norm = td_sq.sqrt(), ret_sq.sqrt()
+        td_norm_value, ret_norm_value = float(td_norm.cpu()), float(ret_norm.cpu())
+        return {
+            "weighted_return_grad_norm": ret_norm_value,
+            "td_grad_norm": td_norm_value,
+            "return_to_td_grad_ratio": (ret_norm_value / td_norm_value if td_norm_value else None),
+            "max_abs_q": float(qmax.detach().cpu()),
+            "anchor_rows": int(m),
+            "return_rows": int(n_return),
+            "agent_td_rows": int(n),
+        }
+
+    def _record_return_gradient_telemetry(self, measurement: Optional[dict]) -> None:
+        if measurement is not None:
+            self.last_return_gradient_telemetry = measurement
+            self.st["return_gradient_telemetry"].append(measurement)
 
     def publish_due(self, before: int) -> bool:
         """Whether the main loop publishes weights after this call (reference: the M3-C
@@ -866,10 +903,22 @@ class Learner:
         if not torch.isfinite(loss):
             st["halt"] = "non-finite loss"
             return
+        gradient_telemetry = None
+        if self.return_gradient_telemetry and ret is not None:
+            gradient_telemetry = self._return_gradient_measurement(
+                td,
+                ret,
+                float(getattr(args, "return_weight", 0.0)),
+                n=n_agent,
+                m=len(d["local"]),
+                n_return=n_return,
+                qmax=q.detach().abs().max(),
+            )
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
         opt.step()
+        self._record_return_gradient_telemetry(gradient_telemetry)
         if self.bank is not None:
             st["bank_rows"].append(n_bank)
             st["bank_margin_loss"].append(float(bank_loss.detach()) if n_bank else 0.0)
@@ -1032,6 +1081,7 @@ class Learner:
             st["return_totals"]["updates"] += 1
             st["return_totals"]["rows"] += p["return_rows"]
             st["return_totals"]["loss_sum"] += loss
+        self._record_return_gradient_telemetry(p.get("return_gradient_telemetry"))
         self._td.append(p["td"])
         if p["has_anchor"]:
             self._anc.append(p["anc"])
@@ -1248,10 +1298,22 @@ class Learner:
                     gamma=self.return_bank.gamma,
                     delta=return_delta,
                 )
+            gradient_telemetry = None
+            if self.return_gradient_telemetry and ret is not None:
+                gradient_telemetry = self._return_gradient_measurement(
+                    td,
+                    ret,
+                    float(getattr(args, "return_weight", 0.0)),
+                    n=n,
+                    m=m,
+                    n_return=n_return,
+                    qmax=qmax,
+                )
             finite = self._backward(td, anc, lam, ret, float(getattr(args, "return_weight", 0.0)))
         else:
             td, anc, qmax, finite = out
             ret = None
+            gradient_telemetry = None
         if self.scaler is not None:
             self.scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
@@ -1261,6 +1323,7 @@ class Learner:
             "anc": anc.detach(),
             "has_anchor": has_anchor,
             "qmax": qmax,
+            "return_gradient_telemetry": gradient_telemetry,
         }
         if ret is not None:
             self._pending.update(return_rows=n_return, return_loss=ret.detach())

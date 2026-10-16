@@ -1436,6 +1436,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "return_frac",
         "return_weight",
         "return_huber_delta",
+        "return_gradient_telemetry",
         "v8_backend",
         "obs_version",
         "v61_backend",
@@ -1588,6 +1589,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Huber delta for the T4d return loss (default: --td-huber-delta). "
         "Use 100 for branch-return magnitude regression while leaving TD at 1.",
+    )
+    ap.add_argument(
+        "--return-gradient-telemetry",
+        action="store_true",
+        help="T4e calibration: measure same-update pre-clip weighted-return/TD gradients",
     )
     ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument(
@@ -3094,6 +3100,44 @@ def main_multi(args) -> int:
                     row["return_loss"] = (
                         float(np.mean(st["return_loss"])) if st["return_loss"] else 0.0
                     )
+                if args.return_gradient_telemetry:
+                    grad_rows = st["return_gradient_telemetry"]
+                    ratios = [x["return_to_td_grad_ratio"] for x in grad_rows]
+                    row.update(
+                        return_to_td_grad_ratio=(
+                            float(np.mean(ratios))
+                            if ratios and all(x is not None for x in ratios)
+                            else None
+                        ),
+                        weighted_return_grad_norm=(
+                            float(np.mean([x["weighted_return_grad_norm"] for x in grad_rows]))
+                            if grad_rows
+                            else None
+                        ),
+                        td_grad_norm=(
+                            float(np.mean([x["td_grad_norm"] for x in grad_rows]))
+                            if grad_rows
+                            else None
+                        ),
+                        anchor_rows=(
+                            int(round(np.mean([x["anchor_rows"] for x in grad_rows])))
+                            if grad_rows
+                            else 0
+                        ),
+                        return_rows=(
+                            int(round(np.mean([x["return_rows"] for x in grad_rows])))
+                            if grad_rows
+                            else 0
+                        ),
+                        agent_td_rows=(
+                            int(round(np.mean([x["agent_td_rows"] for x in grad_rows])))
+                            if grad_rows
+                            else 0
+                        ),
+                        max_abs_q=(
+                            float(max(x["max_abs_q"] for x in grad_rows)) if grad_rows else 0.0
+                        ),
+                    )
                 if args.shield != "none" or labels is not None:
                     row["v8_override_rate"] = st["v8_override"] / max(1, st["decisions"])
                     row["shield_p"] = (
@@ -3138,6 +3182,8 @@ def main_multi(args) -> int:
                     )
                 if return_bank is not None:
                     st.update(return_rows=[], return_loss=[])
+                if args.return_gradient_telemetry:
+                    st["return_gradient_telemetry"] = []
                 st["lag"] = []
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")
