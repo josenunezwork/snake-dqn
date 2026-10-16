@@ -1,0 +1,17 @@
+{
+  "source_commit": "9cfa8a874855ca267f652a794f556cfd65638674",
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-probes-20261016",
+  "files_sha256": {
+    "analysis.json": "281ce6604bd66692c72cd8a877981ea38140cc9ec169e7699e369471053c3e42",
+    "diagnostic_phase.json": "923cf63162160db0dc1f0ab49eb8020c12030bfd43e9685deda37da2c7cead33",
+    "diagnostics.json": "aaf90520bde55e236c10cc00fb79d5eb7163d872429eaccfe34ddd39cba48656",
+    "initial_analysis.json": "e3dad34baf07621ee26d75a2163fd88310d6980990dcc62d63f3518cc21fae09",
+    "probes.jsonl": "b345499d2e182161167aba86269e101d5bab489e81b35a81e99a5d7a54a4a885",
+    "seed_bank_audit_round66.json": "c62aec2ca1caf1f54472bf61fcc280aa50f5def48f4c34d6b1f269d77942615c",
+    "seed_bank_audit_round67_launch-20261016T165141094206Z.json": "e8fa47ff35630421df4a1fbfa4182d1fe285cb382e8683603614328dd1a7836f",
+    "session-exit.txt": "30f256b1a830a861205d88dc63d0a87bee57745eec62953c370af116630ec213",
+    "telemetry.json": "c41c2cd11604e88195ac8649d90cd9b95e72be921edde4a0053a75dc7320bf0d",
+    "training_receipts.json": "01a6ef0cf4163ef4cccf71afe53cc272bafd551e03306bf5575766299e554f32",
+    "watcher.jsonl": "4639fd5ca6364b5c34593cc01aa08a3c624e4ee27cc880295fcecba6d3a27a6b"
+  }
+}

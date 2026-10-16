@@ -1,0 +1,47 @@
+[
+  {
+    "seed": 10,
+    "transitions": 8000128,
+    "halt": null,
+    "summary": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s10/summary.json",
+    "summary_sha256": "2245c6a339767d08c889f3f3a87e7b883300d699000956744f3b0eb042a769a1",
+    "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s10/final.pth",
+    "checkpoint_sha256": "ec5731388c347d73b10023c72b6e7490b81c1e9f559ad0c21b52b730691f9ecf"
+  },
+  {
+    "seed": 11,
+    "transitions": 8000128,
+    "halt": null,
+    "summary": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s11/summary.json",
+    "summary_sha256": "f2026293b6ebd44f0a141157c4d7d4f656edddf7a0672ddaa42fb2c9f9a3d2f4",
+    "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s11/final.pth",
+    "checkpoint_sha256": "3f014abaf0243a052f91d72e3495b798fe7df6de8ab646ea44613224fb606c12"
+  },
+  {
+    "seed": 12,
+    "transitions": 8000000,
+    "halt": null,
+    "summary": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s12/summary.json",
+    "summary_sha256": "4d0b7e2239a59e21a1cfab2466bc9e2e88dc5f8d75c7a7e1c0c65539ac45754b",
+    "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s12/final.pth",
+    "checkpoint_sha256": "03b7a944678c3eae55dd6c9074a734f682ceec1f976424e3dcf2f794eeb313dd"
+  },
+  {
+    "seed": 13,
+    "transitions": 8000128,
+    "halt": null,
+    "summary": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s13/summary.json",
+    "summary_sha256": "bb820dfaf6803dcfe9239277f77a7ac5786a3ff3d06c11121f3801935ad678b6",
+    "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s13/final.pth",
+    "checkpoint_sha256": "cc1caf80342ab0be38b4067924918b203444e98a3944e85421b219b0e0072690"
+  },
+  {
+    "seed": 14,
+    "transitions": 8000000,
+    "halt": null,
+    "summary": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s14/summary.json",
+    "summary_sha256": "0dedff6b990b4b46dbefdaed4bff7eed5b1b220534831b72fbde3b5f67cc36e6",
+    "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/TWO_SIDED_T_s14/final.pth",
+    "checkpoint_sha256": "33c5df687ee68d0d42d8d27b8775ae8427c00d75005c88e7417fd02754686baa"
+  }
+]
