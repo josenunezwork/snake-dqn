@@ -46,6 +46,19 @@ class LabelBank:
                 raise ValueError(f"invalid action/weight shape in {path}")
             if not np.isfinite(row["weight"]).all() or (row["weight"] < 0).any():
                 raise ValueError(f"invalid weight in {path}")
+            if "row_weight" in row and (
+                row["row_weight"].shape != (n,)
+                or row["row_weight"].dtype != np.float32
+                or not np.isfinite(row["row_weight"]).all()
+                or (row["row_weight"] < 0).any()
+            ):
+                raise ValueError(f"invalid row weight in {path}")
+            if "row_family" in row and (
+                row["row_family"].shape != (n,)
+                or row["row_family"].dtype != np.int8
+                or not np.isin(row["row_family"], (0, 1, 2)).all()
+            ):
+                raise ValueError(f"invalid row family in {path}")
             if (row["action"] < 0).any() or (row["action"] > 5).any():
                 raise ValueError(f"invalid action in {path}")
             # v2 keeps the raw outcome set even when its selected label set prefers
@@ -87,6 +100,9 @@ class LabelBank:
         ).astype(bool, copy=False)
         self.action = np.concatenate([r["action"] for r in rows]).astype(np.int64, copy=False)
         self.weight = np.concatenate([r["weight"] for r in rows]).astype(np.float32, copy=False)
+        self.row_weight = np.concatenate(
+            [r.get("row_weight", np.ones(len(r["action"]), dtype=np.float32)) for r in rows]
+        ).astype(np.float32, copy=False)
         self.size = len(self.action)
         if self.size == 0:
             raise ValueError("label bank has no rows")
@@ -94,6 +110,22 @@ class LabelBank:
         # preferred v2 label set can deliberately omit that action, so derive
         # this from the preserved raw outcome provenance.
         self.counter = self.surviving_original[np.arange(self.size), self.action]
+        self.row_family = np.concatenate(
+            [
+                r.get(
+                    "row_family",
+                    np.where(
+                        r.get("surviving_original", r["surviving"])[
+                            np.arange(len(r["action"])), r["action"]
+                        ],
+                        1,
+                        0,
+                    ).astype(np.int8),
+                )
+                for r in rows
+            ]
+        ).astype(np.int8, copy=False)
+        self.weight = (self.weight * self.row_weight).astype(np.float32, copy=False)
         self._counter_indices = np.flatnonzero(self.counter)
         self._decisive_indices = np.flatnonzero(~self.counter)
 
@@ -152,6 +184,7 @@ class LabelBank:
             "surviving_original": self.surviving_original[indices],
             "counter": self.counter[indices],
             "weight": self.weight[indices],
+            "row_family": self.row_family[indices],
         }
 
 

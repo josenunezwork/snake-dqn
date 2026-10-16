@@ -175,15 +175,65 @@ def _bank_side_agreement(q, surviving, action, counter):
     )
 
 
+def _bank_family_agreement(q, surviving, action, family):
+    """Agreement telemetry for T4c's decisive, in-window, and outside row families."""
+    prediction = q.argmax(dim=1)
+    family = family.long()
+    decisive_ok = surviving.gather(1, prediction[:, None]).squeeze(1)
+    action_ok = prediction == action
+    values = []
+    for code in (0, 1, 2):
+        selected = family == code
+        if not selected.any():
+            values.append(None)
+        elif code == 0:
+            values.append(decisive_ok[selected].float().mean())
+        else:
+            values.append(action_ok[selected].float().mean())
+    return tuple(values)
+
+
 def _bank_anchor_terms(
-    torch, qd, db, n_bank: int, margin: float, scale: float, counter_mode: str = "inert"
+    torch,
+    qd,
+    db,
+    n_bank: int,
+    margin: float,
+    scale: float,
+    counter_mode: str = "inert",
+    row_family=None,
+    outside_margin_scale: float = 1.0,
+    primary_rows: int | None = None,
 ):
     """Combine regular anchors with T3 or optional two-sided bank anchors."""
     from research.t3_rollout_labels_20261015.bank import surviving_margin
 
     regular = len(qd) - n_bank
     qb = qd[regular:]
-    if counter_mode == "inert":
+    if row_family is not None:
+        if counter_mode != "single-action":
+            raise ValueError("outside label-bank rows need single-action counter mode")
+        if primary_rows is None or primary_rows <= 0:
+            raise ValueError("outside label-bank rows need a positive primary row count")
+        family = row_family.long()
+        decisive, inwindow, outside = family == 0, family == 1, family == 2
+        terms = []
+        if decisive.any():
+            survive = db["surviving"][decisive].bool()
+            qd_ = qb[decisive]
+            per_row = (qd_ + (~survive).to(qd_.dtype) * (margin * scale)).max(1).values
+            per_row -= torch.where(survive, qd_, torch.full_like(qd_, -float("inf"))).max(1).values
+            terms.append((per_row * db["weight"][decisive]).sum())
+        for family_mask, family_scale in ((inwindow, scale), (outside, outside_margin_scale)):
+            if family_mask.any():
+                qf, action = qb[family_mask], db["action"][family_mask]
+                onehot = torch.nn.functional.one_hot(action.long(), 6).bool()
+                per_row = (qf + (~onehot).to(qf.dtype) * (margin * family_scale)).max(1).values
+                per_row -= qf.gather(1, action[:, None]).squeeze(1)
+                terms.append((per_row * db["weight"][family_mask]).sum())
+        bank_loss = sum(terms) / primary_rows
+        agree = db["surviving"].gather(1, qb.argmax(dim=1)[:, None]).float().mean()
+    elif counter_mode == "inert":
         bank_loss = surviving_margin(torch, qb, db["surviving"], db["weight"], margin * scale)
         agree = db["surviving"].gather(1, qb.argmax(dim=1)[:, None]).float().mean()
     elif counter_mode == "single-action":
@@ -218,7 +268,10 @@ def _bank_anchor_terms(
         ordinary = anchor_loss_margin(
             torch, qd[:regular], db["a_v8"][:regular], db["mask_resolved"][:regular], margin
         )
-        anchor = (regular * ordinary + n_bank * bank_loss) / len(qd)
+        if row_family is not None:
+            anchor = (regular * ordinary + primary_rows * bank_loss) / (regular + primary_rows)
+        else:
+            anchor = (regular * ordinary + n_bank * bank_loss) / len(qd)
     else:
         anchor = bank_loss
     return anchor, bank_loss, agree
@@ -253,8 +306,11 @@ def loss_terms(
     bank_weight=None,
     bank_action=None,
     bank_counter=None,
+    bank_row_family=None,
     bank_margin_scale: float = 1.0,
     bank_counter_mode: str = "inert",
+    bank_outside_margin_scale: float = 1.0,
+    bank_primary_rows: int | None = None,
     bank_metrics=None,
 ):
     """The T1 update's forwards and loss terms on one uploaded staging batch.
@@ -299,17 +355,33 @@ def loss_terms(
             counter=bank_counter,
         )
         anc, bank_loss, bank_agree = _bank_anchor_terms(
-            torch, qd, db, n_bank, margin, bank_margin_scale, bank_counter_mode
+            torch,
+            qd,
+            db,
+            n_bank,
+            margin,
+            bank_margin_scale,
+            bank_counter_mode,
+            bank_row_family,
+            bank_outside_margin_scale,
+            bank_primary_rows,
         )
         if bank_metrics is not None:
-            _, decisive_agree, counter_agree = _bank_side_agreement(
-                qd[-n_bank:], bank_surviving, bank_action, bank_counter
-            )
+            if bank_row_family is None:
+                _, decisive_agree, counter_agree = _bank_side_agreement(
+                    qd[-n_bank:], bank_surviving, bank_action, bank_counter
+                )
+                outside_agree = None
+            else:
+                decisive_agree, counter_agree, outside_agree = _bank_family_agreement(
+                    qd[-n_bank:], bank_surviving, bank_action, bank_row_family
+                )
             bank_metrics.update(
                 loss=bank_loss.detach(),
                 agree=bank_agree.detach(),
                 decisive_agree=None if decisive_agree is None else decisive_agree.detach(),
                 counter_agree=None if counter_agree is None else counter_agree.detach(),
+                outside_agree=None if outside_agree is None else outside_agree.detach(),
             )
     elif m == 0:
         anc = torch.zeros((), device=q.device)
@@ -420,6 +492,7 @@ class Learner:
         anchor_rows: int = ANCHOR_ROWS,
         min_rows: int = MIN_ROWS,
         bank=None,
+        outside_bank=None,
     ) -> None:
         self.torch = torch
         self.online, self.target, self.opt = online, target, opt
@@ -429,6 +502,7 @@ class Learner:
         self.device = torch.device(device)
         self.opts = opts or LearnerOpts()
         self.bank = bank if float(getattr(args, "label_bank_frac", 0.0)) > 0 else None
+        self.outside_bank = outside_bank if self.bank is not None else None
         if float(getattr(args, "label_bank_frac", 0.0)) > 0 and self.bank is None:
             raise ValueError("--label-bank-frac needs a loaded label bank")
         if self.bank is not None:
@@ -442,12 +516,18 @@ class Learner:
                 "bank_agree_counter",
             ):
                 st.setdefault(key, [])
+            if self.outside_bank is not None:
+                st.setdefault("bank_agree_outside", [])
             self._bank_loss = []
             self._bank_agree = []
             self._bank_agree_decisive = []
             self._bank_agree_counter = []
+            self._bank_agree_outside = []
         k = int(self.opts.batch_scale)
-        self.a_rows, self.d_rows, self.min_rows = agent_rows * k, anchor_rows * k, min_rows * k
+        self.a_rows, self.anchor_rows, self.min_rows = agent_rows * k, anchor_rows * k, min_rows * k
+        primary_rows = int(round(self.anchor_rows * args.label_bank_frac)) if self.bank else 0
+        self.outside_rows = primary_rows // 2 if self.outside_bank is not None else 0
+        self.d_rows = self.anchor_rows + self.outside_rows
         self.target_every = max(1, round(TARGET_EVERY / k))
         self.publish_every = max(1, round(int(args.actor_sync_updates) / k))
         self.update_every = UPDATE_EVERY * k * int(self.opts.update_every)
@@ -572,10 +652,42 @@ class Learner:
                 self.st["bank_agree_counter"].extend(
                     self.torch.stack(self._bank_agree_counter).cpu().tolist()
                 )
+            if self._bank_agree_outside:
+                self.st["bank_agree_outside"].extend(
+                    self.torch.stack(self._bank_agree_outside).cpu().tolist()
+                )
             self._bank_loss = []
             self._bank_agree = []
             self._bank_agree_decisive = []
             self._bank_agree_counter = []
+            self._bank_agree_outside = []
+
+    def _sample_bank_rows(self, n_primary: int) -> dict:
+        """Draw the primary T4a rows, then append one outside row per decisive primary row."""
+        rows = self.bank.sample(
+            self.rng, n_primary, getattr(self.args, "label_bank_counter_ratio", None)
+        )
+        if self.outside_bank is None:
+            return rows
+        n_outside = int((rows["row_family"] == 0).sum())
+        if n_outside != self.outside_rows:
+            raise ValueError("outside bank sampling requires an exact 1:1 primary counter ratio")
+        outside = self.outside_bank.sample(self.rng, n_outside)
+        outside["counter"] = np.ones(n_outside, dtype=bool)
+        outside["row_family"] = np.full(n_outside, 2, dtype=np.int8)
+        for key in (
+            "local",
+            "global",
+            "scalars",
+            "mask",
+            "surviving",
+            "action",
+            "weight",
+            "counter",
+            "row_family",
+        ):
+            rows[key] = np.concatenate([rows[key], outside[key]])
+        return rows
 
     # ------------------------------------------------------------------ reference (M3-C)
     def _update_reference(self, lam: float) -> None:
@@ -610,10 +722,11 @@ class Learner:
         a = to_dev(replay.a[idx])
         R = to_dev(replay.R[idx])
         disc = to_dev(replay.disc[idx])
-        n_bank = int(round(self.d_rows * args.label_bank_frac)) if self.bank is not None else 0
+        n_primary_bank = int(round(self.anchor_rows * args.label_bank_frac)) if self.bank else 0
+        n_bank = n_primary_bank + self.outside_rows
         n_lab = 0
         if labels is not None and labels.size >= LABEL_ANCHOR_MIN_ROWS:
-            n_lab = int(round(self.d_rows * args.label_frac))
+            n_lab = int(round(self.anchor_rows * args.label_frac))
         if demos is None:  # bv8: label rows only (TD only until LABEL_ANCHOR_MIN_ROWS labels)
             d = {
                 "local": np.zeros((0,) + LOCAL, dtype=np.uint8),
@@ -624,7 +737,7 @@ class Learner:
                 "q_teacher": np.zeros((0, 6), dtype=np.float32),
             }
         else:
-            d = demos.sample(rng, self.d_rows - n_lab - n_bank)
+            d = demos.sample(rng, self.anchor_rows - n_lab - n_primary_bank)
         if n_lab:
             li = labels.sample(rng, n_lab, multi)
             lids = labels.ids[li]
@@ -642,11 +755,7 @@ class Learner:
             }
         st["label_rows"].append(n_lab)
         if n_bank:
-            bank_rows = self.bank.sample(
-                rng,
-                n_bank,
-                getattr(args, "label_bank_counter_ratio", None),
-            )
+            bank_rows = self._sample_bank_rows(n_primary_bank)
             for key in ("local", "global", "scalars"):
                 d[key] = np.concatenate([d[key], bank_rows[key]])
         n_agent = len(idx)
@@ -672,6 +781,7 @@ class Learner:
                 weight=to_dev(bank_rows["weight"]),
                 action=to_dev(bank_rows["action"]),
                 counter=to_dev(bank_rows["counter"]),
+                row_family=to_dev(bank_rows["row_family"]),
             )
             anc, bank_loss, bank_agree = _bank_anchor_terms(
                 torch,
@@ -681,10 +791,19 @@ class Learner:
                 margin,
                 args.label_bank_margin_scale,
                 getattr(args, "label_bank_counter_mode", "inert"),
+                db.get("row_family") if self.outside_bank is not None else None,
+                getattr(args, "label_bank_outside_margin_scale", 1.0),
+                n_primary_bank or None,
             )
-            _, decisive_agree, counter_agree = _bank_side_agreement(
-                qd[-n_bank:], db["surviving"], db["action"], db["counter"]
-            )
+            if self.outside_bank is None:
+                _, decisive_agree, counter_agree = _bank_side_agreement(
+                    qd[-n_bank:], db["surviving"], db["action"], db["counter"]
+                )
+                outside_agree = None
+            else:
+                decisive_agree, counter_agree, outside_agree = _bank_family_agreement(
+                    qd[-n_bank:], db["surviving"], db["action"], db["row_family"]
+                )
         elif not has_anchor:  # bv8 before enough on-policy labels: TD only
             anc = torch.zeros((), device=q.device)
         elif args.anchor_mode == "v8margin":
@@ -709,6 +828,8 @@ class Learner:
                 st["bank_agree_decisive"].append(float(decisive_agree.detach()))
             if n_bank and counter_agree is not None:
                 st["bank_agree_counter"].append(float(counter_agree.detach()))
+            if n_bank and outside_agree is not None:
+                st["bank_agree_outside"].append(float(outside_agree.detach()))
         st["updates"] += 1
         st["td"].append(float(td.detach()))
         if has_anchor:
@@ -783,14 +904,15 @@ class Learner:
         v["a"][:n] = replay.a[idx]
         v["R"][:n] = replay.R[idx]
         v["disc"][:n] = replay.disc[idx]
-        n_bank = int(round(self.d_rows * args.label_bank_frac)) if self.bank is not None else 0
+        n_primary_bank = int(round(self.anchor_rows * args.label_bank_frac)) if self.bank else 0
+        n_bank = n_primary_bank + self.outside_rows
         n_lab = 0
         if labels is not None and labels.size >= LABEL_ANCHOR_MIN_ROWS:
-            n_lab = int(round(self.d_rows * args.label_frac))
+            n_lab = int(round(self.anchor_rows * args.label_frac))
         base = 2 * n
         n_demo = 0
         if demos is not None:
-            n_demo = self.d_rows - n_lab - n_bank
+            n_demo = self.anchor_rows - n_lab - n_primary_bank
             di = rng.integers(0, demos.size, size=n_demo)  # == DemoStream.sample
             demos.gather_into(di, v, base)
         if n_lab:
@@ -809,15 +931,16 @@ class Learner:
         st["label_rows"].append(n_lab)
         result = {"stage": stage, "n": n, "m": n_demo + n_lab, "n_demo": n_demo}
         if n_bank:
-            bank_rows = self.bank.sample(
-                rng,
-                n_bank,
-                getattr(args, "label_bank_counter_ratio", None),
-            )
+            bank_rows = self._sample_bank_rows(n_primary_bank)
             start = base + n_demo + n_lab
             for key in ("local", "global", "scalars"):
                 v[key][start : start + n_bank] = bank_rows[key]
-            result.update(m=result["m"] + n_bank, n_bank=n_bank, bank=bank_rows)
+            result.update(
+                m=result["m"] + n_bank,
+                n_bank=n_bank,
+                n_primary_bank=n_primary_bank,
+                bank=bank_rows,
+            )
         return result
 
     def _finalize(self) -> None:
@@ -844,6 +967,8 @@ class Learner:
                 self._bank_agree_decisive.append(p["bank_agree_decisive"])
             if p.get("bank_agree_counter") is not None:
                 self._bank_agree_counter.append(p["bank_agree_counter"])
+            if p.get("bank_agree_outside") is not None:
+                self._bank_agree_outside.append(p["bank_agree_outside"])
         self._td.append(p["td"])
         if p["has_anchor"]:
             self._anc.append(p["anc"])
@@ -1019,6 +1144,14 @@ class Learner:
                 bank_counter_mode=getattr(args, "label_bank_counter_mode", "inert"),
                 bank_metrics=bank_metrics,
             )
+            if self.outside_bank is not None:
+                kw.update(
+                    bank_row_family=torch.from_numpy(batch["bank"]["row_family"]).to(self.device),
+                    bank_outside_margin_scale=float(
+                        getattr(args, "label_bank_outside_margin_scale", 1.0)
+                    ),
+                    bank_primary_rows=batch["n_primary_bank"],
+                )
         has_anchor = m > 0
         out = None
         if self._cstat is not None:
@@ -1046,6 +1179,7 @@ class Learner:
                 bank_agree=bank_metrics.get("agree", zero),
                 bank_agree_decisive=bank_metrics.get("decisive_agree"),
                 bank_agree_counter=bank_metrics.get("counter_agree"),
+                bank_agree_outside=bank_metrics.get("outside_agree"),
             )
         if self.demos is not None:
             self.demos.swap_if_ready()

@@ -1430,6 +1430,8 @@ def m3c_flags(args) -> Dict[str, Any]:
         "label_bank_margin_scale",
         "label_bank_counter_mode",
         "label_bank_counter_ratio",
+        "label_bank_outside",
+        "label_bank_outside_margin_scale",
         "v8_backend",
         "obs_version",
         "v61_backend",
@@ -1565,6 +1567,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="counter:decisive bank rows; default preserves the bank's stored mixture",
     )
+    ap.add_argument("--label-bank-outside", type=Path, default=None)
+    ap.add_argument("--label-bank-outside-margin-scale", type=float, default=1.0)
     ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument(
         "--obs-version",
@@ -1737,6 +1741,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--label-bank-counter-mode needs --label-bank-frac > 0")
     if args.label_bank_counter_ratio is not None and not args.label_bank_frac:
         raise SystemExit("--label-bank-counter-ratio needs --label-bank-frac > 0")
+    if args.label_bank_outside is not None:
+        if not args.label_bank_frac:
+            raise SystemExit("--label-bank-outside needs --label-bank-frac > 0")
+        if args.label_bank_counter_mode != "single-action":
+            raise SystemExit("--label-bank-outside needs --label-bank-counter-mode single-action")
+        if args.label_bank_counter_ratio != 1.0:
+            raise SystemExit("--label-bank-outside needs --label-bank-counter-ratio 1")
+        if (
+            not math.isfinite(args.label_bank_outside_margin_scale)
+            or args.label_bank_outside_margin_scale < 0
+        ):
+            raise SystemExit("--label-bank-outside-margin-scale must be finite and >= 0")
     if args.label_bank_frac and args.anchor_mode != "v8margin":
         raise SystemExit("--label-bank-frac needs --anchor-mode v8margin")
     if args.label_bank_frac and args.obs_version != "bv8":
@@ -2609,6 +2625,7 @@ def main_multi(args) -> int:
     # Validate the immutable bank before output allocation, shared memory, or actors.
     # Keep this whole branch absent for default runs so their startup/RNG path is unchanged.
     bank = None
+    outside_bank = None
     if args.label_bank_frac > 0.0:
         from research.t3_rollout_labels_20261015.bank import LabelBank
 
@@ -2620,6 +2637,8 @@ def main_multi(args) -> int:
         bank = LabelBank(Path(args.label_bank), nscal_for(args), pack=bank_pack)
         if args.label_bank_counter_ratio is not None:
             bank.validate_counter_ratio(args.label_bank_counter_ratio)
+        if args.label_bank_outside is not None:
+            outside_bank = LabelBank(Path(args.label_bank_outside), nscal_for(args), pack=bank_pack)
     if args.out.exists():
         print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
         return 2
@@ -2802,6 +2821,7 @@ def main_multi(args) -> int:
             bank_agree=[],
             bank_agree_decisive=[],
             bank_agree_counter=[],
+            bank_agree_outside=[],
         )
     if args.restart_frac > 0.0:
         st["restart"] = {"restart_frac_actual": []}
@@ -2845,7 +2865,7 @@ def main_multi(args) -> int:
         margin=margin,
         device=device,
         opts=lopts,
-        **({"bank": bank} if bank is not None else {}),
+        **({"bank": bank, "outside_bank": outside_bank} if bank is not None else {}),
     )
 
     code = 0
@@ -3008,6 +3028,11 @@ def main_multi(args) -> int:
                         if st["bank_agree_counter"]
                         else None
                     )
+                    row["bank_agree_outside"] = (
+                        float(np.mean(st["bank_agree_outside"]))
+                        if st["bank_agree_outside"]
+                        else None
+                    )
                 if args.shield != "none" or labels is not None:
                     row["v8_override_rate"] = st["v8_override"] / max(1, st["decisions"])
                     row["shield_p"] = (
@@ -3048,6 +3073,7 @@ def main_multi(args) -> int:
                         bank_agree=[],
                         bank_agree_decisive=[],
                         bank_agree_counter=[],
+                        bank_agree_outside=[],
                     )
                 st["lag"] = []
                 with log_path.open("a") as stream:
