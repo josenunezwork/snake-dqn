@@ -803,6 +803,8 @@ class Learner:
             q_next = target(nlt, ngt, nst).gather(1, a_star[:, None]).squeeze(1)
             y = R + disc * q_next
         td_delta = float(getattr(args, "td_huber_delta", 1.0))
+        return_delta = getattr(args, "return_huber_delta", None)
+        return_delta = td_delta if return_delta is None else float(return_delta)
         td = torch.nn.functional.huber_loss(qa, y, delta=td_delta)
         n_return = int(round(self.anchor_rows * float(getattr(args, "return_frac", 0.0))))
         if self.return_bank is not None:
@@ -817,7 +819,7 @@ class Learner:
                 target,
                 return_rows,
                 gamma=self.return_bank.gamma,
-                delta=td_delta,
+                delta=return_delta,
             )
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         has_anchor = qd.shape[0] > 0
@@ -1023,6 +1025,13 @@ class Learner:
                 self._bank_agree_counter.append(p["bank_agree_counter"])
             if p.get("bank_agree_outside") is not None:
                 self._bank_agree_outside.append(p["bank_agree_outside"])
+        if "return_rows" in p:
+            st["return_rows"].append(p["return_rows"])
+            loss = float(p["return_loss"].cpu())
+            st["return_loss"].append(loss)
+            st["return_totals"]["updates"] += 1
+            st["return_totals"]["rows"] += p["return_rows"]
+            st["return_totals"]["loss_sum"] += loss
         self._td.append(p["td"])
         if p["has_anchor"]:
             self._anc.append(p["anc"])
@@ -1047,10 +1056,16 @@ class Learner:
         if self.bank is not None:
             self._flush_bank_stats()
 
-    def _backward(self, td, anc, lam: float):
-        """``loss = td + lam * anc``; zero the gradients, backward (scaled under fp16).
-        Returns the device-side finite-loss flag."""
+    def _backward(self, td, anc, lam: float, ret=None, return_weight: float = 0.0):
+        """Backpropagate TD, anchor, and an optional weighted return-regression loss.
+
+        The default branch retains the former ``td + lam * anc`` expression exactly so
+        return-loss support cannot perturb inactive recipes. Returns the device-side
+        finite-loss flag.
+        """
         loss = td + lam * anc
+        if ret is not None:
+            loss = loss + return_weight * ret
         finite = self.torch.isfinite(loss)
         self.opt.zero_grad(set_to_none=True)
         if self.scaler is not None:
@@ -1207,14 +1222,36 @@ class Learner:
                     bank_primary_rows=batch["n_primary_bank"],
                 )
         has_anchor = m > 0
+        n_return = int(round(self.anchor_rows * float(getattr(args, "return_frac", 0.0))))
+        return_rows = None
+        if self.return_bank is not None:
+            n_return = max(1, n_return)
+            sampled = self.return_bank.sample(self.rng, n_return, kappa=float(args.mass_kappa))
+            return_rows = {
+                key: torch.from_numpy(np.ascontiguousarray(value)).to(self.device)
+                for key, value in sampled.items()
+            }
         out = None
-        if self._cstat is not None:
+        if self._cstat is not None and return_rows is None:
             out = self._compiled_step(tensors, kw, lam)
         if out is None:  # the T1 update (compile off, a non-canonical batch, or a fallback)
             td, anc, qmax = loss_terms(torch, online, target, *tensors, **kw)
-            finite = self._backward(td, anc, lam)
+            ret = None
+            if return_rows is not None:
+                return_delta = getattr(args, "return_huber_delta", None)
+                return_delta = kw["td_delta"] if return_delta is None else float(return_delta)
+                ret, _ = return_regression_loss(
+                    torch,
+                    online,
+                    target,
+                    return_rows,
+                    gamma=self.return_bank.gamma,
+                    delta=return_delta,
+                )
+            finite = self._backward(td, anc, lam, ret, float(getattr(args, "return_weight", 0.0)))
         else:
             td, anc, qmax, finite = out
+            ret = None
         if self.scaler is not None:
             self.scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
@@ -1225,6 +1262,8 @@ class Learner:
             "has_anchor": has_anchor,
             "qmax": qmax,
         }
+        if ret is not None:
+            self._pending.update(return_rows=n_return, return_loss=ret.detach())
         if self.bank is not None:
             zero = torch.zeros((), device=self.device)
             self._pending.update(

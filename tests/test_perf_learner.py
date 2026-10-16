@@ -106,7 +106,39 @@ def _st():
     }
 
 
-def _run(mode, opts, n_updates=8, poison_at=None, net_seed=3, **argkw):
+class _ReturnBank:
+    """Fixed large-target rows: exposes separate return-delta behavior in a tiny learner test."""
+
+    gamma = 0.99
+
+    def __init__(self, *, nan_return: bool = False) -> None:
+        self.nan_return = nan_return
+        self.draws: list[np.ndarray] = []
+
+    def sample(self, rng, n, *, kappa):
+        del kappa
+        draw = rng.integers(0, 2**31, size=n, dtype=np.int64)
+        self.draws.append(draw.copy())
+        realised = np.full(n, np.nan if self.nan_return else 100.0, dtype=np.float32)
+        if not self.nan_return:
+            realised += (draw % 17).astype(np.float32)
+        return {
+            "local": np.zeros((n,) + m3c.LOCAL, dtype=np.uint8),
+            "global": np.zeros((n,) + m3c.GLOBAL, dtype=np.uint8),
+            "scalars": np.zeros((n, 60), dtype=np.float32),
+            "action": np.zeros(n, dtype=np.int64),
+            "T": np.ones(n, dtype=np.int32),
+            "died": np.ones(n, dtype=bool),
+            "realised": realised,
+            "terminal_local": np.zeros((n,) + m3c.LOCAL, dtype=np.uint8),
+            "terminal_global": np.zeros((n,) + m3c.GLOBAL, dtype=np.uint8),
+            "terminal_scalars": np.zeros((n, 60), dtype=np.float32),
+            "terminal_mask": np.zeros((n, 6), dtype=bool),
+            "weight": np.ones(n, dtype=np.float32),
+        }
+
+
+def _run(mode, opts, n_updates=8, poison_at=None, net_seed=3, return_bank=None, **argkw):
     torch.manual_seed(net_seed)
     nscal, multi, replay, labels, demos = _world(mode)
     online = Ego2sNet(7, nscal).train()
@@ -134,6 +166,7 @@ def _run(mode, opts, n_updates=8, poison_at=None, net_seed=3, **argkw):
         agent_rows=24,
         anchor_rows=8,
         min_rows=4,
+        return_bank=return_bank,
     )
     learner.target_every = 3  # exercise target syncs inside the short run
     feed = np.random.default_rng(99)
@@ -173,6 +206,70 @@ def test_fast_equals_reference_bitwise_cpu(mode):
     assert ref[2]["updates"] == 8 and ref[2]["ring_overrun_rows"] > 0
     assert ref[2]["anchor_updates"] == 8
     _assert_same(ref, fast, exact=True)
+
+
+@pytest.mark.parametrize("return_delta", [None, 100.0])
+def test_fast_return_regression_matches_reference_and_preserves_td(return_delta):
+    """T1 adds the same active return loss as reference; delta 100 remains return-only."""
+    kwargs = dict(
+        return_frac=0.5,
+        return_weight=1.0,
+        return_huber_delta=return_delta,
+        td_huber_delta=1.0,
+        mass_kappa=1.0,
+    )
+    ref_bank, fast_bank = _ReturnBank(), _ReturnBank()
+    ref = _run("bv8", lm.LearnerOpts(fused_adam=False), return_bank=ref_bank, **kwargs)
+    fast = _run("bv8", lm.LearnerOpts(fast=True, fused_adam=False), return_bank=fast_bank, **kwargs)
+    _assert_same(ref, fast, exact=True)
+    assert len(ref_bank.draws) == len(fast_bank.draws) == 8
+    for reference, fast_draw in zip(ref_bank.draws, fast_bank.draws):
+        assert np.array_equal(reference, fast_draw)
+    for result in (ref, fast):
+        state = result[2]
+        assert state["return_rows"] == [4] * 8
+        assert len(state["return_loss"]) == 8
+        assert state["return_totals"]["rows"] == 32
+
+
+def test_return_delta_default_fallback_leaves_td_delta_one() -> None:
+    """Changing only the return delta changes return loss, while the first TD loss is fixed."""
+    common = dict(return_frac=0.5, return_weight=1.0, td_huber_delta=1.0, mass_kappa=1.0)
+    fallback = _run(
+        "bv8", lm.LearnerOpts(fused_adam=False), n_updates=1, return_bank=_ReturnBank(), **common
+    )
+    wide = _run(
+        "bv8",
+        lm.LearnerOpts(fused_adam=False),
+        n_updates=1,
+        return_bank=_ReturnBank(),
+        return_huber_delta=100.0,
+        **common,
+    )
+    assert fallback[2]["td"] == wide[2]["td"]
+    assert fallback[2]["return_loss"][0] != wide[2]["return_loss"][0]
+
+
+def test_fast_nonfinite_return_halts_without_step_or_successful_telemetry() -> None:
+    """A NaN return target is halted before Adam and contributes no return-loss evidence."""
+    torch.manual_seed(3)
+    initial = Ego2sNet(7, 60).state_dict()
+    online, _, state, _, _ = _run(
+        "bv8",
+        lm.LearnerOpts(fast=True, fused_adam=False),
+        n_updates=2,
+        return_bank=_ReturnBank(nan_return=True),
+        return_frac=0.5,
+        return_weight=1.0,
+        mass_kappa=1.0,
+    )
+    assert state["halt"] == "non-finite loss"
+    assert state["updates"] == 0
+    assert state["return_rows"] == []
+    assert state["return_loss"] == []
+    assert state["return_totals"] == {"updates": 0, "rows": 0, "loss_sum": 0.0}
+    for name, parameter in online.state_dict().items():
+        assert torch.equal(parameter, initial[name]), name
 
 
 def test_fast_fused_adam_close_to_reference():

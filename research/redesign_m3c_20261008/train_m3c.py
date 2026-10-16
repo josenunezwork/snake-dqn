@@ -1435,6 +1435,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "return_bank",
         "return_frac",
         "return_weight",
+        "return_huber_delta",
         "v8_backend",
         "obs_version",
         "v61_backend",
@@ -1580,6 +1581,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--return-weight", type=float, default=1.0, help="multiplier for the T4d return Huber loss"
+    )
+    ap.add_argument(
+        "--return-huber-delta",
+        type=float,
+        default=None,
+        help="Huber delta for the T4d return loss (default: --td-huber-delta). "
+        "Use 100 for branch-return magnitude regression while leaving TD at 1.",
     )
     ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument(
@@ -1779,6 +1787,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--return-frac must be finite and in [0, 1]")
     if not math.isfinite(args.return_weight) or args.return_weight < 0.0:
         raise SystemExit("--return-weight must be finite and >= 0")
+    if args.return_huber_delta is not None and (
+        not math.isfinite(args.return_huber_delta) or args.return_huber_delta <= 0.0
+    ):
+        raise SystemExit("--return-huber-delta must be finite and > 0")
     if args.return_frac > 0.0:
         if args.return_bank is None:
             raise SystemExit("--return-frac needs --return-bank")
@@ -1788,12 +1800,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             raise SystemExit("--return-frac needs --obs-version bv8")
         if args.reward != "mass" or args.kill_scale != 0.0 or args.death_value not in (None, -3.0):
             raise SystemExit("--return-frac needs --reward mass --kill-scale 0 and death value -3")
-        if args.tight_cost or args.death_mass_mult or args.tight_telemetry:
+        if args.tight_cost or args.death_mass_mult:
             raise SystemExit("--return-frac is incompatible with M6 reward overlays")
-        if args.learner_fast or args.compile_learner != "off":
-            raise SystemExit(
-                "--return-frac currently needs the eager learner (no --learner-fast/compile)"
-            )
+        if args.compile_learner != "off":
+            raise SystemExit("--return-frac currently needs no --compile-learner")
     elif args.return_bank is not None:
         raise SystemExit("--return-bank needs --return-frac > 0")
     bank_only_bv8 = (
