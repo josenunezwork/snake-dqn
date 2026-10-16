@@ -11,6 +11,24 @@ import pytest
 from research.t4e_return_20261016 import run_collection as runner
 
 
+def test_fresh_allocator_uses_real_scanner_and_rejects_recorded_and_generated_seeds(
+    tmp_path, monkeypatch
+):
+    """Exercise the production scanner API, rather than mocking its call signature."""
+    from research.redesign_m2_20261008 import ni_spec
+
+    (tmp_path / "world.json").write_text('{"seed": 2}')
+    monkeypatch.setattr(runner.seed_audit, "_registered", lambda _root: ({"pass": True}, {1}))
+    monkeypatch.setattr(runner, "_candidate_seed", lambda _namespace, counter: counter + 1)
+    monkeypatch.setattr(
+        ni_spec, "distill_seeds", lambda count, round_index: [round_index * 1000]
+    )
+    selected, audit = runner.allocate_fresh_seeds("fixture", 2, [tmp_path])
+    assert selected == [3, 4]
+    assert audit["rejected"]["1"] == ["generated-or-reserved-evaluation"]
+    assert audit["rejected"]["2"] == [str(tmp_path)]
+
+
 def _job(index: int, *, holdout: bool = False) -> dict:
     return {
         "plan_index": index,

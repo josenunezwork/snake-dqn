@@ -132,7 +132,7 @@ def allocate_fresh_seeds(
         candidates = list(dict.fromkeys(_candidate_seed(namespace, cursor + i) for i in range(400)))
         cursor += 400
         tokens = [str(value) for value in candidates]
-        hits = {str(root): seed_audit.concrete_text_hits(root, tokens, None)[0] for root in roots}
+        hits = {str(root): seed_audit.concrete_text_hits(root, tokens)[0] for root in roots}
         for candidate in candidates:
             reasons = [name for name, values in hits.items() if str(candidate) in values]
             if candidate in generated:

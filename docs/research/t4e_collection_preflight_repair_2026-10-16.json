@@ -1,0 +1,13 @@
+{
+  "binding_archive": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016-attempt1-preflight-failed",
+  "cause": "Fresh allocator passed None to the revised tuple-exclusions scanner API.",
+  "failed_commit": "99d51aae2e49eb89e6d6a8aadbf12552b61e819b",
+  "failure_archive": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/attempt1-preflight-failed",
+  "fix": "Use scanner default empty exclusions tuple; real-scanner allocator regression covers recorded/generated seed rejection.",
+  "schema": "t4e-preflight-repair/v1",
+  "seed_plans_written": 0,
+  "session_exited_naturally": true,
+  "tests_passed": 12,
+  "training_started": false,
+  "worlds_played": 0
+}
