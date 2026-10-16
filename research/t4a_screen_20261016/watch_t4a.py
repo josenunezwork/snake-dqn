@@ -232,6 +232,18 @@ def run(args: argparse.Namespace) -> int:
                     event("extension_required", jobs=extra)
                     continue
                 (out / "probes.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+                atomic_json(
+                    out / "progress.json",
+                    {
+                        "completed": len(completed),
+                        "required": len(eligible),
+                        "active": [],
+                        "training_status": statuses,
+                        "controls_complete": True,
+                        "worker_limit": WORKER_LIMIT,
+                        "phase": "probes_complete",
+                    },
+                )
                 event("probes_complete", rows=len(rows))
                 return finish(args, rows, statuses, audit, lock, event)
             controls_complete = _controls_complete(completed, jobs)
