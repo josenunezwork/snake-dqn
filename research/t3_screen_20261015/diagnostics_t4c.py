@@ -242,7 +242,7 @@ def declared_fork(gameplay: Mapping[str, Any], drift: Mapping[str, Any]) -> str:
         return (
             "No declared fork assigned: T4c-final consequential-change rate is not yet available."
         )
-    if fell and data["decision"] == "GO" and mass_ok:
+    if fell and data["decision"] == "GO" and survival > 0 and mass_ok:
         return (
             "(c) falls to the drift baseline and round-65 survival moves without a mass fail: "
             "expert iteration with the tightened recipe is next, as planned."
