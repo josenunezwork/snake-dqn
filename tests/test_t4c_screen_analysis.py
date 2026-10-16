@@ -6,6 +6,7 @@ from research.t3_screen_20261015.analyze_t4c import (
     EXTENSION_ROUND,
     analyze,
     extension_requirements,
+    markdown,
 )
 
 
@@ -96,3 +97,56 @@ def test_shared_survivor_length_is_paired_and_requires_complete_length_maps():
     rows[0]["length_at_5000"].pop(next(iter(rows[0]["length_at_5000"])))
     with pytest.raises(ValueError, match="length_at_5000"):
         analyze(rows, statuses)
+
+
+def test_markdown_exposes_all_registered_readouts_and_denominators():
+    rows, statuses = _data()
+    result = analyze(rows, statuses)
+    result["arms"][ARM]["initial_decision"] = "EXTEND"
+    result["arms"][ARM]["extension_started"] = True
+    result["arms"][ARM]["extension_complete"] = True
+    agreement = {
+        key: {"rows": 10, "agreement": 0.9}
+        for key in (
+            "retained_decisive_all",
+            "retained_decisive_gap_lt100",
+            "retained_decisive_gap_100_300",
+            "in_window_counter",
+            "outside_counter",
+        )
+    }
+    result["arms"][ARM]["diagnostics"] = {
+        "bank_agreement_five_seed_means": {"retained_decisive_all": {"mean": 0.9, "n": 5}},
+        "bank_agreement_raw_six_action": {f"{ARM}_s10": agreement},
+        "telemetry_final_100k": {
+            "five_seed_means": {"bank_agree_decisive": {"mean": 0.8, "n": 5}},
+            "per_run": {
+                f"{ARM}_s10": {
+                    "bank_agree_decisive": 0.8,
+                    "bank_agree_counter": 0.9,
+                    "bank_agree_outside": 0.95,
+                }
+            },
+        },
+        "drift_candidate_readout": {
+            "per_seed": {"10": {"raw_change_rate": 0.1, "consequential_change_rate": 0.02}},
+            "baseline_per_seed": {
+                "10": {"raw_change_rate": 0.08, "consequential_change_rate": 0.01}
+            },
+            "candidate_raw_change_rate": 0.1,
+            "candidate_consequential_change_rate": 0.02,
+            "baseline_five_seed_mean": {"raw_change_rate": 0.08, "consequential_change_rate": 0.01},
+        },
+        "drift": {"within_ten_percentage_points": True},
+    }
+    report = markdown(result)
+    for phrase in (
+        "Initial decision: EXTEND",
+        "mass vs incumbent",
+        "100-300 gap",
+        "Final 100k sampled telemetry",
+        "B8 raw",
+        "Within 10 percentage points: True",
+        "Five-seed mean:",
+    ):
+        assert phrase in report

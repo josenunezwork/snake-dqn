@@ -282,33 +282,34 @@ def extension_requirements(
 
 
 def markdown(result: Mapping[str, Any]) -> str:
-    data = result["arms"][ARM]
-    primary = data["vs_ctrl"]["scripted"]["episode_survival"]
+    """Render every preregistered readout from the saved analysis payload."""
+    data, diagnostics = result["arms"][ARM], result["arms"][ARM].get("diagnostics", {})
     lines = [
         "# T4c tightened two-sided screen result",
         "",
         f"**Decision: {data['decision']}**. This is development-screen evidence only.",
         "",
-        (
-            "Primary scripted episode-survival delta vs CTRL: "
-            f"{_show(primary['mean'])} "
-            f"(seed SE {_show(primary['seed_se'])}; n={primary['seed_n']})."
-        ),
+        "## Registered decision record",
         "",
-        "## Mass delta vs CTRL by mix",
+        "Round 66: 96 scripted / 32 frozen / 32 mixed worlds per checkpoint. "
+        "The single round-67 extension adds 96 scripted worlds to candidate and CTRL; "
+        "when complete, scripted comparisons use 192 worlds per seed. "
+        "Incumbent comparisons and shared-survivor lengths retain round 66 only.",
         "",
-        "| mix | mean | seed SE |",
-        "|---|---:|---:|",
+        f"Initial decision: {data.get('initial_decision', data['decision'])}; extension started: {data.get('extension_started', False)}; extension complete: {data.get('extension_complete', False)}.",  # noqa: E501
+        "",
+        "| mix | survival vs CTRL | survival SE | mass vs CTRL | mass SE | mass vs incumbent | incumbent SE |",  # noqa: E501
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
-    lines += [
-        (
-            f"| {mix} | {_show(data['vs_ctrl'][mix]['mass']['mean'])} "
-            f"| {_show(data['vs_ctrl'][mix]['mass']['seed_se'])} |"
+    for mix in MIXES:
+        survival, mass = data["vs_ctrl"][mix]["episode_survival"], data["vs_ctrl"][mix]["mass"]
+        incumbent = data.get("mass_vs_incumbent", {}).get(mix, {})
+        lines.append(
+            f"| {mix} | {_show(survival.get('mean'))} | {_show(survival.get('seed_se'))} | {_show(mass.get('mean'))} | {_show(mass.get('seed_se'))} | {_show(incumbent.get('mean'))} | {_show(incumbent.get('seed_se'))} |"  # noqa: E501
         )
-        for mix in MIXES
-    ]
-    length = data["shared_survivor_length_h5000"]
     lines += [
+        "",
+        "GO guardrails: scripted survival >= +0.06; mass >= -30 on every mix; frozen and mixed survival >= -0.05. KILL if scripted survival <= 0 or a training exit is nonzero.",  # noqa: E501
         "",
         "## Required diagnostics",
         "",
@@ -317,7 +318,6 @@ def markdown(result: Mapping[str, Any]) -> str:
         "| family | five-seed mean | n |",
         "|---|---:|---:|",
     ]
-    diagnostics = data["diagnostics"]
     bank_means = diagnostics.get("bank_agreement_five_seed_means", {})
     lines += [
         f"| {name} | {_show(value.get('mean'))} | {value.get('n', 0)} |"
@@ -325,47 +325,65 @@ def markdown(result: Mapping[str, Any]) -> str:
     ]
     lines += [
         "",
-        "| seed | decisive rows/agreement | in-window rows/agreement | outside rows/agreement |",
-        "|---:|---:|---:|---:|",
+        "| seed | decisive all | <100 gap | 100-300 gap | in-window | outside |",
+        "|---:|---:|---:|---:|---:|---:|",
     ]
     for seed, value in diagnostics.get("bank_agreement_raw_six_action", {}).items():
-        if value is not None:
-            decisive = value["retained_decisive_all"]
-            counter = value["in_window_counter"]
-            outside = value["outside_counter"]
-            lines.append(
-                f"| {seed} | {decisive['rows']} / {_show(decisive['agreement'])} | "
-                f"{counter['rows']} / {_show(counter['agreement'])} | "
-                f"{outside['rows']} / {_show(outside['agreement'])} |"
-            )
+        if value is None:
+            continue
+        cells = []
+        for key in (
+            "retained_decisive_all",
+            "retained_decisive_gap_lt100",
+            "retained_decisive_gap_100_300",
+            "in_window_counter",
+            "outside_counter",
+        ):
+            item = value[key]
+            cells.append(f"{item['rows']} / {_show(item['agreement'])}")
+        lines.append(f"| {seed} | " + " | ".join(cells) + " |")
+    telemetry = diagnostics.get("telemetry_final_100k", {})
     lines += [
         "",
         "### Final 100k sampled telemetry",
         "",
-        "| family | mean | n |",
+        "| family | five-seed mean | n |",
         "|---|---:|---:|",
     ]
-    telemetry = diagnostics.get("telemetry_final_100k", {}).get("five_seed_means", {})
     lines += [
         f"| {name} | {_show(value.get('mean'))} | {value.get('n', 0)} |"
-        for name, value in telemetry.items()
+        for name, value in telemetry.get("five_seed_means", {}).items()
     ]
+    lines += ["", "| seed | decisive | counter | outside |", "|---:|---:|---:|---:|"]
+    for seed, value in telemetry.get("per_run", {}).items():
+        lines.append(
+            f"| {seed} | {_show(value.get('bank_agree_decisive'))} | {_show(value.get('bank_agree_counter'))} | {_show(value.get('bank_agree_outside'))} |"  # noqa: E501
+        )
     drift = diagnostics.get("drift_candidate_readout", {})
     lines += [
         "",
         "### Same-init drift readout (r62)",
         "",
-        "| seed | raw | consequential |",
-        "|---:|---:|---:|",
+        "| seed | candidate raw | candidate consequential | B8 raw | B8 consequential |",
+        "|---:|---:|---:|---:|---:|",
     ]
+    for seed, value in drift.get("per_seed", {}).items():
+        baseline = drift.get("baseline_per_seed", {}).get(seed, {})
+        lines.append(
+            f"| {seed} | {_show(value.get('raw_change_rate'))} | {_show(value.get('consequential_change_rate'))} | {_show(baseline.get('raw_change_rate'))} | {_show(baseline.get('consequential_change_rate'))} |"  # noqa: E501
+        )
+    baseline = drift.get("baseline_five_seed_mean", {})
     lines += [
-        f"| {seed} | {_show(value.get('raw_change_rate'))} | "
-        f"{_show(value.get('consequential_change_rate'))} |"
-        for seed, value in drift.get("per_seed", {}).items()
+        "",
+        f"Candidate five-seed raw / consequential: {_show(drift.get('candidate_raw_change_rate'))} / {_show(drift.get('candidate_consequential_change_rate'))}.",  # noqa: E501
+        f"B8 five-seed raw / consequential: {_show(baseline.get('raw_change_rate'))} / {_show(baseline.get('consequential_change_rate'))}. Within 10 percentage points: {diagnostics.get('drift', {}).get('within_ten_percentage_points')!s}.",  # noqa: E501
     ]
+    length = data["shared_survivor_length_h5000"]
     lines += [
         "",
         "### Shared-survivor H5000 length",
+        "",
+        f"Five-seed mean: {_show(length.get('five_seed_mean_delta'))} across {length.get('five_seed_n', 0)} seed means; pooled: {_show(length.get('candidate_minus_ctrl_mean_length'))} across {length.get('shared_survivors', 0)} shared survivors; threshold >= {_show(length.get('threshold'))}.",  # noqa: E501
         "",
         "| seed | shared survivors | candidate minus CTRL |",
         "|---:|---:|---:|",
@@ -380,21 +398,17 @@ def markdown(result: Mapping[str, Any]) -> str:
         if not value:
             lines.append(f"{name}: unavailable.")
             continue
-        lines.append(f"{name}: retained contextual development-screen analysis artifact.")
         for arm_name, arm_value in value.get("arms", {}).items():
             scripted = arm_value.get("vs_ctrl", {}).get("scripted", {})
-            survival = scripted.get("episode_survival", {}).get("mean")
-            mass = scripted.get("mass", {}).get("mean")
             lines.append(
-                f"- {arm_name}: {arm_value.get('decision', 'unavailable')}; "
-                f"scripted survival {_show(survival)}, mass {_show(mass)}."
+                f"- {name} {arm_name}: {arm_value.get('decision', 'unavailable')}; scripted survival {_show(scripted.get('episode_survival', {}).get('mean'))}, mass {_show(scripted.get('mass', {}).get('mean'))}."  # noqa: E501
             )
     lines += [
         "",
         "## Declared fork",
         "",
         str(
-            data["diagnostics"].get(
+            diagnostics.get(
                 "declared_fork", "Diagnostic inputs incomplete; no declared fork can be assigned."
             )
         ),
