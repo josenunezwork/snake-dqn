@@ -116,7 +116,8 @@ def source_packed(data: dict[str, np.ndarray], bank_root: Path) -> np.ndarray:
         if set(manifest["shards"]) != {path.name for path in paths}:
             raise ValueError(f"{split} T4e shard set differs from manifest")
         for path in paths:
-            if sha256(path) != manifest["shards"][path.name]:
+            shard_hash = sha256(path)
+            if shard_hash != manifest["shards"][path.name]:
                 raise ValueError(f"T4e shard hash mismatch: {path.name}")
             world = int(path.name.split("-")[1])
             with np.load(path, allow_pickle=False) as archive:
@@ -134,6 +135,8 @@ def source_packed(data: dict[str, np.ndarray], bank_root: Path) -> np.ndarray:
                     ):
                         raise ValueError(f"conflicting source observation at {key}")
                     lookup[key] = value
+            if sha256(path) != shard_hash:
+                raise RuntimeError(f"T4e shard changed while joining: {path.name}")
     selected: list[np.ndarray] = []
     for state_id, scalars in zip(data["state_id"], data["scalars"]):
         name, decision = str(state_id).split(":d")
@@ -268,11 +271,20 @@ def run(
     """Join, forward, and fit every requested final without changing source labels."""
     start = time.monotonic()
     out.mkdir(parents=True, exist_ok=True)
-    data = load_t5_data(data_path)
-    packed = source_packed(data, bank_root)
-    bound_paths = [data_path, T5_FOLDS, Path(__file__)]
+    bound_paths = [
+        data_path,
+        T5_FOLDS,
+        Path(__file__),
+        Path("research/t5_separability_20261016/fit.py"),
+        Path("research/redesign_m3c_20261008/obs_pack.py"),
+        Path("src/model/ego2s_network.py"),
+    ]
     bound_paths += [bank_root / "banks" / split / "manifest.json" for split in ("train", "holdout")]
     before = {str(path): sha256(path) for path in bound_paths}
+    if before[str(data_path)] != EXPECTED_DATA_SHA:
+        raise ValueError("T5 feature table SHA differs from the published restored-bank dataset")
+    data = load_t5_data(data_path)
+    packed = source_packed(data, bank_root)
     summary: dict[str, Any] = {
         "authority": "diagnostic only; not gate evidence",
         "t5_data_sha256": sha256(data_path),
