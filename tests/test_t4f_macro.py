@@ -7,8 +7,8 @@ import numpy as np
 from research.t4f_return_20261016 import macro_collect as macro
 
 
-def test_macro_repeats_relative_boost_through_new_selector_phases(monkeypatch) -> None:
-    """Only frame one consumes the captured selector; later frames re-enter it."""
+def test_boost_left_macro_does_not_repeat_three_turns(monkeypatch) -> None:
+    """Only frame one consumes boost-left; later frames use fresh B8 directions."""
     from research.t3_rollout_labels_20261015 import bank_engine
 
     branch = SimpleNamespace(
@@ -25,9 +25,10 @@ def test_macro_repeats_relative_boost_through_new_selector_phases(monkeypatch) -
         assert world is branch and action == 3
         calls.append("prepared")
 
-    def forced(world, action) -> None:
-        assert world is branch and action == 3
-        calls.append("selector")
+    def b8_direction_boost(world) -> int:
+        assert world is branch
+        calls.append("b8-direction-boost")
+        return 4
 
     def ordinary(world, **_kwargs) -> None:
         calls.append("b8")
@@ -35,12 +36,75 @@ def test_macro_repeats_relative_boost_through_new_selector_phases(monkeypatch) -
 
     monkeypatch.setattr(bank_engine, "step_prepared", first_step)
     monkeypatch.setattr(bank_engine, "choose_and_step", ordinary)
-    monkeypatch.setattr(macro, "_force_next_selector_action", forced)
+    monkeypatch.setattr(macro, "_force_b8_direction_boost", b8_direction_boost)
     result = macro.rollout_macro(snapshot, 3, 3)
 
-    assert calls == ["prepared", "selector", "selector", "b8"]
+    assert calls == ["prepared", "b8-direction-boost", "b8-direction-boost", "b8"]
     assert result["T"] == 4
     assert result["died"] is True
+
+
+class _SelectorSim:
+    """Small Watch-phase stand-in that records the action selected per frame."""
+
+    E = 1
+    S = 1
+
+    def __init__(self, masks: list[np.ndarray]) -> None:
+        self._masks = iter(masks)
+        self.selected: list[int] = []
+
+    def get_resolved_action_mask(self) -> np.ndarray:
+        return next(self._masks)
+
+    def step_with_policy(self, selector) -> None:
+        self.selected.append(int(selector(self)[0, 0]))
+
+
+def _selector_world(masks: list[np.ndarray]) -> SimpleNamespace:
+    prepared = _SelectorSim(masks)
+    runtime = SimpleNamespace(prepare=lambda _sim: None, observe_step=lambda _sim: None)
+    return SimpleNamespace(
+        sim=prepared,
+        runtime=runtime,
+        hero=object(),
+        opponents=object(),
+    )
+
+
+def test_macro_honors_changed_b8_directions_with_boost(monkeypatch) -> None:
+    """Each macro frame gets B8's current direction rather than repeating left."""
+    from src.simd_env import eval_engine
+
+    masks = [np.array([[[True, True, True, True, True, True]]], dtype=bool)] * 2
+    world = _selector_world(masks)
+    b8_actions = iter([1, 2])
+
+    def dispatch(_sim, _masks, actions, _heroes, _opponents) -> None:
+        actions[0, 0] = next(b8_actions)
+
+    monkeypatch.setattr(eval_engine, "_dispatch_actions", dispatch)
+
+    assert macro._force_b8_direction_boost(world) == 4
+    assert macro._force_b8_direction_boost(world) == 5
+    assert world.sim.selected == [4, 5]
+
+
+def test_macro_falls_back_to_b8_normal_direction_when_boost_is_illegal(monkeypatch) -> None:
+    """A refreshed mask can forbid the forced boost variant without changing direction."""
+    from src.simd_env import eval_engine
+
+    # B8 chooses right (2), but its boost-right variant (5) is unavailable.
+    masks = [np.array([[[True, True, True, True, True, False]]], dtype=bool)]
+    world = _selector_world(masks)
+
+    def dispatch(_sim, _masks, actions, _heroes, _opponents) -> None:
+        actions[0, 0] = 2
+
+    monkeypatch.setattr(eval_engine, "_dispatch_actions", dispatch)
+
+    assert macro._force_b8_direction_boost(world) == 2
+    assert world.sim.selected == [2]
 
 
 def test_grouped_states_requires_consistent_branch_identity() -> None:

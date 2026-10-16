@@ -3,16 +3,16 @@
 
 The input bank is never altered.  Each source world is replayed from its planned
 identity and every recorded state is checked byte-for-byte before only boost
-branches are replaced.  A replacement is ``k`` repetitions of the recorded
-boost action (``k`` is the simulator burn cadence), followed by the original
-B8 masked-greedy continuation to D300.  Non-boost branch bytes are copied
-unchanged into the v2 bank.
+branches are replaced.  The first macro frame takes the recorded boost action
+(``k`` is the simulator burn cadence).  Later macro frames preserve B8's fresh
+masked-greedy direction and force boost only when that variant is legal.  B8
+then continues normally to D300.  Non-boost branch bytes are copied unchanged
+into the v3 bank.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -42,15 +42,14 @@ from research.t4d_return_regression_20261016.collector import (
     _configure_device,
     _snapshot,
     branch_summary,
-    rollout_branch,
 )
 from research.t4e_return_20261016.collection import masked_greedy
 from research.t4e_return_20261016.publisher import _sha256
 
 WORKER_LIMIT = 12
-SCHEMA = "t4f-return-bank/v2"
+SCHEMA = "t4f-return-bank/v3"
 DEFAULT_SOURCE = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016")
-DEFAULT_OUT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-20261016")
+DEFAULT_OUT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4f-return-bank-v3-20261016")
 
 
 def boost_cost_period() -> int:
@@ -182,34 +181,42 @@ def _terminal_observation(world: Any) -> tuple[dict[str, np.ndarray] | None, np.
     return captured["obs"], captured["mask"]
 
 
-def _force_next_selector_action(world: Any, action: int) -> None:
-    """Force one action through the next selector lifecycle.
+def _force_b8_direction_boost(world: Any) -> int:
+    """Take one fresh B8 selector phase with its direction boosted when legal.
 
     ``step_prepared`` consumes the snapshot that was already prepared when it
     was captured.  A second macro frame must instead enter ``step_with_policy``
-    so runtime preparation and opponent dispatch occur again before the same
-    relative boost action is substituted for the hero.
+    so runtime preparation, B8 selection, and opponent dispatch occur again.
+    The selector's current B8 action supplies the relative direction.  Its
+    boost variant is forced only when legal in the refreshed resolved mask;
+    otherwise its normal direction is retained.
+
+    Returns:
+        The action executed for the hero in this macro frame.
     """
     from src.simd_env.eval_engine import _dispatch_actions
+
+    selected: dict[str, int] = {}
 
     def choose(prepared: Any) -> np.ndarray:
         masks = prepared.get_resolved_action_mask()
         world.runtime.prepare(prepared)
         actions = np.ones((1, prepared.S), dtype=np.int64)
         _dispatch_actions(prepared, masks, actions, [world.hero], [world.opponents])
-        actions[0, 0] = int(action)
+        b8_direction = int(actions[0, 0]) % 3
+        boost_action = b8_direction + 3
+        action = boost_action if bool(masks[0, 0, boost_action]) else b8_direction
+        actions[0, 0] = action
+        selected["action"] = action
         return actions
 
     world.sim.step_with_policy(choose)
     world.runtime.observe_step(world.sim)
+    return selected["action"]
 
 
 def rollout_macro(snapshot: Mapping[str, Any], action: int, period: int) -> dict[str, Any]:
-    """Repeat one relative boost action for k frames, then resume B8.
-
-    The action integer is deliberately repeated unchanged: its direction is
-    relative at each of the k selector phases, as required by the macro spec.
-    """
+    """Take the branch boost once, then boosted B8 directions through frame k."""
     from research.t3_rollout_labels_20261015.bank_engine import choose_and_step, step_prepared
 
     if int(action) not in set(np.asarray(snapshot["legal"], dtype=np.int64).tolist()) or action < 3:
@@ -220,7 +227,7 @@ def rollout_macro(snapshot: Mapping[str, Any], action: int, period: int) -> dict
         if frame == 0:
             step_prepared(branch, int(action))
         else:
-            _force_next_selector_action(branch, int(action))
+            _force_b8_direction_boost(branch)
         alive = bool(branch.sim.alive[0, 0])
         trace.append((int(branch.sim.length[0, 0]) if alive else 0, alive))
         if not alive:
@@ -308,7 +315,7 @@ def _pack_terminal(terminal: Mapping[str, np.ndarray] | None) -> tuple[np.ndarra
 def derive_shard(
     source: Path, destination: Path, job: Mapping[str, Any], period: int, manifest_json: str
 ) -> dict[str, Any]:
-    """Copy a shard into v2, replacing only its boost target outcomes."""
+    """Copy a shard into v3, replacing only its boost target outcomes."""
     if destination.exists():
         raise FileExistsError(f"refusing to overwrite derived shard: {destination}")
     rolled, state_count = _replay_shard(source, job, period)
@@ -369,13 +376,15 @@ def _manifest_template(source: Path, period: int, source_root: Path) -> dict[str
             for key, value in original.items()
             if key not in {"shards", "publication", "fields", "schema_version", "collection_schema"}
         },
+        # The on-disk field layout is unchanged from v2; collection_schema
+        # carries the distinct macro-policy identity without breaking loaders.
         "schema_version": 2,
         "collection_schema": SCHEMA,
         "fields": fields,
         "macro": {
             "depth": DEPTH,
             "boost_cost_period_frames": period,
-            "policy": "repeat_forced_boost_action_k_frames_then_B8_masked_greedy",
+            "policy": "first_branch_boost_then_B8_direction_boost_if_legal_k_frames_then_B8",
         },
         "source_bank": {
             "path": str(source),
@@ -467,7 +476,7 @@ def derive_bank(
     workers: int,
     source_root: Path,
 ) -> dict[str, Any]:
-    """Derive one train or holdout v2 bank with a hash-bound source manifest."""
+    """Derive one train or holdout v3 bank with a hash-bound source manifest."""
     shards = sorted(Path(source).glob("*.npz"))
     if not shards:
         raise ValueError(f"source bank has no shards: {source}")
@@ -547,7 +556,7 @@ def target_gap(bank: Path) -> dict[str, float | int | None]:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
-    """Create both v2 banks, preserving source bytes and source provenance."""
+    """Create both v3 banks, preserving source bytes and source provenance."""
     if not 1 <= args.workers <= WORKER_LIMIT:
         raise ValueError("--workers must be from 1 through 12")
     source, out = Path(args.source).resolve(), Path(args.out).resolve()
@@ -560,7 +569,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "source": str(source),
         "source_identity": source_identity,
         "boost_cost_period_frames": period,
-        "policy": "repeat_same_relative_boost_action_k_frames_then_B8",
+        "policy": "first_branch_boost_then_B8_direction_boost_if_legal_k_frames_then_B8",
     }
     if out.exists():
         if not out.is_dir():
@@ -590,7 +599,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "cpu_threads_per_worker": 1,
         "wall_seconds": time.monotonic() - started,
         "banks": {"train": train["publication"], "holdout": holdout["publication"]},
-        "target_statistics": "reported separately by target_stats.py with source B8 online/target bootstrap",
+        "target_statistics": (
+            "reported separately by target_stats.py with source B8 online/target bootstrap"
+        ),
     }
     (out / "completion.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     return receipt
