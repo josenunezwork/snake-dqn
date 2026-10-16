@@ -1,0 +1,2069 @@
+{
+  "bank_agreement_raw_six_action": {
+    "TWO_SIDED_T_s10": {
+      "retained_decisive_all": {
+        "rows": 10885,
+        "agreement": 0.45401929260450163
+      },
+      "retained_decisive_gap_lt100": {
+        "rows": 2675,
+        "agreement": 0.7192523364485981
+      },
+      "retained_decisive_gap_100_300": {
+        "rows": 8210,
+        "agreement": 0.36760048721071864
+      },
+      "in_window_counter": {
+        "rows": 5442,
+        "agreement": 0.9976111723631018
+      },
+      "outside_counter": {
+        "rows": 10885,
+        "agreement": 0.8925126320624713
+      }
+    },
+    "TWO_SIDED_T_s11": {
+      "retained_decisive_all": {
+        "rows": 10885,
+        "agreement": 0.556086357372531
+      },
+      "retained_decisive_gap_lt100": {
+        "rows": 2675,
+        "agreement": 0.8157009345794393
+      },
+      "retained_decisive_gap_100_300": {
+        "rows": 8210,
+        "agreement": 0.4714981729598051
+      },
+      "in_window_counter": {
+        "rows": 5442,
+        "agreement": 0.9992649761117236
+      },
+      "outside_counter": {
+        "rows": 10885,
+        "agreement": 0.913275149288011
+      }
+    },
+    "TWO_SIDED_T_s12": {
+      "retained_decisive_all": {
+        "rows": 10885,
+        "agreement": 0.4459347726228755
+      },
+      "retained_decisive_gap_lt100": {
+        "rows": 2675,
+        "agreement": 0.6998130841121495
+      },
+      "retained_decisive_gap_100_300": {
+        "rows": 8210,
+        "agreement": 0.36321559074299636
+      },
+      "in_window_counter": {
+        "rows": 5442,
+        "agreement": 0.9983461962513782
+      },
+      "outside_counter": {
+        "rows": 10885,
+        "agreement": 0.891502067064768
+      }
+    },
+    "TWO_SIDED_T_s13": {
+      "retained_decisive_all": {
+        "rows": 10885,
+        "agreement": 0.49131832797427655
+      },
+      "retained_decisive_gap_lt100": {
+        "rows": 2675,
+        "agreement": 0.7405607476635514
+      },
+      "retained_decisive_gap_100_300": {
+        "rows": 8210,
+        "agreement": 0.4101096224116931
+      },
+      "in_window_counter": {
+        "rows": 5442,
+        "agreement": 0.9977949283351709
+      },
+      "outside_counter": {
+        "rows": 10885,
+        "agreement": 0.8814882866329812
+      }
+    },
+    "TWO_SIDED_T_s14": {
+      "retained_decisive_all": {
+        "rows": 10885,
+        "agreement": 0.443913642627469
+      },
+      "retained_decisive_gap_lt100": {
+        "rows": 2675,
+        "agreement": 0.6998130841121495
+      },
+      "retained_decisive_gap_100_300": {
+        "rows": 8210,
+        "agreement": 0.36053593179049936
+      },
+      "in_window_counter": {
+        "rows": 5442,
+        "agreement": 0.99797868430724
+      },
+      "outside_counter": {
+        "rows": 10885,
+        "agreement": 0.915480018373909
+      }
+    }
+  },
+  "bank_agreement_five_seed_means": {
+    "retained_decisive_all": {
+      "mean": 0.47825447864033077,
+      "n": 5
+    },
+    "retained_decisive_gap_lt100": {
+      "mean": 0.7350280373831776,
+      "n": 5
+    },
+    "retained_decisive_gap_100_300": {
+      "mean": 0.39459196102314253,
+      "n": 5
+    },
+    "in_window_counter": {
+      "mean": 0.9981991914737229,
+      "n": 5
+    },
+    "outside_counter": {
+      "mean": 0.8988516306844281,
+      "n": 5
+    }
+  },
+  "telemetry_final_100k": {
+    "per_run": {
+      "TWO_SIDED_T_s10": {
+        "bank_agree_decisive": 0.4310502430487245,
+        "bank_agree_counter": 0.9979595485769559,
+        "bank_agree_outside": 0.8978884885894156
+      },
+      "TWO_SIDED_T_s11": {
+        "bank_agree_decisive": 0.536761683143157,
+        "bank_agree_counter": 0.9991196144009443,
+        "bank_agree_outside": 0.9175564791133846
+      },
+      "TWO_SIDED_T_s12": {
+        "bank_agree_decisive": 0.4274827960030166,
+        "bank_agree_counter": 0.9981803110040003,
+        "bank_agree_outside": 0.9024668113482852
+      },
+      "TWO_SIDED_T_s13": {
+        "bank_agree_decisive": 0.46230014058298907,
+        "bank_agree_counter": 0.9976791510918749,
+        "bank_agree_outside": 0.9017712739359958
+      },
+      "TWO_SIDED_T_s14": {
+        "bank_agree_decisive": 0.4524961677814939,
+        "bank_agree_counter": 0.9984397030133123,
+        "bank_agree_outside": 0.9012861499114696
+      }
+    },
+    "five_seed_means": {
+      "bank_agree_decisive": {
+        "mean": 0.4620182061118762,
+        "n": 5
+      },
+      "bank_agree_counter": {
+        "mean": 0.9982756656174174,
+        "n": 5
+      },
+      "bank_agree_outside": {
+        "mean": 0.9041938405797101,
+        "n": 5
+      }
+    }
+  },
+  "drift_candidate_readout": {
+    "per_seed": {
+      "10": {
+        "raw_change_rate": 0.20366613814881718,
+        "consequential_change_rate": 0.04182553369071701,
+        "missing_strata": [],
+        "strata": {
+          "700_999:D1": {
+            "decisions": 2610,
+            "argmax_changes": 481,
+            "raw_change_rate": 0.1842911877394636,
+            "consequential_changes": 64,
+            "consequential_change_rate": 0.024521072796934867,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "decisions": 7062,
+            "argmax_changes": 2086,
+            "raw_change_rate": 0.29538374398187484,
+            "consequential_changes": 1020,
+            "consequential_change_rate": 0.14443500424808836,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "decisions": 5033,
+            "argmax_changes": 791,
+            "raw_change_rate": 0.1571627260083449,
+            "consequential_changes": 117,
+            "consequential_change_rate": 0.023246572620703357,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "decisions": 5176,
+            "argmax_changes": 786,
+            "raw_change_rate": 0.151854714064915,
+            "consequential_changes": 106,
+            "consequential_change_rate": 0.020479134466769706,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "decisions": 5647,
+            "argmax_changes": 784,
+            "raw_change_rate": 0.13883477952895343,
+            "consequential_changes": 74,
+            "consequential_change_rate": 0.013104303169824685,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "decisions": 6494,
+            "argmax_changes": 917,
+            "raw_change_rate": 0.14120726824761318,
+            "consequential_changes": 80,
+            "consequential_change_rate": 0.012319063751154912,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "decisions": 9433,
+            "argmax_changes": 1245,
+            "raw_change_rate": 0.13198346231315594,
+            "consequential_changes": 71,
+            "consequential_change_rate": 0.007526767730308492,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "decisions": 13101,
+            "argmax_changes": 1837,
+            "raw_change_rate": 0.14021830394626364,
+            "consequential_changes": 100,
+            "consequential_change_rate": 0.007633005114113426,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "decisions": 13863,
+            "argmax_changes": 2254,
+            "raw_change_rate": 0.1625910697540215,
+            "consequential_changes": 141,
+            "consequential_change_rate": 0.010170958666955204,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "decisions": 7149,
+            "argmax_changes": 1342,
+            "raw_change_rate": 0.1877185620366485,
+            "consequential_changes": 90,
+            "consequential_change_rate": 0.01258917331095258,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "decisions": 588,
+            "argmax_changes": 115,
+            "raw_change_rate": 0.195578231292517,
+            "consequential_changes": 19,
+            "consequential_change_rate": 0.03231292517006803,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "decisions": 26447,
+            "argmax_changes": 8654,
+            "raw_change_rate": 0.3272204786932355,
+            "consequential_changes": 3264,
+            "consequential_change_rate": 0.12341664460997466,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "decisions": 1875,
+            "argmax_changes": 431,
+            "raw_change_rate": 0.22986666666666666,
+            "consequential_changes": 100,
+            "consequential_change_rate": 0.05333333333333334,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "decisions": 2822,
+            "argmax_changes": 618,
+            "raw_change_rate": 0.21899362154500354,
+            "consequential_changes": 112,
+            "consequential_change_rate": 0.039688164422395464,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "decisions": 3394,
+            "argmax_changes": 708,
+            "raw_change_rate": 0.20860341779611077,
+            "consequential_changes": 123,
+            "consequential_change_rate": 0.03624042427813789,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "decisions": 5037,
+            "argmax_changes": 949,
+            "raw_change_rate": 0.18840579710144928,
+            "consequential_changes": 132,
+            "consequential_change_rate": 0.026206075044669448,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "decisions": 6531,
+            "argmax_changes": 1037,
+            "raw_change_rate": 0.15878119736640636,
+            "consequential_changes": 139,
+            "consequential_change_rate": 0.021283111315265658,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "decisions": 11328,
+            "argmax_changes": 1879,
+            "raw_change_rate": 0.16587217514124294,
+            "consequential_changes": 299,
+            "consequential_change_rate": 0.026394774011299436,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "decisions": 19331,
+            "argmax_changes": 3209,
+            "raw_change_rate": 0.16600279344058766,
+            "consequential_changes": 311,
+            "consequential_change_rate": 0.01608814856965496,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "decisions": 30480,
+            "argmax_changes": 6580,
+            "raw_change_rate": 0.2158792650918635,
+            "consequential_changes": 623,
+            "consequential_change_rate": 0.020439632545931757,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      },
+      "11": {
+        "raw_change_rate": 0.23243958000398493,
+        "consequential_change_rate": 0.029161664548915764,
+        "missing_strata": [],
+        "strata": {
+          "700_999:D1": {
+            "decisions": 2670,
+            "argmax_changes": 409,
+            "raw_change_rate": 0.15318352059925094,
+            "consequential_changes": 50,
+            "consequential_change_rate": 0.018726591760299626,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "decisions": 7268,
+            "argmax_changes": 2786,
+            "raw_change_rate": 0.3833241607044579,
+            "consequential_changes": 781,
+            "consequential_change_rate": 0.10745734727572923,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "decisions": 5894,
+            "argmax_changes": 1039,
+            "raw_change_rate": 0.17628096369189006,
+            "consequential_changes": 114,
+            "consequential_change_rate": 0.019341703427214117,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "decisions": 6951,
+            "argmax_changes": 1132,
+            "raw_change_rate": 0.1628542655732988,
+            "consequential_changes": 141,
+            "consequential_change_rate": 0.02028485110056107,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "decisions": 7378,
+            "argmax_changes": 1118,
+            "raw_change_rate": 0.15153158037408512,
+            "consequential_changes": 98,
+            "consequential_change_rate": 0.013282732447817837,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "decisions": 9157,
+            "argmax_changes": 1391,
+            "raw_change_rate": 0.15190564595391504,
+            "consequential_changes": 105,
+            "consequential_change_rate": 0.011466637545047505,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "decisions": 13276,
+            "argmax_changes": 2119,
+            "raw_change_rate": 0.15961132871346792,
+            "consequential_changes": 134,
+            "consequential_change_rate": 0.010093401626996084,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "decisions": 18009,
+            "argmax_changes": 3230,
+            "raw_change_rate": 0.179354767060914,
+            "consequential_changes": 136,
+            "consequential_change_rate": 0.007551779665722695,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "decisions": 14646,
+            "argmax_changes": 2786,
+            "raw_change_rate": 0.19022258637170558,
+            "consequential_changes": 139,
+            "consequential_change_rate": 0.009490645910146115,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "decisions": 6437,
+            "argmax_changes": 1433,
+            "raw_change_rate": 0.22261923256175237,
+            "consequential_changes": 45,
+            "consequential_change_rate": 0.0069908342395525866,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "decisions": 969,
+            "argmax_changes": 158,
+            "raw_change_rate": 0.16305469556243551,
+            "consequential_changes": 36,
+            "consequential_change_rate": 0.03715170278637771,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "decisions": 31814,
+            "argmax_changes": 11054,
+            "raw_change_rate": 0.34745709436097316,
+            "consequential_changes": 2357,
+            "consequential_change_rate": 0.07408687998994154,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "decisions": 2928,
+            "argmax_changes": 558,
+            "raw_change_rate": 0.19057377049180327,
+            "consequential_changes": 117,
+            "consequential_change_rate": 0.039959016393442626,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "decisions": 3760,
+            "argmax_changes": 865,
+            "raw_change_rate": 0.2300531914893617,
+            "consequential_changes": 103,
+            "consequential_change_rate": 0.027393617021276597,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "decisions": 4480,
+            "argmax_changes": 899,
+            "raw_change_rate": 0.20066964285714287,
+            "consequential_changes": 127,
+            "consequential_change_rate": 0.028348214285714286,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "decisions": 6220,
+            "argmax_changes": 1190,
+            "raw_change_rate": 0.19131832797427653,
+            "consequential_changes": 158,
+            "consequential_change_rate": 0.02540192926045016,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "decisions": 9395,
+            "argmax_changes": 1790,
+            "raw_change_rate": 0.19052687599787121,
+            "consequential_changes": 194,
+            "consequential_change_rate": 0.020649281532730174,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "decisions": 16128,
+            "argmax_changes": 3087,
+            "raw_change_rate": 0.19140625,
+            "consequential_changes": 255,
+            "consequential_change_rate": 0.015811011904761904,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "decisions": 25128,
+            "argmax_changes": 4937,
+            "raw_change_rate": 0.19647405284941102,
+            "consequential_changes": 320,
+            "consequential_change_rate": 0.012734797835084369,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "decisions": 32574,
+            "argmax_changes": 7817,
+            "raw_change_rate": 0.2399766685086265,
+            "consequential_changes": 524,
+            "consequential_change_rate": 0.016086449315404924,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      },
+      "12": {
+        "raw_change_rate": 0.20946773979642763,
+        "consequential_change_rate": 0.042986638284623784,
+        "missing_strata": [],
+        "strata": {
+          "700_999:D1": {
+            "decisions": 3153,
+            "argmax_changes": 467,
+            "raw_change_rate": 0.14811290834126228,
+            "consequential_changes": 66,
+            "consequential_change_rate": 0.02093244529019981,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "decisions": 3602,
+            "argmax_changes": 1245,
+            "raw_change_rate": 0.3456413103831205,
+            "consequential_changes": 559,
+            "consequential_change_rate": 0.15519156024430872,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "decisions": 5151,
+            "argmax_changes": 832,
+            "raw_change_rate": 0.16152203455639683,
+            "consequential_changes": 136,
+            "consequential_change_rate": 0.026402640264026403,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "decisions": 5247,
+            "argmax_changes": 717,
+            "raw_change_rate": 0.13664951400800457,
+            "consequential_changes": 114,
+            "consequential_change_rate": 0.02172670097198399,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "decisions": 5569,
+            "argmax_changes": 758,
+            "raw_change_rate": 0.13611061231819,
+            "consequential_changes": 112,
+            "consequential_change_rate": 0.02011133057999641,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "decisions": 6823,
+            "argmax_changes": 915,
+            "raw_change_rate": 0.13410523230250623,
+            "consequential_changes": 111,
+            "consequential_change_rate": 0.016268503590795836,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "decisions": 9775,
+            "argmax_changes": 1298,
+            "raw_change_rate": 0.13278772378516623,
+            "consequential_changes": 131,
+            "consequential_change_rate": 0.01340153452685422,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "decisions": 17288,
+            "argmax_changes": 2254,
+            "raw_change_rate": 0.1303794539565016,
+            "consequential_changes": 145,
+            "consequential_change_rate": 0.008387320684868117,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "decisions": 18946,
+            "argmax_changes": 2921,
+            "raw_change_rate": 0.1541750237517154,
+            "consequential_changes": 156,
+            "consequential_change_rate": 0.008233928005911538,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "decisions": 8145,
+            "argmax_changes": 1512,
+            "raw_change_rate": 0.1856353591160221,
+            "consequential_changes": 71,
+            "consequential_change_rate": 0.008717004297114795,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "decisions": 422,
+            "argmax_changes": 97,
+            "raw_change_rate": 0.22985781990521326,
+            "consequential_changes": 30,
+            "consequential_change_rate": 0.07109004739336493,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "decisions": 41638,
+            "argmax_changes": 14587,
+            "raw_change_rate": 0.3503290263701427,
+            "consequential_changes": 4905,
+            "consequential_change_rate": 0.11780104712041885,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "decisions": 1832,
+            "argmax_changes": 442,
+            "raw_change_rate": 0.24126637554585154,
+            "consequential_changes": 174,
+            "consequential_change_rate": 0.09497816593886463,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "decisions": 2755,
+            "argmax_changes": 583,
+            "raw_change_rate": 0.21161524500907442,
+            "consequential_changes": 187,
+            "consequential_change_rate": 0.06787658802177858,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "decisions": 3424,
+            "argmax_changes": 707,
+            "raw_change_rate": 0.20648364485981308,
+            "consequential_changes": 169,
+            "consequential_change_rate": 0.04935747663551402,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "decisions": 4326,
+            "argmax_changes": 804,
+            "raw_change_rate": 0.18585298196948682,
+            "consequential_changes": 198,
+            "consequential_change_rate": 0.04576976421636616,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "decisions": 6178,
+            "argmax_changes": 998,
+            "raw_change_rate": 0.16154095176432504,
+            "consequential_changes": 202,
+            "consequential_change_rate": 0.03269666558756879,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "decisions": 10834,
+            "argmax_changes": 1808,
+            "raw_change_rate": 0.16688203802842902,
+            "consequential_changes": 274,
+            "consequential_change_rate": 0.025290751338379176,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "decisions": 20182,
+            "argmax_changes": 3545,
+            "raw_change_rate": 0.1756515707065702,
+            "consequential_changes": 395,
+            "consequential_change_rate": 0.019571895748686948,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "decisions": 34914,
+            "argmax_changes": 7710,
+            "raw_change_rate": 0.22082832101735694,
+            "consequential_changes": 626,
+            "consequential_change_rate": 0.017929770292719253,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      },
+      "13": {
+        "raw_change_rate": 0.24182954006455565,
+        "consequential_change_rate": 0.04232333779712752,
+        "missing_strata": [],
+        "strata": {
+          "700_999:D1": {
+            "decisions": 2694,
+            "argmax_changes": 444,
+            "raw_change_rate": 0.16481069042316257,
+            "consequential_changes": 98,
+            "consequential_change_rate": 0.03637713437268003,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "decisions": 3286,
+            "argmax_changes": 1167,
+            "raw_change_rate": 0.35514303104077904,
+            "consequential_changes": 351,
+            "consequential_change_rate": 0.10681679853925746,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "decisions": 5160,
+            "argmax_changes": 898,
+            "raw_change_rate": 0.17403100775193797,
+            "consequential_changes": 153,
+            "consequential_change_rate": 0.029651162790697676,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "decisions": 5727,
+            "argmax_changes": 1060,
+            "raw_change_rate": 0.1850881788021652,
+            "consequential_changes": 158,
+            "consequential_change_rate": 0.02758861533088877,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "decisions": 6288,
+            "argmax_changes": 1003,
+            "raw_change_rate": 0.15951017811704835,
+            "consequential_changes": 132,
+            "consequential_change_rate": 0.02099236641221374,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "decisions": 8088,
+            "argmax_changes": 1396,
+            "raw_change_rate": 0.17260138476755688,
+            "consequential_changes": 181,
+            "consequential_change_rate": 0.022378832838773493,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "decisions": 12057,
+            "argmax_changes": 2197,
+            "raw_change_rate": 0.18221779878908517,
+            "consequential_changes": 262,
+            "consequential_change_rate": 0.021730115285726135,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "decisions": 17683,
+            "argmax_changes": 3248,
+            "raw_change_rate": 0.18367923994797264,
+            "consequential_changes": 314,
+            "consequential_change_rate": 0.017757167901374202,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "decisions": 15921,
+            "argmax_changes": 3323,
+            "raw_change_rate": 0.20871804534891025,
+            "consequential_changes": 227,
+            "consequential_change_rate": 0.014257898373217762,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "decisions": 8475,
+            "argmax_changes": 1779,
+            "raw_change_rate": 0.20991150442477877,
+            "consequential_changes": 169,
+            "consequential_change_rate": 0.01994100294985251,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "decisions": 723,
+            "argmax_changes": 190,
+            "raw_change_rate": 0.2627939142461964,
+            "consequential_changes": 56,
+            "consequential_change_rate": 0.07745504840940526,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "decisions": 31380,
+            "argmax_changes": 11078,
+            "raw_change_rate": 0.3530274059910771,
+            "consequential_changes": 3170,
+            "consequential_change_rate": 0.10101975780752072,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "decisions": 1721,
+            "argmax_changes": 417,
+            "raw_change_rate": 0.242300987797792,
+            "consequential_changes": 129,
+            "consequential_change_rate": 0.07495642068564788,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "decisions": 2465,
+            "argmax_changes": 610,
+            "raw_change_rate": 0.24746450304259635,
+            "consequential_changes": 179,
+            "consequential_change_rate": 0.07261663286004057,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "decisions": 3102,
+            "argmax_changes": 658,
+            "raw_change_rate": 0.21212121212121213,
+            "consequential_changes": 175,
+            "consequential_change_rate": 0.056415215989684075,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "decisions": 4236,
+            "argmax_changes": 931,
+            "raw_change_rate": 0.21978281397544855,
+            "consequential_changes": 228,
+            "consequential_change_rate": 0.053824362606232294,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "decisions": 7135,
+            "argmax_changes": 1413,
+            "raw_change_rate": 0.19803784162578836,
+            "consequential_changes": 265,
+            "consequential_change_rate": 0.03714085494043448,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "decisions": 12849,
+            "argmax_changes": 2666,
+            "raw_change_rate": 0.2074869639660674,
+            "consequential_changes": 396,
+            "consequential_change_rate": 0.030819519028718188,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "decisions": 19477,
+            "argmax_changes": 4175,
+            "raw_change_rate": 0.21435539354109975,
+            "consequential_changes": 501,
+            "consequential_change_rate": 0.02572264722493197,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "decisions": 30480,
+            "argmax_changes": 7859,
+            "raw_change_rate": 0.2578412073490814,
+            "consequential_changes": 737,
+            "consequential_change_rate": 0.02417979002624672,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      },
+      "14": {
+        "raw_change_rate": 0.20165726862719052,
+        "consequential_change_rate": 0.034158693678825285,
+        "missing_strata": [],
+        "strata": {
+          "700_999:D1": {
+            "decisions": 2476,
+            "argmax_changes": 335,
+            "raw_change_rate": 0.13529886914378028,
+            "consequential_changes": 35,
+            "consequential_change_rate": 0.014135702746365105,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "decisions": 8365,
+            "argmax_changes": 2920,
+            "raw_change_rate": 0.34907352062163777,
+            "consequential_changes": 1312,
+            "consequential_change_rate": 0.15684399282725642,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "decisions": 4600,
+            "argmax_changes": 595,
+            "raw_change_rate": 0.12934782608695652,
+            "consequential_changes": 43,
+            "consequential_change_rate": 0.009347826086956522,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "decisions": 5310,
+            "argmax_changes": 733,
+            "raw_change_rate": 0.13804143126177024,
+            "consequential_changes": 55,
+            "consequential_change_rate": 0.010357815442561206,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "decisions": 5413,
+            "argmax_changes": 716,
+            "raw_change_rate": 0.13227415481248844,
+            "consequential_changes": 79,
+            "consequential_change_rate": 0.014594494734897469,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "decisions": 7707,
+            "argmax_changes": 910,
+            "raw_change_rate": 0.11807447774750227,
+            "consequential_changes": 66,
+            "consequential_change_rate": 0.008563643441027637,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "decisions": 12436,
+            "argmax_changes": 1545,
+            "raw_change_rate": 0.12423608877452558,
+            "consequential_changes": 65,
+            "consequential_change_rate": 0.005226761016403988,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "decisions": 18412,
+            "argmax_changes": 2468,
+            "raw_change_rate": 0.134043015424723,
+            "consequential_changes": 115,
+            "consequential_change_rate": 0.006245926569628503,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "decisions": 16352,
+            "argmax_changes": 2754,
+            "raw_change_rate": 0.1684197651663405,
+            "consequential_changes": 109,
+            "consequential_change_rate": 0.006665851272015655,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "decisions": 7975,
+            "argmax_changes": 1501,
+            "raw_change_rate": 0.18821316614420064,
+            "consequential_changes": 83,
+            "consequential_change_rate": 0.010407523510971788,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "decisions": 520,
+            "argmax_changes": 79,
+            "raw_change_rate": 0.1519230769230769,
+            "consequential_changes": 5,
+            "consequential_change_rate": 0.009615384615384616,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "decisions": 32159,
+            "argmax_changes": 10564,
+            "raw_change_rate": 0.3284928013930781,
+            "consequential_changes": 3248,
+            "consequential_change_rate": 0.10099816536583849,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "decisions": 1905,
+            "argmax_changes": 264,
+            "raw_change_rate": 0.13858267716535433,
+            "consequential_changes": 42,
+            "consequential_change_rate": 0.02204724409448819,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "decisions": 2478,
+            "argmax_changes": 423,
+            "raw_change_rate": 0.17070217917675545,
+            "consequential_changes": 55,
+            "consequential_change_rate": 0.022195318805488296,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "decisions": 3119,
+            "argmax_changes": 536,
+            "raw_change_rate": 0.17184995190766272,
+            "consequential_changes": 51,
+            "consequential_change_rate": 0.01635139467778134,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "decisions": 4340,
+            "argmax_changes": 723,
+            "raw_change_rate": 0.16658986175115206,
+            "consequential_changes": 81,
+            "consequential_change_rate": 0.018663594470046084,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "decisions": 6561,
+            "argmax_changes": 1017,
+            "raw_change_rate": 0.1550068587105624,
+            "consequential_changes": 94,
+            "consequential_change_rate": 0.014327084285932023,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "decisions": 10470,
+            "argmax_changes": 1622,
+            "raw_change_rate": 0.15491881566380133,
+            "consequential_changes": 128,
+            "consequential_change_rate": 0.012225405921680994,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "decisions": 20392,
+            "argmax_changes": 3390,
+            "raw_change_rate": 0.16624166339741075,
+            "consequential_changes": 198,
+            "consequential_change_rate": 0.009709690074539035,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "decisions": 29822,
+            "argmax_changes": 6174,
+            "raw_change_rate": 0.2070283683186909,
+            "consequential_changes": 310,
+            "consequential_change_rate": 0.010395010395010396,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      }
+    },
+    "candidate_raw_change_rate": 0.21781205332819517,
+    "candidate_consequential_change_rate": 0.03809117360004187,
+    "baseline_five_seed_mean": {
+      "consequential_change_rate": 0.009903182536507803,
+      "raw_change_rate": 0.09037413397019951
+    },
+    "baseline_per_seed": {
+      "10": {
+        "consequential_change_rate": 0.008653593524830779,
+        "missing_strata": [],
+        "raw_change_rate": 0.08814922911300317,
+        "strata": {
+          "700_999:D1": {
+            "argmax_changes": 131,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 2610,
+            "raw_change_rate": 0.050191570881226055,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "argmax_changes": 1167,
+            "consequential_change_rate": 0.05126026621353724,
+            "consequential_changes": 362,
+            "decisions": 7062,
+            "raw_change_rate": 0.16525063721325403,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "argmax_changes": 212,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 5033,
+            "raw_change_rate": 0.042121994834094977,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "argmax_changes": 249,
+            "consequential_change_rate": 0.0003863987635239567,
+            "consequential_changes": 2,
+            "decisions": 5176,
+            "raw_change_rate": 0.04810664605873261,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "argmax_changes": 328,
+            "consequential_change_rate": 0.00017708517797060386,
+            "consequential_changes": 1,
+            "decisions": 5647,
+            "raw_change_rate": 0.05808393837435807,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "argmax_changes": 349,
+            "consequential_change_rate": 0.0004619648906683092,
+            "consequential_changes": 3,
+            "decisions": 6494,
+            "raw_change_rate": 0.053741915614413306,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "argmax_changes": 583,
+            "consequential_change_rate": 0.000212021626205873,
+            "consequential_changes": 2,
+            "decisions": 9433,
+            "raw_change_rate": 0.06180430403901198,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "argmax_changes": 857,
+            "consequential_change_rate": 0.00015266010228226853,
+            "consequential_changes": 2,
+            "decisions": 13101,
+            "raw_change_rate": 0.06541485382795206,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "argmax_changes": 1084,
+            "consequential_change_rate": 7.213445863088797e-05,
+            "consequential_changes": 1,
+            "decisions": 13863,
+            "raw_change_rate": 0.07819375315588256,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "argmax_changes": 625,
+            "consequential_change_rate": 0.0011190376276402293,
+            "consequential_changes": 8,
+            "decisions": 7149,
+            "raw_change_rate": 0.08742481465939292,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "argmax_changes": 30,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 588,
+            "raw_change_rate": 0.05102040816326531,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "argmax_changes": 3844,
+            "consequential_change_rate": 0.03066510379249064,
+            "consequential_changes": 811,
+            "decisions": 26447,
+            "raw_change_rate": 0.14534729837032556,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "argmax_changes": 87,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 1875,
+            "raw_change_rate": 0.0464,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "argmax_changes": 147,
+            "consequential_change_rate": 0.0007087172218284905,
+            "consequential_changes": 2,
+            "decisions": 2822,
+            "raw_change_rate": 0.05209071580439405,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "argmax_changes": 148,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 3394,
+            "raw_change_rate": 0.043606364172068354,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "argmax_changes": 249,
+            "consequential_change_rate": 0.0003970617431010522,
+            "consequential_changes": 2,
+            "decisions": 5037,
+            "raw_change_rate": 0.049434187016081,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "argmax_changes": 349,
+            "consequential_change_rate": 0.0001531159087429184,
+            "consequential_changes": 1,
+            "decisions": 6531,
+            "raw_change_rate": 0.05343745215127852,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "argmax_changes": 707,
+            "consequential_change_rate": 0.00026483050847457627,
+            "consequential_changes": 3,
+            "decisions": 11328,
+            "raw_change_rate": 0.06241172316384181,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "argmax_changes": 1273,
+            "consequential_change_rate": 0.0005173038125290984,
+            "consequential_changes": 10,
+            "decisions": 19331,
+            "raw_change_rate": 0.06585277533495422,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "argmax_changes": 2604,
+            "consequential_change_rate": 0.0004921259842519685,
+            "consequential_changes": 15,
+            "decisions": 30480,
+            "raw_change_rate": 0.08543307086614173,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      },
+      "11": {
+        "consequential_change_rate": 0.012133952690838142,
+        "missing_strata": [],
+        "raw_change_rate": 0.10168535404720812,
+        "strata": {
+          "700_999:D1": {
+            "argmax_changes": 90,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 2670,
+            "raw_change_rate": 0.033707865168539325,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "argmax_changes": 2027,
+            "consequential_change_rate": 0.07471106219042377,
+            "consequential_changes": 543,
+            "decisions": 7268,
+            "raw_change_rate": 0.27889378095762246,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "argmax_changes": 233,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 5894,
+            "raw_change_rate": 0.03953172718018324,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "argmax_changes": 272,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 6951,
+            "raw_change_rate": 0.03913106027909653,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "argmax_changes": 344,
+            "consequential_change_rate": 0.0004066142586066685,
+            "consequential_changes": 3,
+            "decisions": 7378,
+            "raw_change_rate": 0.04662510165356465,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "argmax_changes": 453,
+            "consequential_change_rate": 0.0006552364311455717,
+            "consequential_changes": 6,
+            "decisions": 9157,
+            "raw_change_rate": 0.04947035055149066,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "argmax_changes": 760,
+            "consequential_change_rate": 0.00045194335643266047,
+            "consequential_changes": 6,
+            "decisions": 13276,
+            "raw_change_rate": 0.05724615848147032,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "argmax_changes": 1206,
+            "consequential_change_rate": 0.00027763895829862847,
+            "consequential_changes": 5,
+            "decisions": 18009,
+            "raw_change_rate": 0.06696651674162919,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "argmax_changes": 1104,
+            "consequential_change_rate": 0.0008876143656971186,
+            "consequential_changes": 13,
+            "decisions": 14646,
+            "raw_change_rate": 0.07537894305612454,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "argmax_changes": 657,
+            "consequential_change_rate": 0.0007767593599502874,
+            "consequential_changes": 5,
+            "decisions": 6437,
+            "raw_change_rate": 0.10206617989746776,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "argmax_changes": 26,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 969,
+            "raw_change_rate": 0.026831785345717233,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "argmax_changes": 6179,
+            "consequential_change_rate": 0.042119821462249324,
+            "consequential_changes": 1340,
+            "decisions": 31814,
+            "raw_change_rate": 0.19422266926510343,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "argmax_changes": 101,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 2928,
+            "raw_change_rate": 0.03449453551912568,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "argmax_changes": 142,
+            "consequential_change_rate": 0.00026595744680851064,
+            "consequential_changes": 1,
+            "decisions": 3760,
+            "raw_change_rate": 0.03776595744680851,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "argmax_changes": 198,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 4480,
+            "raw_change_rate": 0.044196428571428574,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "argmax_changes": 269,
+            "consequential_change_rate": 0.0004823151125401929,
+            "consequential_changes": 3,
+            "decisions": 6220,
+            "raw_change_rate": 0.0432475884244373,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "argmax_changes": 422,
+            "consequential_change_rate": 0.00031931878658861094,
+            "consequential_changes": 3,
+            "decisions": 9395,
+            "raw_change_rate": 0.04491750931346461,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "argmax_changes": 937,
+            "consequential_change_rate": 0.0001240079365079365,
+            "consequential_changes": 2,
+            "decisions": 16128,
+            "raw_change_rate": 0.058097718253968256,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "argmax_changes": 1681,
+            "consequential_change_rate": 0.00035816618911174784,
+            "consequential_changes": 9,
+            "decisions": 25128,
+            "raw_change_rate": 0.06689748487742757,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "argmax_changes": 2500,
+            "consequential_change_rate": 0.0004297906305642537,
+            "consequential_changes": 14,
+            "decisions": 32574,
+            "raw_change_rate": 0.07674832688647387,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      },
+      "12": {
+        "consequential_change_rate": 0.008792423356007752,
+        "missing_strata": [],
+        "raw_change_rate": 0.0846994746478668,
+        "strata": {
+          "700_999:D1": {
+            "argmax_changes": 144,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 3153,
+            "raw_change_rate": 0.04567078972407231,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "argmax_changes": 761,
+            "consequential_change_rate": 0.07218212104386452,
+            "consequential_changes": 260,
+            "decisions": 3602,
+            "raw_change_rate": 0.21127151582454193,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "argmax_changes": 224,
+            "consequential_change_rate": 0.0007765482430596001,
+            "consequential_changes": 4,
+            "decisions": 5151,
+            "raw_change_rate": 0.0434867016113376,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "argmax_changes": 203,
+            "consequential_change_rate": 0.0005717552887364208,
+            "consequential_changes": 3,
+            "decisions": 5247,
+            "raw_change_rate": 0.03868877453783114,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "argmax_changes": 221,
+            "consequential_change_rate": 0.0005386963548213323,
+            "consequential_changes": 3,
+            "decisions": 5569,
+            "raw_change_rate": 0.03968396480517149,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "argmax_changes": 322,
+            "consequential_change_rate": 0.0005862523816503004,
+            "consequential_changes": 4,
+            "decisions": 6823,
+            "raw_change_rate": 0.04719331672284919,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "argmax_changes": 462,
+            "consequential_change_rate": 0.0008184143222506394,
+            "consequential_changes": 8,
+            "decisions": 9775,
+            "raw_change_rate": 0.04726342710997442,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "argmax_changes": 976,
+            "consequential_change_rate": 0.00017353077279037482,
+            "consequential_changes": 3,
+            "decisions": 17288,
+            "raw_change_rate": 0.05645534474780194,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "argmax_changes": 1212,
+            "consequential_change_rate": 0.0003694711284703895,
+            "consequential_changes": 7,
+            "decisions": 18946,
+            "raw_change_rate": 0.06397128681515887,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "argmax_changes": 655,
+            "consequential_change_rate": 0.0008594229588704727,
+            "consequential_changes": 7,
+            "decisions": 8145,
+            "raw_change_rate": 0.08041743400859423,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "argmax_changes": 19,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 422,
+            "raw_change_rate": 0.045023696682464455,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "argmax_changes": 6548,
+            "consequential_change_rate": 0.023151928526826456,
+            "consequential_changes": 964,
+            "decisions": 41638,
+            "raw_change_rate": 0.15726019501416974,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "argmax_changes": 71,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 1832,
+            "raw_change_rate": 0.03875545851528384,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "argmax_changes": 137,
+            "consequential_change_rate": 0.0018148820326678765,
+            "consequential_changes": 5,
+            "decisions": 2755,
+            "raw_change_rate": 0.04972776769509982,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "argmax_changes": 164,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 3424,
+            "raw_change_rate": 0.04789719626168224,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "argmax_changes": 167,
+            "consequential_change_rate": 0.0004623208506703652,
+            "consequential_changes": 2,
+            "decisions": 4326,
+            "raw_change_rate": 0.0386037910309755,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "argmax_changes": 271,
+            "consequential_change_rate": 0.0006474587245063128,
+            "consequential_changes": 4,
+            "decisions": 6178,
+            "raw_change_rate": 0.04386532858530269,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "argmax_changes": 531,
+            "consequential_change_rate": 0.0002769060365515968,
+            "consequential_changes": 3,
+            "decisions": 10834,
+            "raw_change_rate": 0.04901236846963264,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "argmax_changes": 1179,
+            "consequential_change_rate": 0.00034684372212862946,
+            "consequential_changes": 7,
+            "decisions": 20182,
+            "raw_change_rate": 0.058418392627093446,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "argmax_changes": 2461,
+            "consequential_change_rate": 0.00028641805579423727,
+            "consequential_changes": 10,
+            "decisions": 34914,
+            "raw_change_rate": 0.07048748353096179,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      },
+      "13": {
+        "consequential_change_rate": 0.012806351445137813,
+        "missing_strata": [],
+        "raw_change_rate": 0.09569381467526858,
+        "strata": {
+          "700_999:D1": {
+            "argmax_changes": 146,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 2694,
+            "raw_change_rate": 0.054194506310319225,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "argmax_changes": 799,
+            "consequential_change_rate": 0.05264759586122946,
+            "consequential_changes": 173,
+            "decisions": 3286,
+            "raw_change_rate": 0.24315276932440658,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "argmax_changes": 250,
+            "consequential_change_rate": 0.0007751937984496124,
+            "consequential_changes": 4,
+            "decisions": 5160,
+            "raw_change_rate": 0.04844961240310078,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "argmax_changes": 331,
+            "consequential_change_rate": 0.0010476689366160294,
+            "consequential_changes": 6,
+            "decisions": 5727,
+            "raw_change_rate": 0.05779640300331762,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "argmax_changes": 285,
+            "consequential_change_rate": 0.0006361323155216285,
+            "consequential_changes": 4,
+            "decisions": 6288,
+            "raw_change_rate": 0.04532442748091603,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "argmax_changes": 431,
+            "consequential_change_rate": 0.00012363996043521266,
+            "consequential_changes": 1,
+            "decisions": 8088,
+            "raw_change_rate": 0.053288822947576656,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "argmax_changes": 734,
+            "consequential_change_rate": 0.0009123330845152193,
+            "consequential_changes": 11,
+            "decisions": 12057,
+            "raw_change_rate": 0.060877498548561004,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "argmax_changes": 1205,
+            "consequential_change_rate": 0.0007917208618447096,
+            "consequential_changes": 14,
+            "decisions": 17683,
+            "raw_change_rate": 0.0681445456087768,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "argmax_changes": 1215,
+            "consequential_change_rate": 0.0005024809999371898,
+            "consequential_changes": 8,
+            "decisions": 15921,
+            "raw_change_rate": 0.07631430186546072,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "argmax_changes": 622,
+            "consequential_change_rate": 0.0011799410029498525,
+            "consequential_changes": 10,
+            "decisions": 8475,
+            "raw_change_rate": 0.07339233038348082,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "argmax_changes": 32,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 723,
+            "raw_change_rate": 0.04426002766251729,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "argmax_changes": 6030,
+            "consequential_change_rate": 0.05325047801147228,
+            "consequential_changes": 1671,
+            "decisions": 31380,
+            "raw_change_rate": 0.1921606118546845,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "argmax_changes": 85,
+            "consequential_change_rate": 0.0011621150493898896,
+            "consequential_changes": 2,
+            "decisions": 1721,
+            "raw_change_rate": 0.04938988959907031,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "argmax_changes": 127,
+            "consequential_change_rate": 0.0008113590263691683,
+            "consequential_changes": 2,
+            "decisions": 2465,
+            "raw_change_rate": 0.05152129817444219,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "argmax_changes": 148,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 3102,
+            "raw_change_rate": 0.04771115409413282,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "argmax_changes": 176,
+            "consequential_change_rate": 0.00047214353163361664,
+            "consequential_changes": 2,
+            "decisions": 4236,
+            "raw_change_rate": 0.04154863078375826,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "argmax_changes": 304,
+            "consequential_change_rate": 0.0008409250175192712,
+            "consequential_changes": 6,
+            "decisions": 7135,
+            "raw_change_rate": 0.042606867554309744,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "argmax_changes": 662,
+            "consequential_change_rate": 0.0006226165460347109,
+            "consequential_changes": 8,
+            "decisions": 12849,
+            "raw_change_rate": 0.051521519184372325,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "argmax_changes": 1081,
+            "consequential_change_rate": 0.000718796529239616,
+            "consequential_changes": 14,
+            "decisions": 19477,
+            "raw_change_rate": 0.055501360579144635,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "argmax_changes": 2011,
+            "consequential_change_rate": 0.0008858267716535433,
+            "consequential_changes": 27,
+            "decisions": 30480,
+            "raw_change_rate": 0.0659776902887139,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      },
+      "14": {
+        "consequential_change_rate": 0.007129591665724531,
+        "missing_strata": [],
+        "raw_change_rate": 0.08164279736765087,
+        "strata": {
+          "700_999:D1": {
+            "argmax_changes": 103,
+            "consequential_change_rate": 0.0008077544426494346,
+            "consequential_changes": 2,
+            "decisions": 2476,
+            "raw_change_rate": 0.04159935379644588,
+            "threshold": 0.3,
+            "weight": 0.005855331659214797
+          },
+          "700_999:D10": {
+            "argmax_changes": 1584,
+            "consequential_change_rate": 0.03407053197848177,
+            "consequential_changes": 285,
+            "decisions": 8365,
+            "raw_change_rate": 0.18936043036461447,
+            "threshold": 0.3,
+            "weight": 0.06356342255160165
+          },
+          "700_999:D2": {
+            "argmax_changes": 186,
+            "consequential_change_rate": 0.0002173913043478261,
+            "consequential_changes": 1,
+            "decisions": 4600,
+            "raw_change_rate": 0.04043478260869565,
+            "threshold": 0.3,
+            "weight": 0.01422184112206774
+          },
+          "700_999:D3": {
+            "argmax_changes": 211,
+            "consequential_change_rate": 0.0003766478342749529,
+            "consequential_changes": 2,
+            "decisions": 5310,
+            "raw_change_rate": 0.039736346516007534,
+            "threshold": 0.3,
+            "weight": 0.017235254486433513
+          },
+          "700_999:D4": {
+            "argmax_changes": 232,
+            "consequential_change_rate": 0.00018474043968224645,
+            "consequential_changes": 1,
+            "decisions": 5413,
+            "raw_change_rate": 0.042859782006281176,
+            "threshold": 0.3,
+            "weight": 0.021792123476450053
+          },
+          "700_999:D5": {
+            "argmax_changes": 311,
+            "consequential_change_rate": 0.0002595043466978072,
+            "consequential_changes": 2,
+            "decisions": 7707,
+            "raw_change_rate": 0.04035292591150902,
+            "threshold": 0.3,
+            "weight": 0.03432351319899553
+          },
+          "700_999:D6": {
+            "argmax_changes": 601,
+            "consequential_change_rate": 0.00048247024766806047,
+            "consequential_changes": 6,
+            "decisions": 12436,
+            "raw_change_rate": 0.048327436474750726,
+            "threshold": 0.3,
+            "weight": 0.05803883138359772
+          },
+          "700_999:D7": {
+            "argmax_changes": 922,
+            "consequential_change_rate": 0.0003801868346730393,
+            "consequential_changes": 7,
+            "decisions": 18412,
+            "raw_change_rate": 0.050076037366934605,
+            "threshold": 0.3,
+            "weight": 0.1040485086053776
+          },
+          "700_999:D8": {
+            "argmax_changes": 1058,
+            "consequential_change_rate": 0.0009173189823874755,
+            "consequential_changes": 15,
+            "decisions": 16352,
+            "raw_change_rate": 0.06470156555772995,
+            "threshold": 0.3,
+            "weight": 0.11849084338825258
+          },
+          "700_999:D9": {
+            "argmax_changes": 512,
+            "consequential_change_rate": 0.0016300940438871473,
+            "consequential_changes": 13,
+            "decisions": 7975,
+            "raw_change_rate": 0.06420062695924765,
+            "threshold": 0.3,
+            "weight": 0.06944325350646169
+          },
+          "ge1000:D1": {
+            "argmax_changes": 15,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 520,
+            "raw_change_rate": 0.028846153846153848,
+            "threshold": 0.3,
+            "weight": 0.0009432228823421327
+          },
+          "ge1000:D10": {
+            "argmax_changes": 5550,
+            "consequential_change_rate": 0.02714636649149538,
+            "consequential_changes": 873,
+            "decisions": 32159,
+            "raw_change_rate": 0.17257999315899125,
+            "threshold": 0.3,
+            "weight": 0.16691370123108962
+          },
+          "ge1000:D2": {
+            "argmax_changes": 78,
+            "consequential_change_rate": 0.0005249343832020997,
+            "consequential_changes": 1,
+            "decisions": 1905,
+            "raw_change_rate": 0.04094488188976378,
+            "threshold": 0.3,
+            "weight": 0.00667605806333068
+          },
+          "ge1000:D3": {
+            "argmax_changes": 102,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 2478,
+            "raw_change_rate": 0.04116222760290557,
+            "threshold": 0.3,
+            "weight": 0.008587003123660194
+          },
+          "ge1000:D4": {
+            "argmax_changes": 103,
+            "consequential_change_rate": 0.0,
+            "consequential_changes": 0,
+            "decisions": 3119,
+            "raw_change_rate": 0.03302340493747996,
+            "threshold": 0.3,
+            "weight": 0.00869724995406382
+          },
+          "ge1000:D5": {
+            "argmax_changes": 188,
+            "consequential_change_rate": 0.0002304147465437788,
+            "consequential_changes": 1,
+            "decisions": 4340,
+            "raw_change_rate": 0.04331797235023042,
+            "threshold": 0.3,
+            "weight": 0.013976848165615239
+          },
+          "ge1000:D6": {
+            "argmax_changes": 292,
+            "consequential_change_rate": 0.0007620789513793629,
+            "consequential_changes": 5,
+            "decisions": 6561,
+            "raw_change_rate": 0.044505410760554795,
+            "threshold": 0.3,
+            "weight": 0.024903534023396828
+          },
+          "ge1000:D7": {
+            "argmax_changes": 438,
+            "consequential_change_rate": 0.00019102196752626553,
+            "consequential_changes": 2,
+            "decisions": 10470,
+            "raw_change_rate": 0.04183381088825215,
+            "threshold": 0.3,
+            "weight": 0.046903901512831504
+          },
+          "ge1000:D8": {
+            "argmax_changes": 1081,
+            "consequential_change_rate": 0.0004903883876029815,
+            "consequential_changes": 10,
+            "decisions": 20392,
+            "raw_change_rate": 0.05301098469988231,
+            "threshold": 0.3,
+            "weight": 0.08742573651007533
+          },
+          "ge1000:D9": {
+            "argmax_changes": 1768,
+            "consequential_change_rate": 0.00030179062437126955,
+            "consequential_changes": 9,
+            "decisions": 29822,
+            "raw_change_rate": 0.05928509154315606,
+            "threshold": 0.3,
+            "weight": 0.1279598211551418
+          }
+        }
+      }
+    },
+    "within_ten_percentage_points": true
+  },
+  "drift": {
+    "baseline": 0.009903182536507803,
+    "candidate": 0.03809117360004187,
+    "within_ten_percentage_points": true,
+    "note": "Baseline is B8 versus same-init CTRL on historical r62 states."
+  },
+  "declared_fork": "(c) falls but survival does not move: return regression next, with outside-bank branches rolled out too, which is the principled form of item 2 and supplies \"greedy is fine here\" targets with magnitudes."
+}

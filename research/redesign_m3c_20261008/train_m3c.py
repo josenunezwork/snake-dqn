@@ -1430,6 +1430,11 @@ def m3c_flags(args) -> Dict[str, Any]:
         "label_bank_margin_scale",
         "label_bank_counter_mode",
         "label_bank_counter_ratio",
+        "label_bank_outside",
+        "label_bank_outside_margin_scale",
+        "return_bank",
+        "return_frac",
+        "return_weight",
         "v8_backend",
         "obs_version",
         "v61_backend",
@@ -1452,7 +1457,7 @@ def m3c_flags(args) -> Dict[str, Any]:
     ):
         if getattr(args, k) != getattr(d, k):
             value = getattr(args, k)
-            out[k] = str(value) if k == "label_bank" and value is not None else value
+            out[k] = str(value) if isinstance(value, Path) else value
     if args.restart_frac > 0.0:
         out["restart_bank"] = str(args.restart_bank)
         out["restart_frac"] = args.restart_frac
@@ -1564,6 +1569,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="counter:decisive bank rows; default preserves the bank's stored mixture",
+    )
+    ap.add_argument("--label-bank-outside", type=Path, default=None)
+    ap.add_argument("--label-bank-outside-margin-scale", type=float, default=1.0)
+    ap.add_argument(
+        "--return-bank", type=Path, default=None, help="T4d immutable rolled-out branch-return bank"
+    )
+    ap.add_argument(
+        "--return-frac", type=float, default=0.0, help="T4d return rows per 128 anchor rows"
+    )
+    ap.add_argument(
+        "--return-weight", type=float, default=1.0, help="multiplier for the T4d return Huber loss"
     )
     ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument(
@@ -1737,6 +1753,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--label-bank-counter-mode needs --label-bank-frac > 0")
     if args.label_bank_counter_ratio is not None and not args.label_bank_frac:
         raise SystemExit("--label-bank-counter-ratio needs --label-bank-frac > 0")
+    if args.label_bank_outside is not None:
+        if not args.label_bank_frac:
+            raise SystemExit("--label-bank-outside needs --label-bank-frac > 0")
+        if args.label_bank_counter_mode != "single-action":
+            raise SystemExit("--label-bank-outside needs --label-bank-counter-mode single-action")
+        if args.label_bank_counter_ratio != 1.0:
+            raise SystemExit("--label-bank-outside needs --label-bank-counter-ratio 1")
+        if (
+            not math.isfinite(args.label_bank_outside_margin_scale)
+            or args.label_bank_outside_margin_scale < 0
+        ):
+            raise SystemExit("--label-bank-outside-margin-scale must be finite and >= 0")
     if args.label_bank_frac and args.anchor_mode != "v8margin":
         raise SystemExit("--label-bank-frac needs --anchor-mode v8margin")
     if args.label_bank_frac and args.obs_version != "bv8":
@@ -1747,6 +1775,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--label-bank-margin-scale must be >= 0")
     if args.label_bank_frac and args.label_frac + args.label_bank_frac > 1.0:
         raise SystemExit("--label-frac + --label-bank-frac must be <= 1")
+    if not math.isfinite(args.return_frac) or not 0.0 <= args.return_frac <= 1.0:
+        raise SystemExit("--return-frac must be finite and in [0, 1]")
+    if not math.isfinite(args.return_weight) or args.return_weight < 0.0:
+        raise SystemExit("--return-weight must be finite and >= 0")
+    if args.return_frac > 0.0:
+        if args.return_bank is None:
+            raise SystemExit("--return-frac needs --return-bank")
+        if not args.actors:
+            raise SystemExit("--return-frac needs the multi-actor trainer (--actors >= 1)")
+        if args.obs_version != "bv8":
+            raise SystemExit("--return-frac needs --obs-version bv8")
+        if args.reward != "mass" or args.kill_scale != 0.0 or args.death_value not in (None, -3.0):
+            raise SystemExit("--return-frac needs --reward mass --kill-scale 0 and death value -3")
+        if args.tight_cost or args.death_mass_mult or args.tight_telemetry:
+            raise SystemExit("--return-frac is incompatible with M6 reward overlays")
+        if args.learner_fast or args.compile_learner != "off":
+            raise SystemExit(
+                "--return-frac currently needs the eager learner (no --learner-fast/compile)"
+            )
+    elif args.return_bank is not None:
+        raise SystemExit("--return-bank needs --return-frac > 0")
     bank_only_bv8 = (
         args.label_bank is not None
         and args.label_bank_frac > 0.0
@@ -2243,10 +2292,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         bv8 = getattr(args, "obs_version", "b") == "bv8"
         pack = None
         if cfg.get("obs_pack") is not None:
-            from research.redesign_m3c_20261008.obs_pack import (
-                PackLayout,
-                layout_for_arena,
-            )
+            from research.redesign_m3c_20261008.obs_pack import PackLayout, layout_for_arena
 
             pack = PackLayout.from_dict(cfg["obs_pack"])
         ring = SharedObsRing(
@@ -2609,6 +2655,8 @@ def main_multi(args) -> int:
     # Validate the immutable bank before output allocation, shared memory, or actors.
     # Keep this whole branch absent for default runs so their startup/RNG path is unchanged.
     bank = None
+    outside_bank = None
+    return_bank = None
     if args.label_bank_frac > 0.0:
         from research.t3_rollout_labels_20261015.bank import LabelBank
 
@@ -2617,9 +2665,25 @@ def main_multi(args) -> int:
             from research.redesign_m3c_20261008.obs_pack import train_layout
 
             bank_pack = train_layout()
-        bank = LabelBank(Path(args.label_bank), nscal_for(args), pack=bank_pack)
+        strict_shards = args.label_bank_outside is not None
+        bank = LabelBank(
+            Path(args.label_bank), nscal_for(args), pack=bank_pack, strict_shards=strict_shards
+        )
         if args.label_bank_counter_ratio is not None:
             bank.validate_counter_ratio(args.label_bank_counter_ratio)
+        if args.label_bank_outside is not None:
+            outside_bank = LabelBank(
+                Path(args.label_bank_outside),
+                nscal_for(args),
+                pack=bank_pack,
+                strict_shards=True,
+            )
+    if args.return_frac > 0.0:
+        from research.t4d_return_regression_20261016.bank import ReturnBank
+
+        return_bank = ReturnBank(Path(args.return_bank), nscal_for(args))
+        if args.gamma_start != return_bank.gamma or args.gamma_end != return_bank.gamma:
+            raise ValueError("return-bank gamma must equal both --gamma-start and --gamma-end")
     if args.out.exists():
         print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
         return 2
@@ -2651,11 +2715,7 @@ def main_multi(args) -> int:
             f"{spec_for(online)} (widen with research/redesign_m4b_20261012/widen_bv8.py)"
         )
     target = load_init(args, device).eval()
-    from research.redesign_m3c_20261008.learner_m3c import (
-        Learner,
-        LearnerOpts,
-        make_optimizer,
-    )
+    from research.redesign_m3c_20261008.learner_m3c import Learner, LearnerOpts, make_optimizer
 
     lopts = LearnerOpts.from_args(args)
     if lopts.compile != "off":
@@ -2802,7 +2862,10 @@ def main_multi(args) -> int:
             bank_agree=[],
             bank_agree_decisive=[],
             bank_agree_counter=[],
+            bank_agree_outside=[],
         )
+    if return_bank is not None:
+        st.update(return_rows=[], return_loss=[])
     if args.restart_frac > 0.0:
         st["restart"] = {"restart_frac_actual": []}
         st["restart_total"] = {
@@ -2845,7 +2908,8 @@ def main_multi(args) -> int:
         margin=margin,
         device=device,
         opts=lopts,
-        **({"bank": bank} if bank is not None else {}),
+        **({"bank": bank, "outside_bank": outside_bank} if bank is not None else {}),
+        **({"return_bank": return_bank} if return_bank is not None else {}),
     )
 
     code = 0
@@ -3008,6 +3072,18 @@ def main_multi(args) -> int:
                         if st["bank_agree_counter"]
                         else None
                     )
+                    row["bank_agree_outside"] = (
+                        float(np.mean(st["bank_agree_outside"]))
+                        if st["bank_agree_outside"]
+                        else None
+                    )
+                if return_bank is not None:
+                    row["return_rows_mean"] = (
+                        float(np.mean(st["return_rows"])) if st["return_rows"] else 0.0
+                    )
+                    row["return_loss"] = (
+                        float(np.mean(st["return_loss"])) if st["return_loss"] else 0.0
+                    )
                 if args.shield != "none" or labels is not None:
                     row["v8_override_rate"] = st["v8_override"] / max(1, st["decisions"])
                     row["shield_p"] = (
@@ -3048,7 +3124,10 @@ def main_multi(args) -> int:
                         bank_agree=[],
                         bank_agree_decisive=[],
                         bank_agree_counter=[],
+                        bank_agree_outside=[],
                     )
+                if return_bank is not None:
+                    st.update(return_rows=[], return_loss=[])
                 st["lag"] = []
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")
@@ -3116,6 +3195,12 @@ def main_multi(args) -> int:
         "anchor_updates": st["anchor_updates"],
         "label_buffer": labels.size if labels is not None else 0,
     }
+    if return_bank is not None:
+        totals = st["return_totals"]
+        summary["return_regression"] = {
+            **totals,
+            "mean_loss": totals["loss_sum"] / max(1, totals["updates"]),
+        }
     if lopts.compile != "off":
         summary["compile_learner"] = learner.compile_status()
     if m6 is not None:

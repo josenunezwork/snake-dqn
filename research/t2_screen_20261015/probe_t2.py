@@ -9,7 +9,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from research.redesign_m2_20261008 import dev_probe, ni_spec
 from research.redesign_scope_20261007 import grid_h5000_identity as gid
@@ -34,7 +34,12 @@ class SurvivalObserver:
                 self.length_at_death[seed] = int(pre["logical_mass"][index])
 
 
-def probe(args: argparse.Namespace, ctx: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def probe(
+    args: argparse.Namespace,
+    ctx: Mapping[str, Any] | None = None,
+    *,
+    observer_factory: Callable[[list[int]], SurvivalObserver] = SurvivalObserver,
+) -> dict[str, Any]:
     """Reuse dev_probe's context, seeds and hero options without changing its defaults."""
     from src.simd_env import eval_engine as ee
 
@@ -48,7 +53,7 @@ def probe(args: argparse.Namespace, ctx: Mapping[str, Any] | None = None) -> dic
         for row in ctx["ds"]._design_rows(seeds)
         if row["mix"] == args.mix
     }
-    observer = SurvivalObserver(seeds)
+    observer = observer_factory(seeds)
     started = time.perf_counter()
     recs = ee.run_simd_eval(
         ctx["lookup"][ni_spec.FRP3_S12[1]],

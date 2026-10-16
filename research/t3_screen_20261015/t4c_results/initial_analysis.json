@@ -1,0 +1,226 @@
+{
+  "study": "T4c tightened two-sided development screen",
+  "evidence": "development screen, not promotion evidence",
+  "initial_round_index": 66,
+  "extension_round_index": 67,
+  "terminal_statuses": {
+    "TWO_SIDED_T_s10": 0,
+    "TWO_SIDED_T_s12": 0,
+    "TWO_SIDED_T_s14": 0,
+    "TWO_SIDED_T_s11": 0,
+    "TWO_SIDED_T_s13": 0
+  },
+  "arms": {
+    "TWO_SIDED_T": {
+      "vs_ctrl": {
+        "scripted": {
+          "episode_survival": {
+            "mean": 0.016666666666666666,
+            "seed_se": 0.015659683727471778,
+            "pooled_world_se": 0.032701031446522213,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 480,
+            "complete": true
+          },
+          "alive_survival": {
+            "mean": 0.017125833333333333,
+            "seed_se": 0.015921788723733097,
+            "pooled_world_se": 0.0179395946738458,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 480,
+            "complete": true
+          },
+          "mass": {
+            "mean": 5.125334583333332,
+            "seed_se": 11.88746540863668,
+            "pooled_world_se": 17.87035942534116,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 480,
+            "complete": true
+          }
+        },
+        "frozen": {
+          "episode_survival": {
+            "mean": 0.0125,
+            "seed_se": 0.02898005779842407,
+            "pooled_world_se": 0.048554174502664756,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 160,
+            "complete": true
+          },
+          "alive_survival": {
+            "mean": -0.007915,
+            "seed_se": 0.01039222639915288,
+            "pooled_world_se": 0.021194862655545123,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 160,
+            "complete": true
+          },
+          "mass": {
+            "mean": -12.586586249999998,
+            "seed_se": 9.283475848279434,
+            "pooled_world_se": 18.782998295236457,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 160,
+            "complete": true
+          }
+        },
+        "mixed": {
+          "episode_survival": {
+            "mean": 0.0375,
+            "seed_se": 0.03186887195995491,
+            "pooled_world_se": 0.040522821429458414,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 160,
+            "complete": true
+          },
+          "alive_survival": {
+            "mean": 0.012871249999999997,
+            "seed_se": 0.022933956947068686,
+            "pooled_world_se": 0.0176400299978063,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 160,
+            "complete": true
+          },
+          "mass": {
+            "mean": 9.048476249999998,
+            "seed_se": 17.66026222094255,
+            "pooled_world_se": 15.218348484214692,
+            "seeds": [
+              10,
+              11,
+              12,
+              13,
+              14
+            ],
+            "seed_n": 5,
+            "world_n": 160,
+            "complete": true
+          }
+        }
+      },
+      "mass_vs_incumbent": {
+        "scripted": {
+          "mean": 171.19455833333333,
+          "seed_se": 13.004059876567501,
+          "pooled_world_se": 15.3199712791812,
+          "seed_n": 5,
+          "world_n": 480
+        },
+        "frozen": {
+          "mean": 90.85834125,
+          "seed_se": 11.486366140674908,
+          "pooled_world_se": 17.28600360141832,
+          "seed_n": 5,
+          "world_n": 160
+        },
+        "mixed": {
+          "mean": 154.05538375,
+          "seed_se": 11.281358851084033,
+          "pooled_world_se": 14.596017255795534,
+          "seed_n": 5,
+          "world_n": 160
+        }
+      },
+      "shared_survivor_length_h5000": {
+        "frame": 5000,
+        "per_seed": [
+          {
+            "seed": 10,
+            "shared_survivors": 31,
+            "mean_delta": -46.0
+          },
+          {
+            "seed": 11,
+            "shared_survivors": 30,
+            "mean_delta": 9.4
+          },
+          {
+            "seed": 12,
+            "shared_survivors": 24,
+            "mean_delta": -17.875
+          },
+          {
+            "seed": 13,
+            "shared_survivors": 35,
+            "mean_delta": 2.8285714285714287
+          },
+          {
+            "seed": 14,
+            "shared_survivors": 26,
+            "mean_delta": 15.26923076923077
+          }
+        ],
+        "shared_survivors": 146,
+        "candidate_minus_ctrl_mean_length": -7.376712328767123,
+        "five_seed_mean_delta": -7.27543956043956,
+        "five_seed_n": 5,
+        "threshold": -50.0
+      },
+      "telemetry": {},
+      "diagnostics": {},
+      "failed_runs": [],
+      "unstarted_runs": [],
+      "extension_started": false,
+      "extension_complete": false,
+      "decision": "EXTEND"
+    }
+  },
+  "context": {}
+}

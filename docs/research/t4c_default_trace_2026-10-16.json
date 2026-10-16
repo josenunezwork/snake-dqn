@@ -1,0 +1,55 @@
+{
+  "baseline_commit": "09162105972a1bcca2f5f7dfc45ef32fa3d5ea7d",
+  "cpu_only": true,
+  "harness": "research/t4a_two_sided_20261016/default_trace.py",
+  "modes": {
+    "bank_inert_0.5_fast": {
+      "equal": true,
+      "mismatches": [],
+      "new_telemetry_fields": [],
+      "updates": 8
+    },
+    "bank_inert_0.5_ref": {
+      "equal": true,
+      "mismatches": [],
+      "new_telemetry_fields": [],
+      "updates": 8
+    },
+    "bank_inert_1.0_fast": {
+      "equal": true,
+      "mismatches": [],
+      "new_telemetry_fields": [],
+      "updates": 8
+    },
+    "bank_inert_1.0_ref": {
+      "equal": true,
+      "mismatches": [],
+      "new_telemetry_fields": [],
+      "updates": 8
+    },
+    "bank_off_fast": {
+      "equal": true,
+      "mismatches": [],
+      "new_telemetry_fields": [],
+      "updates": 8
+    },
+    "bank_off_ref": {
+      "equal": true,
+      "mismatches": [],
+      "new_telemetry_fields": [],
+      "updates": 8
+    }
+  },
+  "pass": true,
+  "schema": "t4c-default-trace/v1",
+  "source_sha256": {
+    "research/redesign_m3c_20261008/learner_m3c.py": "ef8d7a2d065871e457166885b6ee20e4b5e482f8d2c9ca34ee65ebb12be556fb",
+    "research/redesign_m3c_20261008/train_m3c.py": "685fb843e905f1358188f2d8a136886eb391d86805cde8da710eb6883129d78a",
+    "research/t3_rollout_labels_20261015/bank.py": "da3c038539f5e460c5f1b04d5b865b56b5fdb21140652dd97dc27ed532ce7ce8"
+  },
+  "threads": 1,
+  "trace_files": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/validation/default-trace-baseline.json": "202375c6afbf82dd600ad969fcfc840e8265760a6a31590be1e28b102f430b18",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/validation/default-trace-current.json": "e96e45526dcdd8058d9c22d9d4d71294845882de687142267fc866c368b7d6f7"
+  }
+}
