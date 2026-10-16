@@ -187,8 +187,18 @@ def _load_audit(path: Path, *, extension: bool) -> dict[str, Any]:
     audit = json.loads(path.read_text())
     if audit.get("schema") != "t4c-seed-bank-audit/v1":
         raise ValueError(f"invalid T4c seed-audit schema: {path}")
-    check = audit.get("checks", {}).get("67" if extension else "66", {})
-    if not check.get("unique") or check.get("count") != 96:
+    round_index = 67 if extension else 66
+    check = audit.get("checks", {}).get(str(round_index), {})
+    from research.redesign_m2_20261008 import ni_spec
+    from research.t3_screen_20261015 import banks
+
+    expected = sorted(ni_spec.distill_seeds(96, round_index=round_index))
+    if (
+        not check.get("unique")
+        or check.get("count") != 96
+        or check.get("seeds") != expected
+        or check.get("seed_digest") != banks._seed_digest(expected)
+    ):
         raise ValueError(f"invalid T4c seed-audit bank: {path}")
     if extension:
         if not audit.get("extension_pass") or audit.get("extension_round") != 67:

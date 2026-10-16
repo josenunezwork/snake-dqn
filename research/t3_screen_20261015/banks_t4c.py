@@ -23,9 +23,13 @@ def extension_audit(*args: Any, **kwargs: Any) -> dict[str, Any]:
     """
     audit = seed_bank_audit(*args, **kwargs)
     check: Mapping[str, Any] = audit["checks"]["67"]
+    namespace: Mapping[str, Any] = audit["t3_rollout_training_namespace"]
     safe = (
         audit["registered_t2_audit"]["pass"]
-        and audit["t3_rollout_training_namespace"]["manifest_binding"]["ok"]
+        and namespace["schema"] == "t3-label-namespace/v1"
+        and bool(namespace["count"])
+        and namespace["unique"] is True
+        and namespace["manifest_binding"]["ok"]
         and audit["malformed_byte_coverage"]["pass"]
         and check["unique"]
         and not check["registered_collisions"]

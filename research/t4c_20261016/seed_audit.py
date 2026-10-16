@@ -76,7 +76,12 @@ def inventory_json(
         directories[:] = sorted(name for name in directories if not omitted(parent_path / name))
         for name in sorted(files):
             path = parent_path / name
-            if path.suffix in {".json", ".jsonl"} and path.is_file() and path != exclude:
+            if (
+                path.suffix in {".json", ".jsonl"}
+                and not omitted(path)
+                and path.is_file()
+                and path != exclude
+            ):
                 paths.append(path)
     for path in paths:
         count += 1
@@ -184,12 +189,13 @@ def seed_bank_audit(
 
     repository_results = repo_path / "research/t4c_20261016/results/seed_bank_audit.json"
     aborted = artifact_root / "redesign-t4c-mac-20261016/ABORTED_cpu_TWO_SIDED_T_s10"
+    forbidden_worktree = Path("/Users/josenunez/Projects/ml/snake-dqn-t4c")
     roots = [repo_path / "research", artifact_root]
     inventories = {
         str(root): inventory_json(
             root,
             exclude=(repository_results if root == repo_path / "research" else output),
-            prune=(aborted,) if root == artifact_root else (),
+            prune=(aborted, forbidden_worktree),
         )
         for root in roots
     }
@@ -255,7 +261,7 @@ def seed_bank_audit(
         ),
         "excluded_output": str(output) if output is not None else None,
         "excluded_repository_results": str(repository_results),
-        "ignored_entirely": [str(aborted)],
+        "ignored_entirely": [str(aborted), str(forbidden_worktree)],
         "registered_t2_audit": {"pass": t2["pass"], "schema": t2["schema"]},
         "t3_rollout_training_namespace": namespace,
         "inventories": {

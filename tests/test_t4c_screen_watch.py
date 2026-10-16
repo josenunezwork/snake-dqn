@@ -59,3 +59,13 @@ def test_t4c_rows_require_detached_final_lengths(tmp_path, monkeypatch):
     monkeypatch.setattr(watch, "valid_row", lambda *_args: True)
     with pytest.raises(ValueError, match="final-length"):
         watch.valid_t4c_row(path, job, None)
+
+
+def test_saved_audit_requires_exact_registered_seed_bank(tmp_path, monkeypatch):
+    path = tmp_path / "audit.json"
+    path.write_text(
+        '{"schema":"t4c-seed-bank-audit/v1","pass":true,"checks":{"66":'
+        '{"count":96,"unique":true,"seeds":[],"seed_digest":"wrong"}}}'
+    )
+    with pytest.raises(ValueError, match="seed-audit bank"):
+        watch._load_audit(path, extension=False)

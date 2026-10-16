@@ -195,4 +195,7 @@ def test_aborted_cpu_run_is_pruned_before_json_discovery(tmp_path, monkeypatch):
     result = banks.seed_bank_audit(tmp_path, artifacts)
     assert result["pass"]
     assert result["inventories"][str(artifacts)]["file_count"] == 2
-    assert result["ignored_entirely"] == [str(aborted)]
+    assert result["ignored_entirely"] == [
+        str(aborted),
+        "/Users/josenunez/Projects/ml/snake-dqn-t4c",
+    ]
