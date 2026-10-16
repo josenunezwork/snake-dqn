@@ -1,0 +1,253 @@
+{
+  "artifacts": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/collection-smoke-c/namespace.json": "30a445e43f7e02ae406e8a8016fb8df897afe8022a6dd25b164e5d0bc02730bc",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/collection-smoke-c/receipt.json": "93162d6216154763582a9a1ab02ba87111896fa3da43e2627e544388facba55c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/default-baseline.json": "5fb75b7482e915a51d6598d267bfd9c3ceb3994ecc7f27d2cd707ea440f403b5",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/default-final-comparison.json": "05a67142c7956bc92a780e328660b8e26ab566e2b1385f419aa42a64239c957f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/default-final.json": "68fa9ccaec28face0489cc3f3e02f2f478fb04096a1b3a8297fc96a7101b78a9",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/final-tests.log": "462826a391d0eb4371a5d07e78809a38a71ce61ad67dddcc885d1c0207f31f42",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/format-smoke-receipt.json": "eacaf7943eb0c043b4e0a9a211d132acf9f7848f1b95b05d96e72c6b75448d4b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/format-smoke/manifest.json": "44a3329f707e55233bad802ef23b6ec268697780cc7b82349389769096a7dae5",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/format-smoke/return_bank.npz": "4a2a3fcc9f178f91747ad09c9406e732dc34c978eca069cb7a69bee500b2f1d5",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/training-smoke/final.pth": "0adc5897dfcfc0a01550a210f098620d71ae83d9e65a4b87a55d656c847e35a6",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/training-smoke/summary.json": "6cd0e51c758572f5cf6a4a76e3259903514adbcd0a19648abe7998bde190f6e0"
+  },
+  "collection_smoke": {
+    "branches": 0,
+    "matching": {
+      "decile_cutpoints": [
+        -10.156902503967284,
+        -9.230209159851075,
+        -8.723333930969238,
+        -8.363472938537598,
+        -8.019858360290527,
+        -7.682338428497315,
+        -7.2910174369812015,
+        -6.474673175811767,
+        1.9231242895126377
+      ],
+      "deficits": {
+        "700_999:D1": 746,
+        "700_999:D10": 398,
+        "700_999:D2": 745,
+        "700_999:D3": 736,
+        "700_999:D4": 742,
+        "700_999:D5": 662,
+        "700_999:D6": 525,
+        "700_999:D7": 409,
+        "700_999:D8": 214,
+        "700_999:D9": 236,
+        "ge1000:D1": 343,
+        "ge1000:D10": 691,
+        "ge1000:D2": 343,
+        "ge1000:D3": 353,
+        "ge1000:D4": 346,
+        "ge1000:D5": 426,
+        "ge1000:D6": 564,
+        "ge1000:D7": 679,
+        "ge1000:D8": 875,
+        "ge1000:D9": 852
+      },
+      "reference": {
+        "files": {
+          "bank-00000.npz": "759b94e6e8e5f336abca542dceed42009c3df88de97c935707e0950d742172b2",
+          "manifest.json": "340415402e04cd938a7e66e5f9e7294968d34b5a78b789b4fe02ae503c8bd221"
+        },
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4-prep-20261015/bank-v2"
+      },
+      "selected_counts": {},
+      "selection": "global first eligible unique state per fixed stratum; no replacement",
+      "target_counts": {
+        "700_999:D1": 746,
+        "700_999:D10": 398,
+        "700_999:D2": 745,
+        "700_999:D3": 736,
+        "700_999:D4": 742,
+        "700_999:D5": 662,
+        "700_999:D6": 525,
+        "700_999:D7": 409,
+        "700_999:D8": 214,
+        "700_999:D9": 236,
+        "ge1000:D1": 343,
+        "ge1000:D10": 691,
+        "ge1000:D2": 343,
+        "ge1000:D3": 353,
+        "ge1000:D4": 346,
+        "ge1000:D5": 426,
+        "ge1000:D6": 564,
+        "ge1000:D7": 679,
+        "ge1000:D8": 875,
+        "ge1000:D9": 852
+      }
+    },
+    "seed_audit": {
+      "excluded_namespace_overlap": {
+        "dev_round_52": [],
+        "dev_round_60": [],
+        "dev_round_61": [],
+        "ni": []
+      },
+      "method": "explicit-smoke-fixture-no-freshness-claim",
+      "rejected": {},
+      "roots": [
+        "/Users/josenunez/Projects/ml/snake-dqn-t4d",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts"
+      ],
+      "selected": [
+        2026101601,
+        2026101602
+      ]
+    },
+    "setup_seconds": 0.6345672090537846,
+    "source_sha256": {
+      "research/t4d_return_regression_20261016/bank.py": "69fc104a36ff4f9d99bb0f81095546b9552e48bc560457bbd9059842096e891c",
+      "research/t4d_return_regression_20261016/collector.py": "e00cb2aed1a304daef3b041ee438a2d306b8f28b79fb3fa2e4771f351c0e263b",
+      "research/t4d_return_regression_20261016/planning.py": "edbf4c77c3a0d001323158d22937d0fda803a294f8b48504096737d8bef3957a"
+    },
+    "status": "NO_QUALIFYING_REAL_BRANCHES",
+    "wall_seconds": 4.810265916865319,
+    "worlds": [
+      {
+        "branch_seconds": 0.0,
+        "branches": 0,
+        "captured_states": 0,
+        "death_decision": 3083,
+        "decisions": 3084,
+        "mix": "scripted",
+        "peak_pending_clones": 0,
+        "seed": 2026101601,
+        "selected_states": 0
+      },
+      {
+        "branch_seconds": 0.0,
+        "branches": 0,
+        "captured_states": 0,
+        "death_decision": 1338,
+        "decisions": 1339,
+        "mix": "scripted",
+        "peak_pending_clones": 0,
+        "seed": 2026101602,
+        "selected_states": 0
+      }
+    ]
+  },
+  "cpu_only": true,
+  "default_trace": {
+    "baseline_commit": "91a6120",
+    "cpu_only": true,
+    "harness": "research/t4a_two_sided_20261016/default_trace.py",
+    "modes": {
+      "bank_inert_0.5_fast": {
+        "equal": true,
+        "mismatches": [],
+        "new_telemetry_fields": [],
+        "updates": 8
+      },
+      "bank_inert_0.5_ref": {
+        "equal": true,
+        "mismatches": [],
+        "new_telemetry_fields": [],
+        "updates": 8
+      },
+      "bank_inert_1.0_fast": {
+        "equal": true,
+        "mismatches": [],
+        "new_telemetry_fields": [],
+        "updates": 8
+      },
+      "bank_inert_1.0_ref": {
+        "equal": true,
+        "mismatches": [],
+        "new_telemetry_fields": [],
+        "updates": 8
+      },
+      "bank_off_fast": {
+        "equal": true,
+        "mismatches": [],
+        "new_telemetry_fields": [],
+        "updates": 8
+      },
+      "bank_off_ref": {
+        "equal": true,
+        "mismatches": [],
+        "new_telemetry_fields": [],
+        "updates": 8
+      }
+    },
+    "pass": true,
+    "schema": "t4c-default-trace/v1",
+    "source_sha256": {
+      "research/redesign_m3c_20261008/learner_m3c.py": "8cdef1794636a806701fa2ecb73841d4d728ffb8f155902836eea99a2b0d14f9",
+      "research/redesign_m3c_20261008/train_m3c.py": "f985a4e63ed11b51076311a8f7b38e0c1a6c1e5a468f1f0bd91259e8f7895c77",
+      "research/t3_rollout_labels_20261015/bank.py": "b782d6585c567d9856ea973a597069f6fa8f9be552bfee4cedd23fb916e4063f"
+    },
+    "threads": 1,
+    "trace_files": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/default-baseline.json": "5fb75b7482e915a51d6598d267bfd9c3ceb3994ecc7f27d2cd707ea440f403b5",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4d-build-20261016/default-final.json": "68fa9ccaec28face0489cc3f3e02f2f478fb04096a1b3a8297fc96a7101b78a9"
+    }
+  },
+  "final_source_sha256": {
+    "research/redesign_m3c_20261008/learner_m3c.py": "8cdef1794636a806701fa2ecb73841d4d728ffb8f155902836eea99a2b0d14f9",
+    "research/redesign_m3c_20261008/train_m3c.py": "f985a4e63ed11b51076311a8f7b38e0c1a6c1e5a468f1f0bd91259e8f7895c77",
+    "research/t4d_return_regression_20261016/bank.py": "1f18bbe634abba48a22a28ec19ee3a7037b8bf1c7f842c9ea78c8b08895f8fc4",
+    "research/t4d_return_regression_20261016/collector.py": "e76ad5dfe6d2c8c8801318a38686affadd44d0746d85eb833e439323d2b1ff19",
+    "research/t4d_return_regression_20261016/planning.py": "edbf4c77c3a0d001323158d22937d0fda803a294f8b48504096737d8bef3957a"
+  },
+  "format_smoke": {
+    "branches": 6,
+    "died": 0,
+    "seconds_per_1000_branches": 343.6615901688735,
+    "seeds": [
+      2026101601,
+      2026101602
+    ],
+    "selection": "First prepared states of the same two fixture worlds; not length-qualified, not death-window/outside evidence",
+    "source_sha256": {
+      "/Users/josenunez/Projects/ml/snake-dqn-t4d/research/t4d_return_regression_20261016/collector.py": "e00cb2aed1a304daef3b041ee438a2d306b8f28b79fb3fa2e4771f351c0e263b",
+      "research/t4d_return_regression_20261016/bank.py": "1f18bbe634abba48a22a28ec19ee3a7037b8bf1c7f842c9ea78c8b08895f8fc4"
+    },
+    "status": "FORMAT_SMOKE_INITIAL_STATES",
+    "transitions": 1800,
+    "wall_seconds": 2.061969541013241,
+    "worlds": 2
+  },
+  "implementation_commit": "e34c5ef938f83cf09b41d069ace5249693df212c",
+  "mps_executed": false,
+  "numeric_threads": 1,
+  "process_limit_deviations": [
+    "Early legacy CLI pytest smoke added pytest parent above learner/actor/resource tracker.",
+    "Initial formatter used automatic workers; subsequent formatting used workers=1."
+  ],
+  "schema": "t4d-build-validation/v1",
+  "scope": "build_only_not_training_or_promotion_evidence",
+  "tests": {
+    "deselected": 4,
+    "formula_sim_cases": 12,
+    "passed": 109,
+    "seconds": 67.19
+  },
+  "training_smoke": {
+    "actor_exitcodes": [
+      0
+    ],
+    "halt": null,
+    "return_regression": {
+      "loss_sum": 2.309471607208252,
+      "mean_loss": 0.7698238690694174,
+      "rows": 192,
+      "updates": 3
+    },
+    "ring_overrun_rows": 0,
+    "transitions": 512,
+    "updates": 3,
+    "wall_seconds": 4.594794833101332
+  },
+  "unrelated_processes_or_tmux_modified": false,
+  "unrun": [
+    "Full matched outside-bank collection",
+    "Experiment-length training",
+    "MPS collection or training",
+    "Promotion/serving qualification"
+  ]
+}

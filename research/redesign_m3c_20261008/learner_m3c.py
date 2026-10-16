@@ -160,6 +160,29 @@ def _masked_argmax(torch, q, m):
     return torch.where(m, q, torch.full_like(q, -1e9)).argmax(dim=1)
 
 
+def return_regression_loss(torch, online, target, rows: dict, *, gamma: float, delta: float):
+    """Weighted T4d Huber loss for recorded ``action then B8`` branch returns.
+
+    The terminal bootstrap is detached Double DQN, using precisely the learner's
+    empty-mask fallback through :func:`_masked_argmax`.
+    """
+    q0 = online(rows["local"], rows["global"], rows["scalars"])
+    qa = q0.gather(1, rows["action"].long()[:, None]).squeeze(1)
+    with torch.no_grad():
+        q_online = online(rows["terminal_local"], rows["terminal_global"], rows["terminal_scalars"])
+        a_star = _masked_argmax(torch, q_online, rows["terminal_mask"])
+        q_terminal = (
+            target(rows["terminal_local"], rows["terminal_global"], rows["terminal_scalars"])
+            .gather(1, a_star[:, None])
+            .squeeze(1)
+        )
+        y = rows["realised"].to(dtype=qa.dtype)
+        bootstrap = (gamma ** rows["T"].long()) * q_terminal
+        y = y + torch.where(rows["died"].bool(), torch.zeros_like(bootstrap), bootstrap)
+    per_row = torch.nn.functional.huber_loss(qa, y, delta=delta, reduction="none")
+    return (per_row * rows["weight"]).mean(), y
+
+
 def _bank_side_agreement(q, surviving, action, counter):
     """Existing preferred-set agreement plus T4a's two raw-six-action side metrics."""
     prediction = q.argmax(dim=1)
@@ -493,6 +516,7 @@ class Learner:
         min_rows: int = MIN_ROWS,
         bank=None,
         outside_bank=None,
+        return_bank=None,
     ) -> None:
         self.torch = torch
         self.online, self.target, self.opt = online, target, opt
@@ -503,6 +527,7 @@ class Learner:
         self.opts = opts or LearnerOpts()
         self.bank = bank if float(getattr(args, "label_bank_frac", 0.0)) > 0 else None
         self.outside_bank = outside_bank if self.bank is not None else None
+        self.return_bank = return_bank if float(getattr(args, "return_frac", 0.0)) > 0 else None
         if float(getattr(args, "label_bank_frac", 0.0)) > 0 and self.bank is None:
             raise ValueError("--label-bank-frac needs a loaded label bank")
         if self.bank is not None:
@@ -523,6 +548,12 @@ class Learner:
             self._bank_agree_decisive = []
             self._bank_agree_counter = []
             self._bank_agree_outside = []
+        if float(getattr(args, "return_frac", 0.0)) > 0 and self.return_bank is None:
+            raise ValueError("--return-frac needs a loaded return bank")
+        if self.return_bank is not None:
+            st.setdefault("return_rows", [])
+            st.setdefault("return_loss", [])
+            st.setdefault("return_totals", {"updates": 0, "rows": 0, "loss_sum": 0.0})
         k = int(self.opts.batch_scale)
         self.a_rows, self.anchor_rows, self.min_rows = agent_rows * k, anchor_rows * k, min_rows * k
         primary_rows = int(round(self.anchor_rows * args.label_bank_frac)) if self.bank else 0
@@ -773,6 +804,21 @@ class Learner:
             y = R + disc * q_next
         td_delta = float(getattr(args, "td_huber_delta", 1.0))
         td = torch.nn.functional.huber_loss(qa, y, delta=td_delta)
+        n_return = int(round(self.anchor_rows * float(getattr(args, "return_frac", 0.0))))
+        if self.return_bank is not None:
+            n_return = max(1, n_return)
+        ret = None
+        if n_return:
+            return_rows = self.return_bank.sample(rng, n_return, kappa=float(args.mass_kappa))
+            return_rows = {key: to_dev(value) for key, value in return_rows.items()}
+            ret, _ = return_regression_loss(
+                torch,
+                online,
+                target,
+                return_rows,
+                gamma=self.return_bank.gamma,
+                delta=td_delta,
+            )
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         has_anchor = qd.shape[0] > 0
         if n_bank:
@@ -813,6 +859,8 @@ class Learner:
         else:
             anc = anchor_loss_weighted(torch, qd, db, margin, args.anchor_boost_weight)
         loss = td + lam * anc
+        if ret is not None:
+            loss = loss + float(getattr(args, "return_weight", 0.0)) * ret
         if not torch.isfinite(loss):
             st["halt"] = "non-finite loss"
             return
@@ -830,6 +878,12 @@ class Learner:
                 st["bank_agree_counter"].append(float(counter_agree.detach()))
             if n_bank and outside_agree is not None:
                 st["bank_agree_outside"].append(float(outside_agree.detach()))
+        if n_return:
+            st["return_rows"].append(n_return)
+            st["return_loss"].append(float(ret.detach()))
+            st["return_totals"]["updates"] += 1
+            st["return_totals"]["rows"] += n_return
+            st["return_totals"]["loss_sum"] += float(ret.detach())
         st["updates"] += 1
         st["td"].append(float(td.detach()))
         if has_anchor:
