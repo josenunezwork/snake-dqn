@@ -44,6 +44,80 @@ def test_boost_left_macro_does_not_repeat_three_turns(monkeypatch) -> None:
     assert result["died"] is True
 
 
+class _MacroSim:
+    """Minimal simulator seam that records action and relative-heading changes."""
+
+    E = 1
+    S = 1
+
+    def __init__(self) -> None:
+        self.alive = np.array([[True]])
+        self.length = np.array([[900]])
+        self.actions: list[int] = []
+        self.headings: list[int] = []
+        self.heading = 0
+
+    def get_resolved_action_mask(self) -> np.ndarray:
+        return np.ones((1, 1, 6), dtype=bool)
+
+    def step_with_policy(self, selector) -> None:
+        action = int(selector(self)[0, 0])
+        self.actions.append(action)
+        self.heading += {-1: -1, 0: 0, 1: 1}[action % 3 - 1]
+        self.headings.append(self.heading)
+
+
+class _MacroWorld:
+    def __init__(self) -> None:
+        self.sim = _MacroSim()
+        self.runtime = SimpleNamespace(prepare=lambda _sim: None, observe_step=lambda _sim: None)
+        self.hero = object()
+        self.opponents = object()
+
+    def clone(self):
+        return self
+
+
+def test_rollout_macro_uses_real_direction_boost_selector(monkeypatch) -> None:
+    """The real macro helper turns left once, then follows fresh straight B8 directions."""
+    from research.t3_rollout_labels_20261015 import bank_engine
+    from src.simd_env import eval_engine
+
+    branch = _MacroWorld()
+    snapshot = {
+        "legal": np.array([0, 3]),
+        "length": 900,
+        "branch": branch,
+    }
+
+    def first_step(world, action) -> None:
+        assert world is branch and action == 3
+        world.sim.actions.append(action)
+        world.sim.heading -= 1
+        world.sim.headings.append(world.sim.heading)
+
+    def ordinary(world, **_kwargs) -> None:
+        world.sim.alive[0, 0] = False
+
+    def dispatch(_sim, _masks, actions, _heroes, _opponents) -> None:
+        # B8's greedy direction is straight on both refreshed selector frames.
+        actions[0, 0] = 1
+
+    monkeypatch.setattr(bank_engine, "step_prepared", first_step)
+    monkeypatch.setattr(bank_engine, "choose_and_step", ordinary)
+    monkeypatch.setattr(eval_engine, "_dispatch_actions", dispatch)
+
+    result = macro.rollout_macro(snapshot, 3, 3)
+
+    assert result["died"] is True
+    assert branch.sim.actions == [3, 4, 4]
+    assert branch.sim.headings == [-1, -1, -1]
+    assert [branch.sim.headings[0]] + [
+        current - previous
+        for previous, current in zip(branch.sim.headings, branch.sim.headings[1:])
+    ] == [-1, 0, 0]
+
+
 class _SelectorSim:
     """Small Watch-phase stand-in that records the action selected per frame."""
 
