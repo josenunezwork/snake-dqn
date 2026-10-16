@@ -1,0 +1,535 @@
+{
+  "schema": "t4-curve-completion/v1",
+  "utc": "2026-10-16T01:59:14.796239+00:00",
+  "status": "PASS",
+  "probe_rows": 70,
+  "t3_runs": 15,
+  "training_status": {
+    "LABELS_s10": 0,
+    "LABELS_KEEPV8_s10": 0,
+    "LABELS_KEEPV8_LO_s10": 0,
+    "LABELS_s11": 0,
+    "LABELS_KEEPV8_s11": 0,
+    "LABELS_KEEPV8_LO_s11": 0,
+    "LABELS_s12": 0,
+    "LABELS_KEEPV8_s12": 0,
+    "LABELS_KEEPV8_LO_s12": 0,
+    "LABELS_s13": 0,
+    "LABELS_KEEPV8_s13": 0,
+    "LABELS_KEEPV8_LO_s13": 0,
+    "LABELS_s14": 0,
+    "LABELS_KEEPV8_s14": 0,
+    "LABELS_KEEPV8_LO_s14": 0
+  },
+  "successful_controls": 5,
+  "maximum_probe_children": 4,
+  "failed_probes": 0,
+  "retries": 0,
+  "active_children": 0,
+  "device": "cpu",
+  "threads_per_probe": 1,
+  "round_index": 64,
+  "worlds": 32,
+  "frames": 5000,
+  "probe_settings": "T2 rowwise / advisory / numba / fast / no veto",
+  "analysis_source_sha256": "06c03fd799dc499db185a9489bcb6b693a0b9eef2163d1d9a66bdafef34c6c9d",
+  "validation_source_sha256": "8a4fc49d47ebd50b65429da0d9fe146e4bbcfd012e4d9da46f58470b70c45ea9",
+  "probe_source_sha256": "98380c4e74beb65ca062e47ca2bd467709b2e016aff69814cac0201963651cae",
+  "seed_audit_sha256": "04a81a4e182398f1489c087c562f4c3d49ddf772ddbb80786cd98420423617ba",
+  "raw_probes_sha256": "77d77130a98535a3ec5075487e1517fe5b5dea0d1cd17a89744303efbf2270e3",
+  "analysis_sha256": "7572905d1a5188df6786288f97c31fa687251c603c9791f107b06384c943f481",
+  "watcher_log_sha256": "397670f2508e60650ba529735ca25951c65d978337d4bf549eced7e66a88d3e5",
+  "git_commit": "60df7dfda6f1a241895b1e58d23048d826e0ff9e",
+  "identities": [
+    {
+      "name": "CTRL_s10__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/ckpt_4000k.pth",
+      "checkpoint_sha256": "0688dc96b5b9381bce23f8f1fbb4df39c68b0bcfea899f875d766289f08978d7",
+      "row_sha256": "74c28d13cabd1f6f4b6051a11e54d61c77f9ca7a6196f9acc0135e2ca3dbc57c",
+      "summary_sha256": "0cebf9f61c66a16a60a4c4c5c076402319285cc493ba73b06d6241f68734722b"
+    },
+    {
+      "name": "CTRL_s10__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s10/final.pth",
+      "checkpoint_sha256": "262da904c67c79d306006179bebcc7ce236dc6907147e303316e828d5ebcdd11",
+      "row_sha256": "b66ae74f60cbf69e5446729220550b17683ffc81c6d098be468491b675a7a79c",
+      "summary_sha256": "0cebf9f61c66a16a60a4c4c5c076402319285cc493ba73b06d6241f68734722b"
+    },
+    {
+      "name": "CTRL_s11__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/ckpt_4000k.pth",
+      "checkpoint_sha256": "2f7cc1a1ac4c492da419ed2c327d3ac199eaf497346eca95ec7ca96cefcfcd53",
+      "row_sha256": "21da01f9b91157fee7cf8d5bc45b611021c1492954ff32fd57c37e18e5d6a58b",
+      "summary_sha256": "5111a797bfa964611c9335b7bfa4fd5fa36d9fedab2363f56464590945a152c8"
+    },
+    {
+      "name": "CTRL_s11__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s11/final.pth",
+      "checkpoint_sha256": "b3b1c9a62388dd7624a57c900bfd837c1064d71fe23043b38a3d8d793bdf79db",
+      "row_sha256": "a668b85a9932935bea67b347e503dfe726d5c2fb1c07e261ec721d173100d483",
+      "summary_sha256": "5111a797bfa964611c9335b7bfa4fd5fa36d9fedab2363f56464590945a152c8"
+    },
+    {
+      "name": "CTRL_s12__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/ckpt_4000k.pth",
+      "checkpoint_sha256": "3e194aba2fca9b94761f5d62dde7a21d6cc874ba4d19497559c714db70e17c37",
+      "row_sha256": "fe8536a6da4ea0aa95321a5257be88c0b2b13fcecac44ecdae5fc12d6fb0527f",
+      "summary_sha256": "7ef430847ce8974371adabc81cc001416388a800133422092d97a469b238ed0f"
+    },
+    {
+      "name": "CTRL_s12__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s12/final.pth",
+      "checkpoint_sha256": "a94b456f63e4e887b3f3aa52e6918fcff8fbf916453207a1b6b230ac6c11cbc8",
+      "row_sha256": "bd2894901eeda2d496bf56c8972a308651fd2fdd402e834eb0b227599b8e87ab",
+      "summary_sha256": "7ef430847ce8974371adabc81cc001416388a800133422092d97a469b238ed0f"
+    },
+    {
+      "name": "CTRL_s13__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/ckpt_4000k.pth",
+      "checkpoint_sha256": "fcc8edeb9b4de0c9eb0142c308f8e85edfe191abecc3e19f85cd24e4dd07e4d2",
+      "row_sha256": "a8a2d0ba0a7967ea603fe402820f5f0401ab07b0c0b5986d3a986b1e84d14f21",
+      "summary_sha256": "715b2324c09eab1341308ac9f53f46103dbdc09d3e2a74e793407f79a845f7f4"
+    },
+    {
+      "name": "CTRL_s13__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s13/final.pth",
+      "checkpoint_sha256": "5920cc7f14de4a99a1be6524a8215c40dd15f29c6ecee1e826d74a739d514302",
+      "row_sha256": "edc1cf48622c1fe5a195902c218e0563505efbe358c30d1ca59b4d52cdfcc7f0",
+      "summary_sha256": "715b2324c09eab1341308ac9f53f46103dbdc09d3e2a74e793407f79a845f7f4"
+    },
+    {
+      "name": "CTRL_s14__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/ckpt_4000k.pth",
+      "checkpoint_sha256": "c02586c732519340d2ad6ec4bedfb47b605f66650b7a4aaf50f2a9d9c3a0a831",
+      "row_sha256": "653112e6bbece2eaa0f1c6a3e98e5f80dac17c82caf2ce9ee42e13301150c5ee",
+      "summary_sha256": "8db3c4568e2401f7698adbff3ece8dcd3579bf7601793932762c177bb49dd496"
+    },
+    {
+      "name": "CTRL_s14__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m6-mac-20261014/CTRL_s14/final.pth",
+      "checkpoint_sha256": "b9eaf9e7120e233f5d32df30270ea67868597a3ad55cade80c42424fdc08f79c",
+      "row_sha256": "48d7fedf7ebc7e7511bfee52952cce96064b20b9174df6fd7d1dca3df2eda8b4",
+      "summary_sha256": "8db3c4568e2401f7698adbff3ece8dcd3579bf7601793932762c177bb49dd496"
+    },
+    {
+      "name": "LABELS_s10__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/ckpt_2000k.pth",
+      "checkpoint_sha256": "a8d06723b0516b1fa6d322fb0a372ea1ce01c1d4d0f7e42c7a3335b0a96a2574",
+      "row_sha256": "56620dad316243bb91e4eb0ad95ba78bfaebfca40311ee14ec1ae8c3b1148339",
+      "summary_sha256": "41feff6af882c9a9cd55c0e27dd5d8933fbd87d4f601a9073b624d19a0a660ed"
+    },
+    {
+      "name": "LABELS_s10__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/ckpt_4000k.pth",
+      "checkpoint_sha256": "11543baf204e41e6e2a8ea4c6e19f9ed9e95a1cb63b543535646a609dd1c845a",
+      "row_sha256": "5d4e8fb550f3dcf82a2dd379e721d2314a14f7e736ce667177b1170a5078a0f1",
+      "summary_sha256": "41feff6af882c9a9cd55c0e27dd5d8933fbd87d4f601a9073b624d19a0a660ed"
+    },
+    {
+      "name": "LABELS_s10__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/ckpt_6000k.pth",
+      "checkpoint_sha256": "6e9961567e9fe8cd809e13dceea471932196cb6fa58031375b93964b174d05b3",
+      "row_sha256": "ffec85bfebbbbb2e3c20a6b2f801ee88780e8217da7d658ce8c2571ac104cd4c",
+      "summary_sha256": "41feff6af882c9a9cd55c0e27dd5d8933fbd87d4f601a9073b624d19a0a660ed"
+    },
+    {
+      "name": "LABELS_s10__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth",
+      "checkpoint_sha256": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3",
+      "row_sha256": "8c5791f20290d2c5407b758632ccc74887c820ab8cd52be250ee64de93c5f982",
+      "summary_sha256": "41feff6af882c9a9cd55c0e27dd5d8933fbd87d4f601a9073b624d19a0a660ed"
+    },
+    {
+      "name": "LABELS_s11__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/ckpt_2000k.pth",
+      "checkpoint_sha256": "fca1d84814414a6461b2ed4676214084a883b978460feb8245d73f30bb76984a",
+      "row_sha256": "f1eb0123d7b7389a979b63fde616d59213be22548c89ab41b2db69602cdfc1dd",
+      "summary_sha256": "243bfe28a25e5190990988251aa2de3fbc3465e4094df9b34994cf94eeadfbec"
+    },
+    {
+      "name": "LABELS_s11__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/ckpt_4000k.pth",
+      "checkpoint_sha256": "2ec844e8b17b53daad306ccae14c8591ce0e453e1bbf6794584014860d878542",
+      "row_sha256": "c2b89706575bd97e95621951241f4fd81fc945f132fe936538ac4784e58e5e95",
+      "summary_sha256": "243bfe28a25e5190990988251aa2de3fbc3465e4094df9b34994cf94eeadfbec"
+    },
+    {
+      "name": "LABELS_s11__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/ckpt_6000k.pth",
+      "checkpoint_sha256": "2a22fdb3c8ed8826a15bdf646a5768c33cfbe7a42c94251c6df1e8b09ef777f0",
+      "row_sha256": "905d7618d29055b8edf2a01ad5381707c6872899576d3329638852cb408b9918",
+      "summary_sha256": "243bfe28a25e5190990988251aa2de3fbc3465e4094df9b34994cf94eeadfbec"
+    },
+    {
+      "name": "LABELS_s11__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s11/final.pth",
+      "checkpoint_sha256": "c8520d205a98695ed8ad01d0fb7db8a31e232d3dd20028950ea093582d2cdf3e",
+      "row_sha256": "1034916415791ed0b67e1d4c7af4d4048f5f5f5a1d5d0693ef3d817eb8da34d9",
+      "summary_sha256": "243bfe28a25e5190990988251aa2de3fbc3465e4094df9b34994cf94eeadfbec"
+    },
+    {
+      "name": "LABELS_s12__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/ckpt_2000k.pth",
+      "checkpoint_sha256": "f52db9aa413f3050696adf94fe9153d87ca7162642f144afaebdfedc386cfb50",
+      "row_sha256": "9d55638551bf05be6a62ebcee9379663b3bc30a5a12e5693a381d3e04f0f0c38",
+      "summary_sha256": "ded5af21a93e6fa370ea913b6f04ec62b696b6e827955a880edc8e31cdf29f5e"
+    },
+    {
+      "name": "LABELS_s12__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/ckpt_4000k.pth",
+      "checkpoint_sha256": "c702496374a43d35abb0bb514ec313c09bb52b0509920410882d9251346cdc8e",
+      "row_sha256": "b417377294de966bccc4a879f060d6ef069e7ccb048eca701f90e3622b4f10c3",
+      "summary_sha256": "ded5af21a93e6fa370ea913b6f04ec62b696b6e827955a880edc8e31cdf29f5e"
+    },
+    {
+      "name": "LABELS_s12__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/ckpt_6000k.pth",
+      "checkpoint_sha256": "bfaea3eb75aaff9a38a47ad0aada97893952c29c7d04167b2696f11b19b5bb83",
+      "row_sha256": "a8ee934c79f57c9edfbdda90c54d9440876cd7b6d0b8e045d9cf61cddc3eec0d",
+      "summary_sha256": "ded5af21a93e6fa370ea913b6f04ec62b696b6e827955a880edc8e31cdf29f5e"
+    },
+    {
+      "name": "LABELS_s12__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s12/final.pth",
+      "checkpoint_sha256": "52f2f2f1eaef8014cd70bc970e30291410661ace565aecbcb193588e45be24cd",
+      "row_sha256": "4d66d8dd59c207735239dfccde8f8ea1400a57ac88a9721a4180797e0277558f",
+      "summary_sha256": "ded5af21a93e6fa370ea913b6f04ec62b696b6e827955a880edc8e31cdf29f5e"
+    },
+    {
+      "name": "LABELS_s13__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/ckpt_2000k.pth",
+      "checkpoint_sha256": "ae98177c17c56a24a6dcc4b10413949719ecb1220f68c859309b54e7d241d285",
+      "row_sha256": "ea934cae163106e3d96a420d0b6fbb7560acdcc92c666c6ffab8969bbfac9425",
+      "summary_sha256": "c2b727437487e06e86c7a0560a4b0875cb0ebe0fadc180bbabeae27a40e7185d"
+    },
+    {
+      "name": "LABELS_s13__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/ckpt_4000k.pth",
+      "checkpoint_sha256": "0f75e56e13f019112f0d87945c4f83228201f6fc548fa1f8f350918eefeb9533",
+      "row_sha256": "5b0a6204e389c2cccfed4b5e019609ccc537646187195e53c2e1efb6fdc1c504",
+      "summary_sha256": "c2b727437487e06e86c7a0560a4b0875cb0ebe0fadc180bbabeae27a40e7185d"
+    },
+    {
+      "name": "LABELS_s13__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/ckpt_6000k.pth",
+      "checkpoint_sha256": "1a734ce238903dfe6716b8d1fb49529c7a3bf9641538d7b1a6b0477a401add24",
+      "row_sha256": "c9d86cd7d6f56ce17dafdb43b05de708ebb85fd5bc2e04bc5835e589f8fbd4f4",
+      "summary_sha256": "c2b727437487e06e86c7a0560a4b0875cb0ebe0fadc180bbabeae27a40e7185d"
+    },
+    {
+      "name": "LABELS_s13__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s13/final.pth",
+      "checkpoint_sha256": "6acf5a7eaef6e6d2aedc07ca2285ef1325accf63b12467b3d1154063eaa76179",
+      "row_sha256": "7e1f0db59e0e24dc7010c2150ceca562182d4a259df30346cef517e39f5c299f",
+      "summary_sha256": "c2b727437487e06e86c7a0560a4b0875cb0ebe0fadc180bbabeae27a40e7185d"
+    },
+    {
+      "name": "LABELS_s14__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/ckpt_2000k.pth",
+      "checkpoint_sha256": "6a05f5a4138b080581319d3f22f413b6c5535859b246589e1400b07fa8fcc32a",
+      "row_sha256": "2b4d3fe372da3256ea43128968c47f76afbe0507fb5d0e622c4314850b2d49be",
+      "summary_sha256": "ad55355ab65aaed14be7f22724864db407794beba447214a9f1a7ff8091cbdc3"
+    },
+    {
+      "name": "LABELS_s14__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/ckpt_4000k.pth",
+      "checkpoint_sha256": "454c6e8628d6d87996768ab60410fa1dbc2c8d0f1029d97dab7d81955025d2e2",
+      "row_sha256": "65429f211a2ec60e141749406ddda1f258c889612131a27b4516096a64b7ac84",
+      "summary_sha256": "ad55355ab65aaed14be7f22724864db407794beba447214a9f1a7ff8091cbdc3"
+    },
+    {
+      "name": "LABELS_s14__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/ckpt_6000k.pth",
+      "checkpoint_sha256": "be385376e5ab5a0813a68abb45b8be7b1df9da90ea3249fa27990b82fb76a632",
+      "row_sha256": "bd1346fd0e3f97ba4fa38d547386f3eac87daec690a3de31f0390ef21df7fc4e",
+      "summary_sha256": "ad55355ab65aaed14be7f22724864db407794beba447214a9f1a7ff8091cbdc3"
+    },
+    {
+      "name": "LABELS_s14__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s14/final.pth",
+      "checkpoint_sha256": "420948f3e777272b3e329a01e0682bbe6b97267f0ea8416936b20a40fc0e21a4",
+      "row_sha256": "1ca4db93a087572f2be3c7be75b5531e0660e8dd0071c46a7065bcb3108b080a",
+      "summary_sha256": "ad55355ab65aaed14be7f22724864db407794beba447214a9f1a7ff8091cbdc3"
+    },
+    {
+      "name": "LABELS_KEEPV8_s10__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/ckpt_2000k.pth",
+      "checkpoint_sha256": "f96f9c752d251ee202fdc9c24aa5672d60b94b0e2cba3e009720baf49fe8f8df",
+      "row_sha256": "d388e9ac67e5d358bb7fa36def64a466ba1fb01dacc19c076be0b78ad4455d9b",
+      "summary_sha256": "f7bfcaf7e1b6d9a4be8eab636ec16efd7d13ca1217c37c018e2a84cb25c6734a"
+    },
+    {
+      "name": "LABELS_KEEPV8_s10__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/ckpt_4000k.pth",
+      "checkpoint_sha256": "a81faa3c3932f4bb0f9f2b0fb87c296efdac4e3fc99042407fbecf388501b1dd",
+      "row_sha256": "d0d819769499d4a3e7b001249049e14792240e7e6e0821eaf6f67e934ce3c810",
+      "summary_sha256": "f7bfcaf7e1b6d9a4be8eab636ec16efd7d13ca1217c37c018e2a84cb25c6734a"
+    },
+    {
+      "name": "LABELS_KEEPV8_s10__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/ckpt_6000k.pth",
+      "checkpoint_sha256": "6c19f8db473c65ad2341d4aaa09cd5d2b99780254e65f6ac4d4b51ebf68c4fb6",
+      "row_sha256": "ae60baaff0c2767b5d0de7d0d7ce9d9010409f4e9e7d3b69f2e95cc7331216fb",
+      "summary_sha256": "f7bfcaf7e1b6d9a4be8eab636ec16efd7d13ca1217c37c018e2a84cb25c6734a"
+    },
+    {
+      "name": "LABELS_KEEPV8_s10__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s10/final.pth",
+      "checkpoint_sha256": "e0e3364da51b99db351accf2dca7ff7a6992acd369bfb6487dc60733b302efe7",
+      "row_sha256": "029c6a0e15d45ca57eed0ae69aa48a601876e9a76e4ff323e3a999ed636a915c",
+      "summary_sha256": "f7bfcaf7e1b6d9a4be8eab636ec16efd7d13ca1217c37c018e2a84cb25c6734a"
+    },
+    {
+      "name": "LABELS_KEEPV8_s11__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/ckpt_2000k.pth",
+      "checkpoint_sha256": "360e207e55b13b6aea7b8f13d8f6c8773edcacbf5e4166e2ab7922a07204c5eb",
+      "row_sha256": "e6cb1a03b09c6cef1fdbfe5bb9e315f5a7edd9e95e75539fadae2313719388fd",
+      "summary_sha256": "853288501ae28cd1f1e141ce38606baeae95ba607bc1c0e92973886cc6435b59"
+    },
+    {
+      "name": "LABELS_KEEPV8_s11__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/ckpt_4000k.pth",
+      "checkpoint_sha256": "08b1409e77ffbfc0a32e37bdf4e95c3854c46fe370603b9444b73dd144d2fc67",
+      "row_sha256": "88e0292a5dc0c7284de38a3d13dfa455a49fff6de8b9277d912a05b6dd507c47",
+      "summary_sha256": "853288501ae28cd1f1e141ce38606baeae95ba607bc1c0e92973886cc6435b59"
+    },
+    {
+      "name": "LABELS_KEEPV8_s11__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/ckpt_6000k.pth",
+      "checkpoint_sha256": "c02e78ebcfc83d857c6c9e7d2f9ecbbe4715e6065a7e3f3c3e433a625d80b4a4",
+      "row_sha256": "81d8ddc19f8ac7db23a83f005174c57b506942eb89979a1873a59d0883d3dce4",
+      "summary_sha256": "853288501ae28cd1f1e141ce38606baeae95ba607bc1c0e92973886cc6435b59"
+    },
+    {
+      "name": "LABELS_KEEPV8_s11__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s11/final.pth",
+      "checkpoint_sha256": "4c16704bc1358ba9f50cede805a491d5f74dca790ed7cd62f79d770fee1a0ca0",
+      "row_sha256": "26fe72a53cfbee2c689755023b562d2e755aefb44c8dac3def92347dbcc9a5e8",
+      "summary_sha256": "853288501ae28cd1f1e141ce38606baeae95ba607bc1c0e92973886cc6435b59"
+    },
+    {
+      "name": "LABELS_KEEPV8_s12__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/ckpt_2000k.pth",
+      "checkpoint_sha256": "5a505cf7659430e4b2b5e8844541e56684ca824a4d0630ae2d75b7318c2261f1",
+      "row_sha256": "2b25bf9abe6d5970d0b5f1dc88f67203f25e76ae27b04dd14e553e6ba2b623ac",
+      "summary_sha256": "dfbe0165f4031e95ee0ccf358963b23edfba6bdcf8af9268579814987a398802"
+    },
+    {
+      "name": "LABELS_KEEPV8_s12__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/ckpt_4000k.pth",
+      "checkpoint_sha256": "7940ad9cac4847f07d0eb21acb256ef5abaf956997f424d86ba72f16534ff4ac",
+      "row_sha256": "d24674612f3a02fef4a80ece1bc29d5e6a0fc5dbb73b3887e692c36f2c202367",
+      "summary_sha256": "dfbe0165f4031e95ee0ccf358963b23edfba6bdcf8af9268579814987a398802"
+    },
+    {
+      "name": "LABELS_KEEPV8_s12__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/ckpt_6000k.pth",
+      "checkpoint_sha256": "2e3fefd78fe92fc699a480c88b8f0e558b70c256e531c631167cfbaec1979f6a",
+      "row_sha256": "0de4f8162036cff105f6b4b81349324a2cadb63a7c9f47082a246165e6afb32a",
+      "summary_sha256": "dfbe0165f4031e95ee0ccf358963b23edfba6bdcf8af9268579814987a398802"
+    },
+    {
+      "name": "LABELS_KEEPV8_s12__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s12/final.pth",
+      "checkpoint_sha256": "745715cb98093aec42f92969bf8e95ea86f6f72753cd77c55e06c45b38eb3ec4",
+      "row_sha256": "37d04323388c9600fbdddcceee8790fb629531a00b005522345c5557ee55184d",
+      "summary_sha256": "dfbe0165f4031e95ee0ccf358963b23edfba6bdcf8af9268579814987a398802"
+    },
+    {
+      "name": "LABELS_KEEPV8_s13__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/ckpt_2000k.pth",
+      "checkpoint_sha256": "31f8f9605458fd469b71e2b21ae77644a4984dfdec62bbac97efd8e30c95f31e",
+      "row_sha256": "96153451a6f8537db93c76b5dfb4a25317f09d5b6739ab12322bdd7638166898",
+      "summary_sha256": "af4e992b94591f2d1e50349a5e822fa33343d1ac7e63f288f22ee13c2fdc3efa"
+    },
+    {
+      "name": "LABELS_KEEPV8_s13__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/ckpt_4000k.pth",
+      "checkpoint_sha256": "2cf82995e8a0fe89a47722809d8bdda67582978b87ae139f3b20f87e1699f9db",
+      "row_sha256": "dba99b5fc359868c57017071751a14d25abc39a315ea67b2d6ddc4827ba5afad",
+      "summary_sha256": "af4e992b94591f2d1e50349a5e822fa33343d1ac7e63f288f22ee13c2fdc3efa"
+    },
+    {
+      "name": "LABELS_KEEPV8_s13__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/ckpt_6000k.pth",
+      "checkpoint_sha256": "c371eec0b229e98dc0bbc5072f20f3c143d2d3ba21daa28eadec1303d9b40ff7",
+      "row_sha256": "56cb1099e0b73e003faaa4b43edb4ca8864f90ebb4e6221c9019e8f4a9125c87",
+      "summary_sha256": "af4e992b94591f2d1e50349a5e822fa33343d1ac7e63f288f22ee13c2fdc3efa"
+    },
+    {
+      "name": "LABELS_KEEPV8_s13__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s13/final.pth",
+      "checkpoint_sha256": "967a38eb2452673abe687bcfe72c0976f3116574ee6f7e4d1c11af931edaa97c",
+      "row_sha256": "6c4c031e3e99eb5b62953c73e56a523bf45a72e25dcfdb5317459a6bd90e0142",
+      "summary_sha256": "af4e992b94591f2d1e50349a5e822fa33343d1ac7e63f288f22ee13c2fdc3efa"
+    },
+    {
+      "name": "LABELS_KEEPV8_s14__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/ckpt_2000k.pth",
+      "checkpoint_sha256": "f2678a61666da226ae8f593dbd0d93abf81ef2798e00ce8168a8dbcda590be71",
+      "row_sha256": "4001151f001337cc915c8b9b8f3b6a659f3d6e4e90816b663c408d6486af50a2",
+      "summary_sha256": "2e3147e256f847745cdeea066854f8851d8ce83506dd09290a27541956636f0f"
+    },
+    {
+      "name": "LABELS_KEEPV8_s14__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/ckpt_4000k.pth",
+      "checkpoint_sha256": "b8e4ae72c71f45a5f039924ec14caef0410f400fc639cdbfdfca3f93652f4308",
+      "row_sha256": "3767439a911cb4c03e414e8a2699c0348667545b6f8b199defead4f6d396e098",
+      "summary_sha256": "2e3147e256f847745cdeea066854f8851d8ce83506dd09290a27541956636f0f"
+    },
+    {
+      "name": "LABELS_KEEPV8_s14__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/ckpt_6000k.pth",
+      "checkpoint_sha256": "d638a2892aa326413bf927bdd4068b1b950543593c012861f794ed099b3ce5fc",
+      "row_sha256": "f2122400e8ab6c4401a28d13722c2d12add1659960451ee70d58335194e8bf58",
+      "summary_sha256": "2e3147e256f847745cdeea066854f8851d8ce83506dd09290a27541956636f0f"
+    },
+    {
+      "name": "LABELS_KEEPV8_s14__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_s14/final.pth",
+      "checkpoint_sha256": "39dc6609c9e39f35cef2c34c945b78e169fcdb20de5af93b1675efcf78b3dcb9",
+      "row_sha256": "2a1edcae973fc999db2ebe4c5d1f86b7591d7d49f9872449f6aedba003896bea",
+      "summary_sha256": "2e3147e256f847745cdeea066854f8851d8ce83506dd09290a27541956636f0f"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s10__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s10/ckpt_2000k.pth",
+      "checkpoint_sha256": "48dc98613f92c42151d0ea15e31bd1ce22d1770ec7a7011e6896bde62f70c8f3",
+      "row_sha256": "2adb4c2346813169d157219c83ab0db42cc5d14113421bd9d7b448dece45182f",
+      "summary_sha256": "7715944f8ab26a4ba762001bb355dba0a57c2248d613eea1cccd2fe2881501f9"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s10__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s10/ckpt_4000k.pth",
+      "checkpoint_sha256": "9cc1e0bc69f56a5005b8a038adc63b7d1d95016c8b75dd730201ae626944a734",
+      "row_sha256": "2cb9a8f39e4e6cfe536216e947a5d1ee7f70c03bdb6336a6517ed3c672cbbf0e",
+      "summary_sha256": "7715944f8ab26a4ba762001bb355dba0a57c2248d613eea1cccd2fe2881501f9"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s10__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s10/ckpt_6000k.pth",
+      "checkpoint_sha256": "654999e9e110e2e0b81949dd7aa136d971bc393eba9c91242632c0a2415c5acf",
+      "row_sha256": "a53d26b973cd18a3e471841efe00424f5e6599505e7ab71ed67565a63e3e2a23",
+      "summary_sha256": "7715944f8ab26a4ba762001bb355dba0a57c2248d613eea1cccd2fe2881501f9"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s10__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s10/final.pth",
+      "checkpoint_sha256": "18ff30094f6a6471a98392c8621d465f1e55869e0530eb2f1ece4d2c1b2dedf3",
+      "row_sha256": "969372f6477f97cc29375ab5346685ac6c655d52dc9158c3dc0180af83e112b4",
+      "summary_sha256": "7715944f8ab26a4ba762001bb355dba0a57c2248d613eea1cccd2fe2881501f9"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s11__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s11/ckpt_2000k.pth",
+      "checkpoint_sha256": "5a495a25ad9ed77c8e85bca77ef8568256f884119649a0ffab59011e5a860845",
+      "row_sha256": "3a52a6ba32e2b45ebf8d6024aec3426df2ef44e630ed353e39173efde81f4cdc",
+      "summary_sha256": "f2e82c4a6347a8538a2c1e3800d58cd46399b866825c76dc76041b5968a4b910"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s11__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s11/ckpt_4000k.pth",
+      "checkpoint_sha256": "2d52afde4dea762713d6983e1ee8da4d053e1122e2419aebb393a0f2b99dc32f",
+      "row_sha256": "e303bff7c146703bca7cf0ad2fe9c133744c899177f37d64c93e814d322d97df",
+      "summary_sha256": "f2e82c4a6347a8538a2c1e3800d58cd46399b866825c76dc76041b5968a4b910"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s11__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s11/ckpt_6000k.pth",
+      "checkpoint_sha256": "c8682a33fe541dbbef6cbf38cf741b31b14dd7e287c0d43fe8a35a8b93f4e9af",
+      "row_sha256": "6852c3e73420bef984a9a65be8aa6a814ec933ee6da102be8667f243066bc6c4",
+      "summary_sha256": "f2e82c4a6347a8538a2c1e3800d58cd46399b866825c76dc76041b5968a4b910"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s11__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s11/final.pth",
+      "checkpoint_sha256": "aa9a358227ddbdbbca016320c0cf15ac3db7b86ebe28d0968b6cd33aa1bedeb9",
+      "row_sha256": "47cc6a98bf729618863bd80c8082043f080ec254bb1b625960f4fad9fd27cc7a",
+      "summary_sha256": "f2e82c4a6347a8538a2c1e3800d58cd46399b866825c76dc76041b5968a4b910"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s12__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s12/ckpt_2000k.pth",
+      "checkpoint_sha256": "1296d59524a2e4aa1513c66822ea9216a0658cadcde1d1681e93ec992dc5276e",
+      "row_sha256": "e902549e31f393644d4732d4d146bb98aa745ce12c05e1a8678613e3ebfacd83",
+      "summary_sha256": "9466f9c538880758fe8c53b8a71c6b40e77e4e846d7e3b02312ea9b220412732"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s12__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s12/ckpt_4000k.pth",
+      "checkpoint_sha256": "f7696ed592341475438a02302840bdbc80c866bea6ede33cde551b597dc7c23b",
+      "row_sha256": "ea760fee27fcf768f6ab162035e7a2f9d321c04d13f7b22d21608b694fe93086",
+      "summary_sha256": "9466f9c538880758fe8c53b8a71c6b40e77e4e846d7e3b02312ea9b220412732"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s12__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s12/ckpt_6000k.pth",
+      "checkpoint_sha256": "64d4c141959a8b14d454c2aa0d395cd96a2113af2d6ab9513af27b84cc068208",
+      "row_sha256": "f175377228fc6fa5a7ea5cc46819f324fb59e45a4a7c23ab635cea682ae44164",
+      "summary_sha256": "9466f9c538880758fe8c53b8a71c6b40e77e4e846d7e3b02312ea9b220412732"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s12__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s12/final.pth",
+      "checkpoint_sha256": "a04df0e6dd0a6bb90e2fdc0a3aca3593522a89ddbb78c0ab402b175fdb101775",
+      "row_sha256": "ec0c0cfd88072c5f7a28f906bd05b4189ffcd673fbde2f5bdf14a92aee8c13f3",
+      "summary_sha256": "9466f9c538880758fe8c53b8a71c6b40e77e4e846d7e3b02312ea9b220412732"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s13__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s13/ckpt_2000k.pth",
+      "checkpoint_sha256": "fea958e3fb467b331fbf6a57693694e3a5c42a679e87e2bce4bfdc778b6071a9",
+      "row_sha256": "1f18bcca84eef13d7af804ed1af8ff9b778cac8c8e6adb8d554953be65a3dfb9",
+      "summary_sha256": "2951e8b0659bb9e3f997df294288a87ff2bd5d35924ddeb353afa5aa0af545a6"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s13__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s13/ckpt_4000k.pth",
+      "checkpoint_sha256": "9f68b205373ab664c792d3d834249bb87f5c96fb5ba963b99dbb8d730bb7d434",
+      "row_sha256": "c73efe03454f38ba4a116a99d020cbd65b43c4d20a090532f19bf327fe601610",
+      "summary_sha256": "2951e8b0659bb9e3f997df294288a87ff2bd5d35924ddeb353afa5aa0af545a6"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s13__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s13/ckpt_6000k.pth",
+      "checkpoint_sha256": "0d46242cd7bc722bdaa5a521eb316fea4eb967be398cb5faf5224bbf6234d338",
+      "row_sha256": "d38cd6d51b32506764b471372ed915af31ec6afcc52fb878430f605d609e9b0f",
+      "summary_sha256": "2951e8b0659bb9e3f997df294288a87ff2bd5d35924ddeb353afa5aa0af545a6"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s13__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s13/final.pth",
+      "checkpoint_sha256": "252d11f82f9e5aa9d2e0e0b1e8801dabcf2cdcca2878b5736d23508c0a1167e6",
+      "row_sha256": "40a3ed2b62a1347c46d25181a3ef1cf0c8d6f49a8b7089a6249f5d1d69d449db",
+      "summary_sha256": "2951e8b0659bb9e3f997df294288a87ff2bd5d35924ddeb353afa5aa0af545a6"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s14__2M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s14/ckpt_2000k.pth",
+      "checkpoint_sha256": "546c3b2d442bb3a388db096d2734014465c440ff4d8ba01e4c293deb91fa5816",
+      "row_sha256": "f61d2623823a5b0efa69e89ab7ca41de10a0e551ac503d664f2618e990ae1af4",
+      "summary_sha256": "637c5eacf6118644eab34f86638d5491ba3d913e13e7d24bdabac02d8d9516d9"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s14__4M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s14/ckpt_4000k.pth",
+      "checkpoint_sha256": "ab92c91872e745420b1437bf52535e77fc6c43b22b4df693c8eb9c1a4aab9d77",
+      "row_sha256": "5b07acbe203d3778090ac4de64cddf1b11ee441e05d520038437560c5270657e",
+      "summary_sha256": "637c5eacf6118644eab34f86638d5491ba3d913e13e7d24bdabac02d8d9516d9"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s14__6M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s14/ckpt_6000k.pth",
+      "checkpoint_sha256": "54aa4bce2b3de5a7f2528930265368e5f8c77549e7231eda535d8b4ef5afe2a4",
+      "row_sha256": "ec22ca19389447cd013049e3d22c4df21fb88498724ccb16024aeabac703d6b3",
+      "summary_sha256": "637c5eacf6118644eab34f86638d5491ba3d913e13e7d24bdabac02d8d9516d9"
+    },
+    {
+      "name": "LABELS_KEEPV8_LO_s14__8M",
+      "checkpoint": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_KEEPV8_LO_s14/final.pth",
+      "checkpoint_sha256": "34c5fdef57582229bf9666b6b52aa4229882475ee88ec0dc7b9cfd5b40333420",
+      "row_sha256": "473c29bf3f2f77b309884a5de5f9ceb5bf3a7d65ce931f389c5c35a4a7a7f44b",
+      "summary_sha256": "637c5eacf6118644eab34f86638d5491ba3d913e13e7d24bdabac02d8d9516d9"
+    }
+  ]
+}

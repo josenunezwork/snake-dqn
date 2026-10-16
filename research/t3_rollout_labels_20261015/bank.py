@@ -48,6 +48,15 @@ class LabelBank:
                 raise ValueError(f"invalid weight in {path}")
             if (row["action"] < 0).any() or (row["action"] > 5).any():
                 raise ValueError(f"invalid action in {path}")
+            # v2 keeps the raw outcome set even when its selected label set prefers
+            # non-boost actions.  T4a must classify counterexamples from this raw
+            # provenance rather than from the preferred label set.
+            if "surviving_original" in row and (
+                row["surviving_original"].shape != (n, 6)
+                or row["surviving_original"].dtype != np.bool_
+                or not row["surviving_original"].any(axis=1).all()
+            ):
+                raise ValueError(f"invalid original surviving set in {path}")
             if "packed" in row:
                 if (
                     pack is None
@@ -73,18 +82,75 @@ class LabelBank:
         self.scalars = np.concatenate([r["scalars"] for r in rows]).astype(np.float32, copy=False)
         self.mask = np.concatenate([r["mask"] for r in rows]).astype(bool, copy=False)
         self.surviving = np.concatenate([r["surviving"] for r in rows]).astype(bool, copy=False)
+        self.surviving_original = np.concatenate(
+            [r.get("surviving_original", r["surviving"]) for r in rows]
+        ).astype(bool, copy=False)
         self.action = np.concatenate([r["action"] for r in rows]).astype(np.int64, copy=False)
         self.weight = np.concatenate([r["weight"] for r in rows]).astype(np.float32, copy=False)
         self.size = len(self.action)
         if self.size == 0:
             raise ValueError("label bank has no rows")
+        # A counter row is one where B8's chosen action itself survived.  The
+        # preferred v2 label set can deliberately omit that action, so derive
+        # this from the preserved raw outcome provenance.
+        self.counter = self.surviving_original[np.arange(self.size), self.action]
+        self._counter_indices = np.flatnonzero(self.counter)
+        self._decisive_indices = np.flatnonzero(~self.counter)
 
-    def sample(self, rng, n: int) -> dict:
-        indices = rng.integers(self.size, size=n)
+    def sample(self, rng, n: int, counter_ratio: float | None = None) -> dict:
+        """Sample rows, optionally enforcing a counter:decisive ratio.
+
+        ``None`` intentionally retains the original one-call uniform sampler so the
+        default learner path consumes the identical RNG stream.
+        """
+        if counter_ratio is None:
+            indices = rng.integers(self.size, size=n)
+        else:
+            self.validate_counter_ratio(counter_ratio)
+            if n < 0:
+                raise ValueError("sample size must be >= 0")
+            if n == 0:
+                indices = np.empty(0, dtype=np.int64)
+                return self._rows(indices)
+            n_counter = int(round(n * (1.0 - 1.0 / (counter_ratio + 1.0))))
+            n_decisive = n - n_counter
+            if n_counter and not len(self._counter_indices):
+                raise ValueError("label bank has no counter rows for requested counter ratio")
+            if n_decisive and not len(self._decisive_indices):
+                raise ValueError("label bank has no decisive rows for requested counter ratio")
+            parts = []
+            if n_counter:
+                parts.append(
+                    self._counter_indices[rng.integers(len(self._counter_indices), size=n_counter)]
+                )
+            if n_decisive:
+                parts.append(
+                    self._decisive_indices[
+                        rng.integers(len(self._decisive_indices), size=n_decisive)
+                    ]
+                )
+            indices = np.concatenate(parts) if len(parts) > 1 else parts[0]
+        return self._rows(indices)
+
+    def validate_counter_ratio(self, counter_ratio: float) -> None:
+        """Check that a requested two-sided sampler can draw each required side."""
+        if not np.isfinite(counter_ratio) or counter_ratio < 0:
+            raise ValueError("counter ratio must be finite and >= 0")
+        if counter_ratio > 0 and not len(self._counter_indices):
+            raise ValueError("label bank has no counter rows for requested counter ratio")
+        if not len(self._decisive_indices):
+            raise ValueError("label bank has no decisive rows for requested counter ratio")
+
+    def _rows(self, indices: np.ndarray) -> dict:
         return {
-            "local": self.local[indices], "global": self.global_[indices],
-            "scalars": self.scalars[indices], "mask": self.mask[indices],
-            "surviving": self.surviving[indices], "action": self.action[indices],
+            "local": self.local[indices],
+            "global": self.global_[indices],
+            "scalars": self.scalars[indices],
+            "mask": self.mask[indices],
+            "surviving": self.surviving[indices],
+            "action": self.action[indices],
+            "surviving_original": self.surviving_original[indices],
+            "counter": self.counter[indices],
             "weight": self.weight[indices],
         }
 

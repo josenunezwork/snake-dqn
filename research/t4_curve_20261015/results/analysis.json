@@ -1,0 +1,1442 @@
+{
+  "study": "T3 checkpoint effect-versus-length curve",
+  "evidence": "diagnostic only; not a T3 screen decision or promotion evidence",
+  "round_index": 64,
+  "mix": "scripted",
+  "frames": 5000,
+  "worlds": 32,
+  "row_count": 70,
+  "fixed_reference": "CTRL 8M, paired by seed",
+  "matched_reference_note": "CTRL 4M is additionally reported only for the matched 4M comparison.",
+  "absolute_metrics": {
+    "controls": {
+      "4M": {
+        "per_seed": {
+          "10": {
+            "episode_survival": 0.3125,
+            "alive_frame_survival": 0.7584,
+            "mass": 512.9828375
+          },
+          "11": {
+            "episode_survival": 0.40625,
+            "alive_frame_survival": 0.73968125,
+            "mass": 480.80914375
+          },
+          "12": {
+            "episode_survival": 0.53125,
+            "alive_frame_survival": 0.82239375,
+            "mass": 568.81814375
+          },
+          "13": {
+            "episode_survival": 0.40625,
+            "alive_frame_survival": 0.75274375,
+            "mass": 505.62663125
+          },
+          "14": {
+            "episode_survival": 0.5625,
+            "alive_frame_survival": 0.80811875,
+            "mass": 537.27245625
+          }
+        },
+        "seed_n": 5,
+        "worlds_per_seed": 32,
+        "episode_survival": {
+          "mean": 0.44375,
+          "seed_se": 0.04571480886977435
+        },
+        "alive_frame_survival": {
+          "mean": 0.7762675,
+          "seed_se": 0.016360472372459186
+        },
+        "mass": {
+          "mean": 521.1018425,
+          "seed_se": 14.945293794390334
+        }
+      },
+      "8M": {
+        "per_seed": {
+          "10": {
+            "episode_survival": 0.46875,
+            "alive_frame_survival": 0.74393125,
+            "mass": 505.93020624999997
+          },
+          "11": {
+            "episode_survival": 0.59375,
+            "alive_frame_survival": 0.853725,
+            "mass": 618.4077687500001
+          },
+          "12": {
+            "episode_survival": 0.6875,
+            "alive_frame_survival": 0.89670625,
+            "mass": 650.124525
+          },
+          "13": {
+            "episode_survival": 0.59375,
+            "alive_frame_survival": 0.8134375,
+            "mass": 580.9339375
+          },
+          "14": {
+            "episode_survival": 0.59375,
+            "alive_frame_survival": 0.80046875,
+            "mass": 536.748275
+          }
+        },
+        "seed_n": 5,
+        "worlds_per_seed": 32,
+        "episode_survival": {
+          "mean": 0.5875,
+          "seed_se": 0.03479852726768763
+        },
+        "alive_frame_survival": {
+          "mean": 0.82165375,
+          "seed_se": 0.025708501345007448
+        },
+        "mass": {
+          "mean": 578.4289425,
+          "seed_se": 26.208951619041002
+        }
+      }
+    }
+  },
+  "ctrl_4m_minus_ctrl_8m": {
+    "per_seed": {
+      "10": {
+        "episode_survival": -0.15625,
+        "alive_frame_survival": 0.01446875,
+        "mass": 7.052631250000011
+      },
+      "11": {
+        "episode_survival": -0.1875,
+        "alive_frame_survival": -0.11404375,
+        "mass": -137.598625
+      },
+      "12": {
+        "episode_survival": -0.15625,
+        "alive_frame_survival": -0.07431249999999999,
+        "mass": -81.30638125
+      },
+      "13": {
+        "episode_survival": -0.1875,
+        "alive_frame_survival": -0.060693750000000005,
+        "mass": -75.30730625
+      },
+      "14": {
+        "episode_survival": -0.03125,
+        "alive_frame_survival": 0.007649999999999994,
+        "mass": 0.524181249999996
+      }
+    },
+    "seed_n": 5,
+    "worlds_per_seed": 32,
+    "episode_survival": {
+      "mean": -0.14375,
+      "seed_se": 0.02898005779842407
+    },
+    "alive_frame_survival": {
+      "mean": -0.04538625,
+      "seed_se": 0.024678294755336113
+    },
+    "mass": {
+      "mean": -57.327099999999994,
+      "seed_se": 27.233556515789115
+    }
+  },
+  "arms": {
+    "LABELS": {
+      "absolute_metrics": {
+        "2M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.59375,
+              "alive_frame_survival": 0.8231625,
+              "mass": 417.9731
+            },
+            "11": {
+              "episode_survival": 0.53125,
+              "alive_frame_survival": 0.77063125,
+              "mass": 391.1660875
+            },
+            "12": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.84599375,
+              "mass": 441.35314999999997
+            },
+            "13": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.86036875,
+              "mass": 437.45231875
+            },
+            "14": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.7519875,
+              "mass": 368.8323375
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.56875,
+            "seed_se": 0.030297999108852055
+          },
+          "alive_frame_survival": {
+            "mean": 0.81042875,
+            "seed_se": 0.021118998463320885
+          },
+          "mass": {
+            "mean": 411.35539874999995,
+            "seed_se": 13.857357811282343
+          }
+        },
+        "4M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.53125,
+              "alive_frame_survival": 0.75871875,
+              "mass": 432.67555625
+            },
+            "11": {
+              "episode_survival": 0.5625,
+              "alive_frame_survival": 0.79828125,
+              "mass": 465.376925
+            },
+            "12": {
+              "episode_survival": 0.5,
+              "alive_frame_survival": 0.75245,
+              "mass": 408.7954
+            },
+            "13": {
+              "episode_survival": 0.5625,
+              "alive_frame_survival": 0.84060625,
+              "mass": 487.08903125
+            },
+            "14": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.75039375,
+              "mass": 417.66723125
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.525,
+            "seed_se": 0.018221724671391562
+          },
+          "alive_frame_survival": {
+            "mean": 0.7800900000000001,
+            "seed_se": 0.017458100242079614
+          },
+          "mass": {
+            "mean": 442.32082875,
+            "seed_se": 14.76577301317622
+          }
+        },
+        "6M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.59375,
+              "alive_frame_survival": 0.83508125,
+              "mass": 498.70205625
+            },
+            "11": {
+              "episode_survival": 0.65625,
+              "alive_frame_survival": 0.8591125,
+              "mass": 531.572275
+            },
+            "12": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.877125,
+              "mass": 494.02144375
+            },
+            "13": {
+              "episode_survival": 0.5625,
+              "alive_frame_survival": 0.79315,
+              "mass": 462.2847875
+            },
+            "14": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.8438375,
+              "mass": 479.925125
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.6125,
+            "seed_se": 0.015934435979977454
+          },
+          "alive_frame_survival": {
+            "mean": 0.8416612499999999,
+            "seed_se": 0.014077637463811174
+          },
+          "mass": {
+            "mean": 493.3011375,
+            "seed_se": 11.47889456285851
+          }
+        },
+        "8M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.5,
+              "alive_frame_survival": 0.75996875,
+              "mass": 455.9893875
+            },
+            "11": {
+              "episode_survival": 0.53125,
+              "alive_frame_survival": 0.83056875,
+              "mass": 516.56063125
+            },
+            "12": {
+              "episode_survival": 0.53125,
+              "alive_frame_survival": 0.8116,
+              "mass": 478.737075
+            },
+            "13": {
+              "episode_survival": 0.65625,
+              "alive_frame_survival": 0.81361875,
+              "mass": 496.34135
+            },
+            "14": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.79755,
+              "mass": 465.32365
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.56875,
+            "seed_se": 0.030297999108852055
+          },
+          "alive_frame_survival": {
+            "mean": 0.8026612499999999,
+            "seed_se": 0.011890271331796848
+          },
+          "mass": {
+            "mean": 482.59041875,
+            "seed_se": 10.87121858906006
+          }
+        }
+      },
+      "fixed_ctrl_8m_effects": {
+        "2M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.125,
+              "alive_frame_survival": 0.07923125,
+              "mass": -87.95710625
+            },
+            "11": {
+              "episode_survival": -0.0625,
+              "alive_frame_survival": -0.08309375000000001,
+              "mass": -227.24168125
+            },
+            "12": {
+              "episode_survival": -0.0625,
+              "alive_frame_survival": -0.050712499999999994,
+              "mass": -208.771375
+            },
+            "13": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": 0.04693125,
+              "mass": -143.48161875
+            },
+            "14": {
+              "episode_survival": -0.125,
+              "alive_frame_survival": -0.04848125000000002,
+              "mass": -167.9159375
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.01875,
+            "seed_se": 0.04375
+          },
+          "alive_frame_survival": {
+            "mean": -0.011225000000000002,
+            "seed_se": 0.031366296103461117
+          },
+          "mass": {
+            "mean": -167.07354375,
+            "seed_se": 24.67348084107657
+          }
+        },
+        "4M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.0625,
+              "alive_frame_survival": 0.014787500000000002,
+              "mass": -73.25465
+            },
+            "11": {
+              "episode_survival": -0.03125,
+              "alive_frame_survival": -0.05544375,
+              "mass": -153.03084375
+            },
+            "12": {
+              "episode_survival": -0.1875,
+              "alive_frame_survival": -0.14425625,
+              "mass": -241.329125
+            },
+            "13": {
+              "episode_survival": -0.03125,
+              "alive_frame_survival": 0.027168750000000002,
+              "mass": -93.84490625000001
+            },
+            "14": {
+              "episode_survival": -0.125,
+              "alive_frame_survival": -0.050074999999999995,
+              "mass": -119.08104375
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.0625,
+            "seed_se": 0.04307515235028194
+          },
+          "alive_frame_survival": {
+            "mean": -0.04156375,
+            "seed_se": 0.03058632477564524
+          },
+          "mass": {
+            "mean": -136.10811375,
+            "seed_se": 29.482620071383618
+          }
+        },
+        "6M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.125,
+              "alive_frame_survival": 0.09115000000000001,
+              "mass": -7.228149999999998
+            },
+            "11": {
+              "episode_survival": 0.0625,
+              "alive_frame_survival": 0.005387499999999998,
+              "mass": -86.83549375000001
+            },
+            "12": {
+              "episode_survival": -0.0625,
+              "alive_frame_survival": -0.01958125,
+              "mass": -156.10308125
+            },
+            "13": {
+              "episode_survival": -0.03125,
+              "alive_frame_survival": -0.02028750000000001,
+              "mass": -118.64915
+            },
+            "14": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": 0.043368749999999984,
+              "mass": -56.82315000000001
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.025,
+            "seed_se": 0.03336586953759785
+          },
+          "alive_frame_survival": {
+            "mean": 0.020007499999999994,
+            "seed_se": 0.021226992084813854
+          },
+          "mass": {
+            "mean": -85.127805,
+            "seed_se": 25.528020246415277
+          }
+        },
+        "8M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": 0.01603750000000001,
+              "mass": -49.94081875
+            },
+            "11": {
+              "episode_survival": -0.0625,
+              "alive_frame_survival": -0.023156249999999996,
+              "mass": -101.84713750000002
+            },
+            "12": {
+              "episode_survival": -0.15625,
+              "alive_frame_survival": -0.08510625000000001,
+              "mass": -171.38745
+            },
+            "13": {
+              "episode_survival": 0.0625,
+              "alive_frame_survival": 0.00018124999999999782,
+              "mass": -84.5925875
+            },
+            "14": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": -0.0029187500000000116,
+              "mass": -71.424625
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.01875,
+            "seed_se": 0.04026280852101601
+          },
+          "alive_frame_survival": {
+            "mean": -0.018992500000000002,
+            "seed_se": 0.01766559336853704
+          },
+          "mass": {
+            "mean": -95.83852375000001,
+            "seed_se": 20.70368633275964
+          }
+        }
+      },
+      "matched_4m_effect": {
+        "per_seed": {
+          "10": {
+            "episode_survival": 0.21875,
+            "alive_frame_survival": 0.0003187500000000048,
+            "mass": -80.30728125
+          },
+          "11": {
+            "episode_survival": 0.15625,
+            "alive_frame_survival": 0.0586,
+            "mass": -15.432218749999997
+          },
+          "12": {
+            "episode_survival": -0.03125,
+            "alive_frame_survival": -0.06994375000000001,
+            "mass": -160.02274375000002
+          },
+          "13": {
+            "episode_survival": 0.15625,
+            "alive_frame_survival": 0.08786250000000001,
+            "mass": -18.537600000000005
+          },
+          "14": {
+            "episode_survival": -0.09375,
+            "alive_frame_survival": -0.057725,
+            "mass": -119.605225
+          }
+        },
+        "seed_n": 5,
+        "worlds_per_seed": 32,
+        "episode_survival": {
+          "mean": 0.08125,
+          "seed_se": 0.06059599821770411
+        },
+        "alive_frame_survival": {
+          "mean": 0.003822500000000001,
+          "seed_se": 0.03106857477067865
+        },
+        "mass": {
+          "mean": -78.78101375000001,
+          "seed_se": 28.20594187247148
+        }
+      },
+      "fixed_reference_4m_over_8m_ratios": {
+        "episode_survival": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        },
+        "alive_frame_survival": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        },
+        "mass": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        }
+      },
+      "matched_reference_4m_over_8m_ratios": {
+        "episode_survival": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        },
+        "alive_frame_survival": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        },
+        "mass": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        }
+      },
+      "four_m_verdict": {
+        "ratio": null,
+        "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+        "carries_at_least_80_percent": false
+      }
+    },
+    "LABELS_KEEPV8": {
+      "absolute_metrics": {
+        "2M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.7188125,
+              "mass": 372.3143875
+            },
+            "11": {
+              "episode_survival": 0.65625,
+              "alive_frame_survival": 0.81371875,
+              "mass": 449.23920625
+            },
+            "12": {
+              "episode_survival": 0.5,
+              "alive_frame_survival": 0.79960625,
+              "mass": 414.7399375
+            },
+            "13": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.87876875,
+              "mass": 498.4246875
+            },
+            "14": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.77909375,
+              "mass": 409.48404375
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.54375,
+            "seed_se": 0.04026280852101601
+          },
+          "alive_frame_survival": {
+            "mean": 0.798,
+            "seed_se": 0.02588566839247154
+          },
+          "mass": {
+            "mean": 428.84045249999997,
+            "seed_se": 21.24472407732669
+          }
+        },
+        "4M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.40625,
+              "alive_frame_survival": 0.7941812500000001,
+              "mass": 470.63879375
+            },
+            "11": {
+              "episode_survival": 0.4375,
+              "alive_frame_survival": 0.77785625,
+              "mass": 452.5750125
+            },
+            "12": {
+              "episode_survival": 0.53125,
+              "alive_frame_survival": 0.81070625,
+              "mass": 475.46065
+            },
+            "13": {
+              "episode_survival": 0.5,
+              "alive_frame_survival": 0.8064625,
+              "mass": 483.76125
+            },
+            "14": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.89474375,
+              "mass": 548.35784375
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.5,
+            "seed_se": 0.038273277230987154
+          },
+          "alive_frame_survival": {
+            "mean": 0.8167899999999999,
+            "seed_se": 0.02030695555099285
+          },
+          "mass": {
+            "mean": 486.15871,
+            "seed_se": 16.36713334650285
+          }
+        },
+        "6M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.7774375,
+              "mass": 457.99391875
+            },
+            "11": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.86535625,
+              "mass": 542.0040875
+            },
+            "12": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.875075,
+              "mass": 527.19731875
+            },
+            "13": {
+              "episode_survival": 0.6875,
+              "alive_frame_survival": 0.84003125,
+              "mass": 513.90934375
+            },
+            "14": {
+              "episode_survival": 0.59375,
+              "alive_frame_survival": 0.79659375,
+              "mass": 468.3332125
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.6,
+            "seed_se": 0.03617449032121945
+          },
+          "alive_frame_survival": {
+            "mean": 0.83089875,
+            "seed_se": 0.019048886060771385
+          },
+          "mass": {
+            "mean": 501.88757625,
+            "seed_se": 16.503013254412597
+          }
+        },
+        "8M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.5625,
+              "alive_frame_survival": 0.83250625,
+              "mass": 518.06881875
+            },
+            "11": {
+              "episode_survival": 0.65625,
+              "alive_frame_survival": 0.862325,
+              "mass": 547.308225
+            },
+            "12": {
+              "episode_survival": 0.59375,
+              "alive_frame_survival": 0.8630875,
+              "mass": 532.232175
+            },
+            "13": {
+              "episode_survival": 0.53125,
+              "alive_frame_survival": 0.80365625,
+              "mass": 483.5130125
+            },
+            "14": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.85750625,
+              "mass": 535.570075
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.59375,
+            "seed_se": 0.02209708691207961
+          },
+          "alive_frame_survival": {
+            "mean": 0.84381625,
+            "seed_se": 0.011493721553798412
+          },
+          "mass": {
+            "mean": 523.33846125,
+            "seed_se": 10.993397094719228
+          }
+        }
+      },
+      "fixed_ctrl_8m_effects": {
+        "2M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.0,
+              "alive_frame_survival": -0.025118749999999995,
+              "mass": -133.61581875
+            },
+            "11": {
+              "episode_survival": 0.0625,
+              "alive_frame_survival": -0.04000625,
+              "mass": -169.1685625
+            },
+            "12": {
+              "episode_survival": -0.1875,
+              "alive_frame_survival": -0.0971,
+              "mass": -235.3845875
+            },
+            "13": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": 0.06533125,
+              "mass": -82.50925000000001
+            },
+            "14": {
+              "episode_survival": -0.125,
+              "alive_frame_survival": -0.021375000000000005,
+              "mass": -127.26423125000001
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.04375,
+            "seed_se": 0.048007160924178796
+          },
+          "alive_frame_survival": {
+            "mean": -0.02365375,
+            "seed_se": 0.026064751146783464
+          },
+          "mass": {
+            "mean": -149.58849,
+            "seed_se": 25.49261930432992
+          }
+        },
+        "4M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": -0.0625,
+              "alive_frame_survival": 0.05025000000000001,
+              "mass": -35.29141249999999
+            },
+            "11": {
+              "episode_survival": -0.15625,
+              "alive_frame_survival": -0.07586875,
+              "mass": -165.83275625000002
+            },
+            "12": {
+              "episode_survival": -0.15625,
+              "alive_frame_survival": -0.08600000000000001,
+              "mass": -174.663875
+            },
+            "13": {
+              "episode_survival": -0.09375,
+              "alive_frame_survival": -0.006975000000000008,
+              "mass": -97.17268750000001
+            },
+            "14": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": 0.09427499999999998,
+              "mass": 11.60956874999999
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.0875,
+            "seed_se": 0.03479852726768763
+          },
+          "alive_frame_survival": {
+            "mean": -0.004863750000000004,
+            "seed_se": 0.034996625306056295
+          },
+          "mass": {
+            "mean": -92.2702325,
+            "seed_se": 36.23657705016165
+          }
+        },
+        "6M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.0,
+              "alive_frame_survival": 0.03350625,
+              "mass": -47.936287500000006
+            },
+            "11": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": 0.011631250000000006,
+              "mass": -76.40368125
+            },
+            "12": {
+              "episode_survival": -0.0625,
+              "alive_frame_survival": -0.021631249999999998,
+              "mass": -122.92720625000001
+            },
+            "13": {
+              "episode_survival": 0.09375,
+              "alive_frame_survival": 0.026593750000000006,
+              "mass": -67.02459375000001
+            },
+            "14": {
+              "episode_survival": 0.0,
+              "alive_frame_survival": -0.0038750000000000078,
+              "mass": -68.41506250000002
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.0125,
+            "seed_se": 0.025387620014487376
+          },
+          "alive_frame_survival": {
+            "mean": 0.009245000000000001,
+            "seed_se": 0.010051762982805554
+          },
+          "mass": {
+            "mean": -76.54136625000001,
+            "seed_se": 12.50304245256439
+          }
+        },
+        "8M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.09375,
+              "alive_frame_survival": 0.088575,
+              "mass": 12.1386125
+            },
+            "11": {
+              "episode_survival": 0.0625,
+              "alive_frame_survival": 0.008599999999999997,
+              "mass": -71.09954375000001
+            },
+            "12": {
+              "episode_survival": -0.09375,
+              "alive_frame_survival": -0.033618749999999996,
+              "mass": -117.89235000000001
+            },
+            "13": {
+              "episode_survival": -0.0625,
+              "alive_frame_survival": -0.009781250000000003,
+              "mass": -97.42092500000001
+            },
+            "14": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": 0.0570375,
+              "mass": -1.1782000000000132
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.00625,
+            "seed_se": 0.03617449032121945
+          },
+          "alive_frame_survival": {
+            "mean": 0.022162499999999998,
+            "seed_se": 0.02229661207798732
+          },
+          "mass": {
+            "mean": -55.09048125,
+            "seed_se": 25.902235796083737
+          }
+        }
+      },
+      "matched_4m_effect": {
+        "per_seed": {
+          "10": {
+            "episode_survival": 0.09375,
+            "alive_frame_survival": 0.035781250000000014,
+            "mass": -42.344043750000004
+          },
+          "11": {
+            "episode_survival": 0.03125,
+            "alive_frame_survival": 0.038175,
+            "mass": -28.23413125
+          },
+          "12": {
+            "episode_survival": 0.0,
+            "alive_frame_survival": -0.011687500000000005,
+            "mass": -93.35749375
+          },
+          "13": {
+            "episode_survival": 0.09375,
+            "alive_frame_survival": 0.05371874999999998,
+            "mass": -21.865381250000006
+          },
+          "14": {
+            "episode_survival": 0.0625,
+            "alive_frame_survival": 0.086625,
+            "mass": 11.085387499999996
+          }
+        },
+        "seed_n": 5,
+        "worlds_per_seed": 32,
+        "episode_survival": {
+          "mean": 0.05625,
+          "seed_se": 0.018221724671391562
+        },
+        "alive_frame_survival": {
+          "mean": 0.040522499999999996,
+          "seed_se": 0.015895684678750077
+        },
+        "mass": {
+          "mean": -34.943132500000004,
+          "seed_se": 17.031843729461084
+        }
+      },
+      "fixed_reference_4m_over_8m_ratios": {
+        "episode_survival": {
+          "ratio": -13.999999999999998,
+          "status": "NOT_80_PERCENT_NONPOSITIVE_4M",
+          "carries_at_least_80_percent": false
+        },
+        "alive_frame_survival": {
+          "ratio": -0.21945854483925573,
+          "status": "NOT_80_PERCENT_NONPOSITIVE_4M",
+          "carries_at_least_80_percent": false
+        },
+        "mass": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        }
+      },
+      "matched_reference_4m_over_8m_ratios": {
+        "episode_survival": {
+          "ratio": 9.0,
+          "status": "AT_LEAST_80_PERCENT",
+          "carries_at_least_80_percent": true
+        },
+        "alive_frame_survival": {
+          "ratio": 1.8284263959390863,
+          "status": "AT_LEAST_80_PERCENT",
+          "carries_at_least_80_percent": true
+        },
+        "mass": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        }
+      },
+      "four_m_verdict": {
+        "ratio": -13.999999999999998,
+        "status": "NOT_80_PERCENT_NONPOSITIVE_4M",
+        "carries_at_least_80_percent": false
+      }
+    },
+    "LABELS_KEEPV8_LO": {
+      "absolute_metrics": {
+        "2M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.375,
+              "alive_frame_survival": 0.77820625,
+              "mass": 437.4083625
+            },
+            "11": {
+              "episode_survival": 0.34375,
+              "alive_frame_survival": 0.7220125000000001,
+              "mass": 394.927825
+            },
+            "12": {
+              "episode_survival": 0.53125,
+              "alive_frame_survival": 0.76979375,
+              "mass": 427.61625625
+            },
+            "13": {
+              "episode_survival": 0.4375,
+              "alive_frame_survival": 0.7834375,
+              "mass": 434.3755875
+            },
+            "14": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.7924625,
+              "mass": 445.789675
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.43125,
+            "seed_se": 0.03336586953759785
+          },
+          "alive_frame_survival": {
+            "mean": 0.7691825,
+            "seed_se": 0.012353084666642969
+          },
+          "mass": {
+            "mean": 428.02354125,
+            "seed_se": 8.773685613957282
+          }
+        },
+        "4M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.5625,
+              "alive_frame_survival": 0.7955375,
+              "mass": 485.8259
+            },
+            "11": {
+              "episode_survival": 0.5625,
+              "alive_frame_survival": 0.811425,
+              "mass": 506.8298
+            },
+            "12": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.8454625,
+              "mass": 519.24931875
+            },
+            "13": {
+              "episode_survival": 0.375,
+              "alive_frame_survival": 0.75965625,
+              "mass": 421.5203375
+            },
+            "14": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.90678125,
+              "mass": 550.68980625
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.51875,
+            "seed_se": 0.04375
+          },
+          "alive_frame_survival": {
+            "mean": 0.8237724999999999,
+            "seed_se": 0.024921354469485592
+          },
+          "mass": {
+            "mean": 496.82303249999995,
+            "seed_se": 21.559378263861486
+          }
+        },
+        "6M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.8745875,
+              "mass": 536.40534375
+            },
+            "11": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.8342937500000001,
+              "mass": 526.06056875
+            },
+            "12": {
+              "episode_survival": 0.625,
+              "alive_frame_survival": 0.87806875,
+              "mass": 551.6123625
+            },
+            "13": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.8299,
+              "mass": 495.5576
+            },
+            "14": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.809875,
+              "mass": 469.687525
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.5625,
+            "seed_se": 0.038273277230987154
+          },
+          "alive_frame_survival": {
+            "mean": 0.845345,
+            "seed_se": 0.013313088807401147
+          },
+          "mass": {
+            "mean": 515.86468,
+            "seed_se": 14.745302575454623
+          }
+        },
+        "8M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.46875,
+              "alive_frame_survival": 0.77038125,
+              "mass": 460.559875
+            },
+            "11": {
+              "episode_survival": 0.4375,
+              "alive_frame_survival": 0.76654375,
+              "mass": 480.72911875
+            },
+            "12": {
+              "episode_survival": 0.4375,
+              "alive_frame_survival": 0.789025,
+              "mass": 470.12110624999997
+            },
+            "13": {
+              "episode_survival": 0.65625,
+              "alive_frame_survival": 0.88164375,
+              "mass": 552.57663125
+            },
+            "14": {
+              "episode_survival": 0.5,
+              "alive_frame_survival": 0.776275,
+              "mass": 461.9717875
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": 0.5,
+            "seed_se": 0.040745015032516554
+          },
+          "alive_frame_survival": {
+            "mean": 0.7967737500000001,
+            "seed_se": 0.021556409411559
+          },
+          "mass": {
+            "mean": 485.19170374999993,
+            "seed_se": 17.22448479098262
+          }
+        }
+      },
+      "fixed_ctrl_8m_effects": {
+        "2M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": -0.09375,
+              "alive_frame_survival": 0.034275,
+              "mass": -68.52184375
+            },
+            "11": {
+              "episode_survival": -0.25,
+              "alive_frame_survival": -0.1317125,
+              "mass": -223.47994375
+            },
+            "12": {
+              "episode_survival": -0.15625,
+              "alive_frame_survival": -0.1269125,
+              "mass": -222.50826875
+            },
+            "13": {
+              "episode_survival": -0.15625,
+              "alive_frame_survival": -0.03,
+              "mass": -146.55835000000002
+            },
+            "14": {
+              "episode_survival": -0.125,
+              "alive_frame_survival": -0.008006250000000006,
+              "mass": -90.9586
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.15625,
+            "seed_se": 0.026145625829189858
+          },
+          "alive_frame_survival": {
+            "mean": -0.052471250000000004,
+            "seed_se": 0.03303610191423165
+          },
+          "mass": {
+            "mean": -150.40540125,
+            "seed_se": 32.243100994119494
+          }
+        },
+        "4M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.09375,
+              "alive_frame_survival": 0.05160625,
+              "mass": -20.104306249999993
+            },
+            "11": {
+              "episode_survival": -0.03125,
+              "alive_frame_survival": -0.042300000000000004,
+              "mass": -111.57796875000001
+            },
+            "12": {
+              "episode_survival": -0.21875,
+              "alive_frame_survival": -0.05124374999999999,
+              "mass": -130.87520625
+            },
+            "13": {
+              "episode_survival": -0.21875,
+              "alive_frame_survival": -0.05378125,
+              "mass": -159.4136
+            },
+            "14": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": 0.10631249999999999,
+              "mass": 13.941531249999992
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.06875,
+            "seed_se": 0.06434768838116875
+          },
+          "alive_frame_survival": {
+            "mean": 0.0021187499999999982,
+            "seed_se": 0.03259658107311639
+          },
+          "mass": {
+            "mean": -81.60591000000001,
+            "seed_se": 33.38531509141709
+          }
+        },
+        "6M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.15625,
+              "alive_frame_survival": 0.13065625,
+              "mass": 30.475137500000002
+            },
+            "11": {
+              "episode_survival": 0.03125,
+              "alive_frame_survival": -0.019431249999999997,
+              "mass": -92.3472
+            },
+            "12": {
+              "episode_survival": -0.0625,
+              "alive_frame_survival": -0.018637499999999998,
+              "mass": -98.51216250000002
+            },
+            "13": {
+              "episode_survival": -0.125,
+              "alive_frame_survival": 0.0164625,
+              "mass": -85.3763375
+            },
+            "14": {
+              "episode_survival": -0.125,
+              "alive_frame_survival": 0.00940625,
+              "mass": -67.06075
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.025,
+            "seed_se": 0.05358258812338202
+          },
+          "alive_frame_survival": {
+            "mean": 0.023691250000000004,
+            "seed_se": 0.027702978503560766
+          },
+          "mass": {
+            "mean": -62.564262500000005,
+            "seed_se": 23.84975261773399
+          }
+        },
+        "8M": {
+          "per_seed": {
+            "10": {
+              "episode_survival": 0.0,
+              "alive_frame_survival": 0.02645,
+              "mass": -45.37033125
+            },
+            "11": {
+              "episode_survival": -0.15625,
+              "alive_frame_survival": -0.08718125,
+              "mass": -137.67865
+            },
+            "12": {
+              "episode_survival": -0.25,
+              "alive_frame_survival": -0.10768124999999999,
+              "mass": -180.00341875
+            },
+            "13": {
+              "episode_survival": 0.0625,
+              "alive_frame_survival": 0.06820625,
+              "mass": -28.357306250000004
+            },
+            "14": {
+              "episode_survival": -0.09375,
+              "alive_frame_survival": -0.024193750000000007,
+              "mass": -74.7764875
+            }
+          },
+          "seed_n": 5,
+          "worlds_per_seed": 32,
+          "episode_survival": {
+            "mean": -0.0875,
+            "seed_se": 0.05537514108334172
+          },
+          "alive_frame_survival": {
+            "mean": -0.024880000000000003,
+            "seed_se": 0.033194715340886714
+          },
+          "mass": {
+            "mean": -93.23723875,
+            "seed_se": 28.587457771911545
+          }
+        }
+      },
+      "matched_4m_effect": {
+        "per_seed": {
+          "10": {
+            "episode_survival": 0.25,
+            "alive_frame_survival": 0.037137500000000004,
+            "mass": -27.156937500000005
+          },
+          "11": {
+            "episode_survival": 0.15625,
+            "alive_frame_survival": 0.07174375,
+            "mass": 26.02065625
+          },
+          "12": {
+            "episode_survival": -0.0625,
+            "alive_frame_survival": 0.023068750000000006,
+            "mass": -49.568825000000004
+          },
+          "13": {
+            "episode_survival": -0.03125,
+            "alive_frame_survival": 0.006912499999999999,
+            "mass": -84.10629375
+          },
+          "14": {
+            "episode_survival": 0.0625,
+            "alive_frame_survival": 0.0986625,
+            "mass": 13.417350000000003
+          }
+        },
+        "seed_n": 5,
+        "worlds_per_seed": 32,
+        "episode_survival": {
+          "mean": 0.075,
+          "seed_se": 0.058128360117932105
+        },
+        "alive_frame_survival": {
+          "mean": 0.047505000000000006,
+          "seed_se": 0.016668793049250744
+        },
+        "mass": {
+          "mean": -24.278810000000004,
+          "seed_se": 20.22156407432853
+        }
+      },
+      "fixed_reference_4m_over_8m_ratios": {
+        "episode_survival": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        },
+        "alive_frame_survival": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        },
+        "mass": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        }
+      },
+      "matched_reference_4m_over_8m_ratios": {
+        "episode_survival": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        },
+        "alive_frame_survival": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        },
+        "mass": {
+          "ratio": null,
+          "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+          "carries_at_least_80_percent": false
+        }
+      },
+      "four_m_verdict": {
+        "ratio": null,
+        "status": "NON_DEMONSTRATED_NONPOSITIVE_8M",
+        "carries_at_least_80_percent": false
+      }
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "commit": "ebb02b6b5e20215d4b2ea6f6cf87800cae95dc58",
+  "plan_sha256": "6e70d07542b575c53db234c0be5b450e905fe602e0819da1246bd0da011693bc",
+  "runs": [
+    "PLACEHOLDER_s10",
+    "PLACEHOLDER_s11",
+    "PLACEHOLDER_s12",
+    "PLACEHOLDER_s13",
+    "PLACEHOLDER_s14"
+  ],
+  "transitions_per_run": 8000000,
+  "image": "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel",
+  "extra_inputs": [
+    {
+      "dst": "ckpt/B8_s0.pth",
+      "sha256": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f"
+    },
+    {
+      "dst": "ckpt/B8_s1.pth",
+      "sha256": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753"
+    },
+    {
+      "dst": "ckpt/B8_s2.pth",
+      "sha256": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e"
+    },
+    {
+      "dst": "ckpt/B8_s3.pth",
+      "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+    },
+    {
+      "dst": "ckpt/B8_s4.pth",
+      "sha256": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f"
+    },
+    {
+      "dst": "t4-bank-v2/bank-00000.npz",
+      "sha256": "759b94e6e8e5f336abca542dceed42009c3df88de97c935707e0950d742172b2"
+    },
+    {
+      "dst": "t4-bank-v2/manifest.json",
+      "sha256": "340415402e04cd938a7e66e5f9e7294968d34b5a78b789b4fe02ae503c8bd221"
+    }
+  ],
+  "inits": {
+    "PLACEHOLDER_s10": "/r/in/ckpt/B8_s0.pth",
+    "PLACEHOLDER_s11": "/r/in/ckpt/B8_s1.pth",
+    "PLACEHOLDER_s12": "/r/in/ckpt/B8_s2.pth",
+    "PLACEHOLDER_s13": "/r/in/ckpt/B8_s3.pth",
+    "PLACEHOLDER_s14": "/r/in/ckpt/B8_s4.pth"
+  },
+  "initial_wave_on_min_host": 5,
+  "plan_warnings": [],
+  "trainer_flag_problems_launch_refuses": [],
+  "g2_pod_wall_budget_s": 1012.5,
+  "upload_files": 143,
+  "upload_bytes": 2275397293,
+  "worst_case_usd": 1.9,
+  "max_hourly": 0.95,
+  "spend_cap_usd": 10.0,
+  "g2_rate": 39506.17283950617,
+  "body_without_cmd": {
+    "name": "t4-prep-plan",
+    "computeType": "GPU",
+    "gpuTypeIds": [
+      "NVIDIA GeForce RTX 4090"
+    ],
+    "gpuCount": 1,
+    "cloudType": "SECURE",
+    "imageName": "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-devel",
+    "containerDiskInGb": 120,
+    "volumeInGb": 0,
+    "minRAMPerGPU": 64,
+    "minVCPUPerGPU": 32,
+    "ports": [
+      "8000/http"
+    ],
+    "env": {
+      "M3_TOKEN_SHA256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "M3_DEADLINE_EPOCH": "1792109919",
+      "M3_SELF_DELETE_EPOCH": "1792110819"
+    }
+  },
+  "dry_run": {
+    "dry_run": true,
+    "would_send": "POST /pods"
+  },
+  "hourly_estimate": {
+    "kind": "GPU",
+    "gpu": "NVIDIA GeForce RTX 4090",
+    "count": 1,
+    "cloud": "SECURE",
+    "spot": false,
+    "usd_per_hr": 0.89
+  },
+  "omitted": "Account balance, shared ledger and embedded pod agent source; full output retained locally at /private/tmp/t4-pod-dry-run-20261015.json. upload_* fields describe local staging only, no upload occurred."
+}

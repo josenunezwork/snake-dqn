@@ -27,7 +27,8 @@ Everything new is behind a flag:
   acts with a copy of the online network refreshed every ``--actor-sync-updates`` updates,
   builds the n-step transitions itself and writes observations into its own shared-memory
   ring; the learner keeps the replay index, does one update per 128 ingested transitions
-  (replay ratio 4, as M3) and back-pressures the actors through bounded queues. Not
+  (or ``--update-every M`` x ``--batch-scale K`` x 128) and back-pressures the actors through
+  bounded queues. Target synchronization remains counted in learner updates. Not
   bit-reproducible (policy lag, scheduling); ``--actors 0`` (default) is the M3 trainer.
 * ``--obs-version bv8`` (M4-B; multi-actor only): the ``ego2s-bv8`` observation (``ego2s-b``
   plus the v8 veto's 30 per-action features as scalars 30..59; ``--init`` must be an
@@ -51,6 +52,9 @@ Everything new is behind a flag:
   plain Adam), ``--learner-precision fp16|bf16`` (T2: autocast, numerics change),
   ``--batch-scale K`` / ``--lr-scale`` (T3: K x larger batches at the same replay ratio -
   CHANGES the training dynamics). Benchmark: ``research/perf_learner_20261013``.
+  ``--update-every M`` (T4: one unchanged-size update per M x K x 128 ingested transitions)
+  is a separate, default-off recipe lever; target synchronization retains its existing
+  K-adjusted update interval.
 
 * perf-opp (2026-10-13; multi-actor only; default ``per-group`` = unchanged): ``--opp-forward``
   (or env ``M3C_OPP_FORWARD``) ``merged-cpu`` runs the vector61 opponents (one group per
@@ -667,7 +671,12 @@ class NStepBuilderRef:
         return deaths
 
     def end_segment(self, gamma_end: float) -> None:
-        for e in range(len(self.pend)):
+        self.end_worlds(np.arange(len(self.pend)), gamma_end)
+
+    def end_worlds(self, worlds, gamma_end: float) -> None:
+        """Flush selected worlds at their individual segment-clock boundary."""
+        for e in np.asarray(worlds, dtype=np.int64):
+            e = int(e)
             if self.pend[e]:
                 self.pend[e].pop()
                 self._flush(e, int(self.last_obs[e]), gamma_end)
@@ -799,7 +808,13 @@ class NStepBuilder:
         return int(len(dead))
 
     def end_segment(self, gamma_end: float) -> None:
-        w = np.flatnonzero(self.cnt > 0)
+        self.end_worlds(np.arange(len(self.cnt)), gamma_end)
+
+    def end_worlds(self, worlds, gamma_end: float) -> None:
+        """Flush selected worlds without disturbing windows in other worlds."""
+        requested = np.asarray(worlds, dtype=np.int64).reshape(-1)
+        w = requested
+        w = w[self.cnt[w] > 0]
         if not len(w):
             return
         boot = self.ids[w, (self.head[w] + self.cnt[w] - 1) % self.n]  # the newest row
@@ -810,8 +825,10 @@ class NStepBuilder:
         if len(w):
             _, _, s0, a0, R, d, b = self._flush_rows(w, k, gamma_end, boot)
             self._chunks.append((s0, a0, R, d, b))
-        self.cnt[:] = 0
-        self.head[:] = 0
+        # A one-row window yields no transition after its terminal successor is
+        # dropped, but it must still be cleared at this world's clock boundary.
+        self.cnt[requested] = 0
+        self.head[requested] = 0
 
     def take(self):
         rows, self._chunks = self._chunks, []
@@ -1293,6 +1310,20 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
                 controlled[e, s] = True
     runtime.bind(sim, controlled)
     groups_arr = {k: np.array(v, dtype=np.int64) for k, v in groups.items()}
+    # T4 is deliberately entirely default-off: do not allocate, import, or draw a
+    # restart RNG in the ordinary M3-C path.
+    if getattr(args, "restart_frac", 0.0) > 0.0:
+        from research.t4_snapshot_restart_20261016.snapshots import SnapshotStore
+
+        store = getattr(args, "_restart_store", None)
+        if store is None:
+            store = SnapshotStore(args.restart_bank)
+            store.validate_segment(args.segment_frames)
+            args._restart_store = store
+        policies, groups_arr, restarted = store.apply(
+            sim, runtime, policies, groups_arr, args.restart_frac, args.seed, segment
+        )
+        sim._restart_worlds = restarted
     return sim, runtime, policies, groups_arr
 
 
@@ -1397,6 +1428,8 @@ def m3c_flags(args) -> Dict[str, Any]:
         "label_bank",
         "label_bank_frac",
         "label_bank_margin_scale",
+        "label_bank_counter_mode",
+        "label_bank_counter_ratio",
         "v8_backend",
         "obs_version",
         "v61_backend",
@@ -1405,6 +1438,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "learner_precision",
         "batch_scale",
         "lr_scale",
+        "update_every",
         "obs_pack",
         "demo_mmap",
         "compile_learner",
@@ -1419,6 +1453,9 @@ def m3c_flags(args) -> Dict[str, Any]:
         if getattr(args, k) != getattr(d, k):
             value = getattr(args, k)
             out[k] = str(value) if k == "label_bank" and value is not None else value
+    if args.restart_frac > 0.0:
+        out["restart_bank"] = str(args.restart_bank)
+        out["restart_frac"] = args.restart_frac
     if (args.tight_cost or args.tight_telemetry) and "tight_min_len" not in out:
         out["tight_min_len"] = args.tight_min_len  # in effect: record it with its lever
     return out
@@ -1467,6 +1504,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--mixed-frac", type=float, default=0.0, help="share of worlds with the strict mixed roster"
     )
     ap.add_argument("--actors", type=int, default=0, help="0 = the synchronous M3 trainer")
+    ap.add_argument(
+        "--restart-bank",
+        type=Path,
+        default=None,
+        help="T4 snapshot bank; used only with --restart-frac > 0 by multi-actor runs",
+    )
+    ap.add_argument(
+        "--restart-frac",
+        type=float,
+        default=0.0,
+        help="T4 share of actor worlds restored from --restart-bank at each segment (default: 0)",
+    )
     ap.add_argument("--actor-device", default=None, help="default: --device")
     ap.add_argument("--actor-sync-updates", type=int, default=25)
     ap.add_argument("--actor-queue-frames", type=int, default=8)
@@ -1507,6 +1556,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--label-bank-frac", type=float, default=0.0)
     ap.add_argument("--label-bank-margin-scale", type=float, default=1.0)
+    ap.add_argument(
+        "--label-bank-counter-mode", choices=("inert", "single-action"), default="inert"
+    )
+    ap.add_argument(
+        "--label-bank-counter-ratio",
+        type=float,
+        default=None,
+        help="counter:decisive bank rows; default preserves the bank's stored mixture",
+    )
     ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument(
         "--obs-version",
@@ -1539,6 +1597,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("none", "linear", "sqrt"),
         default="none",
         help="T3: Adam lr x K (linear) or x sqrt(K) with --batch-scale K",
+    )
+    ap.add_argument(
+        "--update-every",
+        type=int,
+        default=1,
+        help="T4 (CHANGES training dynamics): one unchanged-size learner update per M x "
+        "--batch-scale x 128 ingested transitions; target sync remains counted in updates",
     )
     # --- perf-ram options (multi-actor trainer only; RAM only, same math) ---
     ap.add_argument(
@@ -1625,6 +1690,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.actors < 0:
         raise SystemExit("--actors must be >= 0")
+    if not math.isfinite(args.restart_frac) or not 0.0 <= args.restart_frac <= 1.0:
+        raise SystemExit("--restart-frac must be finite and in [0, 1]")
+    if args.restart_frac > 0.0:
+        if not args.actors:
+            raise SystemExit("--restart-frac needs the multi-actor trainer (--actors >= 1)")
+        if args.restart_bank is None:
+            raise SystemExit("--restart-frac needs --restart-bank")
+        # Validate the immutable bank before shared-memory blocks or actors exist.
+        from research.t4_snapshot_restart_20261016.snapshots import SnapshotStore
+
+        SnapshotStore(args.restart_bank).validate_segment(args.segment_frames)
+    elif args.restart_bank is not None:
+        raise SystemExit("--restart-bank needs --restart-frac > 0")
     if args.reward == "v2" and args.mass_kappa != 1.0:
         raise SystemExit("--mass-kappa needs --reward mass")
     m4a = (
@@ -1647,10 +1725,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--shield-full-until must be <= --shield-off-at")
     if not math.isfinite(args.label_bank_frac) or not math.isfinite(args.label_bank_margin_scale):
         raise SystemExit("label-bank fractions and scale must be finite")
+    if args.label_bank_counter_ratio is not None and (
+        not math.isfinite(args.label_bank_counter_ratio) or args.label_bank_counter_ratio < 0
+    ):
+        raise SystemExit("--label-bank-counter-ratio must be finite and >= 0")
     if args.label_bank_frac < 0.0 or args.label_bank_frac > 1.0:
         raise SystemExit("--label-bank-frac must be in [0, 1]")
     if args.label_bank_frac and args.label_bank is None:
         raise SystemExit("--label-bank-frac needs --label-bank")
+    if args.label_bank_counter_mode != "inert" and not args.label_bank_frac:
+        raise SystemExit("--label-bank-counter-mode needs --label-bank-frac > 0")
+    if args.label_bank_counter_ratio is not None and not args.label_bank_frac:
+        raise SystemExit("--label-bank-counter-ratio needs --label-bank-frac > 0")
     if args.label_bank_frac and args.anchor_mode != "v8margin":
         raise SystemExit("--label-bank-frac needs --anchor-mode v8margin")
     if args.label_bank_frac and args.obs_version != "bv8":
@@ -1681,6 +1767,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         or args.learner_precision != "fp32"
         or args.batch_scale != 1
         or args.lr_scale != "none"
+        or args.update_every != 1
         or args.compile_learner != "off"
     )
     if args.compile_learner_scope != "loss" and args.compile_learner == "off":
@@ -2192,6 +2279,12 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         ctx = gid._context(1)
         B = EgoRasterConfig(version="b")
         mass = args.reward == "mass"
+        restart_enabled = getattr(args, "restart_frac", 0.0) > 0.0
+        restart_telemetry = None
+        if restart_enabled:
+            from research.t4_snapshot_restart_20261016.actor import RestartActorTelemetry
+
+            restart_telemetry = RestartActorTelemetry()
         m6 = M6Levers.from_args(args)  # None: every M6 lever off (the previous actor)
         if m6 is not None and m6.tight and not bv8:
             raise ValueError("the M6 tight predicate needs --obs-version bv8")
@@ -2222,6 +2315,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             sim, runtime, policies, groups = build_segment(
                 args, ctx, segment, gamma_seg, hero_v61=python_v8
             )
+            restarted_worlds = getattr(sim, "_restart_worlds", None)
+            if restart_enabled:
+                if restarted_worlds is None:
+                    raise RuntimeError("restart-enabled segment did not provide its world mask")
+                restarted_worlds = np.asarray(restarted_worlds, dtype=bool)
             if pack is not None and layout_for_arena(sim.grid_w, sim.grid_h, sim.S) != pack:
                 raise RuntimeError(f"--obs-pack layout {pack} does not match this arena")
             # bv8: one compiled v8 evaluation per frame (features=True) serves both the
@@ -2268,6 +2366,15 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         last = _read_weights(cpu_net, spec, wbuf, wver, last)
                         net = cpu_net.to(device)
                 t0 = time.perf_counter()
+                # Fresh worlds begin at frame 0. Restored worlds share their source
+                # clock and stop at this segment's common absolute frame boundary.
+                active = (
+                    np.asarray(sim.frame < args.segment_frames, dtype=bool)
+                    if restart_enabled
+                    else None
+                )
+                if restart_enabled and not active.any():
+                    break
                 t_glob = int(progress[0])
                 eps, gamma_now = sched.eps(t_glob), sched.gamma(t_glob)
                 chosen: Dict[str, Any] = {}
@@ -2297,6 +2404,9 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 def choose(prepared):
                     masks = prepared.get_resolved_action_mask()
                     alive = prepared.get_alive()
+                    if active is not None:
+                        alive = alive.copy()
+                        alive[~active] = False
                     actions = np.ones((E, prepared.S), dtype=np.int64)
                     runtime.prepare(prepared)
                     hero = np.argwhere(alive[:, :1])
@@ -2365,6 +2475,10 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         act = np.where(explore, rand, policy_act)
                         actions[hero[:, 0], 0] = act
                         chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
+                        if restart_enabled:
+                            chosen["length"] = np.asarray(
+                                prepared.length[hero[:, 0], 0], dtype=np.int64
+                            )
                         if m6 is not None:  # M6: decision-time length (and tightness)
                             L_dec = np.asarray(prepared.length[hero[:, 0], 0], dtype=np.int64)
                             chosen["L"] = L_dec
@@ -2374,7 +2488,10 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         opponents(prepared, masks, alive, actions)
                     return actions
 
-                sim.step_with_policy(choose)
+                if restart_enabled:
+                    sim.step_with_policy(choose, active_env_mask=active)
+                else:
+                    sim.step_with_policy(choose)
                 runtime.observe_step(sim)
                 reward = sim.get_reward()[:, 0]
                 done = sim.get_done()[:, 0]
@@ -2407,6 +2524,13 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     deaths = nsb.step(
                         chosen["hero"][:, 0], ids, chosen["act"], reward, done, gamma_now
                     )
+                    if restart_telemetry is not None:
+                        restart_telemetry.record(
+                            chosen["hero"][:, 0],
+                            chosen["length"],
+                            done[chosen["hero"][:, 0]],
+                            restarted_worlds,
+                        )
                     acts = chosen["act"]
                     stats = {
                         "decisions": int(len(acts)),
@@ -2419,7 +2543,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         ),
                     }
                 last_frame = _frame == args.segment_frames - 1
-                if last_frame:
+                if restart_enabled:
+                    expired = active & (sim.frame >= args.segment_frames)
+                    if expired.any():
+                        nsb.end_worlds(np.flatnonzero(expired), sched.gamma(int(progress[0])))
+                elif last_frame:
                     nsb.end_segment(sched.gamma(int(progress[0])))
                 s, a, R, d, nx = nsb.take()
                 msg = {
@@ -2439,6 +2567,9 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     **stats,
                     **m6_stats,
                 }
+                if restart_telemetry is not None:
+                    msg.update(restart_telemetry.take())
+                    msg["restart_frac_actual"] = float(restarted_worlds.mean())
                 if prof is not None and prof.running:
                     _profile_count(prof.meta, msg)
                 while not stop_evt.is_set():
@@ -2487,6 +2618,8 @@ def main_multi(args) -> int:
 
             bank_pack = train_layout()
         bank = LabelBank(Path(args.label_bank), nscal_for(args), pack=bank_pack)
+        if args.label_bank_counter_ratio is not None:
+            bank.validate_counter_ratio(args.label_bank_counter_ratio)
     if args.out.exists():
         print(f"refusing: {args.out} exists (create-only)", file=sys.stderr)
         return 2
@@ -2663,7 +2796,25 @@ def main_multi(args) -> int:
         "action_window": deque(maxlen=100_000),
     }
     if bank is not None:
-        st.update(bank_rows=[], bank_margin_loss=[], bank_agree=[])
+        st.update(
+            bank_rows=[],
+            bank_margin_loss=[],
+            bank_agree=[],
+            bank_agree_decisive=[],
+            bank_agree_counter=[],
+        )
+    if args.restart_frac > 0.0:
+        st["restart"] = {"restart_frac_actual": []}
+        st["restart_total"] = {
+            "restart_decisions": 0,
+            "fresh_decisions": 0,
+            "restart_deaths": 0,
+            "fresh_deaths": 0,
+            "restart_length_sum": 0,
+            "fresh_length_sum": 0,
+            "restart_death_length_sum": 0,
+            "fresh_death_length_sum": 0,
+        }
     m6 = M6Levers.from_args(args)  # None: every M6 lever off (no M6 keys anywhere)
     if m6 is not None:
         st["m6"], st["m6_total"] = {}, {"decisions": 0, "deaths": 0}
@@ -2742,6 +2893,12 @@ def main_multi(args) -> int:
                 st["boost"] += msg["boost"]
                 st["greedy_boost"] += msg["greedy_boost"]
                 st["deaths"] += msg["deaths"]
+                if args.restart_frac > 0.0:
+                    rst = st["restart"]
+                    rst["restart_frac_actual"].append(msg["restart_frac_actual"])
+                    for key in st["restart_total"]:
+                        rst[key] = rst.get(key, 0) + msg[key]
+                        st["restart_total"][key] += msg[key]
                 st["env_s"] += msg["env_s"]
                 st["lag"].append(published - msg["weights_version"] // 2)
                 st["action_window"].extend(msg["acts"].tolist())
@@ -2797,9 +2954,40 @@ def main_multi(args) -> int:
                 if m6 is not None:
                     row.update(m6_log_fields(st["m6"], st["decisions"], st["deaths"]))
                     st["m6"] = {}
+                if args.restart_frac > 0.0:
+                    rst = st["restart"]
+                    row.update(
+                        restart_frac_actual=(
+                            float(np.mean(rst["restart_frac_actual"]))
+                            if rst["restart_frac_actual"]
+                            else 0.0
+                        ),
+                        restart_decisions=rst.get("restart_decisions", 0),
+                        fresh_decisions=rst.get("fresh_decisions", 0),
+                        restart_deaths=rst.get("restart_deaths", 0),
+                        fresh_deaths=rst.get("fresh_deaths", 0),
+                        restart_length_mean=(
+                            rst.get("restart_length_sum", 0)
+                            / max(1, rst.get("restart_decisions", 0))
+                        ),
+                        fresh_length_mean=(
+                            rst.get("fresh_length_sum", 0) / max(1, rst.get("fresh_decisions", 0))
+                        ),
+                        restart_death_length_mean=(
+                            rst.get("restart_death_length_sum", 0)
+                            / max(1, rst.get("restart_deaths", 0))
+                        ),
+                        fresh_death_length_mean=(
+                            rst.get("fresh_death_length_sum", 0)
+                            / max(1, rst.get("fresh_deaths", 0))
+                        ),
+                    )
+                    st["restart"] = {"restart_frac_actual": []}
                 if bv8:
                     row["obs_version"] = "bv8"
                     row["label_buffer"] = labels.size if labels is not None else 0
+                if lopts.update_every != 1:
+                    row["update_every"] = lopts.update_every
                 if bank is not None:
                     row["bank_rows_mean"] = (
                         float(np.mean(st["bank_rows"])) if st["bank_rows"] else 0.0
@@ -2809,6 +2997,16 @@ def main_multi(args) -> int:
                     )
                     row["bank_agree"] = (
                         float(np.mean(st["bank_agree"])) if st["bank_agree"] else 0.0
+                    )
+                    row["bank_agree_decisive"] = (
+                        float(np.mean(st["bank_agree_decisive"]))
+                        if st["bank_agree_decisive"]
+                        else None
+                    )
+                    row["bank_agree_counter"] = (
+                        float(np.mean(st["bank_agree_counter"]))
+                        if st["bank_agree_counter"]
+                        else None
                     )
                 if args.shield != "none" or labels is not None:
                     row["v8_override_rate"] = st["v8_override"] / max(1, st["decisions"])
@@ -2844,7 +3042,13 @@ def main_multi(args) -> int:
                 st.update(td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0)
                 st.update(v8_override=0, label_rows=[])
                 if bank is not None:
-                    st.update(bank_rows=[], bank_margin_loss=[], bank_agree=[])
+                    st.update(
+                        bank_rows=[],
+                        bank_margin_loss=[],
+                        bank_agree=[],
+                        bank_agree_decisive=[],
+                        bank_agree_counter=[],
+                    )
                 st["lag"] = []
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")
@@ -2917,6 +3121,20 @@ def main_multi(args) -> int:
     if m6 is not None:
         tot = st["m6_total"]
         summary["m6_totals"] = {**tot, **m6_log_fields(tot, tot["decisions"], tot["deaths"])}
+    if args.restart_frac > 0.0:
+        rst = st["restart_total"]
+        summary["restart_totals"] = {
+            **rst,
+            "restart_length_mean": rst["restart_length_sum"] / max(1, rst["restart_decisions"]),
+            "fresh_length_mean": rst["fresh_length_sum"] / max(1, rst["fresh_decisions"]),
+            "restart_death_length_mean": (
+                rst["restart_death_length_sum"] / max(1, rst["restart_deaths"])
+            ),
+            "fresh_death_length_mean": (
+                rst["fresh_death_length_sum"] / max(1, rst["fresh_deaths"])
+            ),
+            "restart_frac_actual": int(round(args.worlds * args.restart_frac)) / args.worlds,
+        }
     (args.out / "summary.json").write_text(json.dumps(summary, indent=1) + "\n")
     if prof is not None:
         prof.safe_dump({"actors": K, "worlds": int(args.worlds), "device": str(device)})

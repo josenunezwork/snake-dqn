@@ -98,14 +98,19 @@ def _reservoir_add(
     return seen
 
 
-def _alternative_outcomes(snapshot: dict[str, Any]) -> dict[int, dict[str, Any]]:
+def _alternative_outcomes(
+    snapshot: dict[str, Any], *, record_outcomes: bool = False
+) -> dict[int, dict[str, Any]]:
     """Evaluate alternatives and add B8's trajectory-proven fatal outcome."""
     alternatives = [action for action in snapshot["legal"] if action != snapshot["action"]]
-    outcomes = (
-        rollout_all(snapshot["branch"], alternatives, DEPTH, snapshot["decision"])
-        if alternatives
-        else {}
-    )
+    if not alternatives:
+        outcomes = {}
+    elif record_outcomes:
+        outcomes = rollout_all(
+            snapshot["branch"], alternatives, DEPTH, snapshot["decision"], record_outcomes=True
+        )
+    else:
+        outcomes = rollout_all(snapshot["branch"], alternatives, DEPTH, snapshot["decision"])
     # The live trajectory chose B8 at this prepared state and died within the
     # strict window, so this is equivalent to a B8 continuation for labelling.
     outcomes[int(snapshot["action"])] = {"survives": False, "frames_executed": 0}
@@ -118,6 +123,9 @@ def collect_world_death_window(
     out: Path,
     run_identity: dict[str, Any],
     threshold: float = float("-inf"),
+    record_outcomes: bool = False,
+    label_policy: str = "surviving-set",
+    hero_checkpoint: Path | None = None,
 ) -> dict[str, Any]:
     """Collect one world with post-death decisive rollouts and sampled counters.
 
@@ -137,7 +145,11 @@ def collect_world_death_window(
             f"parent failed to resolve an existing world before worker launch: {key}"
         )
 
-    world: CapturedWorld = build_world(job["arm"], plan)
+    world: CapturedWorld = (
+        build_world(job["arm"], plan)
+        if hero_checkpoint is None
+        else build_world(job["arm"], plan, hero_checkpoint=hero_checkpoint)
+    )
     trigger, rows = DenseTrigger(min_length=700), []
     window: deque[dict[str, Any]] = deque(maxlen=WINDOW_SNAPSHOTS)
     reservoir: list[dict[str, Any]] = []
@@ -211,11 +223,27 @@ def collect_world_death_window(
             if not inside_death_window(snapshot["decision"], death_decision):
                 continue
             window_batches += 1
-            outcomes = _alternative_outcomes(snapshot)
+            outcomes = _alternative_outcomes(snapshot, record_outcomes=record_outcomes)
+            if record_outcomes:
+                # The actual trajectory is an exact continuation for B8 in the
+                # strict terminal window.  It avoids a duplicate branch rollout.
+                outcomes[snapshot["action"]].update(
+                    death_decision=int(death_decision), final_length=0
+                )
             # Every twentieth window batch performs the independent bitwise B8 control.
             if window_batches % CONTROL_EVERY == 0:
-                control = rollout_all(
-                    snapshot["branch"], [snapshot["action"]], DEPTH, snapshot["decision"]
+                control = (
+                    rollout_all(
+                        snapshot["branch"], [snapshot["action"]], DEPTH, snapshot["decision"]
+                    )
+                    if not record_outcomes
+                    else rollout_all(
+                        snapshot["branch"],
+                        [snapshot["action"]],
+                        DEPTH,
+                        snapshot["decision"],
+                        record_outcomes=True,
+                    )
                 )[snapshot["action"]]
                 outcomes[snapshot["action"]] = control
                 controls.append(
@@ -246,6 +274,8 @@ def collect_world_death_window(
                         snapshot["frame"],
                         snapshot["length"],
                         snapshot["q"],
+                        outcomes=outcomes if record_outcomes else None,
+                        label_policy=label_policy,
                     )
                 )
 
@@ -253,8 +283,16 @@ def collect_world_death_window(
         for snapshot in reservoir:
             if inside_death_window(snapshot["decision"], death_decision):
                 continue
-            outcomes = rollout_all(
-                snapshot["branch"], snapshot["legal"], DEPTH, snapshot["decision"]
+            outcomes = (
+                rollout_all(snapshot["branch"], snapshot["legal"], DEPTH, snapshot["decision"])
+                if not record_outcomes
+                else rollout_all(
+                    snapshot["branch"],
+                    snapshot["legal"],
+                    DEPTH,
+                    snapshot["decision"],
+                    record_outcomes=True,
+                )
             )
             counter_batches += 1
             b8_outcome = outcomes[snapshot["action"]]
@@ -277,6 +315,8 @@ def collect_world_death_window(
                         snapshot["frame"],
                         snapshot["length"],
                         snapshot["q"],
+                        outcomes=outcomes if record_outcomes else None,
+                        label_policy=label_policy,
                     )
                 )
 

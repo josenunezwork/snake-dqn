@@ -1,0 +1,619 @@
+{
+  "artifact_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4-prep-20261015",
+  "artifact_sha256": {
+    "bank-v2/manifest.json": "340415402e04cd938a7e66e5f9e7294968d34b5a78b789b4fe02ae503c8bd221",
+    "screen-32.json": "8ebb7a452d596919cc4ff0b79316e8e1408b8815c8712f37fcdb768efc59aaac",
+    "student-continuation-smoke.json": "e992425cd71a1992021ecbcf7f2c5f6f31f5921a396dd81639b7b3952d2ec4a6",
+    "student-validation/manifest.json": "67ae089ed2412ad6b78c7fb6f283f2ebd1c262f399a83edfd26ee3691cf2919b",
+    "student-validation/namespace.json": "e261d7d8c185502d484608fd11ff3bcfa0e43f9ce1f8c23fcf0d1372a99373ab"
+  },
+  "authority": "development tooling and bounded validation only; not gate evidence",
+  "bank_v2": {
+    "boost_share_after": 0.08581041240331587,
+    "boost_share_before": 0.5586201121996148,
+    "label_policy": "prefer-nonboost",
+    "outcome_provenance": "source lacks per-action outcomes; labels were derived from surviving",
+    "rows": 16327,
+    "rows_changed": 14011,
+    "schema": "t4-derived-label-bank/v2",
+    "shards": {
+      "bank-00000.npz": "759b94e6e8e5f336abca542dceed42009c3df88de97c935707e0950d742172b2"
+    }
+  },
+  "continuation_smoke": {
+    "authority": "development continuation smoke on the same two audited worlds; no bank rows collected",
+    "depth": 300,
+    "namespace_sha256": "e261d7d8c185502d484608fd11ff3bcfa0e43f9ce1f8c23fcf0d1372a99373ab",
+    "student": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth",
+      "sha256": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3"
+    },
+    "wall_seconds": 1.6126920841634274,
+    "worlds": [
+      {
+        "outcomes": {
+          "0": {
+            "action": 0,
+            "control_reproduced": null,
+            "death_decision": null,
+            "env_frames": 300,
+            "final_length": 61,
+            "frames_executed": 300,
+            "frames_survived": 300,
+            "horizon": 300,
+            "survives": true
+          },
+          "1": {
+            "action": 1,
+            "control_reproduced": null,
+            "death_decision": null,
+            "env_frames": 300,
+            "final_length": 66,
+            "frames_executed": 300,
+            "frames_survived": 300,
+            "horizon": 300,
+            "survives": true
+          },
+          "2": {
+            "action": 2,
+            "control_reproduced": null,
+            "death_decision": null,
+            "env_frames": 300,
+            "final_length": 61,
+            "frames_executed": 300,
+            "frames_survived": 300,
+            "horizon": 300,
+            "survives": true
+          }
+        },
+        "played_action": 1,
+        "recorded_actions": [
+          0,
+          1,
+          2
+        ],
+        "same_student_network": true,
+        "seed": 1463859742
+      },
+      {
+        "outcomes": {
+          "0": {
+            "action": 0,
+            "control_reproduced": null,
+            "death_decision": null,
+            "env_frames": 300,
+            "final_length": 66,
+            "frames_executed": 300,
+            "frames_survived": 300,
+            "horizon": 300,
+            "survives": true
+          },
+          "1": {
+            "action": 1,
+            "control_reproduced": null,
+            "death_decision": null,
+            "env_frames": 300,
+            "final_length": 53,
+            "frames_executed": 300,
+            "frames_survived": 300,
+            "horizon": 300,
+            "survives": true
+          },
+          "2": {
+            "action": 2,
+            "control_reproduced": null,
+            "death_decision": null,
+            "env_frames": 300,
+            "final_length": 70,
+            "frames_executed": 300,
+            "frames_survived": 300,
+            "horizon": 300,
+            "survives": true
+          }
+        },
+        "played_action": 1,
+        "recorded_actions": [
+          0,
+          1,
+          2
+        ],
+        "same_student_network": true,
+        "seed": 812054761
+      }
+    ]
+  },
+  "implementation_commits": [
+    "98c7422",
+    "56fad0e"
+  ],
+  "integration_commit": "0a4f2d8",
+  "lint": "scoped flake8 passed",
+  "screen": {
+    "anchors": "fast",
+    "authority": "development tooling only; never strict gate evidence",
+    "batched_device": "mps",
+    "comparison": {
+      "batched_wall_seconds": 64.24159366684034,
+      "common_time_decisions": 123375,
+      "decision_agreement_common_time": 1.0,
+      "decision_agreement_union": 1.0,
+      "matching_decisions": 123375,
+      "max_abs_mass_delta": 0.0,
+      "max_abs_survival_delta": 0.0,
+      "mean_alive_survival_delta_batched_minus_rowwise": 0.0,
+      "mean_episode_survival_delta_batched_minus_rowwise": 0.0,
+      "mean_mass_delta_batched_minus_rowwise": 0.0,
+      "missing_tail_decisions": 0,
+      "outcome_agreement_fraction": 1.0,
+      "rowwise_wall_seconds": 75.3046151669696,
+      "speedup_rowwise_over_batched": 1.1722096366024566,
+      "survival_only_agreement_fraction": 1.0,
+      "union_decisions": 123375,
+      "worlds": {
+        "102910811": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1063742590": {
+          "batched_decisions": 350,
+          "common_decisions": 350,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 350,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 350,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 350,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1336586653": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1423696110": {
+          "batched_decisions": 3456,
+          "common_decisions": 3456,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 3456,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 3456,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 3456,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1439904713": {
+          "batched_decisions": 1693,
+          "common_decisions": 1693,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 1693,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 1693,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 1693,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1474095182": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1512671166": {
+          "batched_decisions": 4005,
+          "common_decisions": 4005,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 4005,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 4005,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 4005,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1541565322": {
+          "batched_decisions": 4575,
+          "common_decisions": 4575,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 4575,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 4575,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 4575,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1551757122": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "1944521860": {
+          "batched_decisions": 3353,
+          "common_decisions": 3353,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 3353,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 3353,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 3353,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "20210678": {
+          "batched_decisions": 4114,
+          "common_decisions": 4114,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 4114,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 4114,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 4114,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "2419859375": {
+          "batched_decisions": 2871,
+          "common_decisions": 2871,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 2871,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 2871,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 2871,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "2476610872": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "2553205532": {
+          "batched_decisions": 937,
+          "common_decisions": 937,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 937,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 937,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 937,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "2562891762": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "2689531231": {
+          "batched_decisions": 1076,
+          "common_decisions": 1076,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 1076,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 1076,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 1076,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "2886428278": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "2892742196": {
+          "batched_decisions": 4936,
+          "common_decisions": 4936,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 4936,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 4936,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 4936,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "3111260658": {
+          "batched_decisions": 1684,
+          "common_decisions": 1684,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 1684,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 1684,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 1684,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "3247658766": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "376028002": {
+          "batched_decisions": 2698,
+          "common_decisions": 2698,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 2698,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 2698,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 2698,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "3938102296": {
+          "batched_decisions": 4605,
+          "common_decisions": 4605,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 4605,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 4605,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 4605,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "4025746759": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "4126050182": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "4220153810": {
+          "batched_decisions": 1131,
+          "common_decisions": 1131,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 1131,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 1131,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 1131,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "500917116": {
+          "batched_decisions": 4904,
+          "common_decisions": 4904,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 4904,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 4904,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 4904,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "737524263": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "808215908": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "81502090": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "832058256": {
+          "batched_decisions": 1987,
+          "common_decisions": 1987,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 1987,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 1987,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 1987,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "965378944": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        },
+        "973863176": {
+          "batched_decisions": 5000,
+          "common_decisions": 5000,
+          "decision_agreement_common_time": 1.0,
+          "decision_union_count": 5000,
+          "mass_delta_batched_minus_rowwise": 0.0,
+          "matching_decisions": 5000,
+          "missing_tail_decisions": 0,
+          "outcome_agreement": true,
+          "rowwise_decisions": 5000,
+          "survival_delta_batched_minus_rowwise": 0.0
+        }
+      }
+    },
+    "devices": {
+      "batched": "mps",
+      "rowwise": "cpu"
+    },
+    "frames": 5000,
+    "mix": "scripted",
+    "path": "compare",
+    "round_index": 60,
+    "rowwise_device": "cpu",
+    "schema": "t4-screen-probe/v1",
+    "student": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth",
+    "student_sha256": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3",
+    "v61_backend": "numba",
+    "worlds_requested": 32
+  },
+  "source_bank": {
+    "manifest_sha256": "0b216da882b634e79ac640a9970a58157828da96e93ec4dbe68e6924c8141391",
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank",
+    "shard_sha256": "96da3b448fc7ebd708304d4fc50d661b5771df23a2cd6a70051a1c5ae32aea67",
+    "tree_sha256": "29d578d474c16fffdff7751429b2e7721b5bafe122708371490084d2fcc0f73a"
+  },
+  "student_validation": {
+    "files": {
+      "bank-00000.provenance.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "namespace.json": "e261d7d8c185502d484608fd11ff3bcfa0e43f9ce1f8c23fcf0d1372a99373ab"
+    },
+    "provenance": {
+      "continuation_policy": "student",
+      "label_policy": "prefer-nonboost",
+      "max_seconds": 7200.0,
+      "namespace": "t4-expert-iteration-20261015/prep-validation-s10",
+      "played_policy": "student",
+      "receipt_keys": [
+        "student-scripted-c0-i0-s1463859742",
+        "student-scripted-c0-i1-s812054761"
+      ],
+      "record_outcomes": true,
+      "requested_worlds": 2,
+      "schema": "t4-expert-iteration-bank/v1",
+      "stats": {
+        "b8_agree": 0.0,
+        "b8_control_checks": 0,
+        "counterweight_rows": 0,
+        "decisive_rows": 0,
+        "decisive_rows_per_batch": 0.0,
+        "dense_candidate_batches": 1081,
+        "play_decisions": 10000,
+        "prefilter_passed_batches": 1081,
+        "prefilter_skipped_batches": 0,
+        "q_action_mismatches": 0,
+        "raw_counterweight_candidates": 0,
+        "raw_rows": 0,
+        "retained_rows_per_batch": 0.0,
+        "retained_rows_per_decision": 0.0,
+        "rollout_batches": 0,
+        "rows": 0,
+        "rows_with_boost_survivor_fraction": 0.0,
+        "surviving_action_density": 0.0,
+        "surviving_boost_share": 0.0
+      },
+      "student": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t3-mac-20261015/LABELS_s10/final.pth",
+        "sha256": "b6369e9282a171468d39180db79910054309e68957526e1a737467130cc4abd3"
+      },
+      "wall_seconds": 14.926029374822974,
+      "worlds": 2
+    },
+    "schema": "t3-label-bank/v1",
+    "shards": {},
+    "world_receipts": {
+      "student-scripted-c0-i0-s1463859742.json": "735507891257befbe4b14881ca8fc33cd829f8c8804dc5ab0347329d659d12cf",
+      "student-scripted-c0-i1-s812054761.json": "b862efa898b946ba66188dbd4b32503d6dff97be0421ac33c99d177594f134a4"
+    }
+  },
+  "tests": {
+    "passed": 59,
+    "skip_reason": "existing opt-in evaluator parity requires other dense workers to have exited",
+    "skipped": 8,
+    "wall_seconds": 10.27
+  }
+}
