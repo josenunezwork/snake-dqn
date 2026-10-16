@@ -54,3 +54,16 @@ Supersedes the corresponding parts above:
    error has fallen, or the outside gap moved by more than 0.5 Q, or the L < 700 boost rate > 1%.
    Implement the 0.5M/1M evaluation as a small script the planner can run on those checkpoints.
 5. Recalibrate W after these changes (far fewer active rows); report the active-row fraction.
+
+## Planner addendum 2 (binding, before any RETURN_C run): fix the boost macro geometry
+The macro repeated the same RELATIVE action for k=3 frames, so a turning boost became three turns in
+a row (a tight U-turn into the own body). Result: boost-minus-normal gaps moved from -0.16 to -61 Q on
+outside states and from +32 to -27 Q on decisive states: a geometry artifact, not boost cost, which
+would teach "never boost" and erase the real escape signal. Fix: frame 1 = the branch's boost action;
+frames 2..k = B8's greedy DIRECTION at that frame with boost forced on (the boost variant of B8's
+relative action, when legal; if boost is illegal, B8's normal action), then B8 greedy for the rest.
+Re-roll all boost branches with this macro into a new derived bank (non-boost rows unchanged,
+byte-identical check), report the new gap table (expect outside gaps near the boost cost, about
+-0.1 to -1 Q per burned segment, not tens), recalibrate W, update the prereg (section "Addendum 2
+fix") and the launch scripts; keep everything else. Add a unit test that a boost-left macro does not
+turn three times. Do not start training.
