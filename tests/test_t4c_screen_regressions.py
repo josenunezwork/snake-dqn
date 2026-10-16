@@ -42,6 +42,9 @@ def test_exact_declared_fork_and_uncovered_mass_failure():
     )
     assert "No declared fork" in diagnostic.declared_fork(gameplay(mass=-31), fell)
     assert "nonzero training exit" in diagnostic.declared_fork(gameplay(failed=True), fell)
+    intermediate = gameplay(survival=0.0167)
+    intermediate["arms"][diagnostic.ARM]["decision"] = "INCONCLUSIVE"
+    assert diagnostic.declared_fork(intermediate, fell).startswith("UNRESOLVED:")
 
 
 def test_fingerprint_bank_self_consistent_tamper_fails_pinned_summary(tmp_path, monkeypatch):

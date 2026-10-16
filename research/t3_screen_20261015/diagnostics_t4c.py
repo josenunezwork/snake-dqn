@@ -242,7 +242,7 @@ def declared_fork(gameplay: Mapping[str, Any], drift: Mapping[str, Any]) -> str:
         return (
             "No declared fork assigned: T4c-final consequential-change rate is not yet available."
         )
-    if fell and survival > 0 and mass_ok:
+    if fell and data["decision"] == "GO" and mass_ok:
         return (
             "(c) falls to the drift baseline and round-65 survival moves without a mass fail: "
             "expert iteration with the tightened recipe is next, as planned."
@@ -250,6 +250,18 @@ def declared_fork(gameplay: Mapping[str, Any], drift: Mapping[str, Any]) -> str:
     if fell:
         if survival > 0 and not mass_ok:
             return "No declared fork assigned: survival moved but a registered mass guard failed."
+        if survival > 0:
+            return (
+                "UNRESOLVED: (c) is within the drift band, but the final survival screen is "
+                "inconclusive. The preregistration does not define 'survival moves' for an "
+                "intermediate outcome, so neither survival-dependent fork is established. "
+                "The conditional branches remain:\n\n"
+                "(c) falls to the drift baseline and round-65 survival moves without a mass fail: "
+                "expert iteration with the tightened recipe is next, as planned.\n\n"
+                "(c) falls but survival does not move: return regression next, with outside-bank "
+                "branches rolled out too, which is the principled form of item 2 and supplies "
+                '"greedy is fine here" targets with magnitudes.'
+            )
         return (
             "(c) falls but survival does not move: return regression next, with outside-bank "
             "branches rolled out too, which is the principled form of item 2 and supplies "
