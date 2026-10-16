@@ -1,0 +1,108 @@
+{
+  "schema": "t5b-risk-independent-audit/v1",
+  "status": "PASS",
+  "audited_commit": "b139d74c",
+  "risk_sha256": "05ebf4cccfc1b0eabdb9d6af81d67a9f24870cd0338e00a1820d456dc34a9b32",
+  "pool_sha256": "0377958598fd9b0d4ee49ad697de203b79a645d048f8e795b6b065b34ce04741",
+  "raw_sources_hash_validated": 1221,
+  "reconstructed_observations": 2928,
+  "duplicate_observations_removed": 944,
+  "canonical_rows": 1984,
+  "b8_rows_by_mix": {
+    "scripted": 640,
+    "frozen": 320,
+    "mixed": 320
+  },
+  "clause_columns": [
+    "mean",
+    "future_se",
+    "failure_probability"
+  ],
+  "clauses_recomputed": {
+    "c2_scripted": [
+      -0.016470625000000006,
+      0.018458476834311763,
+      0.2317905900690567
+    ],
+    "c2_frozen": [
+      0.011102499999999998,
+      0.016634489989406386,
+      0.006738291365177223
+    ],
+    "c2_mixed": [
+      0.038044999999999995,
+      0.014330827505272929,
+      0.000001026400014917528
+    ],
+    "absolute_scripted": [
+      0.5171875,
+      0.022794240211312673,
+      0.2254161432980118
+    ],
+    "absolute_frozen": [
+      0.678125,
+      0.025862478758612497,
+      2.841246736682609e-12
+    ],
+    "absolute_mixed": [
+      0.828125,
+      0.021242266333144726,
+      3.96426472995168e-54
+    ],
+    "seed_0_floor": [
+      -0.03265000000000001,
+      0.04123994554392147,
+      0.0022167951252354307
+    ],
+    "seed_1_floor": [
+      -0.07010000000000001,
+      0.03884717343125344,
+      0.019853807073957824
+    ],
+    "seed_2_floor": [
+      0.05617499999999999,
+      0.04580632097216814,
+      0.0000033814650158684146
+    ],
+    "seed_3_floor": [
+      0.05661875,
+      0.038735641087500494,
+      4.80168559002119e-8
+    ],
+    "seed_4_floor": [
+      -0.09239687499999999,
+      0.04134463994935937,
+      0.08177317936966574
+    ]
+  },
+  "tier2_recomputed": {
+    "mean": -0.171875,
+    "future_se": 0.031173046999509974,
+    "observed_cluster_se": 0.08269003935860102,
+    "observed_rows": 192,
+    "distinct_worlds": 64,
+    "retrospective_status": "FAIL"
+  },
+  "combined_independent_eigenfactor_mc": {
+    "draws": 200000,
+    "seed": 2026101601,
+    "risk": 0.386035,
+    "mc_se": 0.0010886045626741605,
+    "report_risk": 0.388145,
+    "absolute480_all_mixes": 0.38695,
+    "report_absolute480_all_mixes": 0.38656
+  },
+  "verification": [
+    "1221 raw source hashes",
+    "raw source pool reconstruction exact equality",
+    "all 11 clause means/source cluster SE/future SE/probabilities",
+    "absolute 480 normal sensitivities and binomial CDF 239/480",
+    "Tier 2 mean/SE/status",
+    "complete 32 world correlations each final",
+    "independent conditional Gaussian joint simulation",
+    "independence product and union bounds"
+  ],
+  "scope": "survival clauses only; conditional plug-in sampling noise; reused banks; fixed means/SD; independent future banks between finals and nested across mixes; no parameter/selection uncertainty integration",
+  "command_scope": "One inline ./venv/bin/python heredoc, read-only raw JSON/JSONL parsing, NumPy/SciPy numerical recomputation, native thread environment variables set to 1; no implementation risk module imported; no gameplay/refits/process operations",
+  "files_changed": []
+}

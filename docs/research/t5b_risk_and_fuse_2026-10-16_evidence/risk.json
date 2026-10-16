@@ -1,0 +1,772 @@
+{
+  "authority": "Retrospective diagnostic only; reused banks; never gate evidence or GO.",
+  "checkpoints": {
+    "B8_s0": "bf6a42b387e6d643e943a03620a30128ec6032f984abb5a08559b9b0ac865f4f",
+    "B8_s1": "a7b04a84c94ad6cf90f6461a2ab23b214a28c4c59ac9e7bc69c61ca3ae617753",
+    "B8_s2": "5840ba615efd600325d5c5bcedf87b2cbb452fe0969d954d5797ab12f6917a0e",
+    "B8_s3": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+    "B8_s4": "6b6d3f37c6db129de941c3fb205ca6af77c6506db0793b1291656f767e4fb28f"
+  },
+  "clauses": {
+    "absolute_frozen": {
+      "binomial_failure_probability_at_480": 2.298050471984138e-16,
+      "distinct_worlds": 192,
+      "failure_probability": 2.84124673668261e-12,
+      "failure_probability_at_480": 1.651818951089398e-17,
+      "future_se": 0.025862478758612497,
+      "future_se_at_480": 0.021116625480723045,
+      "future_worlds": 320,
+      "mean": 0.678125,
+      "metric": "candidate terminal episode survival",
+      "observed_cluster_se": 0.02739004821996753,
+      "observed_rows": 320,
+      "per_final_means": {
+        "0": 0.671875,
+        "1": 0.53125,
+        "2": 0.78125,
+        "3": 0.75,
+        "4": 0.65625
+      },
+      "rows_per_final": {
+        "0": 64,
+        "1": 64,
+        "2": 64,
+        "3": 64,
+        "4": 64
+      },
+      "threshold": 0.5
+    },
+    "absolute_mixed": {
+      "binomial_failure_probability_at_480": 1.8375931489306278e-61,
+      "distinct_worlds": 192,
+      "failure_probability": 3.96426472995139e-54,
+      "failure_probability_at_480": 4.0240157116815324e-80,
+      "future_se": 0.021242266333144726,
+      "future_se_at_480": 0.017344237832168815,
+      "future_worlds": 320,
+      "mean": 0.828125,
+      "metric": "candidate terminal episode survival",
+      "observed_cluster_se": 0.021590331742199327,
+      "observed_rows": 320,
+      "per_final_means": {
+        "0": 0.828125,
+        "1": 0.8125,
+        "2": 0.8125,
+        "3": 0.84375,
+        "4": 0.84375
+      },
+      "rows_per_final": {
+        "0": 64,
+        "1": 64,
+        "2": 64,
+        "3": 64,
+        "4": 64
+      },
+      "threshold": 0.5
+    },
+    "absolute_scripted": {
+      "binomial_failure_probability_at_480": 0.21203694156504876,
+      "distinct_worlds": 256,
+      "failure_probability": 0.2254161432980118,
+      "failure_probability_at_480": 0.2254161432980118,
+      "future_se": 0.022794240211312673,
+      "future_se_at_480": 0.022794240211312673,
+      "future_worlds": 480,
+      "mean": 0.5171875,
+      "metric": "candidate terminal episode survival",
+      "observed_cluster_se": 0.020682203056838835,
+      "observed_rows": 640,
+      "per_final_means": {
+        "0": 0.546875,
+        "1": 0.5234375,
+        "2": 0.578125,
+        "3": 0.5,
+        "4": 0.4375
+      },
+      "rows_per_final": {
+        "0": 128,
+        "1": 128,
+        "2": 128,
+        "3": 128,
+        "4": 128
+      },
+      "threshold": 0.5
+    },
+    "c2_frozen": {
+      "distinct_worlds": 160,
+      "failure_probability": 0.006738291365177218,
+      "future_se": 0.016634489989406386,
+      "future_worlds": 320,
+      "mean": 0.011102499999999998,
+      "metric": "alive-frame candidate minus served",
+      "observed_cluster_se": 0.023226928057938436,
+      "observed_rows": 160,
+      "per_final_means": {
+        "0": -0.029299999999999993,
+        "1": 0.08190625,
+        "2": -0.0079125,
+        "3": -0.040268750000000006,
+        "4": 0.051087499999999994
+      },
+      "rows_per_final": {
+        "0": 32,
+        "1": 32,
+        "2": 32,
+        "3": 32,
+        "4": 32
+      },
+      "threshold": -0.03
+    },
+    "c2_mixed": {
+      "distinct_worlds": 160,
+      "failure_probability": 1.0264000149175248e-06,
+      "future_se": 0.014330827505272927,
+      "future_worlds": 320,
+      "mean": 0.038044999999999995,
+      "metric": "alive-frame candidate minus served",
+      "observed_cluster_se": 0.020010297862313845,
+      "observed_rows": 160,
+      "per_final_means": {
+        "0": 0.010768749999999997,
+        "1": 0.023312499999999986,
+        "2": 0.029868749999999993,
+        "3": 0.047087500000000004,
+        "4": 0.0791875
+      },
+      "rows_per_final": {
+        "0": 32,
+        "1": 32,
+        "2": 32,
+        "3": 32,
+        "4": 32
+      },
+      "threshold": -0.03
+    },
+    "c2_scripted": {
+      "distinct_worlds": 192,
+      "failure_probability": 0.23179059006905667,
+      "future_se": 0.018458476834311763,
+      "future_worlds": 480,
+      "mean": -0.016470625000000006,
+      "metric": "alive-frame candidate minus served",
+      "observed_cluster_se": 0.03144001391145583,
+      "observed_rows": 320,
+      "per_final_means": {
+        "0": -0.03265000000000001,
+        "1": -0.07010000000000001,
+        "2": 0.05617499999999999,
+        "3": 0.05661875,
+        "4": -0.09239687499999999
+      },
+      "rows_per_final": {
+        "0": 64,
+        "1": 64,
+        "2": 64,
+        "3": 64,
+        "4": 64
+      },
+      "threshold": -0.03
+    },
+    "seed_0_floor": {
+      "distinct_worlds": 64,
+      "failure_probability": 0.002216795125235426,
+      "future_se": 0.04123994554392147,
+      "future_worlds": 96,
+      "mean": -0.03265000000000001,
+      "metric": "scripted alive-frame candidate minus served",
+      "observed_cluster_se": 0.05050841180138624,
+      "observed_rows": 64,
+      "per_final_means": {
+        "0": -0.03265000000000001
+      },
+      "rows_per_final": {
+        "0": 64
+      },
+      "threshold": -0.15
+    },
+    "seed_1_floor": {
+      "distinct_worlds": 64,
+      "failure_probability": 0.019853807073957817,
+      "future_se": 0.03884717343125344,
+      "future_worlds": 96,
+      "mean": -0.07010000000000001,
+      "metric": "scripted alive-frame candidate minus served",
+      "observed_cluster_se": 0.047577876427987255,
+      "observed_rows": 64,
+      "per_final_means": {
+        "1": -0.07010000000000001
+      },
+      "rows_per_final": {
+        "1": 64
+      },
+      "threshold": -0.15
+    },
+    "seed_2_floor": {
+      "distinct_worlds": 64,
+      "failure_probability": 3.3814650158684133e-06,
+      "future_se": 0.04580632097216814,
+      "future_worlds": 96,
+      "mean": 0.05617499999999999,
+      "metric": "scripted alive-frame candidate minus served",
+      "observed_cluster_se": 0.05610105668797992,
+      "observed_rows": 64,
+      "per_final_means": {
+        "2": 0.05617499999999999
+      },
+      "rows_per_final": {
+        "2": 64
+      },
+      "threshold": -0.15
+    },
+    "seed_3_floor": {
+      "distinct_worlds": 64,
+      "failure_probability": 4.801685590021158e-08,
+      "future_se": 0.038735641087500494,
+      "future_worlds": 96,
+      "mean": 0.05661875,
+      "metric": "scripted alive-frame candidate minus served",
+      "observed_cluster_se": 0.04744127776198154,
+      "observed_rows": 64,
+      "per_final_means": {
+        "3": 0.05661875
+      },
+      "rows_per_final": {
+        "3": 64
+      },
+      "threshold": -0.15
+    },
+    "seed_4_floor": {
+      "distinct_worlds": 64,
+      "failure_probability": 0.08177317936966577,
+      "future_se": 0.04134463994935937,
+      "future_worlds": 96,
+      "mean": -0.09239687499999999,
+      "metric": "scripted alive-frame candidate minus served",
+      "observed_cluster_se": 0.0506366357375097,
+      "observed_rows": 64,
+      "per_final_means": {
+        "4": -0.09239687499999999
+      },
+      "rows_per_final": {
+        "4": 64
+      },
+      "threshold": -0.15
+    }
+  },
+  "combined": {
+    "covariance_correlations": {
+      "0": {
+        "complete_worlds": 32,
+        "matrix": [
+          [
+            1.0,
+            0.2546256536970141,
+            0.11606971727678961,
+            0.5412397408138837,
+            0.34549591526576967,
+            0.20301844426756946
+          ],
+          [
+            0.2546256536970141,
+            1.0,
+            -0.17837153681747364,
+            0.032721264514863915,
+            0.6070773377784819,
+            -0.06822028683512495
+          ],
+          [
+            0.11606971727678961,
+            -0.17837153681747364,
+            1.0,
+            0.2652442760555034,
+            -0.19601054246462438,
+            0.6552602087182717
+          ],
+          [
+            0.5412397408138837,
+            0.03272126451486391,
+            0.26524427605550344,
+            1.0,
+            0.00857966199371452,
+            0.39735970711951313
+          ],
+          [
+            0.3454959152657696,
+            0.6070773377784818,
+            -0.19601054246462435,
+            0.00857966199371452,
+            1.0,
+            -0.15114173098063566
+          ],
+          [
+            0.20301844426756946,
+            -0.06822028683512493,
+            0.6552602087182717,
+            0.3973597071195132,
+            -0.15114173098063563,
+            1.0
+          ]
+        ],
+        "source": "M4 only"
+      },
+      "1": {
+        "complete_worlds": 32,
+        "matrix": [
+          [
+            1.0,
+            0.10798417685399937,
+            -0.16355712214578488,
+            0.6698345057852015,
+            0.11013914934745168,
+            -0.0919929413682228
+          ],
+          [
+            0.10798417685399937,
+            1.0,
+            -0.034880545537005626,
+            0.08103068484160243,
+            0.5646149198445946,
+            0.2575517955664206
+          ],
+          [
+            -0.16355712214578488,
+            -0.034880545537005626,
+            1.0,
+            -0.1701897358475027,
+            0.12977657945334264,
+            0.5084458615623767
+          ],
+          [
+            0.6698345057852015,
+            0.08103068484160242,
+            -0.1701897358475027,
+            1.0,
+            0.2217954711246666,
+            0.03798685881987932
+          ],
+          [
+            0.11013914934745168,
+            0.5646149198445947,
+            0.12977657945334264,
+            0.22179547112466663,
+            1.0,
+            0.3892494720807615
+          ],
+          [
+            -0.09199294136822278,
+            0.2575517955664206,
+            0.5084458615623767,
+            0.03798685881987932,
+            0.38924947208076144,
+            1.0
+          ]
+        ],
+        "source": "M4 only"
+      },
+      "2": {
+        "complete_worlds": 32,
+        "matrix": [
+          [
+            1.0,
+            -0.10043045625413774,
+            0.020076894499606753,
+            0.5844911430781404,
+            -0.1485591783751668,
+            -0.1414522643089484
+          ],
+          [
+            -0.10043045625413775,
+            1.0,
+            0.36394507179286983,
+            -0.08767619474925009,
+            0.6819919272451995,
+            0.03708767663509801
+          ],
+          [
+            0.02007689449960675,
+            0.36394507179286983,
+            1.0,
+            0.10000409126253536,
+            0.3501071167558783,
+            0.14828841635279724
+          ],
+          [
+            0.5844911430781405,
+            -0.08767619474925008,
+            0.10000409126253536,
+            1.0,
+            -0.005476267312112713,
+            -0.33062326126679026
+          ],
+          [
+            -0.14855917837516683,
+            0.6819919272451996,
+            0.3501071167558783,
+            -0.005476267312112713,
+            1.0,
+            -0.049690399499995326
+          ],
+          [
+            -0.1414522643089484,
+            0.037087676635098016,
+            0.14828841635279724,
+            -0.33062326126679026,
+            -0.04969039949999533,
+            1.0
+          ]
+        ],
+        "source": "M4 only"
+      },
+      "3": {
+        "complete_worlds": 32,
+        "matrix": [
+          [
+            1.0,
+            -0.004166032326560715,
+            0.45362068473645933,
+            0.22525692034747402,
+            0.042401328155288354,
+            -0.04452006491697983
+          ],
+          [
+            -0.004166032326560714,
+            1.0,
+            0.14660919951760337,
+            -0.15248305940254128,
+            0.7017890177912589,
+            0.11441704126778465
+          ],
+          [
+            0.45362068473645933,
+            0.1466091995176034,
+            1.0,
+            -0.031977901185997436,
+            0.10793319679667614,
+            0.5976150623602025
+          ],
+          [
+            0.22525692034747402,
+            -0.15248305940254128,
+            -0.031977901185997436,
+            1.0,
+            -0.16265001215808886,
+            -0.07273929674533079
+          ],
+          [
+            0.042401328155288354,
+            0.7017890177912589,
+            0.10793319679667615,
+            -0.16265001215808883,
+            1.0,
+            0.14907119849998599
+          ],
+          [
+            -0.04452006491697984,
+            0.11441704126778465,
+            0.5976150623602023,
+            -0.07273929674533079,
+            0.14907119849998599,
+            1.0
+          ]
+        ],
+        "source": "M4 only"
+      },
+      "4": {
+        "complete_worlds": 32,
+        "matrix": [
+          [
+            1.0,
+            -0.023690457329793323,
+            -0.04773079773355344,
+            0.6062508221872916,
+            0.05491255631470692,
+            -0.07737911549474683
+          ],
+          [
+            -0.023690457329793326,
+            1.0,
+            0.2866039072318757,
+            -0.07345672213513531,
+            0.44968267431635683,
+            -0.07555474256226419
+          ],
+          [
+            -0.047730797733553446,
+            0.2866039072318757,
+            1.0,
+            -0.12161253898625562,
+            0.14023299596991146,
+            0.5440772318327024
+          ],
+          [
+            0.6062508221872915,
+            -0.0734567221351353,
+            -0.12161253898625562,
+            1.0,
+            0.06210273191490666,
+            -0.12434118282549848
+          ],
+          [
+            0.054912556314706915,
+            0.44968267431635683,
+            0.14023299596991146,
+            0.06210273191490666,
+            1.0,
+            -0.050964719143762556
+          ],
+          [
+            -0.07737911549474683,
+            -0.07555474256226419,
+            0.5440772318327024,
+            -0.12434118282549848,
+            -0.050964719143762556,
+            1.0
+          ]
+        ],
+        "source": "M4 only"
+      }
+    },
+    "dependence_free_bounds": [
+      0.23179059006905667,
+      0.5677932621858326
+    ],
+    "draws": 200000,
+    "joint_plugin_probability": 0.388145,
+    "joint_probability_absolute_480_all_mixes": 0.38656,
+    "marginal_independence_product": 0.4692538616314269,
+    "modeled_scope": "11 requested survival clauses only; unchanged efficacy clauses unmodeled",
+    "monte_carlo_se": 0.001089698258636307,
+    "rng_seed": 20261016
+  },
+  "inventory": {
+    "canonical_rows": 1984,
+    "counts_by_policy_mix": {
+      "B8_s0/frozen": 64,
+      "B8_s0/mixed": 64,
+      "B8_s0/scripted": 128,
+      "B8_s1/frozen": 64,
+      "B8_s1/mixed": 64,
+      "B8_s1/scripted": 128,
+      "B8_s2/frozen": 64,
+      "B8_s2/mixed": 64,
+      "B8_s2/scripted": 128,
+      "B8_s3/frozen": 64,
+      "B8_s3/mixed": 64,
+      "B8_s3/scripted": 128,
+      "B8_s4/frozen": 64,
+      "B8_s4/mixed": 64,
+      "B8_s4/scripted": 128,
+      "champion/frozen": 32,
+      "champion/mixed": 32,
+      "champion/scripted": 64,
+      "incumbent/frozen": 192,
+      "incumbent/mixed": 192,
+      "incumbent/scripted": 192
+    },
+    "duplicate_observations": 944,
+    "local_canonical_pool": {
+      "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/risk-pool.json",
+      "sha256": "0377958598fd9b0d4ee49ad697de203b79a645d048f8e795b6b065b34ce04741"
+    },
+    "source_files": 1221,
+    "source_manifest": "risk-inputs.json",
+    "source_manifest_sha256": "b9536ccd8ccd7306283d3cd9685deb2f6f6048f3b69bf8e48f3905da9c4e8024"
+  },
+  "methodology": {
+    "absolute_480": "480-world requested sensitivity also shown for frozen/mixed; amendment uses320 there",
+    "covariance": "within-final cross-metric/mix correlations from32 complete M4 worlds; independent future banks across finals; scripted96, frozen/mixed64 nested worlds",
+    "exclusions": "T3/T4e source trajectories have outcome-dependent stopping/quota selection and are not complete conventional probes; governor-on, ensemble K>1, non-final checkpoints, controls and H10000 excluded",
+    "forecast": "plug-in normal future-bank sampling noise conditional on observed means/variances; no parameter-uncertainty integration",
+    "limitation": "seen-bank selection and world-distribution uncertainty not quantified; normal plug-in tails are approximate",
+    "missing": "later64 round52 scripted B8 worlds lack served/champion outcomes; dev alive-frame references unavailable for frozen/mixed",
+    "source_se": "equal-final means; cluster sandwich by unique world seed, including shared round52 reference repeats"
+  },
+  "sensitivity": {
+    "M4_champion_alive": {
+      "distinct_worlds": 32,
+      "future_se": 0.03846376731638952,
+      "future_worlds": 96,
+      "mean": -0.1559875,
+      "observed_cluster_se": 0.06662119924249386,
+      "observed_rows": 32,
+      "per_final_means": {
+        "0": -0.1559875
+      },
+      "rows_per_final": {
+        "0": 32
+      }
+    },
+    "M4_champion_episode": {
+      "distinct_worlds": 32,
+      "future_se": 0.07530181208460926,
+      "future_worlds": 96,
+      "mean": -0.1875,
+      "observed_cluster_se": 0.13042656443254733,
+      "observed_rows": 32,
+      "per_final_means": {
+        "0": -0.1875
+      },
+      "rows_per_final": {
+        "0": 32
+      }
+    },
+    "M4_incumbent_alive": {
+      "distinct_worlds": 160,
+      "future_se": 0.01943747534659433,
+      "future_worlds": 480,
+      "mean": -0.0025975,
+      "observed_cluster_se": 0.033240516995464826,
+      "observed_rows": 160,
+      "per_final_means": {
+        "0": -0.10979375,
+        "1": -0.013343750000000001,
+        "2": 0.07388125000000001,
+        "3": 0.14480624999999997,
+        "4": -0.10853749999999998
+      },
+      "rows_per_final": {
+        "0": 32,
+        "1": 32,
+        "2": 32,
+        "3": 32,
+        "4": 32
+      }
+    },
+    "M4_incumbent_episode": {
+      "distinct_worlds": 160,
+      "future_se": 0.03317333914618073,
+      "future_worlds": 480,
+      "mean": -0.05,
+      "observed_cluster_se": 0.0567305642333918,
+      "observed_rows": 160,
+      "per_final_means": {
+        "0": -0.25,
+        "1": 0.03125,
+        "2": 0.09375,
+        "3": 0.09375,
+        "4": -0.21875
+      },
+      "rows_per_final": {
+        "0": 32,
+        "1": 32,
+        "2": 32,
+        "3": 32,
+        "4": 32
+      }
+    },
+    "round52_champion_alive": {
+      "distinct_worlds": 32,
+      "future_se": 0.016628426109801038,
+      "future_worlds": 480,
+      "mean": -0.03833125,
+      "observed_cluster_se": 0.05052233221426889,
+      "observed_rows": 160,
+      "per_final_means": {
+        "0": 0.036506250000000004,
+        "1": -0.13484374999999998,
+        "2": 0.030481250000000005,
+        "3": -0.039556249999999994,
+        "4": -0.08424375
+      },
+      "rows_per_final": {
+        "0": 32,
+        "1": 32,
+        "2": 32,
+        "3": 32,
+        "4": 32
+      }
+    },
+    "round52_champion_episode": {
+      "distinct_worlds": 32,
+      "future_se": 0.030980016538587948,
+      "future_worlds": 480,
+      "mean": -0.15625,
+      "observed_cluster_se": 0.09190386588449981,
+      "observed_rows": 160,
+      "per_final_means": {
+        "0": -0.03125,
+        "1": -0.3125,
+        "2": -0.0625,
+        "3": -0.15625,
+        "4": -0.21875
+      },
+      "rows_per_final": {
+        "0": 32,
+        "1": 32,
+        "2": 32,
+        "3": 32,
+        "4": 32
+      }
+    },
+    "round52_incumbent_alive": {
+      "distinct_worlds": 32,
+      "future_se": 0.017306996539465474,
+      "future_worlds": 480,
+      "mean": -0.03034375000000001,
+      "observed_cluster_se": 0.05383232920177527,
+      "observed_rows": 160,
+      "per_final_means": {
+        "0": 0.04449375,
+        "1": -0.12685625,
+        "2": 0.038468749999999996,
+        "3": -0.03156875,
+        "4": -0.07625625000000003
+      },
+      "rows_per_final": {
+        "0": 32,
+        "1": 32,
+        "2": 32,
+        "3": 32,
+        "4": 32
+      }
+    },
+    "round52_incumbent_episode": {
+      "distinct_worlds": 32,
+      "future_se": 0.03192154781732495,
+      "future_worlds": 480,
+      "mean": -0.125,
+      "observed_cluster_se": 0.09661613436354634,
+      "observed_rows": 160,
+      "per_final_means": {
+        "0": 0.0,
+        "1": -0.28125,
+        "2": -0.03125,
+        "3": -0.125,
+        "4": -0.1875
+      },
+      "rows_per_final": {
+        "0": 32,
+        "1": 32,
+        "2": 32,
+        "3": 32,
+        "4": 32
+      }
+    }
+  },
+  "tier2": {
+    "distinct_worlds": 64,
+    "failure_probability": 0.9999537807113087,
+    "future_se": 0.03117304699950997,
+    "future_worlds": 480,
+    "mean": -0.171875,
+    "metric": "episode survival candidate minus champion_a5 + v8",
+    "observed_cluster_se": 0.082690039358601,
+    "observed_rows": 192,
+    "per_final_means": {
+      "0": -0.109375,
+      "1": -0.3125,
+      "2": -0.0625,
+      "3": -0.15625,
+      "4": -0.21875
+    },
+    "retrospective_status": "FAIL",
+    "rows_per_final": {
+      "0": 64,
+      "1": 32,
+      "2": 32,
+      "3": 32,
+      "4": 32
+    },
+    "threshold": -0.05
+  }
+}
