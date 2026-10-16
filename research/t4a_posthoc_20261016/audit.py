@@ -292,6 +292,7 @@ def compare_ctrl_actions(
         return {"status": "unavailable", "reason": "T3 series has no decision arrays"}
     arm_id = 0 if arm == "LABELS" else 1
     selected = np.asarray(t3_series["decision_arm"]) == arm_id
+    selected_indices = np.flatnonzero(selected)
     prior_env = np.asarray(t3_series["decision_env"])[selected]
     prior_frame = np.asarray(t3_series["decision_frame"])[selected]
     current_index = _key_index(arrays["env"], arrays["frame"])
@@ -303,7 +304,7 @@ def compare_ctrl_actions(
     first_mismatch: dict[str, Any] | None = None
     for key in sorted(current_keys):
         current = current_index[key]
-        prior = np.flatnonzero(selected)[prior_index[key]]
+        prior = selected_indices[prior_index[key]]
         if int(arrays["advisory_action"][current]) != int(t3_series["decision_arm_action"][prior]):
             action_mismatches += 1
             first_mismatch = first_mismatch or {
