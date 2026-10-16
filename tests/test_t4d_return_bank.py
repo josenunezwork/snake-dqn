@@ -157,3 +157,46 @@ def test_cli_default_return_options_are_inert():
     )
     assert args.return_bank is None and args.return_frac == 0
     assert not any(key.startswith("return_") for key in m3c_flags(args))
+
+
+def test_return_loss_keeps_initial_state_action_and_terminal_state_aligned() -> None:
+    """Distinct states and boost columns catch swaps hidden by constant-Q fixtures."""
+
+    class StateQ(torch.nn.Module):
+        def __init__(self, values: torch.Tensor) -> None:
+            super().__init__()
+            self.values = torch.nn.Parameter(values.clone())
+
+        def forward(self, local, glob, scalars):
+            return self.values[scalars[:, 0].long()]
+
+    online = StateQ(torch.arange(36, dtype=torch.float32).reshape(6, 6))
+    target = StateQ(torch.arange(60, 96, dtype=torch.float32).reshape(6, 6))
+    rows = {
+        "local": torch.zeros((3, 7, 31, 31), dtype=torch.uint8),
+        "global": torch.zeros((3, 4, 37, 37), dtype=torch.uint8),
+        "scalars": torch.tensor([[0.0], [1.0], [2.0]]),
+        "action": torch.tensor([3, 5, 1]),
+        "T": torch.tensor([2, 1, 3]),
+        "died": torch.tensor([False, True, False]),
+        "realised": torch.tensor([-2.0, -20.0, 4.0]),
+        "terminal_local": torch.zeros((3, 7, 31, 31), dtype=torch.uint8),
+        "terminal_global": torch.zeros((3, 4, 37, 37), dtype=torch.uint8),
+        "terminal_scalars": torch.tensor([[3.0], [4.0], [5.0]]),
+        "terminal_mask": torch.tensor(
+            [[True, False, True, False, False, False], [False] * 6, [False] * 6]
+        ),
+        "weight": torch.tensor([1.0, 0.3, 0.5]),
+    }
+    # sT=3 selects column 2 under its mask; empty sT=5 uses normal columns 0..2.
+    expected_y = torch.tensor([-2.0 + 0.9**2 * 80, -20.0, 4.0 + 0.9**3 * 92])
+    expected_qa = torch.tensor([3.0, 11.0, 13.0])
+    expected_errors = expected_qa - expected_y
+    loss, y = return_regression_loss(torch, online, target, rows, gamma=0.9, delta=100.0)
+    torch.testing.assert_close(y, expected_y)
+    torch.testing.assert_close(loss, (0.5 * expected_errors.square() * rows["weight"]).mean())
+    loss.backward()
+    expected_gradient = torch.zeros((6, 6))
+    expected_gradient[torch.arange(3), rows["action"]] = expected_errors * rows["weight"] / 3
+    torch.testing.assert_close(online.values.grad, expected_gradient)
+    assert target.values.grad is None
