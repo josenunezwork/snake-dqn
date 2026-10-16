@@ -1,0 +1,117 @@
+{
+  "audit_source_sha256": "df930419abd670fcc9579269c612641092d3babbdfab5daf4a9d56ab4b75e903",
+  "bank_staged_mismatches": [],
+  "banks": {
+    "holdout_worlds": 30,
+    "manifests": {
+      "holdout": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/holdout/manifest.json",
+        "sha256": "c0ae22541d20927d1a7996f1a5a91c2aceb9591de8eb743c514def86e2c95e6c"
+      },
+      "train": {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/banks/train/manifest.json",
+        "sha256": "708e84d9463ebb890edeb3aa2ed99111cfbd259c939a3c2c211d6bf41c236a3d"
+      }
+    },
+    "seed_overlap": [],
+    "train_worlds": 312,
+    "world_overlap": []
+  },
+  "collection": {
+    "plan_files": [
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0000.json",
+        "sha256": "42e17147006a3f5bebb16b1e60d5d53fd98a6e8debeecd154bd07c1949c9d75b"
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0001.json",
+        "sha256": "8e05fd627c81ef950d96ce3c2b91c76e255a690bec1911a43afb2f5ef3046ebc"
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0002.json",
+        "sha256": "95c0bf269ff11367b1e9f8287e156491f1d793f7266c8689282801bfe44c0682"
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0003.json",
+        "sha256": "6a081c2f9d0e4e1129752eca7ca1ba6e64177c188b5e00221f6fbeaac50409e8"
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0004.json",
+        "sha256": "19e83c939811d4fe250510219cc0bc456f2d020f2b9fbbc6dd4baccbb447b9b8"
+      },
+      {
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-return-bank-20261016/plans/cycle-0005.json",
+        "sha256": "7a71c9dc873d519c1f327c06d7dedf23938b723679037b87bf8d45d0e16a6575"
+      }
+    ],
+    "plan_job_count": 1200,
+    "plan_mismatches": [],
+    "seed_digest": "74f022cc1346915db981349de3d7329013e40859c7997e2b7cc3af0aa06dd2c0",
+    "staged_conflicts": [],
+    "staged_npz_files": 3060,
+    "unique_world_ids": 1200,
+    "world_id_range": [
+      0,
+      1199
+    ],
+    "world_ids_complete": true
+  },
+  "dev_probe_source_sha256": "b264bcbdff78844e853b0b4f0eca80d854348bfe90f36cc60ca1a093e6f90658",
+  "generator": {
+    "path": "research/redesign_m2_20261008/ni_spec.py",
+    "source_sha256": "8fe85c9964774f1d42dac977a435f025dfcbb878d9d931e1efb787b4f649368b",
+    "symbol": "distill_seeds(96, round_index)"
+  },
+  "generic_seed_audit": {
+    "checks": {
+      "68": {
+        "observed_json_collisions": 96,
+        "reserved_metadata": {
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts": true,
+          "/Users/josenunez/Projects/ml/snake-dqn-t4d/research": false
+        }
+      },
+      "69": {
+        "observed_json_collisions": 96,
+        "reserved_metadata": {
+          "/Users/josenunez/Projects/ml/snake-dqn-artifacts": true,
+          "/Users/josenunez/Projects/ml/snake-dqn-t4d/research": false
+        }
+      }
+    },
+    "hit_paths": [
+      [
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/codex-t4e.err"
+      ],
+      [
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/seed_audit.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/seed_audit_corrected.json",
+        "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-validation-20261016/seed_audit_postcollection.json"
+      ]
+    ],
+    "pass": false,
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4e-calibration-20261016/unfiltered-seed-audit.json",
+    "scope_note": "Unfiltered broad audit is recorded separately from direct bank exclusion. Its hits include prior audit receipts and the collection transcript; they are not evidence of played evaluation worlds. Refresh the broad audit with exact documentary exclusions at evaluation launch.",
+    "sha256": "a7b9343172ec4a851e9b2b58a721ed5e2c3fa7b498101b4be11bc78756f837ff",
+    "status": "FAIL"
+  },
+  "mix_semantics": "Round rosters are generated as 96 scripted seeds by distill_seeds; dev_probe uses prefixes of that roster for the frozen and mixed 32-world assignments. This receipt does not claim 160 distinct seeds.",
+  "rounds": {
+    "68": {
+      "count": 96,
+      "overlap_all_1200_collection_seeds": [],
+      "overlap_holdout_bank_seeds": [],
+      "overlap_train_bank_seeds": [],
+      "seed_digest": "59bd22625f824c73d4350e8e337a9bc257f0cb14eadcae1724ce9e7efd5a2cab"
+    },
+    "69": {
+      "count": 96,
+      "overlap_all_1200_collection_seeds": [],
+      "overlap_holdout_bank_seeds": [],
+      "overlap_train_bank_seeds": [],
+      "seed_digest": "e81677df82c467111ed08a8c769c265661db5ce1255e17a3a1a6f29803a971b7"
+    }
+  },
+  "schema": "t4e-calibration-seed-audit/v3",
+  "status": "PASS"
+}
