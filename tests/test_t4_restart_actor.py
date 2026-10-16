@@ -278,8 +278,10 @@ def test_restart_default_actor_trace_matches_git_865ae05(tmp_path, monkeypatch):
         for key in ref.keys() - {"env_s", "timing", "j"}:
             if isinstance(ref[key], np.ndarray):
                 assert ref[key].dtype == got[key].dtype
-                assert np.array_equal(ref[key], got[key]), (index, key)
+                assert ref[key].shape == got[key].shape
+                assert ref[key].tobytes() == got[key].tobytes(), (index, key)
             else:
                 assert ref[key] == got[key], (index, key)
     for key in ref_ring:
-        assert np.array_equal(ref_ring[key], got_ring[key]), key
+        assert ref_ring[key].dtype == got_ring[key].dtype
+        assert ref_ring[key].tobytes() == got_ring[key].tobytes(), key

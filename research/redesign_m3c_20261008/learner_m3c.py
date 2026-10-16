@@ -160,14 +160,60 @@ def _masked_argmax(torch, q, m):
     return torch.where(m, q, torch.full_like(q, -1e9)).argmax(dim=1)
 
 
-def _bank_anchor_terms(torch, qd, db, n_bank: int, margin: float, scale: float):
-    """Combine ordinary anchors and weighted surviving-set anchors by row count."""
+def _bank_side_agreement(q, surviving, action, counter):
+    """Existing preferred-set agreement plus T4a's two raw-six-action side metrics."""
+    prediction = q.argmax(dim=1)
+    counter = counter.bool()
+    decisive = ~counter
+    decisive_ok = surviving.gather(1, prediction[:, None]).squeeze(1)
+    counter_ok = prediction == action
+    overall = decisive_ok.float().mean()
+    return (
+        overall,
+        decisive_ok[decisive].float().mean() if decisive.any() else None,
+        counter_ok[counter].float().mean() if counter.any() else None,
+    )
+
+
+def _bank_anchor_terms(
+    torch, qd, db, n_bank: int, margin: float, scale: float, counter_mode: str = "inert"
+):
+    """Combine regular anchors with T3 or optional two-sided bank anchors."""
     from research.t3_rollout_labels_20261015.bank import surviving_margin
 
     regular = len(qd) - n_bank
     qb = qd[regular:]
-    bank_loss = surviving_margin(torch, qb, db["surviving"], db["weight"], margin * scale)
-    agree = db["surviving"].gather(1, qb.argmax(dim=1)[:, None]).float().mean()
+    if counter_mode == "inert":
+        bank_loss = surviving_margin(torch, qb, db["surviving"], db["weight"], margin * scale)
+        agree = db["surviving"].gather(1, qb.argmax(dim=1)[:, None]).float().mean()
+    elif counter_mode == "single-action":
+        counter = db["counter"].bool()
+        decisive = ~counter
+        pieces, weights = [], []
+        if decisive.any():
+            pieces.append(
+                surviving_margin(
+                    torch,
+                    qb[decisive],
+                    db["surviving"][decisive],
+                    db["weight"][decisive],
+                    margin * scale,
+                )
+            )
+            weights.append(decisive.sum())
+        if counter.any():
+            # Counter rows retain B8's original chosen action as the sole expert
+            # action.  All six actions compete, irrespective of advisory legality.
+            qc, action = qb[counter], db["action"][counter]
+            onehot = torch.nn.functional.one_hot(action.long(), 6).bool()
+            per_row = (qc + (~onehot).to(qc.dtype) * (margin * scale)).max(1).values
+            per_row = per_row - qc.gather(1, action[:, None]).squeeze(1)
+            pieces.append((per_row * db["weight"][counter]).mean())
+            weights.append(counter.sum())
+        bank_loss = sum(piece * weight for piece, weight in zip(pieces, weights)) / n_bank
+        agree = db["surviving"].gather(1, qb.argmax(dim=1)[:, None]).float().mean()
+    else:
+        raise ValueError(f"unknown label-bank counter mode: {counter_mode}")
     if regular:
         ordinary = anchor_loss_margin(
             torch, qd[:regular], db["a_v8"][:regular], db["mask_resolved"][:regular], margin
@@ -205,7 +251,10 @@ def loss_terms(
     n_bank: int = 0,
     bank_surviving=None,
     bank_weight=None,
+    bank_action=None,
+    bank_counter=None,
     bank_margin_scale: float = 1.0,
+    bank_counter_mode: str = "inert",
     bank_metrics=None,
 ):
     """The T1 update's forwards and loss terms on one uploaded staging batch.
@@ -243,12 +292,25 @@ def loss_terms(
         "mask_resolved": mask_resolved[:m],
     }
     if n_bank:
-        db.update(surviving=bank_surviving, weight=bank_weight)
+        db.update(
+            surviving=bank_surviving,
+            weight=bank_weight,
+            action=bank_action,
+            counter=bank_counter,
+        )
         anc, bank_loss, bank_agree = _bank_anchor_terms(
-            torch, qd, db, n_bank, margin, bank_margin_scale
+            torch, qd, db, n_bank, margin, bank_margin_scale, bank_counter_mode
         )
         if bank_metrics is not None:
-            bank_metrics.update(loss=bank_loss.detach(), agree=bank_agree.detach())
+            _, decisive_agree, counter_agree = _bank_side_agreement(
+                qd[-n_bank:], bank_surviving, bank_action, bank_counter
+            )
+            bank_metrics.update(
+                loss=bank_loss.detach(),
+                agree=bank_agree.detach(),
+                decisive_agree=None if decisive_agree is None else decisive_agree.detach(),
+                counter_agree=None if counter_agree is None else counter_agree.detach(),
+            )
     elif m == 0:
         anc = torch.zeros((), device=q.device)
     elif anchor_mode == "v8margin":
@@ -372,9 +434,18 @@ class Learner:
         if self.bank is not None:
             if args.anchor_mode != "v8margin":
                 raise ValueError("--label-bank needs --anchor-mode v8margin")
-            for key in ("bank_rows", "bank_margin_loss", "bank_agree"):
+            for key in (
+                "bank_rows",
+                "bank_margin_loss",
+                "bank_agree",
+                "bank_agree_decisive",
+                "bank_agree_counter",
+            ):
                 st.setdefault(key, [])
-            self._bank_loss, self._bank_agree = [], []
+            self._bank_loss = []
+            self._bank_agree = []
+            self._bank_agree_decisive = []
+            self._bank_agree_counter = []
         k = int(self.opts.batch_scale)
         self.a_rows, self.d_rows, self.min_rows = agent_rows * k, anchor_rows * k, min_rows * k
         self.target_every = max(1, round(TARGET_EVERY / k))
@@ -493,7 +564,18 @@ class Learner:
         if self._bank_loss:
             self.st["bank_margin_loss"].extend(self.torch.stack(self._bank_loss).cpu().tolist())
             self.st["bank_agree"].extend(self.torch.stack(self._bank_agree).cpu().tolist())
-            self._bank_loss, self._bank_agree = [], []
+            if self._bank_agree_decisive:
+                self.st["bank_agree_decisive"].extend(
+                    self.torch.stack(self._bank_agree_decisive).cpu().tolist()
+                )
+            if self._bank_agree_counter:
+                self.st["bank_agree_counter"].extend(
+                    self.torch.stack(self._bank_agree_counter).cpu().tolist()
+                )
+            self._bank_loss = []
+            self._bank_agree = []
+            self._bank_agree_decisive = []
+            self._bank_agree_counter = []
 
     # ------------------------------------------------------------------ reference (M3-C)
     def _update_reference(self, lam: float) -> None:
@@ -560,7 +642,11 @@ class Learner:
             }
         st["label_rows"].append(n_lab)
         if n_bank:
-            bank_rows = self.bank.sample(rng, n_bank)
+            bank_rows = self.bank.sample(
+                rng,
+                n_bank,
+                getattr(args, "label_bank_counter_ratio", None),
+            )
             for key in ("local", "global", "scalars"):
                 d[key] = np.concatenate([d[key], bank_rows[key]])
         n_agent = len(idx)
@@ -581,9 +667,23 @@ class Learner:
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         has_anchor = qd.shape[0] > 0
         if n_bank:
-            db.update(surviving=to_dev(bank_rows["surviving"]), weight=to_dev(bank_rows["weight"]))
+            db.update(
+                surviving=to_dev(bank_rows["surviving"]),
+                weight=to_dev(bank_rows["weight"]),
+                action=to_dev(bank_rows["action"]),
+                counter=to_dev(bank_rows["counter"]),
+            )
             anc, bank_loss, bank_agree = _bank_anchor_terms(
-                torch, qd, db, n_bank, margin, args.label_bank_margin_scale
+                torch,
+                qd,
+                db,
+                n_bank,
+                margin,
+                args.label_bank_margin_scale,
+                getattr(args, "label_bank_counter_mode", "inert"),
+            )
+            _, decisive_agree, counter_agree = _bank_side_agreement(
+                qd[-n_bank:], db["surviving"], db["action"], db["counter"]
             )
         elif not has_anchor:  # bv8 before enough on-policy labels: TD only
             anc = torch.zeros((), device=q.device)
@@ -605,6 +705,10 @@ class Learner:
             st["bank_rows"].append(n_bank)
             st["bank_margin_loss"].append(float(bank_loss.detach()) if n_bank else 0.0)
             st["bank_agree"].append(float(bank_agree.detach()) if n_bank else 0.0)
+            if n_bank and decisive_agree is not None:
+                st["bank_agree_decisive"].append(float(decisive_agree.detach()))
+            if n_bank and counter_agree is not None:
+                st["bank_agree_counter"].append(float(counter_agree.detach()))
         st["updates"] += 1
         st["td"].append(float(td.detach()))
         if has_anchor:
@@ -705,7 +809,11 @@ class Learner:
         st["label_rows"].append(n_lab)
         result = {"stage": stage, "n": n, "m": n_demo + n_lab, "n_demo": n_demo}
         if n_bank:
-            bank_rows = self.bank.sample(rng, n_bank)
+            bank_rows = self.bank.sample(
+                rng,
+                n_bank,
+                getattr(args, "label_bank_counter_ratio", None),
+            )
             start = base + n_demo + n_lab
             for key in ("local", "global", "scalars"):
                 v[key][start : start + n_bank] = bank_rows[key]
@@ -732,6 +840,10 @@ class Learner:
             st["bank_rows"].append(p["bank_rows"])
             self._bank_loss.append(p["bank_loss"])
             self._bank_agree.append(p["bank_agree"])
+            if p.get("bank_agree_decisive") is not None:
+                self._bank_agree_decisive.append(p["bank_agree_decisive"])
+            if p.get("bank_agree_counter") is not None:
+                self._bank_agree_counter.append(p["bank_agree_counter"])
         self._td.append(p["td"])
         if p["has_anchor"]:
             self._anc.append(p["anc"])
@@ -799,8 +911,9 @@ class Learner:
             td, anc, qmax = td.detach().clone(), anc.detach().clone(), qmax.clone()
             metrics = kw.get("bank_metrics")
             if metrics:
-                for name in ("loss", "agree"):
-                    metrics[name] = metrics[name].detach().clone()
+                for name in ("loss", "agree", "decisive_agree", "counter_agree"):
+                    if metrics.get(name) is not None:
+                        metrics[name] = metrics[name].detach().clone()
         key = (kw["n"], kw["m"], kw["n_demo"])
         if self._verified.get(key, 0) < VERIFY_CALLS:
             return self._verify(key, tensors, kw, lam, (td, anc, qmax))
@@ -900,7 +1013,10 @@ class Learner:
                 n_bank=n_bank,
                 bank_surviving=torch.from_numpy(batch["bank"]["surviving"]).to(self.device),
                 bank_weight=torch.from_numpy(batch["bank"]["weight"]).to(self.device),
+                bank_action=torch.from_numpy(batch["bank"]["action"]).to(self.device),
+                bank_counter=torch.from_numpy(batch["bank"]["counter"]).to(self.device),
                 bank_margin_scale=float(args.label_bank_margin_scale),
+                bank_counter_mode=getattr(args, "label_bank_counter_mode", "inert"),
                 bank_metrics=bank_metrics,
             )
         has_anchor = m > 0
@@ -928,6 +1044,8 @@ class Learner:
                 bank_rows=n_bank,
                 bank_loss=bank_metrics.get("loss", zero),
                 bank_agree=bank_metrics.get("agree", zero),
+                bank_agree_decisive=bank_metrics.get("decisive_agree"),
+                bank_agree_counter=bank_metrics.get("counter_agree"),
             )
         if self.demos is not None:
             self.demos.swap_if_ready()
