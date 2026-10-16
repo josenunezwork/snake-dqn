@@ -23,7 +23,7 @@ revalidates each saved capture and its input hashes before computing readouts.
 
 The launch audit is preserved as `seed_bank_audit_round66.json`. If extension
 is needed, freshness is checked again and preserved separately as
-`seed_bank_audit_round67.json`. Resumed probes validate checkpoint identities,
+`seed_bank_audit_round67_launch-<UTC timestamp>.json`. Resumed probes validate checkpoint identities,
 world keys, evaluation settings, survival accounting and terminal lengths.
 
 The extra observer only reads detached post-frame state. It records logical
