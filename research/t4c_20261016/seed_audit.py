@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,7 +18,9 @@ from typing import Any
 from research.t3_screen_20261015 import banks as prior_banks
 
 
-def inventory_json(root: Path, *, exclude: Path | None = None) -> dict[str, Any]:
+def inventory_json(
+    root: Path, *, exclude: Path | None = None, prune: tuple[Path, ...] = ()
+) -> dict[str, Any]:
     """Collect explicit seed fields during JSON decoding, skipping a second tree walk.
 
     JSONL is streamed one record at a time. Every byte still contributes to the
@@ -59,11 +62,22 @@ def inventory_json(root: Path, *, exclude: Path | None = None) -> dict[str, Any]
     digest = hashlib.sha256()
     valid = count = 0
     invalid = []
-    paths = sorted(
-        path
-        for path in root.rglob("*")
-        if path.suffix in {".json", ".jsonl"} and path.is_file() and path != exclude
-    )
+    excluded = tuple(path.resolve() for path in prune)
+
+    def omitted(path: Path) -> bool:
+        resolved = path.resolve()
+        return any(resolved == item or item in resolved.parents for item in excluded)
+
+    # Do not use Path.rglob here: an ignored aborted study must be pruned before
+    # discovery, rather than merely omitted after its files have been enumerated.
+    paths: list[Path] = []
+    for parent, directories, files in os.walk(root):
+        parent_path = Path(parent)
+        directories[:] = sorted(name for name in directories if not omitted(parent_path / name))
+        for name in sorted(files):
+            path = parent_path / name
+            if path.suffix in {".json", ".jsonl"} and path.is_file() and path != exclude:
+                paths.append(path)
     for path in paths:
         count += 1
         file_digest = hashlib.sha256()
@@ -169,11 +183,13 @@ def seed_bank_audit(
         registered.update(ni_spec.distill_seeds(96, round_index=round_index))
 
     repository_results = repo_path / "research/t4c_20261016/results/seed_bank_audit.json"
+    aborted = artifact_root / "redesign-t4c-mac-20261016/ABORTED_cpu_TWO_SIDED_T_s10"
     roots = [repo_path / "research", artifact_root]
     inventories = {
         str(root): inventory_json(
             root,
             exclude=(repository_results if root == repo_path / "research" else output),
+            prune=(aborted,) if root == artifact_root else (),
         )
         for root in roots
     }
@@ -234,10 +250,12 @@ def seed_bank_audit(
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "scope": (
             "registered NI/distillation rounds, used rounds 62-65, repository research JSON, "
-            "all artifact-directory JSON/JSONL, and immutable T3 label namespace"
+            "all artifact-directory JSON/JSONL except the explicitly ignored aborted CPU T4c "
+            "run, and immutable T3 label namespace"
         ),
         "excluded_output": str(output) if output is not None else None,
         "excluded_repository_results": str(repository_results),
+        "ignored_entirely": [str(aborted)],
         "registered_t2_audit": {"pass": t2["pass"], "schema": t2["schema"]},
         "t3_rollout_training_namespace": namespace,
         "inventories": {

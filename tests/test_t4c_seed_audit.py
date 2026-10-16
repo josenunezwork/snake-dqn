@@ -156,3 +156,43 @@ def test_malformed_byte_coverage_is_bounded_and_encoding_safe(tmp_path):
         assert not banks.malformed_byte_coverage([str(path)], {99999999})["pass"]
     path.write_bytes(b"")
     assert banks.malformed_byte_coverage([str(path)], {99999999})["pass"]
+
+
+def test_aborted_cpu_run_is_pruned_before_json_discovery(tmp_path, monkeypatch):
+    """The explicitly ignored partial run must not even enter the inventory."""
+    artifacts = tmp_path / "artifacts"
+    namespace = artifacts / "t3-rollout-labels-20261015/bank"
+    namespace.mkdir(parents=True)
+    (namespace / "namespace.json").write_text(
+        json.dumps({"schema": "t3-label-namespace/v1", "seeds": [4]})
+    )
+    (namespace / "manifest.json").write_text(
+        json.dumps({"schema": "t3-label-bank/v1", "files": {}})
+    )
+    aborted = artifacts / "redesign-t4c-mac-20261016/ABORTED_cpu_TWO_SIDED_T_s10"
+    aborted.mkdir(parents=True)
+    (aborted / "would-be-collision.json").write_text(json.dumps({"world_seeds": [6600]}))
+    monkeypatch.setattr(
+        banks.prior_banks,
+        "_registered_t2",
+        lambda _repo: {
+            "pass": True,
+            "schema": "fixture",
+            "registered_rounds": {},
+            "historical_distillation": {},
+        },
+    )
+    monkeypatch.setattr(banks.prior_banks, "_manifest_binding", lambda *_args: {"ok": True})
+    from research.redesign_m2_20261008 import ni_spec, ni_spec_m2b
+
+    monkeypatch.setattr(ni_spec, "ni_seeds", lambda: [])
+    monkeypatch.setattr(ni_spec_m2b, "ni_seeds", lambda: [])
+    monkeypatch.setattr(
+        ni_spec,
+        "distill_seeds",
+        lambda _n, round_index: list(range(round_index * 100, round_index * 100 + 96)),
+    )
+    result = banks.seed_bank_audit(tmp_path, artifacts)
+    assert result["pass"]
+    assert result["inventories"][str(artifacts)]["file_count"] == 2
+    assert result["ignored_entirely"] == [str(aborted)]
