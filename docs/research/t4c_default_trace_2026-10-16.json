@@ -49,7 +49,7 @@
   },
   "threads": 1,
   "trace_files": {
-    "/tmp/t4c-baseline-trace.json": "202375c6afbf82dd600ad969fcfc840e8265760a6a31590be1e28b102f430b18",
-    "/tmp/t4c-current-final-trace.json": "e96e45526dcdd8058d9c22d9d4d71294845882de687142267fc866c368b7d6f7"
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/validation/default-trace-baseline.json": "202375c6afbf82dd600ad969fcfc840e8265760a6a31590be1e28b102f430b18",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t4c-mac-20261016/validation/default-trace-current.json": "e96e45526dcdd8058d9c22d9d4d71294845882de687142267fc866c368b7d6f7"
   }
 }

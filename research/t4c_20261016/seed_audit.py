@@ -1,18 +1,101 @@
 """Fresh-world audit for the T4c evaluation rounds.
 
-The audit deliberately scans a bounded, recorded scope.  In particular, it
-excludes the output directory being prepared so a saved receipt remains valid
-after the watcher writes its own round-66/67 rows.
+The audit scans repository research and all artifact-root JSON/JSONL files,
+including root-level files. Only its own documentary receipt is excluded;
+actual probe results, including this study's results, are always counted.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from research.t3_screen_20261015 import banks as prior_banks
+
+
+def inventory_json(root: Path, *, exclude: Path | None = None) -> dict[str, Any]:
+    """Collect explicit seed fields during JSON decoding, skipping a second tree walk.
+
+    JSONL is streamed one record at a time. Every byte still contributes to the
+    inventory digest. Malformed files are reported; they never silently establish
+    freshness. This deliberately inspects nested explicit seed fields even inside
+    metric mappings, a conservative superset of the historical inventory helper.
+    """
+    if not root.is_dir():
+        return {
+            "exists": False,
+            "file_count": 0,
+            "seed_count": 0,
+            "seeds": [],
+            "digest": None,
+            "invalid_json": [],
+        }
+    seeds: set[int] = set()
+    metrics = {
+        "mass",
+        "deaths",
+        "alive_frames",
+        "death_frame",
+        "length_at_death",
+        "death_lengths",
+        "causes",
+    }
+
+    def seed_fields(value: dict) -> dict:
+        for key, child in value.items():
+            if key in {"seed", "world_seed"} and type(child) is int and child >= 0:
+                seeds.add(child)
+            elif key == "world_seeds" and isinstance(child, list):
+                seeds.update(item for item in child if type(item) is int and item >= 0)
+            elif key in metrics and isinstance(child, dict):
+                seeds.update(int(item) for item in child if str(item).isdigit())
+        return value
+
+    digest = hashlib.sha256()
+    valid = count = 0
+    invalid = []
+    paths = sorted(
+        path
+        for path in root.rglob("*")
+        if path.suffix in {".json", ".jsonl"} and path.is_file() and path != exclude
+    )
+    for path in paths:
+        count += 1
+        file_digest = hashlib.sha256()
+        bad = False
+        if path.suffix == ".jsonl":
+            with path.open("rb") as stream:
+                for line in stream:
+                    file_digest.update(line)
+                    if line.strip():
+                        try:
+                            json.loads(line, object_hook=seed_fields)
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            bad = True
+        else:
+            raw = path.read_bytes()
+            file_digest.update(raw)
+            try:
+                json.loads(raw, object_hook=seed_fields)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                bad = True
+        digest.update(str(path.relative_to(root)).encode() + b":" + file_digest.digest())
+        if bad:
+            invalid.append(str(path))
+        else:
+            valid += 1
+    return {
+        "exists": True,
+        "file_count": count,
+        "valid_json_count": valid,
+        "seed_count": len(seeds),
+        "seeds": sorted(seeds),
+        "digest": digest.hexdigest(),
+        "invalid_json": invalid,
+    }
 
 
 def seed_bank_audit(
@@ -30,6 +113,8 @@ def seed_bank_audit(
         else repo_path.parent / "snake-dqn-artifacts"
     )
     output = Path(exclude_out).resolve() if exclude_out is not None else None
+    if output is not None and (output.is_dir() or output.suffix != ".json"):
+        raise ValueError("exclude_out must name one JSON audit receipt, never a directory")
     t2 = prior_banks._registered_t2(repo_path)
     expected = {
         str(round_index): set(ni_spec.distill_seeds(96, round_index=round_index))
@@ -44,14 +129,9 @@ def seed_bank_audit(
         registered.update(ni_spec.distill_seeds(96, round_index=round_index))
 
     repository_results = repo_path / "research/t4c_20261016/results/seed_bank_audit.json"
-    roots = [repo_path / "research"] + sorted(
-        path
-        for path in artifact_root.iterdir()
-        if path.is_dir()
-        and any(token in path.name for token in ("probe", "eval", "strict", "gate"))
-    )
+    roots = [repo_path / "research", artifact_root]
     inventories = {
-        str(root): prior_banks._json_inventory(
+        str(root): inventory_json(
             root,
             exclude=(repository_results if root == repo_path / "research" else output),
         )
@@ -95,6 +175,7 @@ def seed_bank_audit(
         t2["pass"]
         and binding["ok"]
         and namespace_valid
+        and not any(item["invalid_json"] for item in inventories.values())
         and all(
             item["unique"]
             and not item["registered_collisions"]
@@ -109,7 +190,7 @@ def seed_bank_audit(
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "scope": (
             "registered NI/distillation rounds, used rounds 62-65, repository research JSON, "
-            "artifact probe/eval/strict/gate JSON, and immutable T3 label namespace"
+            "all artifact-directory JSON/JSONL, and immutable T3 label namespace"
         ),
         "excluded_output": str(output) if output is not None else None,
         "excluded_repository_results": str(repository_results),

@@ -178,6 +178,26 @@ def test_t4c_outside_hinge_uses_its_own_scale_and_half_weight() -> None:
     torch.testing.assert_close(q.grad, torch.tensor([[-0.5, 0.5, 0, 0, 0, 0]]))
 
 
+def test_t4c_family_agreement_uses_separate_denominators_and_missing_is_none() -> None:
+    q = torch.tensor(
+        [
+            [2.0, 0.0, 0.0, 0.0, 0.0, 0.0],  # decisive: preferred action 0
+            [0.0, 2.0, 0.0, 0.0, 0.0, 0.0],  # decisive: misses preferred action 0
+            [0.0, 0.0, 2.0, 0.0, 0.0, 0.0],  # in-window: matches action 2
+            [0.0, 0.0, 0.0, 2.0, 0.0, 0.0],  # outside: misses action 4
+        ]
+    )
+    surviving = torch.tensor([[True, False, False, False, False, False]] * 4)
+    decisive, inwindow, outside = lm._bank_family_agreement(
+        q, surviving, torch.tensor([0, 0, 2, 4]), torch.tensor([0, 0, 1, 2])
+    )
+    assert float(decisive) == pytest.approx(0.5)
+    assert float(inwindow) == pytest.approx(1.0)
+    assert float(outside) == pytest.approx(0.0)
+    missing = lm._bank_family_agreement(q[:1], surviving[:1], torch.tensor([0]), torch.tensor([0]))
+    assert float(missing[0]) == 1.0 and missing[1:] == (None, None)
+
+
 def test_t4c_outside_flags_require_explicit_two_sided_mode(tmp_path: Path) -> None:
     args = [
         "--seed",
@@ -250,7 +270,12 @@ def test_t4c_outside_cpu_reference_and_fast_match(tmp_path: Path) -> None:
 
     reference, fast = run(False), run(True)
     _assert_same(reference, fast)
-    for key in ("bank_margin_loss", "bank_agree_decisive", "bank_agree_counter", "bank_agree_outside"):
+    for key in (
+        "bank_margin_loss",
+        "bank_agree_decisive",
+        "bank_agree_counter",
+        "bank_agree_outside",
+    ):
         assert reference[2][key] == fast[2][key]
 
 
