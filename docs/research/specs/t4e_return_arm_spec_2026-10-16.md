@@ -29,3 +29,10 @@ Tests for anything new; flake8. Never touch tmux sessions or processes you did n
 Git: branch t4d-20261016; commit often; after each commit `git fetch origin && git merge origin/main`,
 `git push origin HEAD:main`, `git push origin t4d-20261016`.
 Final message: prereg path, bank stats (states, branches, wall time), launch script paths, sha.
+
+## Planner addendum (before any collection or prereg): separate Huber delta for the return loss
+Return targets differ by ~Phi(L)+3 (~100 Q) between fatal and surviving branches; a Huber delta of 1
+fits the median (the T2 finding) and would erase the magnitude information return regression exists
+to supply. Add a default-off `--return-huber-delta D` (default = the TD loss delta, so existing
+behaviour is unchanged; default path byte-identical, tested). The RETURN arm pre-registers
+`--return-huber-delta 100` (TD loss stays at delta 1). Put this in the prereg with this reason.
