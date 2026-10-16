@@ -196,3 +196,109 @@ The [evidence README](t3_diagnostics_2026-10-16_evidence/README.md) gives the CP
 - All task-owned numerical workers exited and were reaped. No training was launched; all diagnostic inference used CPU, never MPS.
 
 The full NPZ trajectories remain local and hash-bound, rather than committed as large binary files. Raw bank inference uses batches of 256; all replay and shadow decisions use CPU rowwise inference. These remain development measurements and do not alter the registered T3 decision.
+
+## 4. Boost reconciliation (T4a post-hoc)
+
+Training telemetry `greedy_boost_rate` counts the greedy action under the **resolved** action mask, after its normal-only fallback, before exploration or any shield/veto choice (`train_m3c.py`). The round-62 probes execute with the advisory mask. The primary rate below therefore uses resolved greed; raw and advisory rates are retained in the hash-bound JSON as definition checks.
+
+Each row pools the five matching final seeds by integer decision counts. `Own share` is the share of the named policy's own live decisions in that length bucket; CTRL trajectory rates evaluate the named final on matching-seed CTRL observations and do not alter CTRL's executed actions.
+
+| Arm | States | Length | Decisions | Own share | Resolved boost argmax | Rate | Raw rate | Advisory rate |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CTRL | own | <400 | 574277 | 28.92% | 408 | 0.07% | 0.08% | 0.07% |
+| CTRL | own | 400–<700 | 392986 | 19.79% | 800 | 0.20% | 0.22% | 0.20% |
+| CTRL | own | 700–<1000 | 425378 | 21.42% | 1560 | 0.37% | 0.39% | 0.37% |
+| CTRL | own | ≥1000 | 593068 | 29.87% | 3253 | 0.55% | 0.60% | 0.54% |
+| CTRL | CTRL | <400 | 574277 | — | 408 | 0.07% | 0.08% | 0.07% |
+| CTRL | CTRL | 400–<700 | 392986 | — | 800 | 0.20% | 0.22% | 0.20% |
+| CTRL | CTRL | 700–<1000 | 425378 | — | 1560 | 0.37% | 0.39% | 0.37% |
+| CTRL | CTRL | ≥1000 | 593068 | — | 3253 | 0.55% | 0.60% | 0.54% |
+| LABELS | own | <400 | 560263 | 28.04% | 25008 | 4.46% | 4.48% | 4.46% |
+| LABELS | own | 400–<700 | 415672 | 20.80% | 32221 | 7.75% | 7.76% | 7.75% |
+| LABELS | own | 700–<1000 | 925337 | 46.31% | 380008 | 41.07% | 41.11% | 41.06% |
+| LABELS | own | ≥1000 | 96831 | 4.85% | 46280 | 47.79% | 47.89% | 47.79% |
+| LABELS | CTRL | <400 | 574277 | — | 76465 | 13.32% | 13.33% | 13.32% |
+| LABELS | CTRL | 400–<700 | 392986 | — | 70060 | 17.83% | 17.83% | 17.83% |
+| LABELS | CTRL | 700–<1000 | 425378 | — | 342953 | 80.62% | 80.69% | 80.62% |
+| LABELS | CTRL | ≥1000 | 593068 | — | 519643 | 87.62% | 87.87% | 87.61% |
+| LABELS_KEEPV8 | own | <400 | 569552 | 29.15% | 1419 | 0.25% | 0.25% | 0.25% |
+| LABELS_KEEPV8 | own | 400–<700 | 405401 | 20.75% | 12607 | 3.11% | 3.11% | 3.11% |
+| LABELS_KEEPV8 | own | 700–<1000 | 893460 | 45.73% | 346756 | 38.81% | 38.88% | 38.81% |
+| LABELS_KEEPV8 | own | ≥1000 | 85191 | 4.36% | 41948 | 49.24% | 49.34% | 49.23% |
+| LABELS_KEEPV8 | CTRL | <400 | 574277 | — | 4060 | 0.71% | 0.71% | 0.71% |
+| LABELS_KEEPV8 | CTRL | 400–<700 | 392986 | — | 37338 | 9.50% | 9.51% | 9.50% |
+| LABELS_KEEPV8 | CTRL | 700–<1000 | 425378 | — | 303794 | 71.42% | 71.48% | 71.42% |
+| LABELS_KEEPV8 | CTRL | ≥1000 | 593068 | — | 512975 | 86.50% | 86.74% | 86.48% |
+
+Per-seed resolved overall rates (for audit, not a new inferential analysis):
+
+| Arm | Seed | Own resolved rate | CTRL-trajectory resolved rate |
+| --- | ---: | ---: | ---: |
+| CTRL | 10 | 0.27% | 0.27% |
+| CTRL | 11 | 0.30% | 0.30% |
+| CTRL | 12 | 0.36% | 0.36% |
+| CTRL | 13 | 0.19% | 0.19% |
+| CTRL | 14 | 0.39% | 0.39% |
+| LABELS | 10 | 23.07% | 46.97% |
+| LABELS | 11 | 26.74% | 55.83% |
+| LABELS | 12 | 23.27% | 47.28% |
+| LABELS | 13 | 24.11% | 54.57% |
+| LABELS | 14 | 23.62% | 48.87% |
+| LABELS_KEEPV8 | 10 | 20.04% | 40.49% |
+| LABELS_KEEPV8 | 11 | 18.94% | 46.18% |
+| LABELS_KEEPV8 | 12 | 23.87% | 43.58% |
+| LABELS_KEEPV8 | 13 | 23.36% | 45.93% |
+| LABELS_KEEPV8 | 14 | 16.94% | 39.47% |
+
+Pooled rates above are descriptive and the five seeds reuse each arm's 96 scripted worlds.
+
+### Reconciliation reading
+
+**The state-distribution split holds; the action-set definition difference does not explain the gap.**
+Pooled resolved-mask boost argmax is **24.20% on LABELS's own states versus 50.82% on CTRL's**,
+and **20.61% versus 43.22% for KEEPV8**. CTRL itself is 0.30%. Changing resolved greed to
+advisory greed changes these overall percentages by less than 0.005 percentage points;
+unrestricted raw greed also stays very close (LABELS 24.23%/50.92%, KEEPV8 20.65%/43.31%).
+Thus the technically different masks are not a material explanation of the observed contrast.
+
+The occupancy shift is substantial: only 4.85% of LABELS's and 4.36% of KEEPV8's own decisions
+are at length ≥1000, versus 29.87% for CTRL. Both label arms instead spend about 46% of their
+decisions at lengths 700–<1000, versus 21.42% for CTRL. Even within those length buckets the
+state distributions differ: LABELS boosts on 41.07% of its own 700–<1000 states versus 80.62%
+of CTRL's, and KEEPV8 on 38.81% versus 71.42%. At ≥1000 the corresponding pairs are
+47.79%/87.62% and 49.24%/86.50%. Matching length alone therefore does not remove the split.
+This supports the advisory note's **caution in behaviour space** reading: the final students
+occupy smaller, different states than the CTRL states on which they frequently prefer boost.
+Together with the fixed-survivor growth deficit, this is consistent with avoiding or failing
+to reach the larger-state regime; it is not a causal demonstration of deliberate avoidance.
+
+The own-probe rates are still much higher than the cited final training telemetry. These are
+different populations: the diagnostic uses a frozen final network on no-veto scripted probe
+trajectories, whereas telemetry counts actor decisions during training with evolving weights,
+exploration and the training opponent/state distribution. The diagnostic establishes the
+own-versus-CTRL state split and rules out action-set semantics as its material cause; it does
+not assert that the four length buckets fully account for the residual probe-versus-training gap.
+
+The telemetry source trace is `research/redesign_m3c_20261008/train_m3c.py`: resolved mask at
+line 2405, greedy selection at 2449–2451, pre-exploration greedy count at 2538, and reported
+rate at 2948. `src/core/runtime_contract.py:326` resolves legal∩advisory when nonempty and
+falls back to legal actions otherwise. This differs from the probe's advisory-only normal
+fallback, but the measured effect here is negligible.
+
+### Part 1 evidence and checks
+
+The [boost summary](t4a_posthoc_2026-10-16_evidence/boost-summary.json) contains every seed,
+bucket, action definition, integer numerator/denominator, and producer receipt. The
+[independent audit](t4a_posthoc_2026-10-16_evidence/part1-audit.json) completed all 25 captures:
+input/output hashes, source decision-count identity (post-transition alive frames plus fatal
+decisions), four-bucket partitions, all 15 own-trajectory pre-length alignments, and exact
+advisory actions/lengths for all ten on-CTRL captures against the earlier T3 arrays. There
+were no mismatches. Every replay also passed the original terminal-record parity checks.
+
+Tooling and commands are in `research/t4a_posthoc_20261016/README.md`. All 9,908,834 captured
+decisions used CPU rowwise inference, with at most three single-thread numerical workers;
+all Part 1 replay workers exited successfully and were reaped. The diagnostic code/test
+suite passed 24 tests, and six additional independent-audit tests passed; flake8 passed.
+The audit's first cross-trajectory pass was interrupted after identifying an avoidable
+repeated index scan; the corrected audit was rerun to completion. Protected tmux sessions,
+the `snake-dqn-t4a` worktree, and other owners' processes were not modified or controlled.
