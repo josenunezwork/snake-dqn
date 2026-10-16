@@ -160,12 +160,25 @@ def _masked_argmax(torch, q, m):
     return torch.where(m, q, torch.full_like(q, -1e9)).argmax(dim=1)
 
 
-def return_regression_loss(torch, online, target, rows: dict, *, gamma: float, delta: float):
-    """Weighted T4d Huber loss for recorded ``action then B8`` branch returns.
+def return_regression_loss(
+    torch,
+    online,
+    target,
+    rows: dict,
+    *,
+    gamma: float,
+    delta: float,
+    mode: str = "level",
+    contrast_epsilon: float = 0.0,
+    details: bool = False,
+):
+    """Weighted return loss for recorded branch returns.
 
     The terminal bootstrap is detached Double DQN, using precisely the learner's
     empty-mask fallback through :func:`_masked_argmax`.
     """
+    if mode not in ("level", "contrast") or contrast_epsilon < 0.0:
+        raise ValueError(f"unknown return regression mode: {mode}")
     q0 = online(rows["local"], rows["global"], rows["scalars"])
     qa = q0.gather(1, rows["action"].long()[:, None]).squeeze(1)
     with torch.no_grad():
@@ -179,8 +192,78 @@ def return_regression_loss(torch, online, target, rows: dict, *, gamma: float, d
         y = rows["realised"].to(dtype=qa.dtype)
         bootstrap = (gamma ** rows["T"].long()) * q_terminal
         y = y + torch.where(rows["died"].bool(), torch.zeros_like(bootstrap), bootstrap)
-    per_row = torch.nn.functional.huber_loss(qa, y, delta=delta, reduction="none")
-    return (per_row * rows["weight"]).mean(), y
+    if mode == "level":
+        per_row = torch.nn.functional.huber_loss(qa, y, delta=delta, reduction="none")
+        loss = (per_row * rows["weight"]).mean()
+        telemetry = {
+            "contrast_rows": 0,
+            "contrast_active_fraction": 0.0,
+            "mean_abs_target_contrast": 0.0,
+            "mean_abs_contrast_error": 0.0,
+        }
+    else:
+        group_sizes = rows.get("group_sizes")
+        selected = rows.get("selected")
+        if group_sizes is None or selected is None:
+            raise ValueError("contrast return regression needs complete source-state branch groups")
+        group_sizes = [int(size) for size in group_sizes]
+        if (
+            not group_sizes
+            or min(group_sizes) < 1
+            or max(group_sizes) > 6
+            or sum(group_sizes) != len(y)
+            or len(selected) != len(y)
+        ):
+            raise ValueError("invalid return-bank source-state branch groups")
+        # Each sampled source state's branches are contiguous.  Padded target rows avoid
+        # one MPS synchronization per source group while selecting dynamic a_ref.
+        starts = np.cumsum([0, *group_sizes[:-1]], dtype=np.int64)
+        width = max(group_sizes)
+        padded = np.zeros((len(group_sizes), width), dtype=np.int64)
+        valid = np.zeros((len(group_sizes), width), dtype=bool)
+        for row, (start, size) in enumerate(zip(starts, group_sizes)):
+            padded[row, :size] = np.arange(start, start + size)
+            valid[row, :size] = True
+        padded_t = torch.as_tensor(padded, device=y.device, dtype=torch.long)
+        valid_t = torch.as_tensor(valid, device=y.device)
+        ref_indices = padded_t.gather(
+            1, y[padded_t].masked_fill(~valid_t, -torch.inf).argmax(dim=1, keepdim=True)
+        ).squeeze(1)
+        row_refs = torch.repeat_interleave(
+            ref_indices, torch.as_tensor(group_sizes, device=y.device)
+        )
+        non_ref = torch.arange(len(y), device=y.device) != row_refs
+        eligible = non_ref & selected.bool()
+        target_contrast = y - y[row_refs]
+        contrast_error = (
+            qa - q0.gather(1, rows["action"].long()[:, None]).squeeze(1)[row_refs].detach()
+        ) - target_contrast
+        excess = (contrast_error.abs() - contrast_epsilon).clamp_min(0.0)
+        per_row = torch.nn.functional.huber_loss(
+            excess, torch.zeros_like(excess), delta=delta, reduction="none"
+        )
+        per_row = per_row * eligible.to(dtype=per_row.dtype)
+        loss = per_row.sum() / eligible.sum().clamp_min(1)
+        active = eligible & (excess > 0)
+        telemetry = {
+            "contrast_rows": int(active.sum().detach().cpu()),
+            "contrast_active_fraction": float(
+                (active.sum() / eligible.sum().clamp_min(1)).detach().cpu()
+            ),
+            "mean_abs_target_contrast": (
+                float(target_contrast.detach().abs()[eligible].mean().cpu())
+                if eligible.any()
+                else 0.0
+            ),
+            "mean_abs_contrast_error": (
+                float(contrast_error.detach().abs()[eligible].mean().cpu())
+                if eligible.any()
+                else 0.0
+            ),
+        }
+    if details:
+        return loss, y, telemetry
+    return loss, y
 
 
 def _bank_side_agreement(q, surviving, action, counter):
@@ -553,6 +636,10 @@ class Learner:
         if self.return_bank is not None:
             st.setdefault("return_rows", [])
             st.setdefault("return_loss", [])
+            st.setdefault("return_contrast_rows", [])
+            st.setdefault("return_contrast_active_fraction", [])
+            st.setdefault("return_mean_abs_target_contrast", [])
+            st.setdefault("return_mean_abs_contrast_error", [])
             st.setdefault("return_totals", {"updates": 0, "rows": 0, "loss_sum": 0.0})
         self.return_gradient_telemetry = bool(getattr(args, "return_gradient_telemetry", False))
         self.last_return_gradient_telemetry: Optional[dict] = None
@@ -848,16 +935,33 @@ class Learner:
             n_return = max(1, n_return)
         ret = None
         if n_return:
-            return_rows = self.return_bank.sample(rng, n_return, kappa=float(args.mass_kappa))
-            return_rows = {key: to_dev(value) for key, value in return_rows.items()}
-            ret, _ = return_regression_loss(
+            return_rows = self.return_bank.sample(
+                rng,
+                n_return,
+                kappa=float(args.mass_kappa),
+                grouped=getattr(args, "return_mode", "level") == "contrast",
+            )
+            n_return = int(return_rows["selected"].sum()) if "selected" in return_rows else n_return
+            return_rows = {
+                key: (value if key == "group_sizes" else to_dev(value))
+                for key, value in return_rows.items()
+            }
+            ret, _, return_telemetry = return_regression_loss(
                 torch,
                 online,
                 target,
                 return_rows,
                 gamma=self.return_bank.gamma,
                 delta=return_delta,
+                mode=getattr(args, "return_mode", "level"),
+                contrast_epsilon=float(getattr(args, "return_contrast_epsilon", 0.0)),
+                details=True,
             )
+            if getattr(args, "return_mode", "level") == "contrast":
+                st.setdefault(
+                    "return_initial_mean_abs_contrast_error",
+                    return_telemetry["mean_abs_contrast_error"],
+                )
         db = {k: to_dev(d[k]) for k in ("q_teacher", "a_v8", "mask_resolved")}
         has_anchor = qd.shape[0] > 0
         if n_bank:
@@ -914,6 +1018,11 @@ class Learner:
                 n_return=n_return,
                 qmax=q.detach().abs().max(),
             )
+            gradient_telemetry.update(
+                return_contrast_active_fraction=return_telemetry["contrast_active_fraction"],
+                return_mean_abs_contrast_error=return_telemetry["mean_abs_contrast_error"],
+                return_contrast_rows=return_telemetry["contrast_rows"],
+            )
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(online.parameters(), 10.0)
@@ -932,6 +1041,14 @@ class Learner:
         if n_return:
             st["return_rows"].append(n_return)
             st["return_loss"].append(float(ret.detach()))
+            st["return_contrast_rows"].append(return_telemetry["contrast_rows"])
+            st["return_contrast_active_fraction"].append(
+                return_telemetry["contrast_active_fraction"]
+            )
+            st["return_mean_abs_target_contrast"].append(
+                return_telemetry["mean_abs_target_contrast"]
+            )
+            st["return_mean_abs_contrast_error"].append(return_telemetry["mean_abs_contrast_error"])
             st["return_totals"]["updates"] += 1
             st["return_totals"]["rows"] += n_return
             st["return_totals"]["loss_sum"] += float(ret.detach())
@@ -1078,6 +1195,10 @@ class Learner:
             st["return_rows"].append(p["return_rows"])
             loss = float(p["return_loss"].cpu())
             st["return_loss"].append(loss)
+            st["return_contrast_rows"].append(p["return_contrast_rows"])
+            st["return_contrast_active_fraction"].append(p["return_contrast_active_fraction"])
+            st["return_mean_abs_target_contrast"].append(p["return_mean_abs_target_contrast"])
+            st["return_mean_abs_contrast_error"].append(p["return_mean_abs_contrast_error"])
             st["return_totals"]["updates"] += 1
             st["return_totals"]["rows"] += p["return_rows"]
             st["return_totals"]["loss_sum"] += loss
@@ -1276,9 +1397,19 @@ class Learner:
         return_rows = None
         if self.return_bank is not None:
             n_return = max(1, n_return)
-            sampled = self.return_bank.sample(self.rng, n_return, kappa=float(args.mass_kappa))
+            sampled = self.return_bank.sample(
+                self.rng,
+                n_return,
+                kappa=float(args.mass_kappa),
+                grouped=getattr(args, "return_mode", "level") == "contrast",
+            )
+            n_return = int(sampled["selected"].sum()) if "selected" in sampled else n_return
             return_rows = {
-                key: torch.from_numpy(np.ascontiguousarray(value)).to(self.device)
+                key: (
+                    value
+                    if key == "group_sizes"
+                    else torch.from_numpy(np.ascontiguousarray(value)).to(self.device)
+                )
                 for key, value in sampled.items()
             }
         out = None
@@ -1290,14 +1421,22 @@ class Learner:
             if return_rows is not None:
                 return_delta = getattr(args, "return_huber_delta", None)
                 return_delta = kw["td_delta"] if return_delta is None else float(return_delta)
-                ret, _ = return_regression_loss(
+                ret, _, return_telemetry = return_regression_loss(
                     torch,
                     online,
                     target,
                     return_rows,
                     gamma=self.return_bank.gamma,
                     delta=return_delta,
+                    mode=getattr(args, "return_mode", "level"),
+                    contrast_epsilon=float(getattr(args, "return_contrast_epsilon", 0.0)),
+                    details=True,
                 )
+                if getattr(args, "return_mode", "level") == "contrast":
+                    st.setdefault(
+                        "return_initial_mean_abs_contrast_error",
+                        return_telemetry["mean_abs_contrast_error"],
+                    )
             gradient_telemetry = None
             if self.return_gradient_telemetry and ret is not None:
                 gradient_telemetry = self._return_gradient_measurement(
@@ -1308,6 +1447,11 @@ class Learner:
                     m=m,
                     n_return=n_return,
                     qmax=qmax,
+                )
+                gradient_telemetry.update(
+                    return_contrast_active_fraction=return_telemetry["contrast_active_fraction"],
+                    return_mean_abs_contrast_error=return_telemetry["mean_abs_contrast_error"],
+                    return_contrast_rows=return_telemetry["contrast_rows"],
                 )
             finite = self._backward(td, anc, lam, ret, float(getattr(args, "return_weight", 0.0)))
         else:
@@ -1326,7 +1470,14 @@ class Learner:
             "return_gradient_telemetry": gradient_telemetry,
         }
         if ret is not None:
-            self._pending.update(return_rows=n_return, return_loss=ret.detach())
+            self._pending.update(
+                return_rows=n_return,
+                return_loss=ret.detach(),
+                return_contrast_rows=return_telemetry["contrast_rows"],
+                return_contrast_active_fraction=return_telemetry["contrast_active_fraction"],
+                return_mean_abs_target_contrast=return_telemetry["mean_abs_target_contrast"],
+                return_mean_abs_contrast_error=return_telemetry["mean_abs_contrast_error"],
+            )
         if self.bank is not None:
             zero = torch.zeros((), device=self.device)
             self._pending.update(

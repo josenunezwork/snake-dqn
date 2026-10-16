@@ -105,7 +105,10 @@ class ReturnBank:
                     manifest = parsed
                 elif parsed != manifest:
                     raise ValueError(f"return-bank manifests disagree: {path}")
-                rows.append({name: archive[name].copy() for name in REQUIRED})
+                names = set(REQUIRED)
+                if "b8_action" in archive.files:
+                    names.add("b8_action")
+                rows.append({name: archive[name].copy() for name in names})
         assert manifest is not None
         if any(sidecar.get(key) != manifest[key] for key in ("schema_version", "layout")):
             raise ValueError("return-bank shard manifest disagrees with manifest.json")
@@ -127,6 +130,13 @@ class ReturnBank:
         )
         self.weight = np.concatenate([r["row_weight"] for r in rows]).astype(np.float32, copy=False)
         self.family = np.concatenate([r["family"] for r in rows]).astype(np.uint8, copy=False)
+        if any("b8_action" in row for row in rows) and not all("b8_action" in row for row in rows):
+            raise ValueError("return-bank shards inconsistently provide b8_action")
+        self.b8_action = (
+            np.concatenate([r["b8_action"] for r in rows]).astype(np.int64, copy=False)
+            if all("b8_action" in row for row in rows)
+            else None
+        )
         self.size = len(self.action)
         if not self.size:
             raise ValueError("return bank has no rows")
@@ -141,6 +151,10 @@ class ReturnBank:
             pack_ref(self.terminal_local, self.terminal_global, self.layout), self.terminal_packed
         ):
             raise ValueError("return-bank terminal observations are non-canonical")
+        # Only contrast mode requires branch grouping.  Keep legacy level-mode loader
+        # acceptance and sampling byte-for-byte compatible with existing banks.
+        self._groups: tuple[np.ndarray, ...] | None = None
+        self._groups_for_row: list[np.ndarray] | None = None
 
     def _validate_manifest(self, nscal: int) -> None:
         m = self.manifest
@@ -153,7 +167,7 @@ class ReturnBank:
             "packing_version",
             "reward_semantics",
         }
-        if not needed <= set(m) or m["schema_version"] != 1:
+        if not needed <= set(m) or m["schema_version"] not in (1, 2):
             raise ValueError("unsupported return-bank manifest")
         if m["packing_version"] != "ego2s-bv8/obs_pack-v1" or m["phi"] != "length/10,dead=0":
             raise ValueError("return-bank packing or potential is incompatible")
@@ -193,6 +207,13 @@ class ReturnBank:
                     raise ValueError(f"invalid return-bank {name} shape or dtype")
             if row["action"].shape != (n,) or not np.issubdtype(row["action"].dtype, np.integer):
                 raise ValueError("invalid return-bank action")
+            if "b8_action" in row and (
+                row["b8_action"].shape != (n,)
+                or not np.issubdtype(row["b8_action"].dtype, np.integer)
+                or (row["b8_action"] < 0).any()
+                or (row["b8_action"] > 5).any()
+            ):
+                raise ValueError("invalid return-bank b8_action")
             if (row["action"] < 0).any() or (row["action"] > 5).any() or (row["T"] < 1).any():
                 raise ValueError("invalid return-bank action or horizon")
             if not all(
@@ -225,10 +246,59 @@ class ReturnBank:
     def kappa(self) -> float:
         return float(self.manifest["kappa"])
 
-    def sample(self, rng: np.random.Generator, n: int, *, kappa: float) -> dict[str, np.ndarray]:
+    def _build_groups(self) -> tuple[np.ndarray, ...]:
+        """Group all recorded legal branches by their canonical source observation.
+
+        The contrast target's reference is selected from the *current* bootstrapped returns,
+        so sampling must retain every recorded branch for a source state.  Store only index
+        arrays after construction; keeping packed/scalar bytes as dictionary keys would double
+        an already sizeable immutable bank in memory.
+        """
+        groups: dict[bytes, list[int]] = {}
+        for index, (packed, scalars) in enumerate(zip(self.state_packed, self.state_scalars)):
+            digest = hashlib.sha256(packed.tobytes() + scalars.tobytes()).digest()
+            groups.setdefault(digest, []).append(index)
+        result: list[np.ndarray] = []
+        for indices in groups.values():
+            first = indices[0]
+            for index in indices[1:]:
+                if not (
+                    np.array_equal(self.state_packed[first], self.state_packed[index])
+                    and np.array_equal(self.state_scalars[first], self.state_scalars[index])
+                ):
+                    raise ValueError("return-bank source-state hash collision")
+            actions = self.action[np.asarray(indices, dtype=np.int64)]
+            if len(np.unique(actions)) != len(actions):
+                raise ValueError("return-bank has duplicate action branch for a source state")
+            result.append(np.asarray(indices, dtype=np.int64))
+        if not result:
+            raise ValueError("return-bank has no source-state groups")
+        return tuple(result)
+
+    def _contrast_groups(self) -> list[np.ndarray]:
+        if self._groups_for_row is None:
+            self._groups = self._build_groups()
+            self._groups_for_row = [np.empty(0, dtype=np.int64) for _ in range(self.size)]
+            for group in self._groups:
+                for index in group:
+                    self._groups_for_row[int(index)] = group
+        return self._groups_for_row
+
+    def sample(
+        self, rng: np.random.Generator, n: int, *, kappa: float, grouped: bool = False
+    ) -> dict[str, np.ndarray]:
         if n < 0:
             raise ValueError("sample size must be >= 0")
-        indices = rng.integers(self.size, size=n)
+        if grouped:
+            # Preserve legacy branch-uniform RNG sampling: support branches only provide
+            # each selected row's target-derived a_ref, never extra loss rows.
+            selected_indices = rng.integers(self.size, size=n)
+            groups_for_row = self._contrast_groups()
+            groups = [groups_for_row[int(index)] for index in selected_indices]
+            indices = np.concatenate(groups) if groups else np.empty(0, dtype=np.int64)
+        else:
+            indices = rng.integers(self.size, size=n)
+            groups = []
         # MPS does not accept float64 uploads.  S stays float64 in the immutable
         # bank, while its closed-form realised target is deliberately computed on
         # CPU before the learner receives a float32 batch.
@@ -241,7 +311,7 @@ class ReturnBank:
             self.gamma,
             kappa,
         ).astype(np.float32)
-        return {
+        out = {
             "local": self.local[indices],
             "global": self.global_[indices],
             "scalars": self.state_scalars[indices],
@@ -255,3 +325,19 @@ class ReturnBank:
             "terminal_mask": self.terminal_mask[indices],
             "weight": self.weight[indices],
         }
+        if grouped:
+            # Kept on CPU by the learner: branch members are contiguous and the small
+            # vector avoids unsupported/device-sync-heavy segmented reductions on MPS.
+            out["group_sizes"] = np.asarray([len(group) for group in groups], dtype=np.int64)
+            selected = np.zeros(len(indices), dtype=bool)
+            selected[np.cumsum(np.r_[0, out["group_sizes"][:-1]])] = True
+            # The selected input action is intentionally the first member of each copied
+            # group; retain the branch-uniform source row rather than changing sampling.
+            positions = [
+                int(np.flatnonzero(group == original)[0])
+                for group, original in zip(groups, selected_indices)
+            ]
+            selected[:] = False
+            selected[np.cumsum(np.r_[0, out["group_sizes"][:-1]]) + np.asarray(positions)] = True
+            out["selected"] = selected
+        return out

@@ -17,13 +17,13 @@ for _name in (
 ):
     os.environ[_name] = "1"
 
-import numpy as np
-import torch
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
 
-from research.redesign_m3c_20261008.obs_pack import PackLayout
-from research.t4d_return_regression_20261016.bank import realized_returns
-from research.t4e_return_20261016.bugcheck import distribution, predict, sha256
-from src.model.ego2s_network import load_ego2s_checkpoint
+from research.redesign_m3c_20261008.obs_pack import PackLayout  # noqa: E402
+from research.t4d_return_regression_20261016.bank import realized_returns  # noqa: E402
+from research.t4e_return_20261016.bugcheck import distribution, predict, sha256  # noqa: E402
+from src.model.ego2s_network import load_ego2s_checkpoint  # noqa: E402
 
 
 def statistics(bank: Path, plans: Path) -> dict:
@@ -107,7 +107,9 @@ def statistics(bank: Path, plans: Path) -> dict:
         "manifest_sha256": sha256(manifest_path),
         "checkpoint_sha256": checkpoint_hashes,
         "source_sha256": sha256(Path(__file__)),
-        "target_convention": "realized G + gamma^T masked source-B8 Q for survivor; death has no bootstrap",
+        "target_convention": (
+            "realized G + gamma^T masked source-B8 Q for survivor; death has no bootstrap"
+        ),
         "families": result,
         "wall_seconds": time.monotonic() - started,
     }

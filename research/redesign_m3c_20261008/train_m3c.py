@@ -136,6 +136,7 @@ import hashlib  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import queue  # noqa: E402
+import subprocess  # noqa: E402
 import sys  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
@@ -242,6 +243,113 @@ def mass_term(lengths: np.ndarray, alive_after: np.ndarray, gamma: float, kappa:
 # ----------------------------------------------------------------------------- M6 reward levers
 TIGHT_MIN_LEN = 600  # --tight-min-len default
 TIGHT_REPORT_LEN = 1000  # tight_frac_1000: the census's large-length bin
+BOOST_LENGTH_BUCKETS = ("lt_400", "400_700", "700_1000", "ge_1000")
+
+
+def boost_bucket_counts(
+    lengths: np.ndarray, greedy_actions: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return decision and greedy-boost counts for the pre-registered length buckets."""
+    buckets = np.digitize(np.asarray(lengths, dtype=np.int64), (400, 700, 1000), right=False)
+    decisions = np.bincount(buckets, minlength=len(BOOST_LENGTH_BUCKETS))[:4].astype(np.int64)
+    boosts = np.bincount(
+        buckets, weights=(np.asarray(greedy_actions) >= 3), minlength=len(BOOST_LENGTH_BUCKETS)
+    )[:4].astype(np.int64)
+    return decisions, boosts
+
+
+def boost_bucket_rates(decisions: np.ndarray, boosts: np.ndarray) -> dict[str, float]:
+    return {
+        name: float(boosts[i] / max(1, decisions[i])) for i, name in enumerate(BOOST_LENGTH_BUCKETS)
+    }
+
+
+def boost_halt_reason(args, row: dict, transitions: int) -> str | None:
+    """Apply the independent overall and below-700 greedy-boost tripwires."""
+    if args.boost_halt_rate is not None and row["greedy_boost_rate"] > args.boost_halt_rate:
+        return (
+            f"overall greedy boost rate {row['greedy_boost_rate']:.6f} exceeded "
+            f"--boost-halt-rate {args.boost_halt_rate:.6f} at {transitions} transitions"
+        )
+    low = row["greedy_boost_rate_by_length"]["lt_400"]
+    middle = row["greedy_boost_rate_by_length"]["400_700"]
+    low_rate = (
+        low * row["greedy_boost_length_decisions"]["lt_400"]
+        + middle * row["greedy_boost_length_decisions"]["400_700"]
+    ) / max(
+        1,
+        row["greedy_boost_length_decisions"]["lt_400"]
+        + row["greedy_boost_length_decisions"]["400_700"],
+    )
+    row["greedy_boost_rate_lt_700"] = float(low_rate)
+    if args.boost_halt_low_length_rate is not None and low_rate > args.boost_halt_low_length_rate:
+        return (
+            f"greedy boost rate below length 700 {low_rate:.6f} exceeded "
+            f"--boost-halt-low-length-rate {args.boost_halt_low_length_rate:.6f} "
+            f"at {transitions} transitions"
+        )
+    return None
+
+
+def arm_halt_reason(args) -> str | None:
+    """Observe the optional shared RETURN_C stop receipt without touching other processes."""
+    path = getattr(args, "arm_halt_file", None)
+    if path is not None and Path(path).exists():
+        return f"shared arm halt receipt exists: {path}"
+    return None
+
+
+def write_arm_halt_receipt(args, reason: str, transitions: int) -> None:
+    """Create the shared receipt once; another lane only observes it on its own 100k row."""
+    path = getattr(args, "arm_halt_file", None)
+    if path is None:
+        return
+    try:
+        with Path(path).open("x") as stream:
+            json.dump({"reason": reason, "transitions": transitions}, stream, sort_keys=True)
+            stream.write("\n")
+    except FileExistsError:
+        pass
+
+
+def run_return_early_warning(args, checkpoint: Path, transition: int, log_path: Path) -> dict:
+    """Run the T4f binding evaluator after its checkpoint; evaluator failure is fail-closed."""
+    config_path = getattr(args, "return_early_warning_config", None)
+    if config_path is None or transition not in (500_000, 1_000_000):
+        return {"status": "SKIPPED"}
+    try:
+        config = json.loads(Path(config_path).read_text())
+        output_dir = Path(config.get("output_dir", args.out))
+        result_path = output_dir / f"early_warning_{transition // 1000}k.json"
+        command = [
+            sys.executable,
+            "-m",
+            "research.t4f_return_20261016.early_warning",
+            "--checkpoint",
+            str(checkpoint),
+            "--initial-checkpoint",
+            str(config.get("initial_checkpoint", args.init)),
+            "--holdout-bank",
+            str(config["holdout_bank"]),
+            "--outside-bank",
+            str(config["outside_bank"]),
+            "--telemetry-jsonl",
+            str(log_path),
+            "--transitions",
+            str(transition),
+            "--out",
+            str(result_path),
+        ]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return {"status": "KILL", "reason": f"invalid --return-early-warning-config: {exc}"}
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        result = json.loads(result_path.read_text())
+    except (OSError, ValueError) as exc:
+        return {"status": "KILL", "reason": f"early warning produced no valid receipt: {exc}"}
+    if completed.returncode != 0 and result.get("status") != "KILL":
+        result = {**result, "status": "KILL", "reason": "early warning evaluator failed closed"}
+    return result
 
 
 def tight_predicate(area: np.ndarray, adv: np.ndarray, lengths: np.ndarray) -> np.ndarray:
@@ -1437,6 +1545,12 @@ def m3c_flags(args) -> Dict[str, Any]:
         "return_weight",
         "return_huber_delta",
         "return_gradient_telemetry",
+        "return_mode",
+        "return_contrast_epsilon",
+        "boost_halt_rate",
+        "boost_halt_low_length_rate",
+        "arm_halt_file",
+        "return_early_warning_config",
         "v8_backend",
         "obs_version",
         "v61_backend",
@@ -1594,6 +1708,42 @@ def build_parser() -> argparse.ArgumentParser:
         "--return-gradient-telemetry",
         action="store_true",
         help="T4e calibration: measure same-update pre-clip weighted-return/TD gradients",
+    )
+    ap.add_argument(
+        "--return-mode",
+        choices=("level", "contrast"),
+        default="level",
+        help="return regression target: legacy absolute level or max-return-reference contrast",
+    )
+    ap.add_argument(
+        "--return-contrast-epsilon",
+        type=float,
+        default=0.0,
+        help="contrast dead zone in Q units before the return Huber loss (RETURN_C: 2)",
+    )
+    ap.add_argument(
+        "--boost-halt-rate",
+        type=float,
+        default=None,
+        help="halt after a 100k log row if greedy boost rate is strictly greater than this value",
+    )
+    ap.add_argument(
+        "--boost-halt-low-length-rate",
+        type=float,
+        default=None,
+        help="halt after a 100k log row if greedy boost rate below length 700 exceeds this rate",
+    )
+    ap.add_argument(
+        "--arm-halt-file",
+        type=Path,
+        default=None,
+        help="optional shared create-only RETURN_C KILL receipt; existing receipt halts this lane",
+    )
+    ap.add_argument(
+        "--return-early-warning-config",
+        type=Path,
+        default=None,
+        help="JSON paths for the binding 0.5M/1M T4f return early-warning evaluator",
     )
     ap.add_argument("--label-capacity", type=int, default=300_000)
     ap.add_argument(
@@ -1797,6 +1947,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         not math.isfinite(args.return_huber_delta) or args.return_huber_delta <= 0.0
     ):
         raise SystemExit("--return-huber-delta must be finite and > 0")
+    if args.boost_halt_rate is not None and (
+        not math.isfinite(args.boost_halt_rate) or not 0.0 <= args.boost_halt_rate <= 1.0
+    ):
+        raise SystemExit("--boost-halt-rate must be finite and in [0, 1]")
+    if args.boost_halt_low_length_rate is not None and (
+        not math.isfinite(args.boost_halt_low_length_rate)
+        or not 0.0 <= args.boost_halt_low_length_rate <= 1.0
+    ):
+        raise SystemExit("--boost-halt-low-length-rate must be finite and in [0, 1]")
+    if not math.isfinite(args.return_contrast_epsilon) or args.return_contrast_epsilon < 0.0:
+        raise SystemExit("--return-contrast-epsilon must be finite and >= 0")
     if args.return_frac > 0.0:
         if args.return_bank is None:
             raise SystemExit("--return-frac needs --return-bank")
@@ -1810,6 +1971,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             raise SystemExit("--return-frac is incompatible with M6 reward overlays")
         if args.compile_learner != "off":
             raise SystemExit("--return-frac currently needs no --compile-learner")
+    elif args.return_mode != "level":
+        raise SystemExit("--return-mode contrast needs --return-frac > 0")
     elif args.return_bank is not None:
         raise SystemExit("--return-bank needs --return-frac > 0")
     bank_only_bv8 = (
@@ -1855,6 +2018,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--obs-pack / --demo-mmap need the multi-actor trainer (--actors >= 1)")
     if args.demo_mmap and args.obs_version == "bv8":
         raise SystemExit("--demo-mmap: an --obs-version bv8 run has no demonstration buffer")
+    if (reason := arm_halt_reason(args)) is not None:
+        print(f"not launching: {reason}", file=sys.stderr)
+        return 2
     if args.actors:
         return main_multi(args)
     return main_sync(args)
@@ -1939,9 +2105,12 @@ def main_sync(args) -> int:
         "decisions": 0,
         "boost": 0,
         "greedy_boost": 0,
+        "greedy_boost_length_decisions": np.zeros(4, dtype=np.int64),
+        "greedy_boost_length_boosts": np.zeros(4, dtype=np.int64),
         "deaths": 0,
         "action_window": deque(maxlen=100_000),
     }
+    state["halt"] = arm_halt_reason(args)
     started = time.perf_counter()
     meta_base = {
         "schema": SCHEMA,
@@ -2059,7 +2228,14 @@ def main_sync(args) -> int:
                     rand = np.array([rng.choice(np.flatnonzero(r)) for r in mm])
                     act = np.where(rng.random(len(hero)) < eps, rand, greedy)
                     actions[hero[:, 0], 0] = act
-                    chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
+                    chosen.update(
+                        hero=hero,
+                        obs=obs,
+                        mask=m,
+                        act=act,
+                        greedy=greedy,
+                        length=np.asarray(prepared.length[hero[:, 0], 0], dtype=np.int64),
+                    )
                 t_o = time.perf_counter()
                 for spec, cells in groups.items():
                     live = cells[alive[cells[:, 0], cells[:, 1]]]
@@ -2101,6 +2277,11 @@ def main_sync(args) -> int:
                 state["decisions"] += len(acts)
                 state["boost"] += int((acts >= 3).sum())
                 state["greedy_boost"] += int((chosen["greedy"] >= 3).sum())
+                bucket_decisions, bucket_boosts = boost_bucket_counts(
+                    chosen["length"], chosen["greedy"]
+                )
+                state["greedy_boost_length_decisions"] += bucket_decisions
+                state["greedy_boost_length_boosts"] += bucket_boosts
                 state["action_window"].extend(acts.tolist())
                 state["transitions"] += len(acts)
             state["env_s"] += time.perf_counter() - t_env
@@ -2132,6 +2313,12 @@ def main_sync(args) -> int:
                     "qmax": state["qmax"],
                     "boost_rate": state["boost"] / max(1, state["decisions"]),
                     "greedy_boost_rate": state["greedy_boost"] / max(1, state["decisions"]),
+                    "greedy_boost_length_decisions": dict(
+                        zip(BOOST_LENGTH_BUCKETS, state["greedy_boost_length_decisions"].tolist())
+                    ),
+                    "greedy_boost_rate_by_length": boost_bucket_rates(
+                        state["greedy_boost_length_decisions"], state["greedy_boost_length_boosts"]
+                    ),
                     "deaths_per_1k": 1000 * state["deaths"] / max(1, state["decisions"]),
                     "demo_shards_loaded": demos.loaded,
                     "demo_distinct": demos.distinct,
@@ -2144,9 +2331,17 @@ def main_sync(args) -> int:
                         )
                 if state["qmax"] > 5 * demo_qmax:
                     state["flags"].append({"t": state["transitions"], "qmax": state["qmax"]})
+                if (reason := boost_halt_reason(args, row, state["transitions"])) is None:
+                    reason = arm_halt_reason(args)
+                if reason is not None:
+                    state["halt"] = reason
+                    row["halt"] = state["halt"]
+                    write_arm_halt_receipt(args, reason, state["transitions"])
                 state.update(
                     td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0
                 )
+                state["greedy_boost_length_decisions"] = np.zeros(4, dtype=np.int64)
+                state["greedy_boost_length_boosts"] = np.zeros(4, dtype=np.int64)
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")
                 print(json.dumps(row), flush=True)
@@ -2536,11 +2731,14 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                                 policy_act = np.where(shielded, a_v8, greedy)
                         act = np.where(explore, rand, policy_act)
                         actions[hero[:, 0], 0] = act
-                        chosen.update(hero=hero, obs=obs, mask=m, act=act, greedy=greedy)
-                        if restart_enabled:
-                            chosen["length"] = np.asarray(
-                                prepared.length[hero[:, 0], 0], dtype=np.int64
-                            )
+                        chosen.update(
+                            hero=hero,
+                            obs=obs,
+                            mask=m,
+                            act=act,
+                            greedy=greedy,
+                            length=np.asarray(prepared.length[hero[:, 0], 0], dtype=np.int64),
+                        )
                         if m6 is not None:  # M6: decision-time length (and tightness)
                             L_dec = np.asarray(prepared.length[hero[:, 0], 0], dtype=np.int64)
                             chosen["L"] = L_dec
@@ -2575,7 +2773,14 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     else:
                         m6_stats = m6.empty_stats()
                 deaths = 0
-                stats = {"decisions": 0, "boost": 0, "greedy_boost": 0, "v8_override": 0}
+                stats = {
+                    "decisions": 0,
+                    "boost": 0,
+                    "greedy_boost": 0,
+                    "greedy_boost_length_decisions": np.zeros(4, dtype=np.int64),
+                    "greedy_boost_length_boosts": np.zeros(4, dtype=np.int64),
+                    "v8_override": 0,
+                }
                 acts = np.zeros(0, dtype=np.int64)
                 lab_ids = np.zeros(0, dtype=np.int64)
                 lab_a = np.zeros(0, dtype=np.int8)
@@ -2598,6 +2803,12 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                         "decisions": int(len(acts)),
                         "boost": int((acts >= 3).sum()),
                         "greedy_boost": int((chosen["greedy"] >= 3).sum()),
+                        "greedy_boost_length_decisions": boost_bucket_counts(
+                            chosen["length"], chosen["greedy"]
+                        )[0],
+                        "greedy_boost_length_boosts": boost_bucket_counts(
+                            chosen["length"], chosen["greedy"]
+                        )[1],
                         "v8_override": (
                             int((chosen["a_v8"] != chosen["greedy"]).sum())
                             if "a_v8" in chosen
@@ -2864,6 +3075,8 @@ def main_multi(args) -> int:
         "decisions": 0,
         "boost": 0,
         "greedy_boost": 0,
+        "greedy_boost_length_decisions": np.zeros(4, dtype=np.int64),
+        "greedy_boost_length_boosts": np.zeros(4, dtype=np.int64),
         "deaths": 0,
         "v8_override": 0,
         "label_rows": [],
@@ -2871,6 +3084,7 @@ def main_multi(args) -> int:
         "lag": [],
         "action_window": deque(maxlen=100_000),
     }
+    st["halt"] = arm_halt_reason(args)
     if bank is not None:
         st.update(
             bank_rows=[],
@@ -2881,7 +3095,14 @@ def main_multi(args) -> int:
             bank_agree_outside=[],
         )
     if return_bank is not None:
-        st.update(return_rows=[], return_loss=[])
+        st.update(
+            return_rows=[],
+            return_loss=[],
+            return_contrast_rows=[],
+            return_contrast_active_fraction=[],
+            return_mean_abs_target_contrast=[],
+            return_mean_abs_contrast_error=[],
+        )
     if args.restart_frac > 0.0:
         st["restart"] = {"restart_frac_actual": []}
         st["restart_total"] = {
@@ -2972,6 +3193,8 @@ def main_multi(args) -> int:
                 st["decisions"] += msg["decisions"]
                 st["boost"] += msg["boost"]
                 st["greedy_boost"] += msg["greedy_boost"]
+                st["greedy_boost_length_decisions"] += msg["greedy_boost_length_decisions"]
+                st["greedy_boost_length_boosts"] += msg["greedy_boost_length_boosts"]
                 st["deaths"] += msg["deaths"]
                 if args.restart_frac > 0.0:
                     rst = st["restart"]
@@ -3026,6 +3249,12 @@ def main_multi(args) -> int:
                     "qmax": st["qmax"],
                     "boost_rate": st["boost"] / max(1, st["decisions"]),
                     "greedy_boost_rate": st["greedy_boost"] / max(1, st["decisions"]),
+                    "greedy_boost_length_decisions": dict(
+                        zip(BOOST_LENGTH_BUCKETS, st["greedy_boost_length_decisions"].tolist())
+                    ),
+                    "greedy_boost_rate_by_length": boost_bucket_rates(
+                        st["greedy_boost_length_decisions"], st["greedy_boost_length_boosts"]
+                    ),
                     "deaths_per_1k": 1000 * st["deaths"] / max(1, st["decisions"]),
                     "demo_shards_loaded": demos.loaded if demos is not None else 0,
                     "demo_distinct": demos.distinct if demos is not None else 0,
@@ -3100,6 +3329,30 @@ def main_multi(args) -> int:
                     row["return_loss"] = (
                         float(np.mean(st["return_loss"])) if st["return_loss"] else 0.0
                     )
+                    if args.return_mode == "contrast":
+                        row["return_contrast_rows_mean"] = (
+                            float(np.mean(st["return_contrast_rows"]))
+                            if st["return_contrast_rows"]
+                            else 0.0
+                        )
+                        row["return_contrast_active_fraction"] = (
+                            float(np.mean(st["return_contrast_active_fraction"]))
+                            if st["return_contrast_active_fraction"]
+                            else 0.0
+                        )
+                        row["return_mean_abs_target_contrast"] = (
+                            float(np.mean(st["return_mean_abs_target_contrast"]))
+                            if st["return_mean_abs_target_contrast"]
+                            else 0.0
+                        )
+                        row["return_mean_abs_contrast_error"] = (
+                            float(np.mean(st["return_mean_abs_contrast_error"]))
+                            if st["return_mean_abs_contrast_error"]
+                            else 0.0
+                        )
+                        row["return_initial_mean_abs_contrast_error"] = st.get(
+                            "return_initial_mean_abs_contrast_error"
+                        )
                 if args.return_gradient_telemetry:
                     grad_rows = st["return_gradient_telemetry"]
                     ratios = [x["return_to_td_grad_ratio"] for x in grad_rows]
@@ -3154,6 +3407,12 @@ def main_multi(args) -> int:
                         st["flags"].append({"t": t, "agreement": row["holdout_agreement"]})
                 if st["qmax"] > 5 * demo_qmax:
                     st["flags"].append({"t": t, "qmax": st["qmax"]})
+                if (reason := boost_halt_reason(args, row, t)) is None:
+                    reason = arm_halt_reason(args)
+                if reason is not None:
+                    st["halt"] = reason
+                    row["halt"] = st["halt"]
+                    write_arm_halt_receipt(args, reason, t)
                 lag = st["lag"]
                 tel.write(
                     row,
@@ -3170,6 +3429,8 @@ def main_multi(args) -> int:
                     ),
                 )
                 st.update(td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0)
+                st["greedy_boost_length_decisions"] = np.zeros(4, dtype=np.int64)
+                st["greedy_boost_length_boosts"] = np.zeros(4, dtype=np.int64)
                 st.update(v8_override=0, label_rows=[])
                 if bank is not None:
                     st.update(
@@ -3181,21 +3442,35 @@ def main_multi(args) -> int:
                         bank_agree_outside=[],
                     )
                 if return_bank is not None:
-                    st.update(return_rows=[], return_loss=[])
+                    st.update(
+                        return_rows=[],
+                        return_loss=[],
+                        return_contrast_rows=[],
+                        return_contrast_active_fraction=[],
+                        return_mean_abs_target_contrast=[],
+                        return_mean_abs_contrast_error=[],
+                    )
                 if args.return_gradient_telemetry:
                     st["return_gradient_telemetry"] = []
                 st["lag"] = []
                 with log_path.open("a") as stream:
                     stream.write(json.dumps(row) + "\n")
                 print(json.dumps(row), flush=True)
+                if st["halt"] is not None:
+                    break
             if st["transitions"] >= next_ckpt:
                 learner.flush()
+                checkpoint_path = args.out / f"ckpt_{next_ckpt // 1000}k.pth"
                 save_checkpoint_atomic(
-                    args.out / f"ckpt_{next_ckpt // 1000}k.pth",
+                    checkpoint_path,
                     online,
                     {**meta_base, "transitions": st["transitions"], "updates": st["updates"]},
                     manifest,
                 )
+                early = run_return_early_warning(args, checkpoint_path, next_ckpt, log_path)
+                if early.get("status") != "SKIPPED" and early.get("status") != "PASS":
+                    st["halt"] = f"return early warning: {early.get('reason', early.get('status'))}"
+                    write_arm_halt_receipt(args, st["halt"], st["transitions"])
                 next_ckpt += args.checkpoint_every
     except BaseException as exc:  # noqa: BLE001
         st["halt"] = st["halt"] or f"{type(exc).__name__}: {exc}"

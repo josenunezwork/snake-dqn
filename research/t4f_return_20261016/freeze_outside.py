@@ -102,7 +102,10 @@ def freeze(source: Path, out: Path) -> dict:
     result = {
         "schema": "t4f-heldout-outside-observations/v1",
         "layout": train_meta["layout"],
-        "selection": "all eligible unique phase-A candidates in plan/decision order; at least two legal actions",
+        "selection": (
+            "all eligible unique phase-A candidates in plan/decision order; "
+            "at least two legal actions"
+        ),
         "source_files": bindings,
         "shards": {path.name: sha256(path)},
         "states": len(kept),
