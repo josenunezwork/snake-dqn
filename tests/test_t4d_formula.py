@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from research.redesign_m3c_20261008.train_m3c import mass_term
+from research.t4d_return_regression_20261016.bank import realized_returns
 from src.simd_env.batch_sim import BatchSimConfig
 from src.simd_env.grid_sim import GridBatchSim
 
@@ -50,9 +51,7 @@ def short_branch(kind: str, gamma: float, kappa: float) -> dict:
     for action in actions:
         sim.step(np.asarray([[action]], dtype=np.int64))
         alive = sim.get_alive()[:, 0] & ~sim.get_done()[:, 0]
-        reward = sim.get_reward()[:, 0] + mass_term(
-            sim.get_lengths()[:, 0], alive, gamma, kappa
-        )
+        reward = sim.get_reward()[:, 0] + mass_term(sim.get_lengths()[:, 0], alive, gamma, kappa)
         rewards.append(float(reward[0]))
         lengths.append(int(sim.length[0, 0]) if alive[0] else 0)
         if not alive[0]:
@@ -75,7 +74,9 @@ def short_branch(kind: str, gamma: float, kappa: float) -> dict:
 
 @pytest.mark.parametrize("kind", ["survivor", "growth", "boost", "death"])
 @pytest.mark.parametrize("gamma,kappa", [(0.998, 1.0), (0.9, 0.4), (0.998, 0.0)])
-def test_return_formula_equals_actual_trainer_rewards(kind: str, gamma: float, kappa: float) -> None:
+def test_return_formula_equals_actual_trainer_rewards(
+    kind: str, gamma: float, kappa: float
+) -> None:
     """Pin Phi(dead)=0, death exponent T-1, mass timing, and PBRS telescoping."""
     branch = short_branch(kind, gamma, kappa)
     t, died = branch["T"], branch["died"]
@@ -86,3 +87,7 @@ def test_return_formula_equals_actual_trainer_rewards(kind: str, gamma: float, k
         - (3 * gamma ** (t - 1) if died else 0)
     )
     assert target == pytest.approx(branch["discounted_rewards"], abs=2e-14)
+    actual = realized_returns(
+        branch["T"], branch["died"], branch["S"], branch["L0"], branch["L_T"], gamma, kappa
+    )
+    assert float(actual) == pytest.approx(branch["discounted_rewards"], abs=2e-14)
