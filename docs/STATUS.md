@@ -1,4 +1,4 @@
-# Current state — 2026-10-08
+# Current state — release updated 2026-10-17
 
 Start: [documentation map](README.md) · [study index](research/INDEX.md) · [glossary](research/GLOSSARY.md).
 This is a dated documentary snapshot, not a live job or deployment check. Newest Claude
@@ -6,12 +6,23 @@ memory/decision records take precedence over older launch notes; source pointers
 
 ## Released agent
 
-**frp3-s12 + v8 veto** (2026-10-06): `STRICT_PASS` under survival band v2, then Mac
-`SERVING_PASS`; release recorded on local main, not pushed. Checkpoint: FRP-v3 M3 seed 12,
-60,000 updates, SHA prefix `eec144bf`. [Release and rollback record](research/frp3_serving_result_and_release_2026-10-06.md).
-`SNAKE_SERVE_CHECKPOINT=champion` restores champion+v8. With no checkpoint named,
-`SNAKE_SERVE_VETO_VARIANT=v7` (also v5/v2) restores champion+that variant. Explicit
-`SNAKE_SERVE_CHECKPOINT=frp3-s12` plus v7 serves frp3 **unwrapped**, not frp3+v7.
+**b8-s3 without a veto** (2026-10-17), checkpoint SHA prefix `3e649783`.
+T7 fresh-bank Phase R `STRICT_PASS` and Tier 2 PASS, followed by all eight T12 serving
+checks (check 4 cleared by T12B). Claim: **more mass at equal survival against the served
+agent, with no veto**, not safer. [Release, startup verification and rollback record](research/b8_s3_release_2026-10-17.md).
+
+The default is pin-gated: B8 refusal falls back to verified frp3-s12 + v8, then champion,
+with a reason. Restart with `SNAKE_SERVE_CHECKPOINT=frp3-s12` or `=champion` to roll back
+with the remaining serving environment at defaults. With no checkpoint named,
+`SNAKE_SERVE_VETO_VARIANT=v7` (also v5/v2) retains champion + that variant. Explicit
+frp3-s12 with v7 remains unwrapped.
+
+B8 was trained with v8 labels and is served without a veto. Tier 2 margin was 0.034 at
+SE 0.023; self-play rosters are ungated; pre/post-release leaderboard rows are not
+comparable. Existing ego2s ceilings are 24 fps through six driven AI and 12 fps through
+twelve. Train is refused and unqualified. Monitor for at least seven days and 100,000
+Watch hero decisions; roll back on fallback/ego2s exceptions, deaths/1k >0.848, or
+matched default-speed p95 >1.5× qualification. Owner check-in: 2026-10-24.
 
 ## Standing decisions (2026-10-08)
 
@@ -25,7 +36,7 @@ memory/decision records take precedence over older launch notes; source pointers
 These rules replace any older text that conflicts with them (for example the 5x rule,
 "always serverless", or champion+v8 as the served agent).
 
-- **Released agent:** frp3-s12 + v8. The rollbacks are listed under "Released agent" above.
+- **Released agent:** b8-s3 without a veto (2026-10-17). Rollbacks and monitoring are above.
 - **RunPod per-step rule:** use RunPod for a step only if its projected wall-clock time is
   **≥4× faster than the same step on the Mac**. Base the projection on measured timings,
   including setup and transfers. The threshold was 5× until the user lowered it on 2026-10-05.
@@ -107,3 +118,13 @@ attempt remains preserved. The repair changes ego2s serving speed controls only,
 policy math and forward paths unchanged. **This is not a release:**
 `CHECKPOINT_RELEASED_DEFAULT` remains `frp3-s12`. See the
 [T12B result and evidence](research/t12_b8_serving_qualification_2026-10-17.md#t12b-check-4-result-and-evidence).
+
+## T12C release (2026-10-17)
+
+B8 seed 3 is now the released default. This supersedes the historical T12/T12B HOLD and
+not-yet-released notes above, without changing their evidence. The default and both
+explicit rollback configurations were started live, their stderr identity/veto lines
+recorded, and every server started for verification stopped. See the
+[release record](research/b8_s3_release_2026-10-17.md) for exact lines, validation,
+monitoring command and disclosures. Source changes are published to `main` and
+`t12-20261017`; no persistent server or monitoring job is left running by this task.

@@ -139,3 +139,9 @@ The durable release, compute, and decision map is maintained in
 [../README.md](../README.md) and [../STATUS.md](../STATUS.md). Artifact-backed
 results and campaign state are indexed separately from data files; do not infer
 that a plan or a branch-only note changed a released default.
+
+## Release update — 2026-10-17
+
+| Date | Study or decision | Recorded outcome / status | Branch and path | One-line record |
+|---|---|---|---|---|
+| 2026-10-17 | T12C B8 seed 3 serving release | RELEASE: b8-s3 without a veto | `main:docs/research/b8_s3_release_2026-10-17.md` | T7 STRICT_PASS + Tier 2 and T12/T12B qualification; default and both rollbacks verified live; first-week/100k-decision monitoring and day-7 owner check-in. |

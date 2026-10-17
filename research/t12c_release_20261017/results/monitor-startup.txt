@@ -1,0 +1,6 @@
+B8 release monitoring
+fallback/ego2s exceptions: 0/0 (trigger: any > 0)
+Watch hero deaths/1k: 0.0 (0/7; trigger: > 0.848)
+Observation window: 0.000 days, 7 decisions; active. Owner check-in: due day 7.
+NOT_HEALTHY: missing default-speed 12 fps Watch update telemetry
+NOT_HEALTHY

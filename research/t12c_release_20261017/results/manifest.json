@@ -1,0 +1,48 @@
+{
+  "schema": "t12c-release-evidence/v1",
+  "release_date": "2026-10-17",
+  "implementation_commit": "747eb4502853297164a9d48315b46b7a8858c329",
+  "first_published_merge_commit": "4c5ec9acb8007310c473b7fd4deec191017fab59",
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "source_sha256": {
+    "web/backend/served_checkpoint.py": "b4ad81e8b12263550ddd1fe5dca907be4cbd356cec10cc55e87e0472cac9abe8",
+    "web/backend/session.py": "024442ff01797045677084e7d77d652c54f8db3de8bc8991a95d9fe54b9450c0",
+    "web/backend/release_monitoring.py": "47297a29f1f4a5db86422b1299263198b5e2c416ee66c306138c4b61bb4474e4",
+    "scripts/monitor_b8_release.py": "a2b9b72385fa3f7d4fe1fc751d11bac1ccd7a108d19a8f72bd43fac3d1c6d0c6"
+  },
+  "files_sha256": {
+    "champion.frame.json": "dc82c839956385ada405784fcfd54b1cce9b6644ac02757087c2c3a50e9ca01e",
+    "champion.stderr.log": "a076c58ac04c884be3abff1dcb3ac2b8ff117cf57b3a8117d68d0fef96f78a21",
+    "flake8.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "frp3-s12.frame.json": "46c8e310df4f2c8e66985244ae778222621e7c1f3e1676dbf0197616fca9c7d7",
+    "frp3-s12.stderr.log": "90912bc796d20eb3ca578a19d3d180d0f8f2e3c946aa851d37bb5628e654b5c7",
+    "monitor-startup.txt": "79b8e73d55e71d05b5b3978a23fecb5a836fbefbecd85721dd9d26fa77b3dfad",
+    "monitor-tests.txt": "a48d57d929b3816f9d5f731873e486cf1233ee741fb4469002a9bb518d63415e",
+    "released-default.frame.json": "c762b106e97b3e09632ecc7b17d0a52cb2b69c13a92f5e3754ebd8f5bdc8a471",
+    "released-default.stderr.log": "58a3d5e436bafc6549bf6067d1efee47eb0935609aacc33fc6ffdbbe9536028d",
+    "startup-probe.txt": "58cdbc199f36c3276893dd4d49741c54f84c7d6baf81c431f92e97a4d3009728",
+    "startup-verification.txt": "6fbe1ffb19af28c9b4922c69e96c2301690a6894c3686806785f0f159f4de1ad",
+    "startups.json": "eb34c9b7530244241da363f6756942c4508b92c790107432c34ff92f8118a0be",
+    "tests.txt": "812d2fa1a27003edd2e390d36ed4cecc574f653a1c3853ac82292824a4cb6835"
+  },
+  "validation": {
+    "integrated_pytest": {
+      "passed": 381,
+      "log": "tests.txt"
+    },
+    "final_monitor_pytest": {
+      "passed": 15,
+      "log": "monitor-tests.txt",
+      "overlaps_integrated_suite": true
+    },
+    "flake8": {
+      "exit": 0,
+      "log": "flake8.txt"
+    },
+    "startup_configs": 3,
+    "owned_servers_stopped": true,
+    "monitor_startup_exit": 2,
+    "monitor_startup_reason": "Only seven decisions, no post-warmup latency samples; not monitoring-window evidence"
+  },
+  "publication_note": "The merge imported independent T11 research and its INDEX row; release product files match the implementation commit."
+}

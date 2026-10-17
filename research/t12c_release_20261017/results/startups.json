@@ -1,0 +1,148 @@
+[
+  {
+    "configuration": null,
+    "pid": 69771,
+    "port": 64598,
+    "command": "./venv/bin/python web/serve.py",
+    "env": {
+      "SNAKE_DQN_DEVICE": "cpu",
+      "PORT": "64598",
+      "SNAKE_SCORES_DB": "/Users/josenunez/Projects/ml/snake-dqn-t12/research/t12c_release_20261017/results/released-default.sqlite"
+    },
+    "health": {
+      "ok": true,
+      "session": true,
+      "protocol_version": 2
+    },
+    "state": {
+      "ready": true,
+      "playing": true,
+      "speed": 12.0,
+      "speed_ceiling": 24.0,
+      "mode": "watch",
+      "training": false,
+      "hero_id": 0,
+      "checkpoint": "b8_s3_t7_20261016.pth",
+      "config": "mechanics_v2.yaml",
+      "mechanics_version": 2,
+      "obs_spec": "ego2s-bv8",
+      "input_size": 61,
+      "num_snakes": 6,
+      "epsilon": 0.0,
+      "food_target": 300,
+      "food_count": 250,
+      "error": null,
+      "error_overridable": false,
+      "serving_contract": null,
+      "reward_override_active": false
+    },
+    "advancing_frame_range": [
+      0,
+      7
+    ],
+    "stderr_lines": [
+      "INFO web.backend.served_checkpoint served-checkpoint: name=b8-s3 requested=None sha256=3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8 path=/Users/josenunez/Projects/ml/snake-dqn-t12/saved_snakes/b8_s3_t7_20261016.pth reason=None",
+      "INFO web.backend.safety_veto_serving safety-veto-serving: active=False scope=watch_hero mode=watch wrapped_ids=[] flags={'watch_hero': True, 'play_ai': False} checkpoint_sha256=3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8 strict_checkpoint_match=False wrapper_source_sha256=None variant=v8 variant_requested=v8 wrapper_sources_match=None wrapper_method=None reason=the safety veto applies only to a vector61 Apex policy"
+    ],
+    "exit_code": -15,
+    "owned_server_stopped": true
+  },
+  {
+    "configuration": "frp3-s12",
+    "pid": 69778,
+    "port": 64608,
+    "command": "./venv/bin/python web/serve.py",
+    "env": {
+      "SNAKE_SERVE_CHECKPOINT": "frp3-s12",
+      "SNAKE_DQN_DEVICE": "cpu",
+      "PORT": "64608",
+      "SNAKE_SCORES_DB": "/Users/josenunez/Projects/ml/snake-dqn-t12/research/t12c_release_20261017/results/frp3-s12.sqlite"
+    },
+    "health": {
+      "ok": true,
+      "session": true,
+      "protocol_version": 2
+    },
+    "state": {
+      "ready": true,
+      "playing": true,
+      "speed": 12.0,
+      "speed_ceiling": 120.0,
+      "mode": "watch",
+      "training": false,
+      "hero_id": 0,
+      "checkpoint": "frp3_m3_s12_u60000_20261005.pth",
+      "config": "mechanics_v2.yaml",
+      "mechanics_version": 2,
+      "obs_spec": "vector61",
+      "input_size": 61,
+      "num_snakes": 6,
+      "epsilon": 0.0,
+      "food_target": 300,
+      "food_count": 250,
+      "error": null,
+      "error_overridable": false,
+      "serving_contract": null,
+      "reward_override_active": false
+    },
+    "advancing_frame_range": [
+      0,
+      7
+    ],
+    "stderr_lines": [
+      "INFO web.backend.served_checkpoint served-checkpoint: name=frp3-s12 requested=frp3-s12 sha256=eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723 path=/Users/josenunez/Projects/ml/snake-dqn-t12/saved_snakes/frp3_m3_s12_u60000_20261005.pth reason=None",
+      "INFO web.backend.safety_veto_serving safety-veto-serving: active=True scope=watch_hero mode=watch wrapped_ids=[0] flags={'watch_hero': True, 'play_ai': False} checkpoint_sha256=eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723 strict_checkpoint_match=True wrapper_source_sha256=faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05 variant=v8 variant_requested=v8 wrapper_sources_match=True wrapper_method=free-space-veto/v8-space-and-head(lambda=8.0) reason=None"
+    ],
+    "exit_code": -15,
+    "owned_server_stopped": true
+  },
+  {
+    "configuration": "champion",
+    "pid": 69780,
+    "port": 64618,
+    "command": "./venv/bin/python web/serve.py",
+    "env": {
+      "SNAKE_SERVE_CHECKPOINT": "champion",
+      "SNAKE_DQN_DEVICE": "cpu",
+      "PORT": "64618",
+      "SNAKE_SCORES_DB": "/Users/josenunez/Projects/ml/snake-dqn-t12/research/t12c_release_20261017/results/champion.sqlite"
+    },
+    "health": {
+      "ok": true,
+      "session": true,
+      "protocol_version": 2
+    },
+    "state": {
+      "ready": true,
+      "playing": true,
+      "speed": 12.0,
+      "speed_ceiling": 120.0,
+      "mode": "watch",
+      "training": false,
+      "hero_id": 0,
+      "checkpoint": "champion_a5_freespace_20260621.pth",
+      "config": "mechanics_v2.yaml",
+      "mechanics_version": 2,
+      "obs_spec": "vector61",
+      "input_size": 61,
+      "num_snakes": 6,
+      "epsilon": 0.0,
+      "food_target": 300,
+      "food_count": 250,
+      "error": null,
+      "error_overridable": false,
+      "serving_contract": null,
+      "reward_override_active": false
+    },
+    "advancing_frame_range": [
+      0,
+      7
+    ],
+    "stderr_lines": [
+      "INFO web.backend.served_checkpoint served-checkpoint: name=champion requested=champion sha256=None path=/Users/josenunez/Projects/ml/snake-dqn-t12/saved_snakes/champion_a5_freespace_20260621.pth reason=None",
+      "INFO web.backend.safety_veto_serving safety-veto-serving: active=True scope=watch_hero mode=watch wrapped_ids=[0] flags={'watch_hero': True, 'play_ai': False} checkpoint_sha256=43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93 strict_checkpoint_match=True wrapper_source_sha256=faf3695fa9d60550f1f681c04b8c8aba0447fecaa34cd75f16f75efe91e4ac05 variant=v8 variant_requested=v8 wrapper_sources_match=True wrapper_method=free-space-veto/v8-space-and-head(lambda=8.0) reason=None"
+    ],
+    "exit_code": -15,
+    "owned_server_stopped": true
+  }
+]

@@ -1,0 +1,90 @@
+import asyncio
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import time
+from urllib.request import urlopen
+
+import websockets
+
+ROOT = Path.cwd()
+OUT = ROOT / 'research/t12c_release_20261017/results'
+
+async def frames(port):
+    async with websockets.connect(f'ws://127.0.0.1:{port}/ws/stream') as ws:
+        seen = []
+        for _ in range(8):
+            data = json.loads(await asyncio.wait_for(ws.recv(), 10))
+            if data.get('type') == 'error':
+                raise RuntimeError(data)
+            seen.append(data)
+        return seen
+
+records = []
+for choice in (None, 'frp3-s12', 'champion'):
+    label = choice or 'released-default'
+    env = os.environ.copy()
+    for key in tuple(env):
+        if key.startswith('SNAKE_SERVE_'):
+            env.pop(key)
+    if choice:
+        env['SNAKE_SERVE_CHECKPOINT'] = choice
+    env.update(SNAKE_DQN_DEVICE='cpu', OMP_NUM_THREADS='1', OPENBLAS_NUM_THREADS='1', MKL_NUM_THREADS='1')
+    with socket.socket() as reservation:
+        reservation.bind(('127.0.0.1', 0))
+        port = reservation.getsockname()[1]
+    env['PORT'] = str(port)
+    env['SNAKE_SCORES_DB'] = str(OUT / (label + '.sqlite'))
+    logpath = OUT / (label + '.stderr.log')
+    with logpath.open('w') as stderr, (OUT / (label + '.stdout.log')).open('w') as stdout:
+        proc = subprocess.Popen([sys.executable, 'web/serve.py'], cwd=ROOT, env=env, stdout=stdout, stderr=stderr)
+        rec = {'configuration': choice, 'pid': proc.pid, 'port': port, 'command': './venv/bin/python web/serve.py', 'env': {k:env[k] for k in ('SNAKE_SERVE_CHECKPOINT','SNAKE_DQN_DEVICE','PORT','SNAKE_SCORES_DB') if k in env}}
+        try:
+            deadline = time.monotonic() + 40
+            while True:
+                if proc.poll() is not None:
+                    raise RuntimeError(logpath.read_text())
+                try:
+                    with urlopen(f'http://127.0.0.1:{port}/api/health', timeout=1) as response:
+                        rec['health'] = json.load(response)
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(.1)
+            with urlopen(f'http://127.0.0.1:{port}/api/state', timeout=3) as response:
+                rec['state'] = json.load(response)
+            rec['frames'] = asyncio.run(frames(port))
+            assert rec['frames'][-1]['frame'] > rec['frames'][0]['frame']
+            rec['advancing_frame_range'] = [rec['frames'][0]['frame'], rec['frames'][-1]['frame']]
+            lines = logpath.read_text().splitlines()
+            rec['stderr_lines'] = [line for line in lines if 'served-checkpoint: name=' in line or 'safety-veto-serving: active=' in line]
+            expected = choice or 'b8-s3'
+            assert any(f'name={expected} ' in line and 'reason=None' in line for line in rec['stderr_lines'])
+            assert rec['state']['error'] is None
+            assert rec['health']['ok'] and rec['health']['session']
+            if choice is None:
+                assert any('sha256=3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8' in line for line in rec['stderr_lines'])
+                assert any('active=False' in line and 'applies only to a vector61 Apex policy' in line for line in rec['stderr_lines'])
+            else:
+                assert any('active=True' in line and 'variant=v8 ' in line and 'strict_checkpoint_match=True' in line for line in rec['stderr_lines'])
+            print(label + ': verified', flush=True)
+            print('\n'.join(rec['stderr_lines']), flush=True)
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
+            rec['exit_code'] = proc.returncode
+            rec['owned_server_stopped'] = proc.poll() is not None
+            print(f'{label}: owned PID {proc.pid} stopped, exit={proc.returncode}', flush=True)
+        # Keep concise frame proof; complete last snapshot in a separate JSON.
+        (OUT / (label + '.frame.json')).write_text(json.dumps(rec.pop('frames')[-1], indent=2) + '\n')
+        records.append(rec)
+(OUT / 'startups.json').write_text(json.dumps(records, indent=2) + '\n')
