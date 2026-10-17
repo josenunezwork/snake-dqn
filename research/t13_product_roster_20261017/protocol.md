@@ -42,3 +42,13 @@ Execution: one coordinator and four single-thread CPU subprocesses (five process
 at peak); episode files are exclusive-create; no automatic retries; logs and exit
 codes retained. No tmux interaction and no operations on unowned processes. Each
 commit is followed by fetch, merge origin/main, push HEAD:main, and push the branch.
+
+Implementation details: the current mechanics YAML has six snakes. T13 explicitly
+uses T12's constructor-local Watch12 loader hook to meet the spec's twelve-snake
+roster; it does not edit the YAML. Record this effective override in episode
+identities. Offline release-monitor logging is suppressed, while the real step,
+snapshot, collision, food, respawn, policy and veto paths remain in use. The existing
+live food-consumption method returns immediately after the first consumed item, so
+its per-frame boolean counts actual consumed items (at most one per snake/frame).
+Length quantiles follow T12's nearest order statistic: sorted sample index
+`round((N - 1) * q)`, with Python/NumPy ties-to-even rounding.
