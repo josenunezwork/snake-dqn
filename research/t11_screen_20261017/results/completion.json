@@ -1,0 +1,32 @@
+{
+  "basis": "LOCAL30_s13 trainer halt and exit 1 at 300160 transitions; no final checkpoint",
+  "decision": "KILL",
+  "device": "cpu",
+  "files": {
+    "docs/research/t11_screen_result_2026-10-17.md": "59fba792103007d93d82598d3a9a7d24e3505b1b028e93d5d1a1c165168f8e03",
+    "research/t11_screen_20261017/results/analysis.json": "e04b9cad7ef35888ea74ca9228c543dc59d7967e5dabb5d77c40ae51537de61c",
+    "research/t11_screen_20261017/results/boost_curves.svg": "2267cb1e03284f7ae379d8bbb7ac1a24e5271944fda9f95b78485d97fc53bf55",
+    "research/t11_screen_20261017/results/report-exit.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "research/t11_screen_20261017/results/report.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "research/t11_screen_20261017/results/run-report.sh": "33869951575aa393d2f0a068b17e97431624aef2b912222504b006007771716b",
+    "research/t11_screen_20261017/results/seed_bank_audit_round74.json": "f374b4395d5ba44a52228545eee20532564dd1616e35812536b666654b1b67a4",
+    "research/t11_screen_20261017/results/training_receipts.json": "66249212e23e00767b77bdcf140359c723efffbd34dd79b46830256be6b319dc"
+  },
+  "fresh_audit": "PASS",
+  "gameplay_processes_started": 0,
+  "gameplay_worlds_consumed": 0,
+  "implementation_git_sha": "95d87c02a6262368167780f388f3f19f5f28d1db",
+  "max_evaluation_children": 3,
+  "max_watcher_plus_children": 4,
+  "owned_tmux_session": "t11-probe",
+  "report_exit_code": 0,
+  "schema": "t11-screen-completion/v1",
+  "validation": {
+    "black": "PASS",
+    "flake8": "PASS",
+    "git_diff_check": "PASS",
+    "independent_review": "PASS",
+    "new_screen_tests_passed": 17,
+    "pytest_passed": 27
+  }
+}
