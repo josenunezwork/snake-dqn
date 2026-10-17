@@ -98,7 +98,8 @@ describe("Controls", () => {
     const send = vi.fn();
     render(<Controls {...baseProps} session={sessionState()} send={send} />);
     const select = await screen.findByLabelText(/model checkpoint/i);
-    await user.selectOptions(select, "latest_pqn.pth");
+    const option = await screen.findByRole("option", { name: /latest_pqn\.pth/ });
+    await user.selectOptions(select, option);
     expect(send).not.toHaveBeenCalledWith("load_checkpoint", expect.anything());
     await user.click(
       screen.getByRole("button", { name: /load selected checkpoint/i }),
@@ -127,7 +128,8 @@ describe("Controls", () => {
       />,
     );
     const select = await screen.findByLabelText(/model checkpoint/i);
-    await user.selectOptions(select, "latest_pqn.pth");
+    const option = await screen.findByRole("option", { name: /latest_pqn\.pth/ });
+    await user.selectOptions(select, option);
     await user.click(
       screen.getByRole("button", { name: /load selected checkpoint/i }),
     );
