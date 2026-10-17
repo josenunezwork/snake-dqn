@@ -18,6 +18,12 @@ REQUIRED_CONFIG_NAMES = (
     "hero_w128_a8",
     "selfplay_w64_a2",
     "selfplay_w128_a2",
+    "selfplay_w128_a4",
+)
+SELF_PLAY_CAVEAT = (
+    "self-play transitions count every learner-driven snake; the 5,400/s Mac baseline is "
+    "the hero-only recipe, so this ratio is wall-clock per training transition, not a "
+    "same-configuration comparison until a Mac self-play rate is measured"
 )
 
 
@@ -81,6 +87,11 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             "verdict": verdict,
             "reason": reason,
         }
+        if name.startswith("selfplay"):
+            row["caveat"] = SELF_PLAY_CAVEAT
+        for key in ("tail_transitions_per_second", "resources", "oversubscription"):
+            if key in config:
+                row[key] = config[key]
         rows.append(row)
     present = {name for name in names if isinstance(name, str)}
     for name in REQUIRED_CONFIG_NAMES:
