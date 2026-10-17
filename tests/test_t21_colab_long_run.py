@@ -59,8 +59,9 @@ def test_long_run_passes_the_async_full_state_contract() -> None:
 def test_long_run_never_releases_while_work_or_durability_is_unconfirmed() -> None:
     source = _source()
     assert "if completed.returncode:" in source
-    assert "summary.get('transitions') != REQUESTED_TRANSITIONS" in source
+    assert "summary.get('transitions', -1) < REQUESTED_TRANSITIONS" in source
     assert "summary.get('halt') is not None" in source
+    assert "summary.get('stopped_for_time')" in source
     assert "summary.get('full_state_complete') is not True" in source
     assert "No verified durable snapshot after successful training" in source
     assert "manifests[0].get('transitions', -1) >= summary['transitions']" in source
