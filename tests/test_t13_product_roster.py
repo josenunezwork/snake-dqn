@@ -30,10 +30,13 @@ def _t12_watch12_loader():
 
 @pytest.fixture(autouse=True)
 def restore_global_config(monkeypatch):
-    """Keep the constructor-local Watch12 configuration inside these tests."""
+    """Keep the historical Watch12 construction posture inside these tests."""
     from src.core import game_config
 
     monkeypatch.setattr(game_config, "_current_config", game_config._current_config)
+    # T13's evidence harness predates the released mixed product default. Its
+    # fixed all-B8 construction remains a historical comparison fixture.
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "all_b8")
 
 
 def test_selection_restores_environment(monkeypatch):

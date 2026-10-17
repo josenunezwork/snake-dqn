@@ -14,6 +14,12 @@ from research.t13b_six_snake_20261017 import episodes
 HAS_B8 = Path("saved_snakes/b8_s3_t7_20261016.pth").is_file()
 
 
+@pytest.fixture(autouse=True)
+def _historical_all_b8_watch_roster(monkeypatch):
+    """Keep the T13b evidence harness on its recorded all-B8 product posture."""
+    monkeypatch.setenv("SNAKE_SERVE_WATCH_ROSTER", "all_b8")
+
+
 @pytest.mark.skipif(not HAS_B8, reason="checkout lacks the locally pinned B8 serving artifact")
 def test_default_six_h100_matches_original_t12_trace():
     """T13b's default-six instrumentation preserves the T12 serving trace."""

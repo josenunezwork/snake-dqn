@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-t15
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 10 items
+
+tests/test_t13_product_roster.py ......                                  [ 60%]
+tests/test_t13b_six_snake.py ....                                        [100%]
+
+============================== 10 passed in 3.18s ==============================

@@ -125,7 +125,11 @@ stderr and frame captures retain the raw observations. This is a startup/stream
 smoke, not another serving qualification or a completed monitoring window.
 
 The expanded focused Python suite passed **182 tests** (one existing
-FastAPI/Starlette deprecation warning); the frontend passed **178 tests across
+FastAPI/Starlette deprecation warning). The first full-suite run identified five
+additional historical T13/T13b tests whose original all-B8 posture now needs an
+explicit test-only selector; all **10 tests** in those two modules pass with
+that pin and every original assertion intact. Frozen harness files are unchanged.
+The frontend passed **178 tests across
 21 files**, and its TypeScript/Vite production build passed. Black, Flake8,
 isort and whitespace checks passed. An independent read-only review checked
 hero identity, default/invalid/rollback contracts and monitoring separation;
