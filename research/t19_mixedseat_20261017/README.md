@@ -16,12 +16,46 @@ update (U) ledger; per-policy live rows; mean and p95 policy lag; and frozen
 GPU-forward time. Missing league telemetry makes the sample invalid. N3 is a
 measurement-only suite and has no comparison or promotion verdict.
 
+The trainer extension is opt-in via `--learner-seats {1,3,6}` with `--actors >= 1`.
+N=1 is explicitly the legacy hero-only collector, including its historical opponents.
+N=6 is the existing all-snakes collector. N=3 requires BV8 observations and permutes
+learner seats with a separate seeded RNG at each segment; ownership survives respawn.
+Frozen slots independently draw uniformly from the full static pool and retain that
+assignment for the segment. The six permanent policies are B8-s3, FRP3-s12 bare,
+FRP3-s12+v8, champion+v8, greedy_food, and random_safe. Both v8 wrappers are supported.
+Models remain resident in each actor; vector policies/scripts stay on CPU, while
+frozen B8 uses the actor device. Pool records bind checkpoint, observation, mask,
+wrapper and source identities and are saved in checkpoint metadata and the summary.
+
+`learner_decisions` (D) alone advances the collection schedule; `replay_rows` (R)
+funds updates, including warmup debt and segment tails. Batch-scale 2 retains 256
+R/update. `per_policy_live_rows` includes a `learner` total plus frozen policy IDs;
+only learner rows enter the observation ring, replay and labels. Lag is measured in
+learner update publications per received actor message. Smoke aggregation uses the
+interval histograms for the scored-window mean and p95. `frozen_forward_gpu_s` is
+cumulative CUDA event time for frozen BV8 forward/selection, excluding CPU features;
+it is zero on CPU/MPS. Smoke rows expose its window delta as
+`frozen_forward_gpu_seconds`, D/R deltas, `measured_updates` (U), and
+`live_rows_by_policy`. Actual CUDA execution is not qualified by the Mac tests.
+
+PFSP, dynamic snapshots/cache eviction, exploiter scheduling, payoff adapters and
+exact training resume are deferred. N=1 static-league exploiters are also outside
+this legacy-compatible N=1 slice. The existing 16-policy admission bound is enforced;
+there are no dynamic resident models in this six-policy static pool.
+
 `research/t16_colab/mac_n3_baseline.sh --check` validates and prints the
 prepared MPS N=3 command. Without `--check` it is a bounded 420-second run
-with 120 seconds of warm-up and 300 seconds of scored collection; it refuses
-to overwrite an existing receipt and writes the rate receipt with the same
-120-second measurement boundary. The script binds the frozen checkpoint root
+with a 120-second warm-up exclusion and a nominal 300-second timing budget. The
+observed scored interval is between log boundaries and is reported as
+`measured_seconds`; it is not guaranteed to span all 300 seconds. It refuses
+to overwrite an existing receipt. The MPS learner/actors, 128 worlds, two actors
+and fixed B8 recipe follow the T16 Mac baseline; raw rings, gather threads 3 and
+the longer budget match the new league workload rather than reusing the older
+packed-ring 180-second rates. The script binds the frozen checkpoint root
 with `SNAKE_CKPT_DIR` (defaulting to the established source checkout).
+`SNAKE_PYTHON` overrides the interpreter; linked worktrees otherwise reuse the
+main checkout's venv. The script checks clean actor shutdown and complete league
+metrics before writing `throughput.json`, and cleans up its own temporary rings.
 `research/t18_h100pod_20261017/commands_n3.json` contains the corresponding
 unlaunched 30-minute H100 command. It is separate from the existing T18
 `commands.json`, whose fixed P0/smoke03 workload is unchanged.
