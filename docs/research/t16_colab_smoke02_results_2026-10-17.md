@@ -221,3 +221,129 @@ bf16 bs2 118 upd/s, fp32 bs4 43.8 upd/s (512/update).
 The frozen pool is the binder: frozen_forward_s 709 s of 1,063 s actor time at a4, of which GPU 6.2 s, i.e.
 CPU-side opponent features / veto chains. Fix handed to Codex (t22: batch pool policies across worlds,
 bit-identical). The A100 learner itself sits just under the fixed-recipe 4x bar (82.7 vs 84.4 upd/s isolated).
+
+## T22 frozen-pool CPU optimization and independent action parity (2026-10-17)
+
+**Implemented, CPU-qualified, and throughput-only. The 20,900 tr/s A100 target is
+not established.** Branch `t22-frozen-pool-perf-20261017` started at `4c1e1b2` and
+was rebased on main after the T23 registration/launcher additions. No training,
+Colab execution, pod operation, serving change, or tmux interaction was performed.
+
+### Attribution and implementation
+
+The pre-change dispatcher already grouped every policy's live rows across all
+worlds into one network call. The expensive part was the live Python v8 wrapper
+inside the two wrapped vector61 policies. It rebuilt decision-time vector61
+free-space features, converted each row to live snake views, and ran the veto
+chain separately. The N=3 runtime also featurized all frozen seats, including B8
+and scripted rows that never consumed vector61 states.
+
+The pool now uses the existing Numba v8 kernel for those two wrappers, retains
+its carried advisory masks and the original network batch shapes, and limits
+vector61 carry/feature construction to vector61-assigned seats. Learner and B8
+base rasters are gathered together and sliced into their original row orders;
+B8's v8 scalars remain separately computed with its original selection mask.
+The transient raster cache checks simulator identity, exact rows and frame,
+and is cleared on empty calls and segment rebinding. Runtime pruning is also
+applied after snapshot restore. The random-safe policy caches its immutable
+key prefixes and batches canonical SHA-256 selection in Numba, with a legacy
+fallback for values outside the compiled integer contract. Greedy food already
+used a compiled kernel. Source hashes include the new execution paths.
+
+The final instrumented Mac run uses CPU and one thread for Torch, Numba and
+BLAS: 128 worlds, N=3, 200 unmeasured warm-up frames and 30 measured frames.
+Each of the six fixed groups has 64 live rows per measured frame. Learner
+seats move straight; this is a bounded actor microbenchmark, not a training
+throughput run or an isolated-machine/late-game performance claim.
+
+| Pool policy | Before ms/frame | After ms/frame | Attribution |
+|---|---:|---:|---|
+| B8-s3 | 28.307 | 27.491 | CPU network forward 26.651 / 26.847 ms; runs on GPU in Colab |
+| FRP3-s12 bare | 0.230 | 0.237 | Forward 0.181 / 0.188 ms; no meaningful change |
+| FRP3-s12 + v8 | 6.449 | 0.397 | Old veto 6.256 ms includes 0.457 ms decision features; new complete veto kernel 0.195 ms |
+| Champion + v8 | 5.846 | 0.337 | Old veto 5.606 ms includes 0.411 ms decision features; new complete veto kernel 0.150 ms |
+| Scripted greedy food | 0.062 | 0.063 | Existing compiled path retained |
+| Scripted random safe | 0.082 | 0.036 | Canonical hash and tie order retained |
+| Entire frozen dispatch | **41.109** | **28.687** | **30.2% less CPU dispatch time**; includes CPU B8 forward |
+
+B8's old raster construction costs 1.510 ms, including 0.415 ms of v8 scalars.
+The new B8 v8 scalars cost 0.421 ms. Separate learner base-raster construction
+costs 3.980 ms; the combined learner+B8 gather costs 4.294 ms. Thus the B8 work
+moved outside `frozen_forward_s` is charged back in the projection below; it is
+not treated as eliminated. Production telemetry records the combined gather
+under `featurizer_s`. Phase measurements are nested wall times, so inclusive
+parents and their children must not be added together.
+
+Shared vector61 preparation/mask retrieval costs 0.143 → 0.106 ms/frame;
+post-step carry costs 2.276 → 1.739 ms/frame with controlled rows reduced
+384 → 192. This work is outside dispatch and is not arbitrarily divided among
+policies. No extra credit for this saving is included in the A100 estimate.
+The two vector policies retain separate network forwards; there is no change
+in BLAS batch shape, precision, masks, learner math, or network weights.
+
+### A100 projection and its limit
+
+The projection uses the saved `a100-n3-01` Drive data, matching the telemetry
+and log counters by transition count for each row:
+
+| Actors | Baseline tr/s | Actor env seconds | Frozen seconds | Frozen GPU seconds | Host-pool fraction | Projected tr/s |
+|---|---:|---:|---:|---:|---:|---:|
+| a4 | 5,937.953 | 1,063.044 | 709.054 | 6.199 | 66.12% | **13,578** |
+| a6 | ~7,720 | 1,189.492 | 677.422 | 7.159 | 56.35% | **14,833** |
+
+The a4 baseline is the saved scored result. The a6 baseline is the owner's
+approximate reference rate, not the summary's end-to-end rate or a newly
+selected steady-state window; its projection scales linearly with that input.
+Using a4's frozen fraction for a6 would overstate a6's gain.
+
+The host-only Mac pool estimate removes B8's CPU network forward and charges
+incremental shared raster cost:
+
+```text
+old_host = 41.108593 - 26.650590 = 14.458003 ms
+new_host = 28.687489 - 26.846687 + max(0, 4.293569 - 3.980440) = 2.153931 ms
+r = new_host / old_host = 0.148978
+h = (frozen_seconds - frozen_GPU_seconds) / actor_env_seconds
+projected_rate = baseline_rate / (1 - h + h*r)
+```
+
+This assumes the relative Mac host speedup transfers to x86, cumulative actor
+time fractions approximate the scored window, and GPU/other actor costs stay
+unchanged. It includes no setup, transfer or GPU-contention penalty. These are
+conditional estimates, not A100 measurements. Even zero host-pool cost caps
+this restricted model at about 17,525 / 17,686 tr/s for the stated a4/a6 rates.
+The remaining actor work therefore matters. The task's rounded target of
+20,900 tr/s is 81.64 updates/s at 256 transitions/update (4×5,214 is 20,856),
+not the older 84.4-updates/s target referenced above. The isolated 82.7
+updates/s learner has only about 1.3% capacity above the rounded target before
+shared-GPU overhead. A new Colab throughput run is needed to establish any
+actual end-to-end gain.
+
+### Parity, verification, and reproduction
+
+The independent test oracle vendors the unedited pre-change pool module from
+`4c1e1b2`, SHA-256 `18c3b2e7257af0410069d0f344f3bbe37dbee0f08d5a8e53938b87667575919c`.
+Two separate simulators/runtimes run 96 frames in actual prepared-step callbacks
+with all six real pinned policies. Every identity is forced through death and
+normal respawn. The test compares actions, learner raster/v8 bytes, relevant
+selection/carry/trend memory, world state, and world RNG state. The pre-change
+runtime controls all frozen seats while the optimized runtime controls only
+vector61 seats. The recorded 96×12×6 action stream has SHA-256
+`f7aa8c96878a428a483704b13c1654056ea8d10a16c20d9502fd29a0037d8be9`.
+Additional checks cover tied Q values on every slot, stale frame caches,
+snapshot delegation, random-safe masks/SHA padding/integer limits, and rebinds.
+This establishes the tested Mac CPU action identity; it is not cross-architecture
+or CUDA action-parity qualification.
+
+The final bounded CPU suite passed **224 tests, six slow tests deselected, no
+artifact-dependent skips**, covering T16/T19/T21/T22, actor resume, the trainer,
+existing v8/vector61 parity, and raster contracts. Changed Python files pass
+Black, isort, flake8 and whitespace checks. The notebook already contained no
+`files.download` call at the starting commit; a regression assertion and a
+Drive-results comment now keep that requirement explicit.
+
+Commands, exact timing/source/checkpoint receipts, the projection script and
+hashed Drive inputs, and the test transcript are in
+[`research/t22_frozen_pool_20261017`](../../research/t22_frozen_pool_20261017/README.md).
+The independent recorded fixture is in
+[`tests/fixtures/t22`](../../tests/fixtures/t22/recording.json).
