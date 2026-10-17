@@ -1,0 +1,126 @@
+- status
+- alert
+- heading "snake-dqn · live" [level=1]
+- 'generic "Stream: live"': ● live
+- generic: b8_s3_t7_20261016.pth
+- generic "Opponent v8 vetoes 7, decisions 2105":
+  - text: opponents v8 · 7 vetoes / 2105 decisions ·
+  - generic: "#1 0/421"
+  - generic: "#2 0/421"
+  - generic: "#3 7/421"
+  - generic: "#4 0/421"
+  - generic: "#5 0/421"
+- generic: frame 421
+- generic: watch
+- button "Open command palette":
+  - generic: ⌘
+  - text: K
+- button "View settings": ⚙
+- button "Keyboard shortcuts": "?"
+- group "Live telemetry":
+  - text: Best len
+  - 'note "Best length: the longest any snake has grown so far this episode."':
+    - generic: i
+  - generic: "79"
+  - text: Alive
+  - 'note "Alive: how many snakes are currently alive in the arena this episode."':
+    - generic: i
+  - generic: "6"
+  - text: Food
+  - 'note "Food eaten: pellets consumed this episode, summed across all snakes."':
+    - generic: i
+  - generic: "382"
+  - text: Kills
+  - 'note "Kills: head-to-body collisions this snake caused (the victim dies, the attacker is rewarded)."':
+    - generic: i
+  - generic: "0"
+  - text: Loss
+  - 'note "Training loss: the temporal-difference error the learner minimises. It only moves in Train mode; lower generally means a better-fit value function."':
+    - generic: i
+  - generic: —
+  - text: ε
+  - 'note "ε (epsilon): exploration rate — with probability ε the agent picks a random action instead of the greedy one. 0 = pure exploitation."':
+    - generic: i
+  - generic: "0.00"
+- 'img "Live snake arena, watch mode: 6 of 6 snakes alive, leader Yellow at 79"'
+- paragraph: "Live snake arena, watch mode: 6 of 6 snakes alive, leader Yellow at 79 Use the roster in Controls, or the [ and ] keys, to inspect a snake."
+- button "Arena legend": ⓘ
+- button "Save arena as PNG": ⤓
+- button "Fullscreen arena": ⛶
+- status: Turning right · a close call
+- tablist "Panels":
+  - tab "Controls" [selected]
+  - tab "Play"
+  - tab "Inspector"
+  - tab "Raster"
+  - tab "Network"
+  - tab "Dashboard"
+- tabpanel "Controls":
+  - button "Pause": ❚❚ Pause
+  - button "Reset game": ⟲ Reset
+  - button "Save weights": 💾 Save weights
+  - generic: space · R
+  - generic: Mode
+  - button "Watch"
+  - button "Train"
+  - button "Play"
+  - generic: Frozen weights — a pure demo of the trained agent.
+  - generic: Speed
+  - button "0.5×"
+  - button "1×"
+  - button "2×" [active]
+  - generic: Fine
+  - slider "Fine": "24"
+  - generic: 24 fps
+  - status: This ego2s roster is capped at 24 fps for stable live serving.
+  - generic: Epsilon
+  - slider "Epsilon": "0"
+  - generic: "0.00"
+  - generic "Live food count · ambient target. Corpse drops are exempt from the target, so the count can legitimately exceed it.":
+    - generic: Food
+    - slider "Food": "300"
+    - generic: 300 · target 300
+    - generic: Corpse drops are cap-exempt — the live count can exceed the target.
+  - generic: Overlay
+  - button "◈ Intent on" [pressed]
+  - generic: O
+  - generic: Snakes · tap to inspect
+  - group "Snakes — select the hero to inspect":
+    - button "Yellow 79":
+      - generic: Yellow
+      - generic: "79"
+    - button "Red 68" [pressed]:
+      - generic: Red
+      - generic: "68"
+    - button "Magenta 63":
+      - generic: Magenta
+      - generic: "63"
+    - button "Cyan 62":
+      - generic: Cyan
+      - generic: "62"
+    - button "Green 61":
+      - generic: Green
+      - generic: "61"
+    - button "Blue 55":
+      - generic: Blue
+      - generic: "55"
+  - generic: Model
+  - combobox "Model checkpoint":
+    - option "b8_s3_t7_20261016.pth (6.56 MB · ego2s-bv8)" [selected]
+    - option "best_apex.pth (3.44 MB · vector61)"
+    - option "best_apex_58d_pre_a5_20260621.bak.pth (6.88 MB · vector61)"
+    - option "best_apex_fs.pth (3.45 MB · vector61)"
+    - option "best_apex_pre_fs.pth (3.45 MB · vector61)"
+    - option "best_apex_stage1_fs.pth (3.45 MB · vector61)"
+    - option "best_snake.pth (3.44 MB · vector61)"
+    - option "champion_a5_freespace_20260621.pth (6.9 MB · vector61)"
+    - option "frp3_m3_s12_u60000_20261005.pth (6.91 MB · vector61)"
+    - option "health_smoke_snake.pth (7.82 MB · vector61)"
+    - option "seed_A5_dls3_fb15_s04.pth (3.45 MB · vector61)"
+    - option "web_train_20260719_134502.pth (6.9 MB · vector61)"
+  - button "Load selected checkpoint" [disabled]: Load
+  - generic: Sessionego2s-bv8
+  - text: "config: mechanics_v2.yaml"
+  - text: "input: 61-D vector · snakes: 6"
+  - text: "training: off"
+  - button "⧉ Copy run summary"

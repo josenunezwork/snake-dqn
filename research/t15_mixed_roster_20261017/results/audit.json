@@ -1,0 +1,50 @@
+{
+  "criteria": {
+    "1": {
+      "failures": [],
+      "pass": true
+    },
+    "2": {
+      "failures": [],
+      "pass": true
+    },
+    "3": {
+      "failures": [],
+      "pass": true
+    },
+    "4": {
+      "failures": [],
+      "latency": [
+        {
+          "ceiling_fps": 24.0,
+          "p95_ms": 7.792219356633723,
+          "snakes": 6
+        },
+        {
+          "ceiling_fps": 12.0,
+          "p95_ms": 9.519156138412654,
+          "snakes": 8
+        },
+        {
+          "ceiling_fps": 12.0,
+          "p95_ms": 13.141333474777639,
+          "snakes": 12
+        }
+      ],
+      "pass": true
+    },
+    "5": {
+      "failures": [],
+      "pass": true
+    },
+    "6": {
+      "failures": [],
+      "pass": true
+    }
+  },
+  "intent_sha256": "959142e96c53a709c580b5eab6ff362885e439564a57a369f0dd952262d3e3d7",
+  "protocol_sha256": "0b882fc2a11e47ce67a0ec541f560d157bd32c6e62c95ce9554683633603428d",
+  "schema": "t15-mixed-roster-audit/v1",
+  "serving_path_qualified": true,
+  "verdict": "SERVING_PASS"
+}

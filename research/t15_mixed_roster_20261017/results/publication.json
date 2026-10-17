@@ -1,0 +1,92 @@
+{
+ "archive_file_count": 118,
+ "audited_assembly_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t15-mixed-roster-20261017/run-v1-assembly",
+ "created_utc": "2026-10-17T14:10:48.604848+00:00",
+ "defaults_changed": false,
+ "files": {
+  "REVIEW.md": {
+   "bytes": 3696,
+   "sha256": "3c36ee92476aa7e8d1c2dceb4398be9489b153b7db25a6e28ca7e3705fc9711d"
+  },
+  "UI_ENVELOPE_CORRECTION.md": {
+   "bytes": 2754,
+   "sha256": "8614725c0ab1cae5a3abdaa5fc65e95553982c8f4cb74f1670c5ab60b82d4755"
+  },
+  "UI_ENVELOPE_INVALID.json": {
+   "bytes": 364,
+   "sha256": "843037b2e31b741efb109469fc0247ecde82034aa2049811e380ca11a6d2fd29"
+  },
+  "assembly-provenance.json": {
+   "bytes": 11883,
+   "sha256": "a222c6d64e8bf7a55ffbe4b4f873eb4b80ef736220efdc3f441803823e4191f1"
+  },
+  "audit.json": {
+   "bytes": 1025,
+   "sha256": "e20530cb27b6dd5d0e692c37e100a89a508ff72413eec5b676efa184dd49c23b"
+  },
+  "backend.json": {
+   "bytes": 16301,
+   "sha256": "204282f4339bd782f5c85bdb23a777a3b03c5234e84523b58745f625acfe0d3b"
+  },
+  "browser-observation.json": {
+   "bytes": 240,
+   "sha256": "82eb602a75574b3d143dfd3f40a446f1033d8aa24c782c31750750aace8fc7c2"
+  },
+  "evidence.tar.gz": {
+   "bytes": 32054428,
+   "sha256": "0e5063d1394e0f4517f846bc2cd60ae7d1427f20d8f80b1339713e7c72baa4a1"
+  },
+  "intent.json": {
+   "bytes": 140586,
+   "sha256": "959142e96c53a709c580b5eab6ff362885e439564a57a369f0dd952262d3e3d7"
+  },
+  "live-backend-frame.json": {
+   "bytes": 17197,
+   "sha256": "1b1552e59f0c411b14f3ff528551efc827fce306cf7fd66792500d35200c0880"
+  },
+  "receipt.json": {
+   "bytes": 11330,
+   "sha256": "8f6711affa4d23ee65fb6c727ef8e82da30f120b1c711460ef4338d362e4ba3f"
+  },
+  "seed-audit-v1.json": {
+   "bytes": 78371,
+   "sha256": "531fced38d264016b4914114989096dc3c8470e7fde6caf67126983d8219a36a"
+  },
+  "summary.json": {
+   "bytes": 32461,
+   "sha256": "0c53af10450add39de849f6a8ec166b95a17d5bbef4c88c3ca8a4e44ba71b651"
+  },
+  "validation.json": {
+   "bytes": 6240,
+   "sha256": "01b878b096816687b070709e2c0b47d84863f19a2db37e67521927e7473cf80e"
+  },
+  "watch-aggregate.json": {
+   "bytes": 25140,
+   "sha256": "522514665bdb20826742463d8a420c893b987e4e618d567e1790269c5083ce36"
+  },
+  "watch-ceiling-dom.txt": {
+   "bytes": 4528,
+   "sha256": "3b48cbded3bf0471296ec00b8b0561d945dabee874a29979b888f4eabcb2c171"
+  },
+  "watch-ceiling.png": {
+   "bytes": 137374,
+   "sha256": "39ecea5f20972bbe16fffb180bc9d379e9795f54fe61558c4a1d7a00135c249d"
+  },
+  "watch-default-dom.txt": {
+   "bytes": 4505,
+   "sha256": "e473af2b69eb6fb6ea44544fde1c890cfa59a1c637967318437416406f70fe56"
+  },
+  "watch-default.png": {
+   "bytes": 131086,
+   "sha256": "7656273f2a45e7cfa349a17e5e20375555e78bae99fd8667d9bdc193cd8a80bc"
+  }
+ },
+ "intent_sha256": "959142e96c53a709c580b5eab6ff362885e439564a57a369f0dd952262d3e3d7",
+ "original_ui_status": "INVALID; original preserved; one metadata field corrected in sibling assembly",
+ "protocol_sha256": "0b882fc2a11e47ce67a0ec541f560d157bd32c6e62c95ce9554683633603428d",
+ "qualified_source_commit": "9cc59403741e7810c142f92f5bd068a0b63133d6",
+ "raw_root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t15-mixed-roster-20261017/run-v1",
+ "receipt_entries": 116,
+ "schema": "t15-publication/v1",
+ "verdict": "SERVING_PASS"
+}

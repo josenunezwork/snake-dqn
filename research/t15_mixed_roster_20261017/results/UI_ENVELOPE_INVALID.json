@@ -1,0 +1,9 @@
+{
+ "created_utc": "2026-10-17T14:07:53.590526+00:00",
+ "envelope_sha256": "f16028a0c2ba774951777dde0e478f984484df15fb914c0000f33fdb57d9aa10",
+ "error": "records/ui-000.json wall_seconds is invalid",
+ "no_original_bytes_changed": true,
+ "scope": "Original UI result envelope only",
+ "source": "Frozen independent audit _check_ui/_envelope",
+ "verdict": "INVALID"
+}
