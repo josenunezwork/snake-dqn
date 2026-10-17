@@ -1418,7 +1418,10 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
         controlled[:, 0] = True
     policies: Dict[Any, Any] = {}
     groups: Dict[Any, List[tuple]] = {}
-    if not all_snakes:
+    # N=3 supplies every frozen action through ``StaticPool`` below.  Do not even
+    # construct the historical roster policies: doing so would spend forwards and
+    # could accidentally reintroduce an unpinned opponent path.
+    if not all_snakes and learner_seats(args) != 3:
         rows = {(int(r["world_seed"]), r["mix"]): r for r in dev_screen._design_rows(seeds)}
         lookup = ctx["lookup"]
         for e, seed in enumerate(seeds):
@@ -2890,6 +2893,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     timing["opponents_s"] += time.perf_counter() - t_o
 
                 def choose(prepared):
+                    nonlocal frozen_live_rows
                     masks = prepared.get_resolved_action_mask()
                     alive = prepared.get_alive()
                     if active is not None:
@@ -2908,7 +2912,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     # vectorized: the opponents (no actor RNG, read-only runtime state, disjoint
                     # action cells) run while an asynchronous (MPS / CUDA) hero forward is in
                     # flight; the hero's decisions and RNG draws are unchanged.
-                    overlap = fast and len(hero) > 0 and not all_snakes
+                    overlap = fast and len(hero) > 0 and not all_snakes and not mixed_seats
                     if len(hero):
                         t_f = time.perf_counter()
                         obs = build_ego_raster(prepared, B, backend="numba", rows=hero)
