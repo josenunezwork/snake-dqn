@@ -2532,7 +2532,7 @@ def main_sync(args) -> int:
             state["flags"].append({"t": state["transitions"], "guard": problems})
             time.sleep(60)
             continue
-        gamma_seg = sched.gamma(state["transitions"])
+        gamma_seg = sync_controls.get("gamma_seg", sched.gamma(state["transitions"]))
         sim, runtime, policies, groups = build_segment(args, ctx, segment, gamma_seg)
         E = sim.E
         pend: List[deque] = [deque() for _ in range(E)]  # per world: (obs_id, a, reward)
