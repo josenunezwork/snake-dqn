@@ -372,6 +372,58 @@ def _landing_area_membership(
 
 
 @njit(cache=True, nogil=True)
+def _eager_area_landing_membership(
+    bodies, e, s, hp, ring, n, L, bf, heading, action, gw, gh, min_boost, boost_cost, area_cap, landing_cap,
+    membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+):  # fmt: skip
+    """Eager v8 diagnostics from one retained post-move body template.
+
+    The release map is the v7 tail-aware template.  Once its new head is removed it is
+    also exactly v5's static boost-body blocker: retained old cells plus the intermediate
+    boost cell.  Thus an eager boost action paints the post-move body once, then runs the
+    two unchanged BFS variants against that same map.
+    """
+    rel = action % 3
+    hd = (heading + rel - 1) % 4
+    dx = _DX[hd]
+    dy = _DY[hd]
+    boosted, ln, lpost = _post_move(n, L, bf, action >= 3, min_boost, boost_cost)
+    nh = 2 if boosted else 1
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+    ws[2] += 1
+    rcur = ws[2]
+    for i in range(ln):
+        cx, cy = _seg_cell(bodies, e, s, hp, ring, nh, hx, hy, dx, dy, i)
+        if cx < 0 or cx >= gw or cy < 0 or cy >= gh:
+            continue
+        idx = cx * gh + cy
+        when = lpost - i + 1
+        if rel_st[idx] != rcur:
+            rel_st[idx] = rcur
+            rel_val[idx] = when
+        elif when > rel_val[idx]:
+            rel_val[idx] = when
+    nx = hx + dx * nh
+    ny = hy + dy * nh
+    if nx >= 0 and nx < gw and ny >= 0 and ny < gh:
+        rel_st[nx * gh + ny] = 0
+    ws[1] += 1
+    area = _bfs_membership(
+        nx, ny, gw, gh, membership, other_bits, tmp, -1, rel_st, rel_val, rcur, True,
+        seen, ws[1], qx, qy, qd, area_cap,
+    )
+    landing = _LANDING_NO_BOOST
+    if boosted:
+        ws[1] += 1
+        landing = _bfs_membership(
+            nx, ny, gw, gh, membership, other_bits, rel_st, rcur, rel_st, rel_val, -1, False,
+            seen, ws[1], qx, qy, qd, landing_cap,
+        )
+    return area, landing
+
+
+@njit(cache=True, nogil=True)
 def _veto_choice(qv, elig, base):
     """``safety_veto.veto_choice`` on precomputed eligibility (mask & spacious)."""
     anyel = False
