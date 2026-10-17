@@ -2925,6 +2925,34 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         shm_p.close()
 
 
+def stop_actors(
+    stop_evt, txs, procs, join_seconds: float = 30.0, kill_seconds: float = 10.0
+) -> None:
+    """Set ``stop_evt`` and keep draining the actor queues until every actor has exited.
+
+    A single drain is not enough: an actor whose queue is full (back-pressure, the normal
+    state of a learner-bound run) hands its last message to the queue's feeder thread, and
+    ``multiprocessing`` joins that thread at process exit, so the actor blocks until the
+    learner reads again. With one drain before ``join`` the actor was terminated after the
+    timeout and reported as not having exited cleanly (``actor_exitcodes`` -15).
+    """
+    stop_evt.set()
+    deadline = time.perf_counter() + float(join_seconds)
+    while any(p.is_alive() for p in procs) and time.perf_counter() < deadline:
+        for q_ in txs:  # drain so blocked actors (and their feeder threads) can exit
+            try:
+                while True:
+                    q_.get_nowait()
+            except Exception:  # noqa: BLE001
+                pass
+        for p in procs:
+            p.join(timeout=0.05)
+    for p in procs:
+        if p.is_alive():
+            p.terminate()
+            p.join(timeout=kill_seconds)
+
+
 def _learner_counters(st: Dict[str, Any]) -> Dict[str, Any]:
     """Learner counters bracketing a profiled window (``M3C_PROFILE``; never called when off)."""
     keys = ("transitions", "updates", "learn_s", "wait_s", "env_s")
@@ -3572,18 +3600,7 @@ def main_multi(args) -> int:
         if prof is not None and prof.running:
             prof.meta["end"] = _learner_counters(st)
             prof.stop()
-        stop_evt.set()
-        for q_ in txs:  # drain so blocked actors can exit
-            try:
-                while True:
-                    q_.get_nowait()
-            except Exception:  # noqa: BLE001
-                pass
-        for p in procs:
-            p.join(timeout=30)
-            if p.is_alive():
-                p.terminate()
-                p.join(timeout=10)
+        stop_actors(stop_evt, txs, procs)
         for blk in shms:  # idempotent; covers a crash before every actor attached
             blk.unlink()
     try:

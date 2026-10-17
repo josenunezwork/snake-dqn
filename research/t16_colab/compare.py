@@ -27,6 +27,13 @@ SELF_PLAY_CAVEAT = (
 )
 
 
+def required_config_names(results: Mapping[str, Any]) -> tuple[str, ...]:
+    """The smoke-02 matrix unless the results name another pre-registered matrix."""
+    if results.get("matrix", "smoke02") == "smoke02":
+        return REQUIRED_CONFIG_NAMES
+    return tuple(str(name) for name in results.get("matrix_names", ()))
+
+
 class ResultsError(ValueError):
     """Raised when a results document cannot support a throughput conclusion."""
 
@@ -94,7 +101,7 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
                 row[key] = config[key]
         rows.append(row)
     present = {name for name in names if isinstance(name, str)}
-    for name in REQUIRED_CONFIG_NAMES:
+    for name in required_config_names(payload):
         if name not in present:
             rows.append(
                 {

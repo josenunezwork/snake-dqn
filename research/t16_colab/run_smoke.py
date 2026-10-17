@@ -34,6 +34,56 @@ CONFIGS = (
     ]
     + [{"name": "selfplay_w128_a4", "worlds": 128, "actors": 4, "self_play": True}]
 )
+# smoke-03 (pre-registered after smoke-02): the learner capped every self-play row at ~45
+# updates/s on the A100 and the hero rows are bound by six physical cores, so this matrix
+# keeps 128-world self-play and varies the learner's host-side work (``--obs-pack`` off: the
+# Colab runtime has the RAM for raw rings), the batch scale (K x the rows per update at the
+# same replay ratio; throughput only, the recipe A/B is separate), the autocast precision
+# (bf16 on A100 tensor cores) and the actor count up to the physical cores. Optional
+# config keys: ``obs_pack`` (default True), ``batch_scale`` (default 2), ``precision``
+# (default fp32).
+SMOKE03_CONFIGS = [
+    {"name": "sp_w128_a4_pack", "worlds": 128, "actors": 4, "self_play": True},
+    {"name": "sp_w128_a4_raw", "worlds": 128, "actors": 4, "self_play": True, "obs_pack": False},
+    {
+        "name": "sp_w128_a4_raw_bs4",
+        "worlds": 128,
+        "actors": 4,
+        "self_play": True,
+        "obs_pack": False,
+        "batch_scale": 4,
+    },
+    {
+        "name": "sp_w128_a4_raw_bf16",
+        "worlds": 128,
+        "actors": 4,
+        "self_play": True,
+        "obs_pack": False,
+        "precision": "bf16",
+    },
+    {"name": "sp_w128_a6_raw", "worlds": 128, "actors": 6, "self_play": True, "obs_pack": False},
+    {
+        "name": "sp_w128_a6_raw_bs4",
+        "worlds": 128,
+        "actors": 6,
+        "self_play": True,
+        "obs_pack": False,
+        "batch_scale": 4,
+    },
+]
+DEFAULT_MATRIX = "smoke02"
+MATRICES = {"smoke02": CONFIGS, "smoke03": SMOKE03_CONFIGS}
+
+
+def matrix_configs(matrix: str) -> list[dict]:
+    """The pre-registered configurations of ``matrix`` (``smoke02`` is ``CONFIGS``)."""
+    if matrix == DEFAULT_MATRIX:
+        return list(CONFIGS)
+    if matrix not in MATRICES:
+        raise ValueError(f"unknown matrix {matrix!r}; choose one of {sorted(MATRICES)}")
+    return list(MATRICES[matrix])
+
+
 # One unscored run before the matrix: it populates the numba on-disk kernel cache and the
 # inductor FX-graph cache, so no scored row pays first-process compilation.
 WARMUP = {"name": "warmup_w128_a2", "worlds": 128, "actors": 2, "self_play": False}
@@ -170,8 +220,13 @@ def trainer_command(
         "numba",
         "--learner-fast",
         "--batch-scale",
-        "2",
-        "--obs-pack",
+        str(int(config.get("batch_scale", 2))),
+    ]
+    if config.get("obs_pack", True):
+        command.append("--obs-pack")
+    if config.get("precision", "fp32") != "fp32":
+        command += ["--learner-precision", str(config["precision"])]
+    command += [
         "--namespace",
         "t16-colab-throughput/v1",
         "--ring-dir",
@@ -301,9 +356,14 @@ def environment_info() -> dict:
         physical = psutil.cpu_count(logical=False)
     except Exception:  # noqa: BLE001 - informational only
         physical = None
+    try:
+        ram_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (AttributeError, OSError, ValueError):
+        ram_bytes = None
     return {
         "gpu": torch.cuda.get_device_name(),
         "gpu_bytes": torch.cuda.get_device_properties(0).total_memory,
+        "ram_bytes": ram_bytes,
         "cpu_count": os.cpu_count(),
         "cpu_affinity": affinity,
         "cpu_physical": physical,
@@ -397,6 +457,7 @@ def run(
     seconds: float,
     budget: float,
     scratch: Path | None = None,
+    matrix: str = DEFAULT_MATRIX,
 ) -> int:
     """Run preflight and each timed configuration, retaining resumable Drive artifacts.
 
@@ -405,6 +466,7 @@ def run(
     learner loop. Results JSON is written to ``output`` directly (small, infrequent).
     """
     started = time.monotonic()
+    configs = matrix_configs(matrix)
     output.mkdir(parents=True, exist_ok=True)
     scratch = (scratch or default_scratch()).resolve()
     scratch.mkdir(parents=True, exist_ok=True)
@@ -415,6 +477,8 @@ def run(
         "python_executable": sys.executable,
         "schema": SCHEMA,
         "commit": commit,
+        "matrix": matrix,
+        "matrix_names": [config["name"] for config in configs],
         "configs": [],
         "status": "preflight",
         "authority": "throughput smoke only; not gate, quality, or serving evidence",
@@ -452,7 +516,8 @@ def run(
             "python": result["python"],
             "compile_mode": mode,
             "seconds": seconds,
-            "configs": CONFIGS,
+            "matrix": matrix,
+            "configs": configs,
         }
         identity_path = output / "identity.json"
         if identity_path.exists() and json.loads(identity_path.read_text()) != identity:
@@ -509,7 +574,7 @@ def run(
             if code == 0:
                 warm_marker.write_text(json.dumps(result["warmup"]) + "\n")
             write_json(result_path, result)
-        for config in CONFIGS:
+        for config in configs:
             old = next((r for r in result["configs"] if r["name"] == config["name"]), None)
             if old and old["status"] == "completed" and completed_artifacts_match(old):
                 print(f"Already complete: {config['name']}", flush=True)
@@ -626,6 +691,12 @@ def main() -> int:
         default=None,
         help="local-disk directory for trainer outputs during timing (default: /content)",
     )
+    parser.add_argument(
+        "--matrix",
+        default=DEFAULT_MATRIX,
+        choices=sorted(MATRICES),
+        help="pre-registered configuration matrix (default: the smoke-02 matrix)",
+    )
     args = parser.parse_args()
     if not 120 <= args.seconds <= 180 or not 0 < args.budget_seconds <= 3600:
         parser.error("seconds must be 120..180 and budget must be >0 and <=3600")
@@ -639,6 +710,7 @@ def main() -> int:
         args.seconds,
         args.budget_seconds,
         args.scratch_dir,
+        args.matrix,
     )
 
 

@@ -40,6 +40,7 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     assert "verify_and_extract" in source
     assert "--budget-seconds" in source
     assert "--scratch-dir" in source  # trainer outputs stay off Drive during timing
+    assert re.search(r"MATRIX = '(smoke02|smoke03)'", source) and "'--matrix', MATRIX" in source
     assert "files.download" in source
     assert "TOTAL_BUDGET_SECONDS = 3300" in source
     assert "startswith('2.9.')" in source  # preserve the CUDA torch 2.9.x contract

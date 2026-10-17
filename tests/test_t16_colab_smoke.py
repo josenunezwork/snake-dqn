@@ -47,6 +47,40 @@ def test_recipe_matrix_and_default_off_selfplay(tmp_path):
         assert command[command.index("--checkpoint-every") + 1] == str(smoke.SMOKE_CHECKPOINT_EVERY)
         assert command[command.index("--compile-learner") + 1] == "reduce-overhead"
         assert command[command.index("--batch-scale") + 1] == "2"
+        assert "--obs-pack" in command and "--learner-precision" not in command
+
+
+def test_smoke03_matrix_varies_only_the_learner_host_work_and_actor_count(tmp_path):
+    """smoke-03: 128-world self-play rows; raw rings, batch scale, bf16 and six actors."""
+    assert smoke.matrix_configs("smoke02") == list(smoke.CONFIGS)
+    assert smoke.matrix_configs("smoke03") == smoke.SMOKE03_CONFIGS
+    with pytest.raises(ValueError):
+        smoke.matrix_configs("smoke99")
+    names = [c["name"] for c in smoke.SMOKE03_CONFIGS]
+    assert names == [
+        "sp_w128_a4_pack",
+        "sp_w128_a4_raw",
+        "sp_w128_a4_raw_bs4",
+        "sp_w128_a4_raw_bf16",
+        "sp_w128_a6_raw",
+        "sp_w128_a6_raw_bs4",
+    ]
+    assert not set(names) & {c["name"] for c in smoke.CONFIGS}
+    for config in smoke.SMOKE03_CONFIGS:
+        assert (config["worlds"], config["self_play"]) == (128, True)
+        command = smoke.trainer_command(
+            config, tmp_path, tmp_path / "out", tmp_path / "init", 150, "off", tmp_path / "ring"
+        )
+        assert "--all-snakes-learner" in command and "--compile-learner" not in command
+        assert ("--obs-pack" in command) == config.get("obs_pack", True)
+        assert command[command.index("--batch-scale") + 1] == str(config.get("batch_scale", 2))
+        assert command[command.index("--actors") + 1] == str(config["actors"])
+        if config.get("precision", "fp32") == "fp32":
+            assert "--learner-precision" not in command
+        else:
+            assert command[command.index("--learner-precision") + 1] == config["precision"]
+    raw = [c for c in smoke.SMOKE03_CONFIGS if c.get("obs_pack", True) is False]
+    assert len(raw) == 5 and smoke.SMOKE03_CONFIGS[0].get("obs_pack", True) is True
 
 
 def test_post_warmup_rate_uses_interval_not_lifetime_average():

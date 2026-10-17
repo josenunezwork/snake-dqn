@@ -56,3 +56,22 @@ def test_failed_or_missing_configs_never_pass():
 def test_wrong_schema_is_not_compared():
     with pytest.raises(compare.ResultsError, match="schema"):
         compare.compare_results({"schema": "wrong", "configs": []})
+
+
+def test_other_matrix_requires_its_own_recorded_names():
+    payload = {
+        "schema": compare.SCHEMA,
+        "status": "completed",
+        "matrix": "smoke03",
+        "matrix_names": ["sp_w128_a4_pack", "sp_w128_a4_raw"],
+        "configs": [
+            {"name": "sp_w128_a4_pack", "status": "completed", "transitions_per_second": 11000.0}
+        ],
+    }
+    report = compare.compare_results(payload)
+    rows = {row["name"]: row for row in report["configs"]}
+    assert rows["sp_w128_a4_pack"]["verdict"] != "PASS"
+    assert rows["sp_w128_a4_raw"]["runner_status"] == "missing"
+    assert not set(compare.REQUIRED_CONFIG_NAMES) & set(rows)
+    assert compare.required_config_names({"matrix": "smoke02"}) == compare.REQUIRED_CONFIG_NAMES
+    assert compare.required_config_names({}) == compare.REQUIRED_CONFIG_NAMES

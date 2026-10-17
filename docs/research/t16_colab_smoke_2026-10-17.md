@@ -92,6 +92,15 @@ run directory afterwards; intermediate checkpoints are disabled for the smoke
 (each is a synchronous save in the learner loop) and only the hash-receipted
 final checkpoint is kept. The small results JSON is written to Drive directly.
 
+The notebook's `MATRIX` parameter selects a pre-registered configuration matrix:
+`smoke02` (the six rows above) or `smoke03` (`run_smoke.py --matrix smoke03`:
+six 150-second 128-world self-play rows that vary the learner's host-side work and
+the actor count, one lever each: packed control, raw rings without `--obs-pack`,
+`--batch-scale 4`, `--learner-precision bf16`, six actors, six actors with batch
+scale 4; see [the advice note](advice/2026-10-17_colab_slower.md)). Results record
+`matrix` and `matrix_names`, and `compare.py` requires the rows of the recorded
+matrix. Use a new run name when changing the matrix.
+
 If Colab disconnects or a run reaches the total budget, use **Run all** again
 with the same run name. Completed rows are skipped. A hash-receipted checkpoint
 can seed the next attempt, but it is a weights-only restart: optimizer, replay,
