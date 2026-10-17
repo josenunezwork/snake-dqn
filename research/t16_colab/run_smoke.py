@@ -323,11 +323,37 @@ def default_scratch() -> Path:
     return base / "t16-colab-scratch"
 
 
-def copy_attempt(source: Path, destination: Path) -> None:
-    """Publish a finished local attempt directory to the resumable (Drive) run directory."""
-    if destination.exists():
-        shutil.rmtree(destination)
-    shutil.copytree(source, destination)
+def copy_attempt(source: Path, destination: Path, retries: int = 2) -> bool:
+    """Publish a finished local attempt directory to the resumable (Drive) run directory.
+
+    Best effort: a missing source (the trainer died before creating its output directory)
+    or a Drive FUSE error must not abort the smoke, because the measurement itself lives in
+    the local copy. Returns ``True`` when the destination holds a complete copy.
+    """
+    if not source.is_dir():
+        return False
+    for attempt in range(retries + 1):
+        try:
+            if destination.exists():
+                shutil.rmtree(destination)
+            shutil.copytree(source, destination)
+            return True
+        except OSError:
+            if attempt == retries:
+                return False
+            time.sleep(2)
+    return False
+
+
+def finite_json(value):
+    """Return ``value`` with non-finite floats replaced by ``None`` so strict JSON accepts it."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: finite_json(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [finite_json(item) for item in value]
+    return value
 
 
 def start_sampler(out: Path, env: dict) -> subprocess.Popen:
@@ -533,17 +559,24 @@ def run(
                 finally:
                     row["resources"] = stop_sampler(sampler, samples_path)
                     row["trainer_wall_seconds"] = time.monotonic() - t_run
-            # Publish the attempt (checkpoints, log.jsonl, summary, trainer log) to Drive.
-            copy_attempt(local_attempt, attempt)
+            # Publish the attempt (checkpoints, log.jsonl, summary, trainer log) to Drive. The
+            # measurement is read from the local copy, so a Drive failure only costs the
+            # resumable artifacts, never the row.
+            row["published"] = copy_attempt(local_attempt, attempt)
             for extra in (f"{attempt.name}.log", f"{attempt.name}.resources.jsonl"):
-                if (local_attempt.parent / extra).exists():
-                    shutil.copyfile(local_attempt.parent / extra, directory / extra)
+                source = local_attempt.parent / extra
+                if source.exists():
+                    try:
+                        shutil.copyfile(source, directory / extra)
+                    except OSError:
+                        row["published"] = False
+            measured_dir = attempt if row["published"] else local_attempt
             row["returncode"] = code
-            summary_path = attempt / "summary.json"
+            summary_path = measured_dir / "summary.json"
             if code or not summary_path.exists():
                 row.update(status="failed", reason="trainer failed/timed out; see attempt log")
             else:
-                summary = json.loads(summary_path.read_text())
+                summary = finite_json(json.loads(summary_path.read_text()))
                 row["summary"] = summary
                 try:
                     if summary["halt"] or summary.get("ring_overrun_rows", 0):
@@ -552,14 +585,14 @@ def run(
                         raise ValueError("actor did not exit cleanly")
                     rows = [
                         json.loads(line)
-                        for line in (attempt / "log.jsonl").read_text().splitlines()
+                        for line in (measured_dir / "log.jsonl").read_text().splitlines()
                     ]
                     row.update(measured_rate(rows), status="completed")
                     row["end_to_end_rate"] = summary["rate"]
                     row["compile_actual"] = summary.get("compile_learner", {"mode": "off"})
                     row["artifacts"] = [
                         {"path": str(path), "sha256": sha256(path)}
-                        for path in (summary_path, attempt / "final.pth")
+                        for path in (summary_path, measured_dir / "final.pth")
                     ]
                 except (ValueError, KeyError, OSError) as exc:
                     row.update(status="invalid_sample", reason=str(exc))
