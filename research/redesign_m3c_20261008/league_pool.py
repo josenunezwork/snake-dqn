@@ -117,6 +117,8 @@ class LeagueBV8Policy:
         self._base_ego_config = replace(self.ego_config, version="b")
         self._base_cache_slots: Optional[np.ndarray] = None
         self._base_cache_obs: Optional[Dict[str, np.ndarray]] = None
+        self._base_cache_sim: Optional[Any] = None
+        self._base_cache_frame: Optional[np.ndarray] = None
         for param in self.net.parameters():
             param.requires_grad_(False)
         self._torch = torch
@@ -127,11 +129,18 @@ class LeagueBV8Policy:
 
         slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
         if not len(slots):
+            self.clear_frame_cache()
             return np.empty(0, dtype=np.int64)
         if self.ego_config.version == "bv8":
             from src.simd_env.ego_raster_bv8 import v8_scalars
 
-            if self._base_cache_slots is not None and np.array_equal(self._base_cache_slots, slots):
+            if (
+                self._base_cache_sim is sim
+                and self._base_cache_slots is not None
+                and np.array_equal(self._base_cache_slots, slots)
+                and self._base_cache_frame is not None
+                and np.array_equal(self._base_cache_frame, sim.frame[slots[:, 0]])
+            ):
                 base = self._base_cache_obs
                 self._base_cache_slots = None
                 self._base_cache_obs = None
@@ -181,14 +190,19 @@ class LeagueBV8Policy:
         both = np.concatenate([learner_rows, b8_rows], axis=0)
         all_obs = build_ego_raster(sim, self._base_ego_config, backend="numba", rows=both)
         n = len(learner_rows)
+        self.clear_frame_cache()
         self._base_cache_slots = b8_rows.copy()
         self._base_cache_obs = {key: value[n:] for key, value in all_obs.items()}
+        self._base_cache_sim = sim
+        self._base_cache_frame = np.asarray(sim.frame[b8_rows[:, 0]], dtype=np.int64).copy()
         return {key: value[:n] for key, value in all_obs.items()}
 
     def clear_frame_cache(self) -> None:
         """Drop a transient raster slice at a segment/rebind boundary."""
         self._base_cache_slots = None
         self._base_cache_obs = None
+        self._base_cache_sim = None
+        self._base_cache_frame = None
 
 
 def _normal_fallback_mask(mask: Any) -> Any:
@@ -454,12 +468,13 @@ class StaticPool:
         dispatch and is invalidated on any mismatch, so no observation can
         survive a frame, death, or respawn boundary.
         """
-        b8_rows = self.groups_for(seats, alive).get("b8-s3")
-        if b8_rows is None or not len(learner_rows):
-            return None
         policy = self.policies["b8-s3"]
         if not isinstance(policy, LeagueBV8Policy):
             raise TypeError("b8-s3 pool policy must be LeagueBV8Policy")
+        policy.clear_frame_cache()
+        b8_rows = self.groups_for(seats, alive).get("b8-s3")
+        if b8_rows is None or not len(learner_rows):
+            return None
         from src.simd_env.ego_raster import EgoRasterConfig
 
         if policy._base_ego_config != EgoRasterConfig(version="b"):
