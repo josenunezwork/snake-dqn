@@ -87,7 +87,7 @@ def render(certificate: dict, horizon: dict, audit: dict) -> str:
             f"| {policy} | {row['survivors']}/{row['episodes']} | "
             f"{row['eligible_decisions']:,} | " + " | ".join(cells) + " |"
         )
-    lines += ["", "Deadline-equality sensitivity from the same saved arrivals:"]
+    lines += ["", "Deadline-equality sensitivity from the same saved arrivals:", ""]
     for policy in ("b8", "dense"):
         row = audit["certificate"]["deadline_sensitivity"][policy]
         lines.append(
@@ -227,11 +227,11 @@ def render(certificate: dict, horizon: dict, audit: dict) -> str:
         "## Verification and provenance",
         "",
         f"- Certificate replay: {certificate['wall_seconds']:.2f} seconds, 128/128 episodes.",
-        f"- Horizon refits: {25 * len(horizon['feature_sets'])} fold fits, "
+        f"- Horizon refits: {25 * len(horizon['feature_sets'])} retained fold fits, "
         f"{len(horizon['feature_sets'])} input sets.",
         f"- {'Late D200/D300 shard' if 'provenance' in horizon else 'Fit worker'} elapsed: "
         f"{horizon['elapsed_s']:.2f} seconds (not total parallel study wall time).",
-        "- Both workers used CPU only, one numerical thread each, at most two concurrent",
+        "- All workers used CPU only, one numerical thread each, at most two concurrent",
         "  numerical processes. No tmux session or process not started by this task",
         "  was controlled.",
         "- Saved-artifact audit PASS: complete cohorts, source/output hashes, every label",

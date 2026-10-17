@@ -1,0 +1,580 @@
+{
+  "schema": "t10-horizon-combined-v1",
+  "status": "PASS",
+  "authority": "diagnostic only; no policy training, rollout, gate, or serving evidence",
+  "horizons": [
+    30,
+    60,
+    100,
+    200,
+    300
+  ],
+  "data_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+  "fold_receipt_sha256": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+  "bootstrap_world_draws": 2000,
+  "bootstrap": "T5 whole-world percentile bootstrap; seed 20261017; fixed OOF predictions",
+  "model": "HistGradientBoostingClassifier(early_stopping=False, l2_regularization=1.0,\n                               max_iter=200, random_state=20261016)",
+  "feature_sets": {
+    "60": 66,
+    "60+24": 90,
+    "60+24+18_arrival": 108,
+    "fuse_q_B8_s0": 268,
+    "fuse_q_B8_s1": 268,
+    "fuse_q_B8_s2": 268,
+    "fuse_q_B8_s3": 268,
+    "fuse_q_B8_s4": 268
+  },
+  "source_sha256_before": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/fits/folds.npz": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+    "/Users/josenunez/Projects/ml/snake-dqn-t9/research/t10_certificate_horizon_20261017/horizon.py": "30e1233b1862b83f3b0c24e8c2b0f418fcbf4b21adb495ccc7e8121baa085109",
+    "research/t5_separability_20261016/fit.py": "85b33e62f07f47a99ee001a1d84a583e35048d8bf32eee475ca0c21f0308865f",
+    "research/t5b_risk_and_fuse_20261016/fuse.py": "2f91bbe56f063da965c5875ebeca5d472dcdaccfe96389ae05f23d573dd7460f",
+    "research/t8_probes_20261017/arrival_fit.py": "c5ab4a6ccc0ac6f22ec7e8381829a983e1b612282cb4510d08c78a39ff3d89be",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival/features.npz": "ffa553acef2f6acbd02206b1b6c4c638edf94631bc41ad3acc717f02937e7c0b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s0/B8_s0.features.npz": "2c9dcb71fb0e28aad9651837db5bd211d350af03be21705ab365b1fa0cb3176f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s1/B8_s1.features.npz": "ad0c91230a63d283f7f67747080ecf7379e7cc00b9acebf0b00ad11987231b70",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s2/B8_s2.features.npz": "7a3d3416e91b31f4363851bb9ca0fa3d58f0c84f0aaca809b841e02a5e322d67",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s3/B8_s3.features.npz": "63e3dc0a33b4e701b892165221697385cab580a24bfaa533dd554b82133b2e76",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s4/B8_s4.features.npz": "2415b63740d38daf6f4f2da120ed781cfa88994b8ce89fad20b34c7a1e5dbc49"
+  },
+  "source_sha256_after": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/fits/folds.npz": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+    "/Users/josenunez/Projects/ml/snake-dqn-t9/research/t10_certificate_horizon_20261017/horizon.py": "30e1233b1862b83f3b0c24e8c2b0f418fcbf4b21adb495ccc7e8121baa085109",
+    "research/t5_separability_20261016/fit.py": "85b33e62f07f47a99ee001a1d84a583e35048d8bf32eee475ca0c21f0308865f",
+    "research/t5b_risk_and_fuse_20261016/fuse.py": "2f91bbe56f063da965c5875ebeca5d472dcdaccfe96389ae05f23d573dd7460f",
+    "research/t8_probes_20261017/arrival_fit.py": "c5ab4a6ccc0ac6f22ec7e8381829a983e1b612282cb4510d08c78a39ff3d89be",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival/features.npz": "ffa553acef2f6acbd02206b1b6c4c638edf94631bc41ad3acc717f02937e7c0b",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s0/B8_s0.features.npz": "2c9dcb71fb0e28aad9651837db5bd211d350af03be21705ab365b1fa0cb3176f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s1/B8_s1.features.npz": "ad0c91230a63d283f7f67747080ecf7379e7cc00b9acebf0b00ad11987231b70",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s2/B8_s2.features.npz": "7a3d3416e91b31f4363851bb9ca0fa3d58f0c84f0aaca809b841e02a5e322d67",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s3/B8_s3.features.npz": "63e3dc0a33b4e701b892165221697385cab580a24bfaa533dd554b82133b2e76",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s4/B8_s4.features.npz": "2415b63740d38daf6f4f2da120ed781cfa88994b8ce89fad20b34c7a1e5dbc49"
+  },
+  "settings": {
+    "schema": "t10-horizon-v1",
+    "authority": "diagnostic only; no policy training, rollout, gate, or serving evidence",
+    "data_sha256": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+    "fold_receipt_sha256": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+    "bootstrap_world_draws": 2000,
+    "bootstrap": "T5 whole-world percentile bootstrap; seed 20261017; fixed OOF predictions",
+    "model": "HistGradientBoostingClassifier(early_stopping=False, l2_regularization=1.0,\n                               max_iter=200, random_state=20261016)",
+    "feature_sets": {
+      "60": 66,
+      "60+24": 90,
+      "60+24+18_arrival": 108,
+      "fuse_q_B8_s0": 268,
+      "fuse_q_B8_s1": 268,
+      "fuse_q_B8_s2": 268,
+      "fuse_q_B8_s3": 268,
+      "fuse_q_B8_s4": 268
+    }
+  },
+  "results": {
+    "D30": {
+      "worlds": 342,
+      "rows": 103264,
+      "positive": 1655,
+      "metrics": {
+        "60": {
+          "auc": 0.9121424200029382,
+          "ci95": [
+            0.8974372675424659,
+            0.9258007870327183
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24": {
+          "auc": 0.9139686373738989,
+          "ci95": [
+            0.8997930748819327,
+            0.9276058453552481
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24+18_arrival": {
+          "auc": 0.9330501743562396,
+          "ci95": [
+            0.9208007105895949,
+            0.9444181931671284
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s0": {
+          "auc": 0.8416973791989012,
+          "ci95": [
+            0.8221757935619206,
+            0.8603000297689208
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s1": {
+          "auc": 0.8559335518099876,
+          "ci95": [
+            0.837102454267852,
+            0.873798255091366
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s2": {
+          "auc": 0.8512517342187764,
+          "ci95": [
+            0.8333597758978707,
+            0.8680117233339804
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s3": {
+          "auc": 0.8463834367266334,
+          "ci95": [
+            0.8269322907375664,
+            0.864776532771581
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s4": {
+          "auc": 0.8572372401176845,
+          "ci95": [
+            0.8374126549397668,
+            0.8759404680422366
+          ],
+          "valid_bootstraps": 2000
+        },
+        "delta_60+24_minus_60": {
+          "auc_delta": 0.00182621737096067,
+          "ci95": [
+            -0.004569247648820956,
+            0.008163949916051351
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "label_counts": {
+        "legal_branches": 103264,
+        "death_within_horizon": 1655,
+        "survives_beyond_horizon": 101609
+      }
+    },
+    "D60": {
+      "worlds": 342,
+      "rows": 103264,
+      "positive": 3437,
+      "metrics": {
+        "60": {
+          "auc": 0.8176655550092349,
+          "ci95": [
+            0.7980927353110018,
+            0.8362197125041684
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24": {
+          "auc": 0.8234207529914152,
+          "ci95": [
+            0.8058328160661794,
+            0.8401256415629247
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24+18_arrival": {
+          "auc": 0.8532950424367995,
+          "ci95": [
+            0.8355994653154987,
+            0.8697692514978815
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s0": {
+          "auc": 0.7674503046802829,
+          "ci95": [
+            0.7503598897851327,
+            0.7840784046416284
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s1": {
+          "auc": 0.7799496329114892,
+          "ci95": [
+            0.7622071221180201,
+            0.7963288092430402
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s2": {
+          "auc": 0.7657660467184895,
+          "ci95": [
+            0.7469335098273899,
+            0.7837463297752613
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s3": {
+          "auc": 0.7697244688358867,
+          "ci95": [
+            0.7507067304932381,
+            0.7881170630481368
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s4": {
+          "auc": 0.7840197204241603,
+          "ci95": [
+            0.7661879523920168,
+            0.8006183597714164
+          ],
+          "valid_bootstraps": 2000
+        },
+        "delta_60+24_minus_60": {
+          "auc_delta": 0.005755197982180271,
+          "ci95": [
+            -0.0006004233812273051,
+            0.012595843448532842
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "label_counts": {
+        "legal_branches": 103264,
+        "death_within_horizon": 3437,
+        "survives_beyond_horizon": 99827
+      }
+    },
+    "D100": {
+      "worlds": 342,
+      "rows": 103264,
+      "positive": 5931,
+      "metrics": {
+        "60": {
+          "auc": 0.7377693909238535,
+          "ci95": [
+            0.717610759572034,
+            0.7581237611338763
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24": {
+          "auc": 0.7408647800556921,
+          "ci95": [
+            0.720909852094085,
+            0.7618613496788321
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24+18_arrival": {
+          "auc": 0.7772896628031669,
+          "ci95": [
+            0.7575661182693268,
+            0.7966580751261356
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s0": {
+          "auc": 0.7227764755806365,
+          "ci95": [
+            0.7060755470690058,
+            0.7395149833767133
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s1": {
+          "auc": 0.7293841402021278,
+          "ci95": [
+            0.7127292739771525,
+            0.7466023428442025
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s2": {
+          "auc": 0.7221897779415175,
+          "ci95": [
+            0.7043406744040613,
+            0.7400095068893858
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s3": {
+          "auc": 0.7278608379599585,
+          "ci95": [
+            0.7104584055870095,
+            0.7452475370100919
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s4": {
+          "auc": 0.7284212425579031,
+          "ci95": [
+            0.7099414455740498,
+            0.747066536235724
+          ],
+          "valid_bootstraps": 2000
+        },
+        "delta_60+24_minus_60": {
+          "auc_delta": 0.0030953891318385995,
+          "ci95": [
+            -0.002839593762494294,
+            0.009257342258727482
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "label_counts": {
+        "legal_branches": 103264,
+        "death_within_horizon": 5931,
+        "survives_beyond_horizon": 97333
+      }
+    },
+    "D200": {
+      "worlds": 342,
+      "rows": 103264,
+      "positive": 12021,
+      "metrics": {
+        "60": {
+          "auc": 0.7008643482420025,
+          "ci95": [
+            0.6816395173541131,
+            0.7210395716463619
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24": {
+          "auc": 0.7101328260447534,
+          "ci95": [
+            0.6920562960157516,
+            0.7292775454666501
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24+18_arrival": {
+          "auc": 0.7295196154556756,
+          "ci95": [
+            0.7114760308811647,
+            0.7474294670975745
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s0": {
+          "auc": 0.7279701121220737,
+          "ci95": [
+            0.7109511380903145,
+            0.7454130696955915
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s1": {
+          "auc": 0.7301929208758763,
+          "ci95": [
+            0.7134749728102392,
+            0.7466180708992693
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s2": {
+          "auc": 0.728570546772189,
+          "ci95": [
+            0.7113581373197501,
+            0.7462386328907901
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s3": {
+          "auc": 0.726132810866496,
+          "ci95": [
+            0.7096679713749741,
+            0.7432096452213153
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s4": {
+          "auc": 0.7257509766743215,
+          "ci95": [
+            0.7086431755706091,
+            0.7429448862261143
+          ],
+          "valid_bootstraps": 2000
+        },
+        "delta_60+24_minus_60": {
+          "auc_delta": 0.009268477802750863,
+          "ci95": [
+            0.004329438171992076,
+            0.01412272117710947
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "label_counts": {
+        "legal_branches": 103264,
+        "death_within_horizon": 12021,
+        "survives_beyond_horizon": 91243
+      }
+    },
+    "D300": {
+      "worlds": 342,
+      "rows": 103264,
+      "positive": 19094,
+      "metrics": {
+        "60": {
+          "auc": 0.7261235631465491,
+          "ci95": [
+            0.7078538606326005,
+            0.7458539940514239
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24": {
+          "auc": 0.7349495546746903,
+          "ci95": [
+            0.7160622693311351,
+            0.7551822115607062
+          ],
+          "valid_bootstraps": 2000
+        },
+        "60+24+18_arrival": {
+          "auc": 0.74910636209005,
+          "ci95": [
+            0.7316552595533741,
+            0.7676434947595414
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s0": {
+          "auc": 0.7691391858235201,
+          "ci95": [
+            0.7511077046430478,
+            0.7876203016639807
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s1": {
+          "auc": 0.7693425997123167,
+          "ci95": [
+            0.7507064616180937,
+            0.7882033807758173
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s2": {
+          "auc": 0.7664623675625721,
+          "ci95": [
+            0.7484152331794948,
+            0.7855145668562734
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s3": {
+          "auc": 0.765262952685736,
+          "ci95": [
+            0.747132658338008,
+            0.7836605564284386
+          ],
+          "valid_bootstraps": 2000
+        },
+        "fuse_q_B8_s4": {
+          "auc": 0.7629979561606623,
+          "ci95": [
+            0.7445589923957384,
+            0.7812167594621435
+          ],
+          "valid_bootstraps": 2000
+        },
+        "delta_60+24_minus_60": {
+          "auc_delta": 0.00882599152814112,
+          "ci95": [
+            0.005277060124692967,
+            0.012271004463334017
+          ],
+          "valid_bootstraps": 2000
+        }
+      },
+      "label_counts": {
+        "legal_branches": 103264,
+        "death_within_horizon": 19094,
+        "survives_beyond_horizon": 84170
+      }
+    }
+  },
+  "provenance": {
+    "prefix": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t10-certificate-horizon-20261017/horizon",
+    "prefix_boundary": {
+      "schema": "t10-horizon-prefix-boundary-v1",
+      "status": "INTENTIONALLY_INTERRUPTED_AFTER_D100",
+      "prefix_horizons": [
+        30,
+        60,
+        100
+      ],
+      "d100_prediction_sha256": "f8acfddfc26693002d1dc2c124d14c22e7104950f330fed2fc54ca23123de4ee",
+      "report_sha256": "a8a160eedc5fcef19f22855b5e3749694ae959b8424364457d66405161491430",
+      "recorded_utc": "2026-10-17T06:09:17.717350+00:00",
+      "directory_birthtime_utc_approx": "2026-10-17T05:19:51.038771+00:00",
+      "observed_elapsed_s": 2930.0,
+      "elapsed_note": "observed process runtime if supplied; otherwise null, not inferred"
+    },
+    "prefix_report_sha256": "a8a160eedc5fcef19f22855b5e3749694ae959b8424364457d66405161491430",
+    "late": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t10-certificate-horizon-20261017/horizon-late",
+    "late_status": "PASS",
+    "late_report_sha256": "6ada96d67bf1747df66b0e8708957af5f3f56bc9771872c4501f7deb2d8c24cf",
+    "source_sha256_before": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/fits/folds.npz": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+      "/Users/josenunez/Projects/ml/snake-dqn-t9/research/t10_certificate_horizon_20261017/horizon.py": "30e1233b1862b83f3b0c24e8c2b0f418fcbf4b21adb495ccc7e8121baa085109",
+      "research/t5_separability_20261016/fit.py": "85b33e62f07f47a99ee001a1d84a583e35048d8bf32eee475ca0c21f0308865f",
+      "research/t5b_risk_and_fuse_20261016/fuse.py": "2f91bbe56f063da965c5875ebeca5d472dcdaccfe96389ae05f23d573dd7460f",
+      "research/t8_probes_20261017/arrival_fit.py": "c5ab4a6ccc0ac6f22ec7e8381829a983e1b612282cb4510d08c78a39ff3d89be",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival/features.npz": "ffa553acef2f6acbd02206b1b6c4c638edf94631bc41ad3acc717f02937e7c0b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s0/B8_s0.features.npz": "2c9dcb71fb0e28aad9651837db5bd211d350af03be21705ab365b1fa0cb3176f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s1/B8_s1.features.npz": "ad0c91230a63d283f7f67747080ecf7379e7cc00b9acebf0b00ad11987231b70",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s2/B8_s2.features.npz": "7a3d3416e91b31f4363851bb9ca0fa3d58f0c84f0aaca809b841e02a5e322d67",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s3/B8_s3.features.npz": "63e3dc0a33b4e701b892165221697385cab580a24bfaa533dd554b82133b2e76",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s4/B8_s4.features.npz": "2415b63740d38daf6f4f2da120ed781cfa88994b8ce89fad20b34c7a1e5dbc49"
+    },
+    "late_source_sha256_after": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/features.npz": "e4ecbe991061c90bb2ae3cdb4b236d0025f1219d61fa806b7e96f43962d9e02a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5-separability-20261016/fits/folds.npz": "8940a6217c271987da98db7b1a80471067d0807c9884932c0e5e08aeab1f9fb2",
+      "/Users/josenunez/Projects/ml/snake-dqn-t9/research/t10_certificate_horizon_20261017/horizon.py": "30e1233b1862b83f3b0c24e8c2b0f418fcbf4b21adb495ccc7e8121baa085109",
+      "research/t5_separability_20261016/fit.py": "85b33e62f07f47a99ee001a1d84a583e35048d8bf32eee475ca0c21f0308865f",
+      "research/t5b_risk_and_fuse_20261016/fuse.py": "2f91bbe56f063da965c5875ebeca5d472dcdaccfe96389ae05f23d573dd7460f",
+      "research/t8_probes_20261017/arrival_fit.py": "c5ab4a6ccc0ac6f22ec7e8381829a983e1b612282cb4510d08c78a39ff3d89be",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/arrival/features.npz": "ffa553acef2f6acbd02206b1b6c4c638edf94631bc41ad3acc717f02937e7c0b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s0/B8_s0.features.npz": "2c9dcb71fb0e28aad9651837db5bd211d350af03be21705ab365b1fa0cb3176f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s1/B8_s1.features.npz": "ad0c91230a63d283f7f67747080ecf7379e7cc00b9acebf0b00ad11987231b70",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s2/B8_s2.features.npz": "7a3d3416e91b31f4363851bb9ca0fa3d58f0c84f0aaca809b841e02a5e322d67",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s3/B8_s3.features.npz": "63e3dc0a33b4e701b892165221697385cab580a24bfaa533dd554b82133b2e76",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t5b-risk-and-fuse-20261016/runs/B8_s4/B8_s4.features.npz": "2415b63740d38daf6f4f2da120ed781cfa88994b8ce89fad20b34c7a1e5dbc49"
+    },
+    "late_launch": {
+      "schema": "t10-horizon-late-launch-v1",
+      "canonical_horizons": [
+        30,
+        60,
+        100,
+        200,
+        300
+      ],
+      "selected_horizons": [
+        200,
+        300
+      ],
+      "implementation": "/Users/josenunez/Projects/ml/snake-dqn-t9/research/t10_certificate_horizon_20261017/horizon.py",
+      "implementation_sha256": "30e1233b1862b83f3b0c24e8c2b0f418fcbf4b21adb495ccc7e8121baa085109",
+      "driver": "/Users/josenunez/Projects/ml/snake-dqn-t9/research/t10_certificate_horizon_20261017/horizon_shards.py",
+      "driver_sha256": "52b9bd4205d570b86ab75a8879a86e83fdd9024bad609fd9ea54c91e9cc8b202",
+      "n_boot": 2000
+    }
+  },
+  "prediction_sha256": {
+    "D30.predictions.npz": "93c10153eb74ea4389518dc0fd57f7f0eb7239b1927bd61ea36bed2cfe0bc9dc",
+    "D60.predictions.npz": "a8f43c57da14f7ede60abd0e05c2c4d033283811981f8aa921e8629eaf0c5ead",
+    "D100.predictions.npz": "f8acfddfc26693002d1dc2c124d14c22e7104950f330fed2fc54ca23123de4ee",
+    "D200.predictions.npz": "2e34cdea0d8171dd8dc87576dde3a9a2b4ae6d17447447205cc706547bfbce8e",
+    "D300.predictions.npz": "ba11c7b86d3e17ca8a33ccf7f0191cc48f0b1d2f5c069e509a41ac33fc8bd517"
+  },
+  "artifact_sha256": {
+    "D30.predictions.npz": "93c10153eb74ea4389518dc0fd57f7f0eb7239b1927bd61ea36bed2cfe0bc9dc",
+    "D60.predictions.npz": "a8f43c57da14f7ede60abd0e05c2c4d033283811981f8aa921e8629eaf0c5ead",
+    "D100.predictions.npz": "f8acfddfc26693002d1dc2c124d14c22e7104950f330fed2fc54ca23123de4ee",
+    "D200.predictions.npz": "2e34cdea0d8171dd8dc87576dde3a9a2b4ae6d17447447205cc706547bfbce8e",
+    "D300.predictions.npz": "ba11c7b86d3e17ca8a33ccf7f0191cc48f0b1d2f5c069e509a41ac33fc8bd517"
+  },
+  "elapsed_s": 1994.084327458404
+}
