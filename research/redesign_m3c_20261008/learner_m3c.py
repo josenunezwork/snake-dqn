@@ -1147,11 +1147,28 @@ class Learner:
                 fn(*args)
             return
         futures = [self._gather_executor.submit(fn, *args) for fn, args in jobs]
+        self._wait_for_gather_jobs(futures)
+
+    @staticmethod
+    def _wait_for_gather_jobs(futures) -> None:
+        """Wait every submitted staging writer even if the caller is interrupted.
+
+        A signal may interrupt ``Future.result`` without cancelling its worker.  Returning
+        then would let that worker write a staging block reused by the caller, so retain the
+        first exception but keep waiting until every writer has stopped.
+        """
         error = None
         for future in futures:
+            while not future.done():
+                try:
+                    future.result()
+                except BaseException as exc:
+                    if error is None:
+                        error = exc
+            # ``done`` can become true between the loop condition and an interrupted wait.
             try:
                 future.result()
-            except BaseException as exc:  # every submitted writer must finish before return
+            except BaseException as exc:
                 if error is None:
                     error = exc
         if error is not None:

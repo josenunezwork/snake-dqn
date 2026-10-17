@@ -31,6 +31,25 @@ class _FlakyMulti(m3c.MultiRing):
         return super().valid(ids) & ((np.asarray(ids) + self.calls) % 13 != 0)
 
 
+def _legacy_gather(multi, ids, out, rows, mask_out=None):
+    """Frozen pre-T17 gather oracle, intentionally independent of Learner helpers."""
+    local, global_, scalars = out["local"][rows], out["global"][rows], out["scalars"][rows]
+    actor, source_rows = ids % multi.k, ids // multi.k
+    for actor_index, ring in enumerate(multi.rings):
+        selected = np.flatnonzero(actor == actor_index)
+        if not len(selected):
+            continue
+        pos, arrays = source_rows[selected] % ring.cap, ring.arrays
+        if ring.pack is None:
+            local[selected] = arrays["local"][pos]
+            global_[selected] = arrays["global"][pos]
+        else:
+            op.unpack_into(arrays["packed"], pos, local, global_, selected, ring.pack)
+        scalars[selected] = arrays["scalars"][pos]
+        if mask_out is not None:
+            mask_out[selected] = arrays["mask"][pos]
+
+
 def _st():
     return {
         "updates": 0,
@@ -101,13 +120,25 @@ def _learner(*, packed: bool, actors: int, gather_threads: int):
             },
             (np.arange(cap)[:, None] + np.arange(6) + actor) % 3 != 0,
         )
+        # Publish a second full pass so sampled ids cross the physical-ring wrap.
+        local, global_ = _live_obs(cap, (actor + actors) * cap)
+        ring.add(
+            {
+                "local": local,
+                "global": global_,
+                "scalars": np.repeat(rows + (actor + actors) * 1000, nscal, axis=1),
+            },
+            (np.arange(cap)[:, None] + np.arange(6) + actor + 1) % 3 != 0,
+        )
         rings.append(ring)
     multi = _FlakyMulti(rings)
     replay = m3c.Replay(400)
     # Repeated source and successor ids force rings to be split and make compaction useful.
-    s = rng.integers(8, cap, 250, dtype=np.int64) * actors + rng.integers(0, actors, 250)
+    s = rng.integers(cap + 8, 2 * cap, 250, dtype=np.int64) * actors + rng.integers(0, actors, 250)
     nxt = np.where(
-        rng.random(250) < 0.2, -1, rng.integers(8, cap, 250) * actors + rng.integers(0, actors, 250)
+        rng.random(250) < 0.2,
+        -1,
+        rng.integers(cap + 8, 2 * cap, 250) * actors + rng.integers(0, actors, 250),
     )
     replay.add_many(s, rng.integers(0, 6, 250), rng.standard_normal(250), rng.random(250), nxt)
     labels = m3c.LabelBuffer(m3c.LABEL_ANCHOR_MIN_ROWS + 40)
@@ -140,7 +171,7 @@ def _learner(*, packed: bool, actors: int, gather_threads: int):
 
 
 @pytest.mark.parametrize("packed", [False, True])
-@pytest.mark.parametrize("actors", [2, 3])
+@pytest.mark.parametrize("actors", [1, 2, 3])
 def test_parallel_gather_staging_is_serial_byte_identical(packed, actors):
     serial = _learner(packed=packed, actors=actors, gather_threads=0)
     parallel = _learner(packed=packed, actors=actors, gather_threads=3)
@@ -175,3 +206,49 @@ def test_gather_threads_validation_and_close_are_idempotent():
     learner = _learner(packed=True, actors=2, gather_threads=2)
     learner.close()
     learner.close()
+
+
+@pytest.mark.parametrize("packed", [False, True])
+@pytest.mark.parametrize("actors", [1, 2, 3])
+def test_parallel_gather_matches_frozen_legacy_oracle(packed, actors):
+    legacy = _learner(packed=packed, actors=actors, gather_threads=0)
+    parallel = _learner(packed=packed, actors=actors, gather_threads=4)
+    try:
+        ids = legacy.replay.s[:48]
+        for learner in (legacy, parallel):
+            for stage in learner._stage:
+                for value in stage.v.values():
+                    value.fill(0)
+        legacy_v, parallel_v = legacy._stage[0].v, parallel._stage[0].v
+        _legacy_gather(
+            legacy.multi, ids, legacy_v, slice(0, len(ids)), legacy_v["nmask"][: len(ids)]
+        )
+        parallel._gather(ids, parallel_v, slice(0, len(ids)), parallel_v["nmask"][: len(ids)])
+        for key in legacy_v:
+            assert legacy_v[key].tobytes() == parallel_v[key].tobytes(), key
+    finally:
+        legacy.close()
+        parallel.close()
+
+
+def test_gather_waits_for_an_interrupted_future_before_reraising():
+    """An interrupt must not leave a submitted staging writer running in the background."""
+
+    class _InterruptedFuture:
+        def __init__(self):
+            self.calls = 0
+            self.finished = False
+
+        def done(self):
+            return self.finished
+
+        def result(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt()
+            self.finished = True
+
+    future = _InterruptedFuture()
+    with pytest.raises(KeyboardInterrupt):
+        lm.Learner._wait_for_gather_jobs([future])
+    assert future.finished and future.calls >= 2
