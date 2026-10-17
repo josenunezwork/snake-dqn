@@ -11,6 +11,7 @@ import queue
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from research.redesign_m3c_20261008 import train_m3c as T
 
@@ -74,6 +75,27 @@ class _Sink:
             self.stop.set()
 
 
+class _MockStaticPool:
+    """Static mixed-seat dispatch with no pinned checkpoint dependency."""
+
+    policy_ids = ("mock-a", "mock-b")
+
+    def __init__(self) -> None:
+        # The actor snapshots wrapper execution state by identity even when the
+        # policy has no mutable wrapper counters.
+        self.policies = {policy_id: object() for policy_id in self.policy_ids}
+
+    def identity_records(self):
+        return [{"policy_id": item, "kind": "test"} for item in self.policy_ids]
+
+    def dispatch(self, _prepared, masks, alive, actions, seats):
+        rows = np.argwhere(alive & np.asarray(seats != None))  # noqa: E711 - elementwise None
+        if len(rows):
+            legal = np.asarray(masks)[rows[:, 0], rows[:, 1]]
+            actions[rows[:, 0], rows[:, 1]] = np.argmax(legal, axis=1)
+        return {"frozen_live_rows": {"mock": int(len(rows))}, "frozen_forward_gpu_s": 0.0}
+
+
 def _ring_state(ring):
     return {
         "count": ring.count,
@@ -130,7 +152,10 @@ def _assert_messages_equal(expected, actual) -> None:
                 assert value == other, (frame, key)
 
 
-def test_actor_fifo_marker_resume_preserves_ring_and_nstep_continuation(tmp_path):
+@pytest.mark.parametrize("mixed", [False, True], ids=["hero", "learner-seats-3"])
+def test_actor_fifo_marker_resume_preserves_ring_and_nstep_continuation(
+    tmp_path, monkeypatch, mixed
+):
     """A marker snapshot resumes the actual actor bit-for-bit from its ring boundary."""
     import torch
 
@@ -138,7 +163,25 @@ def test_actor_fifo_marker_resume_preserves_ring_and_nstep_continuation(tmp_path
 
     torch.manual_seed(701)
     init = tmp_path / "init.pth"
-    save_ego2s_checkpoint(init, Ego2sNet(7, 30))
+    save_ego2s_checkpoint(init, Ego2sNet(7, 60 if mixed else 30))
+    extra = []
+    if mixed:
+        import research.redesign_m3c_20261008.league_pool as league_pool
+
+        monkeypatch.setattr(
+            league_pool, "build_default_static_pool", lambda *args: _MockStaticPool()
+        )
+        extra = [
+            "--learner-seats",
+            "3",
+            "--obs-version",
+            "bv8",
+            "--onpolicy-labels",
+            "--label-frac",
+            "1.0",
+            "--anchor-mode",
+            "v8margin",
+        ]
     args = T.build_parser().parse_args(
         [
             "--seed",
@@ -159,6 +202,7 @@ def test_actor_fifo_marker_resume_preserves_ring_and_nstep_continuation(tmp_path
             "cpu",
             "--actor-device",
             "cpu",
+            *extra,
         ]
     )
     marker_after, continuation = 3, 5
