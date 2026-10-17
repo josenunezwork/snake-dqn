@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[1]
 NOTEBOOK = REPO / "notebooks" / "colab_long_run.ipynb"
 DOC = REPO / "research" / "t16_colab" / "long_run.md"
@@ -39,7 +38,10 @@ def test_long_run_auto_resumes_only_verified_drive_snapshots() -> None:
     assert "discover_snapshots(Path(" in source
     assert "verify=True" in source
     assert "--resume-full-state" in source
-    assert "resume_args = ['--resume-full-state', str(durable_ckpt_dir)] if snapshots else []" in source
+    assert (
+        "resume_args = ['--resume-full-state', str(durable_ckpt_dir)] if snapshots else []"
+        in source
+    )
     assert "A named Drive snapshot exists but none verify; recovery is required." in source
 
 
@@ -56,6 +58,15 @@ def test_long_run_passes_the_async_full_state_contract() -> None:
     assert "REQUESTED_TRANSITIONS must be a positive registered integer." in source
 
 
+def test_regular_outputs_stay_local_until_training_exits() -> None:
+    source = _source()
+    assert "output_dir = Path(LOCAL_WORK_ROOT) / RUN_NAME / 'trainer_output'" in source
+    assert source.index("shutil.copytree(output_dir,") > source.index(
+        "completed = subprocess.run(command, cwd=checkout)"
+    )
+    assert source.index("shutil.copytree(output_dir,") < source.index("runtime.unassign()")
+
+
 def test_long_run_never_releases_while_work_or_durability_is_unconfirmed() -> None:
     source = _source()
     assert "if completed.returncode:" in source
@@ -67,7 +78,9 @@ def test_long_run_never_releases_while_work_or_durability_is_unconfirmed() -> No
     assert "manifests[0].get('transitions', -1) >= summary['transitions']" in source
     assert "manifests[0].get('transitions') >= REQUESTED_TRANSITIONS" in source
     assert "if RELEASE_AFTER_SUCCESS:" in source
-    assert source.index("if RELEASE_AFTER_SUCCESS:") > source.index("durable final snapshot confirmed:")
+    assert source.index("if RELEASE_AFTER_SUCCESS:") > source.index(
+        "durable final snapshot confirmed:"
+    )
     assert source.count("runtime.unassign()") == 1
 
 

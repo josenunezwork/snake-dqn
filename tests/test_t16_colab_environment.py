@@ -96,6 +96,16 @@ def test_notebook_routes_workload_to_selected_interpreter(
     colab.files = Mock()
     monkeypatch.setitem(sys.modules, "google.colab", colab)
     monkeypatch.setattr(sys, "path", list(sys.path))
+    # The smoke notebook probes the host GPU before installing its interpreter.
+    # Supply a deterministic capability so this fixture also runs on CPU hosts.
+    real_subprocess_run = subprocess.run
+
+    def fake_subprocess_run(command, *args, **kwargs):
+        if command[:2] == ["nvidia-smi", "--query-gpu=compute_cap"]:
+            return subprocess.CompletedProcess(command, 0, "8.0\n", "")
+        return real_subprocess_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
     selected = "/managed-312/bin/python"
     select = Mock(return_value=(selected, {"python": "3.12.12"}))
     monkeypatch.setattr(environment, "create_environment", select)

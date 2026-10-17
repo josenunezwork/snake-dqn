@@ -38,8 +38,10 @@ That mode is explicitly marked `resumed-without-replay` by the trainer.  `full` 
 the replay ring arrays.  Its size can be substantial and scales with replay capacity,
 stored observation/action fields, and dtype; inspect each snapshot manifest's
 `files[].size_bytes` before choosing a Drive quota or cadence.  The notebook has no
-Drive copy in its learner process; the trainer writes locally first and transfers in
-the background.
+Drive I/O on its learner update path; full-state snapshots serialize locally first
+and transfer in background workers. Ordinary logs and weights also use local scratch,
+then the notebook archives them to Drive after training exits. Input artifacts should
+be staged on local disk before training if their recipe uses lazy reads.
 
 The notebook never releases a runtime after a failed/incomplete command.  If
 `RELEASE_AFTER_SUCCESS` remains enabled, it releases only after a fresh `summary.json`
