@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import random
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -316,6 +317,56 @@ def test_small_snapshot_capture_stall_is_under_fifty_ms():
     _capture_state(module, state)
     elapsed_ms = (time.perf_counter() - started) * 1000
     assert elapsed_ms < 50, f"small-model capture stalled learner for {elapsed_ms:.2f} ms"
+
+
+def test_stale_partial_snapshot_is_reclaimed_by_next_writer(tmp_path):
+    module = _checkpoint_api()
+    local = tmp_path / "local"
+    local.mkdir()
+    stale = local / ".tmp-snapshot-stale-after-crash"
+    stale.mkdir()
+    (stale / "partial.state").write_bytes(b"interrupted write")
+
+    checkpointer = module.AsyncCheckpointer(local, keep=2, retries=1, retry_delay=0)
+    assert checkpointer.submit(_capture_state(module, {"value": np.arange(3)}), transitions=1)
+    assert checkpointer.close(timeout=10) is True
+
+    assert not stale.exists(), "the lease holder should reclaim stale temporary snapshots"
+    state, manifest = module.load_latest_snapshot(local)
+    np.testing.assert_array_equal(state["value"], np.arange(3))
+    assert manifest["transitions"] == 1
+
+
+def test_active_writer_lease_preserves_live_temp_for_second_writer(tmp_path):
+    module = _checkpoint_api()
+    local = tmp_path / "local"
+    local.mkdir()
+
+    first = module.AsyncCheckpointer(local, keep=2, retries=1, retry_delay=0)
+    assert first.submit(_capture_state(module, {"owner": "first"}), transitions=1)
+    assert first.wait_local(timeout=10)
+    state, manifest = module.load_latest_snapshot(local)
+    assert state["owner"] == "first"
+    assert manifest["transitions"] == 1
+
+    # This represents a first writer still in the middle of a process-local save.  The
+    # second writer must fail its nonblocking lease acquisition and leave this directory.
+    live_temp = local / ".tmp-snapshot-live-first-writer"
+    live_temp.mkdir()
+    (live_temp / "partial.state").write_bytes(b"active writer marker")
+
+    second = module.AsyncCheckpointer(local, keep=2, retries=1, retry_delay=0)
+    assert second.submit(_capture_state(module, {"owner": "second"}), transitions=2)
+    assert second.close(timeout=10) is False
+    assert any(event.get("event") == "checkpoint_local_failed" for event in second.poll_events())
+    assert live_temp.exists(), "a live writer's temporary directory must not be reclaimed"
+
+    # The first writer still owns the lease and its complete snapshot remains resumable.
+    state, manifest = module.load_latest_snapshot(local)
+    assert state["owner"] == "first"
+    assert manifest["transitions"] == 1
+    assert first.close(timeout=10) is True
+    shutil.rmtree(live_temp)
 
 
 def _toy_update(torch, net, optimizer, rng, replay, counters):
