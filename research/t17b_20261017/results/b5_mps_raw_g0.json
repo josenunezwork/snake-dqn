@@ -1,0 +1,403 @@
+{
+ "created_utc": "2026-10-17T20:15:30.821346+00:00",
+ "platform": "macOS-27.0-arm64-arm-64bit",
+ "machine": "arm64",
+ "torch": "2.9.1",
+ "loadavg_start": [
+  3.30029296875,
+  4.66943359375,
+  5.4658203125
+ ],
+ "argv": [
+  "--devices",
+  "mps",
+  "--configs",
+  "t1_k2,t1_bf16_k2,t1_k4,t1_bf16_k4,t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro,t1_bf16_k4_c_ro",
+  "--ring-rows",
+  "40000",
+  "--updates",
+  "8",
+  "--rounds",
+  "3",
+  "--warm",
+  "5",
+  "--device-diag-updates",
+  "3",
+  "--raw-rings",
+  "--ring-dir",
+  "research/t17b_20261017/results",
+  "--gather-threads",
+  "0",
+  "--out",
+  "research/t17b_20261017/results/b5_mps_raw_g0.json",
+  "--note",
+  "T17b B5 Mac local-file raw g0; measured 2026-10-17"
+ ],
+ "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/student_m2b_final.pth",
+ "mode": "bv8",
+ "obs_pack": false,
+ "ring_dir": "research/t17b_20261017/results",
+ "gather_threads": 0,
+ "note": "T17b B5 Mac local-file raw g0; measured 2026-10-17",
+ "cells": [
+  {
+   "device": "mps",
+   "config": "t1_k2",
+   "flags": {
+    "fast": true,
+    "batch_scale": 2,
+    "gather_threads": 0
+   },
+   "updates_per_round": 8,
+   "rounds": 3,
+   "round_seconds": [
+    0.3999,
+    0.4314,
+    0.3938
+   ],
+   "ms_per_update_median": 49.99,
+   "updates_per_s": 20.006,
+   "update_every": 256,
+   "transitions_per_s": 5121.5,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 5.074,
+   "gpu_leg_ms": 72.385,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 3,
+   "compile_execution": "not_requested",
+   "precision_execution": "requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k2",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 2,
+    "gather_threads": 0
+   },
+   "updates_per_round": 8,
+   "rounds": 3,
+   "round_seconds": [
+    1.2201,
+    1.2376,
+    1.2072
+   ],
+   "ms_per_update_median": 152.51,
+   "updates_per_s": 6.557,
+   "update_every": 256,
+   "transitions_per_s": 1678.5,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 5.102,
+   "gpu_leg_ms": 143.969,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 3,
+   "compile_execution": "not_requested",
+   "precision_execution": "mps_autocast_requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_k4",
+   "flags": {
+    "fast": true,
+    "batch_scale": 4,
+    "gather_threads": 0
+   },
+   "updates_per_round": 8,
+   "rounds": 3,
+   "round_seconds": [
+    0.7466,
+    0.757,
+    0.7289
+   ],
+   "ms_per_update_median": 93.33,
+   "updates_per_s": 10.715,
+   "update_every": 512,
+   "transitions_per_s": 5485.9,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 10.695,
+   "gpu_leg_ms": 98.134,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 3,
+   "compile_execution": "not_requested",
+   "precision_execution": "requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k4",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 4,
+    "gather_threads": 0
+   },
+   "updates_per_round": 8,
+   "rounds": 3,
+   "round_seconds": [
+    1.2689,
+    1.2945,
+    1.2612
+   ],
+   "ms_per_update_median": 158.62,
+   "updates_per_s": 6.304,
+   "update_every": 512,
+   "transitions_per_s": 3227.9,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 10.013,
+   "gpu_leg_ms": 177.386,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 3,
+   "compile_execution": "not_requested",
+   "precision_execution": "mps_autocast_requested"
+  },
+  {
+   "device": "mps",
+   "config": "t1_k2_c_ro",
+   "flags": {
+    "fast": true,
+    "batch_scale": 2,
+    "compile": "reduce-overhead",
+    "gather_threads": 0
+   },
+   "updates_per_round": 8,
+   "rounds": 3,
+   "round_seconds": [
+    0.4275,
+    0.4141,
+    0.4266
+   ],
+   "ms_per_update_median": 53.32,
+   "updates_per_s": 18.754,
+   "update_every": 256,
+   "transitions_per_s": 4801.1,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 5.225,
+   "gpu_leg_ms": 48.459,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 3,
+   "compile": {
+    "mode": "reduce-overhead",
+    "scope": "loss",
+    "device": "mps",
+    "compiled_calls": 0,
+    "verify_calls": 1,
+    "eager_calls": 32,
+    "fallback": "RuntimeError: compiled step disagrees with eager: grad local.2.bias relative error 255 > allowed 0.001 (shape key (768, 256, 0))",
+    "first_call_s": 2.247,
+    "verify_worst_rel_err": 255.0000897774416,
+    "verify_worst_ratio": 255000.08977744158,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "compile_execution": "fallback_eager",
+   "precision_execution": "requested",
+   "eager_twin": "t1_k2",
+   "speedup_vs_eager_twin": 0.937
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k2_c_ro",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 2,
+    "compile": "reduce-overhead",
+    "gather_threads": 0
+   },
+   "updates_per_round": 8,
+   "rounds": 3,
+   "round_seconds": [
+    1.4678,
+    1.1597,
+    1.2119
+   ],
+   "ms_per_update_median": 151.49,
+   "updates_per_s": 6.601,
+   "update_every": 256,
+   "transitions_per_s": 1689.9,
+   "rows_per_update": {
+    "agent": 768,
+    "anchor": 256
+   },
+   "halt": null,
+   "host_gather_ms": 4.89,
+   "gpu_leg_ms": 146.69,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 3,
+   "compile": {
+    "mode": "reduce-overhead",
+    "scope": "loss",
+    "device": "mps",
+    "compiled_calls": 0,
+    "verify_calls": 1,
+    "eager_calls": 32,
+    "fallback": "RuntimeError: compiled step disagrees with eager: grad local.4.bias relative error 63.7 > allowed 0.05 (shape key (768, 256, 0))",
+    "first_call_s": 3.231,
+    "verify_worst_rel_err": 259.558039685777,
+    "verify_worst_ratio": 1274.2560001524923,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "compile_execution": "fallback_eager",
+   "precision_execution": "mps_autocast_requested",
+   "eager_twin": "t1_bf16_k2",
+   "speedup_vs_eager_twin": 1.007
+  },
+  {
+   "device": "mps",
+   "config": "t1_k4_c_ro",
+   "flags": {
+    "fast": true,
+    "batch_scale": 4,
+    "compile": "reduce-overhead",
+    "gather_threads": 0
+   },
+   "updates_per_round": 8,
+   "rounds": 3,
+   "round_seconds": [
+    0.747,
+    0.7346,
+    0.7739
+   ],
+   "ms_per_update_median": 93.37,
+   "updates_per_s": 10.71,
+   "update_every": 512,
+   "transitions_per_s": 5483.4,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 10.78,
+   "gpu_leg_ms": 100.01,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 3,
+   "compile": {
+    "mode": "reduce-overhead",
+    "scope": "loss",
+    "device": "mps",
+    "compiled_calls": 0,
+    "verify_calls": 1,
+    "eager_calls": 32,
+    "fallback": "RuntimeError: compiled step disagrees with eager: grad local.2.bias relative error 371 > allowed 0.001 (shape key (1536, 512, 0))",
+    "first_call_s": 2.047,
+    "verify_worst_rel_err": 371.17876985528227,
+    "verify_worst_ratio": 371178.76985528227,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "compile_execution": "fallback_eager",
+   "precision_execution": "requested",
+   "eager_twin": "t1_k4",
+   "speedup_vs_eager_twin": 1.0
+  },
+  {
+   "device": "mps",
+   "config": "t1_bf16_k4_c_ro",
+   "flags": {
+    "fast": true,
+    "precision": "bf16",
+    "batch_scale": 4,
+    "compile": "reduce-overhead",
+    "gather_threads": 0
+   },
+   "updates_per_round": 8,
+   "rounds": 3,
+   "round_seconds": [
+    1.2478,
+    1.2957,
+    1.2573
+   ],
+   "ms_per_update_median": 157.16,
+   "updates_per_s": 6.363,
+   "update_every": 512,
+   "transitions_per_s": 3257.9,
+   "rows_per_update": {
+    "agent": 1536,
+    "anchor": 512
+   },
+   "halt": null,
+   "host_gather_ms": 9.58,
+   "gpu_leg_ms": 153.573,
+   "gpu_leg_status": "serialized_device_events",
+   "gpu_leg_diagnostic_updates": 3,
+   "compile": {
+    "mode": "reduce-overhead",
+    "scope": "loss",
+    "device": "mps",
+    "compiled_calls": 0,
+    "verify_calls": 1,
+    "eager_calls": 32,
+    "fallback": "RuntimeError: compiled step disagrees with eager: grad local.2.bias relative error inf > allowed 0.342 (shape key (1536, 512, 0))",
+    "first_call_s": 1.899,
+    "verify_worst_rel_err": Infinity,
+    "verify_worst_ratio": Infinity,
+    "graphs": 1,
+    "graph_breaks": 0,
+    "recompile_storm": false,
+    "dynamo_process": {
+     "graphs": 4,
+     "frames_ok": 4,
+     "frames_total": 4,
+     "graph_breaks": 0
+    }
+   },
+   "compile_execution": "fallback_eager",
+   "precision_execution": "mps_autocast_requested",
+   "eager_twin": "t1_bf16_k4",
+   "speedup_vs_eager_twin": 1.009
+  }
+ ],
+ "rings": {
+  "obs_pack": false,
+  "backend": "file_mmap",
+  "ring_dir": "research/t17b_20261017/results",
+  "gather_threads": 0
+ },
+ "loadavg_end": [
+  3.57861328125,
+  4.556640625,
+  5.38232421875
+ ]
+}

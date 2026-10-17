@@ -90,3 +90,79 @@ cannot resolve `@rpath/libc++.1.dylib` (no LC_RPATH), independently reproduced b
 `lambda x: x + 1`, including with a fresh private cache. This does not qualify CUDA compilation.
 No shared environment was modified, no input tarball was rebuilt, and no tmux jobs were touched.
 The notebook is ready for the owner-run Colab smoke-03; **84 updates/s is not yet demonstrated**.
+
+
+## T17b advisor merge, row chunks, and Mac reference (2026-10-17)
+
+T17b supersedes the four-row T17 smoke-03 plan above. The advisor branch
+`origin/claude/upbeat-allen-uvxqvd` was merged on `t17b-20261017`, followed by a
+merge-preserving rebase on `origin/main`. Merge conflicts in the trainer shutdown,
+smoke runner, comparison, notebook and comparison tests were resolved by retaining
+one bounded drain/join implementation and one suite/matrix implementation.
+The trainer defaults and batch bytes remain unchanged; opt-in workers now partition
+contiguous destination rows across rings. The frozen pre-T17 oracle checks full staging
+bytes, RNG state, rejected-row compaction and label re-checks for two rings with g3/g4.
+
+The notebook's final implementation pin is
+`ef32fb99e7691fa3e716083a0abb94adf3eea2a0`, with `RUN_NAME = 'smoke-03'`.
+Its seven registered rows match B4. Under the 3,600-second runner cap, the conservative
+3,785-second seven-row allowance selects the permitted six-row fallback (3,335 seconds),
+omitting only row 5 (a6). Reconnects retain the chosen row set. Row 4 also has a separate
+unscored 60-second profile after 60 seconds of warm-up. P0 runs first under its own
+300-second deadline: K2/K4, fp32/bf16, reduce-overhead, raw/packed, g0/g3 and
+`/dev/shm`/local-disk rings. Runtime-bound Drive receipts and owned temporary ring
+directories preserve results and clean up interrupted P0 attempts. No CUDA/Colab execution
+was performed in this task; 84 updates/s remains unproven.
+
+B2 synthetic host-only gather on this Apple M5 Pro (two rings, 300 measured samples):
+
+| Rings | g0 median ms | g3 median ms | g4 median ms |
+|---|---:|---:|---:|
+| Raw | 3.222 | 1.682 | 1.744 |
+| Packed | 3.024 | 1.363 | 1.214 |
+
+B5 full MPS learner, fp32 K2, actual local file-backed rings (40,000 rows/ring,
+20 updates x 3 rounds, five separate device-event diagnostic updates):
+
+| Rings | Threads | Host gather ms | Device-event leg ms | Wall ms/update | Updates/s |
+|---|---:|---:|---:|---:|---:|
+| Raw | 0 | 5.459 | 50.024 | 50.49 | 19.807 |
+| Raw | 3 | 2.848 | 50.944 | 50.53 | 19.790 |
+| Packed | 0 | 4.250 | 50.270 | 49.92 | 20.031 |
+| Packed | 3 | 2.376 | 47.071 | 47.81 | 20.917 |
+
+Host gather is measured in the overlapped update loop; device-event legs are separate,
+serialized diagnostics, so they are not additive. The matrix also measures fp32 K4 and
+bf16 K2/K4 for each ring/thread variant. Requested MPS reduce-overhead cells hit the
+compiled/eager numerical verification guard and fell back; they are explicitly classified
+as `fallback_eager`, not compiled evidence. The table uses the separately measured eager
+reference cells. These shared-machine timings do not establish a change to the ~21 upd/s
+Mac baseline. Existing tmux jobs were untouched. macOS has no `/dev/shm` equivalent in this
+run, so B5 measures local file-backed rings only; CUDA P0 retains both storage backends.
+
+Reproducible B2 commands and B5 raw JSON receipts are under
+[`research/t17b_20261017/results`](../../research/t17b_20261017/results/).
+The original implementation and advisory measurements above remain historical evidence.
+
+
+Final validation on the rebased implementation: **229 passed, 2 archived-module collection
+skips**, with the broad related selection below; **60 additional learner/actor/benchmark
+regressions passed**, including the real two-actor CPU fast-learner smoke (12,000 transitions,
+clean actor exits and final/checkpoint writes). The standalone MPS unit test was deselected;
+B5 separately exercised MPS. The 34 gather tests preserve byte identity, and the notebook
+orchestration tests cover all eight P0 invocations, timeout cleanup and stable resume choices.
+All changed Python files pass Black, isort and flake8; notebook cells compile and whitespace
+checks pass. Independent review found no outstanding actionable defect. No tmux commands
+were issued.
+
+```bash
+./venv/bin/python -m pytest tests/ -q -m 'not slow' \
+  -k '(obs_pack or m3c or t16 or t17) and not mps'
+./venv/bin/python -m pytest -q tests/test_perf_learner.py tests/test_perf_actor.py \
+  tests/test_perf_podbench.py -k 'not mps'
+```
+
+Full B5 numbers, compile-fallback receipts, source hashes and final test transcripts are
+in the results directory linked above. The publication commit only adds these receipts,
+this results append and the notebook pin; executable research code matches the pinned
+implementation commit.

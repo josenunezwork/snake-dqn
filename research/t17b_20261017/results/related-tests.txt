@@ -1,0 +1,37 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.3, pytest-9.0.1, pluggy-1.6.0
+rootdir: /Users/josenunez/Projects/ml/snake-dqn-t17
+configfile: pytest.ini
+plugins: anyio-4.14.1, xdist-3.8.0
+collected 7262 items / 7033 deselected / 2 skipped / 229 selected
+
+tests/test_gpu_run_v2_opt_in.py ..........                               [  4%]
+tests/test_m3c_actor_shutdown.py ..                                      [  5%]
+tests/test_m3c_gpu_run_v2.py ...............................             [ 18%]
+tests/test_m3c_probe_identity.py ......                                  [ 21%]
+tests/test_m3c_rule_spec.py .....                                        [ 23%]
+tests/test_m3c_select.py .....                                           [ 25%]
+tests/test_m3c_trainer.py ...............                                [ 32%]
+tests/test_m4_phase_r.py .                                               [ 32%]
+tests/test_obs_pack.py ..........................................        [ 51%]
+tests/test_profile_m3c.py .............                                  [ 56%]
+tests/test_t16_colab_bundle.py ....                                      [ 58%]
+tests/test_t16_colab_compare.py .........                                [ 62%]
+tests/test_t16_colab_environment.py ...........                          [ 67%]
+tests/test_t16_colab_notebook.py ...                                     [ 68%]
+tests/test_t16_colab_sampler.py ..                                       [ 69%]
+tests/test_t16_colab_smoke.py .....................                      [ 78%]
+tests/test_t17_bench_learner.py .....                                    [ 80%]
+tests/test_t17_gather.py ..................................              [ 95%]
+tests/test_t17_loop_shutdown.py ..........                               [100%]
+
+=============================== warnings summary ===============================
+../snake-dqn/venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /Users/josenunez/Projects/ml/snake-dqn/venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_s18_kl_contrast_audit_outer_v1.py:18: M3-D package archived (tag archive/m3d-autonomous-20261010)
+SKIPPED [1] tests/test_s18_kl_contrast_outer_v1.py:17: M3-D package archived (tag archive/m3d-autonomous-20261010)
+========= 229 passed, 2 skipped, 7033 deselected, 1 warning in 37.94s ==========
