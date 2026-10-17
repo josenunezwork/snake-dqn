@@ -3140,12 +3140,15 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     "env_s": time.perf_counter() - t0,
                     "timing": timing,
                     "weights_version": last,
-                    "replay_rows": int(len(s)),
-                    "live_rows_by_policy": live_rows_by_policy,
-                    "pool_identities": pool_identity_records,
                     **stats,
                     **m6_stats,
                 }
+                if getattr(args, "learner_seats", None) is not None:
+                    msg.update(
+                        replay_rows=int(len(s)),
+                        live_rows_by_policy=live_rows_by_policy,
+                        pool_identities=pool_identity_records,
+                    )
                 if restart_telemetry is not None:
                     msg.update(restart_telemetry.take())
                     msg["restart_frac_actual"] = float(restarted_worlds.mean())
@@ -3534,8 +3537,9 @@ def main_multi(args) -> int:
                 gn = multi.encode(j, msg["nxt"])
                 replay.add_many(gs, msg["a"], msg["R"], msg["disc"], gn)
                 st["since_update"] += len(gs)
-                st["replay_rows"] += int(msg["replay_rows"])
-                for policy_id, count in msg["live_rows_by_policy"].items():
+                st["replay_rows"] += len(gs)
+                live_counts = msg.get("live_rows_by_policy", {"learner": msg["decisions"]})
+                for policy_id, count in live_counts.items():
                     st["live_rows_by_policy"][policy_id] = st["live_rows_by_policy"].get(
                         policy_id, 0
                     ) + int(count)
