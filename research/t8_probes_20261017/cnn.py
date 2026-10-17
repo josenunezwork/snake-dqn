@@ -27,14 +27,17 @@ from threadpoolctl import threadpool_limits  # noqa: E402
 from torch import nn  # noqa: E402
 from torch.nn import functional as F  # noqa: E402
 
-from research.redesign_m3c_20261008.obs_pack import (  # noqa: E402
-    train_layout, unpack)
+from research.redesign_m3c_20261008.obs_pack import train_layout, unpack  # noqa: E402
 from research.t5_separability_20261016.fit import bootstrap_auc  # noqa: E402
-from research.t5b_risk_and_fuse_20261016.fuse import (BANK_ROOT,  # noqa: E402
-                                                      T5_DATA, T5_FOLDS,
-                                                      load_t5_data,
-                                                      saved_folds, sha256,
-                                                      source_packed)
+from research.t5b_risk_and_fuse_20261016.fuse import BANK_ROOT  # noqa: E402
+from research.t5b_risk_and_fuse_20261016.fuse import (
+    T5_DATA,
+    T5_FOLDS,
+    load_t5_data,
+    saved_folds,
+    sha256,
+    source_packed,
+)
 
 SEED = 20261017
 OUT = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts/t8-probes-20261017/cnn")
