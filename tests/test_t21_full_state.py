@@ -65,6 +65,7 @@ def _wait_close(checkpointer) -> None:
     """Close is the public drain point; tolerate a false result for durable-copy failure."""
     result = checkpointer.close(timeout=10)
     assert result in (True, False, None)
+    return result
 
 
 def test_capture_state_detaches_nested_tensors_and_arrays():
@@ -231,6 +232,38 @@ def test_submit_does_not_wait_for_blocked_durable_copy(tmp_path, monkeypatch):
     _wait_close(checkpointer)
 
 
+def test_failed_durable_copies_are_bounded_and_newer_success_recovers(tmp_path, monkeypatch):
+    module = _checkpoint_api()
+    local = tmp_path / "local"
+    durable = tmp_path / "durable"
+    local.mkdir()
+    durable.mkdir()
+    checkpointer = module.AsyncCheckpointer(local, durable, keep=2, retries=1, retry_delay=0)
+    original = checkpointer._copy_snapshot
+    failed = {"count": 0}
+
+    def fail_first_six(name):
+        if failed["count"] < 6:
+            failed["count"] += 1
+            raise OSError("simulated Drive outage")
+        return original(name)
+
+    monkeypatch.setattr(checkpointer, "_copy_snapshot", fail_first_six)
+    for transitions in range(1, 8):
+        assert checkpointer.submit(
+            _capture_state(module, {"transitions": transitions}), transitions=transitions
+        )
+        assert checkpointer.wait_local(timeout=10)
+    assert _wait_close(checkpointer) is True
+
+    assert len(_manifest_files(local)) <= 3  # keep plus at most one active upload
+    assert len(_manifest_files(durable)) <= 2
+    loaded, manifest = module.load_latest_snapshot(durable)
+    assert loaded["transitions"] == 7
+    assert manifest["transitions"] == 7
+    assert failed["count"] == 6
+
+
 def test_small_snapshot_capture_stall_is_under_fifty_ms():
     module = _checkpoint_api()
     state = {
@@ -334,6 +367,149 @@ def test_full_state_payload_restores_cpu_optimizer_replay_and_rng_bitwise(tmp_pa
     assert replay_a.ptr == replay_b.ptr and replay_a.size == replay_b.size
     np.testing.assert_array_equal(replay_a.s, replay_b.s)
     np.testing.assert_array_equal(replay_a.R, replay_b.R)
+
+
+class _SharedBuffer:
+    def __init__(self, size):
+        self.buf = bytearray(size)
+
+
+def _real_learner_fixture(seed=7):
+    """Construct the actual M3-C Learner with a deterministic one-actor CPU world."""
+    import torch
+
+    from research.redesign_m3c_20261008 import learner_m3c as lm
+    from research.redesign_m3c_20261008 import train_m3c as trainer
+    from src.model.ego2s_network import Ego2sNet
+
+    cap, nscal = 512, 60
+    rng_data = np.random.default_rng(seed)
+    ring = trainer.SharedObsRing(_SharedBuffer(trainer.ring_nbytes(cap, nscal)), cap, 16, nscal)
+    ring.arrays["local"][:] = rng_data.integers(0, 256, ring.arrays["local"].shape, dtype=np.uint8)
+    ring.arrays["global"][:] = rng_data.integers(
+        0, 256, ring.arrays["global"].shape, dtype=np.uint8
+    )
+    ring.arrays["scalars"][:] = rng_data.standard_normal(ring.arrays["scalars"].shape)
+    ring.arrays["mask"][:] = rng_data.random(ring.arrays["mask"].shape) < 0.7
+    ring._count[0] = cap
+    multi = trainer.MultiRing([ring])
+    replay = trainer.Replay(2048)
+    ids = rng_data.integers(16, cap, 1200)
+    replay.add_many(
+        ids,
+        rng_data.integers(0, 6, len(ids)),
+        rng_data.standard_normal(len(ids)),
+        np.full(len(ids), 0.97, dtype=np.float32),
+        np.full(len(ids), -1),
+    )
+    labels = trainer.LabelBuffer(trainer.LABEL_ANCHOR_MIN_ROWS + 100)
+    labels.add(rng_data.integers(16, cap, labels.cap), rng_data.integers(0, 6, labels.cap))
+    args = trainer.default_args()
+    args.obs_version = "bv8"
+    args.onpolicy_labels = True
+    args.label_frac = 1.0
+    args.anchor_mode = "v8margin"
+    args.actor_sync_updates = 25
+    net = Ego2sNet(7, nscal).train()
+    target = Ego2sNet(7, nscal).eval()
+    target.load_state_dict(net.state_dict())
+    optimizer = lm.make_optimizer(torch, net, lm.LearnerOpts(), "cpu")
+    st = {
+        "updates": 0,
+        "halt": None,
+        "td": [],
+        "anc": [],
+        "qmax": 0.0,
+        "learn_s": 0.0,
+        "ring_overrun_rows": 0,
+        "label_rows": [],
+        "anchor_updates": 0,
+    }
+    learner = lm.Learner(
+        torch,
+        online=net,
+        target=target,
+        opt=optimizer,
+        replay=replay,
+        multi=multi,
+        demos=None,
+        labels=labels,
+        rng=np.random.default_rng([seed, 17]),
+        st=st,
+        args=args,
+        nscal=nscal,
+        margin=0.3,
+        device="cpu",
+        opts=lm.LearnerOpts(),
+        agent_rows=24,
+        anchor_rows=8,
+        min_rows=4,
+    )
+    learner.target_every = 3
+    return torch, trainer, learner, ring, replay, labels, st
+
+
+def test_actual_m3c_learner_full_state_resume_is_bitwise(tmp_path):
+    """The production Learner, optimizer, replay, ring, labels, and RNG resume exactly."""
+    module = _checkpoint_api()
+    torch, trainer, learner_a, ring_a, replay_a, labels_a, st_a = _real_learner_fixture()
+    for _ in range(2):
+        learner_a.update(0.5)
+    payload = trainer.full_state_payload(
+        torch,
+        learner_a.online,
+        learner_a.target,
+        learner_a.opt,
+        learner_a.rng,
+        st_a,
+        trainer.Schedules(),
+        replay_a,
+        labels_a,
+        [ring_a],
+        "full",
+    )
+    local = tmp_path / "local"
+    local.mkdir()
+    checkpointer = module.AsyncCheckpointer(local, keep=2, retries=1, retry_delay=0)
+    assert checkpointer.submit(_capture_state(module, payload), transitions=256)
+    _wait_close(checkpointer)
+    saved, _ = module.load_latest_snapshot(local)
+
+    for _ in range(3):
+        learner_a.update(0.5)
+    torch_b, trainer_b, learner_b, ring_b, replay_b, labels_b, st_b = _real_learner_fixture()
+    assert torch_b is torch and trainer_b is trainer
+    assert trainer.restore_full_state(
+        torch,
+        saved,
+        learner_b.online,
+        learner_b.target,
+        learner_b.opt,
+        learner_b.rng,
+        replay_b,
+        labels_b,
+        [ring_b],
+    )
+    st_b.update(saved["counters"])
+    learner_b.st = st_b
+    for _ in range(3):
+        learner_b.update(0.5)
+    for left, right in zip(
+        learner_a.online.state_dict().values(), learner_b.online.state_dict().values()
+    ):
+        assert torch.equal(left, right)
+    for left, right in zip(
+        learner_a.target.state_dict().values(), learner_b.target.state_dict().values()
+    ):
+        assert torch.equal(left, right)
+    assert {key: value for key, value in st_a.items() if key != "learn_s"} == {
+        key: value for key, value in st_b.items() if key != "learn_s"
+    }
+    assert learner_a.rng.bit_generator.state == learner_b.rng.bit_generator.state
+    np.testing.assert_array_equal(replay_a.s, replay_b.s)
+    np.testing.assert_array_equal(replay_a.a, replay_b.a)
+    np.testing.assert_array_equal(labels_a.ids, labels_b.ids)
+    np.testing.assert_array_equal(ring_a.arrays["scalars"], ring_b.arrays["scalars"])
 
 
 def test_snapshot_manifest_is_json_and_records_digest(tmp_path):
