@@ -272,6 +272,33 @@ def test_gather_threads_validation_and_close_are_idempotent():
     learner.close()
 
 
+@pytest.mark.parametrize("threads", [3, 4])
+def test_parallel_gather_chunks_destination_rows_across_two_rings(monkeypatch, threads):
+    """A worker task owns a contiguous row interval even when rings are fewer than workers."""
+    learner = _learner(packed=False, actors=2, gather_threads=threads)
+    chunks = []
+    original = lm.Learner._gather_chunk
+
+    def record_chunk(*args):
+        chunks.append((args[2], args[3]))
+        return original(*args)
+
+    monkeypatch.setattr(lm.Learner, "_gather_chunk", staticmethod(record_chunk))
+    try:
+        ids = np.array([96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106], dtype=np.int64)
+        values = learner._stage[0].v
+        learner._gather(ids, values, slice(0, len(ids)), values["nmask"][: len(ids)])
+        expected = [
+            (len(ids) * worker // threads, len(ids) * (worker + 1) // threads)
+            for worker in range(threads)
+        ]
+        assert sorted(chunks) == expected
+        assert expected[0][0] == 0 and expected[-1][1] == len(ids)
+        assert all(stop == next_start for (_, stop), (next_start, _) in zip(expected, expected[1:]))
+    finally:
+        learner.close()
+
+
 @pytest.mark.parametrize("packed", [False, True])
 @pytest.mark.parametrize("actors", [1, 2, 3])
 def test_parallel_gather_matches_frozen_legacy_oracle(packed, actors):

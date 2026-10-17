@@ -1115,39 +1115,72 @@ class Learner:
         if mask_out is not None:
             mask_out[sel] = arr["mask"][pos]
 
+    @staticmethod
+    def _gather_chunk(multi, ids, start, stop, local, global_, scalars, mask_out) -> None:
+        """Copy one contiguous destination-row chunk, possibly spanning several rings."""
+        chunk_ids = ids[start:stop]
+        actor, source_rows = chunk_ids % multi.k, chunk_ids // multi.k
+        for actor_index, ring in enumerate(multi.rings):
+            selected = np.flatnonzero(actor == actor_index)
+            if len(selected):
+                Learner._gather_ring(
+                    ring,
+                    source_rows[selected] % ring.cap,
+                    selected + start,
+                    local,
+                    global_,
+                    scalars,
+                    mask_out,
+                )
+
     def _gather_many(self, requests, extra=()) -> None:
         """Gather disjoint requests concurrently, or in original order when disabled.
 
         The caller owns all sampling and RNG draws. Tasks only read ring arrays and write
         non-overlapping staging rows, so their scheduling cannot alter a sampled batch.
         """
-        jobs = []
         multi = self.multi
-        for ids, out, rows, mask_out in requests:
-            local, global_, scalars = out["local"][rows], out["global"][rows], out["scalars"][rows]
-            actor, source_rows = ids % multi.k, ids // multi.k
-            for j, ring in enumerate(multi.rings):
-                sel = np.flatnonzero(actor == j)
-                if len(sel):
-                    jobs.append(
-                        (
-                            self._gather_ring,
-                            (
-                                ring,
-                                source_rows[sel] % ring.cap,
-                                sel,
-                                local,
-                                global_,
-                                scalars,
-                                mask_out,
-                            ),
-                        )
-                    )
-        jobs.extend((fn, ()) for fn in extra)
+        # The serial path retains the original ring-ordered execution exactly.  In the
+        # threaded path, partition destination rows rather than rings: two rings can then
+        # occupy three or four gather workers while retaining disjoint writes.
         if self._gather_executor is None:
-            for fn, args in jobs:
-                fn(*args)
+            for ids, out, rows, mask_out in requests:
+                local = out["local"][rows]
+                global_ = out["global"][rows]
+                scalars = out["scalars"][rows]
+                actor, source_rows = ids % multi.k, ids // multi.k
+                for j, ring in enumerate(multi.rings):
+                    sel = np.flatnonzero(actor == j)
+                    if len(sel):
+                        self._gather_ring(
+                            ring,
+                            source_rows[sel] % ring.cap,
+                            sel,
+                            local,
+                            global_,
+                            scalars,
+                            mask_out,
+                        )
+            for fn in extra:
+                fn()
             return
+
+        jobs = []
+        for ids, out, rows, mask_out in requests:
+            local = out["local"][rows]
+            global_ = out["global"][rows]
+            scalars = out["scalars"][rows]
+            workers = min(int(self.opts.gather_threads), len(ids))
+            for worker in range(workers):
+                start = len(ids) * worker // workers
+                stop = len(ids) * (worker + 1) // workers
+                jobs.append(
+                    (
+                        self._gather_chunk,
+                        (multi, ids, start, stop, local, global_, scalars, mask_out),
+                    )
+                )
+        jobs.extend((fn, ()) for fn in extra)
         futures = [self._gather_executor.submit(fn, *args) for fn, args in jobs]
         self._wait_for_gather_jobs(futures)
 
