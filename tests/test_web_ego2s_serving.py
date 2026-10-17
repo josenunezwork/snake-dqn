@@ -92,6 +92,13 @@ def test_train_refused_and_play_works(ego_ckpt):
     assert sess.mode == MODE_PLAY and isinstance(sess.policy, Ego2sServingPolicy)
     for _ in range(20):
         sess.step()
+    sess.set_mode(MODE_TRAIN)
+    assert sess.mode == MODE_WATCH
+    assert sess.policy.training is False and sess.policy.epsilon == 0.0
+    assert "ego2s students" in sess.last_error and "dropped to watch" in sess.last_error
+    watch_game = sess.game
+    sess.set_mode(MODE_TRAIN)
+    assert sess.game is watch_game
 
 
 def test_default_session_is_unchanged():

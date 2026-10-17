@@ -45,7 +45,11 @@ from web.backend.safety_veto_serving import (
     ServingVetoState,
     install_serving_vetoes,
 )
-from web.backend.served_checkpoint import resolve_served_checkpoint
+from web.backend.served_checkpoint import (
+    LOG_PREFIX,
+    logger as served_checkpoint_logger,
+    resolve_served_checkpoint,
+)
 
 # The three ways to drive the shared game.
 MODE_WATCH = "watch"  # AI plays itself; we observe.
@@ -717,6 +721,24 @@ class GameSession:
         flags = self._safety_veto_flags
         if flags is None:
             flags = ServingVetoFlags.from_env()
+        if (
+            self.served_checkpoint is not None
+            and self.served_checkpoint.get("requested") == "b8-s3"
+            and self.served_checkpoint.get("name") == "frp3-s12"
+        ):
+            # B8's refusal falls through to the released FRP3 + v8 safety posture.  This
+            # narrow override cannot change named FRP3 operation or ordinary veto rollbacks.
+            prior_variant = flags.variant
+            flags = replace(flags, variant="v8")
+            reason = str(self.served_checkpoint.get("reason") or "")
+            self.served_checkpoint["reason"] = (
+                f"{reason}; b8-s3 fallback forces SNAKE_SERVE_VETO_VARIANT=v8 for frp3-s12"
+            )
+            served_checkpoint_logger.info(
+                "%s fallback_veto_override requested=b8-s3 prior_variant=%s forced_variant=v8",
+                LOG_PREFIX,
+                prior_variant,
+            )
         self.safety_veto = install_serving_vetoes(
             game, policy, mode, obs_spec, checkpoint_hash, flags
         )
@@ -1054,7 +1076,15 @@ class GameSession:
         with self._lock:
             if mode == self.mode:
                 return
-            if mode == MODE_TRAIN and self.obs_spec in (RASTER31V2, RASTER31V3, *EGO2S_OBS_SPECS):
+            if mode == MODE_TRAIN and self.obs_spec in EGO2S_OBS_SPECS:
+                # Ego students have no training path. Match the construction-time
+                # refusal from every mode, while preserving an existing Watch arena.
+                if self.mode != MODE_WATCH:
+                    self._build(self.checkpoint_path, mode=MODE_WATCH)
+                self.last_error = "ego2s students are served forward-only; dropped to watch mode."
+                self.last_error_overridable = False
+                return
+            if mode == MODE_TRAIN and self.obs_spec in (RASTER31V2, RASTER31V3):
                 # Forward-only checkpoint: the rebuild would coerce back to
                 # watch, destroying the current game for nothing. Skip it and
                 # surface the reason through the existing error pipeline.
@@ -1136,12 +1166,15 @@ class GameSession:
             try:
                 self.last_error = None
                 self.last_error_overridable = False
+                old_served_checkpoint = self.served_checkpoint
+                self.served_checkpoint = None
                 self._build(path, mode=self.mode, override_reward_contract=override_reward_contract)
                 # A client-selected artifact is not a registry-selected served
                 # checkpoint. Do not attribute later scored runs to the default
                 # choice that constructed this session.
                 self.served_checkpoint = None
             except Exception as exc:
+                self.served_checkpoint = old_served_checkpoint
                 self.last_error = f"Failed to load {safe}: {exc}"
                 self.last_error_overridable = False
                 # Preserve the existing live game. A rejected candidate must

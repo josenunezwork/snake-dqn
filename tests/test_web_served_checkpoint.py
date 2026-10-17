@@ -3,8 +3,9 @@
 Covers: the released default is frp3-s12 since 2026-10-06 (fail closed to the champion; with
 no checkpoint named, a pre-swap veto variant v7/v5/v2 serves the champion so those rollbacks
 keep their meaning); before the flip the default was the champion (path and behavior
-unchanged, including the untrained fallback; tested under ``pre_release``); the frp3-s12 entry is refused while its strict-receipt pin is the
-shipped ``null`` placeholder, when the pin is malformed or binds other bytes, and when the
+unchanged, including the untrained fallback; tested under ``pre_release``); the frp3-s12
+entry is refused while its strict-receipt pin is the shipped ``null`` placeholder, when the
+pin is malformed or binds other bytes, and when the
 file is missing or its bytes differ (fail closed to the released default, with a reason,
 never raised); with a filled pin it is served and the released v8 veto binds it through the
 pin (only v8; v7/v5/v2 rollbacks leave it unwrapped); the log line; and the real FRP-v3
@@ -79,11 +80,34 @@ def unfilled(doc: dict) -> dict:
     return out
 
 
+def b8_unfilled(doc: dict) -> dict:
+    out = copy.deepcopy(doc)
+    out["checkpoints"][registry.NAME_B8_S3]["strict_receipt"] = None
+    return out
+
+
+def b8_filled(doc: dict, sha: str = registry.B8_S3_SHA256) -> dict:
+    out = copy.deepcopy(doc)
+    out["checkpoints"][registry.NAME_B8_S3].update(
+        checkpoint_sha256=sha,
+        veto_variant="none",
+        veto_method="none",
+        strict_receipt={
+            "verdict": "STRICT_PASS",
+            "root": "/abs/t7/run-v1",
+            "decision": {"path": "decision.json", "sha256": "a" * 64},
+            "audit_report": {"path": "audit.json", "sha256": "b" * 64},
+            "independent_review": {"path": "independent_result_review.json", "sha256": "c" * 64},
+        },
+    )
+    return out
+
+
 @pytest.fixture
 def shipped():
     """The repo pins with the frp3-s12 receipt reset to the shipped placeholder, so these
     tests keep passing after the owner fills and commits the real pin."""
-    return unfilled(registry.load_pins())
+    return b8_unfilled(unfilled(registry.load_pins()))
 
 
 @pytest.fixture
@@ -179,13 +203,17 @@ class TestReleasedDefault:
 
     def test_watch_hero_off_still_serves_frp3(self, tmp_path, shipped, fake_frp3):
         path, sha = fake_frp3
-        choice = resolve({ENV_WATCH_HERO: "0"}, tmp_path, tmp_path / "c.pth", filled(shipped, sha=sha))
+        choice = resolve(
+            {ENV_WATCH_HERO: "0"}, tmp_path, tmp_path / "c.pth", filled(shipped, sha=sha)
+        )
         assert choice.name == NAME_FRP3_S12 and choice.reason is None
 
     def test_unknown_variant_keeps_frp3(self, tmp_path, shipped, fake_frp3):
         # the veto module falls back to v8 for an unknown variant, so frp3-s12 stays gated
         _, sha = fake_frp3
-        choice = resolve({ENV_VARIANT: "v9"}, tmp_path, tmp_path / "c.pth", filled(shipped, sha=sha))
+        choice = resolve(
+            {ENV_VARIANT: "v9"}, tmp_path, tmp_path / "c.pth", filled(shipped, sha=sha)
+        )
         assert choice.name == NAME_FRP3_S12
 
     @pytest.mark.parametrize("word", ["v7", "v5", "v2", " V7 "])
@@ -222,6 +250,68 @@ class TestReleasedDefault:
     def test_refused_and_no_champion_means_untrained(self, tmp_path, shipped, fake_frp3):
         choice = resolve({}, tmp_path, tmp_path / "absent.pth", shipped)
         assert choice.path is None and "serving the champion" in choice.reason
+
+
+class TestB8ServingQualificationRegistry:
+    def test_b8_entry_is_raster_and_never_a_v8_gated_checkpoint(self):
+        entry = registry.REGISTRY[registry.NAME_B8_S3]
+        assert entry.sha256 == registry.B8_S3_SHA256
+        assert entry.veto_variant == entry.veto_method == "none"
+        assert entry.artifact_path.endswith("redesign-m4b-mac-20261013/B8_s3/final.pth")
+        assert registry.B8_S3_SHA256 not in registry.v8_gated_checkpoint_sha256s(
+            b8_filled(registry.load_pins())
+        )
+
+    def test_b8_filled_pin_serves_the_verified_artifact(self, tmp_path, shipped):
+        artifact = tmp_path / "B8_s3" / "final.pth"
+        artifact.parent.mkdir()
+        artifact.write_bytes(b"b8 stand-in")
+        sha = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        entry = registry.PinnedCheckpoint(
+            registry.NAME_B8_S3,
+            "b8.pth",
+            sha,
+            artifact_path=str(artifact),
+            veto_variant="none",
+            veto_method="none",
+            strict_files=registry.T7_PIN_FILES,
+        )
+        old = registry.REGISTRY[registry.NAME_B8_S3]
+        registry.REGISTRY[registry.NAME_B8_S3] = entry
+        try:
+            choice = resolve(
+                {ENV_CHECKPOINT: registry.NAME_B8_S3},
+                tmp_path,
+                tmp_path / "c",
+                b8_filled(shipped, sha),
+            )
+        finally:
+            registry.REGISTRY[registry.NAME_B8_S3] = old
+        assert (choice.name, choice.path, choice.reason) == (
+            registry.NAME_B8_S3,
+            str(artifact),
+            None,
+        )
+
+    def test_b8_refusal_uses_verified_frp3_then_champion(self, tmp_path, shipped, fake_frp3):
+        frp, sha = fake_frp3
+        champion = tmp_path / "champ.pth"
+        champion.write_bytes(b"champion")
+        choice = resolve(
+            {ENV_CHECKPOINT: registry.NAME_B8_S3}, tmp_path, champion, filled(shipped, sha=sha)
+        )
+        assert choice.name == NAME_FRP3_S12 and choice.path == str(frp)
+        frp.unlink()
+        choice = resolve({ENV_CHECKPOINT: registry.NAME_B8_S3}, tmp_path, champion, shipped)
+        assert choice.name == "champion" and "b8-s3 fallback frp3-s12 failed" in choice.reason
+
+    def test_future_b8_default_refusal_keeps_the_fallback_chain(
+        self, monkeypatch, tmp_path, shipped, fake_frp3
+    ):
+        frp, sha = fake_frp3
+        monkeypatch.setattr(registry, "CHECKPOINT_RELEASED_DEFAULT", registry.NAME_B8_S3)
+        choice = resolve({}, tmp_path, tmp_path / "champ.pth", filled(shipped, sha=sha))
+        assert choice.name == NAME_FRP3_S12 and choice.path == str(frp)
 
 
 @pytest.mark.usefixtures("pre_release")
@@ -445,9 +535,7 @@ class TestLiveStack:
         assert state["checkpoint_sha256"] == registry.CHAMPION_SHA256
         assert state["active"] and state["variant"] == "v7"
 
-    def test_unset_env_serves_the_champion_with_v8_pre_release(
-        self, champion_default, pre_release
-    ):
+    def test_unset_env_serves_the_champion_with_v8_pre_release(self, champion_default, pre_release):
         sess = GameSession()
         state = sess.safety_veto_state()
         assert sess.checkpoint_path == str(CHAMPION)
@@ -498,6 +586,31 @@ class TestLiveStack:
         state = sess.safety_veto_state()
         assert state["checkpoint_sha256"] == registry.FRP3_S12_SHA256
         assert state["active"] is False and "under variant v7" in state["reason"]
+
+    def test_refused_b8_under_v7_falls_back_to_frp3_with_v8(
+        self, monkeypatch, use_pins, shipped, champion_default
+    ):
+        use_pins(filled(shipped))
+        monkeypatch.setenv(ENV_CHECKPOINT, registry.NAME_B8_S3)
+        monkeypatch.setenv(ENV_VARIANT, "v7")
+        sess = GameSession()
+        state = sess.safety_veto_state()
+        assert sess.served_checkpoint["name"] == NAME_FRP3_S12
+        assert state["variant"] == "v8" and state["active"] is True
+        assert "fallback forces SNAKE_SERVE_VETO_VARIANT=v8" in sess.served_checkpoint["reason"]
+
+    def test_manual_load_after_b8_fallback_restores_the_requested_v7_variant(
+        self, monkeypatch, use_pins, shipped, champion_default
+    ):
+        use_pins(filled(shipped))
+        monkeypatch.setenv(ENV_CHECKPOINT, registry.NAME_B8_S3)
+        monkeypatch.setenv(ENV_VARIANT, "v7")
+        sess = GameSession()
+        assert sess.safety_veto_state()["variant"] == "v8"
+        sess.load_checkpoint(registry.CHAMPION_FILENAME)
+        state = sess.safety_veto_state()
+        assert sess.served_checkpoint is None
+        assert state["variant"] == "v7" and state["active"] is True
 
     def test_q_values_are_about_a_quarter_of_the_champions(self, champion_default):
         """The 0.25 head/reward rescale: Q (and V, A) about 4x smaller; argmax-level and

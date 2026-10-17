@@ -1,6 +1,6 @@
 {
   "schema": "served-checkpoint-strict-pins/v1",
-  "note": "Strict-gate receipt pins that authorize serving a non-champion registry checkpoint (web/backend/served_checkpoint.py). strict_receipt null = unfilled placeholder: the name is refused and the released default is served. Fill ONLY after the checkpoint's strict gate closes STRICT_PASS, with research/frp3_checkpoint_serving_20261005/fill_strict_pin.py, then commit.",
+  "note": "Strict-gate receipt pins that authorize serving a non-champion registry checkpoint (web/backend/served_checkpoint.py). strict_receipt null = unfilled placeholder: the name is refused and the released default is served. Fill frp3 only with its sibling tool after its strict gate; fill b8-s3 only with research/t12_b8_serving_20261017/fill_strict_pin.py after the T7 decision, isolated audit, and independent review verify.",
   "checkpoints": {
     "frp3-s12": {
       "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
@@ -20,6 +20,27 @@
         "audit_report": {
           "path": "output/audit/audit.json",
           "sha256": "fa015c2f4b8c38c61d23d387c129fc732c857e6156e638fa1431b412e38a2911"
+        }
+      }
+    },
+    "b8-s3": {
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "veto_variant": "none",
+      "veto_method": "none",
+      "strict_receipt": {
+        "verdict": "STRICT_PASS",
+        "root": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t7-phase-r-b8-20261016",
+        "decision": {
+          "path": "decision.json",
+          "sha256": "8fd97ecc564fdc31a1d77ed50b8112dcffac42d736db20b2b410b67c6ef139fb"
+        },
+        "audit_report": {
+          "path": "audit.json",
+          "sha256": "c631930c0af441e72e304a08cea401ed1a494c02c3e73071a8a459fb33dde07e"
+        },
+        "independent_review": {
+          "path": "independent_result_review.json",
+          "sha256": "135b1b8b5736619dbf1d57460d606c3a60a4ff4f59019c4ee51392dc5e2aecbe"
         }
       }
     }

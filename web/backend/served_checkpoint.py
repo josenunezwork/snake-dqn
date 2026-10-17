@@ -10,7 +10,8 @@ name with ``SNAKE_SERVE_CHECKPOINT``; only names in :data:`REGISTRY` exist:
   ``SNAKE_SERVE_CHECKPOINT=champion``.
 * ``frp3-s12`` (the released default since 2026-10-06, :data:`CHECKPOINT_RELEASED_DEFAULT`;
   with no checkpoint named, ``SNAKE_SERVE_VETO_VARIANT=v7/v5/v2`` serves the champion
-  instead, so those veto rollbacks keep their pre-swap meaning): FRP-v3 arm M3 seed 12 at 60000 learner updates
+  instead, so those veto rollbacks keep their pre-swap meaning): FRP-v3 arm M3 seed 12 at
+  60000 learner updates
   (``apex_mark_u60000.pth``, sha256 :data:`FRP3_S12_SHA256`), served with the released v8
   veto (lambda 8) unchanged. It is served only when ALL of these hold, otherwise the build
   falls back to the released default and says why (fail closed, never raised):
@@ -22,6 +23,11 @@ name with ``SNAKE_SERVE_CHECKPOINT``; only names in :data:`REGISTRY` exist:
   - the pin binds this checkpoint's sha256 and the v8 method the swap was gated with;
   - a file exists at ``saved_snakes/<filename>`` or, failing that, at the pinned artifact
     path, and its bytes hash to the pinned sha256.
+
+* ``b8-s3`` is the T7-selected raster checkpoint. It is opt-in only and retains the released
+  default above. Its independent T7 decision/audit/review pin uses ``veto_variant: none``;
+  raster observations cannot use the vector61 serving veto. If its pin or bytes fail, serving
+  tries verified ``frp3-s12`` and then the champion.
 
 Unset or blank selects :data:`CHECKPOINT_RELEASED_DEFAULT`. An unknown name falls back to
 the released default with a ``reason`` (a typo cannot take the server down or silently
@@ -60,6 +66,7 @@ PINS_SCHEMA = "served-checkpoint-strict-pins/v1"
 ENV_CHECKPOINT = "SNAKE_SERVE_CHECKPOINT"
 NAME_CHAMPION = "champion"
 NAME_FRP3_S12 = "frp3-s12"
+NAME_B8_S3 = "b8-s3"
 # Released default when ENV_CHECKPOINT is unset or blank.
 # frp3-s12 released 2026-10-06 (strict STRICT_PASS frp3-m3s12-strict-20261005/run-v1, receipt
 # 5107f3fc; web SERVING_PASS frp3-s12-serving-20261006/run-v1). Rollback (no code change):
@@ -82,6 +89,11 @@ FRP3_S12_ARTIFACT_PATH = (
     "/Users/josenunez/Projects/ml/snake-dqn-artifacts/frp-v3-20261005/train/arm-M3/seed-12/"
     "checkpoints/apex_mark_u60000.pth"
 )
+B8_S3_FILENAME = "b8_s3_t7_20261016.pth"
+B8_S3_SHA256 = "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+B8_S3_ARTIFACT_PATH = (
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/" "B8_s3/final.pth"
+)
 # The veto the swap is gated and served with: the released v8 (lambda 8), unchanged.
 V8_VARIANT = "v8"
 V8_METHOD = "free-space-veto/v8-space-and-head(lambda=8.0)"
@@ -91,6 +103,7 @@ logger = logging.getLogger(__name__)
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 # The three strict artifacts a filled pin binds (each {"path": <rel to root>, "sha256": hex}).
 STRICT_FILES = ("receipt", "intent", "audit_report")
+T7_PIN_FILES = ("decision", "audit_report", "independent_review")
 
 
 @dataclass(frozen=True)
@@ -103,6 +116,9 @@ class PinnedCheckpoint:
     artifact_path: Optional[str] = None
     # True: served only with a filled strict-receipt pin in PINS_PATH (fail closed).
     requires_strict_pin: bool = True
+    veto_variant: Optional[str] = V8_VARIANT
+    veto_method: Optional[str] = V8_METHOD
+    strict_files: tuple = STRICT_FILES
 
 
 REGISTRY: Dict[str, PinnedCheckpoint] = {
@@ -111,6 +127,15 @@ REGISTRY: Dict[str, PinnedCheckpoint] = {
     ),
     NAME_FRP3_S12: PinnedCheckpoint(
         NAME_FRP3_S12, FRP3_S12_FILENAME, FRP3_S12_SHA256, artifact_path=FRP3_S12_ARTIFACT_PATH
+    ),
+    NAME_B8_S3: PinnedCheckpoint(
+        NAME_B8_S3,
+        B8_S3_FILENAME,
+        B8_S3_SHA256,
+        artifact_path=B8_S3_ARTIFACT_PATH,
+        veto_variant="none",
+        veto_method="none",
+        strict_files=T7_PIN_FILES,
     ),
 }
 
@@ -139,9 +164,9 @@ def strict_pin_problems(name: str, pins: Optional[Mapping[str, Any]] = None) -> 
     """Why ``name``'s strict-receipt pin does not authorize serving it ([] = filled and valid).
 
     A valid pin: the pins document has the expected schema; the entry names the registry
-    checkpoint's sha256 and the v8 variant/method; ``strict_receipt`` is a mapping with a
-    ``verdict`` of ``STRICT_PASS``, an absolute ``root`` and, for each of
-    :data:`STRICT_FILES`, a relative ``path`` and a 64-hex ``sha256``. ``null`` (the shipped
+    checkpoint's sha256 and that checkpoint's registered veto binding; ``strict_receipt`` is
+    a mapping with a ``verdict`` of ``STRICT_PASS``, an absolute ``root`` and, for the entry's
+    evidence files, a relative ``path`` and a 64-hex ``sha256``. ``null`` (the shipped
     placeholder) is refused.
     """
     entry = REGISTRY.get(name)
@@ -156,8 +181,8 @@ def strict_pin_problems(name: str, pins: Optional[Mapping[str, Any]] = None) -> 
     out = []
     if pin.get("checkpoint_sha256") != entry.sha256:
         out.append("pin checkpoint_sha256 is not the registry sha256")
-    if pin.get("veto_variant") != V8_VARIANT or pin.get("veto_method") != V8_METHOD:
-        out.append(f"pin veto is not {V8_VARIANT} {V8_METHOD!r}")
+    if pin.get("veto_variant") != entry.veto_variant or pin.get("veto_method") != entry.veto_method:
+        out.append(f"pin veto is not {entry.veto_variant} {entry.veto_method!r}")
     receipt = pin.get("strict_receipt")
     if receipt is None:
         out.append("strict receipt pin is the unfilled placeholder (null)")
@@ -169,7 +194,7 @@ def strict_pin_problems(name: str, pins: Optional[Mapping[str, Any]] = None) -> 
     root = receipt.get("root")
     if not isinstance(root, str) or not os.path.isabs(root):
         out.append("strict_receipt.root is not an absolute path")
-    for key in STRICT_FILES:
+    for key in entry.strict_files:
         item = receipt.get(key)
         if not (
             isinstance(item, Mapping)
@@ -190,7 +215,9 @@ def v8_gated_checkpoint_sha256s(pins: Optional[Mapping[str, Any]] = None) -> Lis
     return sorted(
         entry.sha256
         for name, entry in REGISTRY.items()
-        if entry.requires_strict_pin and not strict_pin_problems(name, doc)
+        if entry.requires_strict_pin
+        and entry.veto_variant == V8_VARIANT
+        and not strict_pin_problems(name, doc)
     )
 
 
@@ -285,11 +312,39 @@ def _released_default(
     # champion when its pin or bytes do not verify.
     choice = _resolve_pinned(REGISTRY[CHECKPOINT_RELEASED_DEFAULT], saved_dir, pins)
     if choice.path is None:
+        if CHECKPOINT_RELEASED_DEFAULT == NAME_B8_S3:
+            fallback = _fallback_after_refusal(NAME_B8_S3, saved_dir, champion_path, pins)
+            fallback.reason = (
+                f"released default {choice.reason}; {fallback.reason or 'served frp3-s12'}"
+            )
+            fallback.pin_problems = choice.pin_problems
+            return fallback
         fallback = _champion_choice(champion_path)
         fallback.reason = f"released default {choice.reason}; serving the champion"
         fallback.pin_problems = choice.pin_problems
         return fallback
     return choice
+
+
+def _fallback_after_refusal(
+    requested: str, saved_dir: str, champion_path: str, pins: Mapping[str, Any]
+) -> ServedCheckpointChoice:
+    """Fail closed in registry order, without changing the released default.
+
+    B8 is an opt-in raster qualification candidate. Its failure must first use the already
+    released, independently pinned FRP3 checkpoint; only an FRP3 verification failure reaches
+    the champion. This deliberately ignores veto rollback env state: checkpoint resolution is
+    deterministic and the veto layer subsequently refuses raster observations on its own guard.
+    """
+    if requested == NAME_B8_S3:
+        frp = _resolve_pinned(REGISTRY[NAME_FRP3_S12], saved_dir, pins)
+        if frp.path is not None:
+            return frp
+        champion = _champion_choice(champion_path)
+        champion.reason = f"b8-s3 fallback frp3-s12 failed: {frp.reason}; serving the champion"
+        champion.pin_problems = frp.pin_problems
+        return champion
+    return _released_default(saved_dir, champion_path, pins)
 
 
 def resolve_served_checkpoint(
@@ -333,7 +388,7 @@ def resolve_served_checkpoint(
     else:
         choice = _resolve_pinned(REGISTRY[requested], saved, doc)
         if choice.path is None:
-            fallback = _released_default(saved, champion, doc, env)
+            fallback = _fallback_after_refusal(requested, saved, champion, doc)
             reason = choice.reason
             if fallback.reason:
                 reason = f"{reason}; {fallback.reason}"
