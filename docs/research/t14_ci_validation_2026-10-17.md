@@ -69,6 +69,27 @@ The test repairs preserve the workflow selection and add no skip markers:
 - SciPy and scikit-learn are declared development dependencies so diagnostic tests
   can run in a clean GitHub checkout.
 
+## Hosted-only follow-up repairs
+
+The first integrated local suite passed 6,945 tests (15 existing skips and 101
+slow deselections). An earlier hosted Mac run then exposed additional environment
+differences: Torch 2.14.1 was installed where the local and qualified parity tests
+use 2.9.1, the runner's available RAM was below production watchdog floors, and
+subprocess smoke tests could not inherit in-process artifact fixtures.
+
+Development requirements now pin Torch 2.9.1. CI prints its build configuration
+and runs the unchanged opponent, MPS compile, learner, and stacked-learner parity
+assertions before the full suite. Test supervision helpers select a memory floor
+explicitly and test low-memory refusal separately; tiny observation fixtures
+provide deterministic memory readings while retaining resource-error tests.
+The bank-only CLI smoke passes its scripted identity fixture through a temporary
+child-interpreter startup hook. Production identity and resource guards remain
+unchanged. Local-agent tests now require authenticated health readiness, capture
+startup logs, and fail explicitly on child exit or deadline instead of falling
+through a socket-poll loop. The two affected test files passed all 108 tests
+locally; the unchanged Torch group passed 86 selected tests and its exact CI
+preflight passed all 8 tests.
+
 ## Hosted environment and metadata portability
 
 The Python quality job uses `macos-26` ARM64, matching the platform authority for

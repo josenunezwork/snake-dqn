@@ -14,6 +14,7 @@ from research.redesign_m3c_20261008 import learner_m3c as lm
 from research.redesign_m3c_20261008 import train_m3c as m3c
 from research.t3_rollout_labels_20261015.bank import LabelBank, surviving_margin
 from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
+from tests.t14_fixtures import subprocess_evaluator_sitecustomize
 from tests.test_perf_learner import _args, _assert_same, _ingest, _st, _world
 
 
@@ -259,9 +260,10 @@ def test_bank_only_cpu_cli_smoke(tmp_path: Path) -> None:
         "--ring-dir",
         str(tmp_path),
     ]
+    startup = subprocess_evaluator_sitecustomize(tmp_path)
     env = {
         **os.environ,
-        "PYTHONPATH": str(root),
+        "PYTHONPATH": os.pathsep.join((str(startup), str(root))),
         "OMP_NUM_THREADS": "1",
         "OPENBLAS_NUM_THREADS": "1",
         "MKL_NUM_THREADS": "1",

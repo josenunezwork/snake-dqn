@@ -713,6 +713,8 @@ class TestSupervision:
     def run(self, tmp_path, commands, **kwargs):
         kwargs.setdefault("poll_seconds", 0.05)
         kwargs.setdefault("grace_seconds", 2.0)
+        # Unit tests select their watchdog cause explicitly; host cgroup pressure is not one.
+        kwargs.setdefault("available_floor_bytes", 0)
         return sr.supervise_children(
             commands,
             cwd=tmp_path,
@@ -745,6 +747,15 @@ class TestSupervision:
             heartbeat_stale_seconds=0.5,
         )
         assert stale["cause"] == "heartbeat_stale"
+
+    def test_available_memory_floor_watchdog_is_explicit(self, tmp_path):
+        result = self.run(
+            tmp_path,
+            [py("import time; time.sleep(60)")],
+            wall_seconds=30,
+            available_floor_bytes=2**63,
+        )
+        assert result["cause"] == "available_memory_floor"
 
     def test_heartbeat_uses_monotonic_clock_not_wall_mtime(self, tmp_path):
         beat = tmp_path / "beat.json"

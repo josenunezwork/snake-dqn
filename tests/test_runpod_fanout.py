@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib import error as urllib_error
 
 import pytest
 
@@ -288,6 +289,32 @@ def free_port():
     return port
 
 
+def wait_for_agent_health(proc, port, token, log_path, ready, timeout=15.0):
+    """Wait for an owned local agent to answer authenticated health requests."""
+    client = runner.AgentClient(f"http://127.0.0.1:{port}", token, timeout=0.25)
+    deadline = time.monotonic() + timeout
+    last = "no response yet"
+    while time.monotonic() < deadline:
+        returncode = proc.poll()
+        if returncode is not None:
+            tail = log_path.read_text(errors="replace")[-2000:] if log_path.exists() else ""
+            raise AssertionError(f"local agent exited rc={returncode}; startup log:\n{tail}")
+        try:
+            health = client.get_json("/health")
+        except (OSError, TimeoutError, ValueError, urllib_error.URLError) as exc:
+            last = f"{type(exc).__name__}: {exc}"
+        else:
+            if ready(health):
+                return health
+            last = f"health not ready: {health!r}"
+        time.sleep(0.05)
+    tail = log_path.read_text(errors="replace")[-2000:] if log_path.exists() else ""
+    raise AssertionError(
+        f"local agent health did not become ready within {timeout:.1f}s; "
+        f"last={last}; startup log:\n{tail}"
+    )
+
+
 class FakeRp:
     """Fake rp client: create_pod starts a local pod_agent; delete kills it."""
 
@@ -296,6 +323,7 @@ class FakeRp:
         self.procs = {}
         self.ports = {}
         self.names = {}
+        self.logs = {}
         self.created = []
         self.deleted = []
         self.balance_value = 40.0
@@ -337,20 +365,32 @@ class FakeRp:
                 "FANOUT_PROVIDER_TAG": "b" if self.n > 1 else "a",
             }
         )
-        proc = subprocess.Popen(
-            [sys.executable, str(runner.AGENT_SOURCE)],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        startup_log = self.tmp / f"{pod_id}.startup.log"
+        with startup_log.open("wb") as startup_stream:
+            proc = subprocess.Popen(
+                [sys.executable, str(runner.AGENT_SOURCE)],
+                env=env,
+                stdout=startup_stream,
+                stderr=subprocess.STDOUT,
+            )
+        self.logs[pod_id] = startup_log
         self.procs[pod_id], self.ports[pod_id], self.names[pod_id] = proc, port, body["name"]
         self.created.append(body)
-        for _ in range(100):
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                tail = startup_log.read_text(errors="replace")[-2000:]
+                raise AssertionError(
+                    f"local pod agent exited rc={proc.returncode}; startup log:\n{tail}"
+                )
             try:
                 socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
                 break
             except OSError:
                 time.sleep(0.05)
+        else:
+            tail = startup_log.read_text(errors="replace")[-2000:]
+            raise AssertionError(f"local pod agent did not open port {port}; startup log:\n{tail}")
         return {"id": pod_id, "costPerHr": 0.03 * body["vcpuCount"], "desiredStatus": "RUNNING"}
 
     def delete_pod(self, pod_id, confirm):
@@ -739,19 +779,22 @@ def test_agent_rejects_bad_token_and_unlisted_uploads(tmp_path):
         FANOUT_TOKEN_SHA256=hashlib.sha256(token.encode()).hexdigest(),
         FANOUT_PIP_JSON="[]",
     )
-    proc = subprocess.Popen(
-        [sys.executable, str(runner.AGENT_SOURCE)],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    startup_log = tmp_path / "agent-startup.log"
+    with startup_log.open("wb") as startup_stream:
+        proc = subprocess.Popen(
+            [sys.executable, str(runner.AGENT_SOURCE)],
+            env=env,
+            stdout=startup_stream,
+            stderr=subprocess.STDOUT,
+        )
     try:
-        for _ in range(100):
-            try:
-                socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-                break
-            except OSError:
-                time.sleep(0.05)
+        wait_for_agent_health(
+            proc,
+            port,
+            token,
+            startup_log,
+            lambda health: health.get("pip") == "ok",
+        )
         good = runner.AgentClient(f"http://127.0.0.1:{port}", token)
         bad = runner.AgentClient(f"http://127.0.0.1:{port}", "nope")
         assert good.get_json("/health")["pip"] == "ok"
@@ -771,6 +814,7 @@ def test_agent_rejects_bad_token_and_unlisted_uploads(tmp_path):
             good.get_bytes("/record/../agent.log")
     finally:
         proc.kill()
+        proc.wait(timeout=5)
         shutil.rmtree(tmp_path / "r", ignore_errors=True)
 
 

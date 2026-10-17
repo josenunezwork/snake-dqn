@@ -32,8 +32,15 @@ jobs:
           flake8 src web/backend
       - name: Verify pinned numerical plans
         run: |
-          python -c "import platform; print(platform.platform(), platform.machine())"
+          python -c "import platform, torch; print(platform.platform(), platform.machine(), torch.__version__); print(torch.__config__.show())"
           pytest -q tests/test_sequential_gate.py tests/test_m3_rule_spec.py tests/test_m3c_rule_spec.py tests/test_m4_rule_spec.py
+      - name: Verify qualified Torch parity
+        run: >-
+          pytest -q
+          tests/test_perf_opp.py::test_stacked_forward_matches_each_network
+          tests/test_perf_compile.py::test_mps_compile_is_checked
+          tests/test_perf_learner.py::test_mps_fast_and_fp16_stay_finite_and_close
+          tests/test_perf_multiseed.py::test_mps_stacked_tracks_sequential
       - name: Run tests
         run: pytest -q -m "not slow"
 
