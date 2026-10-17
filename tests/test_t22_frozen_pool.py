@@ -210,9 +210,10 @@ def test_bodymap_more_than_64_slots_uses_exact_general_fallback() -> None:
     rows = np.array([[0, 64], [0, 0], [0, 64]], dtype=np.int64)
     q = np.array([[0, 1, 2, 3, 4, 5], [5, 4, 3, 2, 1, 0], [1, 1, 1, 1, 1, 1]], np.float32)
     mask = np.ones((len(rows), 6), dtype=bool)
-    expected = baseline.v8_decide(sim, rows, q, mask, features=True)
-    actual = current.v8_decide(sim, rows, q, mask, features=True)
-    assert_v8_result_bytes_equal(expected, actual, frame=0)
+    for eager in (False, True):
+        expected = baseline.v8_decide(sim, rows, q, mask, features=eager)
+        actual = current.v8_decide(sim, rows, q, mask, features=eager)
+        assert_v8_result_bytes_equal(expected, actual, frame=int(eager))
 
 
 def test_bodymap_workspace_thread_isolation_and_stamp_rollover() -> None:
