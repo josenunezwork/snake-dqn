@@ -46,9 +46,9 @@ counters (``veto_record`` / ``veto_diagnostics``) and the optional v8
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 import threading
-from typing import Dict, Optional, Tuple
+from dataclasses import dataclass, replace
+from typing import Optional, Tuple
 
 import numpy as np
 from numba import njit
@@ -372,55 +372,122 @@ def _landing_area_membership(
 
 
 @njit(cache=True, nogil=True)
-def _eager_area_landing_membership(
-    bodies, e, s, hp, ring, n, L, bf, heading, action, gw, gh, min_boost, boost_cost, area_cap, landing_cap,
-    membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+def _eager_templates(
+    bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost,
+    area_cap, landing_cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
+    qx, qy, qd, area, landing,
 ):  # fmt: skip
-    """Eager v8 diagnostics from one retained post-move body template.
+    """Paint retained old cells once per speed; overlay and restore two action cells.
 
-    The release map is the v7 tail-aware template.  Once its new head is removed it is
-    also exactly v5's static boost-body blocker: retained old cells plus the intermediate
-    boost cell.  Thus an eager boost action paints the post-move body once, then runs the
-    two unchanged BFS variants against that same map.
+    Static boost blockers retain an old cell at the landing head; tail-aware area
+    deliberately removes that cell. Separate stamps keep these contracts distinct.
+    Every search still uses the same FIFO, neighbor order and passability rule.
     """
-    rel = action % 3
-    hd = (heading + rel - 1) % 4
-    dx = _DX[hd]
-    dy = _DY[hd]
-    boosted, ln, lpost = _post_move(n, L, bf, action >= 3, min_boost, boost_cost)
-    nh = 2 if boosted else 1
     hx = bodies[e, s, hp, 0]
     hy = bodies[e, s, hp, 1]
-    ws[2] += 1
-    rcur = ws[2]
-    for i in range(ln):
-        cx, cy = _seg_cell(bodies, e, s, hp, ring, nh, hx, hy, dx, dy, i)
-        if cx < 0 or cx >= gw or cy < 0 or cy >= gh:
+    for speed in range(2):
+        boosted, ln, lpost = _post_move(n, L, bf, speed == 1, min_boost, boost_cost)
+        nh = 2 if boosted else 1
+        if speed == 1 and not boosted:
+            for d in range(3):
+                area[3 + d] = area[d]
+                landing[d] = _LANDING_NO_BOOST
             continue
-        idx = cx * gh + cy
-        when = lpost - i + 1
-        if rel_st[idx] != rcur:
-            rel_st[idx] = rcur
-            rel_val[idx] = when
-        elif when > rel_val[idx]:
-            rel_val[idx] = when
-    nx = hx + dx * nh
-    ny = hy + dy * nh
-    if nx >= 0 and nx < gw and ny >= 0 and ny < gh:
-        rel_st[nx * gh + ny] = 0
-    ws[1] += 1
-    area = _bfs_membership(
-        nx, ny, gw, gh, membership, other_bits, tmp, -1, rel_st, rel_val, rcur, True,
-        seen, ws[1], qx, qy, qd, area_cap,
-    )
-    landing = _LANDING_NO_BOOST
-    if boosted:
-        ws[1] += 1
-        landing = _bfs_membership(
-            nx, ny, gw, gh, membership, other_bits, rel_st, rcur, rel_st, rel_val, -1, False,
-            seen, ws[1], qx, qy, qd, landing_cap,
-        )
-    return area, landing
+        ws[2] += 1
+        rcur = ws[2]
+        ws[0] += 1
+        tst = ws[0]
+        for j in range(max(0, ln - nh)):
+            k = (hp - j) % ring
+            cx = bodies[e, s, k, 0]
+            cy = bodies[e, s, k, 1]
+            if cx < 0 or cx >= gw or cy < 0 or cy >= gh:
+                continue
+            idx = cx * gh + cy
+            when = lpost - j - (nh - 1)
+            if rel_st[idx] != rcur:
+                rel_st[idx] = rcur
+                rel_val[idx] = when
+            elif when > rel_val[idx]:
+                rel_val[idx] = when
+            if boosted:
+                tmp[idx] = tst
+        for d in range(3):
+            hd = (heading + d - 1) % 4
+            dx = _DX[hd]
+            dy = _DY[hd]
+            ix = hx + dx
+            iy = hy + dy
+            mid = -1
+            mid_st = 0
+            mid_val = 0
+            mid_tmp = 0
+            if boosted and ln > 1 and 0 <= ix < gw and 0 <= iy < gh:
+                mid = ix * gh + iy
+                mid_st = rel_st[mid]
+                mid_val = rel_val[mid]
+                mid_tmp = tmp[mid]
+                if mid_st != rcur or lpost > mid_val:
+                    rel_val[mid] = lpost
+                rel_st[mid] = rcur
+                tmp[mid] = tst
+            nx = hx + nh * dx
+            ny = hy + nh * dy
+            if boosted:
+                ws[1] += 1
+                landing[d] = _bfs_membership(
+                    nx,
+                    ny,
+                    gw,
+                    gh,
+                    membership,
+                    other_bits,
+                    tmp,
+                    tst,
+                    rel_st,
+                    rel_val,
+                    -1,
+                    False,
+                    seen,
+                    ws[1],
+                    qx,
+                    qy,
+                    qd,
+                    landing_cap,
+                )
+            head = -1
+            head_st = 0
+            if 0 <= nx < gw and 0 <= ny < gh:
+                head = nx * gh + ny
+                head_st = rel_st[head]
+                rel_st[head] = 0  # release.pop(head), including old-body overlaps
+            ws[1] += 1
+            area[speed * 3 + d] = _bfs_membership(
+                nx,
+                ny,
+                gw,
+                gh,
+                membership,
+                other_bits,
+                tmp,
+                -1,
+                rel_st,
+                rel_val,
+                rcur,
+                True,
+                seen,
+                ws[1],
+                qx,
+                qy,
+                qd,
+                area_cap,
+            )
+            if head >= 0:
+                rel_st[head] = head_st
+            if mid >= 0:
+                rel_st[mid] = mid_st
+                rel_val[mid] = mid_val
+                tmp[mid] = mid_tmp
 
 
 @njit(cache=True, nogil=True)
@@ -592,7 +659,6 @@ def _v8_rows(
         # occupied by the observer and an opponent remains covered, matching the old
         # "paint opponents first" semantics for synthetic overlapping bodies.
         ws[0] += 1
-        ost = ws[0]
         covered = 0
         ws[0] += 1
         hst = ws[0]
@@ -628,19 +694,38 @@ def _v8_rows(
         for a in range(6):
             area[a] = -1
         if eager:
+            _eager_templates(
+                bodies,
+                e,
+                s,
+                hp,
+                ring,
+                n,
+                L,
+                bf,
+                heading,
+                gw,
+                gh,
+                min_boost,
+                boost_cost,
+                acap,
+                cap,
+                membership,
+                other_bits,
+                tmp,
+                ws,
+                seen,
+                rel_st,
+                rel_val,
+                qx,
+                qy,
+                qd,
+                area,
+                out_landing[r],
+            )
             for d in range(3):
-                hd = (heading + d - 1) % 4
-                lc = _landing_count_membership(
-                    bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost, boost_cost,
-                    cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
-                )  # fmt: skip
-                out_landing[r, d] = lc
+                lc = out_landing[r, d]
                 land_ok[d] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
-            for a in range(6):
-                area[a] = _landing_area_membership(
-                    bodies, e, s, hp, ring, n, L, bf, heading, a, gw, gh, min_boost,
-                    boost_cost, acap, membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
-                )  # fmt: skip
         # ---- v5 boost_aware_choice (landing floods lazily, memoized)
         for a in range(6):
             elig[a] = mask[a] and spac[a % 3]
