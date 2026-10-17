@@ -22,6 +22,13 @@ MAX_ELIGIBLE_POLICIES = 16
 V8_METHOD = "free-space-veto/v8-space-and-head(lambda=8.0)"
 
 
+class _PolicyIds(tuple):
+    """Tuple that remains callable during the collector API transition."""
+
+    def __call__(self) -> Tuple[str, ...]:
+        return tuple(self)
+
+
 def sha256_file(path: Path) -> str:
     """Return the SHA-256 of ``path`` without trusting checkpoint metadata."""
     digest = hashlib.sha256()
@@ -100,7 +107,14 @@ def _v8_source_pins() -> Tuple[Tuple[str, str], ...]:
     return tuple(sorted(V8_STRICT_RECEIPT_SOURCE_SHA256S.items()))
 
 
-def default_pool_identities(checkpoint_dir: Optional[str] = None) -> Tuple[PoolIdentity, ...]:
+def _source_pins(*paths: str) -> Tuple[Tuple[str, str], ...]:
+    """Bind policy implementation bytes into the receipt at construction time."""
+    return tuple((path, sha256_file(Path(path))) for path in paths)
+
+
+def default_pool_identities(
+    checkpoint_dir: Optional[str] = None, b8_checkpoint: Optional[str] = None
+) -> Tuple[PoolIdentity, ...]:
     """The six permanent first-slice identities, with no dynamic snapshots.
 
     ``SNAKE_CKPT_DIR`` permits a transferred T16 bundle to retain its own absolute
@@ -109,15 +123,23 @@ def default_pool_identities(checkpoint_dir: Optional[str] = None) -> Tuple[PoolI
     """
     directory = Path(checkpoint_dir or os.environ.get("SNAKE_CKPT_DIR", "saved_snakes"))
     source_pins = _v8_source_pins()
+    bv8_sources = _source_pins(
+        "src/simd_env/ego2s_policy.py", "src/model/ego2s_network.py", "src/simd_env/ego_raster.py"
+    )
+    v61_sources = _source_pins(
+        "src/simd_env/vector61_policy.py", "src/simd_env/vector61_featurizer.py"
+    )
+    script_sources = _source_pins("src/simd_env/fast_anchors.py")
     return (
         PoolIdentity(
             "b8-s3",
             "bv8",
-            str(directory / "b8_s3_t7_20261016.pth"),
+            str(b8_checkpoint or directory / "b8_s3_t7_20261016.pth"),
             "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
             "ego2s-bv8",
             "resolved",
             "none",
+            bv8_sources,
         ),
         PoolIdentity(
             "frp3-s12",
@@ -127,6 +149,7 @@ def default_pool_identities(checkpoint_dir: Optional[str] = None) -> Tuple[PoolI
             "vector61",
             "advisory",
             "none",
+            v61_sources,
         ),
         PoolIdentity(
             "frp3-s12-v8",
@@ -136,7 +159,7 @@ def default_pool_identities(checkpoint_dir: Optional[str] = None) -> Tuple[PoolI
             "vector61",
             "advisory",
             V8_METHOD,
-            source_pins,
+            tuple(sorted(set(v61_sources + source_pins))),
         ),
         PoolIdentity(
             "champion-v8",
@@ -146,10 +169,28 @@ def default_pool_identities(checkpoint_dir: Optional[str] = None) -> Tuple[PoolI
             "vector61",
             "advisory",
             V8_METHOD,
-            source_pins,
+            tuple(sorted(set(v61_sources + source_pins))),
         ),
-        PoolIdentity("scripted:greedy_food", "scripted", None, None, "scripted", "resolved"),
-        PoolIdentity("scripted:random_safe", "scripted", None, None, "scripted", "resolved"),
+        PoolIdentity(
+            "scripted:greedy_food",
+            "scripted",
+            None,
+            None,
+            "scripted",
+            "resolved",
+            "none",
+            script_sources,
+        ),
+        PoolIdentity(
+            "scripted:random_safe",
+            "scripted",
+            None,
+            None,
+            "scripted",
+            "resolved",
+            "none",
+            script_sources,
+        ),
     )
 
 
@@ -167,8 +208,10 @@ class StaticPool:
             raise ValueError("static pool policies must exactly match identities")
         self.policies = dict(policies)
 
-    def policy_ids(self) -> Tuple[str, ...]:
-        return tuple(identity.policy_id for identity in self.identities)
+    @property
+    def policy_ids(self) -> _PolicyIds:
+        """Permanent ID order (also callable for the first collector draft)."""
+        return _PolicyIds(identity.policy_id for identity in self.identities)
 
     def identity_records(self) -> list[Dict[str, Any]]:
         return [identity.record() for identity in self.identities]
@@ -184,12 +227,12 @@ class StaticPool:
         alive = np.asarray(alive, dtype=bool)
         if seats.shape != alive.shape:
             raise ValueError(f"seat/alive shape mismatch: {seats.shape} vs {alive.shape}")
-        known = set(self.policy_ids())
+        known = set(self.policy_ids)
         unknown = {str(x) for x in seats.ravel() if x is not None and x not in known}
         if unknown:
             raise ValueError(f"unknown frozen pool IDs in seats: {sorted(unknown)}")
         out: "OrderedDict[str, np.ndarray]" = OrderedDict()
-        for policy_id in self.policy_ids():
+        for policy_id in self.policy_ids:
             rows = np.argwhere((seats == policy_id) & alive).astype(np.int64, copy=False)
             if len(rows):
                 out[policy_id] = rows
@@ -207,18 +250,22 @@ class StaticPool:
         groups = self.groups_for(seats, alive)
         counts = {policy_id: int(len(rows)) for policy_id, rows in groups.items()}
         start = time.perf_counter()
-        gpu_start = _gpu_event()
+        kinds = {identity.policy_id: identity.kind for identity in self.identities}
+        gpu_seconds = 0.0
         for policy_id, rows in groups.items():
+            # CUDA events are placed around only a BV8 policy group.  On-device event
+            # elapsed time excludes the CPU/vector/script work between groups.
+            gpu_events = _gpu_events() if kinds[policy_id] == "bv8" else None
             choice = np.asarray(
                 self.policies[policy_id].actions(masks[rows[:, 0], rows[:, 1]], prepared, rows),
                 dtype=np.int64,
             ).reshape(-1)
+            gpu_seconds += _gpu_elapsed(gpu_events)
             if len(choice) != len(rows):
                 raise RuntimeError(
                     f"{policy_id}: returned {len(choice)} actions for {len(rows)} rows"
                 )
             actions[rows[:, 0], rows[:, 1]] = choice
-        gpu_seconds = _gpu_elapsed(gpu_start)
         return {
             "frozen_forward_s": time.perf_counter() - start,
             "frozen_forward_gpu_s": gpu_seconds,
@@ -226,17 +273,14 @@ class StaticPool:
         }
 
 
-def _gpu_event():
-    try:
-        import torch
+def _gpu_events():
+    import torch
 
-        if not torch.cuda.is_available():
-            return None
-        start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-        start.record()
-        return start, end
-    except Exception:
+    if not torch.cuda.is_available():
         return None
+    start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    start.record()
+    return start, end
 
 
 def _gpu_elapsed(events: Any) -> float:
@@ -268,6 +312,10 @@ def build_static_pool(
             policies[identity.policy_id] = Ego2sSimdPolicy(
                 str(identity.checkpoint_path), device=device, mask_mode=identity.mask_config
             )
+            from src.model.ego2s_network import spec_for
+
+            if spec_for(policies[identity.policy_id].net) != identity.obs_spec:
+                raise RuntimeError(f"{identity.policy_id}: checkpoint obs spec does not match pin")
         else:
             policies[identity.policy_id] = Vector61SimdPolicy(
                 str(identity.checkpoint_path),
@@ -277,6 +325,8 @@ def build_static_pool(
                 veto_lambda=8.0 if identity.wrapper == V8_METHOD else None,
                 forward="batched",
             )
+            if policies[identity.policy_id].input_size != 61:
+                raise RuntimeError(f"{identity.policy_id}: checkpoint is not vector61")
         _freeze_policy(policies[identity.policy_id])
     return StaticPool(identities, policies)
 
@@ -293,9 +343,13 @@ def build_default_static_pool(
     """
     del ctx
     directory = getattr(args, "league_checkpoint_dir", None)
+    b8_checkpoint = getattr(args, "league_b8_checkpoint", None) or getattr(args, "init", None)
     seeds = sim.get_world_seeds()
     return build_static_pool(
-        default_pool_identities(directory), world_seeds=seeds, runtime=runtime, device=str(device)
+        default_pool_identities(directory, b8_checkpoint),
+        world_seeds=seeds,
+        runtime=runtime,
+        device=str(device),
     )
 
 
