@@ -197,6 +197,47 @@ def test_durable_copy_failure_is_nonfatal_and_local_snapshot_remains_loadable(tm
     assert events is not None
 
 
+def test_local_write_failure_returns_false_from_close_and_later_recovery_is_valid(tmp_path):
+    module = _checkpoint_api()
+    local = tmp_path / "local-file"
+    local.write_text("this path is intentionally a regular file")
+    failed = module.AsyncCheckpointer(local, keep=2, retries=1, retry_delay=0)
+    assert failed.submit(_capture_state(module, {"value": np.arange(3)}), transitions=1)
+    assert failed.close(timeout=10) is False
+    events = failed.poll_events()
+    assert any(event.get("event") == "checkpoint_local_failed" for event in events)
+
+    local.unlink()
+    local.mkdir()
+    recovered = module.AsyncCheckpointer(local, keep=2, retries=1, retry_delay=0)
+    assert recovered.submit(_capture_state(module, {"value": np.arange(4)}), transitions=2)
+    assert recovered.close(timeout=10) is True
+    state, manifest = module.load_latest_snapshot(local)
+    np.testing.assert_array_equal(state["value"], np.arange(4))
+    assert manifest["transitions"] == 2
+
+
+def test_malformed_manifest_inventory_and_timestamp_are_not_resumable(tmp_path):
+    module = _checkpoint_api()
+    local = tmp_path / "local"
+    local.mkdir()
+    checkpointer = module.AsyncCheckpointer(local, keep=2, retries=1, retry_delay=0)
+    assert checkpointer.submit(_capture_state(module, {"value": np.arange(3)}), transitions=1)
+    assert checkpointer.close(timeout=10) is True
+    manifest_path = _manifest_files(local)[0]
+    original = json.loads(manifest_path.read_text())
+    for malformed in (
+        {**original, "files": {"name": "state.pt"}},
+        {**original, "files": "state.pt"},
+        {key: value for key, value in original.items() if key != "created_ns"},
+    ):
+        manifest_path.write_text(json.dumps(malformed))
+        assert module.discover_snapshots(local) == []
+        with pytest.raises(ValueError, match="no complete"):
+            module.load_latest_snapshot(local)
+        manifest_path.write_text(json.dumps(original))
+
+
 def test_submit_does_not_wait_for_blocked_durable_copy(tmp_path, monkeypatch):
     module = _checkpoint_api()
     local = tmp_path / "local"
