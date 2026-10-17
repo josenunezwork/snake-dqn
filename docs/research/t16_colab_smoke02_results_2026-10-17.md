@@ -166,3 +166,35 @@ Full B5 numbers, compile-fallback receipts, source hashes and final test transcr
 in the results directory linked above. The publication commit only adds these receipts,
 this results append and the notebook pin; executable research code matches the pinned
 implementation commit.
+
+## smoke-03 results (A100, 2026-10-17, runner commit ef32fb9, 300 s rows)
+
+P0 in the notebook crashed (packed bench read a Mac-only path; fixed on main 42dae60, notebook now non-fatal),
+so the matrix was launched by hand on the same runtime; the fixed P0 bench ran afterwards (commit 7733aeb).
+
+| row (self-play, 128 worlds) | tr/s | upd/s | vs Mac | GPU % |
+|---|---|---|---|---|
+| a2 packed g0 bs2 fp32 (control) | 12,249 | 47.8 | 2.3x | 63 |
+| a2 raw g0 bs2 fp32 | 12,294 | 48.0 | 2.3x | 61 |
+| a3 raw g3 bs2 fp32 | 15,071 | 58.9 | 2.8x | 81 |
+| a4 raw g3 bs2 fp32 | 15,927 | 62.2 | 3.0x | 84 |
+| a4 raw g3 bs4 fp32 | 15,606 | 30.5 (512 tr/upd) | 2.9x | 78 |
+| a4 raw g3 bs2 bf16 | 12,189 | 47.6 | 2.3x | 53 |
+
+compare.py marks every row INVALID only because the runner does not lift `policy_lag_mean` into the row (bug);
+lag is in telemetry (a3 ~1, a4 ~4.8). No row reaches 84 upd/s.
+
+Isolated learner bench on the same A100 (no actors; median ms/update, upd/s):
+
+| rings / gather threads | bs2 fp32 | bs2 bf16 | bs4 fp32 |
+|---|---|---|---|
+| packed g0 | 17.8 ms, 56 | 17.7 ms, 56 | 31.9 ms, 31 |
+| packed g3 | 12.9 ms, 78 | 10.1 ms, 99 | 24.4 ms, 41 |
+| raw g0 | 12.9 ms, 77 | 11.6 ms, 86 | 24.6 ms, 41 |
+| raw g3 | 12.8 ms, 78 | 8.5 ms, 117 | 24.3 ms, 41 |
+
+Reading: the A100 learner at the unchanged fp32 bs2 recipe caps at ~78 upd/s even alone, and ~62 in the full run
+(actor forwards share the GPU). bs4 is linear in cost (no gain). bf16 is 117 upd/s alone but only 47.6 in the full
+run (unexplained; GPU 53%, so something else binds — investigate before any bf16 conclusion; bf16 is a numerics
+change anyway). Conclusion: 4x at the fixed fp32 recipe is not reachable on the A100; options are an H100 smoke
+(same recipe), and taking actor forwards off the learner's GPU timeline.
