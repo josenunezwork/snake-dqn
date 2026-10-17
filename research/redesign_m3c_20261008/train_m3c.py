@@ -144,6 +144,7 @@ import hashlib  # noqa: E402
 import json  # noqa: E402
 import math  # noqa: E402
 import queue  # noqa: E402
+import random  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
 import threading  # noqa: E402
@@ -1529,6 +1530,175 @@ def save_checkpoint_atomic(path: Path, net, meta: Dict[str, Any], manifest: Path
         fh.write(json.dumps(row) + "\n")
 
 
+# ----------------------------------------------------------------------------- full-state checkpoints
+# These helpers deliberately use ordinary dicts of arrays.  The asynchronous writer owns
+# serialization and durability; this module owns the training-state contract.  In particular,
+# a replay row is only meaningful with its observation ring(s), because ``s`` and ``nxt`` are
+# monotone ring ids rather than observations.
+FULL_STATE_SCHEMA = "m3c-full-state/v1"
+
+
+def _array_state(obj: Any, names: Sequence[str]) -> Dict[str, Any]:
+    """Return copies of named ndarray/scalar attributes suitable for a checkpoint."""
+    out: Dict[str, Any] = {}
+    for name in names:
+        value = getattr(obj, name)
+        out[name] = value.copy() if isinstance(value, np.ndarray) else value
+    return out
+
+
+def _restore_array_state(obj: Any, state: Dict[str, Any]) -> None:
+    for name, value in state.items():
+        old = getattr(obj, name)
+        if isinstance(old, np.ndarray):
+            if old.shape != value.shape or old.dtype != value.dtype:
+                raise ValueError(f"full-state {name} has incompatible shape/dtype")
+            old[...] = value
+        else:
+            setattr(obj, name, value)
+
+
+def replay_state(replay: Replay) -> Dict[str, Any]:
+    """Copy a replay's transition ring.  Its observation ring is saved separately."""
+    return _array_state(replay, ("s", "a", "R", "disc", "nxt", "size", "ptr", "added"))
+
+
+def restore_replay_state(replay: Replay, state: Dict[str, Any]) -> None:
+    _restore_array_state(replay, state)
+
+
+def obs_ring_state(ring: Any) -> Dict[str, Any]:
+    """Copy an ObsRing or SharedObsRing including its monotone publish counter."""
+    if isinstance(ring, SharedObsRing):
+        return {
+            "shared": True,
+            "count": ring.count,
+            "arrays": {name: array.copy() for name, array in ring.arrays.items()},
+        }
+    return {
+        "shared": False,
+        "count": ring.count,
+        "arrays": {
+            "local": ring.local.copy(),
+            "glob": ring.glob.copy(),
+            "scal": ring.scal.copy(),
+            "mask": ring.mask.copy(),
+        },
+    }
+
+
+def restore_obs_ring_state(ring: Any, state: Dict[str, Any]) -> None:
+    arrays = state["arrays"]
+    if isinstance(ring, SharedObsRing):
+        for name, value in arrays.items():
+            if name not in ring.arrays or ring.arrays[name].shape != value.shape:
+                raise ValueError("full-state shared observation ring is incompatible")
+            ring.arrays[name][...] = value
+        ring._count[0] = int(state["count"])
+        return
+    mapping = {"local": ring.local, "glob": ring.glob, "scal": ring.scal, "mask": ring.mask}
+    for name, value in arrays.items():
+        if mapping[name].shape != value.shape:
+            raise ValueError("full-state observation ring is incompatible")
+        mapping[name][...] = value
+    ring.count = int(state["count"])
+
+
+def label_buffer_state(labels: Optional[LabelBuffer]) -> Optional[Dict[str, Any]]:
+    return None if labels is None else _array_state(labels, ("ids", "a", "size", "ptr"))
+
+
+def restore_label_buffer_state(labels: Optional[LabelBuffer], state: Optional[Dict[str, Any]]) -> None:
+    if state is not None:
+        if labels is None:
+            raise ValueError("full-state contains labels but labels are disabled")
+        _restore_array_state(labels, state)
+
+
+def _torch_rng_state(torch) -> Dict[str, Any]:
+    state: Dict[str, Any] = {"cpu": torch.get_rng_state(), "python": random.getstate()}
+    if torch.cuda.is_available():
+        state["cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def _restore_torch_rng_state(torch, state: Dict[str, Any]) -> None:
+    torch.set_rng_state(state["cpu"])
+    random.setstate(state["python"])
+    if "cuda" in state and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(state["cuda"])
+
+
+def full_state_payload(
+    torch,
+    online,
+    target,
+    optimizer,
+    rng: np.random.Generator,
+    counters: Dict[str, Any],
+    schedules: Schedules,
+    replay: Replay,
+    labels: Optional[LabelBuffer],
+    rings: Sequence[Any],
+    replay_mode: str,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the detached logical snapshot passed to ``AsyncCheckpointer``.
+
+    ``replay_mode=none`` intentionally omits replay and rings.  Resuming it is a
+    warm-up continuation, never an exact-resume claim.  ``full`` can be many GB: the
+    default multi-actor un-packed rings are about 9.3 GB before serializer overhead.
+    """
+    payload: Dict[str, Any] = {
+        "schema": FULL_STATE_SCHEMA,
+        "online": online.state_dict(),
+        "target": target.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "counters": counters,
+        "schedules": schedules.__dict__.copy(),
+        "rng": {"learner": rng.bit_generator.state, "numpy": np.random.get_state(), "torch": _torch_rng_state(torch)},
+        "replay_mode": replay_mode,
+        "labels": label_buffer_state(labels),
+        "extra": extra or {},
+    }
+    if replay_mode == "full":
+        payload["replay"] = replay_state(replay)
+        payload["rings"] = [obs_ring_state(ring) for ring in rings]
+    return payload
+
+
+def restore_full_state(
+    torch,
+    payload: Dict[str, Any],
+    online,
+    target,
+    optimizer,
+    rng: np.random.Generator,
+    replay: Replay,
+    labels: Optional[LabelBuffer],
+    rings: Sequence[Any],
+) -> bool:
+    """Restore learner state and return whether replay/rings were restored exactly."""
+    if payload.get("schema") != FULL_STATE_SCHEMA:
+        raise ValueError("not an M3-C full-state snapshot")
+    online.load_state_dict(payload["online"])
+    target.load_state_dict(payload["target"])
+    optimizer.load_state_dict(payload["optimizer"])
+    rng.bit_generator.state = payload["rng"]["learner"]
+    np.random.set_state(payload["rng"]["numpy"])
+    _restore_torch_rng_state(torch, payload["rng"]["torch"])
+    restore_label_buffer_state(labels, payload.get("labels"))
+    if payload.get("replay_mode") != "full":
+        return False
+    restore_replay_state(replay, payload["replay"])
+    saved = payload.get("rings", [])
+    if len(saved) != len(rings):
+        raise ValueError("full-state ring count does not match this run")
+    for ring, state in zip(rings, saved):
+        restore_obs_ring_state(ring, state)
+    return True
+
+
 def rss_gb() -> float:
     import resource
 
@@ -1668,6 +1838,38 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--demo-initial-shards", type=int, default=30)
     ap.add_argument("--warmup", type=int, default=20_000)
     ap.add_argument("--checkpoint-every", type=int, default=2_500_000)
+    ap.add_argument(
+        "--full-state-every",
+        type=int,
+        default=0,
+        metavar="N",
+        help="opt-in full-state snapshot cadence in learner transitions (0 disables; snapshots are asynchronous)",
+    )
+    ap.add_argument(
+        "--full-state-replay",
+        choices=("none", "full"),
+        default="none",
+        help="whether full-state snapshots include replay plus observation rings; full may be many GB",
+    )
+    ap.add_argument(
+        "--ckpt-local-dir",
+        type=Path,
+        default=None,
+        help="local directory for asynchronous full-state snapshots (required with --full-state-every)",
+    )
+    ap.add_argument(
+        "--ckpt-durable-dir",
+        type=Path,
+        default=None,
+        help="optional durable mirror directory (for example, Google Drive); never blocks the learner",
+    )
+    ap.add_argument(
+        "--resume-full-state",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="resume from the newest verified complete full-state manifest in DIR",
+    )
     ap.add_argument("--device", default="mps")
     ap.add_argument("--out", type=Path, required=True)
     # --- M3-C options (defaults = M3) ---
@@ -1973,6 +2175,16 @@ def default_args():
 # ----------------------------------------------------------------------------- main loop
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.full_state_every < 0:
+        raise SystemExit("--full-state-every must be >= 0")
+    if args.full_state_every and args.ckpt_local_dir is None:
+        raise SystemExit("--full-state-every needs --ckpt-local-dir")
+    if args.resume_full_state is not None and not args.actors:
+        raise SystemExit("--resume-full-state currently needs the multi-actor trainer (--actors >= 1)")
+    if args.resume_full_state is not None and args.ckpt_local_dir is None:
+        # Continuing a long run should retain a new local recovery point without making a
+        # surprising Drive write.  The supplied resume directory is normally the local dir.
+        args.ckpt_local_dir = args.resume_full_state
     if args.actors < 0:
         raise SystemExit("--actors must be >= 0")
     if args.learner_seats is not None and args.all_snakes_learner:
@@ -3209,6 +3421,14 @@ def main_multi(args) -> int:
 
     from research.redesign_m2_20261008.gen_data import guard_ok
 
+    resume_payload = None
+    resume_manifest = None
+    if args.resume_full_state is not None:
+        from research.redesign_m3c_20261008.async_checkpoint import load_latest_snapshot
+
+        # Verification happens before allocating GPUs/shared memory or launching actors.
+        resume_payload, resume_manifest = load_latest_snapshot(args.resume_full_state)
+
     if args.no_guard:
 
         def guard_ok():  # noqa: F811
@@ -3350,6 +3570,19 @@ def main_multi(args) -> int:
     names["progress"] = s_p.desc
     progress = np.ndarray((4,), dtype=np.int64, buffer=s_p.buf, offset=0)
     progress[:] = 0
+    resumed_with_replay = False
+    if resume_payload is not None:
+        resumed_with_replay = restore_full_state(
+            torch,
+            resume_payload,
+            online,
+            target,
+            opt,
+            rng,
+            replay,
+            labels,
+            rings,
+        )
     _publish_weights(online, wbuf, wver)  # version 2 = publish #1
     multi = MultiRing(rings)
 
@@ -3424,6 +3657,21 @@ def main_multi(args) -> int:
         "pool_identities": None,
         "action_window": ActionWindow(),
     }
+    resume_event = None
+    if resume_payload is not None:
+        saved_counters = resume_payload.get("counters", {})
+        # Counters are mutable telemetry state, so restore only keys the current trainer owns.
+        for key, value in saved_counters.items():
+            if key in st:
+                st[key] = value
+        resume_event = {
+            "event": "resume-full-state",
+            "source": str(args.resume_full_state),
+            "snapshot_transitions": int(resume_manifest.get("transitions", st["transitions"])),
+            "replay": "full" if resumed_with_replay else "none",
+            "resumed_without_replay": not resumed_with_replay,
+        }
+        st["flags"].append(resume_event)
     st["halt"] = arm_halt_reason(args)
     if bank is not None:
         st.update(
@@ -3492,6 +3740,71 @@ def main_multi(args) -> int:
         **({"bank": bank, "outside_bank": outside_bank} if bank is not None else {}),
         **({"return_bank": return_bank} if return_bank is not None else {}),
     )
+
+    checkpointer = None
+    next_full_state = 0
+    full_state_events: List[Dict[str, Any]] = []
+    if args.full_state_every:
+        from research.redesign_m3c_20261008.async_checkpoint import AsyncCheckpointer, capture_state
+
+        checkpointer = AsyncCheckpointer(args.ckpt_local_dir, args.ckpt_durable_dir, keep=2)
+        next_full_state = (
+            (st["transitions"] // args.full_state_every) + 1
+        ) * args.full_state_every
+
+    def submit_full_state() -> None:
+        """Detach at an update boundary then hand off nonblocking persistence.
+
+        A full replay copies the shared observation rings.  That cost scales with the
+        configured ring footprint and is recorded rather than hidden behind a universal
+        stall claim; model-only / replay-none snapshots are normally small.
+        """
+        nonlocal next_full_state
+        if checkpointer is None or checkpointer.busy or st["transitions"] < next_full_state:
+            return
+        learner.flush()  # finish any AMP/pipelined learner update before copying optimizer state
+        begin = time.perf_counter()
+        payload = full_state_payload(
+            torch,
+            online,
+            target,
+            opt,
+            rng,
+            st.copy(),
+            sched,
+            replay,
+            labels,
+            rings,
+            args.full_state_replay,
+            {
+                "published": published,
+                "rr": rr,
+                "next_log": next_log,
+                "next_ckpt": next_ckpt,
+                "next_guard": next_guard,
+                "weights_version": int(wver[0]),
+                "progress": progress.copy(),
+            },
+        )
+        detached = capture_state(payload)
+        stall_ms = 1000.0 * (time.perf_counter() - begin)
+        accepted = checkpointer.submit(
+            detached,
+            int(st["transitions"]),
+            {"schema": FULL_STATE_SCHEMA, "capture_stall_ms": stall_ms, "replay": args.full_state_replay},
+        )
+        event = {
+            "event": "full-state-snapshot",
+            "transitions": int(st["transitions"]),
+            "capture_stall_ms": stall_ms,
+            "accepted": accepted,
+            "replay": args.full_state_replay,
+        }
+        full_state_events.append(event)
+        tel.add("full_state_capture_stall_ms", stall_ms)
+        next_full_state = (
+            (st["transitions"] // args.full_state_every) + 1
+        ) * args.full_state_every
 
     code = 0
     rr = 0
@@ -3593,6 +3906,9 @@ def main_multi(args) -> int:
                 counts = st["action_window"].counts
                 if counts.max() > 0.9 * counts.sum():
                     st["halt"] = f"action collapse {counts.tolist()}"
+            submit_full_state()
+            if checkpointer is not None:
+                full_state_events.extend(checkpointer.poll_events())
             if st["transitions"] >= next_log:
                 next_log += 100_000
                 learner.flush()  # fast learner: apply the pending step, sync device stats
@@ -3892,6 +4208,12 @@ def main_multi(args) -> int:
         stop_actors(stop_evt, txs, procs)
         for blk in shms:  # idempotent; covers a crash before every actor attached
             blk.unlink()
+        if checkpointer is not None:
+            # A bounded close joins serializer/copy workers; a durable-copy failure is
+            # surfaced in the run receipt but must never have interrupted the learner.
+            if not checkpointer.close(timeout=30):
+                st["flags"].append({"event": "full-state-close-incomplete"})
+            full_state_events.extend(checkpointer.poll_events())
     try:
         learner.flush()  # fast learner: the last pipelined step belongs to the final weights
     except Exception as exc:  # noqa: BLE001
@@ -3936,6 +4258,9 @@ def main_multi(args) -> int:
         "anchor_updates": st["anchor_updates"],
         "label_buffer": labels.size if labels is not None else 0,
         "pool_identities": st["pool_identities"],
+        "full_state_events": full_state_events[-200:],
+        "resumed_with_full_replay": resumed_with_replay if resume_payload is not None else None,
+        "resumed_without_replay": bool(resume_payload is not None and not resumed_with_replay),
     }
     if return_bank is not None:
         totals = st["return_totals"]
