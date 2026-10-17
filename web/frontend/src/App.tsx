@@ -17,7 +17,11 @@ import { useGameSocket } from "./hooks/useGameSocket";
 import { useViewSettings } from "./hooks/useViewSettings";
 import { fetchCheckpoints } from "./api";
 import type { CheckpointInfo, SnakeDTO } from "./types";
-import { SPEED_PRESETS, activePresetIndex } from "./lib/presets";
+import {
+  SPEED_PRESETS,
+  activePresetIndex,
+  speedPresetsForCeiling,
+} from "./lib/presets";
 import { runSummary, copyText } from "./lib/runSummary";
 import { resolveMoveKey } from "./keys";
 
@@ -426,8 +430,11 @@ export default function App() {
         run: copySummary,
       },
     ];
+    const uiSpeedCeiling = Math.min(60, session.speed_ceiling ?? 60);
+    const speedPresets = speedPresetsForCeiling(uiSpeedCeiling);
     const ai = activePresetIndex(session.speed);
-    SPEED_PRESETS.forEach((p, i) =>
+    speedPresets.forEach((p) => {
+      const i = SPEED_PRESETS.indexOf(p);
       cmds.push({
         id: `speed-${p.fps}`,
         title: `Speed ${p.label} (${p.fps} fps)`,
@@ -436,8 +443,8 @@ export default function App() {
         keywords: `${p.label.replace("×", "x")} fast slow`,
         active: ai === i,
         run: () => send("set_speed", p.fps),
-      }),
-    );
+      });
+    });
     [0, 0.05, 0.1, 0.25, 0.5, 1].forEach((e) =>
       cmds.push({
         id: `eps-${e}`,
@@ -577,7 +584,8 @@ export default function App() {
     const speedPreset = (e: KeyboardEvent): boolean => {
       if (e.key >= "1" && e.key <= "5") {
         const p = SPEED_PRESETS[Number(e.key) - 1];
-        if (p) {
+        const uiSpeedCeiling = Math.min(60, sessionRef.current?.speed_ceiling ?? 60);
+        if (p && p.fps <= uiSpeedCeiling) {
           e.preventDefault();
           send("set_speed", p.fps);
           return true;

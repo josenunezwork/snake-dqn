@@ -13,6 +13,7 @@ from src.model.inference_agent import InferenceAgent  # noqa: E402
 from src.model.obs_spec import EGO2S_B, KNOWN_OBS_SPECS  # noqa: E402
 from web.backend.ego2s_policy import Ego2sServingPolicy  # noqa: E402
 from web.backend.session import MODE_PLAY, MODE_TRAIN, MODE_WATCH, GameSession  # noqa: E402
+from web.backend.serving_speed import speed_ceiling  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -105,6 +106,41 @@ def test_default_session_is_unchanged():
     sess = GameSession()
     assert not isinstance(sess.policy, Ego2sServingPolicy)
     assert sess.obs_spec == "vector61"
+    assert sess.control_state()["speed_ceiling"] == 120.0
+
+
+def test_ego2s_speed_ceiling_counts_the_driven_roster_and_clamps(ego_ckpt):
+    """The cap follows respawnable AI roster size, never current liveness."""
+    sess = GameSession(checkpoint=ego_ckpt)
+    assert sess.control_state()["speed_ceiling"] == 24.0  # Watch's six AI roster
+    sess.set_speed(120)
+    assert sess.speed == 24.0
+
+    # A dead AI remains a future driven/respawnable roster member.
+    sess.game.snakes[0].is_alive = False
+    sess._refresh_speed_ceiling()
+    assert sess.speed_ceiling == 24.0
+
+    # Play replaces one snake with a human. Six opponents means six driven AI,
+    # while seven crosses into the Watch-12 ceiling band after the rebuild.
+    sess.set_mode(MODE_PLAY)
+    sess.set_play_opponents(6)
+    assert sess.human_id is not None
+    assert sess.speed_ceiling == 24.0
+    sess.set_play_opponents(7)
+    assert sess.speed_ceiling == 12.0
+    assert sess.speed == 12.0
+
+
+def test_ego2s_speed_ceiling_bands_and_non_ego_default():
+    from src.model.obs_spec import EGO2S_B
+
+    assert speed_ceiling(EGO2S_B, 6) == 24.0
+    assert speed_ceiling(EGO2S_B, 7) == 12.0
+    assert speed_ceiling(EGO2S_B, 12) == 12.0
+    assert speed_ceiling(EGO2S_B, 13) == 11.0
+    assert speed_ceiling(EGO2S_B, 1440) == 1.0
+    assert speed_ceiling("vector61", 999) == 120.0
 
 
 def test_reset_clears_the_served_cache(ego_ckpt):

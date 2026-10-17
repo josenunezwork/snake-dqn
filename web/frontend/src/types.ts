@@ -124,6 +124,9 @@ export interface ServingContract {
 export interface SessionState {
   playing: boolean;
   speed: number;
+  // Server-side scheduling ceiling. Legacy policies retain a 120fps server
+  // ceiling while the UI intentionally keeps its historical 60fps range.
+  speed_ceiling?: number;
   mode: string;
   training: boolean;
   hero_id: number;

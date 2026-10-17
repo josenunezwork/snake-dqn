@@ -50,6 +50,7 @@ from web.backend.served_checkpoint import (
     logger as served_checkpoint_logger,
     resolve_served_checkpoint,
 )
+from web.backend.serving_speed import driven_ai_count, speed_ceiling
 
 # The three ways to drive the shared game.
 MODE_WATCH = "watch"  # AI plays itself; we observe.
@@ -480,6 +481,7 @@ class GameSession:
         self.safety_veto: Optional[ServingVetoState] = None
         self.playing: bool = True
         self.speed: float = 12.0  # frames per second
+        self.speed_ceiling: float = 120.0
         self.mode: str = MODE_WATCH
         self.hero_id: int = 0
         self.checkpoint_path: Optional[str] = None
@@ -668,6 +670,10 @@ class GameSession:
         self.config_path = config_path
         self.obs_spec = obs_spec
         self.mode = mode
+        # Scheduling guard for the forward-only ego2s serving path.  This is
+        # intentionally installed after the final Watch/Play roster exists,
+        # and never reaches policy math or the forward path.
+        self._refresh_speed_ceiling()
         self.serving_contract = (
             {
                 key: v3_metadata[key]
@@ -801,7 +807,16 @@ class GameSession:
         self.playing = bool(value)
 
     def set_speed(self, fps: float) -> None:
-        self.speed = max(1.0, min(120.0, float(fps)))
+        with self._lock:
+            self.speed = max(1.0, min(self.speed_ceiling, float(fps)))
+
+    def _refresh_speed_ceiling(self) -> None:
+        """Recompute the roster-sensitive ceiling and clamp the live speed."""
+        self.speed_ceiling = speed_ceiling(
+            self.obs_spec,
+            driven_ai_count(self.game.snakes, self.policy),
+        )
+        self.speed = min(self.speed, self.speed_ceiling)
 
     def set_epsilon(self, eps: float) -> None:
         with self._lock:
@@ -1191,6 +1206,7 @@ class GameSession:
             return {
                 "playing": self.playing,
                 "speed": self.speed,
+                "speed_ceiling": self.speed_ceiling,
                 "mode": self.mode,
                 "training": bool(getattr(self.policy, "training", False)),
                 "hero_id": self.hero_id,

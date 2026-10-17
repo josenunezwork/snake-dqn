@@ -6,7 +6,11 @@ import type {
   SessionState,
   SnakeDTO,
 } from "../types";
-import { SPEED_PRESETS, activePresetIndex } from "../lib/presets";
+import {
+  SPEED_PRESETS,
+  activePresetIndex,
+  speedPresetsForCeiling,
+} from "../lib/presets";
 import Slider from "./Slider";
 
 const MODE_BLURB: Record<string, string> = {
@@ -96,6 +100,11 @@ export default function Controls({
   const loadedName = session.checkpoint ?? "";
   const canLoad = !!selected && selected !== loadedName;
   const offline = connected === false;
+  // Legacy serving permits 120fps server-side, but this established control
+  // surface has always topped out at 60fps.  An ego2s roster can lower it.
+  const uiSpeedCeiling = Math.min(60, session.speed_ceiling ?? 60);
+  const visibleSpeedPresets = speedPresetsForCeiling(uiSpeedCeiling);
+  const speedCapped = uiSpeedCeiling < 60;
 
   return (
     <div className="panel">
@@ -186,14 +195,14 @@ export default function Controls({
       <div className="row" style={{ marginBottom: 4 }}>
         <label>Speed</label>
         <div className="seg">
-          {SPEED_PRESETS.map((p, i) => (
+          {visibleSpeedPresets.map((p) => (
             <button
               key={p.fps}
               className={
                 "btn" +
-                (activePresetIndex(session.speed) === i ? " active" : "")
+                (SPEED_PRESETS.indexOf(p) === activePresetIndex(session.speed) ? " active" : "")
               }
-              title={`${p.fps} fps · key ${i + 1}`}
+              title={`${p.fps} fps · key ${SPEED_PRESETS.indexOf(p) + 1}`}
               onClick={() => send("set_speed", p.fps)}
             >
               {p.label}
@@ -205,10 +214,15 @@ export default function Controls({
         label="Fine"
         value={session.speed}
         min={1}
-        max={60}
+        max={uiSpeedCeiling}
         format={(v) => `${Math.round(v)} fps`}
         onChange={(v) => send("set_speed", v)}
       />
+      {speedCapped && (
+        <div className="mode-blurb muted" role="status">
+          This ego2s roster is capped at {Math.round(uiSpeedCeiling)} fps for stable live serving.
+        </div>
+      )}
       <Slider
         label="Epsilon"
         value={session.epsilon}

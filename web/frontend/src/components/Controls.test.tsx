@@ -9,6 +9,7 @@ vi.mock("../api", () => ({
 
 import { fetchCheckpoints } from "../api";
 import Controls from "./Controls";
+import { speedPresetsForCeiling } from "../lib/presets";
 
 function sessionState(over: Partial<SessionState> = {}): SessionState {
   return {
@@ -70,6 +71,11 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe("Controls", () => {
+  it("keeps shared speed presets within the advertised ceiling", () => {
+    expect(speedPresetsForCeiling(12).map((preset) => preset.fps)).toEqual([6, 12]);
+    expect(speedPresetsForCeiling(24).map((preset) => preset.fps)).toEqual([6, 12, 24]);
+  });
+
   it("keeps fixed-profile food and hero controls unavailable", async () => {
     render(
       <Controls
@@ -187,6 +193,19 @@ describe("Controls", () => {
     render(<Controls {...baseProps} session={sessionState()} send={send} />);
     await user.click(screen.getByRole("button", { name: /save weights/i }));
     expect(send).toHaveBeenCalledWith("save_weights");
+  });
+
+  it("uses the server ceiling for ego2s speed controls", async () => {
+    render(
+      <Controls
+        {...baseProps}
+        session={sessionState({ obs_spec: "ego2s-b", speed_ceiling: 12 })}
+        send={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText(/capped at 12 fps/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Fine")).toHaveAttribute("max", "12");
+    expect(screen.queryByRole("button", { name: "2×" })).not.toBeInTheDocument();
   });
 
   it("uses honest ARIA for the roster: toggle buttons, no listbox", async () => {

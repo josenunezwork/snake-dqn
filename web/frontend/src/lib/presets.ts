@@ -27,3 +27,8 @@ export function activePresetIndex(speed: number): number {
   });
   return best;
 }
+
+/** Presets available at a server-advertised UI ceiling. */
+export function speedPresetsForCeiling(ceiling: number): SpeedPreset[] {
+  return SPEED_PRESETS.filter((preset) => preset.fps <= ceiling);
+}
