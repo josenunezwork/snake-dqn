@@ -220,10 +220,6 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
             "learner_v8_direct_baseline": _timed(direct_learner_v8, repeats),
             "b8_v8_direct_baseline": _timed(direct_b8_v8, repeats),
             "learner_plus_b8_v8_shared_candidate": _timed(shared_learner_b8_v8, repeats),
-            "b8_frozen_dispatch_baseline": _timed(baseline_b8_dispatch, repeats),
-            "b8_frozen_dispatch_primed_candidate": _timed(candidate_b8_dispatch, repeats),
-            "whole_fixed_state_decision_frame_baseline": _timed(baseline_decision_frame, repeats),
-            "whole_fixed_state_decision_frame_candidate": _timed(candidate_decision_frame, repeats),
         },
         "forward": {
             "b8_device": str(next(b8_net.parameters()).device),
@@ -338,7 +334,10 @@ def main() -> int:
         "host": {"platform": platform.platform(), "python": sys.version},
         "versions": {"torch": torch.__version__, "numpy": np.__version__, "numba": numba.__version__},
         "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
-        "source_sha256": _bodymap_sources(),
+        "source_sha256": {
+            **_bodymap_sources(),
+            str(Path(__file__).relative_to(REPO)): hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        },
         "method": {
             "thread_count": 1,
             "timing": "unprofiled perf_counter samples after one warmup each",

@@ -10,17 +10,15 @@ bodies. Construction, injection, Numba warmup, and profiling are excluded from
 each timed sample. The benchmark retains every unprofiled `perf_counter` sample
 and hashes the v8, bv8, pool, and actor sources it executes.
 
-The fixed-state report has three scopes:
+The fixed-state report measures three directly comparable host feature fields:
 
 - `learner_v8_direct_baseline` is the direct learner-only v8 invocation;
   `learner_plus_b8_v8_shared_candidate` is the actor candidate call that also
   primes the B8 slice. They are host feature work, not B8 forward time.
-- `b8_frozen_dispatch_*` measures frozen dispatch with and without its primed
-  v8 slice. CPU B8 forward is intentionally included and is reported as a
-  synthetic host forward, not a device-throughput result.
-- `whole_fixed_state_decision_frame_*` is a decision-pipeline proxy. It does
-  not advance the simulator and therefore must not be described as a whole
-  actor-frame result.
+- `b8_v8_direct_baseline` is the B8-only v8 call under its advisory mask.
+- `learner_plus_b8_v8_shared_candidate` is either the old pair of independent
+  calls in the pinned baseline or the candidate's one shared call. It is the
+  primary comparable combined-v8 field.
 
 `whole_actor` is the actual actor-frame row. It calls `train_m3c.actor_main`
 through the existing bounded message-sink harness, and covers simulation step,
@@ -47,5 +45,5 @@ nice -n 10 "$PY" research/t24_v8_bodymap_20261017/bench_bodymap.py \
 ```
 
 For a fast harness-only check that intentionally omits whole actor frames, add
-`--without-whole-actor`. This is useful for checking cache/feature/action byte
+`--without-whole-actor`. This is useful for checking feature/action byte
 identity but is not a substitute for the actor row.
