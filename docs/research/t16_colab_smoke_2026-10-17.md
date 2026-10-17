@@ -47,7 +47,7 @@ input archive is deliberately published.
    CUDA 12.6 PyTorch 2.9.1 wheel, following
    [PyTorch's previous-version installation instructions](https://pytorch.org/get-started/previous-versions/).
 3. Confirm the parameter cell pins the commit named in the notebook's own
-   `PINNED_COMMIT` (updated for the T16b Python 3.12 fix) and uses
+   `PINNED_COMMIT` (`c5157ae1f309da29e3ece29f7177108f4ac78456`, the T16b fix) and uses
    the desired separate Drive run directory (the default is `smoke-01`). Do not
    reuse a run name with different code or input bytes.
 4. Use **Runtime -> Run all** and complete the Drive authorization.
