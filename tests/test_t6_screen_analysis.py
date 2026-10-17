@@ -122,6 +122,8 @@ def test_go_uses_seed_paired_primary_and_all_mixes() -> None:
     assert data["decision"] == "GO"
     assert data["vs_ctrl"]["scripted"]["episode_survival"] == {
         "mean": 1.0,
+        "exact_mean_numerator": 1,
+        "exact_mean_denominator": 1,
         "seed_se": 0.0,
         "pooled_world_se": 0.0,
         "seeds": [10, 11, 12, 13, 14],
@@ -130,6 +132,31 @@ def test_go_uses_seed_paired_primary_and_all_mixes() -> None:
         "complete": True,
     }
     assert data["mass_vs_incumbent"]["mixed"]["seed_n"] == 5
+
+
+@pytest.mark.parametrize(
+    "count_deltas,expected", [([-8, 0, 3, 0, 5], "KILL"), ([-8, 0, 3, 0, 6], "EXTEND")]
+)
+def test_survival_decision_uses_exact_counts_at_zero(count_deltas, expected) -> None:
+    rows, statuses = _dataset()
+    for seed, delta in zip(range(10, 15), count_deltas):
+        for arm, survivors in (("CTRL", 48), (ARM, 48 + delta)):
+            index = next(
+                i
+                for i, row in enumerate(rows)
+                if row["name"] == f"{arm}_s{seed}" and row["mix"] == "scripted"
+            )
+            rows[index] = _row(
+                f"{arm}_s{seed}", "scripted", [0] * survivors + [1] * (96 - survivors)
+            )
+    result = analyze(rows, statuses)
+    data = result["arms"][ARM]
+    assert data["decision"] == expected
+    primary = data["vs_ctrl"]["scripted"]["episode_survival"]
+    assert primary["mean"] == sum(count_deltas) / 480
+    if expected == "KILL":
+        assert primary["exact_mean_numerator"] == 0
+        assert extension_requirements(result, rows) == []
 
 
 def test_exact_rule_and_single_extension() -> None:

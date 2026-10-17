@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from fractions import Fraction
 from numbers import Real
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -53,6 +54,7 @@ def _paired(
     per_seed: list[float] = []
     pooled: list[float] = []
     seeds: list[int] = []
+    exact_survival: list[Fraction] = []
     rounds = (INITIAL_ROUND, EXTENSION_ROUND) if mix == "scripted" else (INITIAL_ROUND,)
     for seed in SEEDS:
         left_all: dict[str, float] = {}
@@ -72,10 +74,17 @@ def _paired(
         if left_all:
             delta = [left_all[key] - right_all[key] for key in sorted(left_all)]
             per_seed.append(_mean(delta))
+            if metric == "episode_survival":
+                if any(value not in (-1, 0, 1) for value in delta):
+                    raise ValueError("episode survival differences must be integer counts")
+                exact_survival.append(Fraction(sum(int(value) for value in delta), len(delta)))
             pooled.extend(delta)
             seeds.append(seed)
+    exact_mean = sum(exact_survival, Fraction()) / len(exact_survival) if exact_survival else None
     return {
-        "mean": _mean(per_seed),
+        "mean": float(exact_mean) if exact_mean is not None else _mean(per_seed),
+        "exact_mean_numerator": exact_mean.numerator if exact_mean is not None else None,
+        "exact_mean_denominator": exact_mean.denominator if exact_mean is not None else None,
         "seed_se": _se(per_seed),
         "pooled_world_se": _se(pooled),
         "seeds": seeds,
@@ -153,6 +162,12 @@ def _decision(data: Mapping[str, Any], statuses: Mapping[str, int], extended: bo
     primary = data["vs_ctrl"]["scripted"]["episode_survival"]["mean"]
     if not math.isfinite(primary):
         return "INCOMPLETE"
+
+    def survival_fraction(mix: str) -> Fraction:
+        value = data["vs_ctrl"][mix]["episode_survival"]
+        return Fraction(value["exact_mean_numerator"], value["exact_mean_denominator"])
+
+    primary = survival_fraction("scripted")
     if primary <= 0:
         return "KILL"
     complete = all(
@@ -163,11 +178,9 @@ def _decision(data: Mapping[str, Any], statuses: Mapping[str, int], extended: bo
     if not complete:
         return "INCOMPLETE"
     if (
-        primary >= 0.06
+        primary >= Fraction(3, 50)
         and all(data["vs_ctrl"][mix]["mass"]["mean"] >= -30 for mix in MIXES)
-        and all(
-            data["vs_ctrl"][mix]["episode_survival"]["mean"] >= -0.05 for mix in ("frozen", "mixed")
-        )
+        and all(survival_fraction(mix) >= Fraction(-1, 20) for mix in ("frozen", "mixed"))
     ):
         return "GO"
     return "INCONCLUSIVE" if extended else "EXTEND"
