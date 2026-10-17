@@ -81,12 +81,21 @@ class _MockStaticPool:
     policy_ids = ("mock-a", "mock-b")
 
     def __init__(self) -> None:
+        from research.redesign_m3c_20261008.league_pool import PoolIdentity
+
         # The actor snapshots wrapper execution state by identity even when the
         # policy has no mutable wrapper counters.
         self.policies = {policy_id: object() for policy_id in self.policy_ids}
+        self.identities = tuple(
+            PoolIdentity(policy_id, "scripted", None, None, "scripted", "resolved")
+            for policy_id in self.policy_ids
+        )
 
     def identity_records(self):
         return [{"policy_id": item, "kind": "test"} for item in self.policy_ids]
+
+    def prime_b8_with_learner_rows(self, _prepared, _hero, _alive, _seats):
+        return None  # This fixture contains only scripted policies.
 
     def dispatch(self, _prepared, masks, alive, actions, seats):
         rows = np.argwhere(alive & np.asarray(seats != None))  # noqa: E711 - elementwise None
