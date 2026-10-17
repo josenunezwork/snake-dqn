@@ -206,3 +206,18 @@ MPS learner, 2 actors, 128 worlds, `--learner-seats 3`, static six-policy pool, 
 Learner-bound (learn_s 382 of 406 s wall; 46.5 ms/update). 4x bar for N=3 = 20,855 tr/s = 81.5 updates/s.
 Receipt: `snake-dqn-artifacts/t16-mac-n3-baseline/n3_w128_a2_mps_static_pool/throughput.json`.
 H100 pod runs paused: the pod-side self-delete probe returns 403 (owner decision pending); no pods running.
+
+## A100 N=3 league throughput (Colab A100-SXM4-80GB, 12 vCPU, 2026-10-17, run a100-n3-01, commit a049e92)
+
+Isolated learner (P0, raw rings, 3 gather threads): fp32 bs2 **82.7 upd/s** (11.9 ms GPU leg, 5.0 ms host),
+bf16 bs2 118 upd/s, fp32 bs4 43.8 upd/s (512/update).
+
+| N=3 row (128 worlds, static six-policy pool) | tr/s | upd/s | vs Mac N=3 (5,214) | lag mean/p95 | GPU % | bound |
+|---|---|---|---|---|---|---|
+| a3 | 4,396 | 17.2 | 0.84x | 0.43 / 1 | 27 | actors |
+| a4 | 5,938 | 23.2 | 1.14x | 0.57 / 1 | 36 | actors |
+| a6 (extra 240 s cell) | ~7,720 | 30.2 | 1.48x | 0.88 / 1 | - | actors |
+
+The frozen pool is the binder: frozen_forward_s 709 s of 1,063 s actor time at a4, of which GPU 6.2 s, i.e.
+CPU-side opponent features / veto chains. Fix handed to Codex (t22: batch pool policies across worlds,
+bit-identical). The A100 learner itself sits just under the fixed-recipe 4x bar (82.7 vs 84.4 upd/s isolated).
