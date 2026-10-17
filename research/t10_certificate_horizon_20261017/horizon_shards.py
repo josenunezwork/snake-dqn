@@ -179,6 +179,8 @@ def combine(prefix: Path, late: Path, output: Path) -> dict[str, Any]:
         raise ValueError("prefix boundary does not record an intentional D100 interruption")
     if boundary.get("d100_prediction_sha256") != sha256(prefix / "D100.predictions.npz"):
         raise ValueError("prefix D100 prediction changed after its interruption receipt")
+    if boundary.get("report_sha256") != sha256(prefix / "horizon_fits.json"):
+        raise ValueError("prefix report changed after its interruption receipt")
     if (
         tuple(late_report.get("horizons", ())) != LATE_HORIZONS
         or late_report.get("status") != "PASS"
