@@ -110,7 +110,14 @@ records a separately reproduced OS Metal numerical regression and validates
 macOS 15 as a workaround that still executes MPS. The workflow therefore uses
 macOS 15 and retains all original CPU bitwise and MPS assertions, including the
 compiled actor availability assertion. This is a runner qualification choice;
-no optimization math or parity tolerances were changed to accommodate macOS 26.
+no parity tolerances or MPS assertions were changed to accommodate macOS 26.
+The macOS 15 preflight passed all four MPS cases without skips and three of four
+CPU cases; the remaining uneven CPU group exposed the padded-row assumption.
+The optional merged CPU forward now receives explicit original row counts and
+uses each uneven group's original linear-layer shape, preserving its bitwise
+contract rather than inferring padding from zero values. Balanced groups retain
+the stacked path. This is a correctness repair to optional inference code, not a
+new performance or serving qualification.
 
 T10's prefix-boundary writer now records `directory_birthtime_utc_approx: null`
 when the host filesystem exposes no birth time, rather than inventing one from

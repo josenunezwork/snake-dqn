@@ -15,9 +15,10 @@ padded into a ``(G, N_max, D)`` block and run through :class:`StackedApexForward
 * ``device="cpu"`` (``--opp-forward merged-cpu``): Q is bitwise equal to the per-group
   forwards on Apple Accelerate (torch 2.9.1, M-series; ``tests/test_perf_opp.py``: every
   row, every frame, uneven, single-row and empty groups). ``baddbmm`` runs one GEMM per batch
-  entry with the bias pre-filled, as ``addmm`` does. Accelerate's GEMM is row-count invariant
-  only from 16 rows up (:data:`EXACT_MIN_ROWS`), so smaller groups keep their own network
-  call. Other BLAS builds (MKL / oneDNN on x86) may differ: run
+  entry with the bias pre-filled, as ``addmm`` does. The original qualification observed a
+  row-count threshold at :data:`EXACT_MIN_ROWS`, so smaller groups keep their own network
+  call. That threshold is historical rather than universal: ``row_counts`` recomputes every
+  short padded CPU slice at its actual shape. Other BLAS builds (MKL / oneDNN on x86) may differ: run
   ``research/perf_opp_20261013/bench_opp.py --parity`` there before calling it same-math.
 * ``device=<actor device>`` (``merged-device``): the same forward on MPS / CUDA, every group
   stacked. Float results differ from the CPU forwards (different kernels); the bench reports
@@ -41,6 +42,7 @@ policy. Nothing imports this unless the caller opts in.
 
 from __future__ import annotations
 
+from numbers import Integral
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -58,11 +60,10 @@ __all__ = [
 
 #: ``per-group`` = one ``Vector61SimdPolicy.actions`` call per checkpoint (the default).
 OPP_FORWARD_MODES = ("per-group", "merged-cpu", "merged-device")
-#: Apple Accelerate (torch 2.9.1, M-series, one thread) uses a different GEMM kernel below 16
-#: rows: an ApexNetwork's Q for a row then depends on how many rows share the call (measured:
-#: M = 1..15 differ in the last bits from M >= 16, and M >= 16 are row-count invariant). Such
-#: a group cannot be reproduced inside a padded block, so in exact (CPU) mode it keeps its own
-#: network call.
+#: Apple Accelerate (torch 2.9.1, M-series, one thread) historically used a different GEMM
+#: kernel below 16 rows. Exact CPU mode still sends those small groups through their own policy
+#: call. This is a conservative threshold, not a portability assertion: padded unequal groups
+#: also use their actual row count through :meth:`StackedApexForward.forward`.
 EXACT_MIN_ROWS = 16
 
 
@@ -100,7 +101,10 @@ class StackedApexForward:
     ``Linear`` -> ``baddbmm(bias, x, W^T)`` (the transposed weight view, as ``F.linear``
     passes it to ``addmm``), the same ReLUs, and the dueling combination of
     :func:`src.model.base_network.dueling_q`. The weights are copied (detached) at
-    construction; the source networks are not referenced afterwards.
+    construction. On CPU, optional ``row_counts`` runs a short padded slice through
+    ``F.linear`` with those captured weights, because the platform's ``Linear`` kernel can
+    otherwise depend on the padded row count. Balanced CPU blocks and all accelerator blocks
+    stay stacked.
     """
 
     def __init__(self, networks: Sequence[Any], device: Any = "cpu") -> None:
@@ -133,17 +137,60 @@ class StackedApexForward:
                 for ls in per_layer
             ]
 
-    def _linear(self, i: int, x):
+    def _linear(self, i: int, x: Any) -> Any:
         return self._torch.baddbmm(self.b[i], x, self.w[i].transpose(1, 2))
 
-    def forward(self, x):
+    def _stacked_forward(self, x: Any) -> Any:
         torch = self._torch
-        with torch.no_grad():
-            h = torch.relu(self._linear(0, x))
-            h = torch.relu(self._linear(1, h))
-            value = self._linear(3, torch.relu(self._linear(2, h)))
-            adv = self._linear(5, torch.relu(self._linear(4, h)))
-            return value + (adv - adv.mean(dim=-1, keepdim=True))
+        h = torch.relu(self._linear(0, x))
+        h = torch.relu(self._linear(1, h))
+        value = self._linear(3, torch.relu(self._linear(2, h)))
+        adv = self._linear(5, torch.relu(self._linear(4, h)))
+        return value + (adv - adv.mean(dim=-1, keepdim=True))
+
+    def _cpu_single_forward(self, g: int, x: Any) -> Any:
+        """Run one group at its real CPU shape using the stack's captured parameters."""
+        linear = self._torch.nn.functional.linear
+
+        def layer(i: int, value: Any) -> Any:
+            return linear(value, self.w[i][g], self.b[i][g, 0])
+
+        h = self._torch.relu(layer(0, x))
+        h = self._torch.relu(layer(1, h))
+        value = layer(3, self._torch.relu(layer(2, h)))
+        adv = layer(5, self._torch.relu(layer(4, h)))
+        return value + (adv - adv.mean(dim=-1, keepdim=True))
+
+    def forward(self, x: Any, row_counts: Optional[Sequence[int]] = None) -> Any:
+        """Forward the padded block, preserving CPU math for its actual row counts.
+
+        ``row_counts[g]`` is the number of real rows in ``x[g]``.  It is only needed for
+        a CPU block with unequal counts: each short group then uses the captured weights at its
+        unpadded shape. The padded tail is never consumed by callers.
+        """
+        if x.ndim != 3 or x.shape[0] != self.G or x.shape[2] != self.input_size:
+            raise ValueError(
+                f"expected ({self.G}, N, {self.input_size}) block, got {tuple(x.shape)}"
+            )
+        counts: Optional[Tuple[int, ...]] = None
+        if row_counts is not None:
+            if len(row_counts) != self.G:
+                raise ValueError(f"row_counts needs {self.G} entries, got {len(row_counts)}")
+            if any(isinstance(n, bool) or not isinstance(n, Integral) for n in row_counts):
+                raise TypeError("row_counts entries must be integers")
+            counts = tuple(int(n) for n in row_counts)
+            if any(n < 0 or n > x.shape[1] for n in counts):
+                raise ValueError(f"row_counts must be in [0, {x.shape[1]}], got {counts}")
+        with self._torch.no_grad():
+            out = self._stacked_forward(x)
+            if counts is not None and self.device.type == "cpu":
+                width = x.shape[1]
+                for g, count in enumerate(counts):
+                    if 0 < count < width:
+                        # Do not feed actual rows through the padded baddbmm block: CPU
+                        # kernels may round them differently for a different row count.
+                        out[g, :count] = self._cpu_single_forward(g, x[g, :count])
+            return out
 
     __call__ = forward
 
@@ -247,7 +294,8 @@ class MergedVector61Opponents:
                     x = np.zeros((G, nmax, D), dtype=np.float32)
                     for g in np.flatnonzero(big):
                         x[g, : counts[g]] = states[offs[g] : offs[g + 1]]
-                    block = part.stack(torch.from_numpy(x).to(dev))
+                    block_counts = np.where(big, counts, 0)
+                    block = part.stack(torch.from_numpy(x).to(dev), row_counts=block_counts)
                 qs = []
                 for g in range(G):
                     if small[g]:  # the per-group call itself

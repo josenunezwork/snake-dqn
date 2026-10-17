@@ -1,9 +1,9 @@
 """perf-opp (2026-10-13): ``--opp-forward merged-cpu`` is the per-group opponent math.
 
 * :class:`StackedApexForward` (one ``baddbmm`` per layer for G stacked ApexNetworks) gives Q
-  bitwise equal to each network's own forward on its rows, for uneven / single-row / empty
-  groups padded into one block. Bitwise is asserted on Apple Accelerate (darwin), where it
-  was verified; other BLAS builds only get a tolerance check here (run
+  bitwise equal to each network's own forward on its rows. CPU ``row_counts`` replays unequal
+  padded groups at their actual shape; balanced blocks remain stacked. Bitwise is asserted on
+  Apple Accelerate (darwin), where it was verified; other BLAS builds only get a tolerance check here (run
   ``research/perf_opp_20261013/bench_opp.py --parity`` there before relying on it).
 * The comparison catches a one-ulp weight change (the parity check can fail).
 * In a real training segment (pinned checkpoints), :class:`MergedVector61Opponents` picks
@@ -59,7 +59,7 @@ def _stacked_q(stack, xs):
     block = torch.zeros(G, nmax, D)
     for g, x in enumerate(xs):
         block[g, : len(x)] = x
-    out = stack(block)
+    out = stack(block, row_counts=[len(x) for x in xs])
     return [out[g, : len(x)] for g, x in enumerate(xs)]
 
 
@@ -75,7 +75,7 @@ def _assert_same(a, b, tag):
     "counts", [(64, 64, 64, 64), (16, 64, 17, 33), (16, 16, 16, 16), (0, 20, 128, 16)]
 )
 def test_stacked_forward_matches_each_network(counts):
-    """The padded block (>= EXACT_MIN_ROWS rows per group) reproduces each network."""
+    """Actual rows reproduce each network, including uneven padded CPU blocks."""
     nets = _nets()
     stack = StackedApexForward(nets)
     gen = torch.Generator().manual_seed(sum(counts))
@@ -87,6 +87,23 @@ def test_stacked_forward_matches_each_network(counts):
         _assert_same(a, b, (counts, g))
     if not DARWIN:
         pytest.skip("bitwise parity is asserted on Apple Accelerate only (checked: close)")
+
+
+@pytest.mark.parametrize(
+    ("row_counts", "error"),
+    [
+        ((16, 16, 16), ValueError),
+        ((16, 16, 16, 65), ValueError),
+        ((16, -1, 16, 16), ValueError),
+        ((16, 16.0, 16, 16), TypeError),
+        ((16, True, 16, 16), TypeError),
+    ],
+)
+def test_stacked_forward_rejects_invalid_row_counts(row_counts, error):
+    stack = StackedApexForward(_nets())
+    block = torch.zeros(4, 64, 61)
+    with pytest.raises(error):
+        stack(block, row_counts=row_counts)
 
 
 class _FakeRuntime:
@@ -163,7 +180,10 @@ def test_merged_opponents_match_policies_actions(counts):
 def test_parity_check_detects_one_ulp_weight_change():
     """A deliberate break (net 2's first-layer weights moved by one ulp) must fail it."""
     nets = _nets()
-    xs = [torch.rand(16, 61, generator=torch.Generator().manual_seed(g)) for g in range(4)]
+    counts = (16, 64, 17, 33)
+    xs = [
+        torch.rand(n, 61, generator=torch.Generator().manual_seed(g)) for g, n in enumerate(counts)
+    ]
     stack = StackedApexForward(nets)
     w = stack.w[0]
     w[2] = torch.from_numpy(np.nextafter(w[2].numpy(), np.float32(np.inf)))
@@ -171,6 +191,23 @@ def test_parity_check_detects_one_ulp_weight_change():
         ref = nets[2](xs[2])
     got = _stacked_q(stack, xs)[2]
     assert not np.array_equal(_bits(ref), _bits(got))
+
+
+@pytest.mark.parametrize("counts", [(16, 64, 17, 33), (32, 32, 32, 32)])
+def test_stack_is_a_snapshot_when_source_networks_change(counts):
+    """Both CPU paths retain their constructor-time weights after a source net changes."""
+    nets = _nets()
+    stack = StackedApexForward(nets)
+    xs = [
+        torch.rand(n, 61, generator=torch.Generator().manual_seed(g)) for g, n in enumerate(counts)
+    ]
+    before = _stacked_q(stack, xs)
+    with torch.no_grad():
+        for parameter in nets[0].parameters():
+            parameter.add_(1.0)
+    after = _stacked_q(stack, xs)
+    for old, new in zip(before, after):
+        assert np.array_equal(_bits(old), _bits(new))
 
 
 def test_stack_rejects_mixed_architectures_and_non_apex():
