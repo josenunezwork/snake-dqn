@@ -988,18 +988,27 @@ def start_seed_agent(tmp, token, runtime_json, port):
         SEED_RUNTIME_JSON=json.dumps(runtime_json),
         FANOUT_PORT=str(port),
     )
-    proc = subprocess.Popen(
-        [sys.executable, str(serverless.SEED_AGENT_SOURCE)],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    for _ in range(100):
-        try:
-            socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
-            break
-        except OSError:
-            time.sleep(0.05)
+    startup_log = Path(tmp) / "seed-startup.log"
+    with startup_log.open("wb") as startup_stream:
+        proc = subprocess.Popen(
+            [sys.executable, str(serverless.SEED_AGENT_SOURCE)],
+            env=env,
+            stdout=startup_stream,
+            stderr=subprocess.STDOUT,
+        )
+    try:
+        tfo.wait_for_agent_health(
+            proc,
+            port,
+            token,
+            startup_log,
+            lambda health: "boot_id" in health,
+        )
+    except BaseException:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=5)
+        raise
     return proc
 
 
@@ -1010,6 +1019,20 @@ TEST_RUNTIME = {
     "probe_code": "import json,sys;print(json.dumps({'torch':'2.9.1+cpu',"
     "'numpy':'1.26.4','python':sys.version.split()[0]}))",
 }
+
+
+def test_start_seed_agent_cleans_up_when_readiness_fails(tmp_path, monkeypatch):
+    observed = {}
+
+    def fail_readiness(proc, *args, **kwargs):
+        observed["proc"] = proc
+        raise AssertionError("injected readiness failure")
+
+    monkeypatch.setattr(tfo, "wait_for_agent_health", fail_readiness)
+    with pytest.raises(AssertionError, match="injected readiness failure"):
+        start_seed_agent(tmp_path, "tok-" + "x" * 30, TEST_RUNTIME, free_port())
+    assert observed["proc"].poll() is not None
+    observed["proc"].wait(timeout=5)
 
 
 def test_seed_agent_publishes_immutably_and_builds_runtime(tmp_path):
@@ -1070,6 +1093,7 @@ def test_seed_agent_publishes_immutably_and_builds_runtime(tmp_path):
         assert not (root / "commits" / commit / "untracked_secret.txt").exists()
     finally:
         proc.kill()
+        proc.wait(timeout=5)
 
 
 class SeedFakeRp:
@@ -1077,6 +1101,7 @@ class SeedFakeRp:
 
     def __init__(self, tmp):
         self.tmp, self.procs, self.ports, self.names = Path(tmp), {}, {}, {}
+        self.logs = {}
         self.created, self.deleted, self.n = [], [], 0
 
     def balance(self):
@@ -1102,20 +1127,33 @@ class SeedFakeRp:
             SEED_RUNTIME_JSON=json.dumps(TEST_RUNTIME),
             FANOUT_PORT=str(port),
         )
-        self.procs[pid] = subprocess.Popen(
-            [sys.executable, str(serverless.SEED_AGENT_SOURCE)],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        startup_log = self.tmp / f"{pid}.startup.log"
+        with startup_log.open("wb") as startup_stream:
+            self.procs[pid] = subprocess.Popen(
+                [sys.executable, str(serverless.SEED_AGENT_SOURCE)],
+                env=env,
+                stdout=startup_stream,
+                stderr=subprocess.STDOUT,
+            )
+        self.logs[pid] = startup_log
         self.ports[pid], self.names[pid] = port, body["name"]
         self.created.append(body)
-        for _ in range(100):
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            proc = self.procs[pid]
+            if proc.poll() is not None:
+                tail = startup_log.read_text(errors="replace")[-2000:]
+                raise AssertionError(
+                    f"local seeder exited rc={proc.returncode}; startup log:\n{tail}"
+                )
             try:
                 socket.create_connection(("127.0.0.1", port), timeout=0.2).close()
                 break
             except OSError:
                 time.sleep(0.05)
+        else:
+            tail = startup_log.read_text(errors="replace")[-2000:]
+            raise AssertionError(f"local seeder did not open port {port}; startup log:\n{tail}")
         return {"id": pid, "costPerHr": 0.07}
 
     def delete_pod(self, pod_id, confirm):
@@ -1566,15 +1604,55 @@ def test_gpu_seeder_fallback_rows_and_body():
     class FakeRp:
         def gql(self, q, v):
             assert v == {"dc": "EU-RO-1"}
-            return {"gpuTypes": [
-                {"id": "NVIDIA A", "lowestPrice": {"stockStatus": "High", "uninterruptablePrice": 0.72, "minVcpu": 8}},
-                {"id": "NVIDIA B", "lowestPrice": {"stockStatus": "Low", "uninterruptablePrice": 0.24, "minVcpu": 6}},
-                {"id": "NVIDIA C", "lowestPrice": {"stockStatus": "High", "uninterruptablePrice": 2.0, "minVcpu": 16}},
-                {"id": "NVIDIA D", "lowestPrice": {"stockStatus": None, "uninterruptablePrice": 0.1, "minVcpu": 4}},
-            ]}
+            return {
+                "gpuTypes": [
+                    {
+                        "id": "NVIDIA A",
+                        "lowestPrice": {
+                            "stockStatus": "High",
+                            "uninterruptablePrice": 0.72,
+                            "minVcpu": 8,
+                        },
+                    },
+                    {
+                        "id": "NVIDIA B",
+                        "lowestPrice": {
+                            "stockStatus": "Low",
+                            "uninterruptablePrice": 0.24,
+                            "minVcpu": 6,
+                        },
+                    },
+                    {
+                        "id": "NVIDIA C",
+                        "lowestPrice": {
+                            "stockStatus": "High",
+                            "uninterruptablePrice": 2.0,
+                            "minVcpu": 16,
+                        },
+                    },
+                    {
+                        "id": "NVIDIA D",
+                        "lowestPrice": {
+                            "stockStatus": None,
+                            "uninterruptablePrice": 0.1,
+                            "minVcpu": 4,
+                        },
+                    },
+                ]
+            }
 
-    sp = {"seeder": {"gpu_fallback": True, "gpu_max_hourly_usd": 0.8, "flavors": ["cpu3c"], "vcpu": [2]}}
+    sp = {
+        "seeder": {
+            "gpu_fallback": True,
+            "gpu_max_hourly_usd": 0.8,
+            "flavors": ["cpu3c"],
+            "vcpu": [2],
+        }
+    }
     rows = S.gpu_seeder_rows(FakeRp(), sp, "EU-RO-1")
-    assert [r["flavor"] for r in rows] == ["gpu:NVIDIA B", "gpu:NVIDIA A"]  # capped, stocked, cheapest first
+    assert [r["flavor"] for r in rows] == [
+        "gpu:NVIDIA B",
+        "gpu:NVIDIA A",
+    ]  # capped, stocked, cheapest first
     sp_off = {"seeder": {"gpu_fallback": False, "gpu_max_hourly_usd": 0.8}}
     assert S.gpu_seeder_rows(FakeRp(), sp_off, "EU-RO-1") == []

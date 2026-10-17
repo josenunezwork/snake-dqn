@@ -8,6 +8,7 @@ import pickle
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,6 +26,9 @@ SPEC.loader.exec_module(cli)
 
 def _tiny_manifest(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Freeze a deterministic, real-simulator-sized-down run protocol."""
+    # The fixture exercises simulator and terminal-state behavior, not the host's cgroup
+    # budget. Resource-error tests below replace this deliberately stable observation.
+    monkeypatch.setattr(cli.psutil, "virtual_memory", lambda: SimpleNamespace(available=2**63))
     monkeypatch.setattr(cli, "WORLD_COUNT", 2)
     monkeypatch.setattr(cli, "DEVELOPMENT_WORLDS", 1)
     monkeypatch.setattr(cli, "MAX_STEPS", 3)

@@ -64,3 +64,42 @@ def evaluator_context(tmp_path: Path) -> tuple[dict[str, Any], Path]:
         },
         student,
     )
+
+
+def subprocess_evaluator_sitecustomize(tmp_path: Path) -> Path:
+    """Write a startup shim for CLI smoke tests that spawn fresh interpreters.
+
+    The smoke test's subprocess and spawned actor cannot receive pytest's
+    in-process monkeypatches.  The shim substitutes only the historical
+    identity context with the same lightweight scripted roster authority used
+    by :func:`evaluator_context`; production code keeps its fail-closed digest
+    checks whenever this test-only startup path is absent.
+    """
+    hooks = tmp_path / "python-startup"
+    hooks.mkdir()
+    (hooks / "sitecustomize.py").write_text("""from types import SimpleNamespace
+
+from research.apex_safety_20260926 import dev_screen
+from research.redesign_scope_20261007 import grid_h5000_identity as gid
+from src.core.config_loader import load_and_initialize_config
+from src.scripts.tournament_eval import evaluation_profile_for_name
+
+load_and_initialize_config("research/apex_safety_20260926/deployment.yaml")
+_members = [f"cli-fixture-anchor-{index}" for index in range(6)]
+_lookup = {member: ("scripted", "greedy_food") for member in _members}
+
+def _design_rows(seeds):
+    rows = []
+    for world_index, seed in enumerate(seeds):
+        for offset, mix in enumerate(("scripted", "mixed", "frozen")):
+            ids = [_members[(world_index + offset + slot) % len(_members)] for slot in range(5)]
+            rows.append({"world_seed": int(seed), "mix": mix,
+                         "slots": [{"member_sha256": member} for member in ids]})
+    return rows
+
+_context = {"profile": evaluation_profile_for_name("promotion-v2-watch-rect", 5000),
+            "lookup": _lookup, "ds": SimpleNamespace(_design_rows=_design_rows)}
+gid._context = lambda _threads: _context
+dev_screen._design_rows = _design_rows
+""")
+    return hooks
