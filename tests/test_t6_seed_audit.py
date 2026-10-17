@@ -80,7 +80,10 @@ def test_production_snapshot_constants_match_the_committed_t6_receipt() -> None:
     assert seed_audit.SNAPSHOT_COUNT == snapshot["snapshot_count"]
     assert seed_audit.SNAPSHOT_SOURCE_WORLD_COUNT == snapshot["source_world_seed_count"]
     assert seed_audit.COLLECTION_WORLD_COUNT == receipt["t4e_collection"]["planned_world_count"]
-    assert seed_audit.t4f_audit.COLLECTION_WORLD_COUNT == receipt["t4e_collection"]["planned_world_count"]
+    assert (
+        seed_audit.t4f_audit.COLLECTION_WORLD_COUNT
+        == receipt["t4e_collection"]["planned_world_count"]
+    )
 
 
 def test_full_snapshot_store_is_bound_and_source_seeds_are_explicit(
