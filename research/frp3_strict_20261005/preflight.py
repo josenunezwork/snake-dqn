@@ -184,13 +184,16 @@ def domain_prefixes(table: Mapping[str, Sequence[str]]) -> Dict[str, List[int]]:
 
 
 def branch_domain_literals(repo: Path = REPO) -> List[str]:
-    """``*DOMAIN*`` / ``*_ID`` literals under ``research/`` on every local branch."""
+    """``*DOMAIN*`` / ``*_ID`` literals under ``research/`` on every local branch.
+
+    A detached checkout with no local branch (CI's pull-request checkout) scans ``HEAD``,
+    which is what a push run scans through its one local branch."""
     refs = subprocess.run(
         ["git", "-C", str(repo), "for-each-ref", "--format=%(refname)", "refs/heads"],
         capture_output=True,
         text=True,
         check=True,
-    ).stdout.split()
+    ).stdout.split() or ["HEAD"]
     found: set = set()
     for ref in refs:
         done = subprocess.run(
