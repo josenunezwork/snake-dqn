@@ -21,8 +21,7 @@ def driven_ai_count(snakes: Iterable[object], policy: object) -> int:
     A ``HumanSnake`` is excluded by the ``AISnake`` type check.
     """
     return sum(
-        isinstance(snake, AISnake) and getattr(snake, "policy", None) is policy
-        for snake in snakes
+        isinstance(snake, AISnake) and getattr(snake, "policy", None) is policy for snake in snakes
     )
 
 

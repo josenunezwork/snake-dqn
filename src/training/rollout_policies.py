@@ -13,9 +13,9 @@ from typing import Protocol, runtime_checkable
 import numpy as np
 
 from src.evaluation.anchors import (
-    AnchorContext,
     SCRIPTED_ANCHOR_KINDS,
     SCRIPTED_ANCHOR_VERSION,
+    AnchorContext,
     ScriptedAnchor,
     watch_anchor_frame,
 )

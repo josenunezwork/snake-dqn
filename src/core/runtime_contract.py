@@ -17,7 +17,6 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-
 # These are deliberately closed source-runtime values.  Training lifecycle
 # descriptors map their reset implementation onto this existing six-field
 # runtime contract; adding a field here would change historic digests.

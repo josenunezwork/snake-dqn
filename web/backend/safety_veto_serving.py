@@ -47,7 +47,8 @@ stays the master switch; the variant chooses which wrapper the Watch hero gets:
   the served checkpoint must hash to :data:`V7_STRICT_RECEIPT_CHECKPOINT_SHA256`, the four
   veto sources (``safety_veto{,_v3,_v5,_v7}.py``) to :data:`V7_STRICT_RECEIPT_SOURCE_SHA256S`
   and the installed method to :data:`V7_STRICT_RECEIPT_METHOD` (the gated lambda).
-* ``v8`` (the released default since 2026-10-03; rollback ``v7``): ``free-space-veto/v8-space-and-head(lambda=8.0)``
+* ``v8`` (the released default since 2026-10-03; rollback ``v7``):
+  ``free-space-veto/v8-space-and-head(lambda=8.0)``
   (:func:`src.evaluation.safety_veto_v8.install_space_and_head_veto` with :data:`V8_LAMBDA`,
   head layer on, no diagnostic ``reference_lambda``: exactly the strict candidate's install),
   bound fail closed to the v8 STRICT_PASS receipt (``apex-veto-v8-strict-20261003/run-v1``,
