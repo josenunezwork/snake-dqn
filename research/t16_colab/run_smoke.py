@@ -347,11 +347,17 @@ def completed_profile_artifacts_match(profile: object) -> bool:
     metadata = profile.get("profile_metadata")
     learner = metadata.get("learner.meta.json") if isinstance(metadata, dict) else None
     profiled_seconds = learner.get("profiled_s") if isinstance(learner, dict) else None
+    requested_duration = learner.get("requested_duration_s") if isinstance(learner, dict) else None
+    recorded_warm_seconds = learner.get("warm_s") if isinstance(learner, dict) else None
     if (
         learner is None
         or learner.get("mode") != "cprofile"
+        or learner.get("warm_from_first_tick") is not True
         or not isinstance(profiled_seconds, (int, float))
-        or profiled_seconds <= 0
+        or not math.isfinite(profiled_seconds)
+        or profiled_seconds < SMOKE03_PROFILE_SECONDS - 0.1
+        or requested_duration != SMOKE03_PROFILE_SECONDS
+        or recorded_warm_seconds != SMOKE03_PROFILE_WARM_SECONDS
     ):
         return False
     artifacts = profile.get("artifacts")

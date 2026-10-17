@@ -348,7 +348,10 @@ def test_smoke03_profile_is_warmed_and_result_identity_resumes(tmp_path, monkeyp
             profile = attempt / "profile"
             profile.mkdir()
             (profile / "learner.pstats").write_bytes(b"profile")
-            (profile / "learner.meta.json").write_text('{"mode": "cprofile", "profiled_s": 60.0}')
+            (profile / "learner.meta.json").write_text(
+                '{"mode": "cprofile", "profiled_s": 60.0, "requested_duration_s": 60.0, '
+                '"warm_from_first_tick": true, "warm_s": 60.0}'
+            )
         (attempt / "summary.json").write_text(
             json.dumps({"halt": None, "actor_exitcodes": [0, 0, 0], "rate": 10_000})
         )
@@ -412,9 +415,12 @@ def test_smoke03_retries_a_failed_profile_before_completing(tmp_path, monkeypatc
             profile = attempt / "profile"
             profile.mkdir()
             (profile / "learner.pstats").write_bytes(b"profile")
-            (profile / "learner.meta.json").write_text('{"mode": "cprofile", "profiled_s": 60.0}')
-            if profile_runs == 1:
-                return 1
+            profiled_s = 25.0 if profile_runs == 1 else 60.0
+            (profile / "learner.meta.json").write_text(
+                '{"mode": "cprofile", "profiled_s": '
+                + str(profiled_s)
+                + ', "requested_duration_s": 60.0, "warm_from_first_tick": true, "warm_s": 60.0}'
+            )
         (attempt / "summary.json").write_text(
             json.dumps({"halt": None, "actor_exitcodes": [0, 0, 0], "rate": 10_000})
         )
@@ -435,6 +441,8 @@ def test_smoke03_retries_a_failed_profile_before_completing(tmp_path, monkeypatc
     output, scratch = tmp_path / "output", tmp_path / "scratch"
     assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 1
     failed = json.loads((output / "colab_throughput_results.json").read_text())
+    assert failed["profile"]["returncode"] == 0  # reject the truncated capture, not process failure
+    assert failed["profile"]["profile_metadata"]["learner.meta.json"]["profiled_s"] == 25.0
     assert not smoke.completed_profile_artifacts_match(failed["profile"])
     assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 0
     assert profile_runs == 2
