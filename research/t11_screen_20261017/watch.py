@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
-import math
 import os
 import subprocess
 import time
@@ -156,21 +155,19 @@ def valid_t11_row(path: Path, job: dict[str, Any], candidate: Path | None) -> bo
     if not valid_row(path, job, candidate):
         return False
     row = json.loads(path.read_text())
-    values = row.get("length_at_5000")
-    if row.get("length_at_5000_convention") != "post-frame 5000 logical mass; dead heroes zero":
-        raise ValueError(f"missing T11 final-length convention: {path}")
-    if not isinstance(values, dict) or set(values) != set(row["mass"]):
-        raise ValueError(f"incomplete T11 final-length map: {path}")
-    for seed, value in values.items():
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, int)
-            or value < 0
-            or not math.isfinite(value)
-        ):
-            raise ValueError(f"invalid T11 final length: {path}: {seed}")
-        if row["deaths"][seed] and value != 0:
-            raise ValueError(f"dead T11 hero has final length: {path}: {seed}")
+    frames = row.get("length_at_frames", {})
+    if row.get("length_at_frames_convention") != "post-frame logical mass; dead heroes zero":
+        raise ValueError(f"missing T11 length convention: {path}")
+    if set(frames) != {str(frame) for frame in (1000, 2000, 3000, 4000, 5000)}:
+        raise ValueError(f"missing T11 length frames: {path}")
+    for frame, values in frames.items():
+        if not isinstance(values, dict) or set(values) != set(row["mass"]):
+            raise ValueError(f"incomplete T11 length map: {path}")
+        for seed, value in values.items():
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"invalid T11 length: {path}: {seed}")
+            if frame == "5000" and row["deaths"][seed] and value != 0:
+                raise ValueError(f"dead T11 hero has final length: {path}: {seed}")
     return True
 
 
