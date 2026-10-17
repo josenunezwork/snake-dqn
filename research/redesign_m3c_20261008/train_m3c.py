@@ -1492,10 +1492,10 @@ def learner_seats(args) -> int:
 def mixed_stream_ids(rows: np.ndarray, live_seats: np.ndarray, seats: int = 3) -> np.ndarray:
     """Map ``(world, physical-seat)`` learner rows to dense per-life n-step streams."""
     rows = np.asarray(rows, dtype=np.int64)
+    if not np.asarray(live_seats, dtype=bool)[rows[:, 0], rows[:, 1]].all():
+        raise ValueError("mixed stream requested for a frozen seat")
     ranks = np.cumsum(np.asarray(live_seats, dtype=np.int64), axis=1) - 1
     stream = rows[:, 0] * int(seats) + ranks[rows[:, 0], rows[:, 1]]
-    if (stream < 0).any():
-        raise ValueError("mixed stream requested for a frozen seat")
     return stream.astype(np.int64, copy=False)
 
 
@@ -1588,6 +1588,9 @@ def m3c_flags(args) -> Dict[str, Any]:
         "mixed_frac",
         "actors",
         "all_snakes_learner",
+        "learner_seats",
+        "league_checkpoint_dir",
+        "league_b8_checkpoint",
         "max_wall_seconds",
         "kill_scale",
         "death_value",
@@ -2551,6 +2554,19 @@ class Telemetry:
             "rss_gb_max": rss_gb(),
             **{k: round(v, 3) for k, v in self.acc.items()},
             **self.cal,
+            **{
+                key: row[key]
+                for key in (
+                    "learner_decisions",
+                    "replay_rows",
+                    "updates",
+                    "per_policy_live_rows",
+                    "policy_lag_mean",
+                    "policy_lag_p95",
+                    "frozen_forward_gpu_s",
+                )
+                if key in row
+            },
             **extra,
         }
         self.cal = {}
@@ -3773,6 +3789,11 @@ def main_multi(args) -> int:
                     row["halt"] = st["halt"]
                     write_arm_halt_receipt(args, reason, t)
                 lag = st["lag"]
+                row.update(
+                    policy_lag_mean=float(np.mean(lag)) if lag else None,
+                    policy_lag_p95=float(np.quantile(lag, 0.95)) if lag else None,
+                    frozen_forward_gpu_s=st["frozen_forward_gpu_s"],
+                )
                 tel.write(
                     row,
                     replay_size=replay.size,
@@ -3832,7 +3853,12 @@ def main_multi(args) -> int:
                 save_checkpoint_atomic(
                     checkpoint_path,
                     online,
-                    {**meta_base, "transitions": st["transitions"], "updates": st["updates"]},
+                    {
+                        **meta_base,
+                        "transitions": st["transitions"],
+                        "updates": st["updates"],
+                        "pool_identities": st["pool_identities"],
+                    },
                     manifest,
                 )
                 early = run_return_early_warning(args, checkpoint_path, next_ckpt, log_path)
@@ -3861,7 +3887,12 @@ def main_multi(args) -> int:
     save_checkpoint_atomic(
         args.out / ("aborted.pth" if st["halt"] else "final.pth"),
         online,
-        {**meta_base, "transitions": st["transitions"], "updates": st["updates"]},
+        {
+            **meta_base,
+            "transitions": st["transitions"],
+            "updates": st["updates"],
+            "pool_identities": st["pool_identities"],
+        },
         manifest,
     )
     summary = {

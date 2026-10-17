@@ -62,10 +62,16 @@ def test_mixed_life_streams_match_scalar_oracle_with_death_and_segment_tail() ->
     want = ref.take()
     for a, b in zip(got, want):
         assert np.array_equal(a, b)
-    s, _, _, disc, _ = got
+    s, _, returns, disc, nxt = got
     terminal = np.flatnonzero((s == 12) & (disc == 0.0))
     respawn_tail = np.flatnonzero((s == 52) & (disc > 0.0))
     assert len(terminal) == 1 and len(respawn_tail) == 1
+    # Scalar oracle: terminal life contains r12 + gamma*r32; the respawn tail
+    # keeps r52 and bootstraps to its last retained observation (72).
+    assert returns[terminal[0]] == np.float32(4.0 + 0.9 * 4.0)
+    assert returns[respawn_tail[0]] == np.float32(4.0)
+    assert disc[respawn_tail[0]] == np.float32(0.9)
+    assert nxt[respawn_tail[0]] == 72
 
 
 @pytest.mark.skipif(
