@@ -198,3 +198,11 @@ Reading: the A100 learner at the unchanged fp32 bs2 recipe caps at ~78 upd/s eve
 run (unexplained; GPU 53%, so something else binds — investigate before any bf16 conclusion; bf16 is a numerics
 change anyway). Conclusion: 4x at the fixed fp32 recipe is not reachable on the A100; options are an H100 smoke
 (same recipe), and taking actor forwards off the learner's GPU timeline.
+
+## Mac N=3 static-league baseline (2026-10-17, main 650217f, `research/t16_colab/mac_n3_baseline.sh`)
+
+MPS learner, 2 actors, 128 worlds, `--learner-seats 3`, static six-policy pool, 120 s warm-up, 268 s window:
+**5,214 learner transitions/s, 20.4 updates/s, 256.0 transitions/update, policy lag mean 0.75 / p95 1**.
+Learner-bound (learn_s 382 of 406 s wall; 46.5 ms/update). 4x bar for N=3 = 20,855 tr/s = 81.5 updates/s.
+Receipt: `snake-dqn-artifacts/t16-mac-n3-baseline/n3_w128_a2_mps_static_pool/throughput.json`.
+H100 pod runs paused: the pod-side self-delete probe returns 403 (owner decision pending); no pods running.
