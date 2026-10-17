@@ -137,36 +137,60 @@ def test_bodymap_bfs_visit_order_matches_prechange_kernel() -> None:
     release_value[3 * gh + 4] = 5
     release_stamp[5 * gh + 3] = 23
     release_value[5 * gh + 3] = 2
+    membership = np.zeros(n, dtype=np.uint64)
+    membership[blocked_one == 17] = np.uint64(1)
 
-    def visit(module, start, use_release, cap):
+    def visit(module, start, use_release, cap, *, membership_backed):
         ws = module._workspace(gw, gh)
         seen, qx, qy, qd = ws[4], ws[7], ws[8], ws[9]
         seen.fill(0)
-        count = module._bfs(
-            start[0],
-            start[1],
-            gw,
-            gh,
-            blocked_one,
-            17,
-            blocked_two,
-            19,
-            release_stamp,
-            release_value,
-            23,
-            use_release,
-            seen,
-            31,
-            qx,
-            qy,
-            qd,
-            cap,
-        )
+        if membership_backed:
+            count = module._bfs_membership(
+                start[0],
+                start[1],
+                gw,
+                gh,
+                membership,
+                np.uint64(1),
+                blocked_two,
+                19,
+                release_stamp,
+                release_value,
+                23,
+                use_release,
+                seen,
+                31,
+                qx,
+                qy,
+                qd,
+                cap,
+            )
+        else:
+            count = module._bfs(
+                start[0],
+                start[1],
+                gw,
+                gh,
+                blocked_one,
+                17,
+                blocked_two,
+                19,
+                release_stamp,
+                release_value,
+                23,
+                use_release,
+                seen,
+                31,
+                qx,
+                qy,
+                qd,
+                cap,
+            )
         return count, seen.copy(), qx[:count].copy(), qy[:count].copy(), qd[:count].copy()
 
     for start, use_release, cap in (((0, 0), False, 64), ((1, 5), True, 23), ((8, 7), True, 11)):
-        expected = visit(baseline, start, use_release, cap)
-        actual = visit(current, start, use_release, cap)
+        expected = visit(baseline, start, use_release, cap, membership_backed=False)
+        actual = visit(current, start, use_release, cap, membership_backed=True)
         for left, right in zip(expected, actual):
             if isinstance(left, np.ndarray):
                 assert left.tobytes() == right.tobytes(), (start, use_release, cap)
