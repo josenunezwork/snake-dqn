@@ -97,6 +97,7 @@ def summarize(rows: list[dict]) -> dict:
     for metric in METRICS:
         first_median = None
         first_consistent = None
+        negative_runs: list[list[int]] = []
         for offset in range(101):
             result = by_offset[str(offset)][metric]
             if result["n"] >= 20 and result["quartiles"][1] != 0 and first_median is None:
@@ -107,21 +108,49 @@ def summarize(rows: list[dict]) -> dict:
                 and first_consistent is None
             ):
                 first_consistent = offset
+            if result["n"] >= 20 and result["negative"] / result["n"] >= 0.75:
+                if not negative_runs or offset != negative_runs[-1][-1] + 1:
+                    negative_runs.append([offset])
+                else:
+                    negative_runs[-1].append(offset)
         ranking.append(
             {
                 "metric": metric,
                 "first_nonzero_median_n20": first_median,
                 "first_75pct_same_sign_n20": first_consistent,
+                "negative_75pct_offsets": sum(len(run) for run in negative_runs),
+                "negative_75pct_runs": [[run[0], run[-1]] for run in negative_runs],
             }
         )
     spatial = [{"arm": r["arm"], "env": r["env"], **spatial_divergence(r)} for r in rows]
     resolved = [s for s in spatial if s["offset"] is not None]
     outside = sum(s["outside15"] for s in resolved)
+    branch_counts = {}
+    for offset in OFFSETS:
+        pairs = []
+        for row in rows:
+            f = {t["offset"]: t for t in row["fatal"]["trace"]}.get(offset)
+            s = {t["offset"]: t for t in row["surviving"]["trace"]}.get(offset)
+            if f is not None and s is not None:
+                pairs.append((f, s))
+        counts: dict = {"n": len(pairs)}
+        for index, branch in enumerate(("fatal", "surviving")):
+            counts[branch] = {
+                "head_in_largest": sum(p[index]["head_in_largest"] for p in pairs),
+                "tail_reachable": sum(p[index]["tail_bfs"] is not None for p in pairs),
+                "boundary_majority_own": sum(p[index]["boundary_own"] > 0.5 for p in pairs),
+                "toward_food_in_smaller_component": sum(
+                    bool(p[index]["toward_food"] and p[index]["food_in_smaller_component"])
+                    for p in pairs
+                ),
+            }
+        branch_counts[str(offset)] = counts
     return {
         "authority": "development diagnostic, not gate evidence",
         "n": len(rows),
         "offsets": by_offset,
         "ranking": ranking,
+        "branch_counts": branch_counts,
         "spatial": {
             "criterion": "first D1..D100 with fatal head outside largest component and "
             "fatal head region strictly smaller than surviving head region",
@@ -179,6 +208,8 @@ def main() -> None:
     assert receipt["status"] == "PASS" and receipt["full_cohort"] and len(rows) == 46
     assert receipt["rows_sha256"] == sha256_file(args.out / "rows.jsonl")
     result = summarize(rows)
+    result["report_source_sha256"] = sha256_file(Path(__file__))
+    result["rows_sha256"] = receipt["rows_sha256"]
     (args.out / "summary.json").write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
     (args.out / "tables.md").write_text(markdown_tables(result))
     print(
