@@ -47,6 +47,7 @@ counters (``veto_record`` / ``veto_diagnostics``) and the optional v8
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import threading
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -161,6 +162,58 @@ def _bfs(
 
 
 @njit(cache=True, nogil=True)
+def _bfs_membership(
+    sx, sy, gw, gh, membership, blocked_bits, blk2, st2, rel_st, rel_val, rel_cur,
+    use_rel, seen, seen_cur, qx, qy, qd, cap,
+):  # fmt: skip
+    """The stamped BFS with a world membership mask as its first blocker.
+
+    This intentionally repeats :func:`_bfs`'s control flow.  In particular, a cell is
+    marked seen only after it passes every blocker, which is observable at a capped
+    frontier.  Keeping the loops textually parallel makes the FIFO discovery order
+    explicit rather than relying on an equivalent-looking flood implementation.
+    """
+    if sx < 0 or sx >= gw or sy < 0 or sy >= gh:
+        return 0
+    idx = sx * gh + sy
+    if (membership[idx] & blocked_bits) != 0 or blk2[idx] == st2:
+        return 0
+    if use_rel and rel_st[idx] == rel_cur and 0 < rel_val[idx]:
+        return 0
+    seen[idx] = seen_cur
+    head = 0
+    tail = 1
+    qx[0] = sx
+    qy[0] = sy
+    qd[0] = 0
+    count = 0
+    while head < tail and count < cap:
+        x = qx[head]
+        y = qy[head]
+        d = qd[head]
+        head += 1
+        count += 1
+        for k in range(4):
+            nx = x + _NBX[k]
+            ny = y + _NBY[k]
+            if nx < 0 or nx >= gw or ny < 0 or ny >= gh:
+                continue
+            nidx = nx * gh + ny
+            if seen[nidx] == seen_cur:
+                continue
+            if (membership[nidx] & blocked_bits) != 0 or blk2[nidx] == st2:
+                continue
+            if use_rel and rel_st[nidx] == rel_cur and d + 1 < rel_val[nidx]:
+                continue
+            seen[nidx] = seen_cur
+            qx[tail] = nx
+            qy[tail] = ny
+            qd[tail] = d + 1
+            tail += 1
+    return count
+
+
+@njit(cache=True, nogil=True)
 def _post_move(n, L, bf, boost_action, min_boost, boost_cost):
     """``safety_veto_v5.simulate_move`` sizes: ``(boosted, n_segments, post_length)``."""
     ln = n + 1
@@ -255,6 +308,70 @@ def _landing_area(
 
 
 @njit(cache=True, nogil=True)
+def _landing_count_membership(
+    bodies, e, s, hp, ring, n, L, bf, heading, gw, gh, min_boost, boost_cost, cap,
+    membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+):  # fmt: skip
+    """Membership-backed ``landing_count``; post-move blockers retain legacy semantics."""
+    boosted, ln, _ = _post_move(n, L, bf, True, min_boost, boost_cost)
+    if not boosted:
+        return _LANDING_NO_BOOST
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+    dx = _DX[heading]
+    dy = _DY[heading]
+    ws[0] += 1
+    tst = ws[0]
+    for i in range(1, ln):
+        cx, cy = _seg_cell(bodies, e, s, hp, ring, 2, hx, hy, dx, dy, i)
+        if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
+            tmp[cx * gh + cy] = tst
+    ws[1] += 1
+    return _bfs_membership(
+        hx + 2 * dx, hy + 2 * dy, gw, gh, membership, other_bits, tmp, tst,
+        rel_st, rel_val, -1, False, seen, ws[1], qx, qy, qd, cap,
+    )  # fmt: skip
+
+
+@njit(cache=True, nogil=True)
+def _landing_area_membership(
+    bodies, e, s, hp, ring, n, L, bf, heading, action, gw, gh, min_boost, boost_cost, cap,
+    membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+):  # fmt: skip
+    """Membership-backed ``landing_area`` with the exact retained-body release map."""
+    rel = action % 3
+    hd = (heading + rel - 1) % 4
+    dx = _DX[hd]
+    dy = _DY[hd]
+    boosted, ln, lpost = _post_move(n, L, bf, action >= 3, min_boost, boost_cost)
+    nh = 2 if boosted else 1
+    hx = bodies[e, s, hp, 0]
+    hy = bodies[e, s, hp, 1]
+    ws[2] += 1
+    rcur = ws[2]
+    for i in range(ln):
+        cx, cy = _seg_cell(bodies, e, s, hp, ring, nh, hx, hy, dx, dy, i)
+        if cx < 0 or cx >= gw or cy < 0 or cy >= gh:
+            continue
+        idx = cx * gh + cy
+        when = lpost - i + 1
+        if rel_st[idx] != rcur:
+            rel_st[idx] = rcur
+            rel_val[idx] = when
+        elif when > rel_val[idx]:
+            rel_val[idx] = when
+    nx = hx + dx * nh
+    ny = hy + dy * nh
+    if nx >= 0 and nx < gw and ny >= 0 and ny < gh:
+        rel_st[nx * gh + ny] = 0
+    ws[1] += 1
+    return _bfs_membership(
+        nx, ny, gw, gh, membership, other_bits, tmp, -1, rel_st, rel_val, rcur, True,
+        seen, ws[1], qx, qy, qd, cap,
+    )  # fmt: skip
+
+
+@njit(cache=True, nogil=True)
 def _veto_choice(qv, elig, base):
     """``safety_veto.veto_choice`` on precomputed eligibility (mask & spacious)."""
     anyel = False
@@ -335,7 +452,7 @@ def _space_pref(qv, cand, nc, anchor, lam, area, area_cap_row, scratch):
 def _v8_rows(
     bodies, head_ptr, seg_count, length, boost_frames, direction, alive,
     envs, slots, q, mask_in, gw, gh, min_boost, boost_cost, mech_v2, headon_ratio, lam,
-    eager, ws, others, hero, tmp, seen, rel_st, rel_val, qx, qy, qd,
+    eager, ws, others, hero, tmp, seen, rel_st, rel_val, qx, qy, qd, membership, touched,
     out_action, out_base, out_v5, out_v7, out_outcome, out_reason,
     out_counts, out_cap, out_need, out_acap, out_area, out_landing, out_risky,
     out_waived, out_elig,
@@ -356,6 +473,13 @@ def _v8_rows(
     ty = np.empty(7 * S, dtype=np.int64)
     tb = np.empty(7 * S, dtype=np.int64)
     inv = np.float32(INVALID_Q_VALUE)
+    last_e = -1
+    ntouched = 0
+    # The workspace is retained for allocation reuse only.  Membership is rebuilt from
+    # this decision frame; clearing it here prevents a changed world from inheriting a
+    # prior frame's occupied cells.
+    for i in range(membership.shape[0]):
+        membership[i] = np.uint64(0)
     for r in range(N):
         e = envs[r]
         s = slots[r]
@@ -366,6 +490,37 @@ def _v8_rows(
         heading = direction[e, s]
         hx = bodies[e, s, hp, 0]
         hy = bodies[e, s, hp, 1]
+        # Build a body-union bitset once per selected world.  Rows are stable-grouped by
+        # environment in ``v8_decide`` so every learner and frozen seat shares it.
+        # ``membership`` is intentionally frame-local scratch: no cross-frame cache or
+        # invalidation rule is introduced here.
+        # Six-slot worlds use one bit per snake.  A wider population falls back to
+        # observer-vs-other bits rebuilt for that row: exact union/overlap behavior,
+        # without truncating a snake id into a machine word.
+        wide_population = S > 63
+        if wide_population or e != last_e:
+            for i in range(ntouched):
+                membership[touched[i]] = np.uint64(0)
+            ntouched = 0
+            for o in range(S):
+                if not alive[e, o]:
+                    continue
+                if wide_population:
+                    bit = np.uint64(1) if o == s else np.uint64(2)
+                else:
+                    bit = np.uint64(1) << np.uint64(o)
+                ohp = head_ptr[e, o]
+                for k in range(seg_count[e, o]):
+                    j = (ohp - k) % ring
+                    cx = bodies[e, o, j, 0]
+                    cy = bodies[e, o, j, 1]
+                    if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
+                        idx = cx * gh + cy
+                        if membership[idx] == 0:
+                            touched[ntouched] = idx
+                            ntouched += 1
+                        membership[idx] |= bit
+            last_e = e
         # ---- masked Q (float32), base = first maximum (torch.argmax)
         anym = False
         for a in range(6):
@@ -381,39 +536,33 @@ def _v8_rows(
             qv[a] = np.float64(v)
             if qv[a] > qv[base]:
                 base = a
-        # ---- paint other live snakes (static walls) and the hero's body
+        # ---- observer-specific unique coverage derives from the shared union.  A cell
+        # occupied by the observer and an opponent remains covered, matching the old
+        # "paint opponents first" semantics for synthetic overlapping bodies.
         ws[0] += 1
         ost = ws[0]
         covered = 0
-        for o in range(S):
-            if o == s or not alive[e, o]:
-                continue
-            ohp = head_ptr[e, o]
-            for k in range(seg_count[e, o]):
-                j = (ohp - k) % ring
-                cx = bodies[e, o, j, 0]
-                cy = bodies[e, o, j, 1]
-                if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
-                    idx = cx * gh + cy
-                    if others[idx] != ost:
-                        others[idx] = ost
-                        covered += 1
         ws[0] += 1
         hst = ws[0]
-        for k in range(n):
-            j = (hp - k) % ring
-            cx = bodies[e, s, j, 0]
-            cy = bodies[e, s, j, 1]
-            if cx >= 0 and cx < gw and cy >= 0 and cy < gh:
-                hero[cx * gh + cy] = hst
+        if wide_population:
+            all_bits = np.uint64(3)
+            own_bit = np.uint64(1)
+            other_bits = np.uint64(2)
+        else:
+            all_bits = (np.uint64(1) << np.uint64(S)) - np.uint64(1)
+            own_bit = np.uint64(1) << np.uint64(s)
+            other_bits = all_bits ^ own_bit
+        for i in range(ntouched):
+            if (membership[touched[i]] & other_bits) != 0:
+                covered += 1
         # ---- v2 cap / need / counts / spacious
         cap = min(FREE_SPACE_BFS_CAP, max(FREE_SPACE_MIN_CAP, L * 2))
         need = min(max(1, L), cap)
         for d in range(3):
             hd = (heading + d - 1) % 4
             ws[1] += 1
-            c = _bfs(
-                hx + _DX[hd], hy + _DY[hd], gw, gh, others, ost, hero, hst,
+            c = _bfs_membership(
+                hx + _DX[hd], hy + _DY[hd], gw, gh, membership, all_bits, hero, hst,
                 rel_st, rel_val, -1, False, seen, ws[1], qx, qy, qd, cap,
             )  # fmt: skip
             out_counts[r, d] = c
@@ -429,16 +578,16 @@ def _v8_rows(
         if eager:
             for d in range(3):
                 hd = (heading + d - 1) % 4
-                lc = _landing_count(
+                lc = _landing_count_membership(
                     bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost, boost_cost,
-                    cap, others, ost, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+                    cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
                 )  # fmt: skip
                 out_landing[r, d] = lc
                 land_ok[d] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
             for a in range(6):
-                area[a] = _landing_area(
+                area[a] = _landing_area_membership(
                     bodies, e, s, hp, ring, n, L, bf, heading, a, gw, gh, min_boost,
-                    boost_cost, acap, others, ost, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+                    boost_cost, acap, membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
                 )  # fmt: skip
         # ---- v5 boost_aware_choice (landing floods lazily, memoized)
         for a in range(6):
@@ -453,9 +602,9 @@ def _v8_rows(
             if base >= 3:
                 if land_ok[d0] < 0:
                     hd = (heading + d0 - 1) % 4
-                    lc = _landing_count(
+                    lc = _landing_count_membership(
                         bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost, boost_cost,
-                        cap, others, ost, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+                        cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
                     )  # fmt: skip
                     out_landing[r, d0] = lc
                     land_ok[d0] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
@@ -475,9 +624,9 @@ def _v8_rows(
                 d0 = v5 % 3
                 if land_ok[d0] < 0:
                     hd = (heading + d0 - 1) % 4
-                    lc = _landing_count(
+                    lc = _landing_count_membership(
                         bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost, boost_cost,
-                        cap, others, ost, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
+                        cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val, qx, qy, qd,
                     )  # fmt: skip
                     out_landing[r, d0] = lc
                     land_ok[d0] = 1 if (lc == _LANDING_NO_BOOST or lc >= need) else 0
@@ -490,9 +639,9 @@ def _v8_rows(
                 if elig[a]:
                     if land_ok[d] < 0:
                         hd = (heading + d - 1) % 4
-                        lc = _landing_count(
+                        lc = _landing_count_membership(
                             bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
-                            boost_cost, cap, others, ost, tmp, ws, seen, rel_st, rel_val,
+                            boost_cost, cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
                             qx, qy, qd,
                         )  # fmt: skip
                         out_landing[r, d] = lc
@@ -529,9 +678,9 @@ def _v8_rows(
                     else:
                         if land_ok[d] < 0:
                             hd = (heading + d - 1) % 4
-                            lc = _landing_count(
+                            lc = _landing_count_membership(
                                 bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
-                                boost_cost, cap, others, ost, tmp, ws, seen, rel_st,
+                                boost_cost, cap, membership, other_bits, tmp, ws, seen, rel_st,
                                 rel_val, qx, qy, qd,
                             )  # fmt: skip
                             out_landing[r, d] = lc
@@ -544,9 +693,9 @@ def _v8_rows(
                     best, missing = _space_pref(qv, cand, nc, v5, lam, area, acap, scratch)
                     if missing < 0:
                         break
-                    area[missing] = _landing_area(
+                    area[missing] = _landing_area_membership(
                         bodies, e, s, hp, ring, n, L, bf, heading, missing, gw, gh, min_boost,
-                        boost_cost, acap, others, ost, tmp, ws, seen, rel_st, rel_val,
+                        boost_cost, acap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
                         qx, qy, qd,
                     )  # fmt: skip
                 if best != v5:
@@ -620,9 +769,9 @@ def _v8_rows(
                     d = a - 3
                     if land_ok[d] < 0:
                         hd = (heading + d - 1) % 4
-                        lc = _landing_count(
+                        lc = _landing_count_membership(
                             bodies, e, s, hp, ring, n, L, bf, hd, gw, gh, min_boost,
-                            boost_cost, cap, others, ost, tmp, ws, seen, rel_st, rel_val,
+                            boost_cost, cap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
                             qx, qy, qd,
                         )  # fmt: skip
                         out_landing[r, d] = lc
@@ -653,9 +802,9 @@ def _v8_rows(
                     best, missing = _space_pref(qv, cand, nc, anchor, lam, area, acap, scratch)
                     if missing < 0:
                         break
-                    area[missing] = _landing_area(
+                    area[missing] = _landing_area_membership(
                         bodies, e, s, hp, ring, n, L, bf, heading, missing, gw, gh, min_boost,
-                        boost_cost, acap, others, ost, tmp, ws, seen, rel_st, rel_val,
+                        boost_cost, acap, membership, other_bits, tmp, ws, seen, rel_st, rel_val,
                         qx, qy, qd,
                     )  # fmt: skip
                 final = best
@@ -736,12 +885,16 @@ def v8_feature_planes(res: V8Result) -> np.ndarray:
     ).astype(np.float32)
 
 
-_WORKSPACE: Dict[Tuple[int, int], Tuple[np.ndarray, ...]] = {}
+_WORKSPACE = threading.local()
 
 
 def _workspace(gw: int, gh: int) -> Tuple[np.ndarray, ...]:
     key = (int(gw), int(gh))
-    ws = _WORKSPACE.get(key)
+    workspaces = getattr(_WORKSPACE, "by_shape", None)
+    if workspaces is None:
+        workspaces = {}
+        _WORKSPACE.by_shape = workspaces
+    ws = workspaces.get(key)
     if ws is None:
         n = int(gw) * int(gh)
         ws = (
@@ -755,10 +908,25 @@ def _workspace(gw: int, gh: int) -> Tuple[np.ndarray, ...]:
             np.zeros(n, dtype=np.int64),  # queue x
             np.zeros(n, dtype=np.int64),  # queue y
             np.zeros(n, dtype=np.int64),  # queue distance
+            np.zeros(n, dtype=np.uint64),  # per-world snake membership bitset
+            np.zeros(n, dtype=np.int64),  # sparse touched cells for membership clearing
         )
         ws[0][:] = 1  # stamps start above the zero-initialized arrays
-        _WORKSPACE[key] = ws
+        workspaces[key] = ws
     return ws
+
+
+def _prepare_workspace(ws: Tuple[np.ndarray, ...]) -> None:
+    """Clear stamped scratch before an int64 stamp could wrap.
+
+    Scratch remains local to the calling thread and is rebuilt per v8 invocation.  This
+    is intentionally a rare full clear, keeping normal hot-path stamp semantics intact.
+    """
+    if int(ws[0].max()) < np.iinfo(np.int64).max - 100_000:
+        return
+    for array in ws[:9]:
+        array.fill(0)
+    ws[0][:] = 1
 
 
 def _i64(a) -> np.ndarray:
@@ -821,11 +989,24 @@ def v8_decide(
     )
     if not N:
         return out
+    # The kernel materializes a sparse membership map once for each consecutive world.
+    # Stable grouping preserves duplicate-row order; scatter restores the caller's order.
+    order = np.argsort(rows[:, 0], kind="stable")
+    grouped = not np.array_equal(order, np.arange(N))
+    if grouped:
+        rows_kernel = rows[order]
+        q_kernel = q[order]
+        mask_kernel = mask[order]
+    else:
+        rows_kernel = rows
+        q_kernel = q
+        mask_kernel = mask
     ws = _workspace(gw, gh)
+    _prepare_workspace(ws)
     _v8_rows(
         _i64(sim.bodies), _i64(sim.head_ptr), _i64(sim.seg_count), _i64(sim.length),
         _i64(sim.boost_frames), _i64(sim.direction), np.ascontiguousarray(sim.alive, bool),
-        rows[:, 0].copy(), rows[:, 1].copy(), q, mask, int(gw), int(gh),
+        rows_kernel[:, 0].copy(), rows_kernel[:, 1].copy(), q_kernel, mask_kernel, int(gw), int(gh),
         int(sim.cfg.min_boost_length), int(sim.cfg.boost_length_cost_frames),
         int(sim.cfg.mechanics_version) == 2, float(HEADON_SIZE_RATIO), lam, bool(features),
         *ws,
@@ -833,6 +1014,12 @@ def v8_decide(
         out.counts, out.cap, out.need, out.area_cap, out.area, out.landing, out.head_risky,
         out.head_waived, out.v5_eligible,
     )  # fmt: skip
+    if grouped:
+        inverse = np.empty(N, dtype=np.int64)
+        inverse[order] = np.arange(N)
+        for name in V8Result.__dataclass_fields__:
+            value = getattr(out, name)
+            setattr(out, name, value[inverse])
     return out
 
 
