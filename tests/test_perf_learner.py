@@ -349,8 +349,10 @@ def test_batch_scale_intervals():
         device="cpu",
     )
     one = lm.Learner(torch, args=_args("bv8"), opts=lm.LearnerOpts(), **kw)
+    league = lm.Learner(torch, args=_args("bv8"), opts=lm.LearnerOpts(batch_scale=2), **kw)
     four = lm.Learner(torch, args=_args("bv8"), opts=lm.LearnerOpts(batch_scale=4), **kw)
     assert (one.update_every, one.target_every, one.publish_every) == (128, 1000, 25)
+    assert league.update_every == 256  # T19 R0 spends replay rows, independent of N seats.
     assert (four.update_every, four.target_every, four.publish_every) == (512, 250, 6)
     assert (four.a_rows, four.d_rows, four.min_rows) == (1536, 512, 256)
     st["updates"] = 0  # reference keeps the M3-C publish condition (also with no new update)
