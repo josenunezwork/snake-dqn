@@ -1,0 +1,2046 @@
+{
+  "files": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json": "28229dd69b8a9e0a3a2fc1908148786aa308e4a35406090566d0df8714c8faa0",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s10/final.pth": "64d5355b9ac103fea2859d610e8c1c00919191d60a29ea192dc3259d4abbd651",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s10/log.jsonl": "a04587e9a47515b64dd76fc330308008b0857ede1f3d04dfc658c26769395235",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s10/summary.json": "a88e2172046ea8b51d554e0b36b69cc886f005fade00ee2ac0b608c4d5ea7b71",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s11/final.pth": "e993e4d510af3ce4401ae475362d724d0f869b1b38b1a2a926c047b19a2d5cc8",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s11/log.jsonl": "5996aefbd7be5360e807107147076d777421f981b510db6db8aeee443ba476ca",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s11/summary.json": "1189039cfb70a44e0fd1033fc13f97f09c1d757b5afa7f421f9fead27d991dba",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s12/final.pth": "79f317f3e68f934665d69fad79cf3dcc68f474ce0793ee27fcbd6cf575eb8b22",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s12/log.jsonl": "836a224d6ddc21e56c4b2dbd9f28e971dee6bde87bf4229a572ce82309caad9f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s12/summary.json": "2cad0ea7ac04c4e404aeeadb0e7ffa072a318e162500e096a5285022c85a5b44",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s13/aborted.pth": "f2bf8ace4ec8bd64757592b88d35ed516a2a0f6f4ca4e9413b4a62945d20404f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s13/log.jsonl": "f40cbcdc499703b2c494f58e8ec088df9c880f845744768d69915b9f6b262925",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s13/summary.json": "05fc3b29de07b6d9f98cd5b36995a158db5d4da0c72ef1735b6d0ab1a2a5eb06",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s14/final.pth": "209414a7243f1ee8b782424c80cb88a7d2e58c3a602b1f5d20765e7e6383fe6c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s14/log.jsonl": "dc123458ab88f0b6fd6ebd65d28abb03e8bf95a55f3cdd2ac97381bc33ba1a85",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s14/summary.json": "d280e1147aed0dfac765dd10264dd946bd55a594492d25a1684cffb53a55408f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/lane0-status.jsonl": "d12698b72cb84f067b7d355814e88a2e20cfac2b0f22200b5e2f5846fdcb9e12",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/lane1-status.jsonl": "f1d66d8cdd52f17d6abc17e73c0f1f446c08e0422e668650e5fb54594530326d"
+  },
+  "kill": {
+    "reason": "greedy boost rate below length 700 0.010730 exceeded --boost-halt-low-length-rate 0.010000 at 300160 transitions",
+    "transitions": 300160
+  },
+  "lane_receipts": {
+    "lane0-status.jsonl": [
+      {
+        "exit_code": 0,
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s10",
+        "success": true
+      },
+      {
+        "exit_code": 0,
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s12",
+        "success": true
+      },
+      {
+        "exit_code": 0,
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s14",
+        "success": true
+      }
+    ],
+    "lane1-status.jsonl": [
+      {
+        "exit_code": 0,
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s11",
+        "success": true
+      },
+      {
+        "exit_code": 1,
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s13",
+        "success": false
+      }
+    ]
+  },
+  "schema": "t11-screen-input-evidence/v1",
+  "summaries": {
+    "LOCAL30_s10": {
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "actors": 2,
+      "anchor_updates": 31239,
+      "args": {
+        "actor_device": "None",
+        "actor_impl": "vectorized",
+        "actor_queue_frames": "8",
+        "actor_sync_updates": "25",
+        "actors": "2",
+        "anchor_boost_weight": "1.0",
+        "anchor_floor": "0.1",
+        "anchor_floor_at": "1",
+        "anchor_hold": "0",
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": "2",
+        "boost_halt_low_length_rate": "0.01",
+        "boost_halt_rate": "0.02",
+        "checkpoint_every": "2000000",
+        "compile_actor": "off",
+        "compile_learner": "off",
+        "compile_learner_scope": "loss",
+        "death_mass_mult": "0.0",
+        "death_value": "None",
+        "demo_capacity": "300000",
+        "demo_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+        "demo_initial_shards": "30",
+        "demo_mmap": "None",
+        "demo_rounds": "10,11,12",
+        "device": "mps",
+        "eps_end_at": "1",
+        "frozen_frac": "0.25",
+        "gamma_anneal_end": "1",
+        "gamma_end": "0.998",
+        "gamma_hold": "0",
+        "gamma_start": "0.998",
+        "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s0/final.pth",
+        "kill_scale": "0.0",
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": "1.0",
+        "label_bank_frac": "0.5",
+        "label_bank_margin_scale": "4.75",
+        "label_bank_outside": "None",
+        "label_bank_outside_margin_scale": "1.0",
+        "label_capacity": "300000",
+        "label_frac": "0.5",
+        "learner_fast": "True",
+        "learner_precision": "fp32",
+        "lr_scale": "none",
+        "mass_kappa": "1.0",
+        "mixed_frac": "0.25",
+        "namespace": "redesign-m3-train/v1",
+        "no_guard": "False",
+        "obs_pack": "True",
+        "obs_version": "bv8",
+        "onpolicy_labels": "True",
+        "opp_forward": "None",
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s10",
+        "replay": "500000",
+        "restart_bank": "None",
+        "restart_frac": "0.0",
+        "return_bank": "None",
+        "return_contrast_epsilon": "0.0",
+        "return_early_warning_config": "None",
+        "return_frac": "0.0",
+        "return_gradient_telemetry": "False",
+        "return_huber_delta": "None",
+        "return_mode": "level",
+        "return_weight": "1.0",
+        "reward": "mass",
+        "ring_dir": "None",
+        "seed": "10",
+        "segment_frames": "5000",
+        "shield": "none",
+        "shield_full_until": "8000000",
+        "shield_off_at": "16000000",
+        "td_huber_delta": "1.0",
+        "tight_cost": "0.0",
+        "tight_min_len": "600",
+        "tight_telemetry": "True",
+        "transitions": "8000000",
+        "update_every": "1",
+        "v61_backend": "numba",
+        "v8_backend": "None",
+        "warmup": "20000",
+        "worlds": "128"
+      },
+      "created_utc": "2026-10-17T06:10:35.370912+00:00",
+      "demo_distinct": 0,
+      "demo_qmax": 11.46413516998291,
+      "flags": [
+        {
+          "qmax": 67.93958282470703,
+          "t": 500224
+        },
+        {
+          "qmax": 73.84017944335938,
+          "t": 600064
+        },
+        {
+          "qmax": 91.93580627441406,
+          "t": 700160
+        },
+        {
+          "qmax": 89.78244018554688,
+          "t": 800000
+        },
+        {
+          "qmax": 92.79124450683594,
+          "t": 900096
+        },
+        {
+          "qmax": 104.25725555419922,
+          "t": 1000192
+        },
+        {
+          "qmax": 112.0458984375,
+          "t": 1100032
+        },
+        {
+          "qmax": 117.98075866699219,
+          "t": 1200128
+        },
+        {
+          "qmax": 128.01510620117188,
+          "t": 1300224
+        },
+        {
+          "qmax": 131.5267791748047,
+          "t": 1400064
+        },
+        {
+          "qmax": 133.25674438476562,
+          "t": 1500160
+        },
+        {
+          "qmax": 133.34759521484375,
+          "t": 1600000
+        },
+        {
+          "qmax": 137.24374389648438,
+          "t": 1700096
+        },
+        {
+          "qmax": 127.48355102539062,
+          "t": 1800192
+        },
+        {
+          "qmax": 91.01419830322266,
+          "t": 1900032
+        },
+        {
+          "qmax": 100.08270263671875,
+          "t": 2000128
+        },
+        {
+          "qmax": 103.83576202392578,
+          "t": 2100224
+        },
+        {
+          "qmax": 116.49742126464844,
+          "t": 2200064
+        },
+        {
+          "qmax": 124.07904815673828,
+          "t": 2300160
+        },
+        {
+          "qmax": 122.83905029296875,
+          "t": 2400000
+        },
+        {
+          "qmax": 128.0662078857422,
+          "t": 2500096
+        },
+        {
+          "qmax": 131.27655029296875,
+          "t": 2600192
+        },
+        {
+          "qmax": 134.06930541992188,
+          "t": 2700032
+        },
+        {
+          "qmax": 133.66075134277344,
+          "t": 2800128
+        },
+        {
+          "qmax": 135.94097900390625,
+          "t": 2900224
+        },
+        {
+          "qmax": 136.6596221923828,
+          "t": 3000064
+        },
+        {
+          "qmax": 137.97434997558594,
+          "t": 3100160
+        },
+        {
+          "qmax": 86.06165313720703,
+          "t": 3200000
+        },
+        {
+          "qmax": 107.90542602539062,
+          "t": 3300096
+        },
+        {
+          "qmax": 111.56898498535156,
+          "t": 3400192
+        },
+        {
+          "qmax": 117.14707946777344,
+          "t": 3500032
+        },
+        {
+          "qmax": 124.04542541503906,
+          "t": 3600128
+        },
+        {
+          "qmax": 129.31625366210938,
+          "t": 3700224
+        },
+        {
+          "qmax": 130.00355529785156,
+          "t": 3800064
+        },
+        {
+          "qmax": 135.76434326171875,
+          "t": 3900160
+        },
+        {
+          "qmax": 137.82505798339844,
+          "t": 4000000
+        },
+        {
+          "qmax": 137.62229919433594,
+          "t": 4100096
+        },
+        {
+          "qmax": 140.24697875976562,
+          "t": 4200192
+        },
+        {
+          "qmax": 142.4824676513672,
+          "t": 4300032
+        },
+        {
+          "qmax": 129.31704711914062,
+          "t": 4400128
+        },
+        {
+          "qmax": 96.74703216552734,
+          "t": 4500224
+        },
+        {
+          "qmax": 99.67616271972656,
+          "t": 4600064
+        },
+        {
+          "qmax": 106.57576751708984,
+          "t": 4700160
+        },
+        {
+          "qmax": 119.23282623291016,
+          "t": 4800000
+        },
+        {
+          "qmax": 125.2916030883789,
+          "t": 4900096
+        },
+        {
+          "qmax": 124.31082153320312,
+          "t": 5000192
+        },
+        {
+          "qmax": 133.72793579101562,
+          "t": 5100032
+        },
+        {
+          "qmax": 138.61180114746094,
+          "t": 5200128
+        },
+        {
+          "qmax": 138.0489959716797,
+          "t": 5300224
+        },
+        {
+          "qmax": 139.96661376953125,
+          "t": 5400064
+        },
+        {
+          "qmax": 141.6310577392578,
+          "t": 5500160
+        },
+        {
+          "qmax": 137.8245086669922,
+          "t": 5600000
+        },
+        {
+          "qmax": 119.27131652832031,
+          "t": 5700096
+        },
+        {
+          "qmax": 97.75696563720703,
+          "t": 5800192
+        },
+        {
+          "qmax": 96.1811294555664,
+          "t": 5900032
+        },
+        {
+          "qmax": 116.4071044921875,
+          "t": 6000128
+        },
+        {
+          "qmax": 119.29773712158203,
+          "t": 6100224
+        },
+        {
+          "qmax": 124.95274353027344,
+          "t": 6200064
+        },
+        {
+          "qmax": 133.5001220703125,
+          "t": 6300160
+        },
+        {
+          "qmax": 137.52081298828125,
+          "t": 6400000
+        },
+        {
+          "qmax": 135.69686889648438,
+          "t": 6500096
+        },
+        {
+          "qmax": 137.65525817871094,
+          "t": 6600192
+        },
+        {
+          "qmax": 138.7052764892578,
+          "t": 6700032
+        },
+        {
+          "qmax": 139.2015380859375,
+          "t": 6800128
+        },
+        {
+          "qmax": 132.9263916015625,
+          "t": 6900224
+        },
+        {
+          "qmax": 93.71540832519531,
+          "t": 7000064
+        },
+        {
+          "qmax": 92.65229797363281,
+          "t": 7100160
+        },
+        {
+          "qmax": 105.87422943115234,
+          "t": 7200000
+        },
+        {
+          "qmax": 117.3641586303711,
+          "t": 7300096
+        },
+        {
+          "qmax": 126.43147277832031,
+          "t": 7400192
+        },
+        {
+          "qmax": 127.3436508178711,
+          "t": 7500032
+        },
+        {
+          "qmax": 133.40740966796875,
+          "t": 7600128
+        },
+        {
+          "qmax": 135.5759735107422,
+          "t": 7700224
+        },
+        {
+          "qmax": 139.9107208251953,
+          "t": 7800064
+        },
+        {
+          "qmax": 141.87928771972656,
+          "t": 7900160
+        },
+        {
+          "qmax": 134.84738159179688,
+          "t": 8000000
+        }
+      ],
+      "git": {
+        "commit": "a0b519ee6d35e42a9c9dd86707a98731ae25160a",
+        "dirty_paths": ""
+      },
+      "halt": null,
+      "holdout_agreement_final": null,
+      "label_buffer": 300000,
+      "m3c": {
+        "actors": 2,
+        "anchor_floor_at": 1,
+        "anchor_hold": 0,
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": 2,
+        "boost_halt_low_length_rate": 0.01,
+        "boost_halt_rate": 0.02,
+        "eps_end_at": 1,
+        "gamma_anneal_end": 1,
+        "gamma_end": 0.998,
+        "gamma_hold": 0,
+        "gamma_start": 0.998,
+        "kill_scale": 0.0,
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": 1.0,
+        "label_bank_frac": 0.5,
+        "label_bank_margin_scale": 4.75,
+        "learner_fast": true,
+        "mixed_frac": 0.25,
+        "obs_pack": true,
+        "obs_version": "bv8",
+        "onpolicy_labels": true,
+        "reward": "mass",
+        "tight_min_len": 600,
+        "tight_telemetry": true,
+        "v61_backend": "numba"
+      },
+      "m6_totals": {
+        "death_len_mean": 714.9267578125,
+        "deaths": 1024,
+        "decisions": 8000000,
+        "m6_big": 3312909,
+        "m6_big1k": 1066342,
+        "m6_death_len": 732085,
+        "m6_tight": 81284,
+        "m6_tight1k": 38646,
+        "tight_big_share": 0.414113625,
+        "tight_frac": 0.024535536593368545,
+        "tight_frac_1000": 0.036241656054061454
+      },
+      "obs_version": "bv8",
+      "rate": 3730.7492539882896,
+      "ring_overrun_rows": 0,
+      "schema": "redesign-m3c-train/v1",
+      "transitions": 8000000,
+      "updates": 31239,
+      "wall_seconds": 2144.341378499754
+    },
+    "LOCAL30_s11": {
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "actors": 2,
+      "anchor_updates": 31239,
+      "args": {
+        "actor_device": "None",
+        "actor_impl": "vectorized",
+        "actor_queue_frames": "8",
+        "actor_sync_updates": "25",
+        "actors": "2",
+        "anchor_boost_weight": "1.0",
+        "anchor_floor": "0.1",
+        "anchor_floor_at": "1",
+        "anchor_hold": "0",
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": "2",
+        "boost_halt_low_length_rate": "0.01",
+        "boost_halt_rate": "0.02",
+        "checkpoint_every": "2000000",
+        "compile_actor": "off",
+        "compile_learner": "off",
+        "compile_learner_scope": "loss",
+        "death_mass_mult": "0.0",
+        "death_value": "None",
+        "demo_capacity": "300000",
+        "demo_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+        "demo_initial_shards": "30",
+        "demo_mmap": "None",
+        "demo_rounds": "10,11,12",
+        "device": "mps",
+        "eps_end_at": "1",
+        "frozen_frac": "0.25",
+        "gamma_anneal_end": "1",
+        "gamma_end": "0.998",
+        "gamma_hold": "0",
+        "gamma_start": "0.998",
+        "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s1/final.pth",
+        "kill_scale": "0.0",
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": "1.0",
+        "label_bank_frac": "0.5",
+        "label_bank_margin_scale": "4.75",
+        "label_bank_outside": "None",
+        "label_bank_outside_margin_scale": "1.0",
+        "label_capacity": "300000",
+        "label_frac": "0.5",
+        "learner_fast": "True",
+        "learner_precision": "fp32",
+        "lr_scale": "none",
+        "mass_kappa": "1.0",
+        "mixed_frac": "0.25",
+        "namespace": "redesign-m3-train/v1",
+        "no_guard": "False",
+        "obs_pack": "True",
+        "obs_version": "bv8",
+        "onpolicy_labels": "True",
+        "opp_forward": "None",
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s11",
+        "replay": "500000",
+        "restart_bank": "None",
+        "restart_frac": "0.0",
+        "return_bank": "None",
+        "return_contrast_epsilon": "0.0",
+        "return_early_warning_config": "None",
+        "return_frac": "0.0",
+        "return_gradient_telemetry": "False",
+        "return_huber_delta": "None",
+        "return_mode": "level",
+        "return_weight": "1.0",
+        "reward": "mass",
+        "ring_dir": "None",
+        "seed": "11",
+        "segment_frames": "5000",
+        "shield": "none",
+        "shield_full_until": "8000000",
+        "shield_off_at": "16000000",
+        "td_huber_delta": "1.0",
+        "tight_cost": "0.0",
+        "tight_min_len": "600",
+        "tight_telemetry": "True",
+        "transitions": "8000000",
+        "update_every": "1",
+        "v61_backend": "numba",
+        "v8_backend": "None",
+        "warmup": "20000",
+        "worlds": "128"
+      },
+      "created_utc": "2026-10-17T07:46:02.546955+00:00",
+      "demo_distinct": 0,
+      "demo_qmax": 11.46413516998291,
+      "flags": [
+        {
+          "qmax": 75.31407165527344,
+          "t": 600192
+        },
+        {
+          "qmax": 88.59285736083984,
+          "t": 700032
+        },
+        {
+          "qmax": 101.26034545898438,
+          "t": 800128
+        },
+        {
+          "qmax": 110.09066772460938,
+          "t": 900224
+        },
+        {
+          "qmax": 114.50670623779297,
+          "t": 1000064
+        },
+        {
+          "qmax": 115.72403717041016,
+          "t": 1100160
+        },
+        {
+          "qmax": 123.88758087158203,
+          "t": 1200000
+        },
+        {
+          "qmax": 129.65597534179688,
+          "t": 1300096
+        },
+        {
+          "qmax": 132.3193359375,
+          "t": 1400192
+        },
+        {
+          "qmax": 133.8264617919922,
+          "t": 1500032
+        },
+        {
+          "qmax": 138.1956329345703,
+          "t": 1600128
+        },
+        {
+          "qmax": 139.97007751464844,
+          "t": 1700224
+        },
+        {
+          "qmax": 140.48922729492188,
+          "t": 1800064
+        },
+        {
+          "qmax": 92.70831298828125,
+          "t": 1900160
+        },
+        {
+          "qmax": 91.01753997802734,
+          "t": 2000000
+        },
+        {
+          "qmax": 107.94828033447266,
+          "t": 2100096
+        },
+        {
+          "qmax": 114.48487854003906,
+          "t": 2200192
+        },
+        {
+          "qmax": 125.6146240234375,
+          "t": 2300032
+        },
+        {
+          "qmax": 129.0697021484375,
+          "t": 2400128
+        },
+        {
+          "qmax": 130.61279296875,
+          "t": 2500224
+        },
+        {
+          "qmax": 135.7995147705078,
+          "t": 2600064
+        },
+        {
+          "qmax": 135.0063934326172,
+          "t": 2700160
+        },
+        {
+          "qmax": 135.45555114746094,
+          "t": 2800000
+        },
+        {
+          "qmax": 137.57986450195312,
+          "t": 2900096
+        },
+        {
+          "qmax": 139.0278778076172,
+          "t": 3000192
+        },
+        {
+          "qmax": 138.094482421875,
+          "t": 3100032
+        },
+        {
+          "qmax": 85.24978637695312,
+          "t": 3200128
+        },
+        {
+          "qmax": 103.54793548583984,
+          "t": 3300224
+        },
+        {
+          "qmax": 104.25645446777344,
+          "t": 3400064
+        },
+        {
+          "qmax": 129.33755493164062,
+          "t": 3500160
+        },
+        {
+          "qmax": 127.69426727294922,
+          "t": 3600000
+        },
+        {
+          "qmax": 134.10321044921875,
+          "t": 3700096
+        },
+        {
+          "qmax": 135.34840393066406,
+          "t": 3800192
+        },
+        {
+          "qmax": 138.7076416015625,
+          "t": 3900032
+        },
+        {
+          "qmax": 141.37615966796875,
+          "t": 4000128
+        },
+        {
+          "qmax": 141.64703369140625,
+          "t": 4100224
+        },
+        {
+          "qmax": 143.0350799560547,
+          "t": 4200064
+        },
+        {
+          "qmax": 141.82537841796875,
+          "t": 4300160
+        },
+        {
+          "qmax": 140.56642150878906,
+          "t": 4400000
+        },
+        {
+          "qmax": 88.3330078125,
+          "t": 4500096
+        },
+        {
+          "qmax": 98.2464828491211,
+          "t": 4600192
+        },
+        {
+          "qmax": 125.12271881103516,
+          "t": 4700032
+        },
+        {
+          "qmax": 124.5971450805664,
+          "t": 4800128
+        },
+        {
+          "qmax": 131.6761474609375,
+          "t": 4900224
+        },
+        {
+          "qmax": 140.47938537597656,
+          "t": 5000064
+        },
+        {
+          "qmax": 139.4569854736328,
+          "t": 5100160
+        },
+        {
+          "qmax": 141.7965087890625,
+          "t": 5200000
+        },
+        {
+          "qmax": 142.1354217529297,
+          "t": 5300096
+        },
+        {
+          "qmax": 144.74139404296875,
+          "t": 5400192
+        },
+        {
+          "qmax": 146.72561645507812,
+          "t": 5500032
+        },
+        {
+          "qmax": 143.43418884277344,
+          "t": 5600128
+        },
+        {
+          "qmax": 124.6536865234375,
+          "t": 5700224
+        },
+        {
+          "qmax": 102.36265563964844,
+          "t": 5800064
+        },
+        {
+          "qmax": 121.60277557373047,
+          "t": 5900160
+        },
+        {
+          "qmax": 122.87047576904297,
+          "t": 6000000
+        },
+        {
+          "qmax": 130.1787872314453,
+          "t": 6100096
+        },
+        {
+          "qmax": 132.57070922851562,
+          "t": 6200192
+        },
+        {
+          "qmax": 134.81175231933594,
+          "t": 6300032
+        },
+        {
+          "qmax": 138.14788818359375,
+          "t": 6400128
+        },
+        {
+          "qmax": 141.64703369140625,
+          "t": 6500224
+        },
+        {
+          "qmax": 141.20692443847656,
+          "t": 6600064
+        },
+        {
+          "qmax": 141.5256805419922,
+          "t": 6700160
+        },
+        {
+          "qmax": 143.5507354736328,
+          "t": 6800000
+        },
+        {
+          "qmax": 143.4910430908203,
+          "t": 6900096
+        },
+        {
+          "qmax": 90.3492431640625,
+          "t": 7000192
+        },
+        {
+          "qmax": 97.98867797851562,
+          "t": 7100032
+        },
+        {
+          "qmax": 115.6924057006836,
+          "t": 7200128
+        },
+        {
+          "qmax": 119.23004913330078,
+          "t": 7300224
+        },
+        {
+          "qmax": 128.61447143554688,
+          "t": 7400064
+        },
+        {
+          "qmax": 132.1046142578125,
+          "t": 7500160
+        },
+        {
+          "qmax": 137.24884033203125,
+          "t": 7600000
+        },
+        {
+          "qmax": 142.30813598632812,
+          "t": 7700096
+        },
+        {
+          "qmax": 143.6788787841797,
+          "t": 7800192
+        },
+        {
+          "qmax": 144.5116424560547,
+          "t": 7900032
+        },
+        {
+          "qmax": 144.08506774902344,
+          "t": 8000128
+        }
+      ],
+      "git": {
+        "commit": "a0b519ee6d35e42a9c9dd86707a98731ae25160a",
+        "dirty_paths": ""
+      },
+      "halt": null,
+      "holdout_agreement_final": null,
+      "label_buffer": 300000,
+      "m3c": {
+        "actors": 2,
+        "anchor_floor_at": 1,
+        "anchor_hold": 0,
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": 2,
+        "boost_halt_low_length_rate": 0.01,
+        "boost_halt_rate": 0.02,
+        "eps_end_at": 1,
+        "gamma_anneal_end": 1,
+        "gamma_end": 0.998,
+        "gamma_hold": 0,
+        "gamma_start": 0.998,
+        "kill_scale": 0.0,
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": 1.0,
+        "label_bank_frac": 0.5,
+        "label_bank_margin_scale": 4.75,
+        "learner_fast": true,
+        "mixed_frac": 0.25,
+        "obs_pack": true,
+        "obs_version": "bv8",
+        "onpolicy_labels": true,
+        "reward": "mass",
+        "tight_min_len": 600,
+        "tight_telemetry": true,
+        "v61_backend": "numba"
+      },
+      "m6_totals": {
+        "death_len_mean": 745.6217303822938,
+        "deaths": 994,
+        "decisions": 8000128,
+        "m6_big": 3417456,
+        "m6_big1k": 1203804,
+        "m6_death_len": 741148,
+        "m6_tight": 95621,
+        "m6_tight1k": 55937,
+        "tight_big_share": 0.4271751651973568,
+        "tight_frac": 0.027980170044617985,
+        "tight_frac_1000": 0.04646686669923011
+      },
+      "obs_version": "bv8",
+      "rate": 4556.745721572625,
+      "ring_overrun_rows": 0,
+      "schema": "redesign-m3c-train/v1",
+      "transitions": 8000128,
+      "updates": 31239,
+      "wall_seconds": 1755.6669796253555
+    },
+    "LOCAL30_s12": {
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "actors": 2,
+      "anchor_updates": 31239,
+      "args": {
+        "actor_device": "None",
+        "actor_impl": "vectorized",
+        "actor_queue_frames": "8",
+        "actor_sync_updates": "25",
+        "actors": "2",
+        "anchor_boost_weight": "1.0",
+        "anchor_floor": "0.1",
+        "anchor_floor_at": "1",
+        "anchor_hold": "0",
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": "2",
+        "boost_halt_low_length_rate": "0.01",
+        "boost_halt_rate": "0.02",
+        "checkpoint_every": "2000000",
+        "compile_actor": "off",
+        "compile_learner": "off",
+        "compile_learner_scope": "loss",
+        "death_mass_mult": "0.0",
+        "death_value": "None",
+        "demo_capacity": "300000",
+        "demo_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+        "demo_initial_shards": "30",
+        "demo_mmap": "None",
+        "demo_rounds": "10,11,12",
+        "device": "mps",
+        "eps_end_at": "1",
+        "frozen_frac": "0.25",
+        "gamma_anneal_end": "1",
+        "gamma_end": "0.998",
+        "gamma_hold": "0",
+        "gamma_start": "0.998",
+        "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s2/final.pth",
+        "kill_scale": "0.0",
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": "1.0",
+        "label_bank_frac": "0.5",
+        "label_bank_margin_scale": "4.75",
+        "label_bank_outside": "None",
+        "label_bank_outside_margin_scale": "1.0",
+        "label_capacity": "300000",
+        "label_frac": "0.5",
+        "learner_fast": "True",
+        "learner_precision": "fp32",
+        "lr_scale": "none",
+        "mass_kappa": "1.0",
+        "mixed_frac": "0.25",
+        "namespace": "redesign-m3-train/v1",
+        "no_guard": "False",
+        "obs_pack": "True",
+        "obs_version": "bv8",
+        "onpolicy_labels": "True",
+        "opp_forward": "None",
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s12",
+        "replay": "500000",
+        "restart_bank": "None",
+        "restart_frac": "0.0",
+        "return_bank": "None",
+        "return_contrast_epsilon": "0.0",
+        "return_early_warning_config": "None",
+        "return_frac": "0.0",
+        "return_gradient_telemetry": "False",
+        "return_huber_delta": "None",
+        "return_mode": "level",
+        "return_weight": "1.0",
+        "reward": "mass",
+        "ring_dir": "None",
+        "seed": "12",
+        "segment_frames": "5000",
+        "shield": "none",
+        "shield_full_until": "8000000",
+        "shield_off_at": "16000000",
+        "td_huber_delta": "1.0",
+        "tight_cost": "0.0",
+        "tight_min_len": "600",
+        "tight_telemetry": "True",
+        "transitions": "8000000",
+        "update_every": "1",
+        "v61_backend": "numba",
+        "v8_backend": "None",
+        "warmup": "20000",
+        "worlds": "128"
+      },
+      "created_utc": "2026-10-17T06:45:21.381749+00:00",
+      "demo_distinct": 0,
+      "demo_qmax": 11.46413516998291,
+      "flags": [
+        {
+          "qmax": 59.397274017333984,
+          "t": 500224
+        },
+        {
+          "qmax": 75.82211303710938,
+          "t": 600064
+        },
+        {
+          "qmax": 78.64301300048828,
+          "t": 700160
+        },
+        {
+          "qmax": 96.88074493408203,
+          "t": 800000
+        },
+        {
+          "qmax": 102.46772003173828,
+          "t": 900096
+        },
+        {
+          "qmax": 114.85612487792969,
+          "t": 1000192
+        },
+        {
+          "qmax": 115.93763732910156,
+          "t": 1100032
+        },
+        {
+          "qmax": 128.93063354492188,
+          "t": 1200128
+        },
+        {
+          "qmax": 128.0150146484375,
+          "t": 1300224
+        },
+        {
+          "qmax": 133.92532348632812,
+          "t": 1400064
+        },
+        {
+          "qmax": 135.10317993164062,
+          "t": 1500160
+        },
+        {
+          "qmax": 138.04356384277344,
+          "t": 1600000
+        },
+        {
+          "qmax": 137.3999786376953,
+          "t": 1700096
+        },
+        {
+          "qmax": 121.55252075195312,
+          "t": 1800192
+        },
+        {
+          "qmax": 89.1294937133789,
+          "t": 1900032
+        },
+        {
+          "qmax": 98.06784057617188,
+          "t": 2000128
+        },
+        {
+          "qmax": 119.35980224609375,
+          "t": 2100224
+        },
+        {
+          "qmax": 123.3685073852539,
+          "t": 2200064
+        },
+        {
+          "qmax": 120.86685943603516,
+          "t": 2300160
+        },
+        {
+          "qmax": 122.1572036743164,
+          "t": 2400000
+        },
+        {
+          "qmax": 130.61029052734375,
+          "t": 2500096
+        },
+        {
+          "qmax": 131.86721801757812,
+          "t": 2600192
+        },
+        {
+          "qmax": 132.54849243164062,
+          "t": 2700032
+        },
+        {
+          "qmax": 136.41343688964844,
+          "t": 2800128
+        },
+        {
+          "qmax": 137.5685272216797,
+          "t": 2900224
+        },
+        {
+          "qmax": 138.29759216308594,
+          "t": 3000064
+        },
+        {
+          "qmax": 136.64950561523438,
+          "t": 3100160
+        },
+        {
+          "qmax": 91.57325744628906,
+          "t": 3200000
+        },
+        {
+          "qmax": 98.94189453125,
+          "t": 3300096
+        },
+        {
+          "qmax": 119.94857788085938,
+          "t": 3400192
+        },
+        {
+          "qmax": 109.41999816894531,
+          "t": 3500032
+        },
+        {
+          "qmax": 126.07365417480469,
+          "t": 3600128
+        },
+        {
+          "qmax": 131.71658325195312,
+          "t": 3700224
+        },
+        {
+          "qmax": 134.98443603515625,
+          "t": 3800064
+        },
+        {
+          "qmax": 136.61288452148438,
+          "t": 3900160
+        },
+        {
+          "qmax": 137.24673461914062,
+          "t": 4000000
+        },
+        {
+          "qmax": 137.90878295898438,
+          "t": 4100096
+        },
+        {
+          "qmax": 137.05690002441406,
+          "t": 4200192
+        },
+        {
+          "qmax": 135.15394592285156,
+          "t": 4300032
+        },
+        {
+          "qmax": 136.73402404785156,
+          "t": 4400128
+        },
+        {
+          "qmax": 96.64007568359375,
+          "t": 4500224
+        },
+        {
+          "qmax": 102.1651840209961,
+          "t": 4600064
+        },
+        {
+          "qmax": 107.76188659667969,
+          "t": 4700160
+        },
+        {
+          "qmax": 116.60729217529297,
+          "t": 4800000
+        },
+        {
+          "qmax": 126.51347351074219,
+          "t": 4900096
+        },
+        {
+          "qmax": 127.96703338623047,
+          "t": 5000192
+        },
+        {
+          "qmax": 130.37347412109375,
+          "t": 5100032
+        },
+        {
+          "qmax": 135.8843994140625,
+          "t": 5200128
+        },
+        {
+          "qmax": 137.17343139648438,
+          "t": 5300224
+        },
+        {
+          "qmax": 138.340087890625,
+          "t": 5400064
+        },
+        {
+          "qmax": 139.44158935546875,
+          "t": 5500160
+        },
+        {
+          "qmax": 140.47930908203125,
+          "t": 5600000
+        },
+        {
+          "qmax": 140.43185424804688,
+          "t": 5700096
+        },
+        {
+          "qmax": 105.15668487548828,
+          "t": 5800192
+        },
+        {
+          "qmax": 111.92923736572266,
+          "t": 5900032
+        },
+        {
+          "qmax": 111.38834381103516,
+          "t": 6000128
+        },
+        {
+          "qmax": 124.588134765625,
+          "t": 6100224
+        },
+        {
+          "qmax": 124.89641571044922,
+          "t": 6200064
+        },
+        {
+          "qmax": 129.34788513183594,
+          "t": 6300160
+        },
+        {
+          "qmax": 135.8190460205078,
+          "t": 6400000
+        },
+        {
+          "qmax": 139.9951934814453,
+          "t": 6500096
+        },
+        {
+          "qmax": 137.57557678222656,
+          "t": 6600192
+        },
+        {
+          "qmax": 142.4230194091797,
+          "t": 6700032
+        },
+        {
+          "qmax": 139.16209411621094,
+          "t": 6800128
+        },
+        {
+          "qmax": 142.34341430664062,
+          "t": 6900224
+        },
+        {
+          "qmax": 80.47792053222656,
+          "t": 7000064
+        },
+        {
+          "qmax": 96.69396209716797,
+          "t": 7100160
+        },
+        {
+          "qmax": 110.50016784667969,
+          "t": 7200000
+        },
+        {
+          "qmax": 115.98554229736328,
+          "t": 7300096
+        },
+        {
+          "qmax": 120.3013687133789,
+          "t": 7400192
+        },
+        {
+          "qmax": 127.22389221191406,
+          "t": 7500032
+        },
+        {
+          "qmax": 135.27178955078125,
+          "t": 7600128
+        },
+        {
+          "qmax": 139.9143524169922,
+          "t": 7700224
+        },
+        {
+          "qmax": 140.22467041015625,
+          "t": 7800064
+        },
+        {
+          "qmax": 142.21505737304688,
+          "t": 7900160
+        },
+        {
+          "qmax": 141.1819610595703,
+          "t": 8000000
+        }
+      ],
+      "git": {
+        "commit": "a0b519ee6d35e42a9c9dd86707a98731ae25160a",
+        "dirty_paths": ""
+      },
+      "halt": null,
+      "holdout_agreement_final": null,
+      "label_buffer": 300000,
+      "m3c": {
+        "actors": 2,
+        "anchor_floor_at": 1,
+        "anchor_hold": 0,
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": 2,
+        "boost_halt_low_length_rate": 0.01,
+        "boost_halt_rate": 0.02,
+        "eps_end_at": 1,
+        "gamma_anneal_end": 1,
+        "gamma_end": 0.998,
+        "gamma_hold": 0,
+        "gamma_start": 0.998,
+        "kill_scale": 0.0,
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": 1.0,
+        "label_bank_frac": 0.5,
+        "label_bank_margin_scale": 4.75,
+        "learner_fast": true,
+        "mixed_frac": 0.25,
+        "obs_pack": true,
+        "obs_version": "bv8",
+        "onpolicy_labels": true,
+        "reward": "mass",
+        "tight_min_len": 600,
+        "tight_telemetry": true,
+        "v61_backend": "numba"
+      },
+      "m6_totals": {
+        "death_len_mean": 743.8027718550106,
+        "deaths": 938,
+        "decisions": 8000000,
+        "m6_big": 3381042,
+        "m6_big1k": 1118350,
+        "m6_death_len": 697687,
+        "m6_tight": 91724,
+        "m6_tight1k": 47112,
+        "tight_big_share": 0.42263025,
+        "tight_frac": 0.027128914695528774,
+        "tight_frac_1000": 0.04212634685027049
+      },
+      "obs_version": "bv8",
+      "rate": 3839.3945563495176,
+      "ring_overrun_rows": 0,
+      "schema": "redesign-m3c-train/v1",
+      "transitions": 8000000,
+      "updates": 31239,
+      "wall_seconds": 2083.6618560417555
+    },
+    "LOCAL30_s13": {
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "actors": 2,
+      "anchor_updates": 1167,
+      "args": {
+        "actor_device": "None",
+        "actor_impl": "vectorized",
+        "actor_queue_frames": "8",
+        "actor_sync_updates": "25",
+        "actors": "2",
+        "anchor_boost_weight": "1.0",
+        "anchor_floor": "0.1",
+        "anchor_floor_at": "1",
+        "anchor_hold": "0",
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": "2",
+        "boost_halt_low_length_rate": "0.01",
+        "boost_halt_rate": "0.02",
+        "checkpoint_every": "2000000",
+        "compile_actor": "off",
+        "compile_learner": "off",
+        "compile_learner_scope": "loss",
+        "death_mass_mult": "0.0",
+        "death_value": "None",
+        "demo_capacity": "300000",
+        "demo_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+        "demo_initial_shards": "30",
+        "demo_mmap": "None",
+        "demo_rounds": "10,11,12",
+        "device": "mps",
+        "eps_end_at": "1",
+        "frozen_frac": "0.25",
+        "gamma_anneal_end": "1",
+        "gamma_end": "0.998",
+        "gamma_hold": "0",
+        "gamma_start": "0.998",
+        "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s3/final.pth",
+        "kill_scale": "0.0",
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": "1.0",
+        "label_bank_frac": "0.5",
+        "label_bank_margin_scale": "4.75",
+        "label_bank_outside": "None",
+        "label_bank_outside_margin_scale": "1.0",
+        "label_capacity": "300000",
+        "label_frac": "0.5",
+        "learner_fast": "True",
+        "learner_precision": "fp32",
+        "lr_scale": "none",
+        "mass_kappa": "1.0",
+        "mixed_frac": "0.25",
+        "namespace": "redesign-m3-train/v1",
+        "no_guard": "False",
+        "obs_pack": "True",
+        "obs_version": "bv8",
+        "onpolicy_labels": "True",
+        "opp_forward": "None",
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s13",
+        "replay": "500000",
+        "restart_bank": "None",
+        "restart_frac": "0.0",
+        "return_bank": "None",
+        "return_contrast_epsilon": "0.0",
+        "return_early_warning_config": "None",
+        "return_frac": "0.0",
+        "return_gradient_telemetry": "False",
+        "return_huber_delta": "None",
+        "return_mode": "level",
+        "return_weight": "1.0",
+        "reward": "mass",
+        "ring_dir": "None",
+        "seed": "13",
+        "segment_frames": "5000",
+        "shield": "none",
+        "shield_full_until": "8000000",
+        "shield_off_at": "16000000",
+        "td_huber_delta": "1.0",
+        "tight_cost": "0.0",
+        "tight_min_len": "600",
+        "tight_telemetry": "True",
+        "transitions": "8000000",
+        "update_every": "1",
+        "v61_backend": "numba",
+        "v8_backend": "None",
+        "warmup": "20000",
+        "worlds": "128"
+      },
+      "created_utc": "2026-10-17T07:47:13.428903+00:00",
+      "demo_distinct": 0,
+      "demo_qmax": 11.46413516998291,
+      "flags": [],
+      "git": {
+        "commit": "a0b519ee6d35e42a9c9dd86707a98731ae25160a",
+        "dirty_paths": ""
+      },
+      "halt": "greedy boost rate below length 700 0.010730 exceeded --boost-halt-low-length-rate 0.010000 at 300160 transitions",
+      "holdout_agreement_final": null,
+      "label_buffer": 300000,
+      "m3c": {
+        "actors": 2,
+        "anchor_floor_at": 1,
+        "anchor_hold": 0,
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": 2,
+        "boost_halt_low_length_rate": 0.01,
+        "boost_halt_rate": 0.02,
+        "eps_end_at": 1,
+        "gamma_anneal_end": 1,
+        "gamma_end": 0.998,
+        "gamma_hold": 0,
+        "gamma_start": 0.998,
+        "kill_scale": 0.0,
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": 1.0,
+        "label_bank_frac": 0.5,
+        "label_bank_margin_scale": 4.75,
+        "learner_fast": true,
+        "mixed_frac": 0.25,
+        "obs_pack": true,
+        "obs_version": "bv8",
+        "onpolicy_labels": true,
+        "reward": "mass",
+        "tight_min_len": 600,
+        "tight_telemetry": true,
+        "v61_backend": "numba"
+      },
+      "m6_totals": {
+        "death_len_mean": 215.4,
+        "deaths": 20,
+        "decisions": 300160,
+        "m6_big": 0,
+        "m6_big1k": 0,
+        "m6_death_len": 4308,
+        "m6_tight": 0,
+        "m6_tight1k": 0,
+        "tight_big_share": 0.0,
+        "tight_frac": null,
+        "tight_frac_1000": null
+      },
+      "obs_version": "bv8",
+      "rate": 4337.85364800906,
+      "ring_overrun_rows": 0,
+      "schema": "redesign-m3c-train/v1",
+      "transitions": 300160,
+      "updates": 1167,
+      "wall_seconds": 69.19550837483257
+    },
+    "LOCAL30_s14": {
+      "actor_exitcodes": [
+        0,
+        0
+      ],
+      "actors": 2,
+      "anchor_updates": 31239,
+      "args": {
+        "actor_device": "None",
+        "actor_impl": "vectorized",
+        "actor_queue_frames": "8",
+        "actor_sync_updates": "25",
+        "actors": "2",
+        "anchor_boost_weight": "1.0",
+        "anchor_floor": "0.1",
+        "anchor_floor_at": "1",
+        "anchor_hold": "0",
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": "2",
+        "boost_halt_low_length_rate": "0.01",
+        "boost_halt_rate": "0.02",
+        "checkpoint_every": "2000000",
+        "compile_actor": "off",
+        "compile_learner": "off",
+        "compile_learner_scope": "loss",
+        "death_mass_mult": "0.0",
+        "death_value": "None",
+        "demo_capacity": "300000",
+        "demo_data": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m2b-20261008/data",
+        "demo_initial_shards": "30",
+        "demo_mmap": "None",
+        "demo_rounds": "10,11,12",
+        "device": "mps",
+        "eps_end_at": "1",
+        "frozen_frac": "0.25",
+        "gamma_anneal_end": "1",
+        "gamma_end": "0.998",
+        "gamma_hold": "0",
+        "gamma_start": "0.998",
+        "init": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-m4b-mac-20261013/B8_s4/final.pth",
+        "kill_scale": "0.0",
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": "1.0",
+        "label_bank_frac": "0.5",
+        "label_bank_margin_scale": "4.75",
+        "label_bank_outside": "None",
+        "label_bank_outside_margin_scale": "1.0",
+        "label_capacity": "300000",
+        "label_frac": "0.5",
+        "learner_fast": "True",
+        "learner_precision": "fp32",
+        "lr_scale": "none",
+        "mass_kappa": "1.0",
+        "mixed_frac": "0.25",
+        "namespace": "redesign-m3-train/v1",
+        "no_guard": "False",
+        "obs_pack": "True",
+        "obs_version": "bv8",
+        "onpolicy_labels": "True",
+        "opp_forward": "None",
+        "out": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/LOCAL30_s14",
+        "replay": "500000",
+        "restart_bank": "None",
+        "restart_frac": "0.0",
+        "return_bank": "None",
+        "return_contrast_epsilon": "0.0",
+        "return_early_warning_config": "None",
+        "return_frac": "0.0",
+        "return_gradient_telemetry": "False",
+        "return_huber_delta": "None",
+        "return_mode": "level",
+        "return_weight": "1.0",
+        "reward": "mass",
+        "ring_dir": "None",
+        "seed": "14",
+        "segment_frames": "5000",
+        "shield": "none",
+        "shield_full_until": "8000000",
+        "shield_off_at": "16000000",
+        "td_huber_delta": "1.0",
+        "tight_cost": "0.0",
+        "tight_min_len": "600",
+        "tight_telemetry": "True",
+        "transitions": "8000000",
+        "update_every": "1",
+        "v61_backend": "numba",
+        "v8_backend": "None",
+        "warmup": "20000",
+        "worlds": "128"
+      },
+      "created_utc": "2026-10-17T07:16:44.958948+00:00",
+      "demo_distinct": 0,
+      "demo_qmax": 11.46413516998291,
+      "flags": [
+        {
+          "qmax": 68.54705810546875,
+          "t": 500224
+        },
+        {
+          "qmax": 66.24545288085938,
+          "t": 600064
+        },
+        {
+          "qmax": 88.58307647705078,
+          "t": 700160
+        },
+        {
+          "qmax": 88.43569946289062,
+          "t": 800000
+        },
+        {
+          "qmax": 109.61991882324219,
+          "t": 900096
+        },
+        {
+          "qmax": 113.54663848876953,
+          "t": 1000192
+        },
+        {
+          "qmax": 119.4883041381836,
+          "t": 1100032
+        },
+        {
+          "qmax": 121.49177551269531,
+          "t": 1200128
+        },
+        {
+          "qmax": 126.0323715209961,
+          "t": 1300224
+        },
+        {
+          "qmax": 129.55886840820312,
+          "t": 1400064
+        },
+        {
+          "qmax": 134.73887634277344,
+          "t": 1500160
+        },
+        {
+          "qmax": 135.1252899169922,
+          "t": 1600000
+        },
+        {
+          "qmax": 136.6931915283203,
+          "t": 1700096
+        },
+        {
+          "qmax": 131.0384063720703,
+          "t": 1800192
+        },
+        {
+          "qmax": 78.88903045654297,
+          "t": 1900032
+        },
+        {
+          "qmax": 93.44229888916016,
+          "t": 2000128
+        },
+        {
+          "qmax": 102.18214416503906,
+          "t": 2100224
+        },
+        {
+          "qmax": 115.23268127441406,
+          "t": 2200064
+        },
+        {
+          "qmax": 119.90543365478516,
+          "t": 2300160
+        },
+        {
+          "qmax": 120.48497772216797,
+          "t": 2400000
+        },
+        {
+          "qmax": 128.20846557617188,
+          "t": 2500096
+        },
+        {
+          "qmax": 131.4456787109375,
+          "t": 2600192
+        },
+        {
+          "qmax": 132.555908203125,
+          "t": 2700032
+        },
+        {
+          "qmax": 133.37136840820312,
+          "t": 2800128
+        },
+        {
+          "qmax": 133.55136108398438,
+          "t": 2900224
+        },
+        {
+          "qmax": 135.0331573486328,
+          "t": 3000064
+        },
+        {
+          "qmax": 128.22384643554688,
+          "t": 3100160
+        },
+        {
+          "qmax": 106.65219116210938,
+          "t": 3200000
+        },
+        {
+          "qmax": 110.3986587524414,
+          "t": 3300096
+        },
+        {
+          "qmax": 110.11656188964844,
+          "t": 3400192
+        },
+        {
+          "qmax": 113.6296157836914,
+          "t": 3500032
+        },
+        {
+          "qmax": 116.96760559082031,
+          "t": 3600128
+        },
+        {
+          "qmax": 123.6617202758789,
+          "t": 3700224
+        },
+        {
+          "qmax": 132.546142578125,
+          "t": 3800064
+        },
+        {
+          "qmax": 136.81849670410156,
+          "t": 3900160
+        },
+        {
+          "qmax": 138.4287872314453,
+          "t": 4000000
+        },
+        {
+          "qmax": 139.12985229492188,
+          "t": 4100096
+        },
+        {
+          "qmax": 142.44195556640625,
+          "t": 4200192
+        },
+        {
+          "qmax": 140.60317993164062,
+          "t": 4300032
+        },
+        {
+          "qmax": 138.36013793945312,
+          "t": 4400128
+        },
+        {
+          "qmax": 90.71333312988281,
+          "t": 4500224
+        },
+        {
+          "qmax": 105.94389343261719,
+          "t": 4600064
+        },
+        {
+          "qmax": 120.58740997314453,
+          "t": 4700160
+        },
+        {
+          "qmax": 125.99302673339844,
+          "t": 4800000
+        },
+        {
+          "qmax": 126.55720520019531,
+          "t": 4900096
+        },
+        {
+          "qmax": 137.538818359375,
+          "t": 5000192
+        },
+        {
+          "qmax": 140.5980682373047,
+          "t": 5100032
+        },
+        {
+          "qmax": 138.6998291015625,
+          "t": 5200128
+        },
+        {
+          "qmax": 139.23130798339844,
+          "t": 5300224
+        },
+        {
+          "qmax": 142.2158660888672,
+          "t": 5400064
+        },
+        {
+          "qmax": 138.83843994140625,
+          "t": 5500160
+        },
+        {
+          "qmax": 143.3887939453125,
+          "t": 5600000
+        },
+        {
+          "qmax": 125.12016296386719,
+          "t": 5700096
+        },
+        {
+          "qmax": 96.65504455566406,
+          "t": 5800192
+        },
+        {
+          "qmax": 107.182861328125,
+          "t": 5900032
+        },
+        {
+          "qmax": 109.3321762084961,
+          "t": 6000128
+        },
+        {
+          "qmax": 120.23609161376953,
+          "t": 6100224
+        },
+        {
+          "qmax": 118.38864135742188,
+          "t": 6200064
+        },
+        {
+          "qmax": 122.21441650390625,
+          "t": 6300160
+        },
+        {
+          "qmax": 134.53111267089844,
+          "t": 6400000
+        },
+        {
+          "qmax": 137.96633911132812,
+          "t": 6500096
+        },
+        {
+          "qmax": 140.86940002441406,
+          "t": 6600192
+        },
+        {
+          "qmax": 141.97708129882812,
+          "t": 6700032
+        },
+        {
+          "qmax": 144.124755859375,
+          "t": 6800128
+        },
+        {
+          "qmax": 145.76358032226562,
+          "t": 6900224
+        },
+        {
+          "qmax": 87.62423706054688,
+          "t": 7000064
+        },
+        {
+          "qmax": 98.74229431152344,
+          "t": 7100160
+        },
+        {
+          "qmax": 105.8902359008789,
+          "t": 7200000
+        },
+        {
+          "qmax": 115.36870574951172,
+          "t": 7300096
+        },
+        {
+          "qmax": 124.80323028564453,
+          "t": 7400192
+        },
+        {
+          "qmax": 124.26681518554688,
+          "t": 7500032
+        },
+        {
+          "qmax": 134.77789306640625,
+          "t": 7600128
+        },
+        {
+          "qmax": 136.13238525390625,
+          "t": 7700224
+        },
+        {
+          "qmax": 138.65521240234375,
+          "t": 7800064
+        },
+        {
+          "qmax": 139.6538848876953,
+          "t": 7900160
+        },
+        {
+          "qmax": 139.8286590576172,
+          "t": 8000000
+        }
+      ],
+      "git": {
+        "commit": "a0b519ee6d35e42a9c9dd86707a98731ae25160a",
+        "dirty_paths": ""
+      },
+      "halt": null,
+      "holdout_agreement_final": null,
+      "label_buffer": 300000,
+      "m3c": {
+        "actors": 2,
+        "anchor_floor_at": 1,
+        "anchor_hold": 0,
+        "anchor_mode": "v8margin",
+        "arm_halt_file": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/KILL.json",
+        "batch_scale": 2,
+        "boost_halt_low_length_rate": 0.01,
+        "boost_halt_rate": 0.02,
+        "eps_end_at": 1,
+        "gamma_anneal_end": 1,
+        "gamma_end": 0.998,
+        "gamma_hold": 0,
+        "gamma_start": 0.998,
+        "kill_scale": 0.0,
+        "label_bank": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/bank-local30",
+        "label_bank_counter_mode": "single-action",
+        "label_bank_counter_ratio": 1.0,
+        "label_bank_frac": 0.5,
+        "label_bank_margin_scale": 4.75,
+        "learner_fast": true,
+        "mixed_frac": 0.25,
+        "obs_pack": true,
+        "obs_version": "bv8",
+        "onpolicy_labels": true,
+        "reward": "mass",
+        "tight_min_len": 600,
+        "tight_telemetry": true,
+        "v61_backend": "numba"
+      },
+      "m6_totals": {
+        "death_len_mean": 714.2639842983317,
+        "deaths": 1019,
+        "decisions": 8000000,
+        "m6_big": 3286231,
+        "m6_big1k": 1077072,
+        "m6_death_len": 727835,
+        "m6_tight": 76064,
+        "m6_tight1k": 40337,
+        "tight_big_share": 0.410778875,
+        "tight_frac": 0.023146273040452726,
+        "tight_frac_1000": 0.03745060683036974
+      },
+      "obs_version": "bv8",
+      "rate": 4252.733066295207,
+      "ring_overrun_rows": 0,
+      "schema": "redesign-m3c-train/v1",
+      "transitions": 8000000,
+      "updates": 31239,
+      "wall_seconds": 1881.1432209578343
+    }
+  }
+}
