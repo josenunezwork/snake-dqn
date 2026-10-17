@@ -41,7 +41,10 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     assert "--budget-seconds" in source
     assert "--scratch-dir" in source  # trainer outputs stay off Drive during timing
     assert "files.download" in source
-    assert "TOTAL_BUDGET_SECONDS = 3300" in source
+    assert "RUN_NAME = 'smoke-03'" in source
+    assert "TOTAL_BUDGET_SECONDS = 4500" in source
+    assert "TIMING_SECONDS = 600" in source
+    assert "'--suite', 'smoke03'" in source
     assert "startswith('2.9.')" in source  # preserve the CUDA torch 2.9.x contract
 
 

@@ -23,7 +23,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 SCHEMA = "t16-colab-throughput/v1"
-CONFIGS = (
+T16_CONFIGS = (
     [
         {"name": f"hero_w128_a{actors}", "worlds": 128, "actors": actors, "self_play": False}
         for actors in (2, 4, 8)
@@ -34,9 +34,56 @@ CONFIGS = (
     ]
     + [{"name": "selfplay_w128_a4", "worlds": 128, "actors": 4, "self_play": True}]
 )
+# Kept as the public/default matrix for the smoke-02 reproduction tests and old callers.
+CONFIGS = T16_CONFIGS
+SMOKE03_CONFIGS = (
+    {
+        "name": "selfplay_w128_a2_g0",
+        "worlds": 128,
+        "actors": 2,
+        "self_play": True,
+        "gather_threads": 0,
+        "actor_queue_frames": 4,
+    },
+    {
+        "name": "selfplay_w128_a2_g3",
+        "worlds": 128,
+        "actors": 2,
+        "self_play": True,
+        "gather_threads": 3,
+        "actor_queue_frames": 4,
+    },
+    {
+        "name": "selfplay_w128_a3_g3",
+        "worlds": 128,
+        "actors": 3,
+        "self_play": True,
+        "gather_threads": 3,
+        "actor_queue_frames": 4,
+    },
+    {
+        "name": "selfplay_w128_a3_g4",
+        "worlds": 128,
+        "actors": 3,
+        "self_play": True,
+        "gather_threads": 4,
+        "actor_queue_frames": 4,
+    },
+)
+SMOKE03_PROFILE_CONFIG = "selfplay_w128_a3_g3"
+SMOKE03_PROFILE_WARM_SECONDS = 60
+SMOKE03_PROFILE_SECONDS = 60
 # One unscored run before the matrix: it populates the numba on-disk kernel cache and the
 # inductor FX-graph cache, so no scored row pays first-process compilation.
 WARMUP = {"name": "warmup_w128_a2", "worlds": 128, "actors": 2, "self_play": False}
+SMOKE03_WARMUP = {
+    "name": "warmup_selfplay_w128_a2_g3",
+    "worlds": 128,
+    "actors": 2,
+    "self_play": True,
+    "gather_threads": 3,
+    "actor_queue_frames": 4,
+}
 WARMUP_SECONDS = 60
 # Trainer startup (CUDA contexts, numba imports, ring allocation, K actor spawns) and the
 # final checkpoint/summary are outside --max-wall-seconds; allow them before killing.
@@ -181,6 +228,10 @@ def trainer_command(
         command += ["--compile-learner", compile_mode]
     if config["self_play"]:
         command += ["--all-snakes-learner"]
+    if "gather_threads" in config:
+        command += ["--gather-threads", str(config["gather_threads"])]
+    if config.get("actor_queue_frames") is not None:
+        command += ["--actor-queue-frames", str(config["actor_queue_frames"])]
     return command
 
 
@@ -227,10 +278,21 @@ def measured_rate(
         tail_rate = (tail[-1]["transitions"] - tail[0]["transitions"]) / (
             tail[-1]["wall"] - tail[0]["wall"]
         )
+    updates = last["updates"] - first["updates"]
+    learn_seconds = last.get("learn_s", 0.0) - first.get("learn_s", 0.0)
+    lag_values = [row.get("policy_lag_mean") for row in window]
+    finite_lags = [
+        float(value)
+        for value in lag_values
+        if isinstance(value, (int, float)) and math.isfinite(value)
+    ]
     return {
         "transitions_per_second": rate,
         "tail_transitions_per_second": tail_rate,
-        "updates_per_second": (last["updates"] - first["updates"]) / elapsed,
+        "updates_per_second": updates / elapsed,
+        "transitions_per_update": transitions / updates,
+        "learn_seconds_per_update": learn_seconds / updates if updates else None,
+        "policy_lag_mean": sum(finite_lags) / len(finite_lags) if finite_lags else None,
         "measured_transitions": transitions,
         "measured_seconds": elapsed,
         "first_transition": first["transitions"],
@@ -390,6 +452,20 @@ def stop_sampler(process: subprocess.Popen, out: Path) -> dict:
     return summarize(rows)
 
 
+def configs_for_suite(suite: str) -> tuple[dict, ...]:
+    """Return the fixed config matrix for a named smoke suite."""
+    if suite == "t16":
+        return CONFIGS
+    if suite == "smoke03":
+        return SMOKE03_CONFIGS
+    raise ValueError(f"unknown suite {suite!r}")
+
+
+def warmup_for_suite(suite: str) -> dict:
+    """Return an unscored cache warm-up matching the selected learner path."""
+    return SMOKE03_WARMUP if suite == "smoke03" else WARMUP
+
+
 def run(
     inputs: Path,
     output: Path,
@@ -397,6 +473,7 @@ def run(
     seconds: float,
     budget: float,
     scratch: Path | None = None,
+    suite: str = "t16",
 ) -> int:
     """Run preflight and each timed configuration, retaining resumable Drive artifacts.
 
@@ -405,6 +482,9 @@ def run(
     learner loop. Results JSON is written to ``output`` directly (small, infrequent).
     """
     started = time.monotonic()
+    # JSON round-trips result identity on Drive; do not retain tuple containers here.
+    configs = [dict(config) for config in configs_for_suite(suite)]
+    warmup = warmup_for_suite(suite)
     output.mkdir(parents=True, exist_ok=True)
     scratch = (scratch or default_scratch()).resolve()
     scratch.mkdir(parents=True, exist_ok=True)
@@ -415,6 +495,7 @@ def run(
         "python_executable": sys.executable,
         "schema": SCHEMA,
         "commit": commit,
+        "suite": suite,
         "configs": [],
         "status": "preflight",
         "authority": "throughput smoke only; not gate, quality, or serving evidence",
@@ -435,7 +516,10 @@ def run(
     }
     try:
         if result_path.exists():
-            result["configs"] = json.loads(result_path.read_text()).get("configs", [])
+            previous = json.loads(result_path.read_text())
+            result["configs"] = previous.get("configs", [])
+            if "profile" in previous:
+                result["profile"] = previous["profile"]
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
         if head != commit or len(commit) != 40:
             raise ValueError(f"pinned commit mismatch: requested {commit}, checkout {head}")
@@ -452,7 +536,8 @@ def run(
             "python": result["python"],
             "compile_mode": mode,
             "seconds": seconds,
-            "configs": CONFIGS,
+            "suite": suite,
+            "configs": configs,
         }
         identity_path = output / "identity.json"
         if identity_path.exists() and json.loads(identity_path.read_text()) != identity:
@@ -462,6 +547,8 @@ def run(
         if result_path.exists():
             previous = json.loads(result_path.read_text())
             result["configs"] = previous.get("configs", [])
+            if "profile" in previous:
+                result["profile"] = previous["profile"]
         print(json.dumps(result, indent=2), flush=True)
         code = bounded_command(
             [sys.executable, "-m", "pytest", "-q", *PARITY_TESTS],
@@ -473,16 +560,16 @@ def run(
         if code:
             raise RuntimeError("environment parity failed/timed out; see parity.log")
         write_json(result_path, result)
-        warm_marker = scratch / "warmup-done"
+        warm_marker = scratch / ("warmup-done" if suite == "t16" else f"warmup-{suite}-done")
         if not warm_marker.exists():  # caches are session-local: redo after a VM reset
             remaining = budget - (time.monotonic() - started)
-            warm_seconds = min(WARMUP_SECONDS, max(20, remaining - 600))
-            warm_dir = scratch / WARMUP["name"]
+            warm_seconds = min(WARMUP_SECONDS, max(20, remaining - seconds))
+            warm_dir = scratch / warmup["name"]
             shutil.rmtree(warm_dir, ignore_errors=True)
             warm_dir.mkdir(parents=True)
             with tempfile.TemporaryDirectory(prefix="t16-rings-") as ring:
                 command = trainer_command(
-                    WARMUP,
+                    warmup,
                     inputs,
                     warm_dir / "attempt-001",
                     inputs / "init" / "B8_s3_final.pth",
@@ -490,7 +577,7 @@ def run(
                     mode,
                     Path(ring),
                 )
-                print(f"Warm-up {WARMUP['name']} ({warm_seconds:g}s, unscored)", flush=True)
+                print(f"Warm-up {warmup['name']} ({warm_seconds:g}s, unscored)", flush=True)
                 t_warm = time.monotonic()
                 code = bounded_command(
                     command,
@@ -499,7 +586,7 @@ def run(
                     env,
                 )
             result["warmup"] = {
-                "name": WARMUP["name"],
+                "name": warmup["name"],
                 "seconds": warm_seconds,
                 "returncode": code,
                 "wall_seconds": time.monotonic() - t_warm,
@@ -509,7 +596,60 @@ def run(
             if code == 0:
                 warm_marker.write_text(json.dumps(result["warmup"]) + "\n")
             write_json(result_path, result)
-        for config in CONFIGS:
+        if suite == "smoke03" and not result.get("profile"):
+            profile_config = next(c for c in configs if c["name"] == SMOKE03_PROFILE_CONFIG)
+            remaining = budget - (time.monotonic() - started)
+            profile_wall_seconds = SMOKE03_PROFILE_WARM_SECONDS + SMOKE03_PROFILE_SECONDS
+            if remaining < profile_wall_seconds + TRAINER_GRACE_SECONDS + 5:
+                raise RuntimeError("budget exhausted before smoke-03 cProfile run")
+            profile_dir = scratch / "profile-smoke03" / "attempt-001"
+            shutil.rmtree(profile_dir, ignore_errors=True)
+            profile_dir.parent.mkdir(parents=True, exist_ok=True)
+            profile_env = {
+                **env,
+                "M3C_PROFILE": "cprofile",
+                "M3C_PROFILE_WARM_S": str(SMOKE03_PROFILE_WARM_SECONDS),
+                "M3C_PROFILE_DIR": str(profile_dir / "profile"),
+            }
+            with tempfile.TemporaryDirectory(prefix="t16-rings-") as ring:
+                command = trainer_command(
+                    profile_config,
+                    inputs,
+                    profile_dir,
+                    inputs / "init" / "B8_s3_final.pth",
+                    profile_wall_seconds,
+                    mode,
+                    Path(ring),
+                )
+                code = bounded_command(
+                    command,
+                    profile_dir.parent / "attempt-001.log",
+                    min(profile_wall_seconds + TRAINER_GRACE_SECONDS, remaining - 5),
+                    profile_env,
+                )
+            profile_destination = output / "profile-smoke03" / "attempt-001"
+            published = copy_attempt(profile_dir, profile_destination)
+            profile_files = sorted(profile_dir.glob("profile/*.meta.json"))
+            profile_metadata = {
+                path.name: finite_json(json.loads(path.read_text())) for path in profile_files
+            }
+            result["profile"] = {
+                "config": profile_config["name"],
+                "seconds": SMOKE03_PROFILE_SECONDS,
+                "warmup_seconds": SMOKE03_PROFILE_WARM_SECONDS,
+                "max_wall_seconds": profile_wall_seconds,
+                "mode": "cprofile",
+                "timed_after_warmup": True,
+                "returncode": code,
+                "attempt": str(profile_destination),
+                "published": published,
+                "profile_files": [str(path.relative_to(profile_dir)) for path in profile_files],
+                "profile_metadata": profile_metadata,
+            }
+            if code or not result["profile"]["profile_files"] or not published:
+                raise RuntimeError("smoke-03 cProfile run did not publish profile artifacts")
+            write_json(result_path, result)
+        for config in configs:
             old = next((r for r in result["configs"] if r["name"] == config["name"]), None)
             if old and old["status"] == "completed" and completed_artifacts_match(old):
                 print(f"Already complete: {config['name']}", flush=True)
@@ -618,8 +758,9 @@ def main() -> int:
     parser.add_argument("--inputs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--commit", required=True)
-    parser.add_argument("--seconds", type=float, default=150)
+    parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--budget-seconds", type=float, default=2700)
+    parser.add_argument("--suite", choices=("t16", "smoke03"), default="t16")
     parser.add_argument(
         "--scratch-dir",
         type=Path,
@@ -627,8 +768,10 @@ def main() -> int:
         help="local-disk directory for trainer outputs during timing (default: /content)",
     )
     args = parser.parse_args()
-    if not 120 <= args.seconds <= 180 or not 0 < args.budget_seconds <= 3600:
-        parser.error("seconds must be 120..180 and budget must be >0 and <=3600")
+    if args.seconds is None:
+        args.seconds = 600 if args.suite == "smoke03" else 150
+    if not 120 <= args.seconds <= 600 or not 0 < args.budget_seconds <= 4500:
+        parser.error("seconds must be 120..600 and budget must be >0 and <=4500")
     # The notebook owns this runner, while bounded_command owns separate trainer
     # groups. Propagate an outer deadline through Python cleanup of those groups.
     signal.signal(signal.SIGTERM, interrupt_on_signal)
@@ -639,6 +782,7 @@ def main() -> int:
         args.seconds,
         args.budget_seconds,
         args.scratch_dir,
+        args.suite,
     )
 
 

@@ -56,3 +56,28 @@ def test_failed_or_missing_configs_never_pass():
 def test_wrong_schema_is_not_compared():
     with pytest.raises(compare.ResultsError, match="schema"):
         compare.compare_results({"schema": "wrong", "configs": []})
+    with pytest.raises(compare.ResultsError, match="unknown suite"):
+        compare.compare_results({"schema": compare.SCHEMA, "suite": "unknown", "configs": []})
+
+
+def test_smoke03_requires_update_rate_and_fixed_transitions_per_update():
+    configs = [
+        {
+            "name": name,
+            "status": "completed",
+            "transitions_per_second": 21_600,
+            "updates_per_second": 84,
+            "transitions_per_update": 256,
+            "policy_lag_mean": 3.0,
+            "learn_seconds_per_update": 0.01,
+        }
+        for name in compare.SMOKE03_REQUIRED_CONFIG_NAMES
+    ]
+    configs[1]["updates_per_second"] = 83.9
+    configs[2]["transitions_per_update"] = 250.87  # just outside 256 +/-2%
+    report = compare.compare_results(
+        {"schema": compare.SCHEMA, "suite": "smoke03", "status": "completed", "configs": configs}
+    )
+    assert [row["verdict"] for row in report["configs"]] == ["PASS", "FAIL", "INVALID", "PASS"]
+    assert report["configs"][0]["threshold_updates_per_second"] == 84
+    assert report["configs"][0]["policy_lag_mean"] == 3.0

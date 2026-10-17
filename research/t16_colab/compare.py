@@ -12,6 +12,10 @@ from typing import Any, Mapping, Sequence
 SCHEMA = "t16-colab-throughput/v1"
 MAC_BASELINE_TRANSITIONS_PER_SECOND = 5_400.0
 FOUR_X_TRANSITIONS_PER_SECOND = MAC_BASELINE_TRANSITIONS_PER_SECOND * 4
+MAC_BASELINE_UPDATES_PER_SECOND = 21.0
+FOUR_X_UPDATES_PER_SECOND = MAC_BASELINE_UPDATES_PER_SECOND * 4
+EXPECTED_TRANSITIONS_PER_UPDATE = 256.0
+TRANSITIONS_PER_UPDATE_TOLERANCE = 0.02
 REQUIRED_CONFIG_NAMES = (
     "hero_w128_a2",
     "hero_w128_a4",
@@ -25,6 +29,12 @@ SELF_PLAY_CAVEAT = (
     "the hero-only recipe, so this ratio is wall-clock per training transition, not a "
     "same-configuration comparison until a Mac self-play rate is measured"
 )
+SMOKE03_REQUIRED_CONFIG_NAMES = (
+    "selfplay_w128_a2_g0",
+    "selfplay_w128_a2_g3",
+    "selfplay_w128_a3_g3",
+    "selfplay_w128_a3_g4",
+)
 
 
 class ResultsError(ValueError):
@@ -36,6 +46,15 @@ def _valid_tps(value: Any) -> float | None:
         return None
     numeric = float(value)
     return numeric if math.isfinite(numeric) and numeric >= 0 else None
+
+
+def _within_batch_tolerance(value: float | None) -> bool:
+    """Whether the measured replay ratio remains within the smoke-03 invariant."""
+    if value is None:
+        return False
+    return abs(value - EXPECTED_TRANSITIONS_PER_UPDATE) <= (
+        EXPECTED_TRANSITIONS_PER_UPDATE * TRANSITIONS_PER_UPDATE_TOLERANCE
+    )
 
 
 def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -51,6 +70,11 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(configs, list):
         raise ResultsError("results must contain a configs list")
     overall_status = payload.get("status")
+    suite = payload.get("suite", "t16")
+    if suite not in ("t16", "smoke03"):
+        raise ResultsError(f"unknown suite {suite!r}")
+    smoke03 = suite == "smoke03"
+    required_names = SMOKE03_REQUIRED_CONFIG_NAMES if smoke03 else REQUIRED_CONFIG_NAMES
     top_level_failure = overall_status == "failed"
     names = [row.get("name") for row in configs if isinstance(row, Mapping)]
     duplicate_names = {name for name in names if isinstance(name, str) and names.count(name) > 1}
@@ -63,6 +87,8 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
         name = name if isinstance(name, str) and name else f"config-{index}"
         status = config.get("status")
         throughput = _valid_tps(config.get("transitions_per_second"))
+        updates = _valid_tps(config.get("updates_per_second"))
+        transitions_per_update = _valid_tps(config.get("transitions_per_update"))
         if top_level_failure:
             verdict, reason = "INVALID", "top-level smoke status is failed"
         elif name in duplicate_names:
@@ -71,6 +97,17 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             verdict, reason = "INVALID", f"runner status is {status!r}"
         elif throughput is None:
             verdict, reason = "INVALID", "missing or invalid transitions_per_second"
+        elif smoke03 and updates is None:
+            verdict, reason = "INVALID", "missing or invalid updates_per_second"
+        elif smoke03 and not _within_batch_tolerance(transitions_per_update):
+            verdict, reason = "INVALID", "transitions_per_update is outside 256 +/-2%"
+        elif smoke03 and updates >= FOUR_X_UPDATES_PER_SECOND:
+            verdict, reason = (
+                "PASS",
+                "clears the 4x Mac updates/s threshold at the fixed replay ratio",
+            )
+        elif smoke03:
+            verdict, reason = "FAIL", "below the 4x Mac updates/s threshold"
         elif throughput >= FOUR_X_TRANSITIONS_PER_SECOND:
             verdict, reason = "PASS", "clears the 4x Mac threshold"
         else:
@@ -84,17 +121,27 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
             "speedup_vs_mac": (
                 None if throughput is None else throughput / MAC_BASELINE_TRANSITIONS_PER_SECOND
             ),
+            "updates_per_second": updates,
+            "baseline_updates_per_second": MAC_BASELINE_UPDATES_PER_SECOND,
+            "threshold_updates_per_second": FOUR_X_UPDATES_PER_SECOND,
+            "transitions_per_update": transitions_per_update,
             "verdict": verdict,
             "reason": reason,
         }
         if name.startswith("selfplay"):
             row["caveat"] = SELF_PLAY_CAVEAT
-        for key in ("tail_transitions_per_second", "resources", "oversubscription"):
+        for key in (
+            "tail_transitions_per_second",
+            "resources",
+            "oversubscription",
+            "policy_lag_mean",
+            "learn_seconds_per_update",
+        ):
             if key in config:
                 row[key] = config[key]
         rows.append(row)
     present = {name for name in names if isinstance(name, str)}
-    for name in REQUIRED_CONFIG_NAMES:
+    for name in required_names:
         if name not in present:
             rows.append(
                 {
@@ -104,6 +151,10 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
                     "baseline_transitions_per_second": MAC_BASELINE_TRANSITIONS_PER_SECOND,
                     "threshold_transitions_per_second": FOUR_X_TRANSITIONS_PER_SECOND,
                     "speedup_vs_mac": None,
+                    "updates_per_second": None,
+                    "baseline_updates_per_second": MAC_BASELINE_UPDATES_PER_SECOND,
+                    "threshold_updates_per_second": FOUR_X_UPDATES_PER_SECOND,
+                    "transitions_per_update": None,
                     "verdict": "INVALID",
                     "reason": "required T16 configuration is missing",
                 }
@@ -112,8 +163,12 @@ def compare_results(payload: Mapping[str, Any]) -> dict[str, Any]:
         "schema": "t16-colab-throughput-comparison/v1",
         "source_schema": SCHEMA,
         "source_status": overall_status,
+        "suite": suite,
         "baseline_transitions_per_second": MAC_BASELINE_TRANSITIONS_PER_SECOND,
         "threshold_transitions_per_second": FOUR_X_TRANSITIONS_PER_SECOND,
+        "baseline_updates_per_second": MAC_BASELINE_UPDATES_PER_SECOND,
+        "threshold_updates_per_second": FOUR_X_UPDATES_PER_SECOND,
+        "expected_transitions_per_update": EXPECTED_TRANSITIONS_PER_UPDATE,
         "configs": rows,
     }
 
