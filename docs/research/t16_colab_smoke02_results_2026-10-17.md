@@ -348,3 +348,65 @@ hashed Drive inputs, and the test transcript are in
 [`research/t22_frozen_pool_20261017`](../../research/t22_frozen_pool_20261017/README.md).
 The independent recorded fixture is in
 [`tests/fixtures/t22`](../../tests/fixtures/t22/recording.json).
+
+## T24 v8 retained-body reuse and shared learner/B8 features (2026-10-17)
+
+T24 starts from `23c1ba73` on `t24-v8-bodymap-20261017`. It changes CPU
+feature construction and actor integration, with no model, reward, mask, RNG,
+training-recipe, or serving change. No pod, Colab execution, long training run,
+or tmux interaction is part of this work. The tests include bounded CPU trainer
+fixtures; these are regression checks, not research training results.
+
+### What is shared, and what remains identical
+
+The eager v8 path paints retained old-body release times once per movement
+speed, rather than for each of six actions. Boost static blockers use the same
+retained-cell traversal. Each action temporarily overlays its intermediate
+cell and removes/restores the landing head's release restriction. Static boost
+blocking deliberately keeps any old-body overlap at the landing head. Duplicate
+old cells retain their maximum release time. Impossible boosts retain their
+landing sentinel and reuse the corresponding normal area.
+
+Requested rows are stably grouped by world and scattered back to their original
+order, including duplicates. A world membership map records all live bodies
+once, preserving unique-cell counts and own/opponent overlaps. More than 63
+snakes use an exact observer/other fallback instead of truncating membership
+bits. Scratch is thread-local, stamps are cleared before rollover, and occupancy
+is rebuilt on every call. FIFO neighbor order `+x,-x,+y,-y`, seen-on-passable
+behavior, caps, arithmetic, and decision tie order remain unchanged.
+
+N=3 learner and frozen B8 eager features now run through **one** shared call,
+with their original respective selection/advisory masks. The actor copies the
+learner result and caches B8's copied slice for the immediately following
+same-frame dispatch. The slice is consumed once and checked against simulator,
+rows, frame, and mask; rebind clears it. N=6 already submits all learner slots
+together and benefits from the same world sharing. The two vector61 veto
+wrappers retain separate lazy decision calls and unchanged forward batch shapes.
+
+Shared feature time is charged once to `v8_s`; B8 dispatch therefore loses that
+work in its timer. A lower `frozen_forward_s` alone is **not** the measured gain.
+The matched aggregate feature and inclusive actor timings below include the
+shared call. In T22's short-body receipt, 26.85 of B8's 27.49 ms was its Mac CPU
+network forward and only 0.421 ms was v8. This optimization does not remove that
+network cost or equate it with A100 GPU forward time.
+
+### Independent byte parity
+
+The unmodified pre-T24 `v8_nb.py` is vendored from `23c1ba73`, SHA-256
+`72947d97a3d3d293a6f99e76a88236f38c933eda3dbf605e99399e1b58082e32`.
+The pre-T22 six-policy oracle explicitly imports that frozen kernel for its
+learner and B8 features, so both sides cannot accidentally share the candidate
+implementation. The 96-frame recorded action stream remains unchanged; all six
+policies undergo forced death and ordinary respawn. A separate physical
+L=1000 callback fixture observes long bodies in learner seats and every pool
+policy. Checks include all 15 stored `V8Result` fields, feature bytes, actions,
+runtime carry/trend state, simulator state, and world RNG state.
+
+Synthetic differential cases cover both mechanics versions, L=5/150/1000/1200/1500,
+wrapped rings, growth lag, boost eligibility/burn boundaries, exact Q ties,
+empty masks, overlapping and repeated own-body cells, out-of-grid cells,
+shuffled/duplicate/subset rows, empty/dead inputs, retained output storage,
+thread isolation, and stamp rollover. The active membership BFS's full queue
+coordinates/distances and seen stamps are compared with the frozen stamped
+BFS, not merely its final count. The existing Python/live-reference long-body
+v8 test also runs, including its slow marker and real pinned checkpoints.
