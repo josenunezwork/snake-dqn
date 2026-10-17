@@ -226,7 +226,8 @@ bit-identical). The A100 learner itself sits just under the fixed-recipe 4x bar 
 
 **Implemented, CPU-qualified, and throughput-only. The 20,900 tr/s A100 target is
 not established.** Branch `t22-frozen-pool-perf-20261017` started at `4c1e1b2` and
-was rebased on main after the T23 registration/launcher additions. No training,
+was rebased on main after the T23 registration/launcher additions. Only bounded
+benchmarks and CPU tests (including tiny training fixtures) ran; no long training,
 Colab execution, pod operation, serving change, or tmux interaction was performed.
 
 ### Attribution and implementation
