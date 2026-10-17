@@ -1486,6 +1486,16 @@ def learner_seats(args) -> int:
     return int(requested)
 
 
+def mixed_stream_ids(rows: np.ndarray, live_seats: np.ndarray, seats: int = 3) -> np.ndarray:
+    """Map ``(world, physical-seat)`` learner rows to dense per-life n-step streams."""
+    rows = np.asarray(rows, dtype=np.int64)
+    ranks = np.cumsum(np.asarray(live_seats, dtype=np.int64), axis=1) - 1
+    stream = rows[:, 0] * int(seats) + ranks[rows[:, 0], rows[:, 1]]
+    if (stream < 0).any():
+        raise ValueError("mixed stream requested for a frozen seat")
+    return stream.astype(np.int64, copy=False)
+
+
 # ----------------------------------------------------------------------------- helpers
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -2768,6 +2778,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             )
             live_seats = learner_seat_mask(args.seed, segment, sim.E, league_n)
             pool = None
+            pool_identity_records = None
             if mixed_seats:
                 # The static pool owns checkpoint identity validation and frozen dispatch.
                 # It is constructed after the segment runtime exists, but before the first
@@ -2775,6 +2786,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 from research.redesign_m3c_20261008.league_pool import build_default_static_pool
 
                 pool = build_default_static_pool(args, ctx, sim, runtime, device)
+                pool_identity_records = pool.identity_records()
                 frozen = np.empty((sim.E, sim.S), dtype=object)
                 policy_ids = tuple(pool.policy_ids)
                 if not policy_ids:
@@ -3030,7 +3042,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     driven = (
                         rows[:, 0] * sim.S + rows[:, 1]
                         if all_snakes
-                        else rows[:, 0] * league_n + np.sum(live_seats[rows[:, 0], : rows[:, 1]], axis=1)
+                        else mixed_stream_ids(rows, live_seats, league_n)
                         if mixed_seats
                         else rows[:, 0]
                     )
@@ -3099,6 +3111,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     "weights_version": last,
                     "replay_rows": int(len(s)),
                     "live_rows_by_policy": live_rows_by_policy,
+                    "pool_identities": pool_identity_records,
                     **stats,
                     **m6_stats,
                 }
@@ -3374,6 +3387,7 @@ def main_multi(args) -> int:
         "lag": [],
         "live_rows_by_policy": {},
         "frozen_forward_gpu_s": 0.0,
+        "pool_identities": None,
         "action_window": ActionWindow(),
     }
     st["halt"] = arm_halt_reason(args)
@@ -3494,6 +3508,11 @@ def main_multi(args) -> int:
                     st["live_rows_by_policy"][policy_id] = (
                         st["live_rows_by_policy"].get(policy_id, 0) + int(count)
                     )
+                if msg.get("pool_identities") is not None:
+                    if st["pool_identities"] is None:
+                        st["pool_identities"] = msg["pool_identities"]
+                    elif st["pool_identities"] != msg["pool_identities"]:
+                        raise RuntimeError("actor pool identity records disagree")
                 if labels is not None and len(msg["lab_ids"]):
                     labels.add(multi.encode(j, msg["lab_ids"]), msg["lab_a"].astype(np.int64))
                 st["v8_override"] += msg["v8_override"]
@@ -3860,6 +3879,7 @@ def main_multi(args) -> int:
         "ring_overrun_rows": st["ring_overrun_rows"],
         "anchor_updates": st["anchor_updates"],
         "label_buffer": labels.size if labels is not None else 0,
+        "pool_identities": st["pool_identities"],
     }
     if return_bank is not None:
         totals = st["return_totals"]

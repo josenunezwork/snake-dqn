@@ -2,7 +2,12 @@
 
 import numpy as np
 
-from research.redesign_m3c_20261008.train_m3c import NStepBuilder, NStepBuilderRef, learner_seat_mask
+from research.redesign_m3c_20261008.train_m3c import (
+    NStepBuilder,
+    NStepBuilderRef,
+    learner_seat_mask,
+    mixed_stream_ids,
+)
 
 
 def test_legacy_seat_counts_do_not_consume_permutation_rng() -> None:
@@ -15,6 +20,12 @@ def test_mixed_seat_permutation_is_seeded_segment_pinned_and_balanced() -> None:
     assert np.array_equal(first, learner_seat_mask(12, 3, 32, 3))
     assert not np.array_equal(first, learner_seat_mask(12, 4, 32, 3))
     assert np.array_equal(first.sum(axis=1), np.full(32, 3))
+
+
+def test_mixed_stream_ids_are_dense_per_world_despite_shuffled_physical_seats() -> None:
+    seats = np.array([[False, True, False, True, True, False], [True, False, True, False, False, True]])
+    rows = np.argwhere(seats)
+    assert np.array_equal(mixed_stream_ids(rows, seats), np.arange(6))
 
 
 def test_mixed_life_streams_match_scalar_oracle_with_death_and_segment_tail() -> None:
