@@ -15,6 +15,7 @@ import hashlib
 import json
 import random
 import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -28,7 +29,8 @@ from research.sequential_strict_template import sequential_runner as R
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE = REPO / "research" / "apex_veto_v8_strict_20261003"
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "apex_veto_v8_strict"
-PYTHON = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
+# Use the interpreter running pytest so the isolated CLI checks are portable to CI.
+PYTHON = Path(sys.executable)
 ARTIFACTS_AVAILABLE = (
     S.V7_STRICT_RECEIPT.is_file() and (S.CHECKPOINT_DIR / S.CHAMPION_NAME).is_file()
 )

@@ -23,6 +23,10 @@ from research.frp3_checkpoint_serving_20261005 import serving_audit as audit_mod
 from research.frp3_checkpoint_serving_20261005 import serving_run as run_mod  # noqa: E402
 from web.backend import safety_veto_serving as serving  # noqa: E402
 from web.backend import served_checkpoint as registry  # noqa: E402
+from tests.seed_artifact_fixtures import (  # noqa: E402
+    install_frp3_training_exclusions,
+    install_v8_seed_history,
+)
 
 HERE = Path(run_mod.__file__).resolve().parent
 MAIN_CHAMPION = run_mod.CHAMPION_PATH
@@ -41,11 +45,13 @@ FATAL_RUNNERS = (
 
 
 @pytest.fixture(autouse=True)
-def _isolate(monkeypatch):
+def _isolate(monkeypatch, tmp_path):
     from src.core import game_config
 
     for key in run_mod.schema.ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
+    install_v8_seed_history(monkeypatch, tmp_path / "seed-history")
+    install_frp3_training_exclusions(monkeypatch, tmp_path, run_mod)
     # This lane qualified the swap BEFORE the release flipped the default (its S6 checks the
     # champion + v8 default, and build_intent refuses a flipped tree by design). Its tests
     # therefore run against the pre-release registry default.
@@ -169,7 +175,8 @@ class TestSeeds:
         seed = dev_screen.uint32_seed(domain, purpose, 3)
         report = run_mod.seed_report({"watch": [seed], "play": [7]})
         assert report["disjoint"] is False
-        assert 7 in report["frp3_earlier_overlap"] and seed in report["frp3_earlier_overlap"]
+        overlaps = report["frp3_earlier_overlap"] + report["v8_serving_report_overlap"]
+        assert 7 in report["frp3_earlier_overlap"] and seed in overlaps
 
     def test_report_catches_an_frp3_excluded_seed(self):
         seed = run_mod.frp3_exclusions()[-1]

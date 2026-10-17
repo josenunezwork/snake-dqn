@@ -15,6 +15,7 @@ import os
 import numpy as np
 import pytest
 import torch
+from tests.seed_artifact_fixtures import install_v8_seed_history
 
 from research.death_census_v8_20261003 import census as c
 from research.trap_horizon_20261001 import diagnose as base
@@ -42,6 +43,14 @@ META = {
     "mechanics_version": 2,
 }
 ROW = [(5, 5), (4, 5), (3, 5), (2, 5), (1, 5), (0, 5)]  # heading right (direction 1)
+
+
+@pytest.fixture(autouse=True)
+def seed_history(monkeypatch, tmp_path):
+    install_v8_seed_history(monkeypatch, tmp_path / "seed-history")
+    intent = tmp_path / "v8-serving-intent.json"
+    intent.write_text(json.dumps({"world_seed": 3_000_001}))
+    monkeypatch.setattr(c, "V8_SERVING_INTENT", intent)
 
 
 @pytest.fixture

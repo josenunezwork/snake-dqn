@@ -17,10 +17,12 @@ import hashlib
 import json
 import random
 import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from tests.seed_artifact_fixtures import install_v8_seed_history
 
 from research.apex_safety_20260926 import dev_screen
 from research.frp3_strict_20261005 import preflight as P
@@ -32,7 +34,8 @@ from research.sequential_strict_template import sequential_runner as R
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE = REPO / "research" / "frp3_strict_20261005"
 V8_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "apex_veto_v8_strict"
-PYTHON = Path("/Users/josenunez/Projects/ml/snake-dqn/venv/bin/python")
+# Use the interpreter running pytest so the isolated CLI checks are portable to CI.
+PYTHON = Path(sys.executable)
 ARTIFACTS_AVAILABLE = (
     S.V8_STRICT_RECEIPT.is_file()
     and S.PHASE_R_SUMMARY.is_file()
@@ -594,7 +597,25 @@ def _light_exclusions():
     return P.excluded_seeds(scan=False)
 
 
-def test_banks_are_disjoint_from_every_enumerable_namespace():
+def test_banks_are_disjoint_from_every_enumerable_namespace(monkeypatch, tmp_path):
+    install_v8_seed_history(monkeypatch, tmp_path / "seed-history")
+    directories = {}
+    for name, seed in (("frp-v2", 4_000_001), ("frp-v3", 4_000_002)):
+        directory = tmp_path / name
+        directory.mkdir()
+        exclusions = directory / "training_exclusions.json"
+        exclusions.write_text(json.dumps([seed]))
+        directory.joinpath("namespace_report.json").write_text(
+            json.dumps(
+                {
+                    "training_exclusions": {"sha256": P.sha256_file(exclusions), "count": 1},
+                    "banks": {"fixture": [seed]},
+                }
+            )
+        )
+        directories[name] = directory
+    monkeypatch.setattr(P, "FRP_NAMESPACE_DIRS", directories)
+    _light_exclusions.cache_clear()
     report = P.report(scan=False)
     assert report["disjoint"], report["problems"]
     excluded = _light_exclusions()
