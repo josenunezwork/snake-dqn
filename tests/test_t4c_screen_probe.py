@@ -26,20 +26,27 @@ def test_terminal_length_is_post_frame_and_dead_is_zero():
     assert snapshot["post"]["logical_mass"] == [712, 901]
 
 
-def test_terminal_observer_preserves_cpu_h5000_gameplay():
-    """Additional observation cannot change historical-world gameplay metrics."""
+def test_terminal_observer_preserves_cpu_h5000_gameplay(monkeypatch, tmp_path):
+    """Additional observation cannot change full-H5000 CPU evaluator results."""
     import torch
 
     from research.t2_screen_20261015 import probe_t2
+    from research.redesign_m2_20261008 import dev_probe
+    from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint
     from src.core.device_manager import DeviceManager
+    from tests.test_t2_screen import _synthetic_probe_context
 
     torch.set_num_threads(1)
     DeviceManager.override_device(torch.device("cpu"))
+    checkpoint = tmp_path / "student.pth"
+    torch.manual_seed(1717)
+    save_ego2s_checkpoint(checkpoint, Ego2sNet())
+    seeds, ctx = _synthetic_probe_context(tmp_path)
+    monkeypatch.setattr(dev_probe, "probe_seeds", lambda worlds, round_index: seeds)
     args = probe_t2.build_parser().parse_args(
         [
             "--student",
-            "/Users/josenunez/Projects/ml/snake-dqn-artifacts/"
-            "redesign-m6-mac-20261014/CTRL_s10/final.pth",
+            str(checkpoint),
             "--arm",
             "student",
             "--mix",
@@ -61,11 +68,21 @@ def test_terminal_observer_preserves_cpu_h5000_gameplay():
         observers.append(observer)
         return observer
 
-    original = probe_t2.probe(args)
-    extended = probe_t2.probe(args, observer_factory=factory)
-    for field in ("mass", "deaths", "causes", "alive_frames", "death_frame", "length_at_death"):
-        assert extended[field] == original[field]
-    assert set(observers[0].length_at_5000) == set(original["mass"])
-    for seed, length in observers[0].length_at_5000.items():
-        assert (length > 0) == (original["deaths"][seed] == 0)
-    DeviceManager.reset_for_testing()
+    try:
+        original = probe_t2.probe(args, ctx)
+        extended = probe_t2.probe(args, ctx, observer_factory=factory)
+        for field in (
+            "mass",
+            "deaths",
+            "causes",
+            "alive_frames",
+            "death_frame",
+            "length_at_death",
+        ):
+            assert extended[field] == original[field]
+        assert set(observers[0].length_at_5000) == set(original["mass"])
+        assert any(value == 1 for value in original["deaths"].values())
+        for seed, length in observers[0].length_at_5000.items():
+            assert (length > 0) == (original["deaths"][seed] == 0)
+    finally:
+        DeviceManager.reset_for_testing()

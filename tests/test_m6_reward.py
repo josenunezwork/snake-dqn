@@ -421,6 +421,26 @@ def _assert_msgs_equal(ref, got, ctx, skip=("env_s", "timing", "j")):
                 assert x == y, (ctx, f, k)
 
 
+_BOOST_LENGTH_TELEMETRY = {
+    "greedy_boost_length_decisions",
+    "greedy_boost_length_boosts",
+}
+
+
+def _assert_boost_length_telemetry(msgs, ctx):
+    """Validate the new per-length actor accounting independently of legacy payload parity."""
+    for f, msg in enumerate(msgs):
+        assert _BOOST_LENGTH_TELEMETRY <= msg.keys(), (ctx, f)
+        decisions = msg["greedy_boost_length_decisions"]
+        boosts = msg["greedy_boost_length_boosts"]
+        assert decisions.dtype == boosts.dtype == np.int64, (ctx, f)
+        assert decisions.shape == boosts.shape == (len(T.BOOST_LENGTH_BUCKETS),), (ctx, f)
+        assert np.all(decisions >= 0) and np.all(boosts >= 0), (ctx, f)
+        assert np.all(boosts <= decisions), (ctx, f)
+        assert int(decisions.sum()) == msg["decisions"], (ctx, f)
+        assert int(boosts.sum()) == msg["greedy_boost"], (ctx, f)
+
+
 @pytest.mark.skipif(not HAVE_CKPT, reason="needs the pinned frp3-s12 checkpoints")
 @pytest.mark.parametrize("recipe", ["b8", "plain"])
 def test_levers_off_is_the_pre_m6_actor_bitwise(tmp_path, monkeypatch, recipe):
@@ -445,9 +465,21 @@ def test_levers_off_is_the_pre_m6_actor_bitwise(tmp_path, monkeypatch, recipe):
     assert sum(m["deaths"] for m in ref_msgs) > 0  # the death path is exercised
     for name in ("new-default", "new-explicit-zero"):
         msgs, ring = runs[name]
-        _assert_msgs_equal(ref_msgs, msgs, name)
+        _assert_boost_length_telemetry(msgs, name)
+        # The length-bucket fields were added after BASE_REV.  Everything in the legacy
+        # actor payload, including arrays and signed float zeros, must remain bitwise equal.
+        _assert_msgs_equal(
+            ref_msgs,
+            [{k: v for k, v in msg.items() if k not in _BOOST_LENGTH_TELEMETRY} for msg in msgs],
+            name,
+        )
         for k in ref_ring:
             assert np.array_equal(ref_ring[k], ring[k]), (name, k)
+    for f, (default, explicit) in enumerate(
+        zip(runs["new-default"][0], runs["new-explicit-zero"][0])
+    ):
+        for key in _BOOST_LENGTH_TELEMETRY:
+            assert np.array_equal(default[key], explicit[key]), (recipe, f, key)
 
 
 @pytest.mark.skipif(not HAVE_CKPT, reason="needs the pinned frp3-s12 checkpoints")

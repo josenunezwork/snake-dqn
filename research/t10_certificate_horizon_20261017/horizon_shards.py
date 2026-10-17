@@ -154,9 +154,11 @@ def mark_prefix_boundary(prefix: Path, observed_elapsed_s: float | None = None) 
         "d100_prediction_sha256": sha256(prediction),
         "report_sha256": sha256(prefix / "horizon_fits.json"),
         "recorded_utc": datetime.now(UTC).isoformat(),
-        "directory_birthtime_utc_approx": datetime.fromtimestamp(
-            stat.st_birthtime, UTC
-        ).isoformat(),
+        "directory_birthtime_utc_approx": (
+            datetime.fromtimestamp(stat.st_birthtime, UTC).isoformat()
+            if hasattr(stat, "st_birthtime")
+            else None
+        ),
         "observed_elapsed_s": observed_elapsed_s,
         "elapsed_note": "observed process runtime if supplied; otherwise null, not inferred",
     }

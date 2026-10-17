@@ -13,22 +13,62 @@ from research.t2_screen_20261015 import probe_t2, watch_t2
 from research.t2_screen_20261015.analyze_t2 import analyze, extension_requirements
 
 ARTIFACTS = Path("/Users/josenunez/Projects/ml/snake-dqn-artifacts")
-STUDENT = ARTIFACTS / "redesign-m6-mac-20261014/CTRL_s10/final.pth"
 
 
-def test_two_world_h5000_dev_probe_identity() -> None:
-    """Actual pinned CTRL checkpoint, same 2 round-60 worlds and complete H5000."""
+def _synthetic_probe_context(tmp_path: Path):
+    """Build a real local GridBatchSim context with only synthetic checkpoints."""
+    from types import SimpleNamespace
+
+    from research.redesign_m2_20261008 import ni_spec
+    from src.core.config_loader import load_and_initialize_config
+    from src.scripts.tournament_eval import evaluation_profile_for_name
+    from src.training.apex_policy import ApexPolicy
+    import torch
+
+    seeds = [901, 902]
+    carrier = ni_spec.FRP3_S12[1]
+    carrier_path = tmp_path / "carrier.pth"
+    load_and_initialize_config("research/apex_safety_20260926/deployment.yaml")
+    torch.manual_seed(1717)
+    carrier_policy = ApexPolicy(61, 64, 6, training=False)
+    torch.save(carrier_policy.get_state_dict(), carrier_path)
+    return seeds, {
+        "profile": evaluation_profile_for_name("promotion-v2-watch-rect", 5000),
+        "lookup": {
+            carrier: ("checkpoint", str(carrier_path)),
+            "synthetic-anchor": ("scripted", "greedy_food"),
+        },
+        "ds": SimpleNamespace(
+            _design_rows=lambda requested: [
+                {
+                    "world_seed": seed,
+                    "mix": "scripted",
+                    "slots": [{"member_sha256": "synthetic-anchor"}] * 5,
+                }
+                for seed in requested
+            ]
+        ),
+    }
+
+
+def test_two_world_h5000_dev_probe_identity(monkeypatch, tmp_path: Path) -> None:
+    """A valid local checkpoint and full synthetic H5000 preserve adapter identity."""
     import torch
 
     from research.redesign_m2_20261008 import dev_probe
-    from research.redesign_scope_20261007 import grid_h5000_identity as gid
+    from src.model.ego2s_network import Ego2sNet, load_ego2s_checkpoint, save_ego2s_checkpoint
 
-    assert STUDENT.exists(), "Identity proof requires the registered checkpoint"
+    checkpoint = tmp_path / "student.pth"
+    torch.manual_seed(1717)
+    save_ego2s_checkpoint(checkpoint, Ego2sNet())
+    assert isinstance(load_ego2s_checkpoint(str(checkpoint)), Ego2sNet)
+    seeds, ctx = _synthetic_probe_context(tmp_path)
+    monkeypatch.setattr(dev_probe, "probe_seeds", lambda worlds, round_index: seeds)
     torch.set_num_threads(1)
     args = probe_t2.build_parser().parse_args(
         [
             "--student",
-            str(STUDENT),
+            str(checkpoint),
             "--arm",
             "student",
             "--mix",
@@ -41,7 +81,6 @@ def test_two_world_h5000_dev_probe_identity() -> None:
             "CTRL_s10",
         ]
     )
-    ctx = gid._context(1)
     records, original = dev_probe.probe(args, ctx)
     diagnostic = probe_t2.probe(args, ctx)
     assert diagnostic["mass"] == original["mass"]
@@ -50,6 +89,7 @@ def test_two_world_h5000_dev_probe_identity() -> None:
     assert diagnostic["alive_frames"] == {
         rec["seed"]: rec["denominators"]["alive_frames"] for rec in records
     }
+    assert any(value == 1 for value in diagnostic["deaths"].values())
     for seed, frame in diagnostic["death_frame"].items():
         if frame is None:
             assert diagnostic["alive_frames"][seed] == 5000
