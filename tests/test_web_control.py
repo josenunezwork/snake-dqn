@@ -11,12 +11,14 @@ import re
 from unittest.mock import MagicMock
 
 import pytest
+import torch
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from src.training.apex_policy import ApexPolicy  # noqa: E402
 from web.backend.session import GameSession  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -80,8 +82,20 @@ def _restore_global_config():
 
 
 @pytest.fixture()
-def session():
-    return GameSession()
+def apex_checkpoint(tmp_path):
+    """A vector61 checkpoint for controls that cover online Apex operations."""
+    directory = tmp_path / "seeded"
+    directory.mkdir()
+    path = directory / "control_vector61.pth"
+    policy = ApexPolicy(input_size=61, hidden_size=512, output_size=6, training=True)
+    torch.save(policy.get_state_dict(), path)
+    return str(path)
+
+
+@pytest.fixture()
+def session(apex_checkpoint, monkeypatch):
+    monkeypatch.setattr("web.backend.session.SAVED_DIR", str(pathlib.Path(apex_checkpoint).parent))
+    return GameSession(checkpoint=apex_checkpoint)
 
 
 class TestControlDispatchTable:
@@ -244,7 +258,7 @@ class TestLoadCheckpointContainment:
 
 
 @pytest.fixture()
-def ws_client(app_mod):
+def ws_client(app_mod, apex_checkpoint):
     """A client for /ws/stream with a session but no lifespan.
 
     The lifespan starts engine_loop, which broadcasts frames continuously and
@@ -252,7 +266,7 @@ def ws_client(app_mod):
     """
     hub = app_mod.hub
     prev = hub.session
-    hub.session = GameSession()
+    hub.session = GameSession(checkpoint=apex_checkpoint)
     try:
         yield TestClient(app_mod.app), hub
     finally:

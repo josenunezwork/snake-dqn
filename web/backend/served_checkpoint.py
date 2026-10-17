@@ -1,4 +1,4 @@
-"""Pinned registry for the checkpoint the web app serves by default (opt-in swap, fail closed).
+"""Pinned registry for the checkpoint the web app serves by default (pin-gated swap, fail closed).
 
 ``GameSession()`` built without an explicit checkpoint (what ``web/backend/app.py`` does)
 asks :func:`resolve_served_checkpoint` which checkpoint to serve. The operator chooses by
@@ -8,7 +8,7 @@ name with ``SNAKE_SERVE_CHECKPOINT``; only names in :data:`REGISTRY` exist:
   ``saved_snakes/champion_a5_freespace_20260621.pth``, served exactly as before this module
   existed (same path, same no-checkpoint fallback to untrained weights). Rollback target:
   ``SNAKE_SERVE_CHECKPOINT=champion``.
-* ``frp3-s12`` (the released default since 2026-10-06, :data:`CHECKPOINT_RELEASED_DEFAULT`;
+* ``frp3-s12`` (the previous released default, 2026-10-06 through 2026-10-17;
   with no checkpoint named, ``SNAKE_SERVE_VETO_VARIANT=v7/v5/v2`` serves the champion
   instead, so those veto rollbacks keep their pre-swap meaning): FRP-v3 arm M3 seed 12 at
   60000 learner updates
@@ -24,8 +24,9 @@ name with ``SNAKE_SERVE_CHECKPOINT``; only names in :data:`REGISTRY` exist:
   - a file exists at ``saved_snakes/<filename>`` or, failing that, at the pinned artifact
     path, and its bytes hash to the pinned sha256.
 
-* ``b8-s3`` is the T7-selected raster checkpoint. It is opt-in only and retains the released
-  default above. Its independent T7 decision/audit/review pin uses ``veto_variant: none``;
+* ``b8-s3`` is the T7-selected raster checkpoint and released default since 2026-10-17
+  (:data:`CHECKPOINT_RELEASED_DEFAULT`). Its independent T7 decision/audit/review pin
+  uses ``veto_variant: none``;
   raster observations cannot use the vector61 serving veto. If its pin or bytes fail, serving
   tries verified ``frp3-s12`` and then the champion.
 
@@ -68,14 +69,13 @@ NAME_CHAMPION = "champion"
 NAME_FRP3_S12 = "frp3-s12"
 NAME_B8_S3 = "b8-s3"
 # Released default when ENV_CHECKPOINT is unset or blank.
-# frp3-s12 released 2026-10-06 (strict STRICT_PASS frp3-m3s12-strict-20261005/run-v1, receipt
-# 5107f3fc; web SERVING_PASS frp3-s12-serving-20261006/run-v1). Rollback (no code change):
-# SNAKE_SERVE_CHECKPOINT=champion.
-CHECKPOINT_RELEASED_DEFAULT = NAME_FRP3_S12
+# b8-s3 released 2026-10-17 after T7 STRICT_PASS + Tier 2 and T12/T12B serving checks.
+# Rollback (restart, no code change): SNAKE_SERVE_CHECKPOINT=frp3-s12 or =champion.
+CHECKPOINT_RELEASED_DEFAULT = NAME_B8_S3
 
 # The veto-variant env key (read here only to keep the pre-swap veto rollbacks meaningful;
-# web/backend/safety_veto_serving.py owns the variant itself). The released frp3-s12 default
-# was gated and qualified with v8 alone, so when the operator asks for an older variant
+# web/backend/safety_veto_serving.py owns the variant itself). The previous frp3-s12 default
+# was gated and qualified with v8 alone; preserve that rollback when requesting an older variant
 # (SNAKE_SERVE_VETO_VARIANT=v7/v5/v2) with no checkpoint named, the released default yields
 # to the champion: "v7" keeps meaning the pre-swap champion + v7 configuration.
 ENV_VETO_VARIANT = "SNAKE_SERVE_VETO_VARIANT"
@@ -300,16 +300,16 @@ def _released_default(
         return _champion_choice(champion_path)
     variant = _requested_pre_swap_variant({} if env is None else env)
     if variant is not None:
-        # The flipped default is gated with v8 only; an older variant is a veto rollback,
+        # An older variant is a veto rollback inherited from the frp3 release,
         # which keeps its pre-swap meaning (the champion that variant's receipts bind).
         fallback = _champion_choice(champion_path)
         fallback.reason = (
             f"{ENV_VETO_VARIANT}={variant} is a pre-swap veto rollback; the released default "
-            f"{CHECKPOINT_RELEASED_DEFAULT} is gated with v8 only; serving the champion"
+            f"{CHECKPOINT_RELEASED_DEFAULT} yields to the champion for that variant"
         )
         return fallback
     # After a release flip: the flipped default is itself pin-gated; fail closed to the
-    # champion when its pin or bytes do not verify.
+    # qualified fallback chain when its pin or bytes do not verify.
     choice = _resolve_pinned(REGISTRY[CHECKPOINT_RELEASED_DEFAULT], saved_dir, pins)
     if choice.path is None:
         if CHECKPOINT_RELEASED_DEFAULT == NAME_B8_S3:
@@ -331,7 +331,7 @@ def _fallback_after_refusal(
 ) -> ServedCheckpointChoice:
     """Fail closed in registry order, without changing the released default.
 
-    B8 is an opt-in raster qualification candidate. Its failure must first use the already
+    B8 is the released raster checkpoint. Its failure must first use the previously
     released, independently pinned FRP3 checkpoint; only an FRP3 verification failure reaches
     the champion. This deliberately ignores veto rollback env state: checkpoint resolution is
     deterministic and the veto layer subsequently refuses raster observations on its own guard.

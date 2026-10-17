@@ -1,6 +1,8 @@
-"""Web serving of an ego2s-b student (Watch / Play only; the default is unchanged)."""
+"""Web serving of an ego2s-b student (Watch / Play only)."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -10,10 +12,10 @@ pytest.importorskip("fastapi")
 
 from src.model.ego2s_network import Ego2sNet, save_ego2s_checkpoint  # noqa: E402
 from src.model.inference_agent import InferenceAgent  # noqa: E402
-from src.model.obs_spec import EGO2S_B, KNOWN_OBS_SPECS  # noqa: E402
+from src.model.obs_spec import EGO2S_B, EGO2S_BV8, KNOWN_OBS_SPECS  # noqa: E402
 from web.backend.ego2s_policy import Ego2sServingPolicy  # noqa: E402
-from web.backend.session import MODE_PLAY, MODE_TRAIN, MODE_WATCH, GameSession  # noqa: E402
 from web.backend.serving_speed import speed_ceiling  # noqa: E402
+from web.backend.session import MODE_PLAY, MODE_TRAIN, MODE_WATCH, GameSession  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -102,11 +104,28 @@ def test_train_refused_and_play_works(ego_ckpt):
     assert sess.game is watch_game
 
 
-def test_default_session_is_unchanged():
+def test_default_session_serves_released_b8_without_a_veto(monkeypatch):
+    from web.backend import served_checkpoint as registry
+
+    required = (registry.B8_S3_FILENAME, registry.FRP3_S12_FILENAME)
+    if any(not (Path(registry.SAVED_DIR) / name).is_file() for name in required):
+        pytest.skip("released b8-s3 and frp3-s12 checkpoint bytes are not available")
+
     sess = GameSession()
-    assert not isinstance(sess.policy, Ego2sServingPolicy)
-    assert sess.obs_spec == "vector61"
-    assert sess.control_state()["speed_ceiling"] == 120.0
+    assert isinstance(sess.policy, Ego2sServingPolicy)
+    assert sess.served_checkpoint["name"] == registry.NAME_B8_S3
+    assert sess.obs_spec == EGO2S_BV8
+    assert sess.control_state()["speed_ceiling"] == 24.0
+    assert sess.safety_veto_state()["active"] is False
+    assert sess.safety_veto_state()["reason"] == (
+        "the safety veto applies only to a vector61 Apex policy"
+    )
+
+    monkeypatch.setenv(registry.ENV_CHECKPOINT, registry.NAME_FRP3_S12)
+    rollback = GameSession()
+    assert not isinstance(rollback.policy, Ego2sServingPolicy)
+    assert rollback.served_checkpoint["name"] == registry.NAME_FRP3_S12
+    assert rollback.obs_spec == "vector61"
 
 
 def test_ego2s_speed_ceiling_counts_the_driven_roster_and_clamps(ego_ckpt):

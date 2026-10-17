@@ -20,6 +20,7 @@ pytest.importorskip("fastapi")
 
 from src.evaluation.safety_veto import FreeSpaceVeto  # noqa: E402
 from src.evaluation.safety_veto_v5 import BoostAwareFreeSpaceVeto  # noqa: E402
+from src.training.apex_policy import ApexPolicy  # noqa: E402
 from web.backend import safety_veto_serving as serving  # noqa: E402
 from web.backend.safety_veto_serving import (  # noqa: E402
     ENV_PLAY_AI,
@@ -69,9 +70,9 @@ def no_default_checkpoint(monkeypatch, tmp_path):
 @pytest.fixture
 def pinned(monkeypatch, tmp_path):
     """A real vector61 checkpoint both receipt bindings are re-pinned to (test only)."""
-    sess = GameSession(safety_veto_flags=ServingVetoFlags())
     path = tmp_path / "pinned_vector61.pth"
-    torch.save(sess.policy.get_state_dict(), path)
+    policy = ApexPolicy(input_size=61, hidden_size=512, output_size=6, training=True)
+    torch.save(policy.get_state_dict(), path)
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     monkeypatch.setattr(serving, "STRICT_RECEIPT_CHECKPOINT_SHA256", sha)
     monkeypatch.setattr(serving, "V5_STRICT_RECEIPT_CHECKPOINT_SHA256", sha)
@@ -309,7 +310,8 @@ class TestV5FailClosed:
         state = sess.safety_veto_state()
         assert state["wrapper"] == serving.wrapper_identity()
         assert state["reason"] == (
-            f"unknown serving veto variant {value!r} ({ENV_VARIANT} must be one of v2, v5, v7, v8); "
+            f"unknown serving veto variant {value!r} "
+            f"({ENV_VARIANT} must be one of v2, v5, v7, v8); "
             "fell back to the released default v2"
         )
 

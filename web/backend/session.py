@@ -31,25 +31,18 @@ from src.core.runtime_contract import (
 )
 from src.data.score_store import compute_score
 from src.game.game_state import GameState
-from src.model.obs_spec import (
-    DEFAULT_OBS_SPEC,
-    EGO2S_OBS_SPECS,
-    RASTER31V2,
-    RASTER31V3,
-    VECTOR61,
-)
+from src.model.obs_spec import DEFAULT_OBS_SPEC, EGO2S_OBS_SPECS, RASTER31V2, RASTER31V3, VECTOR61
 from src.training.apex_policy import ApexPolicy
 from web.backend.checkpoints import resolve_checkpoint_name
+from web.backend.release_monitoring import ego2s_exception, play_tick, served_resolution, watch_tick
 from web.backend.safety_veto_serving import (
     ServingVetoFlags,
     ServingVetoState,
     install_serving_vetoes,
 )
-from web.backend.served_checkpoint import (
-    LOG_PREFIX,
-    logger as served_checkpoint_logger,
-    resolve_served_checkpoint,
-)
+from web.backend.served_checkpoint import LOG_PREFIX
+from web.backend.served_checkpoint import logger as served_checkpoint_logger
+from web.backend.served_checkpoint import resolve_served_checkpoint
 from web.backend.serving_speed import driven_ai_count, speed_ceiling
 
 # The three ways to drive the shared game.
@@ -123,9 +116,7 @@ def _validate_v3_serving_checkpoint(
     blob: dict, checkpoint_sha256: str, checkpoint_path: str
 ) -> dict:
     """Fail closed on a v3 checkpoint before a session replaces live state."""
-    from src.training.checkpoint_contract import (
-        validate_observation_checkpoint_metadata,
-    )
+    from src.training.checkpoint_contract import validate_observation_checkpoint_metadata
 
     validate_observation_checkpoint_metadata(
         blob, RASTER31V3, checkpoint_path, error_type=ValueError
@@ -525,14 +516,21 @@ class GameSession:
 
         # Which checkpoint a default-constructed session serves: the pinned registry in
         # web/backend/served_checkpoint.py (SNAKE_SERVE_CHECKPOINT; unset = the released
-        # default, frp3-s12 since 2026-10-06, failing closed to the champion at
-        # DEFAULT_CHECKPOINT; SNAKE_SERVE_CHECKPOINT=champion rolls back). An explicit
-        # checkpoint bypasses it (served_checkpoint stays None).
+        # default, b8-s3 since 2026-10-17, failing closed through frp3-s12 and then
+        # the champion at DEFAULT_CHECKPOINT; SNAKE_SERVE_CHECKPOINT=champion rolls
+        # back). An explicit checkpoint bypasses it (served_checkpoint stays None).
         self.served_checkpoint: Optional[Dict[str, object]] = None
+        self._release_monitoring = False
+        self._release_latency_warmup_remaining = 0
         ckpt = checkpoint
         if not ckpt:
             choice = resolve_served_checkpoint(champion_path=DEFAULT_CHECKPOINT)
             self.served_checkpoint = choice.to_dict()
+            # The released default and an explicit B8 selection both exercise the
+            # B8 serving path. Explicit rollback sessions remain visible as a
+            # resolution record but do not contribute B8 Watch samples.
+            self._release_monitoring = choice.requested in (None, "b8-s3")
+            served_resolution(self.served_checkpoint)
             ckpt = choice.path
         self._build(ckpt, mode=MODE_WATCH)
         if ckpt is None:
@@ -548,7 +546,13 @@ class GameSession:
         previous_config = get_config()
         try:
             self._build_impl(checkpoint, mode, override_reward_contract)
-        except Exception:
+        except Exception as exc:
+            # An ego2s checkpoint can fail before _build_impl installs its
+            # obs-spec/policy fields. The B8 resolution is already known, so
+            # persist that startup/build exception before preserving config and
+            # re-raising it to the server lifecycle.
+            if self._release_monitoring and (self.served_checkpoint or {}).get("name") == "b8-s3":
+                ego2s_exception(checkpoint="b8-s3", mode=mode, error=exc)
             initialize_config(previous_config)
             raise
 
@@ -674,6 +678,7 @@ class GameSession:
         # intentionally installed after the final Watch/Play roster exists,
         # and never reaches policy math or the forward path.
         self._refresh_speed_ceiling()
+        self._release_latency_warmup_remaining = 200 if self._is_b8_release_monitoring() else 0
         self.serving_contract = (
             {
                 key: v3_metadata[key]
@@ -764,8 +769,61 @@ class GameSession:
             elif self.mode == MODE_PLAY:
                 self._step_play()
             else:
-                self.game.update(train_mode=False, learn=False, allow_respawn=True)
+                hero = next((snake for snake in self.game.snakes if snake.id == self.hero_id), None)
+                decision_count = 0
+                monitor_b8 = self._is_b8_release_monitoring()
+                original_update = None if hero is None or not monitor_b8 else hero.update
+                if original_update is not None:
+                    # GameState respawns before it dispatches the action. Count the
+                    # actual hero update, as the qualification did, rather than
+                    # inspecting is_alive before GameState.update.
+                    def observed_update(*args: Any, **kwargs: Any) -> Any:
+                        nonlocal decision_count
+                        decision_count += 1
+                        return original_update(*args, **kwargs)
+
+                    hero.update = observed_update
+                started = time.perf_counter() if monitor_b8 else 0.0
+                try:
+                    self.game.update(train_mode=False, learn=False, allow_respawn=True)
+                except Exception as exc:
+                    if monitor_b8:
+                        self._record_ego2s_exception(exc)
+                    raise
+                finally:
+                    if hero is not None and original_update is not None:
+                        hero.update = original_update
+                if monitor_b8:
+                    update_ms = (time.perf_counter() - started) * 1000.0
+                    latency_eligible = self._release_latency_warmup_remaining <= 0
+                    self._release_latency_warmup_remaining -= 1
+                    watch_tick(
+                        checkpoint="b8-s3",
+                        roster_size=driven_ai_count(self.game.snakes, self.policy),
+                        speed=self.speed,
+                        decisions=decision_count,
+                        deaths=int(self.hero_id in self.game.frame_death_causes),
+                        update_ms=update_ms,
+                        latency_eligible=latency_eligible,
+                    )
             self._enforce_food_target()
+
+    def _is_b8_release_monitoring(self) -> bool:
+        """Whether this is the released B8 path, not an unrelated checkpoint."""
+        return bool(
+            self._release_monitoring
+            and (self.served_checkpoint or {}).get("name") == "b8-s3"
+            and self.obs_spec in EGO2S_OBS_SPECS
+        )
+
+    def _record_ego2s_exception(self, exc: BaseException) -> None:
+        """Persist an exception from a live ego2s serving operation before re-raising."""
+        if self._is_b8_release_monitoring():
+            ego2s_exception(
+                checkpoint=str((self.served_checkpoint or {}).get("name") or self.checkpoint_path),
+                mode=self.mode,
+                error=exc,
+            )
 
     def _enforce_food_target(self) -> None:
         """Trim food back to the live target.
@@ -789,7 +847,25 @@ class GameSession:
         """
         if not self.run_started:
             return
-        self.game.update(train_mode=False, learn=False, allow_respawn=True)
+        monitor_b8 = self._is_b8_release_monitoring()
+        started = time.perf_counter() if monitor_b8 else 0.0
+        try:
+            self.game.update(train_mode=False, learn=False, allow_respawn=True)
+        except Exception as exc:
+            if monitor_b8:
+                self._record_ego2s_exception(exc)
+            raise
+        if monitor_b8:
+            update_ms = (time.perf_counter() - started) * 1000.0
+            latency_eligible = self._release_latency_warmup_remaining <= 0
+            self._release_latency_warmup_remaining -= 1
+            play_tick(
+                checkpoint="b8-s3",
+                driven_ai=driven_ai_count(self.game.snakes, self.policy),
+                speed=self.speed,
+                update_ms=update_ms,
+                latency_eligible=latency_eligible,
+            )
         human = self._find_human()
         if human is not None and human.is_alive and not self.run_over:
             self.run_frames += 1
@@ -800,7 +876,12 @@ class GameSession:
         from web.backend.serialize import build_frame
 
         with self._lock:
-            return build_frame(self)
+            try:
+                return build_frame(self)
+            except Exception as exc:
+                if self._is_b8_release_monitoring():
+                    self._record_ego2s_exception(exc)
+                raise
 
     # -- controls -----------------------------------------------------------
     def set_playing(self, value: bool) -> None:
@@ -858,6 +939,8 @@ class GameSession:
     def reset_game(self) -> None:
         with self._lock:
             self.game.reset()
+            if self._is_b8_release_monitoring():
+                self._release_latency_warmup_remaining = 200
             # The raster policy caches per-frame observations keyed by the frame
             # counter; a reset rewinds it to 0, so drop the stale cache.
             invalidate = getattr(self.policy, "_invalidate_cache", None)

@@ -1,15 +1,8 @@
 """SNAKE_SERVE_CHECKPOINT: the pinned served-checkpoint registry (web/backend/served_checkpoint.py).
 
-Covers: the released default is frp3-s12 since 2026-10-06 (fail closed to the champion; with
-no checkpoint named, a pre-swap veto variant v7/v5/v2 serves the champion so those rollbacks
-keep their meaning); before the flip the default was the champion (path and behavior
-unchanged, including the untrained fallback; tested under ``pre_release``); the frp3-s12
-entry is refused while its strict-receipt pin is the shipped ``null`` placeholder, when the
-pin is malformed or binds other bytes, and when the
-file is missing or its bytes differ (fail closed to the released default, with a reason,
-never raised); with a filled pin it is served and the released v8 veto binds it through the
-pin (only v8; v7/v5/v2 rollbacks leave it unwrapped); the log line; and the real FRP-v3
-checkpoint loading in the live web stack.
+Covers the b8-s3 default released 2026-10-17, its verified frp3-s12 then champion fallback,
+explicit rollbacks, and the historical champion/frp3 defaults. Pins, checkpoint bytes,
+veto guards and real serving sessions remain exercised independently.
 """
 
 from __future__ import annotations
@@ -140,6 +133,12 @@ def pre_release(monkeypatch):
     monkeypatch.setattr(registry, "CHECKPOINT_RELEASED_DEFAULT", registry.NAME_CHAMPION)
 
 
+@pytest.fixture
+def frp3_release(monkeypatch):
+    """Preserve the previous release's regression matrix."""
+    monkeypatch.setattr(registry, "CHECKPOINT_RELEASED_DEFAULT", registry.NAME_FRP3_S12)
+
+
 def resolve(env: dict, saved: Path, champion: Path, pins: dict):
     return registry.resolve_served_checkpoint(
         environ=env, saved_dir=str(saved), pins=pins, champion_path=str(champion)
@@ -147,8 +146,8 @@ def resolve(env: dict, saved: Path, champion: Path, pins: dict):
 
 
 class TestShippedState:
-    def test_released_default_is_frp3_s12(self):
-        assert registry.CHECKPOINT_RELEASED_DEFAULT == registry.NAME_FRP3_S12 == "frp3-s12"
+    def test_released_default_is_b8_s3(self):
+        assert registry.CHECKPOINT_RELEASED_DEFAULT == registry.NAME_B8_S3 == "b8-s3"
         assert registry.PRE_SWAP_VETO_VARIANTS == ("v7", "v5", "v2")
         assert registry.ENV_VETO_VARIANT == ENV_VARIANT
         import web.backend.session as session_module
@@ -189,7 +188,8 @@ class TestShippedState:
         assert serving.V8_LAMBDA == 8.0 and serving.VARIANT_RELEASED_DEFAULT == "v8"
 
 
-class TestReleasedDefault:
+@pytest.mark.usefixtures("frp3_release")
+class TestPreviousReleasedDefault:
     """After the release flip: unset serves frp3-s12 (pin + bytes verified), fail closed."""
 
     def test_unset_and_blank_serve_frp3(self, tmp_path, shipped, fake_frp3):
@@ -262,7 +262,19 @@ class TestB8ServingQualificationRegistry:
             b8_filled(registry.load_pins())
         )
 
-    def test_b8_filled_pin_serves_the_verified_artifact(self, tmp_path, shipped):
+    @pytest.mark.parametrize(
+        "env",
+        [
+            {},
+            {ENV_CHECKPOINT: ""},
+            {ENV_CHECKPOINT: "  "},
+            {ENV_CHECKPOINT: registry.NAME_B8_S3},
+            {ENV_VARIANT: "v8"},
+            {ENV_WATCH_HERO: "0"},
+            {ENV_VARIANT: "v9"},
+        ],
+    )
+    def test_b8_default_and_explicit_name_serve_verified_artifact(self, tmp_path, shipped, env):
         artifact = tmp_path / "B8_s3" / "final.pth"
         artifact.parent.mkdir()
         artifact.write_bytes(b"b8 stand-in")
@@ -280,7 +292,7 @@ class TestB8ServingQualificationRegistry:
         registry.REGISTRY[registry.NAME_B8_S3] = entry
         try:
             choice = resolve(
-                {ENV_CHECKPOINT: registry.NAME_B8_S3},
+                env,
                 tmp_path,
                 tmp_path / "c",
                 b8_filled(shipped, sha),
@@ -292,6 +304,14 @@ class TestB8ServingQualificationRegistry:
             str(artifact),
             None,
         )
+
+    @pytest.mark.parametrize("word", ["v7", "v5", "v2"])
+    def test_default_preserves_variant_rollback(self, tmp_path, shipped, word):
+        champion = tmp_path / "champion.pth"
+        champion.write_bytes(b"champion")
+        choice = resolve({ENV_VARIANT: word}, tmp_path, champion, shipped)
+        assert choice.name == "champion"
+        assert "pre-swap veto rollback" in choice.reason
 
     def test_b8_refusal_uses_verified_frp3_then_champion(self, tmp_path, shipped, fake_frp3):
         frp, sha = fake_frp3
@@ -305,11 +325,8 @@ class TestB8ServingQualificationRegistry:
         choice = resolve({ENV_CHECKPOINT: registry.NAME_B8_S3}, tmp_path, champion, shipped)
         assert choice.name == "champion" and "b8-s3 fallback frp3-s12 failed" in choice.reason
 
-    def test_future_b8_default_refusal_keeps_the_fallback_chain(
-        self, monkeypatch, tmp_path, shipped, fake_frp3
-    ):
+    def test_b8_default_refusal_keeps_the_fallback_chain(self, tmp_path, shipped, fake_frp3):
         frp, sha = fake_frp3
-        monkeypatch.setattr(registry, "CHECKPOINT_RELEASED_DEFAULT", registry.NAME_B8_S3)
         choice = resolve({}, tmp_path, tmp_path / "champ.pth", filled(shipped, sha=sha))
         assert choice.name == NAME_FRP3_S12 and choice.path == str(frp)
 
@@ -515,7 +532,23 @@ def champion_default(monkeypatch):
 class TestLiveStack:
     """The real FRP-v3 s12 checkpoint through GameSession() (tiny step counts)."""
 
-    def test_unset_env_serves_frp3_with_v8(self, champion_default):
+    @pytest.mark.skipif(
+        not (MAIN_SAVED / registry.B8_S3_FILENAME).is_file(), reason="B8 checkpoint absent"
+    )
+    def test_unset_env_serves_b8_without_veto(self, champion_default):
+        sess = GameSession()
+        state = sess.safety_veto_state()
+        assert sess.served_checkpoint["name"] == registry.NAME_B8_S3
+        assert sess.served_checkpoint["reason"] is None
+        assert state["checkpoint_sha256"] == registry.B8_S3_SHA256
+        assert state["active"] is False
+        assert "applies only to a vector61 Apex policy" in state["reason"]
+        assert registry.B8_S3_SHA256 not in registry.v8_gated_checkpoint_sha256s()
+        sess.step()
+        assert sess.last_error is None
+
+    def test_named_frp3_rollback_serves_with_v8(self, monkeypatch, champion_default):
+        monkeypatch.setenv(ENV_CHECKPOINT, NAME_FRP3_S12)
         sess = GameSession()
         state = sess.safety_veto_state()
         assert sess.served_checkpoint["name"] == NAME_FRP3_S12
