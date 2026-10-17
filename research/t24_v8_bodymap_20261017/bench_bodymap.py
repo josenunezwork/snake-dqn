@@ -97,6 +97,9 @@ def _build(worlds: int, length: int, seed: int, checkpoint_dir: Path) -> tuple[A
     # The capacity comes from the profile and is > 1200.  This does not advance
     # RNG state or execute gameplay; it prepares a fixed, valid long-body state.
     inject_serpentines([sim], [length] * sim.S, box_height=9)
+    # The fixed post-reset fixture represents a normal decision frame.  The
+    # random-safe pool policy intentionally refuses the reset sentinel frame 0.
+    sim.frame[...] = 1
     pool = __import__(
         "research.redesign_m3c_20261008.league_pool", fromlist=["build_default_static_pool"]
     ).build_default_static_pool(args, ctx, sim, runtime, "cpu")
@@ -120,6 +123,9 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
     groups = pool.groups_for(seats, alive)
     b8_rows = groups["b8-s3"]
     assert len(learner_rows) == worlds * 3 and len(b8_rows) > 0
+    # The frozen pool includes vector61 identities; prepare their independent
+    # runtime state once outside the B8-only dispatch measurements.
+    runtime.prepare(sim)
 
     # Contract checks are outside timing: candidate learner slice must equal the
     # independent old call byte-for-byte and its primed B8 dispatch must preserve
