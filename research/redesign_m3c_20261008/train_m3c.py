@@ -1450,6 +1450,37 @@ def build_segment(args, ctx, segment: int, gamma: float, hero_v61: bool = False)
     return sim, runtime, policies, groups_arr
 
 
+def learner_seat_mask(seed: int, segment: int, worlds: int, seats: int) -> np.ndarray:
+    """Return the segment-pinned live-seat mask for the opt-in league collector.
+
+    One learner seat deliberately remains the historical hero (slot zero), and six
+    seats deliberately remains the historical all-slot collector.  Those two cases
+    must not consume a new RNG stream.  The mixed case uses an isolated seed sequence
+    so changing the collector cannot perturb the environment or action RNG streams.
+    """
+    if seats not in (1, 3, 6):
+        raise ValueError("learner seats must be one of 1, 3, 6")
+    mask = np.zeros((int(worlds), 6), dtype=bool)
+    if seats == 1:
+        mask[:, 0] = True
+        return mask
+    if seats == 6:
+        mask[:] = True
+        return mask
+    rng = np.random.default_rng(np.random.SeedSequence([int(seed), 19_017, int(segment)]))
+    for world in range(int(worlds)):
+        mask[world, rng.permutation(6)[:seats]] = True
+    return mask
+
+
+def learner_seats(args) -> int:
+    """Effective learner-seat count, preserving both pre-league collector paths."""
+    requested = getattr(args, "learner_seats", None)
+    if requested is None:
+        return 6 if getattr(args, "all_snakes_learner", False) else 1
+    return int(requested)
+
+
 # ----------------------------------------------------------------------------- helpers
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -1647,6 +1678,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--all-snakes-learner",
         action="store_true",
         help="default-off: learner network drives every live snake and collects every transition",
+    )
+    ap.add_argument(
+        "--learner-seats",
+        type=int,
+        choices=(1, 3, 6),
+        default=None,
+        help="T19 opt-in static league: live learner seats per six-snake world; 1 and 6 "
+        "preserve the historical hero-only and --all-snakes-learner collectors respectively",
     )
     ap.add_argument(
         "--max-wall-seconds",
@@ -1905,6 +1944,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.actors < 0:
         raise SystemExit("--actors must be >= 0")
+    if args.learner_seats is not None and args.all_snakes_learner:
+        raise SystemExit("--learner-seats and --all-snakes-learner are mutually exclusive")
+    if args.learner_seats is not None and not args.actors:
+        raise SystemExit("--learner-seats needs the multi-actor trainer")
     if args.gather_threads < 0:
         raise SystemExit("--gather-threads must be >= 0")
     if args.max_wall_seconds < 0.0 or not math.isfinite(args.max_wall_seconds):
@@ -1915,6 +1958,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit("--all-snakes-learner needs --obs-version bv8 (the B8 self-play path)")
     if args.all_snakes_learner and args.restart_frac > 0.0:
         raise SystemExit("--all-snakes-learner does not support --restart-frac")
+    if args.learner_seats is not None and args.restart_frac > 0.0:
+        raise SystemExit("--learner-seats does not support --restart-frac")
     if not math.isfinite(args.restart_frac) or not 0.0 <= args.restart_frac <= 1.0:
         raise SystemExit("--restart-frac must be finite and in [0, 1]")
     if args.restart_frac > 0.0:
@@ -2637,7 +2682,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
         spec = _weights_spec(net)
         last = _read_weights(net, spec, wbuf, wver, -1)
         net = net.to(device)
-        all_snakes = bool(getattr(args, "all_snakes_learner", False))
+        league_n = learner_seats(args)
+        # Keep the old paths literally selected for N=1 and N=6.  In particular the
+        # latter must retain its old observation/ring/action RNG ordering.
+        all_snakes = league_n == 6
+        mixed_seats = league_n == 3
         hero_fwd = None  # perf-compile (--compile-actor): the compiled, padded hero forward
         if getattr(args, "compile_actor", "off") != "off":
             from research.redesign_m3c_20261008.compile_m3c import (
@@ -2651,7 +2700,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 net,
                 device,
                 args.compile_actor,
-                args.worlds * (6 if all_snakes else 1),
+                args.worlds * (6 if all_snakes else league_n),
                 nscal_for(args),
                 LOCAL,
                 GLOBAL,
@@ -2702,6 +2751,26 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             sim, runtime, policies, groups = build_segment(
                 args, ctx, segment, gamma_seg, hero_v61=python_v8
             )
+            live_seats = learner_seat_mask(args.seed, segment, sim.E, league_n)
+            pool = None
+            if mixed_seats:
+                # The static pool owns checkpoint identity validation and frozen dispatch.
+                # It is constructed after the segment runtime exists, but before the first
+                # frame, so seat ownership remains pinned through respawns.
+                from research.redesign_m3c_20261008.league_pool import build_default_static_pool
+
+                pool = build_default_static_pool(args, ctx, sim, runtime, device)
+                frozen = np.empty((sim.E, sim.S), dtype=object)
+                policy_ids = tuple(pool.policy_ids())
+                if not policy_ids:
+                    raise RuntimeError("static pool has no eligible frozen policies")
+                for e in range(sim.E):
+                    for s in range(sim.S):
+                        if not live_seats[e, s]:
+                            frozen[e, s] = policy_ids[(e * sim.S + s) % len(policy_ids)]
+                pool_seats = frozen
+            else:
+                pool_seats = None
             restarted_worlds = getattr(sim, "_restart_worlds", None)
             if restart_enabled:
                 if restarted_worlds is None:
@@ -2740,7 +2809,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
             # Default hero-only rows preserve the previous E-world builder exactly.  The
             # opt-in self-play mode keys the same builder by flattened (env, slot) rows so
             # each driven snake owns an independent n-step window.
-            n_driven = E * sim.S if all_snakes else E
+            n_driven = E * sim.S if all_snakes else E * league_n
             nsb = NStepBuilder(n_driven) if fast else NStepBuilderRef(n_driven)
             for _frame in range(args.segment_frames):
                 if stop_evt.is_set():
@@ -2801,7 +2870,13 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     actions = np.ones((E, prepared.S), dtype=np.int64)
                     if uses_runtime:
                         runtime.prepare(prepared)
-                    hero = np.argwhere(alive) if all_snakes else np.argwhere(alive[:, :1])
+                    hero = (
+                        np.argwhere(alive)
+                        if all_snakes
+                        else np.argwhere(alive & live_seats)
+                        if mixed_seats
+                        else np.argwhere(alive[:, :1])
+                    )
                     # vectorized: the opponents (no actor RNG, read-only runtime state, disjoint
                     # action cells) run while an asynchronous (MPS / CUDA) hero forward is in
                     # flight; the hero's decisions and RNG draws are unchanged.
@@ -2883,7 +2958,11 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                             chosen["L"] = L_dec
                             if m6.tight:
                                 chosen["tight"] = tight_predicate(v8res.area, sel_mask, L_dec)
-                    if not overlap and not all_snakes:
+                    if mixed_seats:
+                        if pool is None or pool_seats is None:
+                            raise RuntimeError("mixed seats require a static frozen pool")
+                        timing.update(pool.dispatch(prepared, masks, alive, actions, pool_seats))
+                    elif not overlap and not all_snakes:
                         opponents(prepared, masks, alive, actions)
                     return actions
 
@@ -2930,10 +3009,24 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     if "a_v8" in chosen and args.onpolicy_labels:
                         lab_ids, lab_a = ids, chosen["a_v8"].astype(np.int8)
                     rows = chosen["hero"]
-                    driven = rows[:, 0] * sim.S + rows[:, 1] if all_snakes else rows[:, 0]
+                    driven = (
+                        rows[:, 0] * sim.S + rows[:, 1]
+                        if all_snakes
+                        else rows[:, 0] * league_n + np.sum(live_seats[rows[:, 0], : rows[:, 1]], axis=1)
+                        if mixed_seats
+                        else rows[:, 0]
+                    )
                     flat_reward = reward.reshape(-1) if all_snakes else reward[:, 0]
                     flat_done = done.reshape(-1) if all_snakes else done[:, 0]
-                    deaths = nsb.step(driven, ids, chosen["act"], flat_reward, flat_done, gamma_now)
+                    # NStepBuilder indexes rewards/dones by its supplied stream ids.  Mixed
+                    # seat streams therefore receive a dense E*N view rather than pool rows.
+                    if mixed_seats:
+                        dense_reward = reward[live_seats]
+                        dense_done = done[live_seats]
+                    else:
+                        dense_reward = flat_reward
+                        dense_done = flat_done
+                    deaths = nsb.step(driven, ids, chosen["act"], dense_reward, dense_done, gamma_now)
                     if restart_telemetry is not None:
                         restart_telemetry.record(
                             chosen["hero"][:, 0],
@@ -2971,6 +3064,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                 elif last_frame:
                     nsb.end_segment(sched.gamma(int(progress[0])))
                 s, a, R, d, nx = nsb.take()
+                live_rows_by_policy = {"learner": int(len(acts))}
                 msg = {
                     "j": j,
                     "s": s,
@@ -2985,6 +3079,8 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     "env_s": time.perf_counter() - t0,
                     "timing": timing,
                     "weights_version": last,
+                    "replay_rows": int(len(s)),
+                    "live_rows_by_policy": live_rows_by_policy,
                     **stats,
                     **m6_stats,
                 }
@@ -3163,7 +3259,7 @@ def main_multi(args) -> int:
     tel = Telemetry(args.out, args)
     # Rings (ring_capacity): with the defaults (replay 500k, K = 2, 64 worlds) 2 x 377k rows x
     # 12.3 KB = 9.3 GB per run (--obs-pack: 3.2 KB per row, 2.4 GB). research/perf_ram_20261013
-    driven_worlds = args.worlds * (6 if getattr(args, "all_snakes_learner", False) else 1)
+    driven_worlds = args.worlds * learner_seats(args)
     ring_cap, margin_rows = ring_capacity(args.replay, K, driven_worlds, args.actor_queue_frames)
     spec = _weights_spec(online)
     n_weights = int(sum(n for _, _, n in spec))
@@ -3236,6 +3332,7 @@ def main_multi(args) -> int:
     manifest = args.out / "manifest.jsonl"
     st = {
         "transitions": 0,
+        "replay_rows": 0,
         "updates": 0,
         "flags": [],
         "halt": None,
@@ -3257,6 +3354,8 @@ def main_multi(args) -> int:
         "label_rows": [],
         "anchor_updates": 0,
         "lag": [],
+        "live_rows_by_policy": {},
+        "frozen_forward_gpu_s": 0.0,
         "action_window": ActionWindow(),
     }
     st["halt"] = arm_halt_reason(args)
@@ -3372,6 +3471,11 @@ def main_multi(args) -> int:
                 gn = multi.encode(j, msg["nxt"])
                 replay.add_many(gs, msg["a"], msg["R"], msg["disc"], gn)
                 st["since_update"] += len(gs)
+                st["replay_rows"] += int(msg["replay_rows"])
+                for policy_id, count in msg["live_rows_by_policy"].items():
+                    st["live_rows_by_policy"][policy_id] = (
+                        st["live_rows_by_policy"].get(policy_id, 0) + int(count)
+                    )
                 if labels is not None and len(msg["lab_ids"]):
                     labels.add(multi.encode(j, msg["lab_ids"]), msg["lab_a"].astype(np.int64))
                 st["v8_override"] += msg["v8_override"]
@@ -3393,6 +3497,8 @@ def main_multi(args) -> int:
                 st["action_window"].extend(msg["acts"])
                 for k_, v_ in msg["timing"].items():
                     tel.add(k_, v_)
+                    if k_ == "frozen_forward_gpu_s":
+                        st["frozen_forward_gpu_s"] += float(v_)
                 if m6 is not None:
                     tot = st["m6_total"]
                     tot["decisions"] += msg["decisions"]
@@ -3423,6 +3529,10 @@ def main_multi(args) -> int:
                 row = {
                     "transitions": t,
                     "updates": st["updates"],
+                    "learner_decisions": t,
+                    "replay_rows": st["replay_rows"],
+                    "replay_rows_per_update": st["replay_rows"] / max(1, st["updates"]),
+                    "live_rows_by_policy": dict(st["live_rows_by_policy"]),
                     "wall": wall,
                     "rate": t / wall,
                     "env_s": st["env_s"],
@@ -3621,6 +3731,8 @@ def main_multi(args) -> int:
                     replay_size=replay.size,
                     learner_wait_s=round(st["wait_s"], 3),
                     policy_lag_mean=float(np.mean(lag)) if lag else None,
+                    policy_lag_p95=float(np.quantile(lag, 0.95)) if lag else None,
+                    frozen_forward_gpu_s=st["frozen_forward_gpu_s"],
                     ring_overrun_rows=st["ring_overrun_rows"],
                     queue_depth=[q_.qsize() if sys.platform != "darwin" else None for q_ in txs],
                     ring_counts=[r.count for r in rings],
@@ -3630,7 +3742,10 @@ def main_multi(args) -> int:
                         else {}
                     ),
                 )
-                st.update(td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0)
+                st.update(
+                    td=[], anc=[], qmax=0.0, boost=0, greedy_boost=0, decisions=0, deaths=0,
+                    replay_rows=0, live_rows_by_policy={}, frozen_forward_gpu_s=0.0,
+                )
                 st["greedy_boost_length_decisions"] = np.zeros(4, dtype=np.int64)
                 st["greedy_boost_length_boosts"] = np.zeros(4, dtype=np.int64)
                 st.update(v8_override=0, label_rows=[])
@@ -3704,6 +3819,8 @@ def main_multi(args) -> int:
         "git": gid._git(),
         "args": {k: str(v) for k, v in vars(args).items()},
         "transitions": st["transitions"],
+        "learner_decisions": st["transitions"],
+        "replay_rows": replay.added,
         "updates": st["updates"],
         "wall_seconds": time.perf_counter() - started,
         "rate": st["transitions"] / (time.perf_counter() - started),
