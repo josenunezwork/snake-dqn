@@ -1,0 +1,31 @@
+{
+  "reference_commit": "4c1e1b2d47075e591dc992427526fe11a8b7da7f",
+  "reference_source_sha256": "18c3b2e7257af0410069d0f344f3bbe37dbee0f08d5a8e53938b87667575919c",
+  "seed": 741,
+  "worlds": 12,
+  "frames": 96,
+  "learner_seats": 3,
+  "forced_death_and_respawn_policies": [
+    "b8-s3",
+    "champion-v8",
+    "frp3-s12",
+    "frp3-s12-v8",
+    "scripted:greedy_food",
+    "scripted:random_safe"
+  ],
+  "action_stream_shape": [
+    96,
+    12,
+    6
+  ],
+  "action_stream_sha256": "f7aa8c96878a428a483704b13c1654056ea8d10a16c20d9502fd29a0037d8be9",
+  "per_policy_sha256": {
+    "b8-s3": "a72dac51977aaa815cb4e6e113fafebfe1ecee5c3a22e7bca62c14471df3af0c",
+    "champion-v8": "8881748dc03091b427ad772da7935f685831a71b07e75742062452fe8766008b",
+    "frp3-s12": "d0cabb65b26fc160d1468bf3dab80f2d5d46516dbcaf1605e8b2d9830173591e",
+    "frp3-s12-v8": "651e894af98232399c26b2e983164010520e203d0d251568ff816d714b86fcc9",
+    "scripted:greedy_food": "9f829683aadb17424d9059f0f461b1b94dd70497607b15ee8e0bfd075de715fc",
+    "scripted:random_safe": "a0252dab66097314746a73ee92dd1ad4bfbed6ea7888732cd9ad88c4f7691454"
+  },
+  "authority": "Mac CPU action parity only; distinct pre-change and optimized simulators/runtimes; no quality or CUDA qualification"
+}
