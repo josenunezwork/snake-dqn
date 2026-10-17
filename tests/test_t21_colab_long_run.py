@@ -26,7 +26,7 @@ def test_long_run_notebook_is_valid_and_separate_from_smoke() -> None:
 
 def test_long_run_uses_isolated_py312_and_capability_selected_torch() -> None:
     source = _source()
-    assert "['uv', 'venv', '--python', '3.12'" in source
+    assert "['uv', 'venv', '--seed', '--python', '3.12'" in source
     assert "--query-gpu=compute_cap" in source
     assert "compute_capability >= 10.0" in source
     assert "https://download.pytorch.org/whl/cu128" in source
@@ -40,6 +40,7 @@ def test_long_run_auto_resumes_only_verified_drive_snapshots() -> None:
     assert "verify=True" in source
     assert "--resume-full-state" in source
     assert "resume_args = ['--resume-full-state', str(durable_ckpt_dir)] if snapshots else []" in source
+    assert "A named Drive snapshot exists but none verify; recovery is required." in source
 
 
 def test_long_run_passes_the_async_full_state_contract() -> None:
@@ -52,14 +53,20 @@ def test_long_run_passes_the_async_full_state_contract() -> None:
     ):
         assert flag in source
     assert "FULL_STATE_REPLAY not in {'none', 'full'}" in source
+    assert "REQUESTED_TRANSITIONS must be a positive registered integer." in source
 
 
 def test_long_run_never_releases_while_work_or_durability_is_unconfirmed() -> None:
     source = _source()
     assert "if completed.returncode:" in source
+    assert "summary.get('transitions') != REQUESTED_TRANSITIONS" in source
+    assert "summary.get('halt') is not None" in source
+    assert "summary.get('full_state_complete') is not True" in source
     assert "No verified durable snapshot after successful training" in source
+    assert "manifests[0].get('transitions', -1) >= summary['transitions']" in source
+    assert "manifests[0].get('transitions') >= REQUESTED_TRANSITIONS" in source
     assert "if RELEASE_AFTER_SUCCESS:" in source
-    assert source.index("if RELEASE_AFTER_SUCCESS:") > source.index("durable snapshot confirmed:")
+    assert source.index("if RELEASE_AFTER_SUCCESS:") > source.index("durable final snapshot confirmed:")
     assert source.count("runtime.unassign()") == 1
 
 

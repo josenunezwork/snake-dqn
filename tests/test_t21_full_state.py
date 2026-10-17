@@ -331,7 +331,10 @@ def test_full_state_payload_restores_cpu_optimizer_replay_and_rng_bitwise(tmp_pa
         labels_a,
         [ring_a],
         "full",
-        {"actor_rngs": [np.random.default_rng(91).bit_generator.state], "seat": 2},
+        extra={
+            "actor_rngs": [np.random.default_rng(901).bit_generator.state],
+            "league_seat_state": {"world": 0, "seat": 2},
+        },
     )
     checkpointer = module.AsyncCheckpointer(local, keep=2, retries=1, retry_delay=0)
     assert checkpointer.submit(_capture_state(module, payload), transitions=16)
@@ -467,6 +470,10 @@ def test_actual_m3c_learner_full_state_resume_is_bitwise(tmp_path):
         labels_a,
         [ring_a],
         "full",
+        extra={
+            "actor_rngs": [np.random.default_rng(901).bit_generator.state],
+            "league_seat_state": {"world": 0, "seat": 2},
+        },
     )
     local = tmp_path / "local"
     local.mkdir()
@@ -474,6 +481,8 @@ def test_actual_m3c_learner_full_state_resume_is_bitwise(tmp_path):
     assert checkpointer.submit(_capture_state(module, payload), transitions=256)
     _wait_close(checkpointer)
     saved, _ = module.load_latest_snapshot(local)
+    assert saved["extra"]["league_seat_state"] == {"world": 0, "seat": 2}
+    assert saved["extra"]["actor_rngs"][0]["state"]
 
     for _ in range(3):
         learner_a.update(0.5)

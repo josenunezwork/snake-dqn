@@ -42,7 +42,9 @@ Drive copy in its learner process; the trainer writes locally first and transfer
 the background.
 
 The notebook never releases a runtime after a failed/incomplete command.  If
-`RELEASE_AFTER_SUCCESS` remains enabled, it releases only after the trainer exits
-successfully and `discover_snapshots(..., verify=True)` confirms a durable, complete
-snapshot.  A failed durable confirmation leaves the runtime assigned for diagnosis or
+`RELEASE_AFTER_SUCCESS` remains enabled, it releases only after a fresh `summary.json`
+reports the registered target transition count with `halt: null` and
+`full_state_complete: true`, and `discover_snapshots(..., verify=True)` confirms a
+durable final snapshot at least as new as both the summary and registered target. A
+failed completion or durable confirmation leaves the runtime assigned for diagnosis or
 manual recovery.
