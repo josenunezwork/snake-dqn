@@ -25,6 +25,11 @@ def driven_ai_count(snakes: Iterable[object], policy: object) -> int:
     )
 
 
+def roster_ai_count(snakes: Iterable[object]) -> int:
+    """Count every AI in a roster, including independently served opponents."""
+    return sum(isinstance(snake, AISnake) for snake in snakes)
+
+
 def speed_ceiling(obs_spec: str, driven_count: int) -> float:
     """Return the server-side frames-per-second ceiling for this served roster."""
     if obs_spec not in EGO2S_OBS_SPECS:

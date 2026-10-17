@@ -160,7 +160,7 @@ def _raster_activations(session, hero):
     keys (``value``/``advantages``) the vector path exposes, or ``None`` if the
     policy could not produce an observation for this snake this frame.
     """
-    hero_activations = getattr(session.policy, "hero_activations", None)
+    hero_activations = getattr(getattr(hero, "policy", session.policy), "hero_activations", None)
     if not callable(hero_activations):
         return None
     result = hero_activations(hero.id)
@@ -182,9 +182,10 @@ def _vector_activations(session, hero, others, food):
     state = _hero_state_tensor(hero, others, food)
     if state is None:
         return None
-    net = session.policy.dqn
+    policy = getattr(hero, "policy", session.policy)
+    net = policy.dqn
     with torch.no_grad():
-        x = state.to(session.policy.device)
+        x = state.to(policy.device)
         if x.dim() > 1:
             x = x.view(-1)
         _q, acts = net.forward_with_activations(x)
@@ -201,7 +202,12 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
         return None, None
     others = [s for s in game.snakes if s is not hero]
 
-    obs_spec = str(getattr(session, "obs_spec", "vector61"))
+    policy = getattr(hero, "policy", session.policy)
+    obs_spec = (
+        str(getattr(session, "obs_spec", "vector61"))
+        if policy is session.policy
+        else str(getattr(policy, "obs_spec", "vector61"))
+    )
     if obs_spec in {"raster31v2", "raster31v3"} | _EGO2S_SPECS:
         bundle = _raster_activations(session, hero)
     else:
@@ -231,7 +237,7 @@ def _build_inspector_and_netviz(session) -> tuple[Optional[dict], Optional[dict]
         "free_space": free_space,
     }
     if obs_spec == "raster31v3":
-        hero_observation = getattr(session.policy, "hero_observation", None)
+        hero_observation = getattr(policy, "hero_observation", None)
         raster_obs = hero_observation(hero.id) if callable(hero_observation) else None
         if raster_obs is not None:
             for source, target in (
@@ -298,7 +304,8 @@ def _hero_raster(session, hero_id) -> Optional[dict]:
         - ``scalars``         ``(26,)`` float32
         - ``mask``            ``(6,)`` bool
     """
-    hero_observation = getattr(session.policy, "hero_observation", None)
+    hero = next((snake for snake in session.game.snakes if snake.id == hero_id), None)
+    hero_observation = getattr(getattr(hero, "policy", session.policy), "hero_observation", None)
     if not callable(hero_observation):
         return None
     obs = hero_observation(hero_id)

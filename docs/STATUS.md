@@ -21,8 +21,17 @@ B8 was trained with v8 labels and is served without a veto. Tier 2 margin was 0.
 SE 0.023; self-play rosters are ungated; pre/post-release leaderboard rows are not
 comparable. Existing ego2s ceilings are 24 fps through six driven AI and 12 fps through
 twelve. Train is refused and unqualified. Monitor for at least seven days and 100,000
-Watch hero decisions; roll back on fallback/ego2s exceptions, deaths/1k >0.848, or
-matched default-speed p95 >1.5× qualification. Owner check-in: 2026-10-24.
+Watch hero decisions; roll back on fallback/ego2s exceptions, roster-specific hero
+deaths/1k >0.848 at Watch6, >0.992 at Watch8, or >1.536 at Watch12, or matched
+default-speed p95 >1.5× qualification. See the
+[monitoring erratum](research/b8_s3_monitoring_erratum_2026-10-17.md); Watch8's death
+baseline does not qualify its latency. Owner check-in: 2026-10-24.
+
+T13b's fixed six-snake rule selects the mixed roster (bare B8 hero, FRP3 + v8
+opponents) as the **planned Watch default, pending separate roster qualification**:
+the death gap 0.096/1k is within 0.10, but the p95-length gap 127 cells exceeds 100.
+Serving defaults remain all-B8 and are unchanged. See the
+[T13b result and paired intervals](research/t13b_six_snake_roster_2026-10-17_results.md).
 
 ## Standing decisions (current, updated 2026-10-17)
 

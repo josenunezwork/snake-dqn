@@ -10,7 +10,7 @@ import pytest
 from scripts import monitor_b8_release as monitor
 from src.model.obs_spec import EGO2S_B
 from web.backend import session as session_mod
-from web.backend.session import GameSession, MODE_PLAY, MODE_WATCH
+from web.backend.session import MODE_PLAY, MODE_WATCH, GameSession
 
 
 def _healthy_records(*, update_ms: float = 8.0) -> list[dict]:
@@ -40,6 +40,13 @@ def test_healthy_b8_watch_records_report_all_three_metrics() -> None:
 
     assert healthy and messages == []
     assert metrics["deaths_per_1000"] == 0.0
+    assert metrics["deaths_by_roster"]["watch6"] == {
+        "decisions": 1,
+        "deaths": 0,
+        "deaths_per_1000": 0.0,
+        "baseline_deaths_per_1000": 0.424,
+        "trigger_per_1000": 0.848,
+    }
     assert metrics["latency_by_roster"]["watch6"]["update_p95_ms"] == 8.0
     assert metrics["latency_by_roster"]["watch6"]["trigger_ms"] == (
         1.5 * monitor.UPDATE_P95_BASELINE_MS[("watch", 6)]
@@ -70,6 +77,117 @@ def test_death_and_latency_thresholds_are_strictly_greater() -> None:
     assert any("update p95" in message for message in messages)
 
 
+def _watch_death_rate_records(*, roster_size: int, deaths: int) -> list[dict]:
+    """Build a 125,000-decision Watch record set without sharing death state."""
+    speed = 24.0 if roster_size == 8 else 12.0
+    dead_tick = {
+        "event": "watch_tick",
+        "checkpoint": "b8-s3",
+        "roster_size": roster_size,
+        "speed": speed,
+        "decisions": 1,
+        "deaths": 1,
+        "update_ms": 8.0,
+        "timestamp": 0.0,
+        "latency_eligible": True,
+    }
+    survived_tick = {**dead_tick, "deaths": 0}
+    records = [
+        _healthy_records()[0],
+        *([dead_tick] * deaths),
+        *([survived_tick] * (125_000 - deaths)),
+    ]
+    if roster_size == 8:
+        # T13b registers Watch8's death baseline only. Watch6 supplies the
+        # existing default-speed latency sample, while Watch8 stays unqualified.
+        records.insert(1, _healthy_records()[1])
+    return records
+
+
+@pytest.mark.parametrize(
+    ("roster_size", "deaths", "rolls_back"),
+    [
+        (6, 106, False),  # 0.848/1k: trigger is strictly greater.
+        (6, 107, True),
+        (12, 192, False),  # 1.536/1k: trigger is strictly greater.
+        (12, 193, True),
+        (8, 124, False),  # 0.992/1k: T13b Watch8 death trigger.
+        (8, 125, True),
+    ],
+)
+def test_watch_death_trigger_boundaries(roster_size: int, deaths: int, rolls_back: bool) -> None:
+    healthy, messages, metrics = monitor.assess(
+        _watch_death_rate_records(roster_size=roster_size, deaths=deaths), []
+    )
+
+    assert healthy is not rolls_back
+    assert any("deaths/1k" in message for message in messages) is rolls_back
+    if roster_size == 12:
+        assert metrics["deaths_by_roster"]["watch12"]["deaths_per_1000"] > 0.848
+    if roster_size == 8:
+        assert metrics["deaths_by_roster"]["watch8"]["trigger_per_1000"] == 0.992
+        assert "watch8" not in metrics["latency_by_roster"]
+
+
+def test_watch_death_thresholds_are_per_roster_and_cannot_be_diluted() -> None:
+    records = _healthy_records()
+    records[1].update(decisions=1, deaths=1)
+    records.extend(
+        {
+            "event": "watch_tick",
+            "checkpoint": "b8-s3",
+            "roster_size": 12,
+            "speed": 12.0,
+            "decisions": 1,
+            "deaths": 0,
+            "update_ms": 8.0,
+            "timestamp": 0.0,
+            "latency_eligible": True,
+        }
+        for _ in range(10_000)
+    )
+
+    healthy, messages, metrics = monitor.assess(records, [])
+
+    assert not healthy
+    assert metrics["deaths_per_1000"] < 0.848
+    assert metrics["deaths_by_roster"]["watch6"]["deaths_per_1000"] == 1000.0
+    assert metrics["deaths_by_roster"]["watch12"]["deaths_per_1000"] == 0.0
+    assert any("watch6 deaths/1k" in message for message in messages)
+
+
+def test_watch12_uses_its_own_death_trigger() -> None:
+    records = _healthy_records()
+    records[1].update(roster_size=12)
+
+    healthy, messages, metrics = monitor.assess(records, [])
+
+    assert healthy and messages == []
+    assert metrics["deaths_by_roster"]["watch12"]["trigger_per_1000"] == 1.536
+
+
+def test_unknown_watch_roster_fails_closed_even_without_latency_samples() -> None:
+    records = _healthy_records()
+    records.append(
+        {
+            "event": "watch_tick",
+            "checkpoint": "b8-s3",
+            "roster_size": 7,
+            "speed": 24.0,
+            "decisions": 0,
+            "deaths": 0,
+            "update_ms": 1.0,
+            "timestamp": 0.0,
+            "latency_eligible": True,
+        }
+    )
+
+    healthy, messages, _ = monitor.assess(records, [])
+
+    assert not healthy
+    assert "no registered Watch death baseline for watch7" in messages
+
+
 def test_missing_or_mixed_telemetry_never_reports_healthy() -> None:
     healthy, messages, _ = monitor.assess([], [])
     assert not healthy and any("missing" in message for message in messages)
@@ -79,7 +197,7 @@ def test_missing_or_mixed_telemetry_never_reports_healthy() -> None:
         {
             "event": "watch_tick",
             "checkpoint": "b8-s3",
-            "roster_size": 7,
+            "roster_size": 8,
             "speed": 12.0,
             "decisions": 0,
             "deaths": 0,
@@ -89,7 +207,10 @@ def test_missing_or_mixed_telemetry_never_reports_healthy() -> None:
         }
     )
     healthy, messages, _ = monitor.assess(mixed, [])
-    assert not healthy and any("no T12B-qualified" in message for message in messages)
+    assert not healthy and any(
+        "no T12B-qualified update baseline for watch8" in message for message in messages
+    )
+    assert monitor.WATCH_DEATHS_PER_1K_BASELINE[8] == 0.496
 
 
 def test_parser_retains_malformed_prefixed_log_as_a_fault() -> None:
@@ -143,7 +264,7 @@ def test_watch_counts_actual_post_respawn_hero_update(monkeypatch: pytest.Monkey
             hero.update([], [])
 
     events: list[dict] = []
-    monkeypatch.setattr(session_mod, "driven_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
     monkeypatch.setattr(session_mod, "watch_tick", lambda **kwargs: events.append(kwargs))
     _b8_session(Game()).step()
 
@@ -224,7 +345,7 @@ def test_warmup_and_reset_exclude_latency_but_not_watch_decisions(
     game = SimpleNamespace(snakes=[hero], frame_death_causes={}, reset=lambda: None)
     game.update = lambda **_kwargs: hero.update([], [])
     events: list[dict] = []
-    monkeypatch.setattr(session_mod, "driven_ai_count", lambda *_args: 6)
+    monkeypatch.setattr(session_mod, "roster_ai_count", lambda *_args: 6)
     monkeypatch.setattr(session_mod, "watch_tick", lambda **kwargs: events.append(kwargs))
     session = _b8_session(game, warmup=1)
     session.step()

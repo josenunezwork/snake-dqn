@@ -147,6 +147,14 @@ export interface SessionState {
   // Observation contract of the served policy ("vector61" | "raster31v2" | "raster31v3").
   obs_spec?: string;
   serving_contract?: ServingContract | null;
+  watch_roster?: string;
+  watch_roster_reason?: string | null;
+  safety_veto?: {
+    active: boolean;
+    scope: string | null;
+    wrapped_snake_ids: number[];
+    counters: Record<string, { decisions: number; vetoes_applied?: number }>;
+  } | null;
 }
 
 export interface PendingRun {

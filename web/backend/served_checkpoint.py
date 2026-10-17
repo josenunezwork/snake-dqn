@@ -65,6 +65,7 @@ PINS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "served_che
 PINS_SCHEMA = "served-checkpoint-strict-pins/v1"
 
 ENV_CHECKPOINT = "SNAKE_SERVE_CHECKPOINT"
+ENV_WATCH_ROSTER = "SNAKE_SERVE_WATCH_ROSTER"
 NAME_CHAMPION = "champion"
 NAME_FRP3_S12 = "frp3-s12"
 NAME_B8_S3 = "b8-s3"
@@ -72,6 +73,16 @@ NAME_B8_S3 = "b8-s3"
 # b8-s3 released 2026-10-17 after T7 STRICT_PASS + Tier 2 and T12/T12B serving checks.
 # Rollback (restart, no code change): SNAKE_SERVE_CHECKPOINT=frp3-s12 or =champion.
 CHECKPOINT_RELEASED_DEFAULT = NAME_B8_S3
+
+# Watch roster selection is deliberately separate from checkpoint selection.  The
+# released Watch default remains the homogeneous B8 roster until its own serving
+# qualification is complete.  "mixed" is an opt-in qualification posture.
+WATCH_ROSTER_ALL_B8 = "all_b8"
+WATCH_ROSTER_MIXED = "mixed"
+WATCH_ROSTERS = (WATCH_ROSTER_ALL_B8, WATCH_ROSTER_MIXED)
+# Kept separate from the candidate constant so a release erratum can change one
+# reviewed line without touching checkpoint selection or the mixed implementation.
+WATCH_ROSTER_RELEASED_DEFAULT = WATCH_ROSTER_ALL_B8
 
 # The veto-variant env key (read here only to keep the pre-swap veto rollbacks meaningful;
 # web/backend/safety_veto_serving.py owns the variant itself). The previous frp3-s12 default
@@ -274,6 +285,20 @@ def _resolve_pinned(
         return choice
     choice.reason = f"{entry.name} file not found at {_candidate_paths(entry, saved_dir)}"
     return choice
+
+
+def resolve_mixed_watch_opponent(
+    saved_dir: Optional[str] = None, pins: Optional[Mapping[str, Any]] = None
+) -> ServedCheckpointChoice:
+    """Resolve the FRP3 opponent required by the opt-in mixed Watch roster.
+
+    This deliberately uses the same strict-pin and byte verification as a named
+    FRP3 serving selection.  A missing or mismatched pin is a roster failure,
+    never a reason to construct a partially mixed arena.
+    """
+    saved = SAVED_DIR if saved_dir is None else saved_dir
+    doc = load_pins() if pins is None else pins
+    return _resolve_pinned(REGISTRY[NAME_FRP3_S12], saved, doc)
 
 
 def _champion_choice(path: str) -> ServedCheckpointChoice:

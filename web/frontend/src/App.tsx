@@ -140,6 +140,23 @@ export default function App() {
   };
   const stats = frame?.stats;
   const session = frame?.session;
+  const opponentVetoCounters =
+    session?.watch_roster === "mixed" &&
+    session.safety_veto?.active === true &&
+    session.safety_veto.scope === "watch_opponents"
+      ? Object.entries(session.safety_veto.counters).map(([id, counter]) => ({
+          id,
+          decisions: counter.decisions,
+          vetoes: counter.vetoes_applied ?? 0,
+        }))
+      : [];
+  const opponentVetoTotals = opponentVetoCounters.reduce(
+    (total, counter) => ({
+      decisions: total.decisions + counter.decisions,
+      vetoes: total.vetoes + counter.vetoes,
+    }),
+    { decisions: 0, vetoes: 0 },
+  );
   const fixedProfile =
     frame?.obs_spec === "raster31v3" &&
     session?.serving_contract?.deployment_profile === "promotion-v2-watch-rect";
@@ -848,6 +865,25 @@ export default function App() {
         </span>
         {session && (
           <span className="pill">{session.checkpoint ?? "no model"}</span>
+        )}
+        {opponentVetoCounters.length > 0 && (
+          <span
+            className="pill"
+            aria-label={`Opponent v8 vetoes ${opponentVetoTotals.vetoes}, decisions ${opponentVetoTotals.decisions}`}
+          >
+            opponents v8 · {opponentVetoTotals.vetoes} vetoes / {opponentVetoTotals.decisions} decisions
+            {" · "}
+            {opponentVetoCounters.map((counter) => (
+              <span key={counter.id}>
+                #{counter.id} {counter.vetoes}/{counter.decisions}{" "}
+              </span>
+            ))}
+          </span>
+        )}
+        {session?.watch_roster === "all_b8" && session.watch_roster_reason && (
+          <span className="pill" title={session.watch_roster_reason}>
+            Watch roster fallback
+          </span>
         )}
         <div className="spacer" />
         {/* the per-metric stats live in the telemetry band now; the header stays lean */}

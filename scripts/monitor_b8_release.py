@@ -20,7 +20,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 PREFIX = "b8-release-monitor:"
-DEATHS_PER_1K_TRIGGER = 0.848
+# Registered Watch death baselines are roster-specific. They must not be
+# inherited from or pooled with another Watch roster.
+WATCH_DEATHS_PER_1K_BASELINE = {
+    6: 0.424,
+    8: 0.496,
+    12: 0.768,
+}
 # T12B check-4 amended qualification, default-speed GameState.update p95.
 UPDATE_P95_BASELINE_MS = {
     ("watch", 6): 8.048326522111893,
@@ -82,6 +88,7 @@ def assess(
         faults.append("missing B8 Watch tick telemetry")
 
     decisions = deaths = 0
+    watch_deaths: dict[int, dict[str, int]] = {}
     default_update_ms: dict[tuple[str, int], list[float]] = {}
     timestamps: list[float] = []
     for item in watch_ticks:
@@ -107,6 +114,9 @@ def assess(
                 raise ValueError("invalid Watch tick values")
             decisions += decision
             deaths += death
+            roster_deaths = watch_deaths.setdefault(roster_size, {"decisions": 0, "deaths": 0})
+            roster_deaths["decisions"] += decision
+            roster_deaths["deaths"] += death
             timestamps.append(timestamp)
             if speed == DEFAULT_SPEED and item["latency_eligible"]:
                 default_update_ms.setdefault(("watch", roster_size), []).append(update)
@@ -118,6 +128,23 @@ def assess(
         faults.append("missing valid Watch telemetry timestamp")
 
     death_rate = None if decisions <= 0 else 1000.0 * deaths / decisions
+    deaths_by_roster: dict[str, dict[str, float | int | None]] = {}
+    for roster_size, values in sorted(watch_deaths.items()):
+        roster_decisions = values["decisions"]
+        roster_death_rate = (
+            None if roster_decisions <= 0 else 1000.0 * values["deaths"] / roster_decisions
+        )
+        baseline = WATCH_DEATHS_PER_1K_BASELINE.get(roster_size)
+        label = f"watch{roster_size}"
+        deaths_by_roster[label] = {
+            "decisions": roster_decisions,
+            "deaths": values["deaths"],
+            "deaths_per_1000": roster_death_rate,
+            "baseline_deaths_per_1000": baseline,
+            "trigger_per_1000": None if baseline is None else 2.0 * baseline,
+        }
+        if baseline is None:
+            faults.append(f"no registered Watch death baseline for {label}")
     for item in latency_ticks:
         if item.get("event") != "play_tick":
             continue
@@ -161,6 +188,7 @@ def assess(
         "decisions": decisions,
         "deaths": deaths,
         "deaths_per_1000": death_rate,
+        "deaths_by_roster": deaths_by_roster,
         "latency_by_roster": latency,
         "fallback_records": len(fallback),
         "ego2s_exceptions": len(exceptions),
@@ -172,8 +200,18 @@ def assess(
         triggers.append("ROLLBACK: recorded served-checkpoint or ego2s fallback reason")
     if exceptions:
         triggers.append("ROLLBACK: recorded ego2s-path exception")
-    if death_rate is not None and death_rate > DEATHS_PER_1K_TRIGGER:
-        triggers.append(f"ROLLBACK: deaths/1k {death_rate:.6f} exceeds {DEATHS_PER_1K_TRIGGER:.3f}")
+    for label, values in deaths_by_roster.items():
+        observed_death_rate = values["deaths_per_1000"]
+        death_trigger = values["trigger_per_1000"]
+        if (
+            death_trigger is not None
+            and observed_death_rate is not None
+            and observed_death_rate > death_trigger
+        ):
+            triggers.append(
+                "ROLLBACK: %s deaths/1k %.6f exceeds %.3f"
+                % (label, observed_death_rate, death_trigger)
+            )
     for label, values in latency.items():
         observed_p95 = values["update_p95_ms"]
         latency_trigger = values["trigger_ms"]
@@ -206,10 +244,22 @@ def main(argv: list[str] | None = None) -> int:
         f"{metrics['fallback_records']}/{metrics['ego2s_exceptions']} (trigger: any > 0)"
     )
     print(
-        "Watch hero deaths/1k: "
+        "Watch hero deaths/1k aggregate (informational only): "
         f"{metrics['deaths_per_1000'] if metrics['deaths_per_1000'] is not None else 'missing'} "
-        f"({metrics['deaths']}/{metrics['decisions']}; trigger: > {DEATHS_PER_1K_TRIGGER:.3f})"
+        f"({metrics['deaths']}/{metrics['decisions']})"
     )
+    for label, values in metrics["deaths_by_roster"].items():
+        print(
+            "%s hero deaths/1k: %s (%s/%s; baseline=%s, trigger: > %s)"
+            % (
+                label,
+                values["deaths_per_1000"],
+                values["deaths"],
+                values["decisions"],
+                values["baseline_deaths_per_1000"],
+                values["trigger_per_1000"],
+            )
+        )
     for label, values in metrics["latency_by_roster"].items():
         print(
             "%s default-speed update p95: %s ms "

@@ -34,4 +34,6 @@ Reuse the T13 real GameSession step/snapshot harness and metric definitions.
   trigger twice that baseline. Apply death triggers separately by roster size.
   Preserve the release record and existing latency-qualification boundaries.
 
-Results and rule application will be appended after the fixed run completes.
+Results and rule application will be recorded in the sibling
+`t13b_six_snake_roster_2026-10-17_results.md` after the fixed run completes,
+preserving this pre-run record once its bytes are bound by the run intent.

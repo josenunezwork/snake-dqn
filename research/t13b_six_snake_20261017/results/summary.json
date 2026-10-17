@@ -1,0 +1,2446 @@
+{
+  "bootstrap": {
+    "method": "paired seed percentile 95%, pooled metrics recomputed; no multiplicity adjustment",
+    "resamples": 10000,
+    "seed": 20261017
+  },
+  "descriptive_not_gate": true,
+  "episodes_per_row": 25,
+  "horizon": 5000,
+  "identities": {
+    "all_b8_n6": {
+      "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/b8_s3_t7_20261016.pth",
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/configs/mechanics_v2.yaml",
+      "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+      "obs_spec": "ego2s-bv8",
+      "policy_class": "Ego2sServingPolicy",
+      "registry": {
+        "name": "b8-s3",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/b8_s3_t7_20261016.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": null,
+        "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+      },
+      "veto": {
+        "active": false,
+        "reason": "the safety veto applies only to a vector61 Apex policy",
+        "variant": "v8",
+        "wrapped_snake_ids": []
+      }
+    },
+    "all_b8_n8": {
+      "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/b8_s3_t7_20261016.pth",
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/configs/mechanics_v2.yaml",
+      "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+      "obs_spec": "ego2s-bv8",
+      "policy_class": "Ego2sServingPolicy",
+      "registry": {
+        "name": "b8-s3",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/b8_s3_t7_20261016.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": null,
+        "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+      },
+      "veto": {
+        "active": false,
+        "reason": "the safety veto applies only to a vector61 Apex policy",
+        "variant": "v8",
+        "wrapped_snake_ids": []
+      }
+    },
+    "all_champion_n6": {
+      "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/champion_a5_freespace_20260621.pth",
+      "checkpoint_sha256": "43d4e2c53919dd59416c145cf0ba7c4faf1c7f298eebbb1723146807d747ac93",
+      "config_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/configs/mechanics_v2.yaml",
+      "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+      "obs_spec": "vector61",
+      "policy_class": "ApexPolicy",
+      "registry": {
+        "name": "champion",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/champion_a5_freespace_20260621.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": "champion",
+        "sha256": null
+      },
+      "veto": {
+        "active": true,
+        "reason": null,
+        "variant": "v8",
+        "wrapped_snake_ids": [
+          0
+        ]
+      }
+    },
+    "all_frp3_n6": {
+      "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+      "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+      "config_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/configs/mechanics_v2.yaml",
+      "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+      "obs_spec": "vector61",
+      "policy_class": "ApexPolicy",
+      "registry": {
+        "name": "frp3-s12",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": "frp3-s12",
+        "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+      },
+      "veto": {
+        "active": true,
+        "reason": null,
+        "variant": "v8",
+        "wrapped_snake_ids": [
+          0
+        ]
+      }
+    },
+    "mixed_n6": {
+      "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/b8_s3_t7_20261016.pth",
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/configs/mechanics_v2.yaml",
+      "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+      "obs_spec": "ego2s-bv8",
+      "policy_class": "Ego2sServingPolicy",
+      "registry": {
+        "name": "b8-s3",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/b8_s3_t7_20261016.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": null,
+        "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+      },
+      "veto": {
+        "active": false,
+        "reason": "the safety veto applies only to a vector61 Apex policy",
+        "variant": "v8",
+        "wrapped_snake_ids": []
+      }
+    }
+  },
+  "measurement_git_sha": "0fbb7c2c8462f0a93e3632a2a369ef4cfedc03bf",
+  "mixed_policy_identities": {
+    "b8": {
+      "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/b8_s3_t7_20261016.pth",
+      "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+      "config_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/configs/mechanics_v2.yaml",
+      "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+      "obs_spec": "ego2s-bv8",
+      "policy_class": "Ego2sServingPolicy",
+      "registry": {
+        "name": "b8-s3",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/b8_s3_t7_20261016.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": null,
+        "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+      },
+      "veto": {
+        "active": false,
+        "reason": "the safety veto applies only to a vector61 Apex policy",
+        "variant": "v8",
+        "wrapped_snake_ids": []
+      }
+    },
+    "frp3_v8": {
+      "checkpoint_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+      "checkpoint_sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723",
+      "config_path": "/Users/josenunez/Projects/ml/snake-dqn-t13/configs/mechanics_v2.yaml",
+      "config_sha256": "c2db7607915f70eaa46489a48598db65c4593cf039a166f37842423bb1479911",
+      "obs_spec": "vector61",
+      "policy_class": "ApexPolicy",
+      "registry": {
+        "name": "frp3-s12",
+        "path": "/Users/josenunez/Projects/ml/snake-dqn-t13/saved_snakes/frp3_m3_s12_u60000_20261005.pth",
+        "pin_problems": [],
+        "reason": null,
+        "requested": "frp3-s12",
+        "sha256": "eec144bf92509a42664e2d650b8741f7d7774b86d7b6601d012bdd9425dd3723"
+      },
+      "veto": {
+        "active": true,
+        "reason": null,
+        "variant": "v8",
+        "wrapped_snake_ids": [
+          0
+        ]
+      }
+    },
+    "opponent_ids": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "rosters": {
+    "all_b8_n6": {
+      "arena": {
+        "boost_decisions": 1315.0,
+        "boost_rate": 0.0017533333333333333,
+        "death_cause_enemy_body": 74.0,
+        "death_cause_head_on": 22.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 205.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 2.0,
+        "deaths": 303.0,
+        "deaths_per_1000": 0.404,
+        "decisions": 750000.0,
+        "food_eaten": 123257.0,
+        "food_per_1000": 164.34266666666667,
+        "kills_made": 92.0,
+        "kills_taken": 92.0,
+        "length_max": 1078.0,
+        "length_median": 178.0,
+        "length_p95": 578.0,
+        "mass_h5000": 1324.327936,
+        "mass_per_snake": 220.72132266666668
+      },
+      "hero": {
+        "boost_decisions": 189.0,
+        "boost_rate": 0.001512,
+        "death_cause_enemy_body": 9.0,
+        "death_cause_head_on": 5.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 34.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 1.0,
+        "deaths": 49.0,
+        "deaths_per_1000": 0.392,
+        "decisions": 125000.0,
+        "food_eaten": 20863.0,
+        "food_per_1000": 166.904,
+        "kills_made": 20.0,
+        "kills_taken": 13.0,
+        "length_max": 1078.0,
+        "length_median": 189.0,
+        "length_p95": 596.0,
+        "mass_h5000": 236.906064,
+        "mass_per_snake": 236.906064
+      }
+    },
+    "all_b8_n8": {
+      "arena": {
+        "boost_decisions": 2316.0,
+        "boost_rate": 0.002316,
+        "death_cause_enemy_body": 111.0,
+        "death_cause_head_on": 42.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 342.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 3.0,
+        "deaths": 498.0,
+        "deaths_per_1000": 0.498,
+        "decisions": 1000000.0,
+        "food_eaten": 161184.0,
+        "food_per_1000": 161.184,
+        "kills_made": 149.0,
+        "kills_taken": 149.0,
+        "length_max": 1037.0,
+        "length_median": 143.0,
+        "length_p95": 515.0,
+        "mass_h5000": 1475.062432,
+        "mass_per_snake": 184.382804
+      },
+      "hero": {
+        "boost_decisions": 309.0,
+        "boost_rate": 0.002472,
+        "death_cause_enemy_body": 19.0,
+        "death_cause_head_on": 2.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 41.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 0.0,
+        "deaths": 62.0,
+        "deaths_per_1000": 0.496,
+        "decisions": 125000.0,
+        "food_eaten": 20640.0,
+        "food_per_1000": 165.12,
+        "kills_made": 16.0,
+        "kills_taken": 21.0,
+        "length_max": 1037.0,
+        "length_median": 145.0,
+        "length_p95": 555.0,
+        "mass_h5000": 195.054232,
+        "mass_per_snake": 195.054232
+      }
+    },
+    "all_champion_n6": {
+      "arena": {
+        "boost_decisions": 71420.0,
+        "boost_rate": 0.09522666666666667,
+        "death_cause_enemy_body": 142.0,
+        "death_cause_head_on": 81.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 520.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 18.0,
+        "deaths": 761.0,
+        "deaths_per_1000": 1.0146666666666666,
+        "decisions": 750000.0,
+        "food_eaten": 135217.0,
+        "food_per_1000": 180.28933333333333,
+        "kills_made": 209.0,
+        "kills_taken": 209.0,
+        "length_max": 793.0,
+        "length_median": 92.0,
+        "length_p95": 440.0,
+        "mass_h5000": 812.58648,
+        "mass_per_snake": 135.43108
+      },
+      "hero": {
+        "boost_decisions": 11858.0,
+        "boost_rate": 0.094864,
+        "death_cause_enemy_body": 5.0,
+        "death_cause_head_on": 1.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 9.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 0.0,
+        "deaths": 15.0,
+        "deaths_per_1000": 0.12,
+        "decisions": 125000.0,
+        "food_eaten": 22281.0,
+        "food_per_1000": 178.248,
+        "kills_made": 89.0,
+        "kills_taken": 5.0,
+        "length_max": 793.0,
+        "length_median": 290.0,
+        "length_p95": 674.0,
+        "mass_h5000": 311.959104,
+        "mass_per_snake": 311.959104
+      }
+    },
+    "all_frp3_n6": {
+      "arena": {
+        "boost_decisions": 10039.0,
+        "boost_rate": 0.013385333333333334,
+        "death_cause_enemy_body": 204.0,
+        "death_cause_head_on": 154.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 507.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 4.0,
+        "deaths": 869.0,
+        "deaths_per_1000": 1.1586666666666667,
+        "decisions": 750000.0,
+        "food_eaten": 127815.0,
+        "food_per_1000": 170.42,
+        "kills_made": 322.0,
+        "kills_taken": 322.0,
+        "length_max": 1014.0,
+        "length_median": 90.0,
+        "length_p95": 450.0,
+        "mass_h5000": 824.569464,
+        "mass_per_snake": 137.428244
+      },
+      "hero": {
+        "boost_decisions": 2647.0,
+        "boost_rate": 0.021176,
+        "death_cause_enemy_body": 6.0,
+        "death_cause_head_on": 2.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 15.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 0.0,
+        "deaths": 23.0,
+        "deaths_per_1000": 0.184,
+        "decisions": 125000.0,
+        "food_eaten": 22264.0,
+        "food_per_1000": 178.112,
+        "kills_made": 132.0,
+        "kills_taken": 8.0,
+        "length_max": 1014.0,
+        "length_median": 249.0,
+        "length_p95": 723.0,
+        "mass_h5000": 293.72736,
+        "mass_per_snake": 293.72736
+      }
+    },
+    "mixed_n6": {
+      "arena": {
+        "boost_decisions": 14714.0,
+        "boost_rate": 0.019618666666666666,
+        "death_cause_enemy_body": 79.0,
+        "death_cause_head_on": 23.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 158.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 1.0,
+        "deaths": 261.0,
+        "deaths_per_1000": 0.348,
+        "decisions": 750000.0,
+        "food_eaten": 111711.0,
+        "food_per_1000": 148.948,
+        "kills_made": 98.0,
+        "kills_taken": 98.0,
+        "length_max": 1019.0,
+        "length_median": 161.0,
+        "length_p95": 547.0,
+        "mass_h5000": 1222.935792,
+        "mass_per_snake": 203.822632
+      },
+      "hero": {
+        "boost_decisions": 216.0,
+        "boost_rate": 0.001728,
+        "death_cause_enemy_body": 14.0,
+        "death_cause_head_on": 2.0,
+        "death_cause_other": 0.0,
+        "death_cause_self": 21.0,
+        "death_cause_starvation": 0.0,
+        "death_cause_wall": 0.0,
+        "deaths": 37.0,
+        "deaths_per_1000": 0.296,
+        "decisions": 125000.0,
+        "food_eaten": 25258.0,
+        "food_per_1000": 202.064,
+        "kills_made": 19.0,
+        "kills_taken": 16.0,
+        "length_max": 1019.0,
+        "length_median": 271.0,
+        "length_p95": 791.0,
+        "mass_h5000": 316.75836,
+        "mass_per_snake": 316.75836
+      }
+    }
+  },
+  "schema": "t13b-summary/v1",
+  "six_snake_pairwise": {
+    "all_b8 - all_champion": {
+      "arena": {
+        "boost_decisions": {
+          "ci95": [
+            -72544.1,
+            -67693.975
+          ],
+          "difference": -70105.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.09672546666666666,
+            -0.09025863333333334
+          ],
+          "difference": -0.09347333333333334
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -99.0,
+            -39.0
+          ],
+          "difference": -68.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            -78.0,
+            -39.0
+          ],
+          "difference": -59.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            -354.0,
+            -278.0
+          ],
+          "difference": -315.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            -25.0,
+            -6.0
+          ],
+          "difference": -16.0
+        },
+        "deaths": {
+          "ci95": [
+            -507.0,
+            -413.0
+          ],
+          "difference": -458.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            -0.676,
+            -0.5506666666666666
+          ],
+          "difference": -0.6106666666666666
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -15256.0,
+            -8719.95
+          ],
+          "difference": -11960.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -20.341333333333324,
+            -11.6266
+          ],
+          "difference": -15.946666666666658
+        },
+        "kills_made": {
+          "ci95": [
+            -150.0,
+            -87.0
+          ],
+          "difference": -117.0
+        },
+        "kills_taken": {
+          "ci95": [
+            -150.0,
+            -87.0
+          ],
+          "difference": -117.0
+        },
+        "length_max": {
+          "ci95": [
+            161.0,
+            339.0
+          ],
+          "difference": 285.0
+        },
+        "length_median": {
+          "ci95": [
+            74.0,
+            98.0
+          ],
+          "difference": 86.0
+        },
+        "length_p95": {
+          "ci95": [
+            88.0,
+            187.0
+          ],
+          "difference": 138.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            448.10211940000005,
+            578.6882766
+          ],
+          "difference": 511.74145599999986
+        },
+        "mass_per_snake": {
+          "ci95": [
+            74.68368656666667,
+            96.4480461
+          ],
+          "difference": 85.29024266666667
+        }
+      },
+      "hero": {
+        "boost_decisions": {
+          "ci95": [
+            -12379.0,
+            -10971.95
+          ],
+          "difference": -11669.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.099032,
+            -0.0877756
+          ],
+          "difference": -0.093352
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -1.0,
+            10.0
+          ],
+          "difference": 4.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            0.0,
+            9.0
+          ],
+          "difference": 4.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            16.0,
+            34.0
+          ],
+          "difference": 25.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            0.0,
+            3.0
+          ],
+          "difference": 1.0
+        },
+        "deaths": {
+          "ci95": [
+            23.0,
+            45.0
+          ],
+          "difference": 34.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            0.18399999999999997,
+            0.36
+          ],
+          "difference": 0.272
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -2450.025,
+            -398.0
+          ],
+          "difference": -1418.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -19.600200000000022,
+            -3.1839999999999975
+          ],
+          "difference": -11.343999999999994
+        },
+        "kills_made": {
+          "ci95": [
+            -91.0,
+            -49.0
+          ],
+          "difference": -69.0
+        },
+        "kills_taken": {
+          "ci95": [
+            3.0,
+            14.0
+          ],
+          "difference": 8.0
+        },
+        "length_max": {
+          "ci95": [
+            -93.0,
+            339.0
+          ],
+          "difference": 285.0
+        },
+        "length_median": {
+          "ci95": [
+            -159.0,
+            -51.0
+          ],
+          "difference": -101.0
+        },
+        "length_p95": {
+          "ci95": [
+            -175.0,
+            94.0
+          ],
+          "difference": -78.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -121.68067299999998,
+            -23.689485200000014
+          ],
+          "difference": -75.05304000000004
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -121.68067299999998,
+            -23.689485200000014
+          ],
+          "difference": -75.05304000000004
+        }
+      }
+    },
+    "all_b8 - all_frp3": {
+      "arena": {
+        "boost_decisions": {
+          "ci95": [
+            -9324.0,
+            -8169.975
+          ],
+          "difference": -8724.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.012432,
+            -0.0108933
+          ],
+          "difference": -0.011632
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -176.0,
+            -87.0
+          ],
+          "difference": -130.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            -161.0,
+            -103.0
+          ],
+          "difference": -132.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            -344.0,
+            -257.0
+          ],
+          "difference": -302.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            -8.0,
+            4.0
+          ],
+          "difference": -2.0
+        },
+        "deaths": {
+          "ci95": [
+            -615.0,
+            -516.0
+          ],
+          "difference": -566.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            -0.8199999999999998,
+            -0.688
+          ],
+          "difference": -0.7546666666666667
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -8636.0,
+            -545.9750000000004
+          ],
+          "difference": -4558.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -11.51466666666667,
+            -0.7279666666666477
+          ],
+          "difference": -6.077333333333314
+        },
+        "kills_made": {
+          "ci95": [
+            -277.0,
+            -183.0
+          ],
+          "difference": -230.0
+        },
+        "kills_taken": {
+          "ci95": [
+            -277.0,
+            -183.0
+          ],
+          "difference": -230.0
+        },
+        "length_max": {
+          "ci95": [
+            -30.0,
+            203.0
+          ],
+          "difference": 64.0
+        },
+        "length_median": {
+          "ci95": [
+            77.0,
+            97.0
+          ],
+          "difference": 88.0
+        },
+        "length_p95": {
+          "ci95": [
+            73.0,
+            180.0
+          ],
+          "difference": 128.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            430.4937294,
+            575.001062
+          ],
+          "difference": 499.75847199999987
+        },
+        "mass_per_snake": {
+          "ci95": [
+            71.7489549,
+            95.83351033333334
+          ],
+          "difference": 83.29307866666667
+        }
+      },
+      "hero": {
+        "boost_decisions": {
+          "ci95": [
+            -2836.0,
+            -2120.0
+          ],
+          "difference": -2458.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.022688,
+            -0.01696
+          ],
+          "difference": -0.019664
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -5.0,
+            11.0
+          ],
+          "difference": 3.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            -1.0,
+            7.0
+          ],
+          "difference": 3.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            8.0,
+            29.0
+          ],
+          "difference": 19.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            0.0,
+            3.0
+          ],
+          "difference": 1.0
+        },
+        "deaths": {
+          "ci95": [
+            13.0,
+            39.0
+          ],
+          "difference": 26.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            0.10400000000000001,
+            0.312
+          ],
+          "difference": 0.20800000000000002
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -2569.0,
+            -345.0
+          ],
+          "difference": -1401.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -20.551999999999992,
+            -2.7600000000000184
+          ],
+          "difference": -11.207999999999998
+        },
+        "kills_made": {
+          "ci95": [
+            -151.0,
+            -74.0
+          ],
+          "difference": -112.0
+        },
+        "kills_taken": {
+          "ci95": [
+            -4.0,
+            14.0
+          ],
+          "difference": 5.0
+        },
+        "length_max": {
+          "ci95": [
+            -315.0,
+            203.0
+          ],
+          "difference": 64.0
+        },
+        "length_median": {
+          "ci95": [
+            -114.0,
+            -8.0
+          ],
+          "difference": -60.0
+        },
+        "length_p95": {
+          "ci95": [
+            -299.0,
+            68.02499999999964
+          ],
+          "difference": -127.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -115.56648460000002,
+            2.0818967999999884
+          ],
+          "difference": -56.82129599999999
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -115.56648460000002,
+            2.0818967999999884
+          ],
+          "difference": -56.82129599999999
+        }
+      }
+    },
+    "all_b8 - mixed": {
+      "arena": {
+        "boost_decisions": {
+          "ci95": [
+            -14339.025,
+            -12447.975
+          ],
+          "difference": -13399.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.019118700000000002,
+            -0.0165973
+          ],
+          "difference": -0.017865333333333334
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -28.0,
+            17.0
+          ],
+          "difference": -5.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            -16.0,
+            14.0
+          ],
+          "difference": -1.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            23.0,
+            71.0
+          ],
+          "difference": 47.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            -3.0,
+            6.0
+          ],
+          "difference": 1.0
+        },
+        "deaths": {
+          "ci95": [
+            3.0,
+            79.0
+          ],
+          "difference": 42.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            0.003999999999999948,
+            0.10533333333333333
+          ],
+          "difference": 0.05600000000000005
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            7759.975,
+            15591.374999999995
+          ],
+          "difference": 11546.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            10.346633333333331,
+            20.788500000000003
+          ],
+          "difference": 15.394666666666666
+        },
+        "kills_made": {
+          "ci95": [
+            -34.0,
+            20.0
+          ],
+          "difference": -6.0
+        },
+        "kills_taken": {
+          "ci95": [
+            -34.0,
+            20.0
+          ],
+          "difference": -6.0
+        },
+        "length_max": {
+          "ci95": [
+            -65.0,
+            148.0
+          ],
+          "difference": 59.0
+        },
+        "length_median": {
+          "ci95": [
+            7.0,
+            29.0
+          ],
+          "difference": 17.0
+        },
+        "length_p95": {
+          "ci95": [
+            -28.0,
+            80.0
+          ],
+          "difference": 31.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            36.74658899999991,
+            173.31926999999988
+          ],
+          "difference": 101.39214399999992
+        },
+        "mass_per_snake": {
+          "ci95": [
+            6.124431499999995,
+            28.88654499999997
+          ],
+          "difference": 16.89869066666668
+        }
+      },
+      "hero": {
+        "boost_decisions": {
+          "ci95": [
+            -105.0,
+            46.0
+          ],
+          "difference": -27.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.0008399999999999998,
+            0.00036800000000000005
+          ],
+          "difference": -0.00021599999999999983
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -12.0,
+            2.0
+          ],
+          "difference": -5.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            0.0,
+            6.0
+          ],
+          "difference": 3.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            4.0,
+            22.0
+          ],
+          "difference": 13.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            0.0,
+            3.0
+          ],
+          "difference": 1.0
+        },
+        "deaths": {
+          "ci95": [
+            1.0,
+            23.0
+          ],
+          "difference": 12.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            0.007999999999999952,
+            0.18400000000000002
+          ],
+          "difference": 0.09600000000000003
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -5982.025,
+            -2863.9750000000004
+          ],
+          "difference": -4395.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -47.856199999999994,
+            -22.91180000000001
+          ],
+          "difference": -35.16
+        },
+        "kills_made": {
+          "ci95": [
+            -14.0,
+            15.0
+          ],
+          "difference": 1.0
+        },
+        "kills_taken": {
+          "ci95": [
+            -12.0,
+            5.0
+          ],
+          "difference": -3.0
+        },
+        "length_max": {
+          "ci95": [
+            -320.0,
+            148.0
+          ],
+          "difference": 59.0
+        },
+        "length_median": {
+          "ci95": [
+            -132.0,
+            -31.0
+          ],
+          "difference": -82.0
+        },
+        "length_p95": {
+          "ci95": [
+            -331.0,
+            1.0249999999996362
+          ],
+          "difference": -195.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -138.9619594,
+            -20.902894199999977
+          ],
+          "difference": -79.852296
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -138.9619594,
+            -20.902894199999977
+          ],
+          "difference": -79.852296
+        }
+      }
+    },
+    "all_champion - mixed": {
+      "arena": {
+        "boost_decisions": {
+          "ci95": [
+            53645.95,
+            59705.075
+          ],
+          "difference": 56706.0
+        },
+        "boost_rate": {
+          "ci95": [
+            0.07152793333333332,
+            0.07960676666666666
+          ],
+          "difference": 0.07560800000000001
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            37.0,
+            88.0
+          ],
+          "difference": 63.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            40.0,
+            75.0
+          ],
+          "difference": 58.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            330.0,
+            394.0
+          ],
+          "difference": 362.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            8.0,
+            26.0
+          ],
+          "difference": 17.0
+        },
+        "deaths": {
+          "ci95": [
+            454.0,
+            544.0
+          ],
+          "difference": 500.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            0.6053333333333333,
+            0.7253333333333334
+          ],
+          "difference": 0.6666666666666666
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            20701.875,
+            26229.05
+          ],
+          "difference": 23506.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            27.602499999999996,
+            34.97206666666665
+          ],
+          "difference": 31.341333333333324
+        },
+        "kills_made": {
+          "ci95": [
+            78.0,
+            143.0
+          ],
+          "difference": 111.0
+        },
+        "kills_taken": {
+          "ci95": [
+            78.0,
+            143.0
+          ],
+          "difference": 111.0
+        },
+        "length_max": {
+          "ci95": [
+            -280.0,
+            -137.0
+          ],
+          "difference": -226.0
+        },
+        "length_median": {
+          "ci95": [
+            -76.0,
+            -60.0
+          ],
+          "difference": -69.0
+        },
+        "length_p95": {
+          "ci95": [
+            -167.0,
+            -48.0
+          ],
+          "difference": -107.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -464.9698869999999,
+            -356.203686
+          ],
+          "difference": -410.34931199999994
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -77.49498116666665,
+            -59.36728100000001
+          ],
+          "difference": -68.39155199999999
+        }
+      },
+      "hero": {
+        "boost_decisions": {
+          "ci95": [
+            10966.975,
+            12334.0
+          ],
+          "difference": 11642.0
+        },
+        "boost_rate": {
+          "ci95": [
+            0.08773579999999999,
+            0.098672
+          ],
+          "difference": 0.09313600000000001
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -16.0,
+            -2.0
+          ],
+          "difference": -9.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            -4.0,
+            2.0
+          ],
+          "difference": -1.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            -19.0,
+            -4.0
+          ],
+          "difference": -12.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "deaths": {
+          "ci95": [
+            -33.0,
+            -11.0
+          ],
+          "difference": -22.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            -0.264,
+            -0.088
+          ],
+          "difference": -0.176
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -4447.05,
+            -1633.9500000000007
+          ],
+          "difference": -2977.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -35.57639999999999,
+            -13.071600000000009
+          ],
+          "difference": -23.816000000000003
+        },
+        "kills_made": {
+          "ci95": [
+            43.0,
+            96.0
+          ],
+          "difference": 70.0
+        },
+        "kills_taken": {
+          "ci95": [
+            -20.0,
+            -3.0
+          ],
+          "difference": -11.0
+        },
+        "length_max": {
+          "ci95": [
+            -280.0,
+            -137.0
+          ],
+          "difference": -226.0
+        },
+        "length_median": {
+          "ci95": [
+            -38.0,
+            81.0
+          ],
+          "difference": 19.0
+        },
+        "length_p95": {
+          "ci95": [
+            -214.0,
+            11.0
+          ],
+          "difference": -117.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -56.83519839999998,
+            45.622029000000005
+          ],
+          "difference": -4.799255999999957
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -56.83519839999998,
+            45.622029000000005
+          ],
+          "difference": -4.799255999999957
+        }
+      }
+    },
+    "all_frp3 - all_champion": {
+      "arena": {
+        "boost_decisions": {
+          "ci95": [
+            -63839.025,
+            -58869.925
+          ],
+          "difference": -61381.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.08511869999999999,
+            -0.07849323333333334
+          ],
+          "difference": -0.08184133333333334
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            27.0,
+            98.0
+          ],
+          "difference": 62.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            37.0,
+            110.0
+          ],
+          "difference": 73.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            -67.0,
+            39.0
+          ],
+          "difference": -13.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            -24.0,
+            -3.0
+          ],
+          "difference": -14.0
+        },
+        "deaths": {
+          "ci95": [
+            48.0,
+            167.0
+          ],
+          "difference": 108.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            0.06400000000000006,
+            0.2226666666666668
+          ],
+          "difference": 0.14400000000000013
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -9644.025,
+            -4791.925000000001
+          ],
+          "difference": -7402.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -12.858699999999997,
+            -6.389233333333328
+          ],
+          "difference": -9.869333333333344
+        },
+        "kills_made": {
+          "ci95": [
+            73.0,
+            153.0
+          ],
+          "difference": 113.0
+        },
+        "kills_taken": {
+          "ci95": [
+            73.0,
+            153.0
+          ],
+          "difference": 113.0
+        },
+        "length_max": {
+          "ci95": [
+            82.0,
+            275.0
+          ],
+          "difference": 221.0
+        },
+        "length_median": {
+          "ci95": [
+            -8.0,
+            5.0
+          ],
+          "difference": -2.0
+        },
+        "length_p95": {
+          "ci95": [
+            -47.0,
+            69.0
+          ],
+          "difference": 10.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -36.12324979999998,
+            62.16923340000003
+          ],
+          "difference": 11.982983999999988
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -6.02054163333333,
+            10.361538899999996
+          ],
+          "difference": 1.997163999999998
+        }
+      },
+      "hero": {
+        "boost_decisions": {
+          "ci95": [
+            -9942.025,
+            -8465.975
+          ],
+          "difference": -9211.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.0795362,
+            -0.0677278
+          ],
+          "difference": -0.073688
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -6.0,
+            8.0
+          ],
+          "difference": 1.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            -2.0,
+            4.0
+          ],
+          "difference": 1.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            -1.0,
+            13.0
+          ],
+          "difference": 6.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "deaths": {
+          "ci95": [
+            -2.0,
+            18.0
+          ],
+          "difference": 8.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            -0.016000000000000014,
+            0.144
+          ],
+          "difference": 0.064
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -1271.025,
+            1191.0249999999996
+          ],
+          "difference": -17.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -10.168200000000006,
+            9.52819999999999
+          ],
+          "difference": -0.13599999999999568
+        },
+        "kills_made": {
+          "ci95": [
+            4.0,
+            82.0
+          ],
+          "difference": 43.0
+        },
+        "kills_taken": {
+          "ci95": [
+            -5.0,
+            11.0
+          ],
+          "difference": 3.0
+        },
+        "length_max": {
+          "ci95": [
+            82.0,
+            275.0
+          ],
+          "difference": 221.0
+        },
+        "length_median": {
+          "ci95": [
+            -117.0,
+            30.0
+          ],
+          "difference": -41.0
+        },
+        "length_p95": {
+          "ci95": [
+            -84.0,
+            188.0
+          ],
+          "difference": 49.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -79.388181,
+            44.804037000000015
+          ],
+          "difference": -18.23174400000005
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -79.388181,
+            44.804037000000015
+          ],
+          "difference": -18.23174400000005
+        }
+      }
+    },
+    "all_frp3 - mixed": {
+      "arena": {
+        "boost_decisions": {
+          "ci95": [
+            -5604.025,
+            -3708.9750000000004
+          ],
+          "difference": -4675.0
+        },
+        "boost_rate": {
+          "ci95": [
+            -0.007472033333333334,
+            -0.0049453
+          ],
+          "difference": -0.006233333333333332
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            86.0,
+            165.0
+          ],
+          "difference": 125.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            98.0,
+            163.0
+          ],
+          "difference": 131.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            305.0,
+            394.0
+          ],
+          "difference": 349.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            0.0,
+            8.0
+          ],
+          "difference": 3.0
+        },
+        "deaths": {
+          "ci95": [
+            557.0,
+            661.0
+          ],
+          "difference": 608.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            0.7426666666666668,
+            0.8813333333333333
+          ],
+          "difference": 0.8106666666666668
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            12952.95,
+            19079.0
+          ],
+          "difference": 16104.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            17.270600000000005,
+            25.43866666666665
+          ],
+          "difference": 21.47199999999998
+        },
+        "kills_made": {
+          "ci95": [
+            177.0,
+            273.0
+          ],
+          "difference": 224.0
+        },
+        "kills_taken": {
+          "ci95": [
+            177.0,
+            273.0
+          ],
+          "difference": 224.0
+        },
+        "length_max": {
+          "ci95": [
+            -140.0,
+            84.0
+          ],
+          "difference": -5.0
+        },
+        "length_median": {
+          "ci95": [
+            -78.0,
+            -61.0
+          ],
+          "difference": -71.0
+        },
+        "length_p95": {
+          "ci95": [
+            -147.0,
+            -51.975000000000364
+          ],
+          "difference": -97.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -441.0606916,
+            -354.35283580000004
+          ],
+          "difference": -398.36632799999995
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -73.51011526666666,
+            -59.058805966666675
+          ],
+          "difference": -66.39438799999999
+        }
+      },
+      "hero": {
+        "boost_decisions": {
+          "ci95": [
+            2097.975,
+            2795.0
+          ],
+          "difference": 2431.0
+        },
+        "boost_rate": {
+          "ci95": [
+            0.0167838,
+            0.022359999999999998
+          ],
+          "difference": 0.019448
+        },
+        "death_cause_enemy_body": {
+          "ci95": [
+            -17.0,
+            0.0
+          ],
+          "difference": -8.0
+        },
+        "death_cause_head_on": {
+          "ci95": [
+            -4.0,
+            4.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_other": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_self": {
+          "ci95": [
+            -14.0,
+            3.0
+          ],
+          "difference": -6.0
+        },
+        "death_cause_starvation": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "death_cause_wall": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "deaths": {
+          "ci95": [
+            -26.0,
+            -3.0
+          ],
+          "difference": -14.0
+        },
+        "deaths_per_1000": {
+          "ci95": [
+            -0.20800000000000002,
+            -0.023999999999999994
+          ],
+          "difference": -0.11199999999999999
+        },
+        "decisions": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "difference": 0.0
+        },
+        "food_eaten": {
+          "ci95": [
+            -4684.0,
+            -1259.9750000000004
+          ],
+          "difference": -2994.0
+        },
+        "food_per_1000": {
+          "ci95": [
+            -37.47199999999998,
+            -10.079800000000015
+          ],
+          "difference": -23.951999999999998
+        },
+        "kills_made": {
+          "ci95": [
+            77.0,
+            149.0
+          ],
+          "difference": 113.0
+        },
+        "kills_taken": {
+          "ci95": [
+            -18.0,
+            1.0
+          ],
+          "difference": -8.0
+        },
+        "length_max": {
+          "ci95": [
+            -140.0,
+            84.0
+          ],
+          "difference": -5.0
+        },
+        "length_median": {
+          "ci95": [
+            -75.0,
+            32.0
+          ],
+          "difference": -22.0
+        },
+        "length_p95": {
+          "ci95": [
+            -199.0,
+            110.0
+          ],
+          "difference": -68.0
+        },
+        "mass_h5000": {
+          "ci95": [
+            -78.12832560000003,
+            32.096262399999986
+          ],
+          "difference": -23.031000000000006
+        },
+        "mass_per_snake": {
+          "ci95": [
+            -78.12832560000003,
+            32.096262399999986
+          ],
+          "difference": -23.031000000000006
+        }
+      }
+    }
+  },
+  "supplemental_all_b8_n8_minus_n6": {
+    "arena": {
+      "boost_decisions": {
+        "ci95": [
+          731.975,
+          1245.0249999999996
+        ],
+        "difference": 1001.0
+      },
+      "boost_rate": {
+        "ci95": [
+          0.0002526499999999998,
+          0.0008430000000000002
+        ],
+        "difference": 0.0005626666666666666
+      },
+      "death_cause_enemy_body": {
+        "ci95": [
+          13.0,
+          60.0
+        ],
+        "difference": 37.0
+      },
+      "death_cause_head_on": {
+        "ci95": [
+          0.0,
+          38.0
+        ],
+        "difference": 20.0
+      },
+      "death_cause_other": {
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "difference": 0.0
+      },
+      "death_cause_self": {
+        "ci95": [
+          100.0,
+          177.0
+        ],
+        "difference": 137.0
+      },
+      "death_cause_starvation": {
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "difference": 0.0
+      },
+      "death_cause_wall": {
+        "ci95": [
+          -5.0,
+          6.0
+        ],
+        "difference": 1.0
+      },
+      "deaths": {
+        "ci95": [
+          152.0,
+          242.0
+        ],
+        "difference": 195.0
+      },
+      "deaths_per_1000": {
+        "ci95": [
+          0.043333333333333335,
+          0.1486749999999999
+        ],
+        "difference": 0.09399999999999997
+      },
+      "decisions": {
+        "ci95": [
+          250000.0,
+          250000.0
+        ],
+        "difference": 250000.0
+      },
+      "food_eaten": {
+        "ci95": [
+          33735.325,
+          42607.0
+        ],
+        "difference": 37927.0
+      },
+      "food_per_1000": {
+        "ci95": [
+          -8.022049999999991,
+          2.3384416666666548
+        ],
+        "difference": -3.158666666666676
+      },
+      "kills_made": {
+        "ci95": [
+          30.0,
+          84.0
+        ],
+        "difference": 57.0
+      },
+      "kills_taken": {
+        "ci95": [
+          30.0,
+          84.0
+        ],
+        "difference": 57.0
+      },
+      "length_max": {
+        "ci95": [
+          -283.0,
+          83.0
+        ],
+        "difference": -41.0
+      },
+      "length_median": {
+        "ci95": [
+          -45.0,
+          -25.0
+        ],
+        "difference": -35.0
+      },
+      "length_p95": {
+        "ci95": [
+          -99.0,
+          -28.0
+        ],
+        "difference": -63.0
+      },
+      "mass_h5000": {
+        "ci95": [
+          81.8982134000001,
+          213.5596131999999
+        ],
+        "difference": 150.73449600000004
+      },
+      "mass_per_snake": {
+        "ci95": [
+          -46.985859825,
+          -26.64107928333332
+        ],
+        "difference": -36.33851866666669
+      }
+    },
+    "hero": {
+      "boost_decisions": {
+        "ci95": [
+          48.0,
+          192.0
+        ],
+        "difference": 120.0
+      },
+      "boost_rate": {
+        "ci95": [
+          0.000384,
+          0.0015359999999999998
+        ],
+        "difference": 0.0009599999999999997
+      },
+      "death_cause_enemy_body": {
+        "ci95": [
+          -1.0,
+          22.0
+        ],
+        "difference": 10.0
+      },
+      "death_cause_head_on": {
+        "ci95": [
+          -8.0,
+          2.0
+        ],
+        "difference": -3.0
+      },
+      "death_cause_other": {
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "difference": 0.0
+      },
+      "death_cause_self": {
+        "ci95": [
+          -5.0,
+          19.0
+        ],
+        "difference": 7.0
+      },
+      "death_cause_starvation": {
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "difference": 0.0
+      },
+      "death_cause_wall": {
+        "ci95": [
+          -3.0,
+          0.0
+        ],
+        "difference": -1.0
+      },
+      "deaths": {
+        "ci95": [
+          -3.0,
+          30.0
+        ],
+        "difference": 13.0
+      },
+      "deaths_per_1000": {
+        "ci95": [
+          -0.02400000000000002,
+          0.24000000000000005
+        ],
+        "difference": 0.10399999999999998
+      },
+      "decisions": {
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "difference": 0.0
+      },
+      "food_eaten": {
+        "ci95": [
+          -1672.05,
+          1216.0
+        ],
+        "difference": -223.0
+      },
+      "food_per_1000": {
+        "ci95": [
+          -13.376400000000004,
+          9.728000000000009
+        ],
+        "difference": -1.7839999999999918
+      },
+      "kills_made": {
+        "ci95": [
+          -16.0,
+          7.0
+        ],
+        "difference": -4.0
+      },
+      "kills_taken": {
+        "ci95": [
+          -4.0,
+          22.0
+        ],
+        "difference": 8.0
+      },
+      "length_max": {
+        "ci95": [
+          -398.0,
+          338.0
+        ],
+        "difference": -41.0
+      },
+      "length_median": {
+        "ci95": [
+          -85.0,
+          -3.0
+        ],
+        "difference": -44.0
+      },
+      "length_p95": {
+        "ci95": [
+          -241.02499999999998,
+          86.02499999999964
+        ],
+        "difference": -41.0
+      },
+      "mass_h5000": {
+        "ci95": [
+          -95.7677846,
+          9.579033600000004
+        ],
+        "difference": -41.85183199999997
+      },
+      "mass_per_snake": {
+        "ci95": [
+          -95.7677846,
+          9.579033600000004
+        ],
+        "difference": -41.85183199999997
+      }
+    }
+  },
+  "world_seeds": [
+    3138666708,
+    3409650489,
+    3026608368,
+    3632024549,
+    4092954511,
+    1162403892,
+    1790465016,
+    1922041701,
+    4243517629,
+    3691394874,
+    2133886198,
+    1547643013,
+    1618759274,
+    2971931757,
+    2952224542,
+    3311819741,
+    161714954,
+    20434748,
+    1271525398,
+    1813093890,
+    753424010,
+    4049503349,
+    981241680,
+    2252312033,
+    2993407987
+  ]
+}
