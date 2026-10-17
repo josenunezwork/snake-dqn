@@ -274,6 +274,20 @@ class StaticPool:
     def identity_records(self) -> list[Dict[str, Any]]:
         return [identity.record() for identity in self.identities]
 
+    def rebind(self, runtime: Any, world_seeds: Sequence[int]) -> None:
+        """Attach segment-local state without reloading immutable frozen weights."""
+        seeds = tuple(int(seed) for seed in world_seeds)
+        for identity in self.identities:
+            policy = self.policies[identity.policy_id]
+            if identity.kind == "vector61":
+                policy.runtime = runtime
+                policy.veto_counters.clear()
+                policy.boost_counters.clear()
+                policy.live_vetoes.clear()
+                policy.last_veto = None
+            elif identity.kind == "scripted":
+                policy._world_seeds = seeds
+
     def groups_for(self, seats: np.ndarray, alive: np.ndarray) -> "OrderedDict[str, np.ndarray]":
         """Partition live frozen rows by ID in permanent identity order.
 
@@ -390,6 +404,12 @@ def build_static_pool(
                 veto_lambda=8.0 if identity.wrapper == V8_METHOD else None,
                 forward="batched",
             )
+            # Vector61SimdPolicy's loader follows the global DeviceManager.  The
+            # initial league rule explicitly keeps these opponents on CPU.
+            import torch
+
+            policies[identity.policy_id].network = policies[identity.policy_id].network.to("cpu")
+            policies[identity.policy_id].device = torch.device("cpu")
             if policies[identity.policy_id].input_size != 61:
                 raise RuntimeError(f"{identity.policy_id}: checkpoint is not vector61")
         _freeze_policy(policies[identity.policy_id])
@@ -411,6 +431,12 @@ def build_default_static_pool(
     b8_checkpoint = getattr(args, "league_b8_checkpoint", None) or getattr(args, "init", None)
     seeds = sim.get_world_seeds()
     identities = default_pool_identities(directory, b8_checkpoint)
+    for identity in identities:
+        identity.validate()
+    cached = getattr(args, "_league_static_pool", None)
+    if cached is not None and cached.identities == identities:
+        cached.rebind(runtime, seeds)
+        return cached
     resident = getattr(args, "_league_b8_policy", None)
     pool = build_static_pool(
         identities,
@@ -420,6 +446,7 @@ def build_default_static_pool(
         resident_bv8=resident,
     )
     args._league_b8_policy = pool.policies["b8-s3"]
+    args._league_static_pool = pool
     return pool
 
 

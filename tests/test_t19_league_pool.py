@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -115,6 +116,27 @@ def test_duplicate_and_over_capacity_pools_fail_before_dispatch():
 def test_no_valid_mask_fallback_selects_from_normal_actions_only():
     masks = _normal_fallback_mask(torch.zeros((2, 6), dtype=torch.bool))
     assert torch.all(masks[:, :3]) and not torch.any(masks[:, 3:])
+
+
+def test_rebind_preserves_resident_policy_objects_and_resets_segment_state():
+    vector = SimpleNamespace(
+        runtime=None,
+        veto_counters={1: object()},
+        boost_counters={1: object()},
+        live_vetoes={1: object()},
+        last_veto={"old": True},
+    )
+    scripted = SimpleNamespace(_world_seeds=(0,))
+    identities = [
+        PoolIdentity("v", "vector61", "x", "y", "vector61", "advisory"),
+        _identity("scripted:greedy_food"),
+    ]
+    pool = StaticPool(identities, {"v": vector, "scripted:greedy_food": scripted})
+    runtime = object()
+    pool.rebind(runtime, [5, 7])
+    assert pool.policies["v"] is vector and vector.runtime is runtime
+    assert not vector.veto_counters and not vector.boost_counters and not vector.live_vetoes
+    assert vector.last_veto is None and scripted._world_seeds == (5, 7)
 
 
 def test_league_bv8_dispatch_keeps_real_loaded_net_frozen(monkeypatch, tmp_path):
