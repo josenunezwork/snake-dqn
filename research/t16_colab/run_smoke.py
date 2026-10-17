@@ -73,6 +73,7 @@ SMOKE03_CONFIGS = (
 SMOKE03_PROFILE_CONFIG = "selfplay_w128_a3_g3"
 SMOKE03_PROFILE_WARM_SECONDS = 60
 SMOKE03_PROFILE_SECONDS = 60
+SMOKE03_PROFILE_STOP_GRACE_SECONDS = 5
 # One unscored run before the matrix: it populates the numba on-disk kernel cache and the
 # inductor FX-graph cache, so no scored row pays first-process compilation.
 WARMUP = {"name": "warmup_w128_a2", "worlds": 128, "actors": 2, "self_play": False}
@@ -327,6 +328,47 @@ def completed_artifacts_match(row: dict) -> bool:
     artifacts = row.get("artifacts", [])
     return len(artifacts) == 2 and all(
         Path(item["path"]).is_file() and sha256(Path(item["path"])) == item["sha256"]
+        for item in artifacts
+    )
+
+
+def completed_profile_artifacts_match(profile: object) -> bool:
+    """Accept only a complete, hash-receipted smoke-03 learner profile on resume."""
+    if not isinstance(profile, dict):
+        return False
+    if (
+        profile.get("returncode") != 0
+        or profile.get("published") is not True
+        or profile.get("mode") != "cprofile"
+        or profile.get("seconds") != SMOKE03_PROFILE_SECONDS
+        or profile.get("warmup_seconds") != SMOKE03_PROFILE_WARM_SECONDS
+    ):
+        return False
+    metadata = profile.get("profile_metadata")
+    learner = metadata.get("learner.meta.json") if isinstance(metadata, dict) else None
+    profiled_seconds = learner.get("profiled_s") if isinstance(learner, dict) else None
+    if (
+        learner is None
+        or learner.get("mode") != "cprofile"
+        or not isinstance(profiled_seconds, (int, float))
+        or profiled_seconds <= 0
+    ):
+        return False
+    artifacts = profile.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        return False
+    required = {"learner.pstats", "learner.meta.json"}
+    present = {
+        Path(item["path"]).name for item in artifacts if isinstance(item, dict) and "path" in item
+    }
+    if not required <= present:
+        return False
+    return all(
+        isinstance(item, dict)
+        and isinstance(item.get("path"), str)
+        and isinstance(item.get("sha256"), str)
+        and Path(item["path"]).is_file()
+        and sha256(Path(item["path"])) == item["sha256"]
         for item in artifacts
     )
 
@@ -596,10 +638,14 @@ def run(
             if code == 0:
                 warm_marker.write_text(json.dumps(result["warmup"]) + "\n")
             write_json(result_path, result)
-        if suite == "smoke03" and not result.get("profile"):
+        if suite == "smoke03" and not completed_profile_artifacts_match(result.get("profile")):
             profile_config = next(c for c in configs if c["name"] == SMOKE03_PROFILE_CONFIG)
             remaining = budget - (time.monotonic() - started)
-            profile_wall_seconds = SMOKE03_PROFILE_WARM_SECONDS + SMOKE03_PROFILE_SECONDS
+            profile_wall_seconds = (
+                SMOKE03_PROFILE_WARM_SECONDS
+                + SMOKE03_PROFILE_SECONDS
+                + SMOKE03_PROFILE_STOP_GRACE_SECONDS
+            )
             if remaining < profile_wall_seconds + TRAINER_GRACE_SECONDS + 5:
                 raise RuntimeError("budget exhausted before smoke-03 cProfile run")
             profile_dir = scratch / "profile-smoke03" / "attempt-001"
@@ -609,6 +655,8 @@ def run(
                 **env,
                 "M3C_PROFILE": "cprofile",
                 "M3C_PROFILE_WARM_S": str(SMOKE03_PROFILE_WARM_SECONDS),
+                "M3C_PROFILE_WARM_FROM_FIRST_TICK": "1",
+                "M3C_PROFILE_DURATION_S": str(SMOKE03_PROFILE_SECONDS),
                 "M3C_PROFILE_DIR": str(profile_dir / "profile"),
             }
             with tempfile.TemporaryDirectory(prefix="t16-rings-") as ring:
@@ -638,6 +686,7 @@ def run(
                 "seconds": SMOKE03_PROFILE_SECONDS,
                 "warmup_seconds": SMOKE03_PROFILE_WARM_SECONDS,
                 "max_wall_seconds": profile_wall_seconds,
+                "stop_grace_seconds": SMOKE03_PROFILE_STOP_GRACE_SECONDS,
                 "mode": "cprofile",
                 "timed_after_warmup": True,
                 "returncode": code,
@@ -645,8 +694,16 @@ def run(
                 "published": published,
                 "profile_files": [str(path.relative_to(profile_dir)) for path in profile_files],
                 "profile_metadata": profile_metadata,
+                "artifacts": (
+                    [
+                        {"path": str(path), "sha256": sha256(path)}
+                        for path in sorted((profile_destination / "profile").glob("learner.*"))
+                    ]
+                    if published
+                    else []
+                ),
             }
-            if code or not result["profile"]["profile_files"] or not published:
+            if not completed_profile_artifacts_match(result["profile"]):
                 raise RuntimeError("smoke-03 cProfile run did not publish profile artifacts")
             write_json(result_path, result)
         for config in configs:

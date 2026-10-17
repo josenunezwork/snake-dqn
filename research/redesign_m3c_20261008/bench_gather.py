@@ -20,9 +20,9 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from research.redesign_m3c_20261008 import learner_m3c as lm
-from research.redesign_m3c_20261008 import obs_pack as op
-from research.redesign_m3c_20261008 import train_m3c as m3c
+from research.redesign_m3c_20261008 import learner_m3c as lm  # noqa: E402
+from research.redesign_m3c_20261008 import obs_pack as op  # noqa: E402
+from research.redesign_m3c_20261008 import train_m3c as m3c  # noqa: E402
 
 
 class _Buf:
@@ -147,7 +147,8 @@ def run(args) -> None:
                 assert learner._sample_fast() is not None
                 elapsed.append((time.perf_counter() - t0) * 1000.0)
             print(
-                f"{threads:7d}  {np.median(elapsed):16.3f}  {np.mean(elapsed):14.3f}  {len(elapsed):7d}"
+                f"{threads:7d}  {np.median(elapsed):16.3f}  "
+                f"{np.mean(elapsed):14.3f}  {len(elapsed):7d}"
             )
         finally:
             learner.close()

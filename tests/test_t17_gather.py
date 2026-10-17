@@ -9,9 +9,9 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from research.redesign_m3c_20261008 import learner_m3c as lm
-from research.redesign_m3c_20261008 import obs_pack as op
-from research.redesign_m3c_20261008 import train_m3c as m3c
+from research.redesign_m3c_20261008 import learner_m3c as lm  # noqa: E402
+from research.redesign_m3c_20261008 import obs_pack as op  # noqa: E402
+from research.redesign_m3c_20261008 import train_m3c as m3c  # noqa: E402
 
 
 class _Buf:

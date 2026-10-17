@@ -347,7 +347,8 @@ def test_smoke03_profile_is_warmed_and_result_identity_resumes(tmp_path, monkeyp
         if env.get("M3C_PROFILE") == "cprofile":
             profile = attempt / "profile"
             profile.mkdir()
-            (profile / "learner.meta.json").write_text('{"profiled_s": 60.0}')
+            (profile / "learner.pstats").write_bytes(b"profile")
+            (profile / "learner.meta.json").write_text('{"mode": "cprofile", "profiled_s": 60.0}')
         (attempt / "summary.json").write_text(
             json.dumps({"halt": None, "actor_exitcodes": [0, 0, 0], "rate": 10_000})
         )
@@ -369,15 +370,74 @@ def test_smoke03_profile_is_warmed_and_result_identity_resumes(tmp_path, monkeyp
     assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 0
     profile_call = next(call for call in calls if call[2].get("M3C_PROFILE") == "cprofile")
     assert profile_call[2]["M3C_PROFILE_WARM_S"] == "60"
+    assert profile_call[2]["M3C_PROFILE_WARM_FROM_FIRST_TICK"] == "1"
+    assert profile_call[2]["M3C_PROFILE_DURATION_S"] == "60"
     assert "--max-wall-seconds" in profile_call[1]
-    assert profile_call[1][profile_call[1].index("--max-wall-seconds") + 1] == "120"
+    assert profile_call[1][profile_call[1].index("--max-wall-seconds") + 1] == "125"
     result = json.loads((output / "colab_throughput_results.json").read_text())
     assert result["suite"] == "smoke03"
     assert result["profile"]["seconds"] == 60 and result["profile"]["timed_after_warmup"]
     assert result["profile"]["profile_metadata"]["learner.meta.json"]["profiled_s"] == 60.0
+    assert smoke.completed_profile_artifacts_match(result["profile"])
     first_count = len(calls)
     assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 0
     assert len(calls) == first_count
+
+
+def test_smoke03_retries_a_failed_profile_before_completing(tmp_path, monkeypatch):
+    config = dict(smoke.SMOKE03_CONFIGS[2])
+    monkeypatch.setattr(smoke, "SMOKE03_CONFIGS", (config,))
+    monkeypatch.setattr(smoke, "SMOKE03_PROFILE_CONFIG", config["name"])
+    monkeypatch.setattr(smoke, "start_sampler", lambda *args: object())
+    monkeypatch.setattr(smoke, "stop_sampler", lambda *args: {})
+    monkeypatch.setattr(smoke.subprocess, "check_output", lambda *args, **kwargs: "a" * 40)
+    monkeypatch.setattr(
+        smoke,
+        "environment_info",
+        lambda: {"gpu": "test GPU", "versions": {}, "c_compiler": None, "cpu_count": 2},
+    )
+    (tmp_path / "manifest.json").write_text("{}")
+    (tmp_path / "init").mkdir()
+    (tmp_path / "init" / "B8_s3_final.pth").write_bytes(b"init")
+    profile_runs = 0
+
+    def fake_command(command, log, timeout, env):
+        nonlocal profile_runs
+        if "--out" not in command:
+            return 0
+        attempt = Path(command[command.index("--out") + 1])
+        attempt.mkdir(parents=True)
+        if env.get("M3C_PROFILE") == "cprofile":
+            profile_runs += 1
+            profile = attempt / "profile"
+            profile.mkdir()
+            (profile / "learner.pstats").write_bytes(b"profile")
+            (profile / "learner.meta.json").write_text('{"mode": "cprofile", "profiled_s": 60.0}')
+            if profile_runs == 1:
+                return 1
+        (attempt / "summary.json").write_text(
+            json.dumps({"halt": None, "actor_exitcodes": [0, 0, 0], "rate": 10_000})
+        )
+        (attempt / "final.pth").write_bytes(b"final")
+        (attempt / "log.jsonl").write_text(
+            "\n".join(
+                json.dumps(row)
+                for row in (
+                    {"wall": 40, "transitions": 1_000, "updates": 4},
+                    {"wall": 70, "transitions": 257_000, "updates": 1_004},
+                    {"wall": 100, "transitions": 513_000, "updates": 2_004},
+                )
+            )
+        )
+        return 0
+
+    monkeypatch.setattr(smoke, "bounded_command", fake_command)
+    output, scratch = tmp_path / "output", tmp_path / "scratch"
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 1
+    failed = json.loads((output / "colab_throughput_results.json").read_text())
+    assert not smoke.completed_profile_artifacts_match(failed["profile"])
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 0
+    assert profile_runs == 2
 
 
 def test_sampler_uses_runner_interpreter(tmp_path, monkeypatch):
