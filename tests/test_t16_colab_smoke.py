@@ -285,3 +285,71 @@ def test_sampler_uses_runner_interpreter(tmp_path, monkeypatch):
         "-m",
         "research.t16_colab.sampler",
     ]
+
+
+def test_copy_attempt_is_best_effort(tmp_path, monkeypatch):
+    missing = tmp_path / "never-created"
+    assert smoke.copy_attempt(missing, tmp_path / "drive" / "attempt-001") is False
+    source = tmp_path / "local" / "attempt-001"
+    source.mkdir(parents=True)
+    (source / "summary.json").write_text("{}")
+    destination = tmp_path / "drive" / "attempt-001"
+    assert smoke.copy_attempt(source, destination) is True
+    assert (destination / "summary.json").exists()
+
+    def broken(*args, **kwargs):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(smoke.shutil, "copytree", broken)
+    monkeypatch.setattr(smoke.time, "sleep", lambda seconds: None)
+    assert smoke.copy_attempt(source, destination) is False
+
+
+def test_finite_json_replaces_non_finite_floats():
+    value = {"rate": float("nan"), "nested": [1.0, float("inf"), {"ok": 2}], "text": "x"}
+    assert smoke.finite_json(value) == {"rate": None, "nested": [1.0, None, {"ok": 2}], "text": "x"}
+    json.dumps(smoke.finite_json(value), allow_nan=False)
+
+
+def test_trainer_dying_before_output_does_not_abort_the_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(smoke, "CONFIGS", [smoke.CONFIGS[0], smoke.CONFIGS[1]])
+    monkeypatch.setattr(smoke.subprocess, "check_output", lambda *a, **k: "a" * 40)
+    monkeypatch.setattr(
+        smoke,
+        "environment_info",
+        lambda: {"gpu": "test GPU", "versions": {}, "c_compiler": None, "cpu_count": 2},
+    )
+    (tmp_path / "manifest.json").write_text("{}")
+    (tmp_path / "init").mkdir()
+    (tmp_path / "init" / "B8_s3_final.pth").write_bytes(b"init")
+
+    def fake_command(command, log, timeout, env):
+        if "--out" not in command:
+            return 0
+        attempt = Path(command[command.index("--out") + 1])
+        if smoke.WARMUP["name"] in str(attempt) or "hero_w128_a4" in str(attempt):
+            attempt.mkdir(parents=True)
+            (attempt / "summary.json").write_text(
+                json.dumps({"halt": None, "actor_exitcodes": [0, 0], "rate": float("nan")})
+            )
+            (attempt / "final.pth").write_bytes(b"final")
+            rows = [
+                {"wall": 40, "transitions": 100000, "updates": 20},
+                {"wall": 70, "transitions": 850000, "updates": 50},
+                {"wall": 100, "transitions": 1600000, "updates": 80},
+            ]
+            (attempt / "log.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+            return 0
+        return 1  # hero_w128_a2 dies before creating its output directory
+
+    monkeypatch.setattr(smoke, "bounded_command", fake_command)
+    output = tmp_path / "output"
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1050, tmp_path / "scratch") == 1
+    result = json.loads((output / "colab_throughput_results.json").read_text())
+    assert result["status"] == "incomplete"
+    by_name = {row["name"]: row for row in result["configs"]}
+    assert by_name["hero_w128_a2"]["status"] == "failed"
+    assert by_name["hero_w128_a2"]["published"] is False
+    assert by_name["hero_w128_a4"]["status"] == "completed"
+    assert by_name["hero_w128_a4"]["published"] is True
+    assert by_name["hero_w128_a4"]["summary"]["rate"] is None  # NaN sanitized for strict JSON
