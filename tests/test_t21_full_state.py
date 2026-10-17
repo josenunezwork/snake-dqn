@@ -154,9 +154,7 @@ def test_durable_copy_failure_is_nonfatal_and_local_snapshot_remains_loadable(tm
     local = tmp_path / "local"
     durable_file = tmp_path / "durable-file"
     durable_file.write_text("destination is intentionally not a directory")
-    checkpointer = module.AsyncCheckpointer(
-        local, durable_file, keep=2, retries=2, retry_delay=0
-    )
+    checkpointer = module.AsyncCheckpointer(local, durable_file, keep=2, retries=2, retry_delay=0)
     assert checkpointer.submit(_capture_state(module, {"value": np.arange(3)}), transitions=1)
     _wait_close(checkpointer)
 
@@ -190,4 +188,3 @@ def test_snapshot_manifest_is_json_and_records_digest(tmp_path):
     assert manifests
     decoded = json.loads(manifests[-1].read_text())
     assert isinstance(decoded.get("sha256"), str) and len(decoded["sha256"]) == 64
-
