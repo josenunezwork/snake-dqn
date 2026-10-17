@@ -1577,6 +1577,7 @@ def m3c_flags(args) -> Dict[str, Any]:
         "batch_scale",
         "lr_scale",
         "update_every",
+        "gather_threads",
         "obs_pack",
         "demo_mmap",
         "compile_learner",
@@ -1813,6 +1814,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="T4 (CHANGES training dynamics): one unchanged-size learner update per M x "
         "--batch-scale x 128 ingested transitions; target sync remains counted in updates",
     )
+    ap.add_argument(
+        "--gather-threads",
+        type=int,
+        default=0,
+        help="T17: persistent replay-gather worker threads (0 keeps the serial path)",
+    )
     # --- perf-ram options (multi-actor trainer only; RAM only, same math) ---
     ap.add_argument(
         "--obs-pack",
@@ -1898,6 +1905,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     if args.actors < 0:
         raise SystemExit("--actors must be >= 0")
+    if args.gather_threads < 0:
+        raise SystemExit("--gather-threads must be >= 0")
     if args.max_wall_seconds < 0.0 or not math.isfinite(args.max_wall_seconds):
         raise SystemExit("--max-wall-seconds must be finite and >= 0")
     if (args.all_snakes_learner or args.max_wall_seconds > 0.0) and not args.actors:
@@ -2519,6 +2528,79 @@ def _profile_count(meta: Dict[str, Any], msg: Dict[str, Any]) -> None:
         meta[k] = meta.get(k, 0.0) + float(v)
 
 
+class ActionWindow:
+    """Fixed-size action history with O(message-size) running action counts.
+
+    The old learner loop used ``deque.extend(acts.tolist())`` followed by a full
+    ``np.asarray``/``bincount`` on every pass.  This stores the same last
+    ``capacity`` actions, but retains the six counts as rows arrive.
+    """
+
+    def __init__(self, capacity: int = 100_000) -> None:
+        self.capacity = capacity
+        self.values = np.zeros(capacity, dtype=np.int8)
+        self.counts = np.zeros(6, dtype=np.int64)
+        self.size = 0
+        self.start = 0
+
+    def extend(self, acts: np.ndarray) -> None:
+        acts = np.asarray(acts, dtype=np.int8).reshape(-1)
+        if not len(acts):
+            return
+        if len(acts) >= self.capacity:
+            acts = acts[-self.capacity :]
+            self.values[:] = acts
+            self.counts[:] = np.bincount(acts, minlength=6)
+            self.size = self.capacity
+            self.start = 0
+            return
+        evict = max(0, self.size + len(acts) - self.capacity)
+        if evict:
+            old = (self.start + np.arange(evict)) % self.capacity
+            self.counts -= np.bincount(self.values[old], minlength=6)
+            self.start = (self.start + evict) % self.capacity
+            self.size -= evict
+        put = (self.start + self.size + np.arange(len(acts))) % self.capacity
+        self.values[put] = acts
+        self.counts += np.bincount(acts, minlength=6)
+        self.size += len(acts)
+
+    @property
+    def full(self) -> bool:
+        return self.size == self.capacity
+
+
+def _put_until_stopped(tx, msg: Dict[str, Any], stop_evt, timeout: float = 0.1) -> bool:
+    """Put one actor message, returning promptly once the learner requests shutdown."""
+    while not stop_evt.is_set():
+        try:
+            tx.put(msg, timeout=timeout)
+            return True
+        except queue.Full:
+            pass
+    return False
+
+
+def _drain_queues_while_joining(procs, txs, deadline_seconds: float = 30.0) -> None:
+    """Let stopped actors finish even when bounded queues were full at shutdown."""
+    deadline = time.monotonic() + deadline_seconds
+    while True:
+        for tx in txs:
+            try:
+                # A live producer can refill faster than get_nowait().  Bound one pass so
+                # deadline checks and joins still make progress.
+                for _ in range(64):
+                    tx.get_nowait()
+            except queue.Empty:
+                pass
+        alive = [proc for proc in procs if proc.is_alive()]
+        if not alive or time.monotonic() >= deadline:
+            return
+        wait = min(0.05, max(0.0, deadline - time.monotonic()) / len(alive))
+        for proc in alive:
+            proc.join(timeout=wait)
+
+
 def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt) -> None:
     """One actor process: worlds, acting, n-step windows, observation ring writes."""
     os.environ["OMP_NUM_THREADS"] = "1"
@@ -2910,12 +2992,7 @@ def actor_main(j: int, cfg: Dict[str, Any], names: Dict[str, str], tx, stop_evt)
                     msg["restart_frac_actual"] = float(restarted_worlds.mean())
                 if prof is not None and prof.running:
                     _profile_count(prof.meta, msg)
-                while not stop_evt.is_set():
-                    try:
-                        tx.put(msg, timeout=1.0)  # bounded: back-pressure from the learner
-                        break
-                    except queue.Full:
-                        continue
+                _put_until_stopped(tx, msg, stop_evt)  # bounded: back-pressure from the learner
             segment += K
     finally:
         if prof is not None:
@@ -3148,7 +3225,7 @@ def main_multi(args) -> int:
         "label_rows": [],
         "anchor_updates": 0,
         "lag": [],
-        "action_window": deque(maxlen=100_000),
+        "action_window": ActionWindow(),
     }
     st["halt"] = arm_halt_reason(args)
     if bank is not None:
@@ -3281,7 +3358,7 @@ def main_multi(args) -> int:
                         st["restart_total"][key] += msg[key]
                 st["env_s"] += msg["env_s"]
                 st["lag"].append(published - msg["weights_version"] // 2)
-                st["action_window"].extend(msg["acts"].tolist())
+                st["action_window"].extend(msg["acts"])
                 for k_, v_ in msg["timing"].items():
                     tel.add(k_, v_)
                 if m6 is not None:
@@ -3302,8 +3379,8 @@ def main_multi(args) -> int:
                     if learner.publish_due(before):
                         _publish_weights(online, wbuf, wver)
                         published += 1
-            if len(st["action_window"]) == st["action_window"].maxlen:
-                counts = np.bincount(np.asarray(st["action_window"]), minlength=6)
+            if st["action_window"].full:
+                counts = st["action_window"].counts
                 if counts.max() > 0.9 * counts.sum():
                     st["halt"] = f"action collapse {counts.tolist()}"
             if st["transitions"] >= next_log:
@@ -3573,14 +3650,8 @@ def main_multi(args) -> int:
             prof.meta["end"] = _learner_counters(st)
             prof.stop()
         stop_evt.set()
-        for q_ in txs:  # drain so blocked actors can exit
-            try:
-                while True:
-                    q_.get_nowait()
-            except Exception:  # noqa: BLE001
-                pass
+        _drain_queues_while_joining(procs, txs)
         for p in procs:
-            p.join(timeout=30)
             if p.is_alive():
                 p.terminate()
                 p.join(timeout=10)
@@ -3591,6 +3662,9 @@ def main_multi(args) -> int:
     except Exception as exc:  # noqa: BLE001
         st["halt"] = st["halt"] or f"flush: {type(exc).__name__}: {exc}"
         code = 1
+    closer = getattr(learner, "close", None)
+    if closer is not None:
+        closer()
     save_checkpoint_atomic(
         args.out / ("aborted.pth" if st["halt"] else "final.pth"),
         online,
