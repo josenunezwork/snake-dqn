@@ -60,6 +60,7 @@ def test_long_run_passes_the_async_full_state_contract() -> None:
 
 def test_regular_outputs_stay_local_until_training_exits() -> None:
     source = _source()
+    assert "files.download" not in source
     assert "output_dir = Path(LOCAL_WORK_ROOT) / RUN_NAME / 'trainer_output'" in source
     assert source.index("shutil.copytree(output_dir,") > source.index(
         "completed = subprocess.run(command, cwd=checkout)"
