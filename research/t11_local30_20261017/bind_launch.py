@@ -33,6 +33,12 @@ def bind() -> dict:
             raise ValueError(f"Historical input changed: {name}")
     bank = RUNS / "bank-local30"
     manifest = json.loads((bank / "manifest.json").read_text())
+    if manifest.get("schema") != "t11-local30-derived-label-bank/v1":
+        raise ValueError("Unexpected LOCAL30 manifest schema")
+    if manifest.get("family_counts") != {"decisive": 577, "counter": 577}:
+        raise ValueError("LOCAL30 census differs from verified pre-smoke selection")
+    if (PACKAGE / "bank_manifest.json").read_bytes() != (bank / "manifest.json").read_bytes():
+        raise ValueError("Tracked LOCAL30 manifest is not an exact artifact copy")
     if {p.name for p in bank.glob("*.npz")} != set(manifest["shards"]):
         raise ValueError("LOCAL30 bank shard set mismatch")
     files[str(bank / "manifest.json")] = sha256(bank / "manifest.json")
@@ -57,7 +63,16 @@ def bind() -> dict:
         historical,
     ]
     sources += sorted(PACKAGE.glob("*.py"))
-    sources += [PACKAGE / name for name in ("lane0.sh", "lane1.sh", "seed_audit.json")]
+    sources += [
+        PACKAGE / name
+        for name in (
+            "lane0.sh",
+            "lane1.sh",
+            "seed_audit.json",
+            "bank_manifest.json",
+            "source_counts.json",
+        )
+    ]
     for path in sources:
         files[str(path)] = sha256(path)
     result = {

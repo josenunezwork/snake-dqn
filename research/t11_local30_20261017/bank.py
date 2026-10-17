@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import tempfile
 from collections import Counter
 from pathlib import Path
@@ -179,7 +178,7 @@ def derive(source: Path = V2, out: Path = OUT) -> dict[str, Any]:
     original_decisive_counts = Counter(all_strata[decisive].tolist())
     original_counter_counts = Counter(all_strata[counter].tolist())
     selected_indices = np.flatnonzero(selected_decisive)
-    # Both lists are source-index ordered; pairing within a stratum is stable and without replacement.
+    # Both lists are source-index ordered; pairing is stable and without replacement.
     pairs: list[dict[str, int | str]] = []
     selected_counter: list[int] = []
     source_counts = Counter(all_strata[selected_indices].tolist())
@@ -266,7 +265,10 @@ def derive(source: Path = V2, out: Path = OUT) -> dict[str, Any]:
             "selected_counter_source_rows": ordered_counter.tolist(),
             "matched_pairs": pairs,
         },
-        "payload_contract": "source arrays preserved exactly; source_row, decision, death_decision, row_family, and row_weight added",
+        "payload_contract": (
+            "source arrays preserved exactly; source_row, decision, death_decision, "
+            "row_family, and row_weight added"
+        ),
         "shards": {payload.name: sha256(payload)},
     }
     _atomic_json(out / "manifest.json", receipt)
