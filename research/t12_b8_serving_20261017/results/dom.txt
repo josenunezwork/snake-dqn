@@ -1,0 +1,206 @@
+- status
+- alert
+- heading "snake-dqn · live" [level=1]
+- 'generic "Stream: live"': ● live
+- generic: b8_s3_t7_20261016.pth
+- generic: frame 71
+- generic: watch
+- button "Open command palette":
+  - generic: ⌘
+  - text: K
+- button "View settings": ⚙
+- button "Keyboard shortcuts": "?"
+- group "Live telemetry":
+  - text: Best len
+  - 'note "Best length: the longest any snake has grown so far this episode."':
+    - generic: i
+  - generic: "20"
+  - text: Alive
+  - 'note "Alive: how many snakes are currently alive in the arena this episode."':
+    - generic: i
+  - generic: "6"
+  - text: Food
+  - 'note "Food eaten: pellets consumed this episode, summed across all snakes."':
+    - generic: i
+  - generic: "86"
+  - text: Kills
+  - 'note "Kills: head-to-body collisions this snake caused (the victim dies, the attacker is rewarded)."':
+    - generic: i
+  - generic: "0"
+  - text: Loss
+  - 'note "Training loss: the temporal-difference error the learner minimises. It only moves in Train mode; lower generally means a better-fit value function."':
+    - generic: i
+  - generic: —
+  - text: ε
+  - 'note "ε (epsilon): exploration rate — with probability ε the agent picks a random action instead of the greedy one. 0 = pure exploitation."':
+    - generic: i
+  - generic: "0.00"
+- 'img "Live snake arena, watch mode (paused): 6 of 6 snakes alive, leader Magenta at 20"'
+- paragraph: "Live snake arena, watch mode (paused): 6 of 6 snakes alive, leader Magenta at 20 Use the roster in Controls, or the [ and ] keys, to inspect a snake."
+- button "Arena legend": ⓘ
+- button "Save arena as PNG": ⤓
+- button "Fullscreen arena": ⛶
+- status: Going straight · confident
+- status:
+  - generic: ❚❚
+  - generic: Paused
+  - generic: press Space to resume
+- tablist "Panels":
+  - tab "Controls"
+  - tab "Play"
+  - tab "Inspector" [selected]
+  - tab "Raster"
+  - tab "Network"
+  - tab "Dashboard"
+- tabpanel "Inspector":
+  - generic: The AI's decision right now — what it sees and how it moves.
+  - text: Steering · Q-values → action
+  - 'note "Q-value: the network''s predicted long-term reward for each action from the current state. The highest Q is the move it takes."':
+    - generic: i
+  - 'note "Decision margin: how far the best action''s Q leads the runner-up. Confidence is judged relative to the spread of all six Q-values (so it reads the same for checkpoints with different Q scales): large = confident; near-zero = a coin-flip."':
+    - generic: i
+  - generic: ▸ Straight
+  - generic "best - second-best Q = 0.107, 54% of the Q spread": confident · margin +0.11
+  - generic: Left
+  - generic: "8.63"
+  - generic: ▸ Straight
+  - generic: "8.78"
+  - generic: Right
+  - generic: "8.58"
+  - generic: Boost L
+  - generic: "8.64"
+  - generic: Boost S
+  - generic: "8.67"
+  - generic: Boost R
+  - generic: "8.61"
+  - generic: Collecting decision history…
+  - generic "▸ Full state vector (60-D)" [active]:
+    - text: ▸
+    - generic: Full state vector (60-D)
+  - generic: −1
+  - generic: "0"
+  - generic: "+1"
+  - text: ego2s-b scalars
+  - generic: "[0–29]"
+  - generic: "0"
+  - generic: "0.32"
+  - generic: "1"
+  - generic: "0.01"
+  - generic: "2"
+  - generic: "0.00"
+  - generic: "3"
+  - generic: "1.00"
+  - generic: "4"
+  - generic: "0.00"
+  - generic: "5"
+  - generic: "0.00"
+  - generic: "6"
+  - generic: "0.47"
+  - generic: "7"
+  - generic: "0.83"
+  - generic: "8"
+  - generic: "0.10"
+  - generic: "9"
+  - generic: "0.16"
+  - generic: "10"
+  - generic: "1.00"
+  - generic: "11"
+  - generic: "0.00"
+  - generic: "12"
+  - generic: "0.06"
+  - generic: "13"
+  - generic: "0.36"
+  - generic: "14"
+  - generic: "0.58"
+  - generic: "15"
+  - generic: "1.00"
+  - generic: "16"
+  - generic: "0.00"
+  - generic: "17"
+  - generic: "0.00"
+  - generic: "18"
+  - generic: "0.00"
+  - generic: "19"
+  - generic: "0.00"
+  - generic: "20"
+  - generic: "0.19"
+  - generic: "21"
+  - generic: "0.33"
+  - generic: "22"
+  - generic: "0.62"
+  - generic: "23"
+  - generic: "1.00"
+  - generic: "24"
+  - generic: "1.00"
+  - generic: "25"
+  - generic: "1.00"
+  - generic: "26"
+  - generic: "1.00"
+  - generic: "27"
+  - generic: "1.00"
+  - generic: "28"
+  - generic: "1.00"
+  - generic: "29"
+  - generic: "1.00"
+  - text: v8 veto features (5 per action)
+  - generic: "[30–59]"
+  - generic: "30"
+  - generic: "1.00"
+  - generic: "31"
+  - generic: "0.00"
+  - generic: "32"
+  - generic: "1.00"
+  - generic: "33"
+  - generic: "1.00"
+  - generic: "34"
+  - generic: "1.00"
+  - generic: "35"
+  - generic: "1.00"
+  - generic: "36"
+  - generic: "0.00"
+  - generic: "37"
+  - generic: "1.00"
+  - generic: "38"
+  - generic: "1.00"
+  - generic: "39"
+  - generic: "1.00"
+  - generic: "40"
+  - generic: "1.00"
+  - generic: "41"
+  - generic: "0.00"
+  - generic: "42"
+  - generic: "1.00"
+  - generic: "43"
+  - generic: "1.00"
+  - generic: "44"
+  - generic: "1.00"
+  - generic: "45"
+  - generic: "1.00"
+  - generic: "46"
+  - generic: "0.00"
+  - generic: "47"
+  - generic: "1.00"
+  - generic: "48"
+  - generic: "1.00"
+  - generic: "49"
+  - generic: "1.00"
+  - generic: "50"
+  - generic: "1.00"
+  - generic: "51"
+  - generic: "0.00"
+  - generic: "52"
+  - generic: "1.00"
+  - generic: "53"
+  - generic: "1.00"
+  - generic: "54"
+  - generic: "1.00"
+  - generic: "55"
+  - generic: "1.00"
+  - generic: "56"
+  - generic: "0.00"
+  - generic: "57"
+  - generic: "1.00"
+  - generic: "58"
+  - generic: "1.00"
+  - generic: "59"
+  - generic: "1.00"

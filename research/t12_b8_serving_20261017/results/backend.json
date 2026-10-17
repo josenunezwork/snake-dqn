@@ -1,0 +1,36 @@
+{
+ "created_utc": "2026-10-17T08:12:38.108391+00:00",
+ "intent_sha256": "e03db4339b043e004575be7cbb30282243a8a7ebebb439e69455224361a6bd4b",
+ "obs_spec": "ego2s-bv8",
+ "policy_class": "Ego2sServingPolicy",
+ "score_db": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t12-b8-serving-20261017/run-v1-ui/scores.sqlite",
+ "seed": 2211257578,
+ "served_checkpoint": {
+  "name": "b8-s3",
+  "path": "/Users/josenunez/Projects/ml/snake-dqn-t12/saved_snakes/b8_s3_t7_20261016.pth",
+  "pin_problems": [],
+  "reason": null,
+  "requested": "b8-s3",
+  "sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8"
+ },
+ "veto": {
+  "active": false,
+  "checkpoint_sha256": "3e64978337b67b7acaf4daa93bdefa827d8296bcb0f63413886a1aaad12eb4f8",
+  "counters": {},
+  "diagnostics": {},
+  "flags": {
+   "play_ai": false,
+   "watch_hero": true
+  },
+  "mode": "watch",
+  "obs_spec": "ego2s-bv8",
+  "reason": "the safety veto applies only to a vector61 Apex policy",
+  "scope": "watch_hero",
+  "strict_receipt_checkpoint_match": false,
+  "strict_receipt_wrapper_match": null,
+  "variant": "v8",
+  "variant_requested": "v8",
+  "wrapped_snake_ids": [],
+  "wrapper": null
+ }
+}

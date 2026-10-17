@@ -1,0 +1,43 @@
+{
+  "criteria": {
+    "1": {
+      "failures": [],
+      "pass": true
+    },
+    "2": {
+      "failures": [],
+      "pass": true
+    },
+    "3": {
+      "failures": [],
+      "pass": true
+    },
+    "4": {
+      "failures": [
+        "Watch12 paced retry count exceeds the one permitted retry"
+      ],
+      "pass": false
+    },
+    "5": {
+      "failures": [],
+      "pass": true
+    },
+    "6": {
+      "failures": [],
+      "pass": true
+    },
+    "7": {
+      "failures": [],
+      "pass": true
+    },
+    "8": {
+      "failures": [],
+      "pass": true
+    }
+  },
+  "intent_sha256": "e03db4339b043e004575be7cbb30282243a8a7ebebb439e69455224361a6bd4b",
+  "protocol_sha256": "3d8b51675a2cdecbc476af56c48cfb4fa3ac6566eac1d4faf21c1870174bd406",
+  "schema": "t12-serving-audit/v1",
+  "serving_path_qualified": false,
+  "verdict": "SERVING_FAIL"
+}

@@ -89,3 +89,11 @@ Sources: Claude memory `standing-decisions-2026-10-08.md`, `redesign-scope.md`,
 and branch documents are in the [map](README.md) and [index](research/INDEX.md). The S2
 artifact namespace contains `20261009`. That suffix is a namespace label; the recorded
 merge/result date is **2026-10-08**.
+
+## B8 serving qualification HOLD (2026-10-17)
+
+T12 completed with `SERVING_FAIL`: checks 1–3 and 5–8 passed, while check 4 failed its
+paced Watch12 high-speed retry. This is not a release: `CHECKPOINT_RELEASED_DEFAULT` remains
+`frp3-s12`, and T12 selected B8 only with `SNAKE_SERVE_CHECKPOINT=b8-s3`. No default flip or
+extra timing attempt was made. See the [T12 B8 serving qualification](research/t12_b8_serving_qualification_2026-10-17.md)
+for the audit-bound evidence and the required fresh-qualification boundary for any repair.
