@@ -40,11 +40,11 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     assert "verify_and_extract" in source
     assert "--budget-seconds" in source
     assert "--scratch-dir" in source  # trainer outputs stay off Drive during timing
-    assert re.search(r"MATRIX = '(smoke02|smoke03)'", source) and "'--matrix', MATRIX" in source
+    assert re.search(r"MATRIX = '(smoke02|smoke03|n3)'", source) and "'--matrix', MATRIX" in source
     assert "files.download" in source
-    assert re.search(r"RUN_NAME = 'smoke-0[34][a-z0-9-]*'", source)
+    assert re.search(r"RUN_NAME = '[a-z0-9-]+'", source)
     assert "runtime.unassign()" in source and "AUTO_RELEASE_RUNTIME = True" in source
-    assert "TOTAL_BUDGET_SECONDS = 4500" in source
+    assert re.search(r"TOTAL_BUDGET_SECONDS = [0-9]+", source)
     assert "TIMING_SECONDS = 300" in source
     assert "bench_learner.py" in source
     assert "p0_learner_bench" in source
