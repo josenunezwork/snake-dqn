@@ -948,6 +948,15 @@ class GameSession:
             "checkpoint": (
                 os.path.basename(self.checkpoint_path) if self.checkpoint_path else None
             ),
+            # Artifact filenames are recorded above for historical continuity;
+            # keep the registry identity too so a scored run can say which
+            # released selection (for example b8-s3) served its opponents.
+            "served_checkpoint": (
+                self.served_checkpoint.get("name")
+                if self.served_checkpoint is not None
+                and self.served_checkpoint.get("path") == self.checkpoint_path
+                else None
+            ),
             "mechanics_version": int(GameConfig.MECHANICS_VERSION),
         }
         self.run_over = True
@@ -1128,6 +1137,10 @@ class GameSession:
                 self.last_error = None
                 self.last_error_overridable = False
                 self._build(path, mode=self.mode, override_reward_contract=override_reward_contract)
+                # A client-selected artifact is not a registry-selected served
+                # checkpoint. Do not attribute later scored runs to the default
+                # choice that constructed this session.
+                self.served_checkpoint = None
             except Exception as exc:
                 self.last_error = f"Failed to load {safe}: {exc}"
                 self.last_error_overridable = False

@@ -256,6 +256,9 @@ export interface LeaderboardEntry {
   kills: number;
   frames: number;
   created_at: string;
+  // Registry identity of the model that served this player's best game. Null
+  // for historical rows and manually loaded checkpoint artifacts.
+  served_checkpoint?: string | null;
   // Opaque per-browser id recorded with the game (schema v3); preferred over
   // the name match for the "me" highlight. Null/absent on older rows.
   client_id?: string | null;
@@ -288,6 +291,7 @@ export interface RecentGame {
   duration_seconds: number;
   mode: string;
   checkpoint: string | null;
+  served_checkpoint?: string | null;
   created_at: string;
   client_id?: string | null;
 }

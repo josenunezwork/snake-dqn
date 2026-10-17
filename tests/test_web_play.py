@@ -82,6 +82,18 @@ class TestSessionPlayMode:
         assert pending["kills"] == 1
         assert pending["score"] > 0
 
+    def test_human_death_records_served_registry_identity(self, session):
+        session.set_mode(MODE_PLAY)
+        session.served_checkpoint = {
+            "name": "b8-s3",
+            "path": session.checkpoint_path,
+        }
+        session.run_started = True
+        human = session._find_human()
+        human.is_alive = False
+        session._step_play()
+        assert session.last_run["served_checkpoint"] == "b8-s3"
+
     def test_claim_submission_is_once_only(self, session):
         session.set_mode(MODE_PLAY)
         session.run_started = True
@@ -222,6 +234,7 @@ class TestLeaderboardEndpoints:
             "frames": 300,
             "duration_seconds": 20.0,
             "checkpoint": "champion.pth",
+            "served_checkpoint": "b8-s3",
         }
         hub.session.run_over = True
         hub.session.submitted = False
@@ -232,7 +245,9 @@ class TestLeaderboardEndpoints:
         assert body["ok"] is True
         assert body["result"]["player_name"] == "Ada"
         assert body["result"]["score"] == 250
+        assert body["result"]["served_checkpoint"] == "b8-s3"
         assert body["leaderboard"][0]["player_name"] == "Ada"
+        assert body["leaderboard"][0]["served_checkpoint"] == "b8-s3"
 
     def test_submit_is_idempotent(self, client):
         c, hub = client

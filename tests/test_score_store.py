@@ -48,6 +48,18 @@ class TestRecordGame:
         result = store.record_game("Bo", length=3, score=9999)
         assert result.score == 9999
 
+    def test_records_served_checkpoint_identity_separately_from_artifact(self, store):
+        result = store.record_game(
+            "Bo",
+            length=3,
+            checkpoint="ego2s_b8_seed3.pth",
+            served_checkpoint="b8-s3",
+        )
+        assert result.checkpoint == "ego2s_b8_seed3.pth"
+        assert result.served_checkpoint == "b8-s3"
+        assert store.recent_games()[0].served_checkpoint == "b8-s3"
+        assert store.leaderboard()[0].served_checkpoint == "b8-s3"
+
     def test_name_is_sanitized(self, store):
         result = store.record_game("   spaced   out   ", length=2)
         assert result.player_name == "spaced out"
@@ -297,6 +309,7 @@ class TestV1ToV2Migration:
             assert board[0].player_name == "Ada"
             assert board[0].score == 500
             assert store.player_stats("Ada").games_played == 2
+            assert all(game.served_checkpoint is None for game in recent)
 
     def test_migration_bumps_user_version(self, tmp_path):
         db = str(tmp_path / "scores.db")

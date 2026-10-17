@@ -280,6 +280,7 @@ async def submit_score(payload: dict = Body(...)) -> dict:
             duration_seconds=pending["duration_seconds"],
             score=pending["score"],
             checkpoint=pending.get("checkpoint"),
+            served_checkpoint=pending.get("served_checkpoint"),
             mechanics_version=pending.get("mechanics_version"),
             client_id=client_id,
         )

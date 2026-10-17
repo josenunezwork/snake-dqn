@@ -50,7 +50,11 @@ DEFAULT_SCORES_DB = os.environ.get("SNAKE_SCORES_DB", os.path.join(_REPO_ROOT, "
 # Schema v3: games gained a nullable ``client_id`` column (an opaque,
 # browser-generated id) so "me" highlighting and personal stats survive name
 # changes. Also purely additive; historical rows keep NULL.
-SCHEMA_VERSION = 3
+# Schema v4: games gained a nullable ``served_checkpoint`` registry identity.
+# ``checkpoint`` remains the artifact filename for compatibility; this name
+# distinguishes a released selection (for example ``b8-s3``) from its bytes.
+# Historical runs predate the registry identity and remain NULL.
+SCHEMA_VERSION = 4
 
 # Opaque client ids are capped so a hostile client can't bloat rows.
 _CLIENT_ID_MAX_LEN = 64
@@ -101,6 +105,7 @@ class GameResult:
     duration_seconds: float
     mode: str
     checkpoint: Optional[str]
+    served_checkpoint: Optional[str]
     created_at: str
     mechanics_version: int = 1
     client_id: Optional[str] = None
@@ -122,6 +127,7 @@ class LeaderboardEntry:
     kills: int
     frames: int
     created_at: str
+    served_checkpoint: Optional[str] = None
     mechanics_version: int = 1
     client_id: Optional[str] = None
 
@@ -259,6 +265,7 @@ class ScoreStore:
                 duration_seconds REAL    NOT NULL DEFAULT 0.0,
                 mode             TEXT    NOT NULL DEFAULT 'play',
                 checkpoint       TEXT,
+                served_checkpoint TEXT,
                 created_at       TEXT    NOT NULL,
                 mechanics_version INTEGER NOT NULL DEFAULT 1,
                 client_id        TEXT
@@ -274,6 +281,11 @@ class ScoreStore:
         # NULL — they simply never match a "me" lookup).
         if "client_id" not in cols:
             cur.execute("ALTER TABLE games ADD COLUMN client_id TEXT")
+        # v3 -> v4 migration: keep the artifact filename in ``checkpoint`` and
+        # add the independently meaningful served registry name. Historical
+        # runs cannot be inferred safely, so they stay NULL.
+        if "served_checkpoint" not in cols:
+            cur.execute("ALTER TABLE games ADD COLUMN served_checkpoint TEXT")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_games_score ON games(score DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_games_player ON games(player_id)")
         cur.execute(
@@ -295,6 +307,7 @@ class ScoreStore:
         duration_seconds: float = 0.0,
         mode: str = "play",
         checkpoint: Optional[str] = None,
+        served_checkpoint: Optional[str] = None,
         score: Optional[int] = None,
         created_at: Optional[str] = None,
         mechanics_version: Optional[int] = None,
@@ -314,6 +327,8 @@ class ScoreStore:
             duration_seconds: Wall-clock seconds the run lasted.
             mode: Game mode label (e.g. ``"play"``).
             checkpoint: Name of the AI checkpoint the human played against.
+            served_checkpoint: Pinned served-checkpoint registry name for this
+                run, when the session was built through the serving registry.
             score: Explicit score; computed from stats when ``None``.
             created_at: ISO timestamp; defaults to now (UTC).
             mechanics_version: Game-mechanics version the run was played under;
@@ -351,8 +366,8 @@ class ScoreStore:
 
             cursor = cur.execute(
                 "INSERT INTO games (player_id, score, length, food_eaten, kills, frames, "
-                "duration_seconds, mode, checkpoint, created_at, mechanics_version, client_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "duration_seconds, mode, checkpoint, served_checkpoint, created_at, "
+                "mechanics_version, client_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     player_id,
                     score,
@@ -363,6 +378,7 @@ class ScoreStore:
                     duration_seconds,
                     mode,
                     checkpoint,
+                    served_checkpoint,
                     when,
                     mechanics_version,
                     client_id,
@@ -390,6 +406,7 @@ class ScoreStore:
             duration_seconds=duration_seconds,
             mode=mode,
             checkpoint=checkpoint,
+            served_checkpoint=served_checkpoint,
             created_at=when,
             mechanics_version=mechanics_version,
             client_id=client_id,
@@ -428,7 +445,8 @@ class ScoreStore:
             rows = self._conn.execute(
                 """
                 SELECT p.name AS player_name, g.score, g.length, g.food_eaten,
-                       g.kills, g.frames, g.created_at, g.mechanics_version, g.client_id
+                       g.kills, g.frames, g.created_at, g.served_checkpoint,
+                       g.mechanics_version, g.client_id
                 FROM (
                     SELECT *, ROW_NUMBER() OVER (
                         PARTITION BY player_id
@@ -454,6 +472,7 @@ class ScoreStore:
                 kills=int(r["kills"]),
                 frames=int(r["frames"]),
                 created_at=r["created_at"],
+                served_checkpoint=r["served_checkpoint"],
                 mechanics_version=int(r["mechanics_version"]),
                 client_id=r["client_id"],
             )
@@ -484,7 +503,7 @@ class ScoreStore:
                 f"""
                 SELECT g.id, p.name AS player_name, g.score, g.length, g.food_eaten,
                        g.kills, g.frames, g.duration_seconds, g.mode, g.checkpoint,
-                       g.created_at, g.mechanics_version, g.client_id
+                       g.served_checkpoint, g.created_at, g.mechanics_version, g.client_id
                 FROM games g JOIN players p ON p.id = g.player_id
                 {where}
                 ORDER BY g.id DESC LIMIT ?
@@ -578,6 +597,7 @@ class ScoreStore:
             duration_seconds=float(r["duration_seconds"]),
             mode=r["mode"],
             checkpoint=r["checkpoint"],
+            served_checkpoint=r["served_checkpoint"],
             created_at=r["created_at"],
             mechanics_version=int(r["mechanics_version"]),
             client_id=r["client_id"],

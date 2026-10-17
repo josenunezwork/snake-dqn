@@ -623,6 +623,7 @@ export default function Play({
                 <th>Player</th>
                 <th className="num">Score</th>
                 <th className="num">Length</th>
+                <th>Served model</th>
               </tr>
             </thead>
             <tbody>
@@ -632,6 +633,7 @@ export default function Play({
                   <td>{e.player_name}</td>
                   <td className="num">{e.score}</td>
                   <td className="num">{e.length}</td>
+                  <td className="mono">{e.served_checkpoint ?? "unlabeled"}</td>
                 </tr>
               ))}
             </tbody>
@@ -662,6 +664,7 @@ export default function Play({
                 <span className="muted">{g.player_name}</span>
                 <span>
                   {g.score} · len {g.length}
+                  {g.served_checkpoint ? ` · ${g.served_checkpoint}` : ""}
                 </span>
               </div>
             ))}
