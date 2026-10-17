@@ -18,7 +18,8 @@ padded into a ``(G, N_max, D)`` block and run through :class:`StackedApexForward
   entry with the bias pre-filled, as ``addmm`` does. The original qualification observed a
   row-count threshold at :data:`EXACT_MIN_ROWS`, so smaller groups keep their own network
   call. That threshold is historical rather than universal: ``row_counts`` recomputes every
-  short padded CPU slice at its actual shape. Other BLAS builds (MKL / oneDNN on x86) may differ: run
+  short padded CPU slice at its actual shape. Other BLAS builds (MKL / oneDNN on x86) may
+  differ: run
   ``research/perf_opp_20261013/bench_opp.py --parity`` there before calling it same-math.
 * ``device=<actor device>`` (``merged-device``): the same forward on MPS / CUDA, every group
   stacked. Float results differ from the CPU forwards (different kernels); the bench reports

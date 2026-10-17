@@ -3,7 +3,8 @@
 * :class:`StackedApexForward` (one ``baddbmm`` per layer for G stacked ApexNetworks) gives Q
   bitwise equal to each network's own forward on its rows. CPU ``row_counts`` replays unequal
   padded groups at their actual shape; balanced blocks remain stacked. Bitwise is asserted on
-  Apple Accelerate (darwin), where it was verified; other BLAS builds only get a tolerance check here (run
+  Apple Accelerate (darwin), where it was verified; other BLAS builds only get a tolerance
+  check here (run
   ``research/perf_opp_20261013/bench_opp.py --parity`` there before relying on it).
 * The comparison catches a one-ulp weight change (the parity check can fail).
 * In a real training segment (pinned checkpoints), :class:`MergedVector61Opponents` picks
