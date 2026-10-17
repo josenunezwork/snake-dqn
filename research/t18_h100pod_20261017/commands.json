@@ -1,0 +1,121 @@
+{
+  "schema": "perf-podbench-commands/v1",
+  "commands": [
+    {
+      "name": "p0_raw_g0",
+      "timeout_s": 300,
+      "argv": [
+        "python",
+        "research/perf_learner_20261013/bench_learner.py",
+        "--devices",
+        "cuda",
+        "--configs",
+        "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro",
+        "--raw-rings",
+        "--gather-threads",
+        "0",
+        "--ring-dir",
+        "/dev/shm",
+        "--init",
+        "{inputs}/init/B8_s3_final.pth",
+        "--out",
+        "{out}/p0_raw_g0.json",
+        "--note",
+        "RunPod T18 CUDA benchmark; host allocation in prepare_receipt.json"
+      ]
+    },
+    {
+      "name": "p0_raw_g3",
+      "timeout_s": 300,
+      "argv": [
+        "python",
+        "research/perf_learner_20261013/bench_learner.py",
+        "--devices",
+        "cuda",
+        "--configs",
+        "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro",
+        "--raw-rings",
+        "--gather-threads",
+        "3",
+        "--ring-dir",
+        "/dev/shm",
+        "--init",
+        "{inputs}/init/B8_s3_final.pth",
+        "--out",
+        "{out}/p0_raw_g3.json",
+        "--note",
+        "RunPod T18 CUDA benchmark; host allocation in prepare_receipt.json"
+      ]
+    },
+    {
+      "name": "p0_pack_g0",
+      "timeout_s": 300,
+      "argv": [
+        "python",
+        "research/perf_learner_20261013/bench_learner.py",
+        "--devices",
+        "cuda",
+        "--configs",
+        "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro",
+        "--obs-pack",
+        "--gather-threads",
+        "0",
+        "--ring-dir",
+        "/dev/shm",
+        "--init",
+        "{inputs}/init/B8_s3_final.pth",
+        "--out",
+        "{out}/p0_pack_g0.json",
+        "--note",
+        "RunPod T18 CUDA benchmark; host allocation in prepare_receipt.json"
+      ]
+    },
+    {
+      "name": "p0_pack_g3",
+      "timeout_s": 300,
+      "argv": [
+        "python",
+        "research/perf_learner_20261013/bench_learner.py",
+        "--devices",
+        "cuda",
+        "--configs",
+        "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro",
+        "--obs-pack",
+        "--gather-threads",
+        "3",
+        "--ring-dir",
+        "/dev/shm",
+        "--init",
+        "{inputs}/init/B8_s3_final.pth",
+        "--out",
+        "{out}/p0_pack_g3.json",
+        "--note",
+        "RunPod T18 CUDA benchmark; host allocation in prepare_receipt.json"
+      ]
+    },
+    {
+      "name": "smoke03",
+      "timeout_s": 3600,
+      "argv": [
+        "python",
+        "research/t16_colab/run_smoke.py",
+        "--matrix",
+        "smoke03",
+        "--seconds",
+        "300",
+        "--budget-seconds",
+        "3600",
+        "--scratch-dir",
+        "{scratch}",
+        "--inputs",
+        "{inputs}",
+        "--commit",
+        "{commit}",
+        "--source-archive",
+        "/r/in/repo.tar.gz",
+        "--output",
+        "{out}/smoke03"
+      ]
+    }
+  ]
+}

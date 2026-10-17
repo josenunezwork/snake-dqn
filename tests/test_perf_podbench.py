@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -221,9 +222,10 @@ def test_pod_body_and_cost_bound():
 
 def test_cli_defaults_are_the_approved_bounds():
     a = pb.build_parser().parse_args(["bench", "--dry-run"])
+    assert pb.check_args(a) is None
     assert a.lifetime_hours == 1.0 and a.max_hourly == 0.95 and a.spend_cap == 1.5
     assert a.pod_prefix == "perfbench-" and a.job_id == "perf-cuda-bench" and not a.confirm
-    assert a.min_ram_gb == 96 and a.min_vcpu == 12 and a.image == gr.IMAGE
+    assert a.min_ram_gb == 96 and a.min_vcpu == 16 and a.image == gr.IMAGE
 
 
 # ----------------------------------------------------------------------------- dirty tree
@@ -296,7 +298,7 @@ def test_dry_run_prints_body_commands_and_cost_without_runpod(tmp_path, monkeypa
     monkeypatch.setattr(
         pb,
         "build_bench_inputs",
-        lambda work, commit: {
+        lambda work, commit, **kwargs: {
             "commit": commit,
             "files": [{"dst": "repo.tar.gz", "src": "x", "sha256": "s"}],
             "bytes": 123,
@@ -482,7 +484,7 @@ COMMANDS = [
 ]
 
 
-def _session(tmp_path, monkeypatch, rp, agent, commands=COMMANDS):
+def _session(tmp_path, monkeypatch, rp, agent, commands=COMMANDS, **options):
     import research.runpod_fanout.ledger as ledger_mod
     import research.runpod_fanout.rp_client as rp_mod
     import research.runpod_fanout.tls as tls_mod
@@ -503,7 +505,7 @@ def _session(tmp_path, monkeypatch, rp, agent, commands=COMMANDS):
     monkeypatch.setattr(
         pb,
         "build_bench_inputs",
-        lambda work, commit: {
+        lambda work, commit, **kwargs: {
             "commit": commit,
             "files": [{"dst": "repo.tar.gz", "src": "x", "sha256": "s"}],
             "bytes": 1,
@@ -511,7 +513,7 @@ def _session(tmp_path, monkeypatch, rp, agent, commands=COMMANDS):
     )
     out_dir = tmp_path / "session"
     t0 = clock.t
-    code = pb.launch(_args(out_dir, confirm=True), "c0ffee", commands, [])
+    code = pb.launch(_args(out_dir, confirm=True, **options), "c0ffee", commands, [])
     state = json.loads((out_dir / "state.json").read_text())
     summary = json.loads((out_dir / "bench_session.json").read_text())
     return code, state, summary, out_dir, spawned, t0
@@ -647,3 +649,253 @@ def test_bench_scripts_accept_cuda_and_skip_it_without_cuda(tmp_path, monkeypatc
     res2 = json.loads(out2.read_text())
     assert res2["skipped_devices"] == ["cuda"] and res2["rows"] == []
     assert res2["trainer_args"] == "--obs-version bv8"
+
+
+@pytest.mark.parametrize("cloud", ["SECURE", "COMMUNITY"])
+def test_h100_cli_body_and_scoped_policy(cloud):
+    args = pb.build_parser().parse_args(
+        [
+            "bench",
+            "--dry-run",
+            "--gpu-type",
+            pb.H100_GPU,
+            "--cloud",
+            cloud.lower(),
+            "--lifetime-hours",
+            "1.5",
+            "--spend-cap",
+            "8",
+            "--t16-bundle",
+            "/tmp/t16.tar.gz",
+        ]
+    )
+    assert pb.check_args(args) is None
+    assert args.max_hourly == 4 and args.min_vcpu == 16 and args.image == gr.IMAGE_DEVEL
+    body = pb.bench_pod_body("perfbench-t18-test", "a" * 64, 4800, 5400, args)
+    assert body["gpuTypeIds"] == [pb.H100_GPU] and body["cloudType"] == cloud
+    assert body["minVCPUPerGPU"] == 16 and body["volumeInGb"] == 0
+    assert body["env"]["M3_DEADLINE_EPOCH"] == "4800"
+    assert body["env"]["M3_SELF_DELETE_EPOCH"] == "5400"
+    assert "RUNPOD_API_KEY" not in body["env"]
+    cost = pb.cost_bound(args)
+    assert cost["worst_case_usd"] == 6.0
+    assert cost["ledger_reservation_usd"] == 6.46
+    assert cost["spend_cap_usd"] == 8.0
+    original = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
+    scoped = pb.bench_policy(args)
+    assert scoped == {**original, "max_hourly_per_pod_usd": 4.0}
+    assert json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text()) == original
+    setup = pb.bench_setup_argv(args)
+    assert subprocess.run(["bash", "-n", "-c", setup[2]]).returncode == 0
+    assert "--managed-python" in setup[2] and "torch==2.9.1" in setup[2]
+    assert "prepare.py" in setup[2] and "command -v gcc" in setup[2]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"max_hourly": 4.01},
+        {"spend_cap": 8.01},
+        {"lifetime_hours": 1.5001},
+        {"spend_cap": float("nan")},
+        {"spend_cap": float("inf")},
+        {"lifetime_hours": float("nan")},
+        {"max_hourly": float("nan")},
+        {"spend_cap": 6},
+        {"min_vcpu": 0},
+        {"cloud": "ALL"},
+    ],
+)
+def test_h100_refuses_unsafe_bounds(changes):
+    args = _args(None, gpu_type=pb.H100_GPU, lifetime_hours=1.5, max_hourly=4, spend_cap=8)
+    for key, value in changes.items():
+        setattr(args, key, value)
+    assert pb.check_args(args)
+
+
+def test_t16_bundle_is_pinned_and_replaces_default_uploads(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test")
+    (repo / "a.txt").write_text("test")
+    _git(repo, "add", "a.txt")
+    _git(repo, "commit", "-qm", "test")
+    archive = tmp_path / "bundle.tar.gz"
+    archive.write_bytes(b"pinned fixture")
+    sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+    with pytest.raises(SystemExit, match="pinned sha"):
+        pb.build_bench_inputs(tmp_path / "bad", pb.clean_commit(repo), repo, t16_bundle=archive)
+    monkeypatch.setattr(pb, "T16_BUNDLE_SHA", sha)
+    monkeypatch.setattr(pb, "bench_ckpts", lambda: pytest.fail("unrelated checkpoint upload"))
+    result = pb.build_bench_inputs(tmp_path / "in", pb.clean_commit(repo), repo, t16_bundle=archive)
+    assert [f["dst"] for f in result["files"]] == ["repo.tar.gz", "t16_colab_inputs.tar.gz"]
+    assert result["files"][1]["sha256"] == sha
+
+
+def test_t16_profile_is_runnable_and_dry_run_has_no_api(tmp_path, monkeypatch):
+    import research.runpod_fanout.ledger as ledger_mod
+    import research.runpod_fanout.rp_client as rp_mod
+
+    monkeypatch.setattr(rp_mod, "RpClient", lambda: pytest.fail("dry run touched RunPod"))
+    monkeypatch.setattr(
+        ledger_mod, "SharedLedger", lambda *a: pytest.fail("dry run touched ledger")
+    )
+    monkeypatch.setattr(gr, "POD_NAME", gr.POD_NAME)
+    profile = REPO / "research/t18_h100pod_20261017/commands.json"
+    commands = pb.parse_commands(json.loads(profile.read_text()))
+    caps = {c["argv"][1]: pb.script_caps((REPO / c["argv"][1]).read_text()) for c in commands}
+    commands, skipped = pb.split_runnable(commands, caps)
+    assert len(commands) == 5 and not skipped
+    commit = "a" * 40
+    monkeypatch.setattr(
+        pb,
+        "session_inputs",
+        lambda *a: {
+            "commit": commit,
+            "files": [{"dst": "t16_colab_inputs.tar.gz", "sha256": pb.T16_BUNDLE_SHA}],
+            "bytes": 123,
+        },
+    )
+    args = _args(
+        None,
+        dry_run=True,
+        gpu_type=pb.H100_GPU,
+        cloud="COMMUNITY",
+        max_hourly=4,
+        lifetime_hours=1.5,
+        spend_cap=8,
+        t16_bundle=tmp_path / "bundle",
+    )
+    plan = pb.dry_run(args, commit, commands, skipped)
+    assert plan["account"] is None and plan["pod_body"]["gpuTypeIds"] == [pb.H100_GPU]
+    assert plan["pod_body"]["cloudType"] == "COMMUNITY"
+    for command in plan["commands"]:
+        assert command["argv"][0] == pb.T16_PYTHON
+        assert not any("{" in arg for arg in command["argv"])
+    smoke = plan["commands"][-1]["argv"]
+    assert smoke[smoke.index("--commit") + 1] == commit
+    assert smoke[smoke.index("--seconds") + 1] == "300"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "success",
+        "command",
+        "setup",
+        "interrupt",
+        "create",
+        "spend",
+        "pull",
+        "nan",
+        "inf",
+        "overrate",
+    ],
+)
+def test_h100_session_preserves_cleanup_and_ledger(tmp_path, monkeypatch, failure):
+    class H100Rp(FakeRp):
+        def __init__(self):
+            super().__init__(create="refused" if failure == "create" else "ok")
+            self.balance_calls = 0
+
+        def balance(self):
+            self.balance_calls += 1
+            return 42 if failure == "spend" and self.balance_calls > 6 else 50
+
+        def create_pod(self, body_path, max_hourly, confirm):
+            value = super().create_pod(body_path, max_hourly, confirm)
+            value["costPerHr"] = {"nan": float("nan"), "inf": float("inf"), "overrate": 4.5}.get(
+                failure, 3.5
+            )
+            return value
+
+    class H100Agent(FakeAgent):
+        def health(self):
+            result = super().health()
+            result.update(gpu="NVIDIA H100 80GB HBM3", self_delete_probe=200)
+            return result
+
+        def get(self, path, timeout=30):
+            if failure == "pull" and path == "/ls/out":
+                raise OSError("transfer failed")
+            return super().get(path, timeout)
+
+    rp = H100Rp()
+    agent = H100Agent(
+        fail={"actor_b"} if failure == "command" else (),
+        setup_ok=failure != "setup",
+        interrupt_on="actor_b" if failure == "interrupt" else None,
+    )
+    code, state, summary, _, spawned, t0 = _session(
+        tmp_path,
+        monkeypatch,
+        rp,
+        agent,
+        gpu_type=pb.H100_GPU,
+        cloud="COMMUNITY",
+        max_hourly=4,
+        lifetime_hours=1.5,
+        spend_cap=8,
+        accept_no_self_delete=None,
+    )
+    assert code == (0 if failure == "success" else 1)
+    body, rate = rp.created[0]
+    assert body["gpuTypeIds"] == [pb.H100_GPU] and body["cloudType"] == "COMMUNITY"
+    assert rate == 4 and spawned[0][0] == t0 + 5400
+    assert int(body["env"]["M3_SELF_DELETE_EPOCH"]) == int(t0 + 5400)
+    assert int(body["env"]["M3_DEADLINE_EPOCH"]) == int(t0 + 4800)
+    assert rp.pods == [] and state["pods_deleted_verified"]
+    assert FakeLedger.calls[0] == ("register", "perf-cuda-bench", 8)
+    assert FakeLedger.calls[1][0] == "reserve" and FakeLedger.calls[1][2] == 4
+    assert FakeLedger.calls[-2][0] == "release" and FakeLedger.calls[-1][0] == "finish"
+    assert summary["requested_gpu"] == pb.H100_GPU and summary["cloud"] == "COMMUNITY"
+    assert math.isfinite(state["cost_estimate"])
+    if failure in ("nan", "inf"):
+        assert not any(call[0] == "bind" for call in FakeLedger.calls)
+    if failure not in ("create", "nan", "inf", "overrate"):
+        assert summary["host"]["gpu"] == "NVIDIA H100 80GB HBM3"
+        assert summary["host"]["cpu_model"] == "AMD EPYC 7B13"
+        assert summary["host"]["cpus"] == 32
+
+
+def test_t16_session_uses_isolated_runtime_and_verified_bundle_env(tmp_path, monkeypatch):
+    profile = REPO / "research/t18_h100pod_20261017/commands.json"
+    commands = pb.parse_commands(json.loads(profile.read_text()))
+
+    class T16Agent(FakeAgent):
+        def exec(self, name, argv, cwd, env):
+            if name == "setup":
+                assert "prepare.py" in argv[2] and "/r/venv" in argv[2]
+                assert "t16_colab_inputs.tar.gz" in argv[2]
+            else:
+                assert argv[0] == "/r/venv/bin/python"
+                assert env["SNAKE_CKPT_DIR"] == "/r/in/t16-colab-inputs/checkpoints"
+                assert env["NUMBA_CACHE_DIR"] == "/r/scratch/t16/numba-cache"
+                assert env["TORCHINDUCTOR_CACHE_DIR"] == "/r/scratch/t16/inductor-cache"
+                assert not any("{" in arg for arg in argv)
+                if name == "smoke03":
+                    assert argv[argv.index("--commit") + 1] == "c0ffee"
+                    assert argv[argv.index("--source-archive") + 1] == "/r/in/repo.tar.gz"
+            # The base fake's legacy checkpoint assertion is intentionally adapted only
+            # after verifying the actual environment delivered by the T16 driver.
+            super().exec(name, argv, cwd, {**env, "SNAKE_CKPT_DIR": "/r/in/ckpt"})
+
+    rp, agent = FakeRp(), T16Agent()
+    code, state, summary, out_dir, _, _ = _session(
+        tmp_path,
+        monkeypatch,
+        rp,
+        agent,
+        commands,
+        gpu_type=pb.H100_GPU,
+        max_hourly=4,
+        lifetime_hours=1.5,
+        spend_cap=8,
+        t16_bundle=tmp_path / "bundle.tar.gz",
+    )
+    assert code == 0 and rp.pods == [] and state["pods_deleted_verified"]
+    assert agent.order == ["setup", *[c["name"] for c in commands]]
+    assert all((out_dir / "out" / f"{c['name']}.json").exists() for c in commands[:4])
+    assert all(c["argv"][0] == pb.T16_PYTHON for c in summary["commands"])

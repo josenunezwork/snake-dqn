@@ -1,15 +1,18 @@
 """Contracts for the owner-run smoke, without requiring CUDA or Colab."""
 
+import io
 import json
 import os
 import signal
 import subprocess
 import sys
+import tarfile
 import time
 from pathlib import Path
 
 import pytest
 
+from research.t16_colab import compare
 from research.t16_colab import run_smoke as smoke
 
 
@@ -20,6 +23,43 @@ def _process_stopped(pid):
         return psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
     except psutil.NoSuchProcess:
         return True
+
+
+def _source_archive(path: Path, commit: str) -> None:
+    """Create the identity-bearing shape emitted by ``git archive --format=tar.gz``."""
+    with tarfile.open(path, "w:gz", pax_headers={"comment": commit}) as archive:
+        member = tarfile.TarInfo("README")
+        member.size = 1
+        archive.addfile(member, io.BytesIO(b"x"))
+
+
+def test_source_archive_identity_replaces_git_checkout_identity(tmp_path, monkeypatch):
+    commit = "a" * 40
+    source_archive = tmp_path / "source.tar.gz"
+    _source_archive(source_archive, commit)
+    monkeypatch.setattr(
+        smoke.subprocess,
+        "check_output",
+        lambda *args, **kwargs: pytest.fail("archive-only identity must not query git"),
+    )
+
+    assert smoke.source_archive_commit(source_archive) == commit
+    assert smoke.verify_source_identity(commit, source_archive) == smoke.sha256(source_archive)
+    with pytest.raises(ValueError, match="pinned commit mismatch"):
+        smoke.verify_source_identity("b" * 40, source_archive)
+
+
+def test_checkout_identity_remains_git_bound(monkeypatch):
+    commit = "a" * 40
+    calls = []
+
+    def fake_check_output(*args, **kwargs):
+        calls.append((args, kwargs))
+        return commit + "\n"
+
+    monkeypatch.setattr(smoke.subprocess, "check_output", fake_check_output)
+    assert smoke.verify_source_identity(commit) is None
+    assert calls == [((["git", "rev-parse", "HEAD"],), {"cwd": smoke.REPO, "text": True})]
 
 
 def test_recipe_matrix_and_default_off_selfplay(tmp_path):
@@ -151,6 +191,33 @@ def test_runner_cap_is_3600_seconds(monkeypatch):
     )
     with pytest.raises(SystemExit):
         smoke.main()
+
+
+def test_main_passes_source_archive_to_archive_only_runner(tmp_path, monkeypatch):
+    source_archive = tmp_path / "source.tar.gz"
+    captured = []
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_smoke.py",
+            "--inputs",
+            str(tmp_path / "inputs"),
+            "--output",
+            str(tmp_path / "output"),
+            "--commit",
+            "a" * 40,
+            "--seconds",
+            "300",
+            "--source-archive",
+            str(source_archive),
+        ],
+    )
+    monkeypatch.setattr(smoke.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(smoke, "run", lambda *args: captured.append(args) or 0)
+
+    assert smoke.main() == 0
+    assert captured[0][-1] == source_archive
 
 
 def test_post_warmup_rate_uses_interval_not_lifetime_average():
@@ -401,7 +468,7 @@ def test_run_completion_and_hash_checked_resume(tmp_path, monkeypatch):
 
 
 def test_smoke03_profile_is_warmed_and_result_identity_resumes(tmp_path, monkeypatch):
-    config = dict(smoke.SMOKE03_CONFIGS[2])
+    config = dict(smoke.SMOKE03_CONFIGS[0])
     monkeypatch.setattr(smoke, "SMOKE03_CONFIGS", (config,))
     monkeypatch.setattr(smoke, "SMOKE03_PROFILE_CONFIG", config["name"])
     monkeypatch.setattr(smoke, "start_sampler", lambda *args: object())
@@ -439,9 +506,9 @@ def test_smoke03_profile_is_warmed_and_result_identity_resumes(tmp_path, monkeyp
             "\n".join(
                 json.dumps(row)
                 for row in (
-                    {"wall": 40, "transitions": 1_000, "updates": 4},
-                    {"wall": 70, "transitions": 257_000, "updates": 1_004},
-                    {"wall": 100, "transitions": 513_000, "updates": 2_004},
+                    {"wall": 40, "transitions": 1_000, "updates": 4, "policy_lag_mean": 2},
+                    {"wall": 70, "transitions": 1_025_000, "updates": 4_004, "policy_lag_mean": 4},
+                    {"wall": 100, "transitions": 2_049_000, "updates": 8_004, "policy_lag_mean": 6},
                 )
             )
         )
@@ -461,6 +528,10 @@ def test_smoke03_profile_is_warmed_and_result_identity_resumes(tmp_path, monkeyp
     assert result["profile"]["seconds"] == 60 and result["profile"]["timed_after_warmup"]
     assert result["profile"]["profile_metadata"]["learner.meta.json"]["profiled_s"] == 60.0
     assert smoke.completed_profile_artifacts_match(result["profile"])
+    assert result["configs"][0]["policy_lag_mean"] == 5
+    comparison = compare.compare_results(result)
+    compared_row = next(row for row in comparison["configs"] if row["name"] == config["name"])
+    assert compared_row["policy_lag_mean"] == 5 and compared_row["verdict"] == "PASS"
     first_count = len(calls)
     assert smoke.run(tmp_path, output, "a" * 40, 150, 1_200, scratch, "smoke03") == 0
     assert len(calls) == first_count

@@ -9,10 +9,12 @@ import json
 import math
 import os
 import platform
+import re
 import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 from pathlib import Path
@@ -23,6 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 SCHEMA = "t16-colab-throughput/v1"
+COMMIT_SHA1 = re.compile(r"[0-9a-f]{40}")
 T16_CONFIGS = (
     [
         {"name": f"hero_w128_a{actors}", "worlds": 128, "actors": actors, "self_play": False}
@@ -140,6 +143,35 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def source_archive_commit(source_archive: Path) -> str:
+    """Read the commit recorded in a gzip git archive's global PAX header."""
+    try:
+        with tarfile.open(source_archive, "r:gz") as archive:
+            commit = archive.pax_headers.get("comment")
+    except (OSError, tarfile.TarError) as exc:
+        raise ValueError(f"cannot read source archive {source_archive}: {exc}") from exc
+    if not isinstance(commit, str) or not COMMIT_SHA1.fullmatch(commit):
+        raise ValueError("source archive is missing an exact 40-hex PAX comment commit")
+    return commit
+
+
+def verify_source_identity(commit: str, source_archive: Path | None = None) -> str | None:
+    """Verify the requested commit against a checkout or its transported git archive."""
+    if not COMMIT_SHA1.fullmatch(commit):
+        raise ValueError("requested commit must be an exact 40-hex SHA-1")
+    if source_archive is not None:
+        archive_commit = source_archive_commit(source_archive)
+        if archive_commit != commit:
+            raise ValueError(
+                f"pinned commit mismatch: requested {commit}, source archive {archive_commit}"
+            )
+        return sha256(source_archive)
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    if head != commit:
+        raise ValueError(f"pinned commit mismatch: requested {commit}, checkout {head}")
+    return None
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -573,6 +605,7 @@ def run(
     scratch: Path | None = None,
     suite: str = "t16",
     omit_smoke03_row5: bool = False,
+    source_archive: Path | None = None,
 ) -> int:
     """Run preflight and each timed configuration, retaining resumable Drive artifacts.
 
@@ -586,6 +619,7 @@ def run(
     warmup = warmup_for_suite(suite)
     output.mkdir(parents=True, exist_ok=True)
     scratch = (scratch or default_scratch()).resolve()
+    source_archive = source_archive.resolve() if source_archive is not None else None
     scratch.mkdir(parents=True, exist_ok=True)
     result_path = output / "colab_throughput_results.json"
     save_path = result_path
@@ -620,9 +654,9 @@ def run(
             result["configs"] = previous.get("configs", [])
             if "profile" in previous:
                 result["profile"] = previous["profile"]
-        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
-        if head != commit or len(commit) != 40:
-            raise ValueError(f"pinned commit mismatch: requested {commit}, checkout {head}")
+        source_archive_sha256 = verify_source_identity(commit, source_archive)
+        if source_archive_sha256 is not None:
+            result["source_archive_sha256"] = source_archive_sha256
         result.update(environment_info())
         manifest_sha = sha256(inputs / "manifest.json")
         result["input_manifest_sha256"] = manifest_sha
@@ -640,6 +674,8 @@ def run(
             "omitted_smoke03_row5": omit_smoke03_row5,
             "configs": configs,
         }
+        if source_archive_sha256 is not None:
+            identity["source_archive_sha256"] = source_archive_sha256
         identity_path = output / "identity.json"
         if identity_path.exists() and json.loads(identity_path.read_text()) != identity:
             save_path = output / "refused_identity.json"
@@ -875,6 +911,12 @@ def main() -> int:
     parser.add_argument("--inputs", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--commit", required=True)
+    parser.add_argument(
+        "--source-archive",
+        type=Path,
+        default=None,
+        help="gzip git archive whose PAX commit must match --commit (for archive-only runners)",
+    )
     parser.add_argument("--seconds", type=float, default=None)
     parser.add_argument("--budget-seconds", type=float, default=2700)
     parser.add_argument(
@@ -915,6 +957,7 @@ def main() -> int:
         args.scratch_dir,
         args.suite,
         args.omit_smoke03_row5,
+        args.source_archive,
     )
 
 

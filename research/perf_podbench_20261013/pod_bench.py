@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Short-lived CUDA benchmark session on ONE RunPod RTX 4090 pod (perf pass, item 2).
+"""Short-lived CUDA benchmark session on ONE RunPod GPU pod (RTX 4090 or H100 SXM).
 
 Runs the perf benches (``research/perf_learner_20261013/bench_learner.py`` and
-``research/perf_actor_20261013/bench_actor.py``) one after another on a 1x RTX 4090 SECURE
-pod with a hard lifetime, pulls their result JSONs to a local directory and deletes the pod.
+``research/perf_actor_20261013/bench_actor.py``) one after another on a single GPU pod
+(RTX 4090 / SECURE by default) with a hard lifetime, pulls their result JSONs to a local
+directory and deletes the pod.
 It reuses the M3-C GPU runner's money-safety pieces (``research/redesign_m3c_20261008/
 gpu_run_v2.py``, unchanged): the pod body and pod agent v2 (jobs killed and ``/exec`` refused
 at the deadline, dead-man switch), the detached Mac watchdog, the shared spend ledger
@@ -56,7 +57,9 @@ Commands file (schema ``perf-podbench-commands/v1``)::
                    "env": {"M3C_V8_BACKEND": "numba"}}]}
 
 Placeholders in ``argv``: ``{out}`` (the pod's result dir; everything there is pulled),
-``{student}`` (the M2b student checkpoint), ``{ckpt}`` (the vector61 checkpoint dir). Every
+``{student}`` (the M2b student checkpoint), ``{ckpt}`` (the vector61 checkpoint dir),
+``{inputs}`` (verified T16 bundle),
+``{scratch}`` (pod-local T16 scratch), and ``{commit}`` (clean source commit). Every
 command is checked against the COMMITTED script before anything is created: a flag the
 script's argparse does not define, or a ``--configs`` name missing from its ``CONFIGS``,
 SKIPS that command with the reason (e.g. compile modes that live on another branch) instead
@@ -88,6 +91,7 @@ import argparse
 import ast
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -114,14 +118,20 @@ JOB_ID_RE = re.compile(r"perf-cuda-bench(-[a-z0-9]+)*")
 COMMANDS_SCHEMA = "perf-podbench-commands/v1"
 SESSION_SCHEMA = "perf-podbench-session/v1"
 LIFETIME_H = 1.0
-MAX_LIFETIME_H = 3.0
+MAX_LIFETIME_H = 1.5
+H100_GPU = "NVIDIA H100 80GB HBM3"
+GPU_HOURLY_DEFAULTS = {gr.GPU: 0.95, H100_GPU: 4.0}
+GPU_HOURLY_CEILINGS = {gr.GPU: 1.0, H100_GPU: 4.0}
+MAX_SPEND_CAP = 8.0
+T16_BUNDLE_SHA = "229be2949c99f198b27decdf403b83ec4085d8df2dcfe629b7eff9208593be8e"
+T16_PYTHON = "/r/venv/bin/python"
 MAX_HOURLY = 0.95  # covers the RTX 4090 secure list price ($0.89/h on 2026-10-08)
 SPEND_CAP = 1.50  # the balance-drop guard trips at cap - 0.50 = $1.00 (> the $0.95 bound)
 DEADLINE_MARGIN_S = 600  # the agent kills jobs / refuses /exec 10 min before the lifetime
 WATCHDOG_GRACE_S = 300  # gpu_run_v2's watchdog fires at the lifetime + 5 min
 CONTAINER_DISK_GB = 40
 MIN_RAM_GB = 96  # the production pod plans' host class (m3c / m4a2 plans), so the CPU-side
-MIN_VCPU = 12  # actor numbers transfer to production pods
+MIN_VCPU = 16  # actor numbers transfer to production pods
 AGENT_UP_S = 1200
 UPLOAD_BUDGET_S = 900
 SETUP_BUDGET_S = 1200
@@ -137,6 +147,9 @@ PLACEHOLDERS = {
     "out": "/r/out",
     "student": "/r/in/ckpt/student_m2b_final.pth",
     "ckpt": "/r/in/ckpt",
+    "inputs": "/r/in/t16-colab-inputs",
+    "scratch": "/r/scratch/t16",
+    "commit": "",  # filled from the clean source commit, never from the commands file
 }
 LEARNER = "research/perf_learner_20261013/bench_learner.py"
 ACTOR = "research/perf_actor_20261013/bench_actor.py"
@@ -422,8 +435,28 @@ def split_runnable(
     return runnable, skipped
 
 
-def resolve_argv(argv: Sequence[str]) -> List[str]:
-    return [PH_RE.sub(lambda m: PLACEHOLDERS[m.group(1)], a) for a in argv]
+def resolve_argv(argv: Sequence[str], commit: str = "") -> List[str]:
+    values = {**PLACEHOLDERS, "commit": commit}
+    return [PH_RE.sub(lambda m: values[m.group(1)], a) for a in argv]
+
+
+def command_argv(cmd: Dict[str, Any], commit: str, args) -> List[str]:
+    argv = resolve_argv(cmd["argv"], commit)
+    if getattr(args, "t16_bundle", None):
+        argv[0] = T16_PYTHON
+    return argv
+
+
+def bench_policy(args) -> Dict[str, Any]:
+    """Session-local GPU rate ceiling; retain shared ledger/project/floor protections.
+
+    The T18 H100 allowance never rewrites the shared policy or changes other runners.
+    check_args bounds this runner to 1.5 hours and $8 before any reservation/create.
+    """
+    policy = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
+    if getattr(args, "gpu_type", gr.GPU) == H100_GPU:
+        policy["max_hourly_per_pod_usd"] = GPU_HOURLY_CEILINGS[H100_GPU]
+    return policy
 
 
 # ----------------------------------------------------------------------------- pod pieces
@@ -438,12 +471,18 @@ def bind_prefix(prefix: str) -> None:
 def bench_pod_body(
     name: str, token_sha: str, deadline: float, until: float, args
 ) -> Dict[str, Any]:
-    """gpu_run_v2's pod body (1x RTX 4090, SECURE, agent v2 in the start command, the
-    deadline / self-delete epochs) with a smaller container disk and the chosen image."""
+    """Keep agent v2 and its deadline/self-delete epochs; select GPU/cloud/image."""
     body = gr.pod_body(name, token_sha, deadline, until, args.min_ram_gb, args.min_vcpu)
-    body.update(containerDiskInGb=CONTAINER_DISK_GB, imageName=args.image)
-    assert body["gpuTypeIds"] == [gr.GPU] and body["gpuCount"] == 1
-    assert body["cloudType"] == "SECURE" and body["volumeInGb"] == 0
+    body.update(
+        containerDiskInGb=CONTAINER_DISK_GB,
+        imageName=args.image,
+        gpuTypeIds=[getattr(args, "gpu_type", gr.GPU)],
+        cloudType=getattr(args, "cloud", "SECURE"),
+    )
+    if getattr(args, "t16_bundle", None):
+        # cu126 wheels require a compatible host driver; the image supplies gcc.
+        body["allowedCudaVersions"] = ["12.6", "12.7", "12.8", "12.9", "13.0"]
+    assert body["gpuCount"] == 1 and body["volumeInGb"] == 0
     return body
 
 
@@ -466,15 +505,20 @@ def build_bench_inputs(
     commit: str,
     repo: Path = REPO,
     ckpts: Optional[List[Tuple[Path, str, str]]] = None,
+    t16_bundle: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """git archive of ``commit`` + the sha-pinned checkpoints (no demo data: the benches
-    build synthetic replay / use ``--demo-data .``)."""
+    """Archive the commit and pinned bench checkpoints or the pinned T16 bundle."""
     work.mkdir(parents=True, exist_ok=True)
     repo_tar = work / "repo.tar.gz"
     subprocess.run(
         ["git", "archive", "--format=tar.gz", "-o", str(repo_tar), commit], cwd=repo, check=True
     )
     files = [{"src": str(repo_tar), "dst": "repo.tar.gz", "sha256": gr.sha_file(repo_tar)}]
+    if t16_bundle is not None:
+        # No unrelated checkpoint uploads: this bundle contains the exact smoke inputs.
+        if not t16_bundle.is_file() or t16_bundle.is_symlink():
+            raise SystemExit(f"T16 bundle must be a regular file: {t16_bundle}")
+        ckpts = [(t16_bundle, "t16_colab_inputs.tar.gz", T16_BUNDLE_SHA)]
     for src, dst, sha in bench_ckpts() if ckpts is None else ckpts:
         if gr.sha_file(Path(src)) != sha:
             raise SystemExit(f"{src} does not hash to its pinned sha {sha}")
@@ -486,10 +530,43 @@ def build_bench_inputs(
     }
 
 
-def bench_setup_argv() -> List[str]:
+def session_inputs(work: Path, commit: str, args) -> Dict[str, Any]:
+    bundle = getattr(args, "t16_bundle", None)
+    if bundle is not None:
+        return build_bench_inputs(work, commit, t16_bundle=Path(bundle))
+    return build_bench_inputs(work, commit)
+
+
+def bench_setup_argv(args=None) -> List[str]:
     """Pod setup: the committed tree, the training setup's pinned pip deps, a CUDA check, the
     host's GPU / CPU, and an import smoke of both benches (+ the actor's checkpoint context).
     One command per line under ``set -euo pipefail`` (a failing step stops the setup)."""
+    if args is not None and getattr(args, "t16_bundle", None):
+        # Keep the agent's interpreter/dependencies untouched. The isolated 3.12
+        # environment follows the notebook's NumPy/Numba/Torch contract.
+        return [
+            "bash",
+            "-c",
+            "\n".join(
+                [
+                    "set -euo pipefail",
+                    "mkdir -p /r/repo /r/out /r/scratch/t16",
+                    "tar -xzf /r/in/repo.tar.gz -C /r/repo",
+                    "cd /r/repo",
+                    "command -v gcc",
+                    "python -m pip install -q --no-cache-dir uv",
+                    "python -m uv python install 3.12",
+                    "python -m uv venv --python 3.12 --managed-python --seed /r/venv",
+                    f"{T16_PYTHON} -m pip install -q --no-cache-dir -r requirements-gpu.txt "
+                    "numpy==1.26.4 numba==0.68.0 llvmlite==0.50.0 'pytest>=9,<10' openskill==6.2.0",
+                    f"{T16_PYTHON} -m pip install -q --no-cache-dir "
+                    "--index-url https://download.pytorch.org/whl/cu126 torch==2.9.1",
+                    f"{T16_PYTHON} research/t18_h100pod_20261017/prepare.py "
+                    "--bundle /r/in/t16_colab_inputs.tar.gz --destination /r/in --output /r/out",
+                    "echo SETUP_OK",
+                ]
+            ),
+        ]
     versions = (
         "import torch, numba, numpy; assert torch.cuda.is_available(); "
         'print("torch", torch.__version__, "cuda", torch.version.cuda, '
@@ -517,14 +594,20 @@ def bench_setup_argv() -> List[str]:
     return ["bash", "-c", "\n".join(steps)]
 
 
-def bench_env(commit: str) -> Dict[str, str]:
-    return {
+def bench_env(commit: str, args=None) -> Dict[str, str]:
+    env = {
         "SNAKE_CKPT_DIR": "/r/in/ckpt",
         "OMP_NUM_THREADS": "1",
         "MKL_NUM_THREADS": "1",
         "PYTHONUNBUFFERED": "1",
         "M3_COMMIT": commit,
     }
+    if args is not None and getattr(args, "t16_bundle", None):
+        env["SNAKE_CKPT_DIR"] = PLACEHOLDERS["inputs"] + "/checkpoints"
+        env["NUMBA_CACHE_DIR"] = PLACEHOLDERS["scratch"] + "/numba-cache"
+        env["TORCHINDUCTOR_CACHE_DIR"] = PLACEHOLDERS["scratch"] + "/inductor-cache"
+        env["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"
+    return env
 
 
 def cost_bound(args) -> Dict[str, float]:
@@ -629,7 +712,7 @@ def drive_bench(agent, rp, run_dir: Path, state, inputs, args, commands) -> str:
     if stop:
         return stop
     _note(run_dir, stage="uploaded", files=len(inputs["files"]), bytes=inputs["bytes"])
-    agent.exec("setup", bench_setup_argv(), POD_ROOT, {})
+    agent.exec("setup", bench_setup_argv(args), POD_ROOT, {})
     rc, stop = gr._wait_job(agent, rp, state, args, net, "setup", SETUP_BUDGET_S)
     if stop:
         return stop
@@ -638,14 +721,14 @@ def drive_bench(agent, rp, run_dir: Path, state, inputs, args, commands) -> str:
     _note(run_dir, stage="setup_done", returncode=rc, tail=tail)
     if rc != 0 or "SETUP_OK" not in tail:
         return "setup failed"
-    env = bench_env(inputs["commit"])
+    env = bench_env(inputs["commit"], args)
     results: Dict[str, Dict[str, Any]] = state.setdefault("commands", {})
     for cmd in commands:
         name = cmd["name"]
         if gr.now() >= state["deadline"]:
             return "lifetime"
         started = gr.now()
-        argv = resolve_argv(cmd["argv"])
+        argv = command_argv(cmd, inputs["commit"], args)
         _note(run_dir, stage="command_started", name=name, argv=argv)
         try:
             agent.exec(name, argv, POD_REPO, {**env, **cmd.get("env", {})})
@@ -707,7 +790,7 @@ def write_summary(run_dir: Path, state, commands, skipped, args, outcome: str) -
     results = state.get("commands", {})
     doc = {
         "schema": SESSION_SCHEMA,
-        "note": "CUDA numbers from ONE RTX 4090 secure pod (one host); single runs, not a "
+        "note": "CUDA numbers from ONE pod (one host); single runs, not a "
         "distribution: re-run before treating small differences as real",
         "commit": state.get("commit"),
         "job_id": args.job_id,
@@ -715,6 +798,8 @@ def write_summary(run_dir: Path, state, commands, skipped, args, outcome: str) -
         "pod_name": state.get("name"),
         "pod_id": state.get("pod_id"),
         "gpu": state.get("gpu"),
+        "requested_gpu": getattr(args, "gpu_type", gr.GPU),
+        "cloud": getattr(args, "cloud", "SECURE"),
         "host": state.get("host"),
         "image": args.image,
         "outcome": outcome,
@@ -722,7 +807,11 @@ def write_summary(run_dir: Path, state, commands, skipped, args, outcome: str) -
         "cost_estimate_usd": state.get("cost_estimate"),
         "cost_bound": cost_bound(args),
         "commands": [
-            {"name": c["name"], "argv": resolve_argv(c["argv"]), **results.get(c["name"], {})}
+            {
+                "name": c["name"],
+                "argv": command_argv(c, state.get("commit", ""), args),
+                **results.get(c["name"], {}),
+            }
             for c in commands
         ],
         "skipped": skipped,
@@ -743,8 +832,11 @@ def launch_attempt(
     also stop an earlier round's armed watchdog)."""
     from research.runpod_fanout.ledger import SharedLedger
 
+    problem = check_args(args)
+    if problem:
+        raise SystemExit(problem)
     gr._install_signal_handlers()
-    policy = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
+    policy = bench_policy(args)
     if float(args.max_hourly) > float(policy["max_hourly_per_pod_usd"]):
         raise SystemExit("refusing: --max-hourly is above the policy's max_hourly_per_pod_usd")
     try:  # a failed read before anything is reserved or created: the stock wait retries
@@ -796,9 +888,16 @@ def launch_attempt(
     gr.save_state(run_dir, state)
     outcome, rate = "unknown", float(args.max_hourly)
     ok, no_capacity = False, False
+    agent = None
     try:
         out, err, no_capacity = gr.create_pod_retrying(
-            rp, body, run_dir, state, (gr.GPU,), float(args.max_hourly), stock_wait=defer_settle
+            rp,
+            body,
+            run_dir,
+            state,
+            (getattr(args, "gpu_type", gr.GPU),),
+            float(args.max_hourly),
+            stock_wait=defer_settle,
         )
         if err:
             outcome = f"create error: {err}"
@@ -815,19 +914,38 @@ def launch_attempt(
             if outcome == "unknown":
                 outcome = f"create failed: {out}"
         else:
-            rate = float((out or {}).get("costPerHr") or args.max_hourly)
-            state.update(pod_id=pod_id, rate=rate, machine=(out or {}).get("machine"))
+            state.update(pod_id=pod_id, machine=(out or {}).get("machine"))
+            reported_rate = (out or {}).get("costPerHr")
+            candidate_rate = float(args.max_hourly if reported_rate is None else reported_rate)
+            if not math.isfinite(candidate_rate) or candidate_rate <= 0:
+                # Never poison the shared ledger or cleanup accounting with NaN/inf.
+                # Keep the reserved maximum rate and the pod ID for deletion.
+                raise RuntimeError(f"invalid pod hourly rate: {reported_rate!r}")
+            rate = candidate_rate
+            state["rate"] = rate
             gr.save_state(run_dir, state)
             ledger.bind_pod(run_id, name, pod_id, rate)
             gr.say(json.dumps({"pod_id": pod_id, "gpu": state.get("gpu"), "rate": rate}))
-            outcome = drive_bench(
-                make_agent(pod_id, token), rp, run_dir, state, inputs, args, commands
-            )
+            if rate > float(args.max_hourly):
+                raise RuntimeError(f"pod rate {rate} exceeds the requested hourly cap")
+            agent = make_agent(pod_id, token)
+            outcome = drive_bench(agent, rp, run_dir, state, inputs, args, commands)
     except BaseException as exc:  # noqa: BLE001  (incl. KeyboardInterrupt / SIGTERM / SIGHUP)
         outcome = f"error: {type(exc).__name__}: {exc}"
     finally:
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, signal.SIG_IGN)  # nothing may interrupt the delete
+        # Preserve partial artifacts on errors/signals too, within the existing bounded
+        # pull budget. A pull failure must never bypass the delete-and-verify path.
+        if agent is not None:
+            try:
+                pulled = _pull(agent, run_dir, state)
+                if outcome == "complete" and (pulled.get("error") or pulled.get("failed")):
+                    outcome = "result pull incomplete"
+            except BaseException as exc:  # cleanup has priority even on a failed pull
+                state["final_pull_error"] = f"{type(exc).__name__}: {exc}"
+                if outcome == "complete":
+                    outcome = "result pull incomplete"
         state["outcome"] = outcome
         quick = {}
         if defer_settle and no_capacity and not state.get("pod_id"):
@@ -979,6 +1097,9 @@ def launch(args, commit: str, commands, skipped) -> int:
     from research.runpod_fanout.rp_client import RpClient
     from research.runpod_fanout.tls import preflight
 
+    problem = check_args(args)
+    if problem:
+        raise SystemExit(problem)
     bind_prefix(args.pod_prefix)
     problem = gr.stock_poll_problem(getattr(args, "stock_poll_s", gr.STOCK_POLL_S))
     if problem:  # bench_cmd checked it already (check_args); direct callers too
@@ -991,7 +1112,7 @@ def launch(args, commit: str, commands, skipped) -> int:
         raise SystemExit(f"TLS preflight failed: {problems}")
     run_dir.mkdir(parents=True, exist_ok=True)
     keep_awake()
-    inputs = build_bench_inputs(run_dir / "inputs", commit)
+    inputs = session_inputs(run_dir / "inputs", commit, args)
     (run_dir / "commands.json").write_text(
         json.dumps({"runnable": commands, "skipped": skipped}, indent=1)
     )
@@ -1003,6 +1124,9 @@ def launch(args, commit: str, commands, skipped) -> int:
 def dry_run(args, commit: str, commands, skipped) -> Dict[str, Any]:
     """Everything a launch would do up to the create, without spending or (by default) any
     RunPod call; inputs are built in a temporary directory that is removed again."""
+    problem = check_args(args)
+    if problem:
+        raise SystemExit(problem)
     bind_prefix(args.pod_prefix)
     until = gr.now() + float(args.lifetime_hours) * 3600.0
     body = bench_pod_body(gr.POD_NAME + "dryrun", "0" * 64, until - DEADLINE_MARGIN_S, until, args)
@@ -1010,7 +1134,7 @@ def dry_run(args, commit: str, commands, skipped) -> Dict[str, Any]:
     shown = {k: v for k, v in body.items() if k != "dockerStartCmd"}
     shown["dockerStartCmd"] = f"<bash -c: agent v2 gzip+base64, {len(start[-1])} chars>"
     with tempfile.TemporaryDirectory(prefix="podbench-dry-") as tmp:
-        inputs = build_bench_inputs(Path(tmp), commit)
+        inputs = session_inputs(Path(tmp), commit, args)
         uploads = [{"dst": f["dst"], "sha256": f["sha256"]} for f in inputs["files"]]
         total = inputs["bytes"]
         account = None
@@ -1019,7 +1143,7 @@ def dry_run(args, commit: str, commands, skipped) -> Dict[str, Any]:
             from research.runpod_fanout.rp_client import RpClient
 
             rp = RpClient()
-            policy = json.loads((REPO / "research/runpod_fanout/fanout_policy.json").read_text())
+            policy = bench_policy(args)
             body_path = Path(tmp) / "pod_body.json"
             body_path.write_text(json.dumps(body))
             account = {
@@ -1034,16 +1158,17 @@ def dry_run(args, commit: str, commands, skipped) -> Dict[str, Any]:
         "commit": commit,
         "pod_prefix": gr.POD_NAME,
         "job_id": args.job_id,
-        "gpu": gr.GPU,
+        "gpu": getattr(args, "gpu_type", gr.GPU),
+        "cloud": getattr(args, "cloud", "SECURE"),
         "no_g2_gate": "benchmark-only session: measures CUDA throughput the Mac cannot "
         "measure (no Mac baseline for the per-step 4x rule); bounded by lifetime x max_hourly",
         "pod_body": shown,
-        "setup_argv": bench_setup_argv(),
-        "env": bench_env(commit),
+        "setup_argv": bench_setup_argv(args),
+        "env": bench_env(commit, args),
         "commands": [
             {
                 "name": c["name"],
-                "argv": resolve_argv(c["argv"]),
+                "argv": command_argv(c, commit, args),
                 "timeout_s": c["timeout_s"],
                 "env": c.get("env", {}),
             }
@@ -1071,16 +1196,33 @@ def dry_run(args, commit: str, commands, skipped) -> Dict[str, Any]:
 
 
 def check_args(args) -> Optional[str]:
+    gpu = getattr(args, "gpu_type", gr.GPU)
+    if gpu not in GPU_HOURLY_CEILINGS:
+        return f"unsupported --gpu-type: {gpu}"
+    if getattr(args, "cloud", "SECURE") not in ("SECURE", "COMMUNITY"):
+        return "--cloud must be SECURE or COMMUNITY"
+    if args.max_hourly is None:
+        args.max_hourly = GPU_HOURLY_DEFAULTS[gpu]
+    if args.image is None:
+        args.image = gr.IMAGE_DEVEL if getattr(args, "t16_bundle", None) else gr.IMAGE
+    if not math.isfinite(args.spend_cap) or not 0.5 < args.spend_cap <= MAX_SPEND_CAP:
+        return f"--spend-cap must be finite and in (0.5, {MAX_SPEND_CAP}]"
+    if args.min_vcpu < 1 or args.min_ram_gb < 1:
+        return "minimum CPU and RAM requests must be positive"
     if not JOB_ID_RE.fullmatch(args.job_id):
         return "--job-id must look like 'perf-cuda-bench' or 'perf-cuda-bench-<suffix>'"
     if not PREFIX_RE.fullmatch(args.pod_prefix):
         return "--pod-prefix must look like 'perfbench-' (lowercase, ends with '-')"
     if not 0 < float(args.lifetime_hours) <= MAX_LIFETIME_H:
-        return f"--lifetime-hours must be in (0, {MAX_LIFETIME_H}]"
-    if not 0 < float(args.max_hourly) <= gr.MAX_HOURLY:
-        return f"--max-hourly must be in (0, {gr.MAX_HOURLY}]"
-    if float(args.lifetime_hours) * float(args.max_hourly) > float(args.spend_cap):
-        return "refusing: lifetime x max_hourly exceeds the spend cap"
+        return f"--lifetime-hours must be in (0, {MAX_LIFETIME_H}] (hard spend cap lifetime)"
+    if not 0 < float(args.max_hourly) <= GPU_HOURLY_CEILINGS[gpu]:
+        return f"--max-hourly must be in (0, {GPU_HOURLY_CEILINGS[gpu]}] for {gpu}"
+    bounds = cost_bound(args)
+    if (
+        bounds["ledger_reservation_usd"] > float(args.spend_cap)
+        or bounds["worst_case_usd"] > float(args.spend_cap) - 0.5
+    ):
+        return "refusing: lifetime / watchdog reservation exceeds the spend cap guard"
     note = args.accept_no_self_delete
     if note is not None and len(note.strip()) < 10:
         return "--accept-no-self-delete needs a real note (who decided, when)"
@@ -1119,10 +1261,18 @@ def bench_cmd(args, repo: Path = REPO, caps_loader: Callable = load_caps) -> int
         parsed = parse_commands(json.loads(Path(args.commands).read_text()))
     else:
         parsed = parse_commands(default_commands(caps_loader(repo, commit, [LEARNER, ACTOR])))
+    if not getattr(args, "t16_bundle", None) and any(
+        "{inputs}" in arg or "{scratch}" in arg for c in parsed for arg in c["argv"]
+    ):
+        print("T16 commands require --t16-bundle", file=sys.stderr)
+        return 2
     caps = caps_loader(repo, commit, [c["argv"][1] for c in parsed])
     commands, skipped = split_runnable(parsed, caps)
     for s in skipped:
         gr.say(f"skipping {s['name']}: {s['reason']}", err=True)
+    if getattr(args, "t16_bundle", None) and skipped:
+        print("refusing: the T16 profile must have every command available", file=sys.stderr)
+        return 2
     if not commands:
         print("refusing: no runnable command (all skipped)", file=sys.stderr)
         return 2
@@ -1148,11 +1298,24 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--commands", type=Path, default=None, help=f"JSON ({COMMANDS_SCHEMA})")
     b.add_argument("--emit-commands", type=Path, default=None, help="write the defaults; exit")
     b.add_argument("--lifetime-hours", type=float, default=LIFETIME_H)
-    b.add_argument("--max-hourly", type=float, default=MAX_HOURLY)
+    b.add_argument("--gpu-type", choices=tuple(GPU_HOURLY_DEFAULTS), default=gr.GPU)
+    b.add_argument("--cloud", type=str.upper, choices=("SECURE", "COMMUNITY"), default="SECURE")
+    b.add_argument(
+        "--max-hourly",
+        type=float,
+        default=None,
+        help="rate cap: default $0.95 for RTX 4090, $4 for H100 SXM",
+    )
+    b.add_argument(
+        "--t16-bundle",
+        type=Path,
+        default=None,
+        help="pinned T16 input archive; enables isolated T16 setup",
+    )
     b.add_argument("--spend-cap", type=float, default=SPEND_CAP)
     b.add_argument("--min-ram-gb", type=int, default=MIN_RAM_GB)
     b.add_argument("--min-vcpu", type=int, default=MIN_VCPU)
-    b.add_argument("--image", default=gr.IMAGE, help="default: the training pods' image")
+    b.add_argument("--image", default=None, help="default: training image; devel for T16")
     b.add_argument("--pod-prefix", default=PREFIX)
     b.add_argument("--job-id", default=JOB_ID, help="ledger job id (a new suffix per re-run)")
     b.add_argument("--accept-no-self-delete", metavar="NOTE", default=None)
