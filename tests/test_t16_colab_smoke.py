@@ -29,7 +29,9 @@ def test_recipe_matrix_and_default_off_selfplay(tmp_path):
         (128, 8),
         (64, 2),
         (128, 2),
+        (128, 4),
     ]
+    assert smoke.WARMUP["name"] not in {c["name"] for c in smoke.CONFIGS}
     for config in smoke.CONFIGS:
         command = smoke.trainer_command(
             config,
@@ -42,7 +44,7 @@ def test_recipe_matrix_and_default_off_selfplay(tmp_path):
         )
         assert ("--all-snakes-learner" in command) == config["self_play"]
         assert command[command.index("--device") + 1] == "cuda"
-        assert command[command.index("--checkpoint-every") + 1] == "100000"
+        assert command[command.index("--checkpoint-every") + 1] == str(smoke.SMOKE_CHECKPOINT_EVERY)
         assert command[command.index("--compile-learner") + 1] == "reduce-overhead"
         assert command[command.index("--batch-scale") + 1] == "2"
 
@@ -56,11 +58,34 @@ def test_post_warmup_rate_uses_interval_not_lifetime_average():
     measured = smoke.measured_rate(rows)
     assert measured["transitions_per_second"] == 22000
     assert measured["measured_seconds"] == 50
+    assert measured["first_update_wall"] == 10 and measured["window_start_wall"] == 40
+    assert measured["tail_transitions_per_second"] == 22000
     with pytest.raises(ValueError, match="two"):
         smoke.measured_rate(rows[:2])
     rows[-1]["updates"] = 20
     with pytest.raises(ValueError, match="updates"):
         smoke.measured_rate(rows)
+
+
+def test_steady_state_window_excludes_compile_and_replay_fill():
+    # Actors run from the start but the learner's first update (replay fill + compile) lands
+    # at 80 s; the window must open 20 s after that, not at the fixed 30 s warm-up.
+    rows = [
+        {"wall": 20, "transitions": 200000, "updates": 0},
+        {"wall": 50, "transitions": 500000, "updates": 0},
+        {"wall": 80, "transitions": 800000, "updates": 1},
+        {"wall": 100, "transitions": 1000000, "updates": 100},
+        {"wall": 110, "transitions": 1100000, "updates": 200},
+        {"wall": 150, "transitions": 1500000, "updates": 600},
+    ]
+    measured = smoke.measured_rate(rows)
+    assert measured["window_start_wall"] == 100
+    assert measured["transitions_per_second"] == 10000
+    assert measured["updates_per_second"] == 10
+    with pytest.raises(ValueError, match="no telemetry row with a learner update"):
+        smoke.measured_rate(rows[:2])
+    with pytest.raises(ValueError, match="fewer than two"):
+        smoke.measured_rate(rows[:4])
 
 
 def test_checkpoint_restart_requires_receipt_hash_and_skips_aborted(tmp_path):
@@ -160,7 +185,7 @@ def test_preflight_failure_still_writes_results(tmp_path, monkeypatch):
     monkeypatch.setattr(
         smoke, "environment_info", lambda: (_ for _ in ()).throw(RuntimeError("no CUDA"))
     )
-    assert smoke.run(tmp_path, tmp_path / "output", "a" * 40, 150, 1050) == 1
+    assert smoke.run(tmp_path, tmp_path / "output", "a" * 40, 150, 1050, tmp_path / "s") == 1
     result = json.loads((tmp_path / "output" / "colab_throughput_results.json").read_text())
     assert result["status"] == "failed" and "no CUDA" in result["error"]
     assert result["configs"] == []
@@ -209,6 +234,7 @@ def test_run_completion_and_hash_checked_resume(tmp_path, monkeypatch):
         (attempt / "final.pth").write_bytes(b"final")
         rows = [
             {"wall": 40, "transitions": 100000, "updates": 20},
+            {"wall": 70, "transitions": 850000, "updates": 50},
             {"wall": 100, "transitions": 1600000, "updates": 80},
         ]
         (attempt / "log.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
@@ -216,14 +242,25 @@ def test_run_completion_and_hash_checked_resume(tmp_path, monkeypatch):
 
     monkeypatch.setattr(smoke, "bounded_command", fake_command)
     output = tmp_path / "output"
-    assert smoke.run(tmp_path, output, "a" * 40, 150, 1050) == 0
-    assert smoke.run(tmp_path, output, "a" * 40, 150, 1050) == 0
-    assert len(trainings) == 1
-    (trainings[0] / "final.pth").write_bytes(b"corrupt")
-    assert smoke.run(tmp_path, output, "a" * 40, 150, 1050) == 0
+    scratch = tmp_path / "scratch"
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1050, scratch) == 0
+    # The unscored warm-up ran first (into scratch) and left its marker; then one scored run.
+    assert trainings[0].parent.parent == scratch and smoke.WARMUP["name"] in str(trainings[0])
+    assert (scratch / "warmup-done").exists()
     assert len(trainings) == 2
+    result = json.loads((output / "colab_throughput_results.json").read_text())
+    assert result["warmup"]["completed"] and result["status"] == "completed"
+    row = result["configs"][0]
+    published = Path(row["attempt"])
+    assert published.parent.parent == output and (published / "final.pth").is_file()
+    assert "resources" in row and row["transitions_per_second"] == 25000
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1050, scratch) == 0
+    assert len(trainings) == 2  # completed row reused; warm-up marker honoured
+    (published / "final.pth").write_bytes(b"corrupt")
+    assert smoke.run(tmp_path, output, "a" * 40, 150, 1050, scratch) == 0
+    assert len(trainings) == 3
     result_path = output / "colab_throughput_results.json"
     saved = result_path.read_bytes()
-    assert smoke.run(tmp_path, output, "a" * 40, 180, 1050) == 1
+    assert smoke.run(tmp_path, output, "a" * 40, 180, 1050, scratch) == 1
     assert result_path.read_bytes() == saved
     assert (output / "refused_identity.json").exists()

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 REPO = Path(__file__).resolve().parents[1]
 NOTEBOOK = REPO / "notebooks" / "colab_throughput_smoke.ipynb"
 
@@ -31,13 +30,18 @@ def test_notebook_has_pinned_isolated_and_resumable_contract() -> None:
     """Pin code and inputs rather than relying on Colab's mutable kernel state."""
     source = notebook_source()
     assert "PINNED_COMMIT" in source
-    assert "281b6dcf4eb6d584d2a2d558e1deba2c273ef514" in source
+    import re
+
+    pins = re.findall(r"PINNED_COMMIT = '([0-9a-f]{40})'", source)
+    assert len(pins) == 1
     assert "drive.mount" in source
     assert "venv', '--system-site-packages" in source
     assert "verify_and_extract" in source
     assert "--budget-seconds" in source
+    assert "--scratch-dir" in source  # trainer outputs stay off Drive during timing
     assert "files.download" in source
-    assert "1200" in source
+    assert "TOTAL_BUDGET_SECONDS = 3000" in source
+    assert "startswith('2.9.')" in source  # any CUDA torch 2.9.x; no forced 2.5 GB reinstall
 
 
 def test_notebook_bounds_and_cleans_only_its_own_subprocess_groups() -> None:

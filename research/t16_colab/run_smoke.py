@@ -19,13 +19,27 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SCHEMA = "t16-colab-throughput/v1"
-CONFIGS = [
-    {"name": f"hero_w128_a{actors}", "worlds": 128, "actors": actors, "self_play": False}
-    for actors in (2, 4, 8)
-] + [
-    {"name": f"selfplay_w{worlds}_a2", "worlds": worlds, "actors": 2, "self_play": True}
-    for worlds in (64, 128)
-]
+CONFIGS = (
+    [
+        {"name": f"hero_w128_a{actors}", "worlds": 128, "actors": actors, "self_play": False}
+        for actors in (2, 4, 8)
+    ]
+    + [
+        {"name": f"selfplay_w{worlds}_a2", "worlds": worlds, "actors": 2, "self_play": True}
+        for worlds in (64, 128)
+    ]
+    + [{"name": "selfplay_w128_a4", "worlds": 128, "actors": 4, "self_play": True}]
+)
+# One unscored run before the matrix: it populates the numba on-disk kernel cache and the
+# inductor FX-graph cache, so no scored row pays first-process compilation.
+WARMUP = {"name": "warmup_w128_a2", "worlds": 128, "actors": 2, "self_play": False}
+WARMUP_SECONDS = 60
+# Trainer startup (CUDA contexts, numba imports, ring allocation, K actor spawns) and the
+# final checkpoint/summary are outside --max-wall-seconds; allow them before killing.
+TRAINER_GRACE_SECONDS = 150
+# A smoke never needs intermediate checkpoints; each one is a synchronous torch.save in the
+# learner loop. The final checkpoint is still written and hash-receipted.
+SMOKE_CHECKPOINT_EVERY = 10_000_000
 PARITY_TESTS = [
     "tests/test_grid_sim_parity.py::test_lockstep_small_arena[jit-True-False-2]",
     "tests/test_ego_live_identity.py::test_ego2s_live_equals_sim_every_frame[train-mid]",
@@ -128,7 +142,7 @@ def trainer_command(
         "--max-wall-seconds",
         str(seconds),
         "--checkpoint-every",
-        "100000",
+        str(SMOKE_CHECKPOINT_EVERY),
         "--reward",
         "mass",
         "--mass-kappa",
@@ -166,26 +180,61 @@ def trainer_command(
     return command
 
 
-def measured_rate(rows: list[dict], warm_seconds: float = 30) -> dict:
-    """Use an observed post-warmup interval, never extrapolate from a progress counter."""
-    rows = [row for row in rows if row.get("wall", 0) >= warm_seconds]
-    if len(rows) < 2:
-        raise ValueError("fewer than two post-warmup telemetry samples")
-    first, last = rows[0], rows[-1]
+def measured_rate(
+    rows: list[dict],
+    warm_seconds: float = 30,
+    settle_seconds: float = 20,
+    min_window_seconds: float = 30,
+    tail_seconds: float = 60,
+) -> dict:
+    """Use an observed steady-state interval, never extrapolate from a progress counter.
+
+    The window opens at the later of ``warm_seconds`` and ``settle_seconds`` after the
+    first telemetry row with a learner update. Before the first update the learner is
+    filling replay or compiling (``reduce-overhead`` can take a minute on a cold inductor
+    cache) while actors run free or stall on back-pressure, so transitions in that span say
+    nothing about the trained rate. The tail rate over the last ``tail_seconds`` is also
+    reported; a large gap between the two means the window still held a transient.
+    """
+    updated = [row for row in rows if row.get("updates", 0) > 0]
+    if not updated:
+        raise ValueError("no telemetry row with a learner update; run too short or stalled")
+    first_update_wall = updated[0]["wall"]
+    start = max(warm_seconds, first_update_wall + settle_seconds)
+    window = [row for row in rows if row.get("wall", 0) >= start]
+    if len(window) < 2:
+        raise ValueError(
+            f"fewer than two telemetry samples after the steady-state start ({start:.0f}s)"
+        )
+    first, last = window[0], window[-1]
     elapsed = last["wall"] - first["wall"]
     transitions = last["transitions"] - first["transitions"]
-    if elapsed < 30 or transitions <= 0 or last["updates"] <= first["updates"]:
-        raise ValueError("need >=30 seconds of transitions and learner updates after warmup")
+    if elapsed < min_window_seconds or transitions <= 0 or last["updates"] <= first["updates"]:
+        raise ValueError(
+            f"need >={min_window_seconds:.0f} seconds of transitions and learner updates "
+            "in the steady-state window"
+        )
     rate = transitions / elapsed
     if not math.isfinite(rate):
         raise ValueError("nonfinite throughput")
+    tail = [row for row in window if row["wall"] >= last["wall"] - tail_seconds]
+    tail_rate = None
+    if len(tail) >= 2 and tail[-1]["wall"] > tail[0]["wall"]:
+        tail_rate = (tail[-1]["transitions"] - tail[0]["transitions"]) / (
+            tail[-1]["wall"] - tail[0]["wall"]
+        )
     return {
         "transitions_per_second": rate,
+        "tail_transitions_per_second": tail_rate,
+        "updates_per_second": (last["updates"] - first["updates"]) / elapsed,
         "measured_transitions": transitions,
         "measured_seconds": elapsed,
         "first_transition": first["transitions"],
         "last_transition": last["transitions"],
+        "first_update_wall": first_update_wall,
+        "window_start_wall": first["wall"],
         "warmup_seconds": warm_seconds,
+        "settle_seconds": settle_seconds,
     }
 
 
@@ -232,14 +281,30 @@ def environment_info() -> dict:
         "numpy": "1.26.4",
         "numba": "0.68.0",
         "llvmlite": "0.50.0",
-        "torch": "2.9.1",
     }.items():
         if versions[name].split("+")[0] != expected:
             raise RuntimeError(f"{name}: expected {expected}, got {versions[name]}")
+    # Any torch 2.9.x CUDA build is acceptable for a throughput smoke: the exact patch
+    # version is recorded, and refusing Colab's preinstalled 2.9.x would force a 2.5 GB
+    # reinstall for no measurement benefit.
+    if not versions["torch"].split("+")[0].startswith("2.9."):
+        raise RuntimeError(f"torch: expected 2.9.x, got {versions['torch']}")
+    try:
+        affinity = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        affinity = os.cpu_count()
+    try:
+        import psutil
+
+        physical = psutil.cpu_count(logical=False)
+    except Exception:  # noqa: BLE001 - informational only
+        physical = None
     return {
         "gpu": torch.cuda.get_device_name(),
         "gpu_bytes": torch.cuda.get_device_properties(0).total_memory,
         "cpu_count": os.cpu_count(),
+        "cpu_affinity": affinity,
+        "cpu_physical": physical,
         "cpu": platform.processor(),
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -249,10 +314,72 @@ def environment_info() -> dict:
     }
 
 
-def run(inputs: Path, output: Path, commit: str, seconds: float, budget: float) -> int:
-    """Run preflight and each timed configuration, retaining resumable Drive artifacts."""
+def default_scratch() -> Path:
+    """Local-disk scratch for trainer outputs (never the FUSE-mounted Drive)."""
+    content = Path("/content")
+    base = content if content.is_dir() else Path(tempfile.gettempdir())
+    return base / "t16-colab-scratch"
+
+
+def copy_attempt(source: Path, destination: Path) -> None:
+    """Publish a finished local attempt directory to the resumable (Drive) run directory."""
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination)
+
+
+def start_sampler(out: Path, env: dict) -> subprocess.Popen:
+    """Start the owned GPU/CPU utilization sampler writing JSON lines to ``out``."""
+    return subprocess.Popen(
+        [sys.executable, "-m", "research.t16_colab.sampler", "--out", str(out)],
+        cwd=REPO,
+        env=env,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def stop_sampler(process: subprocess.Popen, out: Path) -> dict:
+    """Stop the sampler and summarize its rows (empty when nothing was sampled)."""
+    from research.t16_colab.sampler import summarize
+
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=10)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    rows = []
+    if out.exists():
+        for line in out.read_text().splitlines():
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return summarize(rows)
+
+
+def run(
+    inputs: Path,
+    output: Path,
+    commit: str,
+    seconds: float,
+    budget: float,
+    scratch: Path | None = None,
+) -> int:
+    """Run preflight and each timed configuration, retaining resumable Drive artifacts.
+
+    Trainer outputs (checkpoints, telemetry, logs) go to local ``scratch`` while a run is
+    timed and are copied to ``output`` afterwards, so Drive FUSE latency never sits in the
+    learner loop. Results JSON is written to ``output`` directly (small, infrequent).
+    """
     started = time.monotonic()
     output.mkdir(parents=True, exist_ok=True)
+    scratch = (scratch or default_scratch()).resolve()
+    scratch.mkdir(parents=True, exist_ok=True)
     result_path = output / "colab_throughput_results.json"
     save_path = result_path
     result = {
@@ -270,6 +397,11 @@ def run(inputs: Path, output: Path, commit: str, seconds: float, budget: float) 
         "OMP_NUM_THREADS": "1",
         "MKL_NUM_THREADS": "1",
         "SNAKE_DQN_DEVICE": "cpu",
+        # Shared on-disk caches so the warm-up run's numba kernels and inductor FX graphs
+        # are reused by every later trainer process in this session.
+        "NUMBA_CACHE_DIR": str(scratch / "numba-cache"),
+        "TORCHINDUCTOR_CACHE_DIR": str(scratch / "inductor-cache"),
+        "TORCHINDUCTOR_FX_GRAPH_CACHE": "1",
     }
     try:
         if result_path.exists():
@@ -310,6 +442,42 @@ def run(inputs: Path, output: Path, commit: str, seconds: float, budget: float) 
         if code:
             raise RuntimeError("environment parity failed/timed out; see parity.log")
         write_json(result_path, result)
+        warm_marker = scratch / "warmup-done"
+        if not warm_marker.exists():  # caches are session-local: redo after a VM reset
+            remaining = budget - (time.monotonic() - started)
+            warm_seconds = min(WARMUP_SECONDS, max(20, remaining - 600))
+            warm_dir = scratch / WARMUP["name"]
+            shutil.rmtree(warm_dir, ignore_errors=True)
+            warm_dir.mkdir(parents=True)
+            with tempfile.TemporaryDirectory(prefix="t16-rings-") as ring:
+                command = trainer_command(
+                    WARMUP,
+                    inputs,
+                    warm_dir / "attempt-001",
+                    inputs / "init" / "B8_s3_final.pth",
+                    warm_seconds,
+                    mode,
+                    Path(ring),
+                )
+                print(f"Warm-up {WARMUP['name']} ({warm_seconds:g}s, unscored)", flush=True)
+                t_warm = time.monotonic()
+                code = bounded_command(
+                    command,
+                    warm_dir / "attempt-001.log",
+                    min(warm_seconds + TRAINER_GRACE_SECONDS, remaining - 5),
+                    env,
+                )
+            result["warmup"] = {
+                "name": WARMUP["name"],
+                "seconds": warm_seconds,
+                "returncode": code,
+                "wall_seconds": time.monotonic() - t_warm,
+                "completed": code == 0,
+                "purpose": "numba kernel cache and inductor FX-graph cache; not scored",
+            }
+            if code == 0:
+                warm_marker.write_text(json.dumps(result["warmup"]) + "\n")
+            write_json(result_path, result)
         for config in CONFIGS:
             old = next((r for r in result["configs"] if r["name"] == config["name"]), None)
             if old and old["status"] == "completed" and completed_artifacts_match(old):
@@ -319,7 +487,7 @@ def run(inputs: Path, output: Path, commit: str, seconds: float, budget: float) 
             result["configs"] = [r for r in result["configs"] if r["name"] != config["name"]]
             result["configs"].append(row)
             remaining = budget - (time.monotonic() - started)
-            if remaining < seconds + 50:
+            if remaining < seconds + TRAINER_GRACE_SECONDS + 30:
                 row.update(status="budget_exhausted", reason="rerun Run all to continue")
                 write_json(result_path, result)
                 continue
@@ -327,24 +495,44 @@ def run(inputs: Path, output: Path, commit: str, seconds: float, budget: float) 
             directory.mkdir(exist_ok=True)
             init = latest_checkpoint(directory) or inputs / "init" / "B8_s3_final.pth"
             attempt = directory / f"attempt-{len(list(directory.glob('attempt-*'))) + 1:03d}"
+            local_attempt = scratch / config["name"] / attempt.name
+            shutil.rmtree(local_attempt, ignore_errors=True)
+            local_attempt.parent.mkdir(parents=True, exist_ok=True)
             row.update(
                 init_sha256=sha256(init),
                 attempt=str(attempt),
+                local_attempt=str(local_attempt),
                 continuation="weights-only; optimizer/replay/actors/RNG/schedules restart",
                 compile_requested=mode,
                 ring_storage="local file-backed mmap",
+                trainer_output="local scratch during the run, copied to Drive afterwards",
+                oversubscription=(config["actors"] + 1) / max(1, result.get("cpu_affinity") or 1),
             )
+            samples_path = local_attempt.parent / f"{attempt.name}.resources.jsonl"
             with tempfile.TemporaryDirectory(prefix="t16-rings-") as ring:
-                command = trainer_command(config, inputs, attempt, init, seconds, mode, Path(ring))
+                command = trainer_command(
+                    config, inputs, local_attempt, init, seconds, mode, Path(ring)
+                )
                 row["command"] = command
                 write_json(result_path, result)
                 print(f"Timing {config['name']} ({seconds:g}s)", flush=True)
-                code = bounded_command(
-                    command,
-                    directory / f"{attempt.name}.log",
-                    min(seconds + 45, remaining - 5),
-                    env,
-                )
+                sampler = start_sampler(samples_path, env)
+                t_run = time.monotonic()
+                try:
+                    code = bounded_command(
+                        command,
+                        local_attempt.parent / f"{attempt.name}.log",
+                        min(seconds + TRAINER_GRACE_SECONDS, remaining - 5),
+                        env,
+                    )
+                finally:
+                    row["resources"] = stop_sampler(sampler, samples_path)
+                    row["trainer_wall_seconds"] = time.monotonic() - t_run
+            # Publish the attempt (checkpoints, log.jsonl, summary, trainer log) to Drive.
+            copy_attempt(local_attempt, attempt)
+            for extra in (f"{attempt.name}.log", f"{attempt.name}.resources.jsonl"):
+                if (local_attempt.parent / extra).exists():
+                    shutil.copyfile(local_attempt.parent / extra, directory / extra)
             row["returncode"] = code
             summary_path = attempt / "summary.json"
             if code or not summary_path.exists():
@@ -393,15 +581,26 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--seconds", type=float, default=150)
-    parser.add_argument("--budget-seconds", type=float, default=1050)
+    parser.add_argument("--budget-seconds", type=float, default=2700)
+    parser.add_argument(
+        "--scratch-dir",
+        type=Path,
+        default=None,
+        help="local-disk directory for trainer outputs during timing (default: /content)",
+    )
     args = parser.parse_args()
-    if not 120 <= args.seconds <= 180 or not 0 < args.budget_seconds <= 1200:
-        parser.error("seconds must be 120..180 and budget must be >0 and <=1200")
+    if not 120 <= args.seconds <= 180 or not 0 < args.budget_seconds <= 3600:
+        parser.error("seconds must be 120..180 and budget must be >0 and <=3600")
     # The notebook owns this runner, while bounded_command owns separate trainer
     # groups. Propagate an outer deadline through Python cleanup of those groups.
     signal.signal(signal.SIGTERM, interrupt_on_signal)
     return run(
-        args.inputs.resolve(), args.output.resolve(), args.commit, args.seconds, args.budget_seconds
+        args.inputs.resolve(),
+        args.output.resolve(),
+        args.commit,
+        args.seconds,
+        args.budget_seconds,
+        args.scratch_dir,
     )
 
 

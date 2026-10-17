@@ -41,31 +41,44 @@ input archive is deliberately published.
 ## Run the notebook
 
 1. Open [notebooks/colab_throughput_smoke.ipynb](../../notebooks/colab_throughput_smoke.ipynb) in Colab, or use the direct [Colab notebook](https://colab.research.google.com/github/josenunezwork/snake-dqn/blob/main/notebooks/colab_throughput_smoke.ipynb).
-2. Select **Runtime -> Change runtime type -> H100, A100, or L4 GPU**. These
-   GPUs are supported by the official CUDA 12.6 PyTorch 2.9.1 wheel used if
-   Colab's installed torch is unsuitable. The pinned wheel source follows
+2. Select **Runtime -> Change runtime type -> A100 GPU** (recommended; see the
+   [review note](advice/2026-10-17_colab_review.md) for the runtime choice). H100
+   and L4 also work. Colab's preinstalled CUDA torch is used when it is a 2.9.x
+   build; otherwise the official CUDA 12.6 PyTorch 2.9.1 wheel is installed, following
    [PyTorch's previous-version installation instructions](https://pytorch.org/get-started/previous-versions/).
-3. Confirm the parameter cell pins
-   `281b6dcf4eb6d584d2a2d558e1deba2c273ef514` and uses the desired separate
-   Drive run directory (the default is `smoke-01`). Do not reuse a run name
-   with different code or input bytes.
+3. Confirm the parameter cell pins the commit named in the notebook's own
+   `PINNED_COMMIT` (the review branch pins the reviewed runner commit) and uses
+   the desired separate Drive run directory (the default is `smoke-01`). Do not
+   reuse a run name with different code or input bytes.
 4. Use **Runtime -> Run all** and complete the Drive authorization.
 
-After Drive authorization, the notebook starts its 1,200-second budget. It
+After Drive authorization, the notebook starts its 3,000-second budget (about
+30 minutes of expected runtime; the runner refuses budgets above 3,600). It
 creates an isolated `/content` checkout at the pinned public GitHub commit and
 a fresh `venv --system-site-packages`, so it does not reuse imports cached in
 the notebook kernel. It explicitly verifies Python 3.10--3.12, NumPy 1.26.4,
-Numba 0.68.0, llvmlite 0.50.0, and CUDA-enabled torch 2.9.1. It prints the
+Numba 0.68.0, llvmlite 0.50.0, and a CUDA-enabled torch 2.9.x (the exact
+version is recorded). It prints the
 actual GPU, CPU count, CUDA, and package versions in the runner result.
 
 The runner first executes the small grid-sim parity and ego-live identity
-tests. It then records five 150-second timing configurations: hero-only B8 at
-128 worlds with 2, 4, and 8 actors, followed by all-snakes-learner self-play
-at 64 and 128 worlds with 2 actors. The primary rate is the observed interval
-after a 30-second warmup and spanning at least 30 seconds; the end-to-end rate
-is also recorded. The runner uses CUDA, requests `reduce-overhead` compilation
-when a C compiler is present, writes checkpoints to Drive every 100k
-transitions, and writes results directly to Drive.
+tests, then one unscored 60-second warm-up run (hero-only, 128 worlds, 2
+actors) that fills the numba kernel cache and the inductor FX-graph cache so no
+scored run pays first-process compilation. It then records six 150-second
+timing configurations: hero-only B8 at 128 worlds with 2, 4, and 8 actors,
+followed by all-snakes-learner self-play at 64 and 128 worlds with 2 actors and
+at 128 worlds with 4 actors. The primary rate is the observed steady-state
+interval: it opens at the later of 30 seconds and 20 seconds after the first
+telemetry row with a learner update, and must span at least 30 seconds; the rate
+over the last 60 seconds and the end-to-end rate are also recorded. A GPU/CPU
+utilization sampler runs beside each timed configuration and its mean/max are
+stored with the row, so an actor-bound run (high CPU, low GPU) can be told from
+a GPU-bound one. The runner uses CUDA and requests `reduce-overhead`
+compilation when a C compiler is present. Trainer outputs (telemetry, logs, the
+final checkpoint) are written to local disk during a run and copied to the Drive
+run directory afterwards; intermediate checkpoints are disabled for the smoke
+(each is a synchronous save in the learner loop) and only the hash-receipted
+final checkpoint is kept. The small results JSON is written to Drive directly.
 
 If Colab disconnects or a run reaches the total budget, use **Run all** again
 with the same run name. Completed rows are skipped. A hash-receipted checkpoint
@@ -94,7 +107,11 @@ uses that filename locally and does not overwrite an existing Drive result.
 
 The comparison prints one conservative row per configuration. A row passes only
 at or above 21,600 transitions/s (4x the Mac baseline); incomplete, failed, or
-malformed rows are reported as invalid rather than passed.
+malformed rows are reported as invalid rather than passed. Self-play rows carry
+a caveat: their transitions count every learner-driven snake, while the 5,400/s
+baseline is the Mac's hero-only recipe, so that ratio is wall-clock per training
+transition rather than a same-configuration comparison until a Mac self-play
+rate is measured (a 150-second `--all-snakes-learner` run on the Mac).
 
 ## Validation performed locally
 

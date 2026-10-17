@@ -16,12 +16,24 @@ def test_completed_configs_are_compared_with_the_4x_threshold():
                 {"name": "hero_w128_a8", "status": "completed", "transitions_per_second": 1},
                 {"name": "selfplay_w64_a2", "status": "completed", "transitions_per_second": 1},
                 {"name": "selfplay_w128_a2", "status": "completed", "transitions_per_second": 1},
+                {
+                    "name": "selfplay_w128_a4",
+                    "status": "completed",
+                    "transitions_per_second": 30000,
+                    "tail_transitions_per_second": 29000,
+                    "resources": {"gpu_util_pct_mean": 40.0},
+                },
             ],
         }
     )
 
     assert report["threshold_transitions_per_second"] == 21600
     assert [row["verdict"] for row in report["configs"][:2]] == ["PASS", "FAIL"]
+    self_play = report["configs"][5]
+    assert self_play["verdict"] == "PASS" and "caveat" in self_play
+    assert self_play["tail_transitions_per_second"] == 29000
+    assert self_play["resources"]["gpu_util_pct_mean"] == 40.0
+    assert all(row["runner_status"] != "missing" for row in report["configs"])
 
 
 def test_failed_or_missing_configs_never_pass():
