@@ -1,0 +1,4588 @@
+{
+  "family_counts": {
+    "counter": 577,
+    "decisive": 577
+  },
+  "original_provenance": {
+    "receipt_hashes": {
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/bank-00000.provenance.jsonl": "b0f934e0a1d213226ae327ae15933c806fe655a7517b8d86ba67904e8f54243e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-frozen-c0-i36-s3070228366.json": "4f6dd2b590ac1281bb5e39d809bfcd63b9e3adc68b47a4bd52f77264ce0d7331",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-frozen-c0-i37-s1392305398.json": "553a7d5a2106b2a054c5019697e937c14c4c2fbb95f5c16a7445ec3caeb890c7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-frozen-c0-i38-s1800400092.json": "0cdc7686c7f8f855a5803753c19dc30ff948a9f8cd8ab5f0541e254e948e0843",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-frozen-c0-i39-s705684528.json": "4bf8cc65f70898b51763af42cb1ecc57c9bf8c53b2400e99330cf4e77600428d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-frozen-c2-i39-s3816534586.json": "cf9ef7e9dd2d4f4c28765e67bb0ee9368922a9765c14b56cd6683058735d1831",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-frozen-c5-i37-s172444232.json": "d1bace4b785fa9a159dbf59f33dac827abd5616492d77e47c41037697c059fbc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i27-s2255099631.json": "6a266a39301831bf56a10da3bf4f1a96516ec4e219e7697ac16df1029baac14a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i28-s1589824888.json": "d539f8f2600bb62df3cf978652ee260c948132fe3b8f36df74b91e5e4dcc75c6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i29-s3451809799.json": "b1c703c8608608cee925437060815389ce4f5c3a958e6b4b7e51ae3035382e81",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i30-s2294530.json": "ae81432e2c87e690ac372b4312d1b5df1dfe0e8c9fab230ad0552f31a9cce14f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i31-s833495988.json": "4dc6fcf4cb1cbab078f04586568f8db9930c94da4be29465cbce34eeb49a27d6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i32-s1282464153.json": "85083d53e1a2623a217fdbfc3392f9c3d7e0def8be61b7140f79012d8bfa1f27",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i33-s2194956800.json": "2cffbfca42cc38337a3af298d422bfabe39510cd358f7ade39fc7e33a9ce53c1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i34-s4099930730.json": "4f05d9003f639c92278c3c1dc8c268acaa9d9b4c7b24b901ed5e65fcbbba67f9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c0-i35-s1868214109.json": "54bce43f3eca126cf6f816667833b79ba044698d72164d2d86057aa8a8cee6cc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c1-i30-s3736807180.json": "8500c79be0d96e4ae04551ee726cfdfb910c425d53d6d917c78763407f696514",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c2-i34-s1255099705.json": "e7a8ad8e22352d9f65a5b8a306b15bc002632dd370eebddfb34320787cf6a7a4",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c4-i31-s3296819663.json": "60d7000a65d22a64c8d14366120d28054572bb7fb95444eda741a01aaa1d9e93",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c6-i27-s2088977902.json": "2726f8de9d5e8d5ccd6cb61c246967747402c9077f1cbadfc8bf821da67072ea",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-mixed-c6-i32-s2564988402.json": "0b17cdabb03da6bd9703f5b5fe4d43fc6deeeee90002524d6b5efd72b850e081",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i0-s453397780.json": "d1ec687fa3dc25278065bd7cd24a4661606e2922e65b97867a88c9cf97c3cca2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i1-s3487112235.json": "f5f8594a85046c88234d5284ff37a9b20289d0a7afbad1c7317693e77ab98771",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i11-s3619177785.json": "eae78ae0abb9d6dafaa4cce4c14af818f37e5201b911051f413aa835fa809c09",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i12-s3659020314.json": "d079cd9408a7eee43eca2a73d03b16d54477a2220b6478d4b7a3d63bcaef1faa",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i13-s2810789686.json": "42f58c94ac2a062e02d0c62071070097508121cf84b893e60f0e8aedb48a6bb0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i14-s3921707978.json": "6c2128251a96aad9e87faf8a8c0c67e07914c605913ba68b81ce77bb179d8e8b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i16-s1228894508.json": "3cbc9dc5e4a3b25c67e1799f9a8cc1d1d619e3bc920b1c1947e880e32803d7d2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i17-s2404348116.json": "f49f43648be32db84bbed359201cf3942bf17e261e3e3c9da5b5cd23a0918c24",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i18-s2850654520.json": "a834813885fe7af367df3ebca767f79b2753acd7ec936f6e0bc4c2d4b5f204a8",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i2-s4012095132.json": "7d879482fa2a012be4d6bd6c7a7933352e693018dec5e56d9f8ad20a6481ed81",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i23-s2585834906.json": "4fead2c21d76737f4f1f911d6ffef417dce5e9d74e1f9fafc9a0ea4c2f696023",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i24-s1977845399.json": "92e917b107ca42b3d860442c466e5a4bd57b88cf3040baa824b5c4f11bf2acca",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i25-s2388028753.json": "9d4ed0c64e443ce04b7f6ef7d2dab5506cad21912bf828b8a8fe9f11ec839e2e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i26-s299770390.json": "578e7c1eab7363d45d174d74881f9c841e7c46642732b9c13a41e3fc444c8b4d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i3-s464797881.json": "5b5e3b51f5fd847793d8288d4651fcec2e55c0cb40ffc1dad86a41eabfc2585c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i4-s3442825133.json": "09cd1e9ad56fba6cc9fb328899c6de8dc501d60d7c0c884986cfc46f2b00ff4a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i5-s812485867.json": "3f6a235f3b4bff7526bb048f58650c03b63cb56bc0d9dee6d45e0e19398356f1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i6-s2960080002.json": "4570926c12ce302c0bf740d455ec91455295448fdf352abb31c29bd8b6345e24",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i8-s2233020351.json": "82eb9792cc4f69d1eba1cbd5653f17592a7acfdf7b93ea602b2f792375c878eb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c0-i9-s3390446013.json": "369b17babf2180d88a45cd846710cb8861d577d33ec9f1801330caed8474ffba",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c1-i11-s1594336193.json": "81a61897a781a17d0a74922a9bd98eb470f4de3c9557c162b5389f2f5c5107ed",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c1-i14-s2913899960.json": "882a93a7081d442402106fe10a19862dca48bbc1c091fee3af738dfb9e8cab9d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c1-i15-s653495702.json": "f4a1e8e9fac74309f9582b19bba0231b42234149b7351c1bae869db636528c0b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c1-i21-s101782940.json": "b52a4e366138abcf9a54ed4a6b764e2612c137aff061e4bd9bf3eb8b0f7c1952",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c1-i24-s2495238697.json": "db6290519392c0d8e86f8f54e789c36906504a193d91f40015779afbf79f0424",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c1-i6-s2859224992.json": "c0f26923e4296e566f6f81c56b16b2a1888bf2328bfbce5f457049c0232ab382",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c1-i7-s2333611230.json": "f380d928e120bde1d67c94ad0feeb5b37d38e8f58abc138fe21d8fc38f4e716d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i0-s1897287859.json": "3421986048313bbd64008cf344990618517a3e92d21ebe1b5f8104bcd19803a6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i1-s1009783807.json": "1d8b4eb5cc72a5ded3c8ae8a9f01490539dfd4b3c733cd46600fda2b250566ff",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i10-s2699603013.json": "76725347807e08724b1aeaea0e720af385ecd977403be96fd74796d6359d670c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i13-s2756300338.json": "7b52cd7469f3d138fe8603fdfb2864a336d4baa1d44f0578ec789be7b9d0be92",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i16-s2410812688.json": "451422255ea3c6c78ac98d24ce23b3b5ed8ab0546929455b42ff086cb9987d65",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i2-s3770654567.json": "14c64c18d1ed92994835dbd4b276dda63616e1b261fbc825e2e42ceb80829959",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i22-s388836031.json": "93c142e7a57a93a435606273c8275e5be76bd876aabb45b76627e09205263cbe",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i23-s2239032140.json": "5a3d2a6a54f3cd2780ebd6e4eface1699998ab00c31d2bb3d449f801f8fe435c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i24-s190005917.json": "aa1eeff89b2d6f221be2f2655a1aa8383c4629963862952bcb93f41baf7ad102",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i25-s2762567258.json": "8e34933be71da7dcf5642ffae242d3d6d25d6e28903e8f00eeeb8390a2fecd0b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i26-s674274278.json": "3df2d7391a737cf64ba5a673832fc0ca418a7bb83a3c58681060018e03be18cd",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i6-s1344484797.json": "f2d8ef77caebdbc170c4044a5b6fc1fe71dda0f392e770e0b13981d0d6411de0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i7-s1526628101.json": "95c7d8db638602cba7ce8383b846c74875a3fcdad9ead019ecbe4d8fba0b09fc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c2-i8-s2778131036.json": "ca5754d31f7626f4c84f1c86d5a5cb52c42bd76a649f56c07c50840e680e7208",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i1-s2847956643.json": "6ba5a2b27ce001cae2cc129d75b7f1e816121f46eb0cb31945d2f35a8086fc0b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i12-s2056221417.json": "ed2c81476c4c9b530d07f8d38db64255855d770d843a6b70db1b3857c0e0de2e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i14-s2214549593.json": "411ff2daeffd70302abd4fb93a072934546dde9c2d8ff02ab51a34ab29bbd71c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i16-s2564491946.json": "b21b415b3b03e44e4c5ead8e2c04a7648738fc791847681375a1e5c83c115362",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i22-s208301658.json": "353c1d2484e40d50a197c5c66458c58dde716f0c09e1f7b40d8977e18eb7f65b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i25-s3644780807.json": "d5662072e234a897ecaba91350e3a4b6dd3c44b96b8f234725c203955cd8827e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i26-s871663987.json": "834e780c6fc63c213402a04ea16cf3af73b3898c3aebe8e04c3f22c25a02b545",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i6-s2905649611.json": "5bbecdb0f7ed0fd6d136a3456468064f85d0065de4dd436fc22784c9f46f9a38",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c3-i8-s1477423453.json": "bbec60fe8b05f8542b4f1556f8a4f5734d064c2ae1fa9906ef56815c79498807",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c4-i0-s3808425899.json": "4dc0352636c6ead21c3d83428a5585b9cb189c199745020f6a7adb65389daee7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c4-i11-s4077207938.json": "edf4344574c019c32acdfee786f14eef882238a20f65cc3b1a3dc181848c3cb6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c4-i12-s1936314109.json": "5164e2e621c82367ebc91c430182c21fc3dce52fd08859c4a7efcf7de21d8761",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c4-i14-s3322049739.json": "aeee14eea90ed353df002eef28275de14a7bedaf1abab89fd4d379e729937f94",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c4-i15-s1255192373.json": "7a551397b27b11d9e54bae05d3639eee490d84d41cef5a606875b7077d41923f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c4-i16-s671734761.json": "6ff417e52834751544579a68a3ef2cab1c6a8b8211691789504c22e5bbcb6c6c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i11-s4086203743.json": "04b8411f2dcc59c286e9c324bad41e0aed1d40149540bdc5e5879457fb095a5d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i14-s1512333695.json": "93928ce091a4fc8adf938360ea6687d7597c4e4a121cca0c7b8cd889c622029f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i15-s4089735852.json": "2380317e2f5d110047628c6e24f938f22f2f7d1eda49b122ca8f392d27ae541a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i16-s2734976723.json": "e8a5cba34e75ba57656e377ae8a27a29066dac9c0b497a7357444e77b8e374cc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i17-s3117821075.json": "f006e8bccd1cac4eb898e42898085735ad83b571e857d7581ffdf77565bc5872",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i24-s2204730214.json": "5807b657729a9014720315f6617052b39800135681969324525037f2098ea294",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i25-s3860898532.json": "6f2d2da01e151cd8be9a76c88189180383a593b1ad1bb34e33f34d89e0c06faa",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i26-s4119270665.json": "13cbfc47f705f11a0737209b0cd5ee3fc1e83c27649dce962982dc5b09c3001d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i4-s3638116599.json": "f6c97a9fab3e616eeae030e8517d832c52565f51e31f11f24a8be0d1f5b9edf9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c5-i9-s242315441.json": "3692f64f6d54ca3eaf1e868e76cc95bef22685e3d5e5e77fc612be5f32436bce",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i1-s2270730753.json": "74b797b5f09587e686a88cf6cb8aadb372a6cf6eacd6b02e84a1ab407889d52e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i10-s1023715466.json": "7337f9c9e2a05a7b276a1ee6493fa05b2b3a1794e6ddee1fb6319a6bdcb48afe",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i17-s1411079556.json": "dd8ea66eb08cf835924b81030c620e9e50369cb8a161a15f49a8ef97d415c3ea",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i20-s3431712387.json": "915c80ea8438cfeab21fab31b3a6e0ab3b19bbf2f3fe19c6e3ecd6b777ca073d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i21-s1933636670.json": "d830c2dd01f122c29dd062b0db96bf73e1b5a8fbc835a8b0498ca907842f654f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i24-s3234912699.json": "cdee500bb618b0f0bcb3292b7fa6dd2fb7277e3b3d4d5c6c6108f98054a5df2f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i25-s538869319.json": "0f09005f4794ebbb2982434eef94941984e3b6a2e363356660d27ab97d5ca241",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i3-s123793926.json": "5912ad67762df298aa3bb4fd349644500230a54f81abb1045f4d69974b8616fb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s0-scripted-c6-i8-s3080527357.json": "2e19771df894c8ab6f190ca298e69d86816bbee6cf9c3c926c68a39f48aca26f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c0-i36-s803908293.json": "a2e99fadff5c4995c32092ad7879dad3a73bb1013e6624cdf4f5f9b471938562",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c0-i37-s3526370465.json": "3a58a1a328eb267ddb327c84469c4e06e2d157f31f210a89d3f2a9f988885d60",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c0-i38-s2578438407.json": "a10bc027a09a42871be36d27fa79acedf0b8b2bde30a099239507a0e12752786",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c0-i39-s3994528642.json": "d2c33b8a8e829af72429d6c0a888c6580c87d19ff0c857c6f16dab7c1ba96d9c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c1-i39-s3957335571.json": "b1a4ec736ac2b9b6a2fa387c666f3d5a2ecc045d4119543ffd9af8056ab193ca",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c2-i38-s2831590279.json": "2ab883f12bf9ef4ade8725f47e167302dc2a0d56f9c11a2946b9dc5279c9d82e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c3-i37-s4160991773.json": "553cb75d27358554d3e7be2995f5c96885450ffcaec416ceb3f1a1530e668633",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c3-i39-s2783038289.json": "409205a81d06054dc6d43fce5353d3a501bc8675e0ce122abab5031e8bb742af",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c4-i37-s1986261555.json": "283d87cb825ef2db0fdba946d519d4cc98d7e198213f74e2b0afc4008130c1af",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c4-i39-s3362441460.json": "7bd27efcbe682756c6fb7aadb9bb789da319f9d04b7eb1a2ebd08fe6079348eb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c5-i36-s1685004131.json": "1d253357657296fee4b651a0440cd98e6094d4c0ccca1d2e540edaaaa3eba028",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-frozen-c5-i38-s3314962183.json": "932c4db7ec90096fb005fc0e18f3f2376838906b6c2a8c9d752eec4c26fd8066",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c0-i28-s3127976387.json": "7fb75da6a1964832d0c5a6e251b8d495eabc73b4a5af297a0b3bbe55d69b31ed",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c0-i29-s1150521767.json": "62c4845a05ff641b38e79400ed6776cf90743b63dd3af0219604cf757e2e8cf4",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c0-i30-s2106917346.json": "028359be00d7b9be1b35c71d11b27ffa9937bfa8499058866be6472f38af7eee",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c0-i31-s871577566.json": "9bc1f74bfbac9cdbfa5105f3988ea7ccd566a26310b5f84ef40e1fed8b6d2390",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c0-i32-s3734071719.json": "733eab87eb09f953a7b156469a2b49a9313c8620cdb464490bb1d6f7865dd31c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c0-i33-s3727178878.json": "4fb9674210afde38f658d8ec7c0d4b2f573f5ba05bd81040dee567499d8304d8",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c0-i34-s1609667230.json": "c56a844ad4d6d56a4b48cbeb566c8f5da8d530ac015bfa58a3022e93cf33627d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c0-i35-s576144236.json": "ee672d0f5c9e0ad7002dfc409bd09f2db16656892d21fa2a6162e344e74bcd67",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c1-i31-s898072553.json": "e83a92e6a82dbf32b12aefb4732761761eb28fcb1ff8ced6c1e47e4d3dbf5c7d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c2-i27-s3386275939.json": "7618cd2dc075ee9eb9811620cb9579a90e3d8973d4d46361bc1e6e1ae1e30ec0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c2-i29-s1653231728.json": "a501bc8e1f1fa7d6548f74921e20d8c5d00d03e4e53c50e7d79b2f629b9433f6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c3-i32-s2873137647.json": "70a48b95b55f2adc8f236975597d61d586cd17c40bb763cd680adad6540b0d80",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c3-i34-s404605013.json": "1c195108a271abfa8a302f003b2c281ed9a874ec571ea6e824f943ed49455581",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c3-i35-s691869602.json": "421fd6fb81d7c3da767a44dd2809814d0c7c5f71c3a6c307a89fc25a2f1202d7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c4-i27-s2019495044.json": "cf30933c366ac0c0aae6b74d4c325e3b5cdaf749b99a5dc97adccb16c5c25604",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c4-i34-s1587832978.json": "860054704ad94f11a2af70c6790b69d3cf4317f3d8fd2d6bfa8ccb9d9bf02c7c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c5-i30-s1899699205.json": "e3f03fbe77fbef89bf4137593992fd6d16e6724f10b8ed6d4cfc2c2d33086e25",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c5-i34-s2156792018.json": "83e883efe049ac150f563c225f65ca080a9a943ac65311a8252aad58cebb682d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-mixed-c6-i33-s1195558343.json": "62282761822c5fc646ad31268b17d0a5081d98021dc69fb1fd32d74d9514e598",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i0-s174629986.json": "0e491e03fbd6ba8d4f20cdce1a97a396be5cb4510cd4488f9ce035d89ef9d098",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i1-s1663060505.json": "ef887a36ea9a10b5d0bcb0d3007b9a228609f2ce266ef81717b9a4dda7ae0aa3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i10-s1747625158.json": "c1d0d4b08e483cca44d0ba2306f8d61174e4cde90bfe80c16fc1bd061206ae30",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i11-s1414244312.json": "ae19754f771042040e3e905167c4ac024664d43a7d612173d1aa87168e9b0308",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i12-s3074353603.json": "a9c1f31a3f42362c507e2559e539baad975ffffcb9d87c9d2263f8934f744d3c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i13-s1375455011.json": "6120a3da34b88f81cda4cd70972a2b7b9be62139ea1534b9984bb17e4ff4e052",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i14-s1723822695.json": "003e034fdb722b4f0a3cd8453a6d7551871a0a086a15b881b5ba6e2d00188faf",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i15-s2329125210.json": "028f22f1d40eda3a24d822b579b92e4d6693b2b404244b5658a0d5404ca1bc9e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i16-s3943552131.json": "cea3da4c31e4e11d0c7da908781840cca7046aa369fc2be01c3cfb45227c0ba4",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i18-s3516732976.json": "7fcc109eb375daf4344327314aeb647af3c4fc73e732e795a4168c5d10017a0b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i19-s1522523974.json": "ade2f739e611d95609285d36236de99b460303d98c475ae0ac787707049b1922",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i20-s2142349056.json": "a0ac36c5983b54192e5648cca3a2460b7d7125c808d7742cf212aa75598ff83d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i21-s1460660980.json": "e14787edd5b861b26e99d0b8805d44ae2bcc5c6150e761b484b7d8b0aa8a815b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i22-s2905239542.json": "6587e43975506706cc0db1485a0ab1738067b6ab4d3f9b90e44bcf2a8861d0b6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i23-s1266672372.json": "ca999942332150ae76c51d38ac82adcaae1aca0eabd1403e3719d17ecdf4a656",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i25-s1160625134.json": "9bada5207f77cded13fa8168ea602b5fba77c487550b9cce150eacb00cc9a926",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i26-s1820876814.json": "934c1fbed015618f861393b075284bdc3d68f4e7f1c0ad90deb554d5e1f06a62",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i3-s3530271687.json": "3f2c9ac54bb323c1a411c123e1a41ba347e9f00da2437f40d5af89a3715ea07c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i5-s1519949766.json": "03d8561b566f2fba0a88e7fed5a182f39a97a7d5f28d0b50ee1ab9a9b5f84155",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i6-s2655021164.json": "23a82d2d2763844efbacab2eafe4e24ff8f50caa3c0aa9ed8a477f8acb6500d5",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i7-s3765412718.json": "ede7ba6fb3bd2e69d0dc9d4be3fdcbf05ff20d24853b95cfb91f793bfc3bfcbd",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i8-s2823353973.json": "808ab075b0aed1b7d77d3c86fdba6e10c7def8a4a874b035b6f1a9dfb1677d5b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c0-i9-s3528545479.json": "b21a923bfb0a6895909ff768f5ea89301645f291d7ac03925e6c4fc9dab6daea",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c1-i0-s487932591.json": "2053afbd39fb6e18e60b6cc8d4390a4ba33bc33b66d34d1d1bf1c0592510d917",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c1-i16-s1356757709.json": "336f8af7fa78929f9f84ff2d9363e38fabaacbde5b8f58f204d93a01cd5c4d71",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c1-i23-s3752560001.json": "9f2c3b008cac66b4080c0b8a42315f66bacc1a9263739e9c2d170d8ed2281003",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c1-i3-s1537269363.json": "4689468f83d26e3d07a9d9f0e5360b97b3e78ab71b15e00a76e2e8fcf8ff18aa",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c1-i4-s3496256318.json": "1da02635a19d97bfb74ed99c8d0c8ae002aa174e38f25f505d5c89b6a8fc48d6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c1-i6-s3217389616.json": "5e1cd622625b759bf2c9de706cfeef044a2dada4dafde68b332400d416206d0d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c2-i10-s3321574492.json": "49c3403a639bb55de6e019daf82dea98977e406b2f92d34f9e24521cd9315b08",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c2-i14-s699902269.json": "ecf83ae9953675ebbd7a5887f7c19f75875c8df06d2588ff241b8c9f1000302b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c2-i15-s1607225087.json": "1031cff99f6a17c2c44df22483b02161ff02bfb8d66af81366aa88a6c2b7c000",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c2-i21-s2835020254.json": "42de734d8864747c0ae918bbd443f082c0f53a27ad031a8be6e229d01202af58",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c2-i22-s1073102862.json": "a46f1332826e7861638e31b996a128800d07b56a8fa33e4f2e3a3f720c55ee9a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c2-i23-s1040944826.json": "cbc371a2a37759fcb2272ead5ac24aa78c03c1fb0ec320ddee0545286896b0bc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c3-i0-s2517475901.json": "ab4785cc71e566d553eff9d287d7fdde4ed57ca2c402ff35c9dc7e54e4ee3894",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c3-i1-s874461915.json": "43f3a564cce79c33db575cbeb7205bcbc4cb52653433b4c25c354eb8f80ba27e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c3-i11-s2691002295.json": "8154e996d1930945fbd46951ed9eb924ea6b6d595707ca6379a2be01d145cef7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c3-i12-s3803322972.json": "5f4f344e92e6b271aca6d048dd3fd5ab8f1aea263539c7c942a670a16111f2c7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c3-i2-s732494293.json": "302a84f5bb193d19db4653fc61e5b866995e104c5ec9f08b26ec5e6c98b1682d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c3-i25-s4288577613.json": "09b3226ac6a5f05199917bf87ab2785715c39b91477a935e9cf446493505db05",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c3-i4-s1767300407.json": "ac5339313c024b34c36d73a2c2a86d830155a8df81afc154b78b25eb7eba210d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c3-i8-s1529040371.json": "1265061b9c98cdfc8eff4d4bdbf18e03384e3506697468ba9727af5ecaa5fa21",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c4-i14-s2964886375.json": "b95b6e89fb6ddd40a45c34601637a6428a3c905a931d07a428a937b6ce2ffaf6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c4-i16-s1565227891.json": "00c23b0de24759aa806195c1cdbd305bcc673a0624d590cc320d61a26285aada",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c4-i18-s1439551731.json": "26a53393fb814858b6a692aedf6206add6229606f0759f2ce4a94e0e2587818e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c4-i2-s3912881643.json": "fdea371c81cb95533da54d9066d86f05ffcb4ac46c021cd18b561c023ac7cf93",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c4-i20-s516968104.json": "c7960cf961bbb5e5b2f4f7dd4a06c8aaed2c253c95095b62e57c7107301dccc9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c4-i25-s1286432903.json": "dd4f37c6cb1719d738f1b0e50812a6077767292db1a70a026ea52edd6389f18a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c4-i26-s3975923850.json": "876bf57cf8deb7594f491f7e863076132716a464b10a38898ffd410c7ea93940",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i1-s1262115014.json": "be1825fe2e4a8d1d492f55a2f7eefbcbb20d2cd9d1372c31960ee62ea4f8f336",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i10-s3806262093.json": "4a785169e84486442dde5dada48f8a139026c2a175afaba0582bca1edf9f09ea",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i11-s3683762664.json": "bcc51d314bf8adb3e2cad31c69f676290ad2e56e887ac52b23da6ad77b503bb1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i16-s992837701.json": "d820a34462aec63fd56e05beae07159010aabe87dbcf1ea98a2629893e607a6e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i20-s2738580888.json": "d2a4485ebfa8780db7eeb4f9beffe654ebec29e9e5496dae54b49b09c5c5e9ef",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i21-s521580456.json": "43393d84c1af707648ce23bf2bdfd60e0836ff9c2b5d92690ac76c98a3786b98",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i22-s1320180743.json": "b1c4cc3017cdaecdbaa62e2fa2db35509d7e2d6f1b3a1eee00bb520d7262ac90",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i24-s973060269.json": "3382f82755cf5acb8ecac7eea3e32769e6c70dfe1a4064c773dd5508626ab565",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i4-s4144653090.json": "ed71b286f459b02e521d26f2b810086ab887ad36c2bb70a43fb3c035a39bd5fa",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i6-s214293554.json": "0e31b5b8ff7160b99884e905761cecfb2449fd58fcdb270479af5c5c5995f2c0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i8-s601381932.json": "499a3fb1af76480aba0e366a4812fe0105dd2a5f2ac38d6017ef331878fe3e55",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c5-i9-s783362160.json": "6d1b1390c5eec655d79176a873d4f1ffab9742fffdc2b4ccff53919b92f80a91",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i0-s2376036930.json": "28b47b70b3f53094f20ee26fc647141be6d4fab0bce17fe1a2ae7aebf8566732",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i11-s2201954066.json": "374f716d1882cfceea0d58390f9a84e4aeace00e828989b1e99caf04d9659336",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i15-s1056673567.json": "42173f82da2bc981e816bc45a874d4e450bb777ce53cafb619c6427799436b0f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i18-s787554431.json": "ced520d223fcccccf29d27d85b500ab9846f9231003e87188ca92e8f869954b2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i19-s1883770966.json": "cc4b2628cf6aa5912cef1793a243b6c909a2eb7c8471185f04846c0aa55374b1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i22-s3926577557.json": "39b3ebf105c2a600b2f99e84897e38736902af9b742340e6b06f0122bed0cfce",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i3-s476279390.json": "c4b329dfddce3012cfd937515733ac798f5dd00212f34cac78885a4ac5834d7d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i4-s2159487313.json": "2fbb8b3ef117f1e2e297ea8527b2c0ef399fad5f0077e27834247977c7516e0f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s1-scripted-c6-i8-s147402258.json": "7abb5045a5d3516db7babf720a4edb33c1a226faef3e54823afdfbc3c6b58b43",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-frozen-c0-i36-s1351382780.json": "387c6c49c24f77e7ccfbe440fa2d914fffcda908ac32134e7ef48feb9f250f27",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-frozen-c0-i37-s871136727.json": "e420243d7126af7a3861ab1ee9f5c7fc46c5e21d6655681a8ac8d0764bbcc9fc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-frozen-c0-i38-s1151026375.json": "fb8f82919cf10f1a6bb09954562ad5943901d5599dad856de6c238122a4be4f9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-frozen-c2-i37-s4244141599.json": "215b4cee5bed9690b43cd2430c743d190004c8abf60b6eeb163ecf3dc314757d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-frozen-c3-i39-s1894422336.json": "b0a87c2a7c258bce3df5ef6edab4cfb66aa549faee918838488069770cd5263b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-frozen-c6-i36-s3425554089.json": "198fb891015fc6f6dd8077af62f288b366b380e1a46952a96e12d2131010f9a3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i27-s2684153235.json": "e2a7e45e77703f3f2191eb6bddc53fae86d18991909e0e1255f1ed40d7abc57f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i28-s3637983356.json": "e3d5a60afbc8bbaa0dd2852209129c9265f09f0396880adcc92ecbba1ea70ca2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i29-s1301318368.json": "41160da1482bafe34820cb7041c07fd9cd983c498c94b1253669cd6a1b2ebd2f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i30-s956397242.json": "2385c57ac9d6dbe1749711fedb5a73bf9e85ed517b3f293ca5114e95b59dd2b8",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i31-s2733674030.json": "fb6f20c7453896472ada6381795ae8f26b63548126be94dabab8d6f4e4582b2c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i32-s3093270087.json": "76fb1488fc03d91038124babfc932892b1a845b61418b83daf8efc2ecae1e625",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i33-s250281405.json": "3a9ab7daadc5599ea171bbb7d046e454dcf8919324eca7f72d4be7da5260ae86",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i34-s2427274726.json": "2a9b130189f79293337409a1336d63a4dbbe768f8c93f73be622aeb86058882a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c0-i35-s4214553979.json": "4cfe7067d739794fbda14f008fbf552aec16072c16af6cebf71005eacfa5603c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c1-i28-s1733510015.json": "fd340263a4330fd1ff21fabcb5ab9163394576f848f77c940be9aa7ee0def675",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-mixed-c2-i32-s3865234165.json": "cabdf63c12181180f8621603c9e72cab28437386bb983d3917147cf6a980491d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i0-s2375474787.json": "c9c4bec5628bd0b670e9f71870634176f9db07231beffca4e84546efc3bc022a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i1-s482392554.json": "707349e5db32143fe12b6b1de6be6e31f01961204ac1880efcc73637e8db5ba8",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i10-s2170743600.json": "838f36777408cba0964517aa63596456406711b691917d39ab4758a3e9222675",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i11-s2580905092.json": "3f2271afd945bfe9ceef6e740d60708751b8bfe06e7335aa33d2fdcef58c2069",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i12-s1180839355.json": "7e40b5a19c1d3901095798cfb9fdc0aabd808af4a0de7ffe23c4883696c3d7da",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i13-s2800956483.json": "c78a1e3463402b70785cb2e5e12c4a7e7d6c6d93320126c00bcaff1c9c6e5727",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i14-s3859904950.json": "cd499e97efe927501aee2904c9dcd1335289c0872e113a5691b65d9f3f85501f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i16-s3770023016.json": "61e38e43e3cb26bd596ece4953f002cafb74a6d48c8168c8e784b878a673b301",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i17-s3401456273.json": "03da9144a189a89e0676fd0730eb2255d56521143fbc54c88c5e1d9a94e75c66",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i18-s2422701014.json": "fc6f3cce47225a373bc9b1d8eaf79e14bcf5c280670c6dd81aede49a655ced67",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i2-s3168202376.json": "9d6650bd8fb183f77a9b30350e028823cf1208fb5be7d28876341803032e641a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i20-s3390513585.json": "08b336dedf497db714bec69558db668fd9ccb58e1d08811c3fa6a1ef3efb7814",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i24-s616911776.json": "802dae1bbbded9dc35e141b7da6cf8fdd1f33bb0dc98cc24be5e68d0940926cc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i25-s4112128591.json": "bb6ddceafbdd9ea9ae8944ae90068a86b63fdd0bc8ee87af7be4cf3a607b2069",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i26-s2743854340.json": "c9d4cfc8969bdb33c81f6f00a69185e05a60ef3063ad31908ccbe3337fe62d00",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i3-s2005532353.json": "86081e6a77f1fc6a0c4ba72eac386b9fb666f029fbb25e4fdf900aa7c2e7e53f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i4-s3916660734.json": "fc0d40ad7e401dcced17d27fbdccc627f560ff091a3c349a5ef8926896d4fdd5",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i5-s4284142896.json": "f8f68533bade0a8dd936067cb0fab565b0fb15c89913ca81d1cce0c2723aa0c5",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i6-s3523688458.json": "3f5e4ba895773ec0997484a6254de0683cd1b7f84105685ab3dda61c9eaea642",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i7-s2975814990.json": "e71fb6cf309677cb0400fc84a9aa61ec6901f950e0152820d4a1a0d1af1d3b2f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i8-s1864293705.json": "b8066d5cca67cd9928b8633e3dc62e4df34a6ef0ac2f71a9d8e736c008809208",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c0-i9-s3457973081.json": "7c9679da8f6af988806849b289a3a97bd6e8fc68431db4544a3d8af1b4409dd7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c1-i20-s2427837638.json": "0d5097612f9f35cff42a864807fb87687eda3f52ca90245ec0c0ba3085504480",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c1-i7-s2911501382.json": "00ce21edcb8cc2171f17b5670bad28aaac85acadbcedce674b573237283c1d37",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c1-i8-s3279204803.json": "efb78ef2fdec93bb9e2e4ec67d13bf10947594b84d4c1ccca9e64efd46055945",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c2-i12-s1893547874.json": "ecf54654939007322a4cf45832c198ebad2fc4f3612c397074c3baa6ada6566e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c2-i13-s2298916797.json": "fad7cb506423efa14950a93d2573a1dfa42ab66d1385f09509b651f0b9ca517d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c2-i16-s1706811404.json": "d45e59a1e8963d7e48c144deb9ecee3c65abb304c151cf603eab227831ab70d6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c2-i18-s1721578077.json": "27ffcc739aa3717a239bf386bbd8e7f7d82c4818ff2b37648ce23a72aa6b8fe9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c2-i22-s2529727006.json": "5080724c26462fc8d8a2103f2f65e810d070d2ef42f079e98503548b642a2a17",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c2-i25-s1657220423.json": "8f5081f5864c34daaccdef5df9299d946e9a63c2666656d10cdbc5f88097d482",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c2-i3-s3637157840.json": "652736cabb1caf1da2f83e93e4127a7bce4d2362a5e2a1ff93e567010e7d03de",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c2-i9-s652061757.json": "de38e4fbe513250c3df62a434b5aa95f75f63a30f831bed04149f8d6ffc05bb7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c3-i1-s2415542203.json": "113ba73f16b87ddef8d6b3d113e5e97a05ec619334593562a163cda01b426ce1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c3-i12-s3803734807.json": "d54e34f76dbf1f291fea97094e28a3730def6a785eeac29c7c45d1ddfeb13486",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c3-i21-s1285067368.json": "bcece04c4aa4ae67d87be2f015f7616d9f6b74eae3de205ff86b0ee0594389a0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c3-i22-s260186568.json": "0b2d6b8d0c19de09b47f0dc7dee63847a10c1c351d65e0a3236a0a65b1f8245a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c3-i24-s722675747.json": "e62b9e815d849cf422d139f7b69f6cdc8322098c56ce62b7b52a8c0ba7e41bbc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c3-i5-s3548832342.json": "c1bf859dddf2c338a08e1942996320994cbc156868e6ef513df36a718ee5c12e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c3-i8-s2070636182.json": "f6b1b2d51ce5c1c5183b6ca8705b7d7a1f0556220181a213e01046ac1abc202a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i1-s2672868453.json": "bb09a7fbddf2cb922dae7389e68831650268bc5abe407ace9d000b0ea9b7e6b2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i10-s914638198.json": "e41134ce6cae873b6bb12e785034a4f3ea07ddad9ababe9e10f56dafc019f3d4",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i11-s2882527045.json": "78830ad138075f36dfc41da5644ffe0b4f024c663ff1ee2659f9e0d040519f3d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i16-s754549221.json": "a6c5937bdb42be6032e5e0411525657d058adee99efcfe0daf0977d87ee39373",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i2-s1873490421.json": "5ffcef6390a4dc4646ac3c3b7f3e62f95044aedc3d52ebeaa6097bfd3e3140f6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i24-s392398699.json": "83575673afdd063c21a4627160a6b13ecddb17295d9b8613e442e21bcb994988",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i25-s357925625.json": "f53973cab5c9f22ad5eda471c8f3f30c832d871ca912bc1e11948fc13c350f91",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i26-s2984906341.json": "92e8dfa4c6aee815895e293090d82ebb8e5c1b3039cd38094fb7a37e0f1f742f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i3-s1605977322.json": "d01d6d8da42d2d316ed04d310ded1cbb0f100e188c5e2d4518ef3ed7eb2f2ff6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c4-i9-s1072960410.json": "9f8a9ff35ffc1c58d6f867b4e831d8bbc1abae9fc5b3bdaa2184c40c12e36c3e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c5-i10-s4166717846.json": "e1668cd5b29b30a45297991a3ec7133ac285137e9fd02490bd5418720ea866b9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c5-i11-s1991906371.json": "877ad967aa6b82693ef802bcbbf9bee06379b8394dd8fddf7439fa8d28ede3c0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c5-i15-s4071339955.json": "3285f4f091e09f76b73d8ed52a123226b1d75523c09e7ebd4bdc67d4e4279017",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c5-i23-s1661239645.json": "70aba4618dd1f0dab7649b06eaa51bb7f706c8cd7dcd072e7183ebd19f606e3f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c5-i3-s1732888799.json": "9f070fb2e2d788afe27e61eb1823fc29ec0e97217d875a5ab3e21d862d6a0909",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c5-i5-s2925082861.json": "69935fc7daaa70eee44f26f2124599b128c8d625a34c1cb851dfe1e992586570",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c5-i8-s1366700168.json": "52dc5870c5bf848a3ba22aef313be2057b1e23a1c9a82ecd11707d12021e9082",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c6-i13-s984696236.json": "de8354e91c12282923953b06a6debffa32d3a78e166234167ffa7ccbe91acd14",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c6-i19-s929584932.json": "6a44259c892a475429d81c256fcbb5e32e1f22e9caae74c0f83fb41dec06eeb1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c6-i22-s2232353848.json": "3d4d5ec4332a6a27c5d877ade2be00fc9bbf3a4e843dae772d9d6f347915c98a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c6-i26-s129877605.json": "16fd9cad84c7819d62baa26dce4dde5731178f932b449d1864a8405c86caadd1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c6-i4-s1741873581.json": "1d0923f7a3280545069e7de62387644022c05ceea0f7fbde501d52485bd36316",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c6-i5-s2047026814.json": "3dbc119c1be3562e4524b60d241f23f48f719003015436dae09cacb9e6c2ee7d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s2-scripted-c6-i7-s892384057.json": "b2131c2082b71cdfe30bf86801a16ae77b1af23ba8fd04696394436c4961c61c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-frozen-c0-i37-s3578577127.json": "f846ecb53ecde85c409583442002be700dc4a37f6f57853b10140400e2d9eb53",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-frozen-c5-i36-s4107850458.json": "f17294fcd6c3e2ff59c70c75d22bae849ee23a988e6cd45cccbcddd95f826f80",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-frozen-c6-i39-s2725758393.json": "c15d6fa9f584ce4f0fd1a00c57e08013d721c1d87f40057c1cf7d1d822f1d1fc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-mixed-c0-i31-s3187295346.json": "f4056553d1b3a28cdab6b8b4e84b39406957629ab7b9999e488bc5a4ab2e105f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-mixed-c1-i27-s577842699.json": "c2876e542b026008e7596c2171cfb32f9e7e7c1a443d67a0fd0bc96594a9c0f0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-mixed-c1-i34-s1746902306.json": "11e605238fdf3758d3529aeea717d71df6c8fc6f7f86ca44c7cde230ae2f3bee",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-mixed-c3-i32-s1744722674.json": "5bf951ebfb73586f3eded262463f6ebe0e6c82bd2f463533d39bd4713bc56124",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-mixed-c5-i27-s3786645910.json": "967abfaec6e6503385893e9cacb831e7e4c3e49410e93f4e7650f7e9a24b028c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-mixed-c5-i31-s1577754837.json": "1894c0cb6d4d6c7ca7ec6a56305702d5398f93952bd9f9dff84aaadfb784523f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-mixed-c6-i34-s2663042385.json": "d662c131815dc1f94d499dfb7f8d3849e3b868a01c18ec828223d81ced676fe3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i0-s49231461.json": "0304bbe00f5a180ab46890c23d1a3a06d47efce9acf6b63d4e2446682dde454a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i1-s1538810678.json": "3cbaddc0a1e1487ce2f9380ae9054c88e0215dcfe487b1e6f32ca94b9d6241c7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i19-s1547932570.json": "b7e201796c430ef54063dd01e9c1ecc753f1f9d620fb485705fd569049660769",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i2-s876178772.json": "7e1537795257d797ba7774779ec68ec8d8f330af3bb380244aefcc76ef7baf03",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i20-s378543724.json": "f7c3ca1f5a01eb4489728d5dd32fc32bc941356d598663d0e35089593a673e4a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i21-s625776426.json": "7ee7b88db827c4a9634ef474a5b65c537ef8cb515a35788e838d4a3c9f60e60a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i23-s33581963.json": "f2253005513e397126e825327296149d02662d96b2bd2b0a0ecf586702054ff6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i3-s616953834.json": "1fec8b78b81a3ed52e520e3881a5b44bb48814445f5168466599151031d11291",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i4-s1986824966.json": "b7f9b380519f71940f4c07d8cbecf7a9ef168684ed2b4dc404575a0fc18f2155",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i5-s3604661909.json": "e7f232a82c62547455fce9fc04182ab2150ac54bb7b5737968dbf814ba20d7bc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i6-s236446307.json": "e99bb3961d5e53097e9a17f1c562eaa1e81f7db1d24ac676c903f50c9069852c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i7-s3090984136.json": "dd6789f3c6c9a13487ae797c1f07867d9fc61ca9eb78baa346ca58a1f754fe71",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i8-s3628921723.json": "29dd3f966ace4fd17c78773151e99a3ca33e401b1e27124050f3de76791931ff",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c0-i9-s2545798277.json": "f2a49e269ac225c36ef7934a887edef9233e95896c73940b22782796569c13eb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c1-i12-s2593274268.json": "21e3ed9413982ce52cf6dfca89a4307b13f3db770b8b2837b00333e184a287d3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c1-i17-s1888970478.json": "e0326d4487419afef4b5657a5771b745b36afac8e5d912ee4a5827e5fbb7f665",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c1-i3-s3753349342.json": "b2d2328fb3d93b59de4978db2f56db58ddf5d5f9e9c6598af1df0d65d422e01b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c1-i4-s1331921789.json": "f7b861f05f337b8ffb92fa2aee7aa9c64e8aa9cf1c222076d09ffa54016f4631",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c1-i6-s3714611892.json": "2a311b5d2b12c83cc7a742807426a664a7e73e5eb22a89d54664b53645b3cb46",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c1-i7-s1758542126.json": "4768b9fb4c8267670e9d7d005fdc978d07997ae2502f5496ebf036c0e394eaa8",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c1-i8-s2336973323.json": "eabe46af4c5db2faec108eac15c3ce7cd7def7027928b5d4713e4221f84d711a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c2-i10-s1136400041.json": "5a7d3ff9343c2d54c45650048e4dadc7e14836416c8b7d39566fb7b34bc32da6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c2-i11-s3123007569.json": "e4ba9890df2657e8a21af880c064b16fd1d926214da12c7ed40dd55cc75fd041",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c2-i13-s1451384500.json": "d71e1ad82266ffdb92e9613f65a5edbb83299c5ab94679c2f7f1128f3894ab21",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c2-i17-s2173532169.json": "0404cd25a51c09c72c14d905e9dc1936c6edf4a091eef87a5b3a6a3832895001",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c2-i22-s3531164347.json": "15d3ed3cd0fe6bf6f0cfd6d13828ab05ab035d7361537c19d8b3a0291526a3b3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c2-i26-s913515401.json": "0c6716edc96d2292ccd6dd222bd50e8d78cff95290b879b0ef610a34a54743e7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c2-i5-s3374821927.json": "311612539f7efa7a04ee1fbf359ab5b79d762c981c4bb2bacf737f24040bacdb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i0-s4119504738.json": "9c8cec1cd8403e3dee2e1aae6094ed053b508b5e584c6753f1d488186cd34522",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i11-s1503417004.json": "42218b52dbf950add5f705f4847111e513f3f1cd373c3ad79fb0cb65a716427e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i15-s3040902460.json": "17c27557476347dcdff68f2a08ee46ed9d9be4ef1b6cf34ff6b7f48bd99d6ed5",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i16-s1886363738.json": "0aa89ce007aef0e8c0323e8978b3cd104e56cb8891ee7091b76afdf2af028bb3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i19-s2787130018.json": "fda46ec92d20f830992878e3995a5be654bee09c16f5d8bb11fe5b4398ab8b4d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i22-s3959813716.json": "587505a2ee75f98d15c6ff16970b3ba83a474421b78cff7b8f71d1a5200f41e0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i23-s3075602133.json": "d986044bfec94af4799a4ae30c4f226bfb686e0ca4a2c81fd047946e5b8ef70f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i26-s3654555224.json": "6a21343b7fbf4c94599bd2c7e73090bc718cb7e5599015a0e501448a72b052cd",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i6-s2138737368.json": "396708260d129f3a670d34c2227b078c0d08a0a717e86692bfcebcd1aad2f709",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c3-i7-s209042451.json": "69c31b65dcb04ac22127865d9387587ced4fa894d29e466429343658080a7335",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c4-i12-s2125132695.json": "1720a2793a401dfa5f93f5116a065f3ffaff9c03e8143485b165eb7ed7e444f9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c4-i13-s3049697973.json": "3607c9341ee320ffea4083c458622bbb3158c0fc8daa1f57150c12c85485c08e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c4-i18-s3770052080.json": "0a050e84b77e8ede9bcb375a27e890f31b04fa33dd4dd3f44042d15e0861e147",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c4-i20-s3495503372.json": "553b3035ee6d3a5d801e13cdf459a47cd78f528ea847c21f1dec61aa55f2ed34",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c4-i21-s1739796157.json": "c4e40f0e44dce2a9fbf43ee9913910e08d14d2876aee64aa5713d3f72270d22d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c4-i22-s3028757570.json": "85fabfea2bbc03b2607068c6bbf61172630ebdb83b40042c69f8bc0ec5c0a283",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c4-i9-s3529805889.json": "5787e56c768126278ecfd4f7a1b15b98b6392f7a1650d5ce957ab30cb4dfc8d3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i1-s399765813.json": "4ca3dd28bf8c0cc0c63ca03729dcb65b3170e418db4ce5ab98e7180472a71e99",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i10-s3951923726.json": "410c19358d4d26d7c99bd6a6079f4dad911a0bdbf30d6b46d4856ac5d5f714b5",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i11-s926738014.json": "9674777736e1a93c9dba1668a41c48d0b1ceaa5160f3736f77dea9582b81f6a2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i13-s427892726.json": "384d8a66230807da31c06522423f3cd01f9f9168c6304ce8f6f0d2422c4b6b7e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i14-s656385165.json": "365b631b29222e5100404b6b11d5b5031d861d6911012b038b362ade0fcfffe7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i19-s3433807624.json": "2aabee4535482a4a3a212fdac42b76d1cda720d7eae89eee026d26c754de8b51",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i20-s1906637682.json": "d1793ff49e430843bc95b6d5eeae756a646e8ff98696bff06ace0ba16fec461b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i24-s2615063973.json": "7721ee383d2a74e09a7b83cdaf9fa851e5b785134e90cc3755fae7d6a85689ac",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i26-s1005454971.json": "5233af55b372c4834ef2a4569271df52897f3fbde6ef2564ed1ab53297b988a1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i6-s1301164029.json": "b3524d38cf8014931b3aa80c64fe6c55dee0092dbc50af800bb0ec578084424b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i7-s1790287680.json": "633a3d862e5f246846e24a4358e9d50539f3cd7b277f0123a20f8d5b979ba8eb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c5-i8-s1221085452.json": "3dd29d5773a4394cf5a4f6dbe0400bcedfd7a49e192c15005db5f737c837f829",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i13-s76363062.json": "54e293bfed3b7ab2ccb80f39e22450d458e0e91171ef1d53c12e57806d7aad53",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i15-s3744267477.json": "d72a0e7643d888d90b21160359a7e6d8838b2439cafce712ab88b1fd62b49804",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i16-s1982349429.json": "04fdafa32d0e3a9c6153e00dd86093ad17efb563bdefeb567b9d6b27d301651e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i19-s3209040773.json": "0c8ffec2834c6b80b3c6b11614e2c2f16f9584b387a96d3173ce5c4f09c64dd1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i21-s1513032782.json": "f30f7af6945f0528e77455e3f6225430edb2bd8fca95b8cba3040cd281830dcd",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i22-s3762669869.json": "60414650c0c636e7e94fa74c413076179c7e41afb8077325cfdcdd4fc9d17202",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i23-s2063208102.json": "0dfe0028fa8943c9c0546afe98a252d2e30833af1e1ce494d67e17808b0ca03c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i25-s4000194421.json": "0372f182d12bff26a95ade30c5234e75a22405236d34c28f1dcc3d08e8013b2a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i26-s2148766346.json": "90c4b496ef71b819c362184389175aa6c68b1a51a336f3417d5f6329ae797d7d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s3-scripted-c6-i9-s325025293.json": "7bc33b98c9f8803fe2607a826c41cc7bec38703c95edb171dc5876cf96eb4b27",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-frozen-c0-i38-s987909553.json": "08e2d78d810340b24703ddcf075408c99e05ea270b4d71ce707c2f813764d545",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-frozen-c1-i39-s2373260157.json": "14dcd290272fc7c6d740c585f979c366ed8e1b972e1bb09982d074c9b0549ac1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-frozen-c3-i36-s535788298.json": "db6a2dc7b0faa2e17214c0d8f040673b79adc6364909ede280d2d20f23c4d86f",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-frozen-c5-i36-s3679303365.json": "ed40b3b29ecc21715fb1da4e6d6df601128ce878cebc972cbc49065ca42e5bcf",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-frozen-c6-i37-s638584496.json": "f8da187128174a58bde1a7e118f9983317c7b70878a59dc60b48a3944144ff07",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c0-i29-s3609229080.json": "c6ab071b30f53e9891785c965f06d345e32876a153b9f95fe56babb7afa46ffb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c1-i31-s1503920281.json": "74cdc445a87d8cf1d80a5b8f3f460896443d094234ed94e739fc1b8128fc07f7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c2-i30-s200541396.json": "72fd38ea2785189ab4b06e7eebe32c4e46248d6a205bfd7290624dd4b9025de0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c2-i32-s3020422212.json": "a74ad0414d01088743157ae4b8001a36c318dde161b5d71b23f33a3b885ab16c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c4-i27-s3076527242.json": "970fb82b4314e9ca87fb02d53448fbc22aa4fae45a1c0cc0df226d84cae51da2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c4-i34-s1894029929.json": "99b7d8fe43b3818c9785cee82adb126f78bc7e898bc14f891e98f7b411a95aa7",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c4-i35-s3740348236.json": "36e4b0d2b7bf4c7c93e3c51083e1604d590417d49e5f8ef587465b8953227737",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c5-i31-s1858726715.json": "6934b349a8a508a567f16bb5b1b881cd82dca237c06aaf105147f083546a8a04",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c5-i34-s1257660300.json": "fbac25741ae7fd7359ebbbc6fe38c1c6d718b0f9f5607eed226059246e4a5546",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c6-i29-s57988232.json": "604a8a1f9dbcbaa758dd7b46836d8a36b006e4dc1cc7654c9ca87a124af32651",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c6-i31-s145052344.json": "e553630ab3e336fa45b2120a40ff42df5302919d54c8afa9ab31fa5597ddf208",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-mixed-c6-i32-s2260271910.json": "7f1cdcd0977dca824f683633ea995c46213f055f0cc5e5a166df4e07f84e031a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i0-s1016098076.json": "c5e6459572443c9682ea637d1db636b40cb743f6175c768810d5bbbba93287bd",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i10-s1945123558.json": "61a098cf7b03ef411c39e9c5a9e2af4cc1590ee3b75c0378c893e31f89cbd141",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i11-s4290715283.json": "a82accbcd8acb86d162f96df9684eb7113138b380250470eb8f0d2d07f79c5ad",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i12-s4206829660.json": "3814b155db1c14d5434dc75f1be8e83e84efae555426a6e4eb57401c194d1f71",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i20-s1160538315.json": "18bd20de29fc1d55d4b8f9c0aff3ae17f4054b7fe6f09f37d5d5d0da2014d99b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i24-s2890332822.json": "53c83b19ace3e63ff63df14811098a9efd5d26d16dd5d8c5eee2dea140f69fb0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i25-s3207711674.json": "3f5dff89556e374f0d79510ff9425d847e079e00df1ad06d4b26a5857ef434bb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i26-s1636841725.json": "d6a3feb90d1292970c1cf205fe9337ab5f5ec806587c2255f8fe729d018236a8",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c0-i4-s513603038.json": "60dc8f78b88a1a71e2eae0da1160c3df113692376d1611f70a80960532c0bb58",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i11-s3167273515.json": "6c48cb9d94abeb62f9e8559fcf2b9bf0c0a263801dcd6e65916fc0bfff5e81bc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i12-s3460528101.json": "0f2a6a51807bccada627a1b553aa1a94e06e915d4c24e7f83695a3deb44687b0",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i13-s772317805.json": "8a83c904eadbbe9ed37a33c1e337bea3eda66e72b5e2694174ab75616967cb24",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i14-s1967614850.json": "b06942f5eb5afbd89649ca0e89ca67c3ad6fdd83b8a97f6cd79c465703504628",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i22-s2029375914.json": "0ba22f2ec8ea0f9019d6f397fe12839fcd937a6cbec1ac16532704af0ed036e3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i26-s1198603012.json": "2d208b78593c4525ac7160f8807cefe3435b77710497b3632905057f296fa789",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i3-s3458359304.json": "121aed3e8bc6d7ccc25fe14360924bd58fd6ccf8912277263bcc64fb0d7d5e7c",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i4-s3197182308.json": "073516e67346f1a21aa0823904ddc69d0456428ba6ef432ba80c3f6b8390ff94",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c1-i8-s2846497249.json": "9f0502a43d89bc08a0056f60a183f42d1e2ecd95214e433ead806ff2002ac05e",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i15-s1608109391.json": "71ceaa0f7dc526786c0e7ba2dd439c26f7cb2ddf494ff0bd70acd2fea1ba6e9d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i16-s3673321543.json": "95c0238e53256c06dffa0ebb1d9248f639a868c3982df4013cc7bbfd59366523",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i19-s1694206250.json": "e8943a03023666c3b288df5e12241c4be4bb089ff98863a25d90daaf3a9bd23d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i21-s102523473.json": "bf97aca5b7898998532c5fac0a01a14106a0d841e6bcfbac0f19e8ae8795f3b5",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i22-s4123496577.json": "30a4bc06e94a7ad8cf1965e3309c5e581f48cc1d0467d77a3dee9e696e18d9b1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i24-s1243588996.json": "d51d7d350c659bb29e1c358efdfccd6f0163349e4e4f4053725e7fa733732304",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i26-s539464734.json": "ffc35c8ccf2584764b9d0a1e5f4cf1d290a322047836317aa0787e01edc846fa",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i3-s3424233525.json": "b264f0c97f3d45735a9adaf84792edada6e3f9640d577fe4d8b0dc76d5a79a7a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c2-i9-s1043184025.json": "1a52484127567121e6a205df403780b36095c41b854ffa97da28de12947ab5fd",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c3-i11-s179199864.json": "30e142bf32a90d75be4e739352a6aa1312953969c6e05472db645d66d641a03b",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c3-i12-s3038112256.json": "1f000443d915ccbd6d263ff123142c0712a0bdc311f46ce5fde2982c69954279",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c3-i14-s1742726757.json": "f0f4f27ceeb3b60653ee878d07810b8425a46f9250dae11a2db823d0a44e46a6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c3-i19-s169783940.json": "6e3ab7f71d40586bc9804d6fa5d5aaffcc75c6d077a59953db63fd48f98a5517",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c3-i22-s335616324.json": "8615df8c77174fbbc61ca76a18f06b2b02d9b7ebff9048b21bc3e64fd465e6c9",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c3-i4-s1128246531.json": "9f12c99bee3f818031ee1040f61afecfb603df150f36355445221ae123f7e05a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c3-i8-s3626713925.json": "37ae3b5e5495d2be30ae84254045e096cabd56c8f0757483cb75e1d4186c8397",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c4-i11-s4044854621.json": "09645d40eb37b6c1667bd275573657aec5a249ce75f551024ca629103289f92d",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c4-i16-s4049958072.json": "dbe597f3c8fce0be83caf664c130e37b4d32a4481a887f67228af16f924e27aa",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c4-i20-s3637817970.json": "92da0170666439b7caf30d62d18cd52ebc3e1859db4e7e14e41f3d23e23a872a",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c4-i22-s2482703512.json": "b9fe2986f845236a41efb22e943517f75c5f2a80e57fb880bd300139959a0962",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c4-i24-s2405570755.json": "5a3ff9f9cef4b7c850eba2d86af16f004d790427ae5ab7180d5754d57af442c2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c4-i4-s208473068.json": "c758bdb9815004923a41b297a48bff2063d841d22182a6bdfe140f145177ffe5",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c4-i6-s75881108.json": "902c7052bee44e210d1e43a66ca8558bf2c27e1fc57fa1ed0fa03868f054baeb",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c4-i8-s2493974301.json": "3943c3e770e8eebdbdbcb441be8054268b063f0eb6f32b0bd02dd9c83daa90fc",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c5-i10-s2915377943.json": "562f45692113ed4b234c717cf0bf470d98fbf35b6902b37e68176f1907aff980",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c5-i11-s2947120470.json": "1d151fdbe8de77088b838e1edfb8f6f8ea84c50d2f15736a56ad2f573f67a9ad",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c5-i13-s3706512471.json": "c29e7850eedbc439e7fd37e35b1fa51df167f6db85d35f9539db93d61194e8da",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c5-i14-s447854217.json": "cecbf71aa944407573b96e5617e1a92f5a87b8c7125271867b5960adad426412",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c5-i17-s756818718.json": "750380f106bc047f88c7302e2a4b01899d54129d609adb520406082f72769c47",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c5-i20-s3529565311.json": "27743062132e78df2f130e7444cede06497a758b4e1178b228e308d6e1413cae",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c5-i9-s1505403796.json": "51cd48666865eae5d273e80def3a180d53d43c1530ad8d8adda4b908d16a6925",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c6-i1-s338858349.json": "fb63b89bca308f1cc7fdb58f29d81d65ca69812b287204b0c775fcba0eb567e2",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c6-i14-s2513018206.json": "d6f0389a4a3f01047e53ef0f4565fa074c3f3f7c3e34cd118bb9420eb5fbbef3",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c6-i2-s1558915317.json": "7788e08db3f898a94a095190b5191c6b072fca51b21e65d0867da5bd6a27afc1",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c6-i25-s3056682701.json": "ea991085fe6aa4bc8e1565d858b834236d0d55df6b4d897c3c0628d980c713a6",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c6-i3-s3936280307.json": "9f83e8e339a1bc109979894ce7aa00ba00e3aca8ef0a6b3711a2556beb06e1ab",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c6-i4-s1069445130.json": "69a5ae00c9dd35294b138a2996e2891857ca9556142203b1d3bf17b032742142",
+      "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t3-rollout-labels-20261015/bank/worlds/b8_s4-scripted-c6-i9-s817796795.json": "07985ac41478edd1fd1d802fed85cafc6d64b5965f2e2584a1add729621ae766"
+    }
+  },
+  "payload_contract": "source arrays preserved exactly; source_row, decision, death_decision, row_family, and row_weight added",
+  "rows": 1154,
+  "schema": "t11-local30-derived-label-bank/v1",
+  "selection": {
+    "counter_available_counts": {
+      "700_999:D1": 133,
+      "700_999:D10": 44,
+      "700_999:D2": 381,
+      "700_999:D3": 472,
+      "700_999:D4": 385,
+      "700_999:D5": 485,
+      "700_999:D6": 383,
+      "700_999:D7": 247,
+      "700_999:D8": 169,
+      "700_999:D9": 166,
+      "ge1000:D1": 74,
+      "ge1000:D10": 76,
+      "ge1000:D2": 153,
+      "ge1000:D3": 170,
+      "ge1000:D4": 167,
+      "ge1000:D5": 260,
+      "ge1000:D6": 333,
+      "ge1000:D7": 428,
+      "ge1000:D8": 563,
+      "ge1000:D9": 353
+    },
+    "decile_cutpoints": [
+      -9.860211181640626,
+      -9.10132122039795,
+      -8.613424301147461,
+      -8.265312385559081,
+      -7.844933032989502,
+      -7.461348152160645,
+      -6.8897254943847654,
+      0.8744364142417907,
+      31.556634521484348
+    ],
+    "decile_score": "negative maximum of all six stored raw B8 Q values",
+    "decisive_gap": "0 <= death_decision - decision <= 30 inclusive",
+    "length_buckets": [
+      "lt400",
+      "400_699",
+      "700_999",
+      "ge1000"
+    ],
+    "matched_pairs": [
+      {
+        "counter_source_row": 10885,
+        "decisive_source_row": 1444,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10886,
+        "decisive_source_row": 1445,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10887,
+        "decisive_source_row": 1804,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10888,
+        "decisive_source_row": 1805,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10902,
+        "decisive_source_row": 1806,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10903,
+        "decisive_source_row": 1807,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10904,
+        "decisive_source_row": 1808,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10925,
+        "decisive_source_row": 2652,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10940,
+        "decisive_source_row": 2653,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10961,
+        "decisive_source_row": 2654,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11014,
+        "decisive_source_row": 2655,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11101,
+        "decisive_source_row": 2656,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11102,
+        "decisive_source_row": 4154,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11103,
+        "decisive_source_row": 4155,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11167,
+        "decisive_source_row": 4156,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11192,
+        "decisive_source_row": 4157,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11193,
+        "decisive_source_row": 4158,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11194,
+        "decisive_source_row": 4216,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11195,
+        "decisive_source_row": 4217,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11196,
+        "decisive_source_row": 4218,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11200,
+        "decisive_source_row": 4219,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11201,
+        "decisive_source_row": 4220,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11202,
+        "decisive_source_row": 4221,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11203,
+        "decisive_source_row": 6843,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11206,
+        "decisive_source_row": 6844,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11207,
+        "decisive_source_row": 7179,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11212,
+        "decisive_source_row": 7180,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11213,
+        "decisive_source_row": 7181,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11214,
+        "decisive_source_row": 7635,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11237,
+        "decisive_source_row": 8816,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11240,
+        "decisive_source_row": 8817,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11241,
+        "decisive_source_row": 9815,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11242,
+        "decisive_source_row": 9816,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 11243,
+        "decisive_source_row": 9817,
+        "stratum": "700_999:D1"
+      },
+      {
+        "counter_source_row": 10987,
+        "decisive_source_row": 252,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12092,
+        "decisive_source_row": 253,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12104,
+        "decisive_source_row": 547,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12198,
+        "decisive_source_row": 548,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12199,
+        "decisive_source_row": 549,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12202,
+        "decisive_source_row": 550,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12776,
+        "decisive_source_row": 2207,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12811,
+        "decisive_source_row": 3344,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12871,
+        "decisive_source_row": 3345,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 12895,
+        "decisive_source_row": 3346,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 13876,
+        "decisive_source_row": 5005,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 13877,
+        "decisive_source_row": 5088,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 13878,
+        "decisive_source_row": 5234,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14679,
+        "decisive_source_row": 6164,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14843,
+        "decisive_source_row": 6165,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14844,
+        "decisive_source_row": 6166,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14845,
+        "decisive_source_row": 6406,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14915,
+        "decisive_source_row": 6952,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14917,
+        "decisive_source_row": 7690,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14918,
+        "decisive_source_row": 9341,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14921,
+        "decisive_source_row": 9342,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14924,
+        "decisive_source_row": 9343,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14927,
+        "decisive_source_row": 10729,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14965,
+        "decisive_source_row": 10730,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 14968,
+        "decisive_source_row": 10731,
+        "stratum": "700_999:D10"
+      },
+      {
+        "counter_source_row": 10889,
+        "decisive_source_row": 496,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 10951,
+        "decisive_source_row": 1266,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 10989,
+        "decisive_source_row": 1290,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11008,
+        "decisive_source_row": 1291,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11009,
+        "decisive_source_row": 1348,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11010,
+        "decisive_source_row": 1349,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11013,
+        "decisive_source_row": 1441,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11020,
+        "decisive_source_row": 1442,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11021,
+        "decisive_source_row": 1446,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11056,
+        "decisive_source_row": 1809,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11138,
+        "decisive_source_row": 2024,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11140,
+        "decisive_source_row": 2025,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11153,
+        "decisive_source_row": 2026,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11163,
+        "decisive_source_row": 2028,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11168,
+        "decisive_source_row": 4390,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11170,
+        "decisive_source_row": 5047,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11197,
+        "decisive_source_row": 5048,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11208,
+        "decisive_source_row": 5143,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11235,
+        "decisive_source_row": 5145,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11236,
+        "decisive_source_row": 5146,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11238,
+        "decisive_source_row": 5610,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11251,
+        "decisive_source_row": 5613,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11277,
+        "decisive_source_row": 5614,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11284,
+        "decisive_source_row": 6200,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11285,
+        "decisive_source_row": 6845,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11290,
+        "decisive_source_row": 6847,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11303,
+        "decisive_source_row": 6848,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11341,
+        "decisive_source_row": 7688,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11346,
+        "decisive_source_row": 9429,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11349,
+        "decisive_source_row": 9818,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11354,
+        "decisive_source_row": 9819,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 11355,
+        "decisive_source_row": 10791,
+        "stratum": "700_999:D2"
+      },
+      {
+        "counter_source_row": 10893,
+        "decisive_source_row": 196,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10901,
+        "decisive_source_row": 197,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10930,
+        "decisive_source_row": 198,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10933,
+        "decisive_source_row": 495,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10941,
+        "decisive_source_row": 497,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10949,
+        "decisive_source_row": 1267,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10957,
+        "decisive_source_row": 1268,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10962,
+        "decisive_source_row": 1269,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10985,
+        "decisive_source_row": 1270,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11002,
+        "decisive_source_row": 1288,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11011,
+        "decisive_source_row": 1289,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11012,
+        "decisive_source_row": 1350,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11025,
+        "decisive_source_row": 1443,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11135,
+        "decisive_source_row": 2027,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11145,
+        "decisive_source_row": 2657,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11149,
+        "decisive_source_row": 3750,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11150,
+        "decisive_source_row": 3751,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11151,
+        "decisive_source_row": 3752,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11152,
+        "decisive_source_row": 3753,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11165,
+        "decisive_source_row": 5144,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11166,
+        "decisive_source_row": 5611,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11169,
+        "decisive_source_row": 5612,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11178,
+        "decisive_source_row": 5822,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11188,
+        "decisive_source_row": 6004,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11189,
+        "decisive_source_row": 6005,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11198,
+        "decisive_source_row": 6007,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11199,
+        "decisive_source_row": 6199,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11204,
+        "decisive_source_row": 6846,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11210,
+        "decisive_source_row": 7122,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11211,
+        "decisive_source_row": 7123,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11216,
+        "decisive_source_row": 7636,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11239,
+        "decisive_source_row": 7640,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11244,
+        "decisive_source_row": 7689,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11287,
+        "decisive_source_row": 8488,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11305,
+        "decisive_source_row": 8941,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11308,
+        "decisive_source_row": 8942,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11309,
+        "decisive_source_row": 9430,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11342,
+        "decisive_source_row": 10330,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11380,
+        "decisive_source_row": 10790,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11381,
+        "decisive_source_row": 10792,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11385,
+        "decisive_source_row": 10793,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11386,
+        "decisive_source_row": 10794,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11387,
+        "decisive_source_row": 10820,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 11388,
+        "decisive_source_row": 10821,
+        "stratum": "700_999:D3"
+      },
+      {
+        "counter_source_row": 10890,
+        "decisive_source_row": 194,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10891,
+        "decisive_source_row": 195,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10892,
+        "decisive_source_row": 492,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10900,
+        "decisive_source_row": 493,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10906,
+        "decisive_source_row": 494,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10907,
+        "decisive_source_row": 1093,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10931,
+        "decisive_source_row": 1094,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10932,
+        "decisive_source_row": 1095,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10942,
+        "decisive_source_row": 1271,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10947,
+        "decisive_source_row": 1292,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10948,
+        "decisive_source_row": 1293,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10950,
+        "decisive_source_row": 2542,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10956,
+        "decisive_source_row": 2543,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10988,
+        "decisive_source_row": 2544,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11015,
+        "decisive_source_row": 2545,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11019,
+        "decisive_source_row": 2815,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11057,
+        "decisive_source_row": 2817,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11084,
+        "decisive_source_row": 3460,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11085,
+        "decisive_source_row": 3461,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11086,
+        "decisive_source_row": 3462,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11107,
+        "decisive_source_row": 3754,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11108,
+        "decisive_source_row": 5084,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11109,
+        "decisive_source_row": 5141,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11110,
+        "decisive_source_row": 5142,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11111,
+        "decisive_source_row": 6006,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11136,
+        "decisive_source_row": 7637,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11137,
+        "decisive_source_row": 7638,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11141,
+        "decisive_source_row": 7639,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11146,
+        "decisive_source_row": 7798,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11186,
+        "decisive_source_row": 7799,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11191,
+        "decisive_source_row": 8489,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11205,
+        "decisive_source_row": 8997,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11215,
+        "decisive_source_row": 9000,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11217,
+        "decisive_source_row": 9431,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11218,
+        "decisive_source_row": 10331,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 11283,
+        "decisive_source_row": 10333,
+        "stratum": "700_999:D4"
+      },
+      {
+        "counter_source_row": 10899,
+        "decisive_source_row": 137,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10905,
+        "decisive_source_row": 138,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10909,
+        "decisive_source_row": 545,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10911,
+        "decisive_source_row": 1351,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10926,
+        "decisive_source_row": 1966,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10927,
+        "decisive_source_row": 1967,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10928,
+        "decisive_source_row": 1968,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10929,
+        "decisive_source_row": 1969,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10944,
+        "decisive_source_row": 2546,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10945,
+        "decisive_source_row": 2816,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10966,
+        "decisive_source_row": 2871,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10984,
+        "decisive_source_row": 2872,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10986,
+        "decisive_source_row": 2873,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10994,
+        "decisive_source_row": 2874,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11017,
+        "decisive_source_row": 3463,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11018,
+        "decisive_source_row": 3464,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11026,
+        "decisive_source_row": 3543,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11027,
+        "decisive_source_row": 5085,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11063,
+        "decisive_source_row": 5086,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11074,
+        "decisive_source_row": 5820,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11082,
+        "decisive_source_row": 5823,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11083,
+        "decisive_source_row": 6563,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11106,
+        "decisive_source_row": 6564,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11112,
+        "decisive_source_row": 6565,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11113,
+        "decisive_source_row": 7797,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11142,
+        "decisive_source_row": 8009,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11147,
+        "decisive_source_row": 8731,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11154,
+        "decisive_source_row": 8732,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11159,
+        "decisive_source_row": 8884,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11162,
+        "decisive_source_row": 8998,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11164,
+        "decisive_source_row": 8999,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11190,
+        "decisive_source_row": 9432,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11245,
+        "decisive_source_row": 9612,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11246,
+        "decisive_source_row": 10329,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11392,
+        "decisive_source_row": 10332,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11410,
+        "decisive_source_row": 10819,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 11411,
+        "decisive_source_row": 10822,
+        "stratum": "700_999:D5"
+      },
+      {
+        "counter_source_row": 10894,
+        "decisive_source_row": 139,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10896,
+        "decisive_source_row": 546,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10897,
+        "decisive_source_row": 2480,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10898,
+        "decisive_source_row": 2875,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10908,
+        "decisive_source_row": 3465,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10910,
+        "decisive_source_row": 5087,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10912,
+        "decisive_source_row": 5231,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10943,
+        "decisive_source_row": 5821,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10946,
+        "decisive_source_row": 6566,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10960,
+        "decisive_source_row": 6567,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10963,
+        "decisive_source_row": 7124,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10964,
+        "decisive_source_row": 8010,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10965,
+        "decisive_source_row": 8011,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10982,
+        "decisive_source_row": 8013,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10991,
+        "decisive_source_row": 8085,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10992,
+        "decisive_source_row": 9433,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10993,
+        "decisive_source_row": 9434,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 11003,
+        "decisive_source_row": 9607,
+        "stratum": "700_999:D6"
+      },
+      {
+        "counter_source_row": 10895,
+        "decisive_source_row": 140,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 10952,
+        "decisive_source_row": 141,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 10954,
+        "decisive_source_row": 2481,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 10955,
+        "decisive_source_row": 2876,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 10981,
+        "decisive_source_row": 3341,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 10983,
+        "decisive_source_row": 3342,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 10990,
+        "decisive_source_row": 3343,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11016,
+        "decisive_source_row": 3542,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11022,
+        "decisive_source_row": 5230,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11028,
+        "decisive_source_row": 5232,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11029,
+        "decisive_source_row": 5233,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11030,
+        "decisive_source_row": 6568,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11031,
+        "decisive_source_row": 8012,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11073,
+        "decisive_source_row": 8014,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11075,
+        "decisive_source_row": 9195,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11081,
+        "decisive_source_row": 9608,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 11087,
+        "decisive_source_row": 10823,
+        "stratum": "700_999:D7"
+      },
+      {
+        "counter_source_row": 10953,
+        "decisive_source_row": 2320,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11032,
+        "decisive_source_row": 2321,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11033,
+        "decisive_source_row": 2323,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11034,
+        "decisive_source_row": 2324,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11120,
+        "decisive_source_row": 5771,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11121,
+        "decisive_source_row": 9192,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11155,
+        "decisive_source_row": 9193,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11221,
+        "decisive_source_row": 9194,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11222,
+        "decisive_source_row": 9609,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11223,
+        "decisive_source_row": 9610,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11224,
+        "decisive_source_row": 9611,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11579,
+        "decisive_source_row": 10726,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11582,
+        "decisive_source_row": 10727,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11583,
+        "decisive_source_row": 10728,
+        "stratum": "700_999:D8"
+      },
+      {
+        "counter_source_row": 11035,
+        "decisive_source_row": 919,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11036,
+        "decisive_source_row": 920,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11037,
+        "decisive_source_row": 921,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11038,
+        "decisive_source_row": 922,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11039,
+        "decisive_source_row": 2203,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11040,
+        "decisive_source_row": 2204,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11041,
+        "decisive_source_row": 2205,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11042,
+        "decisive_source_row": 2206,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11043,
+        "decisive_source_row": 2322,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11044,
+        "decisive_source_row": 2325,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11045,
+        "decisive_source_row": 4761,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11046,
+        "decisive_source_row": 4762,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11047,
+        "decisive_source_row": 5770,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11048,
+        "decisive_source_row": 5772,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11049,
+        "decisive_source_row": 5773,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 11912,
+        "decisive_source_row": 5774,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 12094,
+        "decisive_source_row": 5775,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 12100,
+        "decisive_source_row": 8885,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 12194,
+        "decisive_source_row": 10334,
+        "stratum": "700_999:D9"
+      },
+      {
+        "counter_source_row": 10923,
+        "decisive_source_row": 1037,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 10938,
+        "decisive_source_row": 1039,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 10939,
+        "decisive_source_row": 1149,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11129,
+        "decisive_source_row": 1150,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11130,
+        "decisive_source_row": 1151,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11131,
+        "decisive_source_row": 1152,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11174,
+        "decisive_source_row": 4092,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11225,
+        "decisive_source_row": 4093,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11272,
+        "decisive_source_row": 4449,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11310,
+        "decisive_source_row": 4450,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11311,
+        "decisive_source_row": 4550,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11350,
+        "decisive_source_row": 4551,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11359,
+        "decisive_source_row": 4552,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11399,
+        "decisive_source_row": 4553,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11400,
+        "decisive_source_row": 5516,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11441,
+        "decisive_source_row": 5517,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11442,
+        "decisive_source_row": 5518,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11443,
+        "decisive_source_row": 6785,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11478,
+        "decisive_source_row": 7308,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11479,
+        "decisive_source_row": 7538,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11480,
+        "decisive_source_row": 7539,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11482,
+        "decisive_source_row": 9667,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11483,
+        "decisive_source_row": 9668,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11484,
+        "decisive_source_row": 9930,
+        "stratum": "ge1000:D1"
+      },
+      {
+        "counter_source_row": 11363,
+        "decisive_source_row": 652,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11515,
+        "decisive_source_row": 653,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11516,
+        "decisive_source_row": 1569,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11517,
+        "decisive_source_row": 2265,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11518,
+        "decisive_source_row": 2266,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11519,
+        "decisive_source_row": 3432,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11520,
+        "decisive_source_row": 3433,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11521,
+        "decisive_source_row": 3500,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11914,
+        "decisive_source_row": 4038,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12006,
+        "decisive_source_row": 4039,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12010,
+        "decisive_source_row": 4095,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12012,
+        "decisive_source_row": 4625,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12013,
+        "decisive_source_row": 6063,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12014,
+        "decisive_source_row": 6476,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12021,
+        "decisive_source_row": 6537,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12023,
+        "decisive_source_row": 6539,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12028,
+        "decisive_source_row": 6540,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12063,
+        "decisive_source_row": 7309,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12081,
+        "decisive_source_row": 7310,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12082,
+        "decisive_source_row": 7311,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12090,
+        "decisive_source_row": 7581,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12153,
+        "decisive_source_row": 7857,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12156,
+        "decisive_source_row": 8433,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12161,
+        "decisive_source_row": 8582,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12193,
+        "decisive_source_row": 8637,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12229,
+        "decisive_source_row": 9058,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12230,
+        "decisive_source_row": 9552,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 12231,
+        "decisive_source_row": 10095,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 14260,
+        "decisive_source_row": 10292,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 14261,
+        "decisive_source_row": 10650,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 14405,
+        "decisive_source_row": 10651,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 14408,
+        "decisive_source_row": 10652,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 14409,
+        "decisive_source_row": 10653,
+        "stratum": "ge1000:D10"
+      },
+      {
+        "counter_source_row": 11171,
+        "decisive_source_row": 1034,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11172,
+        "decisive_source_row": 1035,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11262,
+        "decisive_source_row": 1036,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11312,
+        "decisive_source_row": 1038,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11351,
+        "decisive_source_row": 1153,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11361,
+        "decisive_source_row": 1209,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11364,
+        "decisive_source_row": 1210,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11435,
+        "decisive_source_row": 1211,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11481,
+        "decisive_source_row": 4451,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11490,
+        "decisive_source_row": 5348,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11557,
+        "decisive_source_row": 5514,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11592,
+        "decisive_source_row": 5515,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11598,
+        "decisive_source_row": 6786,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11603,
+        "decisive_source_row": 7540,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11604,
+        "decisive_source_row": 7541,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11605,
+        "decisive_source_row": 7542,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11656,
+        "decisive_source_row": 8385,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11665,
+        "decisive_source_row": 8386,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11666,
+        "decisive_source_row": 8387,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11676,
+        "decisive_source_row": 8388,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11677,
+        "decisive_source_row": 9054,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11683,
+        "decisive_source_row": 9669,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11761,
+        "decisive_source_row": 9931,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11762,
+        "decisive_source_row": 10236,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11782,
+        "decisive_source_row": 10237,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 11786,
+        "decisive_source_row": 10470,
+        "stratum": "ge1000:D2"
+      },
+      {
+        "counter_source_row": 10913,
+        "decisive_source_row": 790,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11023,
+        "decisive_source_row": 4452,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11077,
+        "decisive_source_row": 4849,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11098,
+        "decisive_source_row": 7007,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11125,
+        "decisive_source_row": 8389,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11126,
+        "decisive_source_row": 9670,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11134,
+        "decisive_source_row": 9671,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11160,
+        "decisive_source_row": 9932,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11173,
+        "decisive_source_row": 9933,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11252,
+        "decisive_source_row": 10466,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11261,
+        "decisive_source_row": 10467,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11263,
+        "decisive_source_row": 10469,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 11264,
+        "decisive_source_row": 10542,
+        "stratum": "ge1000:D3"
+      },
+      {
+        "counter_source_row": 10958,
+        "decisive_source_row": 787,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11024,
+        "decisive_source_row": 1154,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11127,
+        "decisive_source_row": 1212,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11128,
+        "decisive_source_row": 1567,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11177,
+        "decisive_source_row": 3598,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11232,
+        "decisive_source_row": 4391,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11253,
+        "decisive_source_row": 4392,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11254,
+        "decisive_source_row": 4393,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11255,
+        "decisive_source_row": 5349,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11256,
+        "decisive_source_row": 5350,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11270,
+        "decisive_source_row": 5351,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11271,
+        "decisive_source_row": 6622,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11294,
+        "decisive_source_row": 6787,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11340,
+        "decisive_source_row": 6788,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11438,
+        "decisive_source_row": 7008,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11444,
+        "decisive_source_row": 8390,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11611,
+        "decisive_source_row": 9055,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11618,
+        "decisive_source_row": 9056,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11675,
+        "decisive_source_row": 9935,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11678,
+        "decisive_source_row": 10468,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11745,
+        "decisive_source_row": 10541,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 11759,
+        "decisive_source_row": 10543,
+        "stratum": "ge1000:D4"
+      },
+      {
+        "counter_source_row": 10914,
+        "decisive_source_row": 786,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10915,
+        "decisive_source_row": 789,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10916,
+        "decisive_source_row": 977,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10917,
+        "decisive_source_row": 978,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10934,
+        "decisive_source_row": 1568,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10959,
+        "decisive_source_row": 1737,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10967,
+        "decisive_source_row": 1739,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10968,
+        "decisive_source_row": 1741,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10970,
+        "decisive_source_row": 3863,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10971,
+        "decisive_source_row": 3864,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10972,
+        "decisive_source_row": 3865,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10975,
+        "decisive_source_row": 3866,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10976,
+        "decisive_source_row": 5294,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 11050,
+        "decisive_source_row": 5295,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 11052,
+        "decisive_source_row": 6623,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 11053,
+        "decisive_source_row": 9786,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 11068,
+        "decisive_source_row": 9787,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 11078,
+        "decisive_source_row": 9788,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 11079,
+        "decisive_source_row": 9934,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 11097,
+        "decisive_source_row": 10544,
+        "stratum": "ge1000:D5"
+      },
+      {
+        "counter_source_row": 10924,
+        "decisive_source_row": 651,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 10969,
+        "decisive_source_row": 788,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 10973,
+        "decisive_source_row": 979,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 10974,
+        "decisive_source_row": 1738,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 10995,
+        "decisive_source_row": 1740,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 10996,
+        "decisive_source_row": 2139,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 10999,
+        "decisive_source_row": 2142,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11000,
+        "decisive_source_row": 2143,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11051,
+        "decisive_source_row": 2712,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11065,
+        "decisive_source_row": 2713,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11070,
+        "decisive_source_row": 2714,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11071,
+        "decisive_source_row": 2715,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11072,
+        "decisive_source_row": 2716,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11123,
+        "decisive_source_row": 3012,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11124,
+        "decisive_source_row": 3013,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11132,
+        "decisive_source_row": 3014,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11133,
+        "decisive_source_row": 3015,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11143,
+        "decisive_source_row": 4275,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11144,
+        "decisive_source_row": 4394,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11175,
+        "decisive_source_row": 4395,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11176,
+        "decisive_source_row": 4453,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11180,
+        "decisive_source_row": 4705,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11259,
+        "decisive_source_row": 4706,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11260,
+        "decisive_source_row": 4850,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11266,
+        "decisive_source_row": 5291,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11273,
+        "decisive_source_row": 5293,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11275,
+        "decisive_source_row": 5352,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11314,
+        "decisive_source_row": 5353,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11318,
+        "decisive_source_row": 6624,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11339,
+        "decisive_source_row": 6625,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11370,
+        "decisive_source_row": 7009,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11371,
+        "decisive_source_row": 7912,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11372,
+        "decisive_source_row": 7913,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11395,
+        "decisive_source_row": 7914,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11397,
+        "decisive_source_row": 7915,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11398,
+        "decisive_source_row": 8579,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11420,
+        "decisive_source_row": 9057,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11421,
+        "decisive_source_row": 9672,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11426,
+        "decisive_source_row": 9785,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 11428,
+        "decisive_source_row": 10289,
+        "stratum": "ge1000:D6"
+      },
+      {
+        "counter_source_row": 10918,
+        "decisive_source_row": 55,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 10935,
+        "decisive_source_row": 56,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 10937,
+        "decisive_source_row": 57,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 10977,
+        "decisive_source_row": 58,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 10978,
+        "decisive_source_row": 59,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 10979,
+        "decisive_source_row": 1624,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 10997,
+        "decisive_source_row": 1625,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 10998,
+        "decisive_source_row": 1907,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11001,
+        "decisive_source_row": 1908,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11064,
+        "decisive_source_row": 1909,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11066,
+        "decisive_source_row": 2140,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11067,
+        "decisive_source_row": 2141,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11069,
+        "decisive_source_row": 2717,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11091,
+        "decisive_source_row": 3016,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11099,
+        "decisive_source_row": 3285,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11100,
+        "decisive_source_row": 3286,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11258,
+        "decisive_source_row": 3981,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11274,
+        "decisive_source_row": 4094,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11295,
+        "decisive_source_row": 4274,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11296,
+        "decisive_source_row": 4707,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11297,
+        "decisive_source_row": 5290,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11298,
+        "decisive_source_row": 5292,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11315,
+        "decisive_source_row": 5684,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11331,
+        "decisive_source_row": 5685,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11333,
+        "decisive_source_row": 5686,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11334,
+        "decisive_source_row": 7010,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11335,
+        "decisive_source_row": 7011,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11336,
+        "decisive_source_row": 7744,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11337,
+        "decisive_source_row": 7745,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11362,
+        "decisive_source_row": 7854,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11369,
+        "decisive_source_row": 7856,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11430,
+        "decisive_source_row": 8577,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11431,
+        "decisive_source_row": 8578,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11432,
+        "decisive_source_row": 8580,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11433,
+        "decisive_source_row": 9728,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11437,
+        "decisive_source_row": 9729,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11449,
+        "decisive_source_row": 9731,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11494,
+        "decisive_source_row": 9732,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11560,
+        "decisive_source_row": 9733,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11563,
+        "decisive_source_row": 10545,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 11564,
+        "decisive_source_row": 10880,
+        "stratum": "ge1000:D7"
+      },
+      {
+        "counter_source_row": 10919,
+        "decisive_source_row": 428,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 10920,
+        "decisive_source_row": 649,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 10921,
+        "decisive_source_row": 650,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 10922,
+        "decisive_source_row": 729,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 10936,
+        "decisive_source_row": 731,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 10980,
+        "decisive_source_row": 2144,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11054,
+        "decisive_source_row": 2937,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11055,
+        "decisive_source_row": 3017,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11092,
+        "decisive_source_row": 3281,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11093,
+        "decisive_source_row": 3282,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11094,
+        "decisive_source_row": 3283,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11095,
+        "decisive_source_row": 3284,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11096,
+        "decisive_source_row": 3926,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11179,
+        "decisive_source_row": 3980,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11181,
+        "decisive_source_row": 3982,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11182,
+        "decisive_source_row": 3983,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11184,
+        "decisive_source_row": 3984,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11185,
+        "decisive_source_row": 3985,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11226,
+        "decisive_source_row": 4037,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11227,
+        "decisive_source_row": 4331,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11228,
+        "decisive_source_row": 4334,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11231,
+        "decisive_source_row": 4335,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11233,
+        "decisive_source_row": 4624,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11234,
+        "decisive_source_row": 4851,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11316,
+        "decisive_source_row": 4852,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11317,
+        "decisive_source_row": 5687,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11320,
+        "decisive_source_row": 5688,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11321,
+        "decisive_source_row": 6062,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11322,
+        "decisive_source_row": 7012,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11323,
+        "decisive_source_row": 7746,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11324,
+        "decisive_source_row": 7855,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11325,
+        "decisive_source_row": 8581,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11326,
+        "decisive_source_row": 8639,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11327,
+        "decisive_source_row": 9493,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11328,
+        "decisive_source_row": 9494,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11329,
+        "decisive_source_row": 9495,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11330,
+        "decisive_source_row": 9496,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11332,
+        "decisive_source_row": 9497,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11368,
+        "decisive_source_row": 9730,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11374,
+        "decisive_source_row": 10881,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11375,
+        "decisive_source_row": 10882,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11376,
+        "decisive_source_row": 10883,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11377,
+        "decisive_source_row": 10884,
+        "stratum": "ge1000:D8"
+      },
+      {
+        "counter_source_row": 11229,
+        "decisive_source_row": 328,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11230,
+        "decisive_source_row": 329,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11499,
+        "decisive_source_row": 330,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11500,
+        "decisive_source_row": 331,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11501,
+        "decisive_source_row": 332,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11502,
+        "decisive_source_row": 654,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11503,
+        "decisive_source_row": 730,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11504,
+        "decisive_source_row": 1626,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11505,
+        "decisive_source_row": 1627,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11506,
+        "decisive_source_row": 3803,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11507,
+        "decisive_source_row": 3804,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11508,
+        "decisive_source_row": 3805,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11509,
+        "decisive_source_row": 3806,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11510,
+        "decisive_source_row": 3807,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11511,
+        "decisive_source_row": 3808,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11512,
+        "decisive_source_row": 4330,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11513,
+        "decisive_source_row": 4332,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11514,
+        "decisive_source_row": 4333,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11913,
+        "decisive_source_row": 4622,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 11915,
+        "decisive_source_row": 4623,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12020,
+        "decisive_source_row": 6475,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12022,
+        "decisive_source_row": 6538,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12024,
+        "decisive_source_row": 6541,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12030,
+        "decisive_source_row": 6542,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12072,
+        "decisive_source_row": 6702,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12076,
+        "decisive_source_row": 6703,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12077,
+        "decisive_source_row": 6704,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12086,
+        "decisive_source_row": 7254,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12132,
+        "decisive_source_row": 7255,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12136,
+        "decisive_source_row": 7256,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12139,
+        "decisive_source_row": 7257,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12142,
+        "decisive_source_row": 8638,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12143,
+        "decisive_source_row": 9498,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12150,
+        "decisive_source_row": 10043,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12154,
+        "decisive_source_row": 10044,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12155,
+        "decisive_source_row": 10093,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12157,
+        "decisive_source_row": 10094,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12158,
+        "decisive_source_row": 10290,
+        "stratum": "ge1000:D9"
+      },
+      {
+        "counter_source_row": 12159,
+        "decisive_source_row": 10291,
+        "stratum": "ge1000:D9"
+      }
+    ],
+    "matching": "stable source-row order within joint stratum; no replacement",
+    "selected_counter_source_rows": [
+      10885,
+      10886,
+      10887,
+      10888,
+      10889,
+      10890,
+      10891,
+      10892,
+      10893,
+      10894,
+      10895,
+      10896,
+      10897,
+      10898,
+      10899,
+      10900,
+      10901,
+      10902,
+      10903,
+      10904,
+      10905,
+      10906,
+      10907,
+      10908,
+      10909,
+      10910,
+      10911,
+      10912,
+      10913,
+      10914,
+      10915,
+      10916,
+      10917,
+      10918,
+      10919,
+      10920,
+      10921,
+      10922,
+      10923,
+      10924,
+      10925,
+      10926,
+      10927,
+      10928,
+      10929,
+      10930,
+      10931,
+      10932,
+      10933,
+      10934,
+      10935,
+      10936,
+      10937,
+      10938,
+      10939,
+      10940,
+      10941,
+      10942,
+      10943,
+      10944,
+      10945,
+      10946,
+      10947,
+      10948,
+      10949,
+      10950,
+      10951,
+      10952,
+      10953,
+      10954,
+      10955,
+      10956,
+      10957,
+      10958,
+      10959,
+      10960,
+      10961,
+      10962,
+      10963,
+      10964,
+      10965,
+      10966,
+      10967,
+      10968,
+      10969,
+      10970,
+      10971,
+      10972,
+      10973,
+      10974,
+      10975,
+      10976,
+      10977,
+      10978,
+      10979,
+      10980,
+      10981,
+      10982,
+      10983,
+      10984,
+      10985,
+      10986,
+      10987,
+      10988,
+      10989,
+      10990,
+      10991,
+      10992,
+      10993,
+      10994,
+      10995,
+      10996,
+      10997,
+      10998,
+      10999,
+      11000,
+      11001,
+      11002,
+      11003,
+      11008,
+      11009,
+      11010,
+      11011,
+      11012,
+      11013,
+      11014,
+      11015,
+      11016,
+      11017,
+      11018,
+      11019,
+      11020,
+      11021,
+      11022,
+      11023,
+      11024,
+      11025,
+      11026,
+      11027,
+      11028,
+      11029,
+      11030,
+      11031,
+      11032,
+      11033,
+      11034,
+      11035,
+      11036,
+      11037,
+      11038,
+      11039,
+      11040,
+      11041,
+      11042,
+      11043,
+      11044,
+      11045,
+      11046,
+      11047,
+      11048,
+      11049,
+      11050,
+      11051,
+      11052,
+      11053,
+      11054,
+      11055,
+      11056,
+      11057,
+      11063,
+      11064,
+      11065,
+      11066,
+      11067,
+      11068,
+      11069,
+      11070,
+      11071,
+      11072,
+      11073,
+      11074,
+      11075,
+      11077,
+      11078,
+      11079,
+      11081,
+      11082,
+      11083,
+      11084,
+      11085,
+      11086,
+      11087,
+      11091,
+      11092,
+      11093,
+      11094,
+      11095,
+      11096,
+      11097,
+      11098,
+      11099,
+      11100,
+      11101,
+      11102,
+      11103,
+      11106,
+      11107,
+      11108,
+      11109,
+      11110,
+      11111,
+      11112,
+      11113,
+      11120,
+      11121,
+      11123,
+      11124,
+      11125,
+      11126,
+      11127,
+      11128,
+      11129,
+      11130,
+      11131,
+      11132,
+      11133,
+      11134,
+      11135,
+      11136,
+      11137,
+      11138,
+      11140,
+      11141,
+      11142,
+      11143,
+      11144,
+      11145,
+      11146,
+      11147,
+      11149,
+      11150,
+      11151,
+      11152,
+      11153,
+      11154,
+      11155,
+      11159,
+      11160,
+      11162,
+      11163,
+      11164,
+      11165,
+      11166,
+      11167,
+      11168,
+      11169,
+      11170,
+      11171,
+      11172,
+      11173,
+      11174,
+      11175,
+      11176,
+      11177,
+      11178,
+      11179,
+      11180,
+      11181,
+      11182,
+      11184,
+      11185,
+      11186,
+      11188,
+      11189,
+      11190,
+      11191,
+      11192,
+      11193,
+      11194,
+      11195,
+      11196,
+      11197,
+      11198,
+      11199,
+      11200,
+      11201,
+      11202,
+      11203,
+      11204,
+      11205,
+      11206,
+      11207,
+      11208,
+      11210,
+      11211,
+      11212,
+      11213,
+      11214,
+      11215,
+      11216,
+      11217,
+      11218,
+      11221,
+      11222,
+      11223,
+      11224,
+      11225,
+      11226,
+      11227,
+      11228,
+      11229,
+      11230,
+      11231,
+      11232,
+      11233,
+      11234,
+      11235,
+      11236,
+      11237,
+      11238,
+      11239,
+      11240,
+      11241,
+      11242,
+      11243,
+      11244,
+      11245,
+      11246,
+      11251,
+      11252,
+      11253,
+      11254,
+      11255,
+      11256,
+      11258,
+      11259,
+      11260,
+      11261,
+      11262,
+      11263,
+      11264,
+      11266,
+      11270,
+      11271,
+      11272,
+      11273,
+      11274,
+      11275,
+      11277,
+      11283,
+      11284,
+      11285,
+      11287,
+      11290,
+      11294,
+      11295,
+      11296,
+      11297,
+      11298,
+      11303,
+      11305,
+      11308,
+      11309,
+      11310,
+      11311,
+      11312,
+      11314,
+      11315,
+      11316,
+      11317,
+      11318,
+      11320,
+      11321,
+      11322,
+      11323,
+      11324,
+      11325,
+      11326,
+      11327,
+      11328,
+      11329,
+      11330,
+      11331,
+      11332,
+      11333,
+      11334,
+      11335,
+      11336,
+      11337,
+      11339,
+      11340,
+      11341,
+      11342,
+      11346,
+      11349,
+      11350,
+      11351,
+      11354,
+      11355,
+      11359,
+      11361,
+      11362,
+      11363,
+      11364,
+      11368,
+      11369,
+      11370,
+      11371,
+      11372,
+      11374,
+      11375,
+      11376,
+      11377,
+      11380,
+      11381,
+      11385,
+      11386,
+      11387,
+      11388,
+      11392,
+      11395,
+      11397,
+      11398,
+      11399,
+      11400,
+      11410,
+      11411,
+      11420,
+      11421,
+      11426,
+      11428,
+      11430,
+      11431,
+      11432,
+      11433,
+      11435,
+      11437,
+      11438,
+      11441,
+      11442,
+      11443,
+      11444,
+      11449,
+      11478,
+      11479,
+      11480,
+      11481,
+      11482,
+      11483,
+      11484,
+      11490,
+      11494,
+      11499,
+      11500,
+      11501,
+      11502,
+      11503,
+      11504,
+      11505,
+      11506,
+      11507,
+      11508,
+      11509,
+      11510,
+      11511,
+      11512,
+      11513,
+      11514,
+      11515,
+      11516,
+      11517,
+      11518,
+      11519,
+      11520,
+      11521,
+      11557,
+      11560,
+      11563,
+      11564,
+      11579,
+      11582,
+      11583,
+      11592,
+      11598,
+      11603,
+      11604,
+      11605,
+      11611,
+      11618,
+      11656,
+      11665,
+      11666,
+      11675,
+      11676,
+      11677,
+      11678,
+      11683,
+      11745,
+      11759,
+      11761,
+      11762,
+      11782,
+      11786,
+      11912,
+      11913,
+      11914,
+      11915,
+      12006,
+      12010,
+      12012,
+      12013,
+      12014,
+      12020,
+      12021,
+      12022,
+      12023,
+      12024,
+      12028,
+      12030,
+      12063,
+      12072,
+      12076,
+      12077,
+      12081,
+      12082,
+      12086,
+      12090,
+      12092,
+      12094,
+      12100,
+      12104,
+      12132,
+      12136,
+      12139,
+      12142,
+      12143,
+      12150,
+      12153,
+      12154,
+      12155,
+      12156,
+      12157,
+      12158,
+      12159,
+      12161,
+      12193,
+      12194,
+      12198,
+      12199,
+      12202,
+      12229,
+      12230,
+      12231,
+      12776,
+      12811,
+      12871,
+      12895,
+      13876,
+      13877,
+      13878,
+      14260,
+      14261,
+      14405,
+      14408,
+      14409,
+      14679,
+      14843,
+      14844,
+      14845,
+      14915,
+      14917,
+      14918,
+      14921,
+      14924,
+      14927,
+      14965,
+      14968
+    ],
+    "selected_counts": {
+      "700_999:D1": 34,
+      "700_999:D10": 25,
+      "700_999:D2": 32,
+      "700_999:D3": 44,
+      "700_999:D4": 36,
+      "700_999:D5": 37,
+      "700_999:D6": 18,
+      "700_999:D7": 17,
+      "700_999:D8": 14,
+      "700_999:D9": 19,
+      "ge1000:D1": 24,
+      "ge1000:D10": 33,
+      "ge1000:D2": 26,
+      "ge1000:D3": 13,
+      "ge1000:D4": 22,
+      "ge1000:D5": 20,
+      "ge1000:D6": 40,
+      "ge1000:D7": 41,
+      "ge1000:D8": 43,
+      "ge1000:D9": 39
+    },
+    "selected_decisive_source_rows": [
+      55,
+      56,
+      57,
+      58,
+      59,
+      137,
+      138,
+      139,
+      140,
+      141,
+      194,
+      195,
+      196,
+      197,
+      198,
+      252,
+      253,
+      328,
+      329,
+      330,
+      331,
+      332,
+      428,
+      492,
+      493,
+      494,
+      495,
+      496,
+      497,
+      545,
+      546,
+      547,
+      548,
+      549,
+      550,
+      649,
+      650,
+      651,
+      652,
+      653,
+      654,
+      729,
+      730,
+      731,
+      786,
+      787,
+      788,
+      789,
+      790,
+      919,
+      920,
+      921,
+      922,
+      977,
+      978,
+      979,
+      1034,
+      1035,
+      1036,
+      1037,
+      1038,
+      1039,
+      1093,
+      1094,
+      1095,
+      1149,
+      1150,
+      1151,
+      1152,
+      1153,
+      1154,
+      1209,
+      1210,
+      1211,
+      1212,
+      1266,
+      1267,
+      1268,
+      1269,
+      1270,
+      1271,
+      1288,
+      1289,
+      1290,
+      1291,
+      1292,
+      1293,
+      1348,
+      1349,
+      1350,
+      1351,
+      1441,
+      1442,
+      1443,
+      1444,
+      1445,
+      1446,
+      1567,
+      1568,
+      1569,
+      1624,
+      1625,
+      1626,
+      1627,
+      1737,
+      1738,
+      1739,
+      1740,
+      1741,
+      1804,
+      1805,
+      1806,
+      1807,
+      1808,
+      1809,
+      1907,
+      1908,
+      1909,
+      1966,
+      1967,
+      1968,
+      1969,
+      2024,
+      2025,
+      2026,
+      2027,
+      2028,
+      2139,
+      2140,
+      2141,
+      2142,
+      2143,
+      2144,
+      2203,
+      2204,
+      2205,
+      2206,
+      2207,
+      2265,
+      2266,
+      2320,
+      2321,
+      2322,
+      2323,
+      2324,
+      2325,
+      2480,
+      2481,
+      2542,
+      2543,
+      2544,
+      2545,
+      2546,
+      2652,
+      2653,
+      2654,
+      2655,
+      2656,
+      2657,
+      2712,
+      2713,
+      2714,
+      2715,
+      2716,
+      2717,
+      2815,
+      2816,
+      2817,
+      2871,
+      2872,
+      2873,
+      2874,
+      2875,
+      2876,
+      2937,
+      3012,
+      3013,
+      3014,
+      3015,
+      3016,
+      3017,
+      3281,
+      3282,
+      3283,
+      3284,
+      3285,
+      3286,
+      3341,
+      3342,
+      3343,
+      3344,
+      3345,
+      3346,
+      3432,
+      3433,
+      3460,
+      3461,
+      3462,
+      3463,
+      3464,
+      3465,
+      3500,
+      3542,
+      3543,
+      3598,
+      3750,
+      3751,
+      3752,
+      3753,
+      3754,
+      3803,
+      3804,
+      3805,
+      3806,
+      3807,
+      3808,
+      3863,
+      3864,
+      3865,
+      3866,
+      3926,
+      3980,
+      3981,
+      3982,
+      3983,
+      3984,
+      3985,
+      4037,
+      4038,
+      4039,
+      4092,
+      4093,
+      4094,
+      4095,
+      4154,
+      4155,
+      4156,
+      4157,
+      4158,
+      4216,
+      4217,
+      4218,
+      4219,
+      4220,
+      4221,
+      4274,
+      4275,
+      4330,
+      4331,
+      4332,
+      4333,
+      4334,
+      4335,
+      4390,
+      4391,
+      4392,
+      4393,
+      4394,
+      4395,
+      4449,
+      4450,
+      4451,
+      4452,
+      4453,
+      4550,
+      4551,
+      4552,
+      4553,
+      4622,
+      4623,
+      4624,
+      4625,
+      4705,
+      4706,
+      4707,
+      4761,
+      4762,
+      4849,
+      4850,
+      4851,
+      4852,
+      5005,
+      5047,
+      5048,
+      5084,
+      5085,
+      5086,
+      5087,
+      5088,
+      5141,
+      5142,
+      5143,
+      5144,
+      5145,
+      5146,
+      5230,
+      5231,
+      5232,
+      5233,
+      5234,
+      5290,
+      5291,
+      5292,
+      5293,
+      5294,
+      5295,
+      5348,
+      5349,
+      5350,
+      5351,
+      5352,
+      5353,
+      5514,
+      5515,
+      5516,
+      5517,
+      5518,
+      5610,
+      5611,
+      5612,
+      5613,
+      5614,
+      5684,
+      5685,
+      5686,
+      5687,
+      5688,
+      5770,
+      5771,
+      5772,
+      5773,
+      5774,
+      5775,
+      5820,
+      5821,
+      5822,
+      5823,
+      6004,
+      6005,
+      6006,
+      6007,
+      6062,
+      6063,
+      6164,
+      6165,
+      6166,
+      6199,
+      6200,
+      6406,
+      6475,
+      6476,
+      6537,
+      6538,
+      6539,
+      6540,
+      6541,
+      6542,
+      6563,
+      6564,
+      6565,
+      6566,
+      6567,
+      6568,
+      6622,
+      6623,
+      6624,
+      6625,
+      6702,
+      6703,
+      6704,
+      6785,
+      6786,
+      6787,
+      6788,
+      6843,
+      6844,
+      6845,
+      6846,
+      6847,
+      6848,
+      6952,
+      7007,
+      7008,
+      7009,
+      7010,
+      7011,
+      7012,
+      7122,
+      7123,
+      7124,
+      7179,
+      7180,
+      7181,
+      7254,
+      7255,
+      7256,
+      7257,
+      7308,
+      7309,
+      7310,
+      7311,
+      7538,
+      7539,
+      7540,
+      7541,
+      7542,
+      7581,
+      7635,
+      7636,
+      7637,
+      7638,
+      7639,
+      7640,
+      7688,
+      7689,
+      7690,
+      7744,
+      7745,
+      7746,
+      7797,
+      7798,
+      7799,
+      7854,
+      7855,
+      7856,
+      7857,
+      7912,
+      7913,
+      7914,
+      7915,
+      8009,
+      8010,
+      8011,
+      8012,
+      8013,
+      8014,
+      8085,
+      8385,
+      8386,
+      8387,
+      8388,
+      8389,
+      8390,
+      8433,
+      8488,
+      8489,
+      8577,
+      8578,
+      8579,
+      8580,
+      8581,
+      8582,
+      8637,
+      8638,
+      8639,
+      8731,
+      8732,
+      8816,
+      8817,
+      8884,
+      8885,
+      8941,
+      8942,
+      8997,
+      8998,
+      8999,
+      9000,
+      9054,
+      9055,
+      9056,
+      9057,
+      9058,
+      9192,
+      9193,
+      9194,
+      9195,
+      9341,
+      9342,
+      9343,
+      9429,
+      9430,
+      9431,
+      9432,
+      9433,
+      9434,
+      9493,
+      9494,
+      9495,
+      9496,
+      9497,
+      9498,
+      9552,
+      9607,
+      9608,
+      9609,
+      9610,
+      9611,
+      9612,
+      9667,
+      9668,
+      9669,
+      9670,
+      9671,
+      9672,
+      9728,
+      9729,
+      9730,
+      9731,
+      9732,
+      9733,
+      9785,
+      9786,
+      9787,
+      9788,
+      9815,
+      9816,
+      9817,
+      9818,
+      9819,
+      9930,
+      9931,
+      9932,
+      9933,
+      9934,
+      9935,
+      10043,
+      10044,
+      10093,
+      10094,
+      10095,
+      10236,
+      10237,
+      10289,
+      10290,
+      10291,
+      10292,
+      10329,
+      10330,
+      10331,
+      10332,
+      10333,
+      10334,
+      10466,
+      10467,
+      10468,
+      10469,
+      10470,
+      10541,
+      10542,
+      10543,
+      10544,
+      10545,
+      10650,
+      10651,
+      10652,
+      10653,
+      10726,
+      10727,
+      10728,
+      10729,
+      10730,
+      10731,
+      10790,
+      10791,
+      10792,
+      10793,
+      10794,
+      10819,
+      10820,
+      10821,
+      10822,
+      10823,
+      10880,
+      10881,
+      10882,
+      10883,
+      10884
+    ],
+    "shortages": {},
+    "side_definition": "decisive iff not surviving_original[source_row, action_B8]",
+    "source_counts": {
+      "700_999:D1": 34,
+      "700_999:D10": 25,
+      "700_999:D2": 32,
+      "700_999:D3": 44,
+      "700_999:D4": 36,
+      "700_999:D5": 37,
+      "700_999:D6": 18,
+      "700_999:D7": 17,
+      "700_999:D8": 14,
+      "700_999:D9": 19,
+      "ge1000:D1": 24,
+      "ge1000:D10": 33,
+      "ge1000:D2": 26,
+      "ge1000:D3": 13,
+      "ge1000:D4": 22,
+      "ge1000:D5": 20,
+      "ge1000:D6": 40,
+      "ge1000:D7": 41,
+      "ge1000:D8": 43,
+      "ge1000:D9": 39
+    },
+    "ties": "upper decile via searchsorted(side=right)"
+  },
+  "shards": {
+    "bank-00000.npz": "8d5e29475189fa8311e4b65dcf27420bbcf086750a4b33f8308a786452e34907"
+  },
+  "source": {
+    "files": {
+      "bank-00000.npz": "759b94e6e8e5f336abca542dceed42009c3df88de97c935707e0950d742172b2",
+      "manifest.json": "340415402e04cd938a7e66e5f9e7294968d34b5a78b789b4fe02ae503c8bd221"
+    },
+    "path": "/Users/josenunez/Projects/ml/snake-dqn-artifacts/t4-prep-20261015/bank-v2"
+  }
+}
