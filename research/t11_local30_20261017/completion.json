@@ -1,0 +1,49 @@
+{
+  "bank_counts": {
+    "counter": 577,
+    "decisive": 577,
+    "total": 1154
+  },
+  "eight_million_training_started": false,
+  "external_scripts_identical_to_tracked": true,
+  "files": {
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/lane0.sh": "a993a4589d0e51f8ce859715591827071585c56bd6c3584e2ee50b8fcfef986c",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/lane1.sh": "d7521db0ccdfe639a27b57797c5020c9b78606c36b91d216e8857864ed22089f",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/validation/lane0-check.txt": "832fd8c4686f84408d5cc9cbe552d897898750350f839ef2a79ae19a34a1b0e4",
+    "/Users/josenunez/Projects/ml/snake-dqn-artifacts/redesign-t11-mac-20261017/validation/lane1-check.txt": "4e914a7becd28165645c1f690c24dcc0b56594aecb950189c1f1840c6e978af4",
+    "/Users/josenunez/Projects/ml/snake-dqn-t11/research/t11_local30_20261017/bank_manifest.json": "a7825a6096373c4e8c31da36e92e7d14e40d9c7de3d77d22b6a683efabd7bf18",
+    "/Users/josenunez/Projects/ml/snake-dqn-t11/research/t11_local30_20261017/launch_inputs.json": "8647e5b645d79a4e6c2fdd1a2e5b55306351814ac3e1c64cbca9307cd4f78140",
+    "/Users/josenunez/Projects/ml/snake-dqn-t11/research/t11_local30_20261017/seed_audit.json": "485216dc95a908e7a5eb0e6c994c1b5c306439507367b6acbb235cd362b98d8a",
+    "/Users/josenunez/Projects/ml/snake-dqn-t11/research/t11_local30_20261017/smoke_receipt.json": "5f3b4107fe66e314a935a3fef8102a1a25e461fa785e1abe39153a8132f47d46",
+    "/Users/josenunez/Projects/ml/snake-dqn-t11/research/t11_local30_20261017/smoke_telemetry.jsonl": "8e29510527bdfb6cffb72e4c4feb85429587657e3bfc4b6c470e50d6337dd4dc",
+    "/Users/josenunez/Projects/ml/snake-dqn-t11/research/t11_local30_20261017/source_counts.json": "1b19a44cec3d1316c4553345cfb9a4c2a8b51be147aa6c7de8f3f76f16a296d4"
+  },
+  "schema": "t11-local30-implementation-completion/v1",
+  "scripts_unstarted": true,
+  "smoke": {
+    "actor_exitcodes": [
+      0,
+      0
+    ],
+    "exit_code": 0,
+    "flags": [],
+    "halt": null,
+    "process_wall_seconds": 61.232982917223126,
+    "rate": 3395.046976048046,
+    "runtime_git_sha": "34dd6c19f4a62d5623e29ad939270ea3c88d7d2c",
+    "status": "PASS",
+    "transitions": 200064,
+    "wall_seconds": 58.928195875138044
+  },
+  "verification": {
+    "black": "PASS",
+    "flake8": "PASS",
+    "focused_t11_tests": 27,
+    "independent_review": "PASS",
+    "isort": "PASS",
+    "lane0_check_commands": 3,
+    "lane1_check_commands": 2,
+    "shared_label_loss_tests": 26,
+    "total_tests": 53
+  }
+}
