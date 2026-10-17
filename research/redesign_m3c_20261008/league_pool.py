@@ -22,6 +22,61 @@ MAX_ELIGIBLE_POLICIES = 16
 V8_METHOD = "free-space-veto/v8-space-and-head(lambda=8.0)"
 
 
+class LeagueBV8Policy:
+    """Frozen B8 forward with one host transfer of actions per policy group.
+
+    Raster construction stays on the actor CPU.  The Q forward, action mask and
+    argmax remain on the model device.  CUDA timing deliberately starts only
+    after the device tensors are prepared, so it measures the network/selection
+    work rather than CPU featurization or host-to-device copies.
+    """
+
+    def __init__(self, checkpoint_path: str, device: str) -> None:
+        import torch
+
+        from src.model.ego2s_network import load_ego2s_checkpoint, spec_for
+        from src.simd_env.ego2s_policy import ego_config_for
+
+        self.net = load_ego2s_checkpoint(checkpoint_path, device).eval()
+        self.device = next(self.net.parameters()).device
+        self.checkpoint_path = str(checkpoint_path)
+        self.ego_config = ego_config_for(self.net)
+        self.obs_spec = spec_for(self.net)
+        self.last_forward_gpu_s = 0.0
+        for param in self.net.parameters():
+            param.requires_grad_(False)
+        self._torch = torch
+
+    def actions(self, masks: np.ndarray, sim: Any, slots: np.ndarray) -> np.ndarray:
+        from src.model.ego2s_network import obs_tensors
+        from src.simd_env.ego_raster import build_ego_raster
+
+        slots = np.asarray(slots, dtype=np.int64).reshape(-1, 2)
+        if not len(slots):
+            return np.empty(0, dtype=np.int64)
+        obs = build_ego_raster(sim, self.ego_config, backend="numba", rows=slots)
+        tensors = obs_tensors(obs, self.device)
+        torch = self._torch
+        mask = _normal_fallback_mask(
+            torch.from_numpy(np.asarray(masks, dtype=np.bool_)).to(self.device)
+        )
+        events = _cuda_events_for(self.device)
+        with torch.no_grad():
+            q = self.net(*tensors)
+            actions = torch.where(mask, q, torch.full_like(q, -torch.inf)).argmax(dim=1)
+        self.last_forward_gpu_s = _cuda_elapsed(events)
+        return actions.cpu().numpy().astype(np.int64, copy=False)
+
+
+def _normal_fallback_mask(mask: Any) -> Any:
+    """Mirror legacy resolved-mask fallback without a host round trip."""
+    empty = ~mask.any(dim=1)
+    if bool(empty.any()):
+        mask = mask.clone()
+        mask[empty, :3] = True
+    return mask
+
+
 class _PolicyIds(tuple):
     """Tuple that remains callable during the collector API transition."""
 
@@ -125,7 +180,9 @@ def default_pool_identities(
     directory = Path(checkpoint_dir or os.environ.get("SNAKE_CKPT_DIR", "saved_snakes"))
     source_pins = _v8_source_pins()
     bv8_sources = _source_pins(
-        "src/simd_env/ego2s_policy.py", "src/model/ego2s_network.py", "src/simd_env/ego_raster.py"
+        "research/redesign_m3c_20261008/league_pool.py",
+        "src/model/ego2s_network.py",
+        "src/simd_env/ego_raster.py",
     )
     v61_sources = _source_pins(
         "src/simd_env/vector61_policy.py", "src/simd_env/vector61_featurizer.py"
@@ -251,17 +308,13 @@ class StaticPool:
         groups = self.groups_for(seats, alive)
         counts = {policy_id: int(len(rows)) for policy_id, rows in groups.items()}
         start = time.perf_counter()
-        kinds = {identity.policy_id: identity.kind for identity in self.identities}
         gpu_seconds = 0.0
         for policy_id, rows in groups.items():
-            # CUDA events are placed around only a BV8 policy group.  On-device event
-            # elapsed time excludes the CPU/vector/script work between groups.
-            gpu_events = _gpu_events() if kinds[policy_id] == "bv8" else None
             choice = np.asarray(
                 self.policies[policy_id].actions(masks[rows[:, 0], rows[:, 1]], prepared, rows),
                 dtype=np.int64,
             ).reshape(-1)
-            gpu_seconds += _gpu_elapsed(gpu_events)
+            gpu_seconds += float(getattr(self.policies[policy_id], "last_forward_gpu_s", 0.0))
             if len(choice) != len(rows):
                 raise RuntimeError(
                     f"{policy_id}: returned {len(choice)} actions for {len(rows)} rows"
@@ -274,17 +327,19 @@ class StaticPool:
         }
 
 
-def _gpu_events():
+def _cuda_events_for(device: Any):
     import torch
 
-    if not torch.cuda.is_available():
+    # The model device, rather than global CUDA availability, is authoritative:
+    # a CPU/MPS policy on a CUDA-equipped host has zero CUDA work.
+    if torch.device(device).type != "cuda":
         return None
     start, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     start.record()
     return start, end
 
 
-def _gpu_elapsed(events: Any) -> float:
+def _cuda_elapsed(events: Any) -> float:
     if events is None:
         return 0.0
     start, end = events
@@ -294,12 +349,16 @@ def _gpu_elapsed(events: Any) -> float:
 
 
 def build_static_pool(
-    identities: Sequence[PoolIdentity], *, world_seeds: Sequence[int], runtime: Any, device: str
+    identities: Sequence[PoolIdentity],
+    *,
+    world_seeds: Sequence[int],
+    runtime: Any,
+    device: str,
+    resident_bv8: Optional[LeagueBV8Policy] = None,
 ) -> StaticPool:
     """Validate and load the permanent pool.  Models are eval-only and immutable."""
     for identity in identities:
         identity.validate()
-    from src.simd_env.ego2s_policy import Ego2sSimdPolicy
     from src.simd_env.fast_anchors import FastProfileAnchorSimdPolicy
     from src.simd_env.vector61_policy import Vector61SimdPolicy
 
@@ -310,12 +369,17 @@ def build_static_pool(
                 identity.policy_id.split(":", 1)[1], world_seeds
             )
         elif identity.kind == "bv8":
-            policies[identity.policy_id] = Ego2sSimdPolicy(
-                str(identity.checkpoint_path), device=device, mask_mode=identity.mask_config
-            )
-            from src.model.ego2s_network import spec_for
-
-            if spec_for(policies[identity.policy_id].net) != identity.obs_spec:
+            if identity.mask_config != "resolved":
+                raise RuntimeError(f"{identity.policy_id}: LeagueBV8Policy requires resolved mask")
+            if resident_bv8 is not None and resident_bv8.checkpoint_path == str(
+                identity.checkpoint_path
+            ):
+                policies[identity.policy_id] = resident_bv8
+            else:
+                policies[identity.policy_id] = LeagueBV8Policy(
+                    str(identity.checkpoint_path), device=device
+                )
+            if policies[identity.policy_id].obs_spec != identity.obs_spec:
                 raise RuntimeError(f"{identity.policy_id}: checkpoint obs spec does not match pin")
         else:
             policies[identity.policy_id] = Vector61SimdPolicy(
@@ -346,12 +410,17 @@ def build_default_static_pool(
     directory = getattr(args, "league_checkpoint_dir", None)
     b8_checkpoint = getattr(args, "league_b8_checkpoint", None) or getattr(args, "init", None)
     seeds = sim.get_world_seeds()
-    return build_static_pool(
-        default_pool_identities(directory, b8_checkpoint),
+    identities = default_pool_identities(directory, b8_checkpoint)
+    resident = getattr(args, "_league_b8_policy", None)
+    pool = build_static_pool(
+        identities,
         world_seeds=seeds,
         runtime=runtime,
         device=str(device),
+        resident_bv8=resident,
     )
+    args._league_b8_policy = pool.policies["b8-s3"]
+    return pool
 
 
 def _freeze_policy(policy: Any) -> None:
