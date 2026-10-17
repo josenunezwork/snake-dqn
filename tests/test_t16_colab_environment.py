@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -66,6 +67,7 @@ def test_uv_failure_does_not_fall_back_to_kernel(tmp_path):
         ("timeout_all", None),
         ("called_all", None),
         ("called_once", None),
+        ("tempdir_once", None),
         (None, False),
         (None, True),
     ],
@@ -116,6 +118,19 @@ def test_notebook_routes_workload_to_selected_interpreter(
         (output / "identity.json").write_text(json.dumps({"omitted_smoke03_row5": prior_omission}))
 
     p0_attempts = 0
+    tempdir_attempts = 0
+    original_temporary_directory = tempfile.TemporaryDirectory
+
+    if p0_failure == "tempdir_once":
+
+        def fail_first_temporary_directory(*args, **kwargs):
+            nonlocal tempdir_attempts
+            tempdir_attempts += 1
+            if tempdir_attempts == 1:
+                raise OSError("P0 test ring directory unavailable")
+            return original_temporary_directory(*args, **kwargs)
+
+        monkeypatch.setattr(tempfile, "TemporaryDirectory", fail_first_temporary_directory)
 
     def fake_run(command, **kwargs):
         nonlocal p0_attempts
@@ -171,13 +186,15 @@ def test_notebook_routes_workload_to_selected_interpreter(
         )
         assert receipt["status"] == "completed_with_failures"
         assert len(receipt["benchmarks"]) == 8
-        expected_failures = 1 if p0_failure == "called_once" else 8
+        expected_failures = 1 if p0_failure in {"called_once", "tempdir_once"} else 8
         failures = [row for row in receipt["benchmarks"] if row["status"] == "failed"]
         successes = [row for row in receipt["benchmarks"] if row["status"] == "completed"]
         assert len(failures) == expected_failures
         assert len(successes) == 8 - expected_failures
         if p0_failure == "timeout_all":
             assert all("P0 test timeout" in row["error"] for row in failures)
+        elif p0_failure == "tempdir_once":
+            assert all("P0 test ring directory unavailable" in row["error"] for row in failures)
         else:
             assert all("CalledProcessError" in row["error"] for row in failures)
     else:
@@ -189,7 +206,8 @@ def test_notebook_routes_workload_to_selected_interpreter(
         assert receipt["status"] == "completed"
         assert len(receipt["benchmarks"]) == 8
         assert all(row["status"] == "completed" for row in receipt["benchmarks"])
-    assert len(workloads) == 14  # setup, P0 runtime probe, 8 P0 receipts, smoke runner
+    expected_workloads = 13 if p0_failure == "tempdir_once" else 14
+    assert len(workloads) == expected_workloads  # setup, P0 runtime probe, P0 benches, smoke runner
     assert all(command[0] == selected for command in workloads)
     assert all(
         pin in workloads[0] for pin in ["numpy==1.26.4", "numba==0.68.0", "llvmlite==0.50.0"]
@@ -201,10 +219,12 @@ def test_notebook_routes_workload_to_selected_interpreter(
         for command in workloads
         if any(str(part).endswith("bench_learner.py") for part in command)
     ]
-    assert len(p0_calls) == 8
+    expected_p0_calls = 7 if p0_failure == "tempdir_once" else 8
+    assert len(p0_calls) == expected_p0_calls
     assert {command[command.index("--gather-threads") + 1] for command in p0_calls} == {"0", "3"}
     ring_dirs = [Path(command[command.index("--ring-dir") + 1]) for command in p0_calls]
-    assert sum(path.parent == local_path("/dev/shm") for path in ring_dirs) == 4
+    expected_shm_calls = 3 if p0_failure == "tempdir_once" else 4
+    assert sum(path.parent == local_path("/dev/shm") for path in ring_dirs) == expected_shm_calls
     assert sum(path.parent == local_path("/content/scratch/p0-rings") for path in ring_dirs) == 4
     assert all(path.name.startswith("t17b-p0-") for path in ring_dirs)
     assert all(command[command.index("--devices") + 1] == "cuda" for command in p0_calls)
