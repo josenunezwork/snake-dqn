@@ -1153,7 +1153,7 @@ def main() -> int:
     if args.suite == "smoke02":
         args.suite = "t16"
     if args.seconds is None:
-        args.seconds = 300 if args.suite == "smoke03" else 150
+        args.seconds = 300 if args.suite in ("smoke03", "n3") else 150
     if not 120 <= args.seconds <= 600 or not 0 < args.budget_seconds <= 3600:
         parser.error("seconds must be 120..600 and budget must be >0 and <=3600")
     # The notebook owns this runner, while bounded_command owns separate trainer
