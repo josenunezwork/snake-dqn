@@ -183,7 +183,15 @@ def build_plan(root: Path) -> dict[str, Any]:
     if (
         not ALLOCATION_ERRATUM.exists()
         or ALLOCATION_ERRATUM.relative_to(REPO).as_posix() not in _git(["ls-files"]).splitlines()
-        or not _git(["log", "-1", "--format=%H", "--", str(ALLOCATION_ERRATUM.relative_to(REPO))])
+        or not _git(
+            [
+                "log",
+                "-1",
+                "--format=%H",
+                "--",
+                str(ALLOCATION_ERRATUM.relative_to(REPO)),
+            ]
+        )
     ):
         raise SystemExit("committed seed-allocation erratum required")
     banks = _banks_from_audit()
@@ -211,7 +219,10 @@ def build_plan(root: Path) -> dict[str, Any]:
     return {
         "schema": "t7-phase-r-plan/v1",
         "commit": commit,
-        "preregistration": {"path": str(PREREG.relative_to(REPO)), "sha256": prereg_sha},
+        "preregistration": {
+            "path": str(PREREG.relative_to(REPO)),
+            "sha256": prereg_sha,
+        },
         "allocation_erratum": {
             "path": str(ALLOCATION_ERRATUM.relative_to(REPO)),
             "sha256": sha256_file(ALLOCATION_ERRATUM),
@@ -397,7 +408,8 @@ class PrefixObserver:
                 acc.observe(
                     pre_alive=self.prev_alive[i],
                     post=PostStepState(
-                        alive=bool(post["alive"][i]), logical_mass=float(post["logical_mass"][i])
+                        alive=bool(post["alive"][i]),
+                        logical_mass=float(post["logical_mass"][i]),
                     ),
                     events=StepEvents(
                         food_eaten=int(post["food_ate"][i]) if valid else 0,
@@ -414,7 +426,10 @@ class PrefixObserver:
         return self.accumulators[i].result()
 
     def diagnostic(self, i: int) -> dict[str, Any]:
-        return {"exposure": self.length_exposure[i], "deaths_pre_length": self.deaths_pre_length[i]}
+        return {
+            "exposure": self.length_exposure[i],
+            "deaths_pre_length": self.deaths_pre_length[i],
+        }
 
 
 def prefix_identical(direct: Mapping[str, Any], prefix: Mapping[str, Any]) -> bool:
@@ -680,6 +695,38 @@ def guard_ok() -> list[str]:
     return list(check())
 
 
+class OwnedWorkerSignals:
+    """Direct lifecycle signals for Popen children created by this coordinator."""
+
+    def __init__(self) -> None:
+        self.paused_pids: set[int] = set()
+
+    def send(self, proc: subprocess.Popen, sig: signal.Signals) -> None:
+        if proc.poll() is not None:
+            self.paused_pids.discard(proc.pid)
+            return
+        if sig is signal.SIGCONT and proc.pid not in self.paused_pids:
+            return
+        try:
+            proc.send_signal(sig)
+        except ProcessLookupError:
+            self.paused_pids.discard(proc.pid)
+            return
+        if sig is signal.SIGSTOP:
+            self.paused_pids.add(proc.pid)
+        elif sig is signal.SIGCONT:
+            self.paused_pids.discard(proc.pid)
+
+    def reap(self, proc: subprocess.Popen, timeout: float = 10.0) -> None:
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.send(proc, signal.SIGKILL)
+            proc.wait()
+        finally:
+            self.paused_pids.discard(proc.pid)
+
+
 def run(root: Path, procs: int) -> int:
     if not 1 <= procs <= 6:
         raise SystemExit("procs must be 1..6")
@@ -734,6 +781,7 @@ def run(root: Path, procs: int) -> int:
             if not all(p.exists() for p in paths):
                 todo.append(u)
         running: list[tuple[subprocess.Popen, str]] = []
+        owned_signals = OwnedWorkerSignals()
         previous_sigterm = signal.getsignal(signal.SIGTERM)
 
         def _owned_shutdown(_signum, _frame):
@@ -745,11 +793,7 @@ def run(root: Path, procs: int) -> int:
                 bad = guard_ok()
                 paused = bool(bad)
                 for proc, _ in running:
-                    if proc.poll() is None:
-                        try:
-                            os.killpg(proc.pid, signal.SIGSTOP if paused else signal.SIGCONT)
-                        except ProcessLookupError:
-                            pass
+                    owned_signals.send(proc, signal.SIGSTOP if paused else signal.SIGCONT)
                 if paused:
                     time.sleep(30)
                     continue
@@ -760,7 +804,7 @@ def run(root: Path, procs: int) -> int:
                     elif proc.returncode != 0:
                         for other, _ in running:
                             if other.poll() is None:
-                                os.killpg(other.pid, signal.SIGTERM)
+                                owned_signals.send(other, signal.SIGTERM)
                         raise SystemExit(f"unit failed: {uid}")
                 running = next_running
                 while todo and len(running) < procs:
@@ -784,30 +828,19 @@ def run(root: Path, procs: int) -> int:
                         start_new_session=True,
                     )
                     running.append((proc, u["unit_id"]))
-                    print(json.dumps({"started": u["unit_id"], "remaining": len(todo)}), flush=True)
+                    print(
+                        json.dumps({"started": u["unit_id"], "remaining": len(todo)}),
+                        flush=True,
+                    )
                 time.sleep(2)
             result = decide(root, started)
             receipts.write_once(root / "decision.json", result)
         finally:
             for proc, _ in running:
-                if proc.poll() is None:
-                    try:
-                        os.killpg(proc.pid, signal.SIGCONT)
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        os.killpg(proc.pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
+                owned_signals.send(proc, signal.SIGCONT)
+                owned_signals.send(proc, signal.SIGTERM)
             for proc, _ in running:
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    proc.wait()
+                owned_signals.reap(proc)
             signal.signal(signal.SIGTERM, previous_sigterm)
     return 0
 
@@ -876,7 +909,11 @@ def audit(root: Path) -> int:
     report = {
         "schema": "t7-phase-r-audit/v1",
         "plan_valid": True,
-        "coverage": {"expected": len(expected), "found": len(found), "exact": expected == found},
+        "coverage": {
+            "expected": len(expected),
+            "found": len(found),
+            "exact": expected == found,
+        },
         "records_valid": True,
         "decision_valid": False,
     }
@@ -904,7 +941,13 @@ def audit(root: Path) -> int:
     print(json.dumps(report, sort_keys=True))
     return (
         0
-        if all((report["coverage"]["exact"], report["records_valid"], report["decision_valid"]))
+        if all(
+            (
+                report["coverage"]["exact"],
+                report["records_valid"],
+                report["decision_valid"],
+            )
+        )
         else 1
     )
 

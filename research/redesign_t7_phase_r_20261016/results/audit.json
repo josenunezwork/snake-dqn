@@ -1,0 +1,11 @@
+{
+ "coverage": {
+  "exact": true,
+  "expected": 5805,
+  "found": 5805
+ },
+ "decision_valid": true,
+ "plan_valid": true,
+ "records_valid": true,
+ "schema": "t7-phase-r-audit/v1"
+}

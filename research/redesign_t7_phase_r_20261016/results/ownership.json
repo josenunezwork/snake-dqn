@@ -1,0 +1,10 @@
+{
+ "command": "tmux new-session -d -s t7-phase-r /bin/zsh launch.sh",
+ "commit": "7e1734357115d44b11038634a0ce1cb18afddfa3",
+ "created_utc": "2026-10-17T00:06:55.574724+00:00",
+ "cwd": "/Users/josenunez/Projects/ml/snake-dqn-t7",
+ "plan_sha256": "76731e5f25d6327e6e4e21cd084151333c6889b1e26936e3f00d065982275327",
+ "rule": "Manage only processes created by this launch and its Popen children.",
+ "schema": "t7-process-ownership/v1",
+ "tmux_session": "t7-phase-r"
+}

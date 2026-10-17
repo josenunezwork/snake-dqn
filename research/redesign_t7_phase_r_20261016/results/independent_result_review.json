@@ -1,0 +1,665 @@
+{
+  "candidate_eligible_seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "candidate_ranking": [
+    {
+      "df": 347.113235358468,
+      "estimate": 149.65005069444445,
+      "lower80": 131.93991411838775,
+      "se": 13.792992396187815,
+      "seed": 3
+    },
+    {
+      "df": 368.51693643547884,
+      "estimate": 139.88573819444443,
+      "lower80": 123.30198608617273,
+      "se": 12.91717312530072,
+      "seed": 2
+    },
+    {
+      "df": 355.9242130936157,
+      "estimate": 138.20961527777777,
+      "lower80": 121.2926341115237,
+      "se": 13.17588976485402,
+      "seed": 1
+    },
+    {
+      "df": 341.89189138797093,
+      "estimate": 134.8970295138889,
+      "lower80": 117.23032084692099,
+      "se": 13.758769220962481,
+      "seed": 4
+    },
+    {
+      "df": 345.0733259839668,
+      "estimate": 131.00828819444445,
+      "lower80": 113.77261186765078,
+      "se": 13.423322381079938,
+      "seed": 0
+    }
+  ],
+  "candidate_seed": 3,
+  "clauses": {
+    "c1_mass_point": {
+      "estimate": 138.66630639936594,
+      "pass": true,
+      "se": 5.99305400890037,
+      "threshold": 20
+    },
+    "c2_frozen_alive": {
+      "df": 479,
+      "estimate": 0.04621541666666666,
+      "n": 480,
+      "pass": true,
+      "se": 0.013546627010663052,
+      "threshold": -0.03
+    },
+    "c2_mixed_alive": {
+      "df": 479,
+      "estimate": 0.04284041666666667,
+      "n": 480,
+      "pass": true,
+      "se": 0.01288249205300784,
+      "threshold": -0.03
+    },
+    "c2_scripted_alive": {
+      "df": 959,
+      "estimate": -0.006908958333333331,
+      "n": 960,
+      "pass": true,
+      "se": 0.012253546488668634,
+      "threshold": -0.03
+    },
+    "c2_scripted_mass": {
+      "df": 959,
+      "estimate": 150.21914604166668,
+      "n": 960,
+      "pass": true,
+      "se": 10.857282875127645,
+      "threshold": 0
+    },
+    "c4_positive_seeds": {
+      "min": 4,
+      "pass": true,
+      "positive": 5
+    },
+    "c5_mi10": {
+      "estimate": 93.74668542242634,
+      "pass": true,
+      "se": 13.104929831042725,
+      "threshold": 20
+    },
+    "c5_prefix_controls": {
+      "pass": true
+    },
+    "c6_guard_mass_seed0": {
+      "estimate": 178.85754965277775,
+      "op": ">",
+      "pass": true,
+      "se": 12.33879185431072,
+      "threshold": 0
+    },
+    "c7_feasibility": {
+      "cap": 600,
+      "mde_star": 129.4777183921458,
+      "n_fixed": 81,
+      "n_max": 83,
+      "pass": true,
+      "sd_star": 336.4006060834588
+    },
+    "efficacy": {
+      "estimate": 138.66630639936594,
+      "lower_bound": 129.4777183921458,
+      "pass": true,
+      "se": 5.99305400890037,
+      "threshold": 0
+    },
+    "tier1_absolute_episode_floor": {
+      "by_mix": {
+        "frozen": {
+          "df": 479,
+          "estimate": 0.74375,
+          "n": 480,
+          "pass": true,
+          "se": 0.01994700376723752,
+          "threshold": 0.5
+        },
+        "mixed": {
+          "df": 479,
+          "estimate": 0.7854166666666667,
+          "n": 480,
+          "pass": true,
+          "se": 0.018757730564401952,
+          "threshold": 0.5
+        },
+        "scripted": {
+          "df": 959,
+          "estimate": 0.5385416666666667,
+          "n": 960,
+          "pass": true,
+          "se": 0.01609780261854151,
+          "threshold": 0.5
+        }
+      },
+      "pass": true
+    },
+    "tier1_per_seed_alive_floor": {
+      "pass": true,
+      "rows": {
+        "0": {
+          "df": 191,
+          "estimate": -0.006235416666666667,
+          "n": 192,
+          "pass": true,
+          "se": 0.02750643058994143,
+          "threshold": -0.15
+        },
+        "1": {
+          "df": 191,
+          "estimate": -0.023532291666666667,
+          "n": 192,
+          "pass": true,
+          "se": 0.02622234775132039,
+          "threshold": -0.15
+        },
+        "2": {
+          "df": 191,
+          "estimate": 0.028695833333333334,
+          "n": 192,
+          "pass": true,
+          "se": 0.028663560356617965,
+          "threshold": -0.15
+        },
+        "3": {
+          "df": 191,
+          "estimate": -0.018317708333333335,
+          "n": 192,
+          "pass": true,
+          "se": 0.028571148341559556,
+          "threshold": -0.15
+        },
+        "4": {
+          "df": 191,
+          "estimate": -0.015155208333333328,
+          "n": 192,
+          "pass": true,
+          "se": 0.026042430963369848,
+          "threshold": -0.15
+        }
+      }
+    }
+  },
+  "commands": [
+    "git status --short --branch; git rev-parse HEAD",
+    "Independent Python stdin verification over raw records using hashlib/NumPy/SciPy; no gameplay/model loading/research helper imports."
+  ],
+  "coverage": {
+    "all_records": 5805,
+    "checked_checkpoints": 11,
+    "checked_sources": 920,
+    "decision_episodes": 5760,
+    "direct_prefix_controls": 45,
+    "global_bank_worlds": 960,
+    "h5000_survivors_with_later_h10000_death": 2604,
+    "preserved_recovery_records": 168
+  },
+  "decision": "STRICT_PASS",
+  "errors": [],
+  "evidence": {
+    "audit.json": "c631930c0af441e72e304a08cea401ed1a494c02c3e73071a8a459fb33dde07e",
+    "coordinator_resume.py": "9216e36c21e76682a9197a292d46dc3ed2d572b15ca005be2bf6e1ea332c2e04",
+    "decision.json": "8fd97ecc564fdc31a1d77ed50b8112dcffac42d736db20b2b410b67c6ef139fb",
+    "operational_recovery_1.json": "b481eb37000a82ff8d27d5e1e9ce8374425784037686b4b9acddeabf2c9e3012",
+    "plan.json": "76731e5f25d6327e6e4e21cd084151333c6889b1e26936e3f00d065982275327",
+    "start.json": "ae9e195d27525325ae08d1c141c8aaa510303521096db2663c237f2afc951344"
+  },
+  "frozen_commit": "7e1734357115d44b11038634a0ce1cb18afddfa3",
+  "hk_h10000": {
+    "df": 4,
+    "estimate": 93.74668542242634,
+    "lower_bound": 73.65412478436943,
+    "se": 13.104929831042725,
+    "seed_effects": [
+      54.121781250000005,
+      75.69649687500001,
+      114.8152689236111,
+      99.8151045138889,
+      125.2032173611111
+    ],
+    "seed_variances": [
+      704.5945090927144,
+      803.1712719476516,
+      694.897414996473,
+      770.2314621741256,
+      780.1050525802984
+    ],
+    "tau2": 110.26889451055719,
+    "upper_bound": 113.83924606048325
+  },
+  "hk_h5000": {
+    "df": 4,
+    "estimate": 138.66630639936594,
+    "lower_bound": 129.4777183921458,
+    "se": 5.99305400890037,
+    "seed_effects": [
+      131.00828819444445,
+      138.20961527777777,
+      139.88573819444443,
+      149.65005069444445,
+      134.8970295138889
+    ],
+    "seed_variances": [
+      180.1855837464016,
+      173.6040710955849,
+      166.85336154899116,
+      190.24663924129487,
+      189.30373047570453
+    ],
+    "tau2": 0,
+    "upper_bound": 147.85489440658608
+  },
+  "independence": "Recomputed raw-record statistics with NumPy/SciPy t quantiles, with no study runner/rule/helper imports. Independently checked exact coverage, all record hashes/envelopes/sidecars, source/checkpoint/P2/registration/erratum bindings, H5000 controls, preserved recovery records and wall time.",
+  "length_hazard": [
+    {
+      "deaths": 5,
+      "deaths_per_1000_decisions": 0.011764816610038682,
+      "hero": "B8-noveto",
+      "length_bin": "0-199",
+      "mix": "frozen",
+      "valid_decisions": 424996
+    },
+    {
+      "deaths": 9,
+      "deaths_per_1000_decisions": 0.025422148906000194,
+      "hero": "B8-noveto",
+      "length_bin": "200-399",
+      "mix": "frozen",
+      "valid_decisions": 354022
+    },
+    {
+      "deaths": 40,
+      "deaths_per_1000_decisions": 0.05683230916776187,
+      "hero": "B8-noveto",
+      "length_bin": "400-799",
+      "mix": "frozen",
+      "valid_decisions": 703825
+    },
+    {
+      "deaths": 69,
+      "deaths_per_1000_decisions": 0.09690181037860521,
+      "hero": "B8-noveto",
+      "length_bin": "800+",
+      "mix": "frozen",
+      "valid_decisions": 712061
+    },
+    {
+      "deaths": 5,
+      "deaths_per_1000_decisions": 0.011327157766918809,
+      "hero": "B8-noveto",
+      "length_bin": "0-199",
+      "mix": "mixed",
+      "valid_decisions": 441417
+    },
+    {
+      "deaths": 12,
+      "deaths_per_1000_decisions": 0.0331758402472706,
+      "hero": "B8-noveto",
+      "length_bin": "200-399",
+      "mix": "mixed",
+      "valid_decisions": 361709
+    },
+    {
+      "deaths": 37,
+      "deaths_per_1000_decisions": 0.051362565574032196,
+      "hero": "B8-noveto",
+      "length_bin": "400-799",
+      "mix": "mixed",
+      "valid_decisions": 720369
+    },
+    {
+      "deaths": 49,
+      "deaths_per_1000_decisions": 0.07073462965368903,
+      "hero": "B8-noveto",
+      "length_bin": "800+",
+      "mix": "mixed",
+      "valid_decisions": 692730
+    },
+    {
+      "deaths": 20,
+      "deaths_per_1000_decisions": 0.030165958018036225,
+      "hero": "B8-noveto",
+      "length_bin": "0-199",
+      "mix": "scripted",
+      "valid_decisions": 662999
+    },
+    {
+      "deaths": 50,
+      "deaths_per_1000_decisions": 0.09972814108739576,
+      "hero": "B8-noveto",
+      "length_bin": "200-399",
+      "mix": "scripted",
+      "valid_decisions": 501363
+    },
+    {
+      "deaths": 112,
+      "deaths_per_1000_decisions": 0.10744363765784382,
+      "hero": "B8-noveto",
+      "length_bin": "400-799",
+      "mix": "scripted",
+      "valid_decisions": 1042407
+    },
+    {
+      "deaths": 261,
+      "deaths_per_1000_decisions": 0.15622184939136327,
+      "hero": "B8-noveto",
+      "length_bin": "800+",
+      "mix": "scripted",
+      "valid_decisions": 1670701
+    },
+    {
+      "deaths": 14,
+      "deaths_per_1000_decisions": 0.02541554414680018,
+      "hero": "champion",
+      "length_bin": "0-199",
+      "mix": "frozen",
+      "valid_decisions": 550844
+    },
+    {
+      "deaths": 38,
+      "deaths_per_1000_decisions": 0.07123802310736507,
+      "hero": "champion",
+      "length_bin": "200-399",
+      "mix": "frozen",
+      "valid_decisions": 533423
+    },
+    {
+      "deaths": 132,
+      "deaths_per_1000_decisions": 0.14339830073013635,
+      "hero": "champion",
+      "length_bin": "400-799",
+      "mix": "frozen",
+      "valid_decisions": 920513
+    },
+    {
+      "deaths": 6,
+      "deaths_per_1000_decisions": 0.14201855709145994,
+      "hero": "champion",
+      "length_bin": "800+",
+      "mix": "frozen",
+      "valid_decisions": 42248
+    },
+    {
+      "deaths": 8,
+      "deaths_per_1000_decisions": 0.01435193822925786,
+      "hero": "champion",
+      "length_bin": "0-199",
+      "mix": "mixed",
+      "valid_decisions": 557416
+    },
+    {
+      "deaths": 13,
+      "deaths_per_1000_decisions": 0.024075634531867805,
+      "hero": "champion",
+      "length_bin": "200-399",
+      "mix": "mixed",
+      "valid_decisions": 539965
+    },
+    {
+      "deaths": 103,
+      "deaths_per_1000_decisions": 0.10035240256317574,
+      "hero": "champion",
+      "length_bin": "400-799",
+      "mix": "mixed",
+      "valid_decisions": 1026383
+    },
+    {
+      "deaths": 8,
+      "deaths_per_1000_decisions": 0.11834669664782982,
+      "hero": "champion",
+      "length_bin": "800+",
+      "mix": "mixed",
+      "valid_decisions": 67598
+    },
+    {
+      "deaths": 44,
+      "deaths_per_1000_decisions": 0.04539035186807088,
+      "hero": "champion",
+      "length_bin": "0-199",
+      "mix": "scripted",
+      "valid_decisions": 969369
+    },
+    {
+      "deaths": 68,
+      "deaths_per_1000_decisions": 0.07284671016757957,
+      "hero": "champion",
+      "length_bin": "200-399",
+      "mix": "scripted",
+      "valid_decisions": 933467
+    },
+    {
+      "deaths": 263,
+      "deaths_per_1000_decisions": 0.1486236769384653,
+      "hero": "champion",
+      "length_bin": "400-799",
+      "mix": "scripted",
+      "valid_decisions": 1769570
+    },
+    {
+      "deaths": 53,
+      "deaths_per_1000_decisions": 0.18371711723578532,
+      "hero": "champion",
+      "length_bin": "800+",
+      "mix": "scripted",
+      "valid_decisions": 288487
+    },
+    {
+      "deaths": 10,
+      "deaths_per_1000_decisions": 0.020455963424737395,
+      "hero": "incumbent",
+      "length_bin": "0-199",
+      "mix": "frozen",
+      "valid_decisions": 488855
+    },
+    {
+      "deaths": 28,
+      "deaths_per_1000_decisions": 0.06259473041790925,
+      "hero": "incumbent",
+      "length_bin": "200-399",
+      "mix": "frozen",
+      "valid_decisions": 447322
+    },
+    {
+      "deaths": 98,
+      "deaths_per_1000_decisions": 0.11579790665743435,
+      "hero": "incumbent",
+      "length_bin": "400-799",
+      "mix": "frozen",
+      "valid_decisions": 846302
+    },
+    {
+      "deaths": 38,
+      "deaths_per_1000_decisions": 0.12601182521496623,
+      "hero": "incumbent",
+      "length_bin": "800+",
+      "mix": "frozen",
+      "valid_decisions": 301559
+    },
+    {
+      "deaths": 7,
+      "deaths_per_1000_decisions": 0.014025442152063843,
+      "hero": "incumbent",
+      "length_bin": "0-199",
+      "mix": "mixed",
+      "valid_decisions": 499093
+    },
+    {
+      "deaths": 23,
+      "deaths_per_1000_decisions": 0.050369779884061903,
+      "hero": "incumbent",
+      "length_bin": "200-399",
+      "mix": "mixed",
+      "valid_decisions": 456623
+    },
+    {
+      "deaths": 96,
+      "deaths_per_1000_decisions": 0.11200141868463667,
+      "hero": "incumbent",
+      "length_bin": "400-799",
+      "mix": "mixed",
+      "valid_decisions": 857132
+    },
+    {
+      "deaths": 30,
+      "deaths_per_1000_decisions": 0.09979608333638265,
+      "hero": "incumbent",
+      "length_bin": "800+",
+      "mix": "mixed",
+      "valid_decisions": 300613
+    },
+    {
+      "deaths": 35,
+      "deaths_per_1000_decisions": 0.04069218570518395,
+      "hero": "incumbent",
+      "length_bin": "0-199",
+      "mix": "scripted",
+      "valid_decisions": 860116
+    },
+    {
+      "deaths": 42,
+      "deaths_per_1000_decisions": 0.05559416261292564,
+      "hero": "incumbent",
+      "length_bin": "200-399",
+      "mix": "scripted",
+      "valid_decisions": 755475
+    },
+    {
+      "deaths": 216,
+      "deaths_per_1000_decisions": 0.14908684308609765,
+      "hero": "incumbent",
+      "length_bin": "400-799",
+      "mix": "scripted",
+      "valid_decisions": 1448820
+    },
+    {
+      "deaths": 132,
+      "deaths_per_1000_decisions": 0.15599075400258094,
+      "hero": "incumbent",
+      "length_bin": "800+",
+      "mix": "scripted",
+      "valid_decisions": 846204
+    }
+  ],
+  "remaining_risks": [
+    "Passing freshness-audit hashes/banks checked; the large whole-artifact historical scan was not rerun. Unrecorded external experiments and opaque binaries remain outside its coverage.",
+    "Registered Tier1/Tier2 point thresholds pass; serving qualification/release remains separate.",
+    "Length-bin hazard rates are conditional descriptive evidence, not causal effects or deciding clauses.",
+    "Two rejected bank allocations and coordinator-only recovery require disclosure."
+  ],
+  "schema": "t7-independent-result-review/v1",
+  "sensitivity": {
+    "champion": {
+      "frozen": {
+        "alive_frame": {
+          "df": 479,
+          "estimate": 0.06164291666666667,
+          "n": 480,
+          "se": 0.0138489749431493
+        },
+        "episode": {
+          "df": 479,
+          "estimate": 0.13958333333333334,
+          "n": 480,
+          "se": 0.030625575468345725
+        }
+      },
+      "mixed": {
+        "alive_frame": {
+          "df": 479,
+          "estimate": 0.010371666666666668,
+          "n": 480,
+          "se": 0.012387395090458553
+        },
+        "episode": {
+          "df": 479,
+          "estimate": 0.06041666666666667,
+          "n": 480,
+          "se": 0.02760819771712126
+        }
+      },
+      "scripted": {
+        "alive_frame": {
+          "df": 959,
+          "estimate": -0.01738291666666666,
+          "n": 960,
+          "se": 0.012322953249520915
+        },
+        "episode": {
+          "df": 959,
+          "estimate": -0.015625,
+          "n": 960,
+          "se": 0.022946739636971945
+        }
+      }
+    },
+    "incumbent": {
+      "frozen": {
+        "alive_frame": {
+          "df": 479,
+          "estimate": 0.04621541666666666,
+          "n": 480,
+          "se": 0.013546627010663052
+        },
+        "episode": {
+          "df": 479,
+          "estimate": 0.10625,
+          "n": 480,
+          "se": 0.029609883016213027
+        }
+      },
+      "mixed": {
+        "alive_frame": {
+          "df": 479,
+          "estimate": 0.04284041666666667,
+          "n": 480,
+          "se": 0.01288249205300784
+        },
+        "episode": {
+          "df": 479,
+          "estimate": 0.11041666666666666,
+          "n": 480,
+          "se": 0.02837729790347351
+        }
+      },
+      "scripted": {
+        "alive_frame": {
+          "df": 959,
+          "estimate": -0.006908958333333331,
+          "n": 960,
+          "se": 0.012253546488668634
+        },
+        "episode": {
+          "df": 959,
+          "estimate": -0.01875,
+          "n": 960,
+          "se": 0.022586452398351452
+        }
+      }
+    }
+  },
+  "tier2": {
+    "df": 959,
+    "estimate": -0.015625,
+    "n": 960,
+    "pass": true,
+    "se": 0.022946739636971945,
+    "threshold": -0.05
+  },
+  "verdict": "PASS",
+  "wall_seconds": 24579.57413506508,
+  "wall_seconds_independent": 24579.574151039124
+}

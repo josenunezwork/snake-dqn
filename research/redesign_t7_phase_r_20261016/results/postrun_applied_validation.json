@@ -1,0 +1,33 @@
+{
+  "added_definitions": [
+    "OwnedWorkerSignals"
+  ],
+  "applied_after_full_run_and_isolated_and_independent_audit": true,
+  "changed_definitions": [
+    "run"
+  ],
+  "command": "./venv/bin/python -m pytest -q tests/test_t7_owned_signals.py tests/test_t7_runner.py tests/test_t7_rule_spec.py tests/test_t7_seed_audit.py tests/test_m4_rule_spec.py",
+  "created_utc": "2026-10-17T07:01:10.685495+00:00",
+  "evidence": {
+    "audit.json": "c631930c0af441e72e304a08cea401ed1a494c02c3e73071a8a459fb33dde07e",
+    "decision.json": "8fd97ecc564fdc31a1d77ed50b8112dcffac42d736db20b2b410b67c6ef139fb",
+    "independent_result_review.json": "135b1b8b5736619dbf1d57460d606c3a60a4ff4f59019c4ee51392dc5e2aecbe",
+    "postrun_owned_signals.patch": "3bb085fba13a3e37999afa87b01eb4bf3e5853e1b6cea4ea621675ae7e10e51b"
+  },
+  "exit_code": 0,
+  "files": {
+    "research/redesign_t7_phase_r_20261016/phase_r_t7.py": "08962d9e602a5cf2dc0ba7475ffad3903a61fd4ca9fc2899b428827429842f95",
+    "tests/test_t7_owned_signals.py": "ee745b735c492759f328ddff849b9576f0105c3ea4c16df5cb0cd39cf26d51c9"
+  },
+  "format_checks": {
+    "black": true,
+    "git_diff_check": true,
+    "isort_profile_black": true
+  },
+  "frozen_run_commit": "7e1734357115d44b11038634a0ce1cb18afddfa3",
+  "gameplay_rerun": false,
+  "passed": 41,
+  "pytest_seconds": 2.75,
+  "schema": "t7-postrun-lifecycle-validation/v1",
+  "scope": "Coordinator-only owned Popen lifecycle repair; scientific producer, banks, rules, record and audit semantics unchanged. Seven lifecycle tests plus original 34 tests pass; no serving files changed."
+}

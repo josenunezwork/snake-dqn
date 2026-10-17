@@ -1,0 +1,38 @@
+{"started": "B8-noveto|s0|scripted|0", "remaining": 764}
+{"started": "B8-noveto|s0|scripted|8", "remaining": 763}
+{"started": "B8-noveto|s0|scripted|16", "remaining": 762}
+{"started": "B8-noveto|s0|scripted|24", "remaining": 761}
+{"started": "B8-noveto|s0|scripted|32", "remaining": 760}
+{"started": "B8-noveto|s0|scripted|40", "remaining": 759}
+{"started": "B8-noveto|s0|scripted|48", "remaining": 758}
+{"started": "B8-noveto|s0|scripted|56", "remaining": 757}
+{"started": "B8-noveto|s0|scripted|64", "remaining": 756}
+{"started": "B8-noveto|s0|scripted|72", "remaining": 755}
+{"started": "B8-noveto|s0|scripted|80", "remaining": 754}
+{"started": "B8-noveto|s0|scripted|88", "remaining": 753}
+{"started": "B8-noveto|s0|scripted|96", "remaining": 752}
+{"started": "B8-noveto|s0|scripted|104", "remaining": 751}
+{"started": "B8-noveto|s0|scripted|112", "remaining": 750}
+{"started": "B8-noveto|s0|scripted|120", "remaining": 749}
+{"started": "B8-noveto|s0|scripted|128", "remaining": 748}
+{"started": "B8-noveto|s0|scripted|136", "remaining": 747}
+{"started": "B8-noveto|s0|scripted|144", "remaining": 746}
+{"started": "B8-noveto|s0|scripted|152", "remaining": 745}
+{"started": "B8-noveto|s0|scripted|160", "remaining": 744}
+Traceback (most recent call last):
+  File "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/phase_r_t7.py", line 750, in run
+    os.killpg(proc.pid, signal.SIGSTOP if paused else signal.SIGCONT)
+PermissionError: [Errno 1] Operation not permitted
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/phase_r_t7.py", line 934, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/phase_r_t7.py", line 929, in main
+    return run(args.root, args.procs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/josenunez/Projects/ml/snake-dqn-t7/research/redesign_t7_phase_r_20261016/phase_r_t7.py", line 795, in run
+    os.killpg(proc.pid, signal.SIGCONT)
+PermissionError: [Errno 1] Operation not permitted

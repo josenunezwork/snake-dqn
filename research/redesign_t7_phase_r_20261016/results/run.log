@@ -1,0 +1,2128 @@
+OWNED_WORKER pid=92240
+{"started": "B8-noveto|s0|scripted|168", "remaining": 743}
+OWNED_WORKER pid=92241
+{"started": "B8-noveto|s0|scripted|176", "remaining": 742}
+OWNED_WORKER pid=92242
+{"started": "B8-noveto|s0|scripted|184", "remaining": 741}
+OWNED_WORKER pid=92243
+{"started": "control|B8-noveto|s0|scripted", "remaining": 740}
+OWNED_WORKER pid=92244
+{"started": "B8-noveto|s0|frozen|0", "remaining": 739}
+OWNED_WORKER pid=92245
+{"started": "B8-noveto|s0|frozen|8", "remaining": 738}
+OWNED_WORKER pid=92317
+{"started": "B8-noveto|s0|frozen|16", "remaining": 737}
+OWNED_WORKER pid=92677
+{"started": "B8-noveto|s0|frozen|24", "remaining": 736}
+OWNED_WORKER pid=92693
+{"started": "B8-noveto|s0|frozen|32", "remaining": 735}
+OWNED_WORKER pid=92702
+{"started": "B8-noveto|s0|frozen|40", "remaining": 734}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=92933
+{"started": "B8-noveto|s0|frozen|48", "remaining": 733}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=92945
+{"started": "B8-noveto|s0|frozen|56", "remaining": 732}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93003
+{"started": "B8-noveto|s0|frozen|64", "remaining": 731}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93214
+{"started": "B8-noveto|s0|frozen|72", "remaining": 730}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93268
+{"started": "B8-noveto|s0|frozen|80", "remaining": 729}
+OWNED_WORKER pid=93269
+{"started": "B8-noveto|s0|frozen|88", "remaining": 728}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93463
+{"started": "control|B8-noveto|s0|frozen", "remaining": 727}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93481
+{"started": "B8-noveto|s0|mixed|0", "remaining": 726}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93516
+{"started": "B8-noveto|s0|mixed|8", "remaining": 725}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93522
+{"started": "B8-noveto|s0|mixed|16", "remaining": 724}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93751
+{"started": "B8-noveto|s0|mixed|24", "remaining": 723}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93819
+{"started": "B8-noveto|s0|mixed|32", "remaining": 722}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93825
+{"started": "B8-noveto|s0|mixed|40", "remaining": 721}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93949
+{"started": "B8-noveto|s0|mixed|48", "remaining": 720}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93969
+{"started": "B8-noveto|s0|mixed|56", "remaining": 719}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=93995
+{"started": "B8-noveto|s0|mixed|64", "remaining": 718}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94164
+{"started": "B8-noveto|s0|mixed|72", "remaining": 717}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94226
+{"started": "B8-noveto|s0|mixed|80", "remaining": 716}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94262
+{"started": "B8-noveto|s0|mixed|88", "remaining": 715}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94377
+{"started": "control|B8-noveto|s0|mixed", "remaining": 714}
+OWNED_WORKER pid=94378
+{"started": "B8-noveto|s1|scripted|0", "remaining": 713}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94403
+{"started": "B8-noveto|s1|scripted|8", "remaining": 712}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94427
+{"started": "B8-noveto|s1|scripted|16", "remaining": 711}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94589
+{"started": "B8-noveto|s1|scripted|24", "remaining": 710}
+OWNED_WORKER pid=94686
+{"started": "B8-noveto|s1|scripted|32", "remaining": 709}
+OWNED_WORKER pid=94698
+{"started": "B8-noveto|s1|scripted|40", "remaining": 708}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94716
+{"started": "B8-noveto|s1|scripted|48", "remaining": 707}
+OWNED_WORKER pid=94717
+{"started": "B8-noveto|s1|scripted|56", "remaining": 706}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=94725
+{"started": "B8-noveto|s1|scripted|64", "remaining": 705}
+OWNED_WORKER pid=94873
+{"started": "B8-noveto|s1|scripted|72", "remaining": 704}
+OWNED_WORKER pid=94938
+{"started": "B8-noveto|s1|scripted|80", "remaining": 703}
+OWNED_WORKER pid=94950
+{"started": "B8-noveto|s1|scripted|88", "remaining": 702}
+OWNED_WORKER pid=94962
+{"started": "B8-noveto|s1|scripted|96", "remaining": 701}
+OWNED_WORKER pid=94963
+{"started": "B8-noveto|s1|scripted|104", "remaining": 700}
+OWNED_WORKER pid=94977
+{"started": "B8-noveto|s1|scripted|112", "remaining": 699}
+OWNED_WORKER pid=95091
+{"started": "B8-noveto|s1|scripted|120", "remaining": 698}
+OWNED_WORKER pid=95127
+{"started": "B8-noveto|s1|scripted|128", "remaining": 697}
+OWNED_WORKER pid=95142
+{"started": "B8-noveto|s1|scripted|136", "remaining": 696}
+OWNED_WORKER pid=95143
+{"started": "B8-noveto|s1|scripted|144", "remaining": 695}
+OWNED_WORKER pid=95163
+{"started": "B8-noveto|s1|scripted|152", "remaining": 694}
+OWNED_WORKER pid=95187
+{"started": "B8-noveto|s1|scripted|160", "remaining": 693}
+OWNED_WORKER pid=95332
+{"started": "B8-noveto|s1|scripted|168", "remaining": 692}
+OWNED_WORKER pid=95364
+{"started": "B8-noveto|s1|scripted|176", "remaining": 691}
+OWNED_WORKER pid=95385
+{"started": "B8-noveto|s1|scripted|184", "remaining": 690}
+OWNED_WORKER pid=95391
+{"started": "control|B8-noveto|s1|scripted", "remaining": 689}
+OWNED_WORKER pid=95407
+{"started": "B8-noveto|s1|frozen|0", "remaining": 688}
+OWNED_WORKER pid=95428
+{"started": "B8-noveto|s1|frozen|8", "remaining": 687}
+OWNED_WORKER pid=95442
+{"started": "B8-noveto|s1|frozen|16", "remaining": 686}
+OWNED_WORKER pid=95570
+{"started": "B8-noveto|s1|frozen|24", "remaining": 685}
+OWNED_WORKER pid=95610
+{"started": "B8-noveto|s1|frozen|32", "remaining": 684}
+OWNED_WORKER pid=95631
+{"started": "B8-noveto|s1|frozen|40", "remaining": 683}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=95917
+{"started": "B8-noveto|s1|frozen|48", "remaining": 682}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=95929
+{"started": "B8-noveto|s1|frozen|56", "remaining": 681}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=95968
+{"started": "B8-noveto|s1|frozen|64", "remaining": 680}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96105
+{"started": "B8-noveto|s1|frozen|72", "remaining": 679}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96162
+{"started": "B8-noveto|s1|frozen|80", "remaining": 678}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96171
+{"started": "B8-noveto|s1|frozen|88", "remaining": 677}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96392
+{"started": "control|B8-noveto|s1|frozen", "remaining": 676}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96416
+{"started": "B8-noveto|s1|mixed|0", "remaining": 675}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96422
+{"started": "B8-noveto|s1|mixed|8", "remaining": 674}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96449
+{"started": "B8-noveto|s1|mixed|16", "remaining": 673}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96572
+{"started": "B8-noveto|s1|mixed|24", "remaining": 672}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96638
+{"started": "B8-noveto|s1|mixed|32", "remaining": 671}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96656
+{"started": "B8-noveto|s1|mixed|40", "remaining": 670}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96839
+{"started": "B8-noveto|s1|mixed|48", "remaining": 669}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=96848
+{"started": "B8-noveto|s1|mixed|56", "remaining": 668}
+OWNED_WORKER pid=96849
+{"started": "B8-noveto|s1|mixed|64", "remaining": 667}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97002
+{"started": "B8-noveto|s1|mixed|72", "remaining": 666}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97060
+{"started": "B8-noveto|s1|mixed|80", "remaining": 665}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97073
+{"started": "B8-noveto|s1|mixed|88", "remaining": 664}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97283
+{"started": "control|B8-noveto|s1|mixed", "remaining": 663}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97317
+{"started": "B8-noveto|s2|scripted|0", "remaining": 662}
+OWNED_WORKER pid=97318
+{"started": "B8-noveto|s2|scripted|8", "remaining": 661}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97329
+{"started": "B8-noveto|s2|scripted|16", "remaining": 660}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97474
+{"started": "B8-noveto|s2|scripted|24", "remaining": 659}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97534
+{"started": "B8-noveto|s2|scripted|32", "remaining": 658}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=97561
+{"started": "B8-noveto|s2|scripted|40", "remaining": 657}
+OWNED_WORKER pid=97567
+{"started": "B8-noveto|s2|scripted|48", "remaining": 656}
+OWNED_WORKER pid=97573
+{"started": "B8-noveto|s2|scripted|56", "remaining": 655}
+OWNED_WORKER pid=97590
+{"started": "B8-noveto|s2|scripted|64", "remaining": 654}
+OWNED_WORKER pid=97692
+{"started": "B8-noveto|s2|scripted|72", "remaining": 653}
+OWNED_WORKER pid=97738
+{"started": "B8-noveto|s2|scripted|80", "remaining": 652}
+OWNED_WORKER pid=97768
+{"started": "B8-noveto|s2|scripted|88", "remaining": 651}
+OWNED_WORKER pid=97777
+{"started": "B8-noveto|s2|scripted|96", "remaining": 650}
+OWNED_WORKER pid=97795
+{"started": "B8-noveto|s2|scripted|104", "remaining": 649}
+OWNED_WORKER pid=97807
+{"started": "B8-noveto|s2|scripted|112", "remaining": 648}
+OWNED_WORKER pid=97929
+{"started": "B8-noveto|s2|scripted|120", "remaining": 647}
+OWNED_WORKER pid=97982
+{"started": "B8-noveto|s2|scripted|128", "remaining": 646}
+OWNED_WORKER pid=98008
+{"started": "B8-noveto|s2|scripted|136", "remaining": 645}
+OWNED_WORKER pid=98017
+{"started": "B8-noveto|s2|scripted|144", "remaining": 644}
+OWNED_WORKER pid=98029
+{"started": "B8-noveto|s2|scripted|152", "remaining": 643}
+OWNED_WORKER pid=98051
+{"started": "B8-noveto|s2|scripted|160", "remaining": 642}
+OWNED_WORKER pid=98143
+{"started": "B8-noveto|s2|scripted|168", "remaining": 641}
+OWNED_WORKER pid=98192
+{"started": "B8-noveto|s2|scripted|176", "remaining": 640}
+OWNED_WORKER pid=98207
+{"started": "B8-noveto|s2|scripted|184", "remaining": 639}
+OWNED_WORKER pid=98208
+{"started": "control|B8-noveto|s2|scripted", "remaining": 638}
+OWNED_WORKER pid=98231
+{"started": "B8-noveto|s2|frozen|0", "remaining": 637}
+OWNED_WORKER pid=98245
+{"started": "B8-noveto|s2|frozen|8", "remaining": 636}
+OWNED_WORKER pid=98261
+{"started": "B8-noveto|s2|frozen|16", "remaining": 635}
+OWNED_WORKER pid=98423
+{"started": "B8-noveto|s2|frozen|24", "remaining": 634}
+OWNED_WORKER pid=98462
+{"started": "B8-noveto|s2|frozen|32", "remaining": 633}
+OWNED_WORKER pid=98471
+{"started": "B8-noveto|s2|frozen|40", "remaining": 632}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=98730
+{"started": "B8-noveto|s2|frozen|48", "remaining": 631}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=98779
+{"started": "B8-noveto|s2|frozen|56", "remaining": 630}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=98791
+{"started": "B8-noveto|s2|frozen|64", "remaining": 629}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=98867
+{"started": "B8-noveto|s2|frozen|72", "remaining": 628}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=98934
+{"started": "B8-noveto|s2|frozen|80", "remaining": 627}
+OWNED_WORKER pid=98940
+{"started": "B8-noveto|s2|frozen|88", "remaining": 626}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99230
+{"started": "control|B8-noveto|s2|frozen", "remaining": 625}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99257
+{"started": "B8-noveto|s2|mixed|0", "remaining": 624}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99278
+{"started": "B8-noveto|s2|mixed|8", "remaining": 623}
+OWNED_WORKER pid=99279
+{"started": "B8-noveto|s2|mixed|16", "remaining": 622}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99373
+{"started": "B8-noveto|s2|mixed|24", "remaining": 621}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99422
+{"started": "B8-noveto|s2|mixed|32", "remaining": 620}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99457
+{"started": "B8-noveto|s2|mixed|40", "remaining": 619}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99726
+{"started": "B8-noveto|s2|mixed|48", "remaining": 618}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99735
+{"started": "B8-noveto|s2|mixed|56", "remaining": 617}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99747
+{"started": "B8-noveto|s2|mixed|64", "remaining": 616}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99841
+{"started": "B8-noveto|s2|mixed|72", "remaining": 615}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99879
+{"started": "B8-noveto|s2|mixed|80", "remaining": 614}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=99906
+{"started": "B8-noveto|s2|mixed|88", "remaining": 613}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=164
+{"started": "control|B8-noveto|s2|mixed", "remaining": 612}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=188
+{"started": "B8-noveto|s3|scripted|0", "remaining": 611}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=204
+{"started": "B8-noveto|s3|scripted|8", "remaining": 610}
+OWNED_WORKER pid=210
+{"started": "B8-noveto|s3|scripted|16", "remaining": 609}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=341
+{"started": "B8-noveto|s3|scripted|24", "remaining": 608}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=450
+{"started": "B8-noveto|s3|scripted|32", "remaining": 607}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=472
+{"started": "B8-noveto|s3|scripted|40", "remaining": 606}
+OWNED_WORKER pid=502
+{"started": "B8-noveto|s3|scripted|48", "remaining": 605}
+OWNED_WORKER pid=553
+{"started": "B8-noveto|s3|scripted|56", "remaining": 604}
+OWNED_WORKER pid=555
+{"started": "B8-noveto|s3|scripted|64", "remaining": 603}
+OWNED_WORKER pid=844
+{"started": "B8-noveto|s3|scripted|72", "remaining": 602}
+OWNED_WORKER pid=991
+{"started": "B8-noveto|s3|scripted|80", "remaining": 601}
+OWNED_WORKER pid=1037
+{"started": "B8-noveto|s3|scripted|88", "remaining": 600}
+OWNED_WORKER pid=1126
+{"started": "B8-noveto|s3|scripted|96", "remaining": 599}
+OWNED_WORKER pid=1136
+{"started": "B8-noveto|s3|scripted|104", "remaining": 598}
+OWNED_WORKER pid=1148
+{"started": "B8-noveto|s3|scripted|112", "remaining": 597}
+OWNED_WORKER pid=1265
+{"started": "B8-noveto|s3|scripted|120", "remaining": 596}
+OWNED_WORKER pid=1333
+{"started": "B8-noveto|s3|scripted|128", "remaining": 595}
+OWNED_WORKER pid=1364
+{"started": "B8-noveto|s3|scripted|136", "remaining": 594}
+OWNED_WORKER pid=1393
+{"started": "B8-noveto|s3|scripted|144", "remaining": 593}
+OWNED_WORKER pid=1406
+{"started": "B8-noveto|s3|scripted|152", "remaining": 592}
+OWNED_WORKER pid=1417
+{"started": "B8-noveto|s3|scripted|160", "remaining": 591}
+OWNED_WORKER pid=1525
+{"started": "B8-noveto|s3|scripted|168", "remaining": 590}
+OWNED_WORKER pid=1582
+{"started": "B8-noveto|s3|scripted|176", "remaining": 589}
+OWNED_WORKER pid=1606
+{"started": "B8-noveto|s3|scripted|184", "remaining": 588}
+OWNED_WORKER pid=1633
+{"started": "control|B8-noveto|s3|scripted", "remaining": 587}
+OWNED_WORKER pid=1658
+{"started": "B8-noveto|s3|frozen|0", "remaining": 586}
+OWNED_WORKER pid=1659
+{"started": "B8-noveto|s3|frozen|8", "remaining": 585}
+OWNED_WORKER pid=1660
+{"started": "B8-noveto|s3|frozen|16", "remaining": 584}
+OWNED_WORKER pid=1928
+{"started": "B8-noveto|s3|frozen|24", "remaining": 583}
+OWNED_WORKER pid=2015
+{"started": "B8-noveto|s3|frozen|32", "remaining": 582}
+OWNED_WORKER pid=2030
+{"started": "B8-noveto|s3|frozen|40", "remaining": 581}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2436
+{"started": "B8-noveto|s3|frozen|48", "remaining": 580}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2445
+{"started": "B8-noveto|s3|frozen|56", "remaining": 579}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2460
+{"started": "B8-noveto|s3|frozen|64", "remaining": 578}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2527
+{"started": "B8-noveto|s3|frozen|72", "remaining": 577}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2573
+{"started": "B8-noveto|s3|frozen|80", "remaining": 576}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2579
+{"started": "B8-noveto|s3|frozen|88", "remaining": 575}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2839
+{"started": "control|B8-noveto|s3|frozen", "remaining": 574}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2857
+{"started": "B8-noveto|s3|mixed|0", "remaining": 573}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2863
+{"started": "B8-noveto|s3|mixed|8", "remaining": 572}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2883
+{"started": "B8-noveto|s3|mixed|16", "remaining": 571}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2959
+{"started": "B8-noveto|s3|mixed|24", "remaining": 570}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2986
+{"started": "B8-noveto|s3|mixed|32", "remaining": 569}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=2995
+{"started": "B8-noveto|s3|mixed|40", "remaining": 568}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3216
+{"started": "B8-noveto|s3|mixed|48", "remaining": 567}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3266
+{"started": "B8-noveto|s3|mixed|56", "remaining": 566}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3291
+{"started": "B8-noveto|s3|mixed|64", "remaining": 565}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3366
+{"started": "B8-noveto|s3|mixed|72", "remaining": 564}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3379
+{"started": "B8-noveto|s3|mixed|80", "remaining": 563}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3405
+{"started": "B8-noveto|s3|mixed|88", "remaining": 562}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3592
+{"started": "control|B8-noveto|s3|mixed", "remaining": 561}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3642
+{"started": "B8-noveto|s4|scripted|0", "remaining": 560}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3666
+{"started": "B8-noveto|s4|scripted|8", "remaining": 559}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3675
+{"started": "B8-noveto|s4|scripted|16", "remaining": 558}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3726
+{"started": "B8-noveto|s4|scripted|24", "remaining": 557}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3773
+{"started": "B8-noveto|s4|scripted|32", "remaining": 556}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=3792
+{"started": "B8-noveto|s4|scripted|40", "remaining": 555}
+OWNED_WORKER pid=3857
+{"started": "B8-noveto|s4|scripted|48", "remaining": 554}
+OWNED_WORKER pid=3878
+{"started": "B8-noveto|s4|scripted|56", "remaining": 553}
+OWNED_WORKER pid=3887
+{"started": "B8-noveto|s4|scripted|64", "remaining": 552}
+OWNED_WORKER pid=3956
+{"started": "B8-noveto|s4|scripted|72", "remaining": 551}
+OWNED_WORKER pid=3988
+{"started": "B8-noveto|s4|scripted|80", "remaining": 550}
+OWNED_WORKER pid=4012
+{"started": "B8-noveto|s4|scripted|88", "remaining": 549}
+OWNED_WORKER pid=4067
+{"started": "B8-noveto|s4|scripted|96", "remaining": 548}
+OWNED_WORKER pid=4082
+{"started": "B8-noveto|s4|scripted|104", "remaining": 547}
+OWNED_WORKER pid=4097
+{"started": "B8-noveto|s4|scripted|112", "remaining": 546}
+OWNED_WORKER pid=4156
+{"started": "B8-noveto|s4|scripted|120", "remaining": 545}
+OWNED_WORKER pid=4203
+{"started": "B8-noveto|s4|scripted|128", "remaining": 544}
+OWNED_WORKER pid=4232
+{"started": "B8-noveto|s4|scripted|136", "remaining": 543}
+OWNED_WORKER pid=4284
+{"started": "B8-noveto|s4|scripted|144", "remaining": 542}
+OWNED_WORKER pid=4302
+{"started": "B8-noveto|s4|scripted|152", "remaining": 541}
+OWNED_WORKER pid=4317
+{"started": "B8-noveto|s4|scripted|160", "remaining": 540}
+OWNED_WORKER pid=4403
+{"started": "B8-noveto|s4|scripted|168", "remaining": 539}
+OWNED_WORKER pid=4453
+{"started": "B8-noveto|s4|scripted|176", "remaining": 538}
+OWNED_WORKER pid=4465
+{"started": "B8-noveto|s4|scripted|184", "remaining": 537}
+OWNED_WORKER pid=4518
+{"started": "control|B8-noveto|s4|scripted", "remaining": 536}
+OWNED_WORKER pid=4519
+{"started": "B8-noveto|s4|frozen|0", "remaining": 535}
+OWNED_WORKER pid=4552
+{"started": "B8-noveto|s4|frozen|8", "remaining": 534}
+OWNED_WORKER pid=4553
+{"started": "B8-noveto|s4|frozen|16", "remaining": 533}
+OWNED_WORKER pid=4595
+{"started": "B8-noveto|s4|frozen|24", "remaining": 532}
+OWNED_WORKER pid=4670
+{"started": "B8-noveto|s4|frozen|32", "remaining": 531}
+OWNED_WORKER pid=4671
+{"started": "B8-noveto|s4|frozen|40", "remaining": 530}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=4961
+{"started": "B8-noveto|s4|frozen|48", "remaining": 529}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=4996
+{"started": "B8-noveto|s4|frozen|56", "remaining": 528}
+OWNED_WORKER pid=5002
+{"started": "B8-noveto|s4|frozen|64", "remaining": 527}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5046
+{"started": "B8-noveto|s4|frozen|72", "remaining": 526}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5098
+{"started": "B8-noveto|s4|frozen|80", "remaining": 525}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5119
+{"started": "B8-noveto|s4|frozen|88", "remaining": 524}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5411
+{"started": "control|B8-noveto|s4|frozen", "remaining": 523}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5449
+{"started": "B8-noveto|s4|mixed|0", "remaining": 522}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5458
+{"started": "B8-noveto|s4|mixed|8", "remaining": 521}
+OWNED_WORKER pid=5459
+{"started": "B8-noveto|s4|mixed|16", "remaining": 520}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5530
+{"started": "B8-noveto|s4|mixed|24", "remaining": 519}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5577
+{"started": "B8-noveto|s4|mixed|32", "remaining": 518}
+OWNED_WORKER pid=5578
+{"started": "B8-noveto|s4|mixed|40", "remaining": 517}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5799
+{"started": "B8-noveto|s4|mixed|48", "remaining": 516}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5805
+{"started": "B8-noveto|s4|mixed|56", "remaining": 515}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5817
+{"started": "B8-noveto|s4|mixed|64", "remaining": 514}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5877
+{"started": "B8-noveto|s4|mixed|72", "remaining": 513}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5892
+{"started": "B8-noveto|s4|mixed|80", "remaining": 512}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=5931
+{"started": "B8-noveto|s4|mixed|88", "remaining": 511}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6131
+{"started": "control|B8-noveto|s4|mixed", "remaining": 510}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6137
+{"started": "incumbent|s0|scripted|0", "remaining": 509}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6146
+{"started": "incumbent|s0|scripted|8", "remaining": 508}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6161
+{"started": "incumbent|s0|scripted|16", "remaining": 507}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6205
+{"started": "incumbent|s0|scripted|24", "remaining": 506}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6235
+{"started": "incumbent|s0|scripted|32", "remaining": 505}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6268
+{"started": "incumbent|s0|scripted|40", "remaining": 504}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6397
+{"started": "incumbent|s0|scripted|48", "remaining": 503}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6514
+{"started": "incumbent|s0|scripted|56", "remaining": 502}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6576
+{"started": "incumbent|s0|scripted|64", "remaining": 501}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6609
+{"started": "incumbent|s0|scripted|72", "remaining": 500}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6626
+{"started": "incumbent|s0|scripted|80", "remaining": 499}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6714
+{"started": "incumbent|s0|scripted|88", "remaining": 498}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6747
+{"started": "incumbent|s0|scripted|96", "remaining": 497}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6893
+{"started": "incumbent|s0|scripted|104", "remaining": 496}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6916
+{"started": "incumbent|s0|scripted|112", "remaining": 495}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=6925
+{"started": "incumbent|s0|scripted|120", "remaining": 494}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7006
+{"started": "incumbent|s0|scripted|128", "remaining": 493}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7089
+{"started": "incumbent|s0|scripted|136", "remaining": 492}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7124
+{"started": "incumbent|s0|scripted|144", "remaining": 491}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7186
+{"started": "incumbent|s0|scripted|152", "remaining": 490}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7294
+{"started": "incumbent|s0|scripted|160", "remaining": 489}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7300
+{"started": "incumbent|s0|scripted|168", "remaining": 488}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7332
+{"started": "incumbent|s0|scripted|176", "remaining": 487}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7524
+{"started": "incumbent|s0|scripted|184", "remaining": 486}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7545
+{"started": "control|incumbent|s0|scripted", "remaining": 485}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7556
+{"started": "incumbent|s0|frozen|0", "remaining": 484}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7589
+{"started": "incumbent|s0|frozen|8", "remaining": 483}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7675
+{"started": "incumbent|s0|frozen|16", "remaining": 482}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7681
+{"started": "incumbent|s0|frozen|24", "remaining": 481}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7729
+{"started": "incumbent|s0|frozen|32", "remaining": 480}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7855
+{"started": "incumbent|s0|frozen|40", "remaining": 479}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=7987
+{"started": "incumbent|s0|frozen|48", "remaining": 478}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8105
+{"started": "incumbent|s0|frozen|56", "remaining": 477}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8182
+{"started": "incumbent|s0|frozen|64", "remaining": 476}
+OWNED_WORKER pid=8188
+{"started": "incumbent|s0|frozen|72", "remaining": 475}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8206
+{"started": "incumbent|s0|frozen|80", "remaining": 474}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8406
+{"started": "incumbent|s0|frozen|88", "remaining": 473}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8547
+{"started": "control|incumbent|s0|frozen", "remaining": 472}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8570
+{"started": "incumbent|s0|mixed|0", "remaining": 471}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8600
+{"started": "incumbent|s0|mixed|8", "remaining": 470}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8737
+{"started": "incumbent|s0|mixed|16", "remaining": 469}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8748
+{"started": "incumbent|s0|mixed|24", "remaining": 468}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8794
+{"started": "incumbent|s0|mixed|32", "remaining": 467}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8874
+{"started": "incumbent|s0|mixed|40", "remaining": 466}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=8976
+{"started": "incumbent|s0|mixed|48", "remaining": 465}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9007
+{"started": "incumbent|s0|mixed|56", "remaining": 464}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9094
+{"started": "incumbent|s0|mixed|64", "remaining": 463}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9118
+{"started": "incumbent|s0|mixed|72", "remaining": 462}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9148
+{"started": "incumbent|s0|mixed|80", "remaining": 461}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9157
+{"started": "incumbent|s0|mixed|88", "remaining": 460}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9268
+{"started": "control|incumbent|s0|mixed", "remaining": 459}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9300
+{"started": "incumbent|s1|scripted|0", "remaining": 458}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9324
+{"started": "incumbent|s1|scripted|8", "remaining": 457}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9380
+{"started": "incumbent|s1|scripted|16", "remaining": 456}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9416
+{"started": "incumbent|s1|scripted|24", "remaining": 455}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9451
+{"started": "incumbent|s1|scripted|32", "remaining": 454}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9507
+{"started": "incumbent|s1|scripted|40", "remaining": 453}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9608
+{"started": "incumbent|s1|scripted|48", "remaining": 452}
+OWNED_WORKER pid=9609
+{"started": "incumbent|s1|scripted|56", "remaining": 451}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9677
+{"started": "incumbent|s1|scripted|64", "remaining": 450}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9692
+{"started": "incumbent|s1|scripted|72", "remaining": 449}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9728
+{"started": "incumbent|s1|scripted|80", "remaining": 448}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9764
+{"started": "incumbent|s1|scripted|88", "remaining": 447}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9928
+{"started": "incumbent|s1|scripted|96", "remaining": 446}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9954
+{"started": "incumbent|s1|scripted|104", "remaining": 445}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9972
+{"started": "incumbent|s1|scripted|112", "remaining": 444}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=9978
+{"started": "incumbent|s1|scripted|120", "remaining": 443}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10013
+{"started": "incumbent|s1|scripted|128", "remaining": 442}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10040
+{"started": "incumbent|s1|scripted|136", "remaining": 441}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10201
+{"started": "incumbent|s1|scripted|144", "remaining": 440}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10249
+{"started": "incumbent|s1|scripted|152", "remaining": 439}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10267
+{"started": "incumbent|s1|scripted|160", "remaining": 438}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10285
+{"started": "incumbent|s1|scripted|168", "remaining": 437}
+OWNED_WORKER pid=10291
+{"started": "incumbent|s1|scripted|176", "remaining": 436}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10297
+{"started": "incumbent|s1|scripted|184", "remaining": 435}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10523
+{"started": "control|incumbent|s1|scripted", "remaining": 434}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10529
+{"started": "incumbent|s1|frozen|0", "remaining": 433}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10538
+{"started": "incumbent|s1|frozen|8", "remaining": 432}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10544
+{"started": "incumbent|s1|frozen|16", "remaining": 431}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10553
+{"started": "incumbent|s1|frozen|24", "remaining": 430}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10565
+{"started": "incumbent|s1|frozen|32", "remaining": 429}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10574
+{"started": "incumbent|s1|frozen|40", "remaining": 428}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10804
+{"started": "incumbent|s1|frozen|48", "remaining": 427}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10876
+{"started": "incumbent|s1|frozen|56", "remaining": 426}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10913
+{"started": "incumbent|s1|frozen|64", "remaining": 425}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10943
+{"started": "incumbent|s1|frozen|72", "remaining": 424}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10966
+{"started": "incumbent|s1|frozen|80", "remaining": 423}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=10975
+{"started": "incumbent|s1|frozen|88", "remaining": 422}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11173
+{"started": "control|incumbent|s1|frozen", "remaining": 421}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11207
+{"started": "incumbent|s1|mixed|0", "remaining": 420}
+OWNED_WORKER pid=11208
+{"started": "incumbent|s1|mixed|8", "remaining": 419}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11219
+{"started": "incumbent|s1|mixed|16", "remaining": 418}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11287
+{"started": "incumbent|s1|mixed|24", "remaining": 417}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11323
+{"started": "incumbent|s1|mixed|32", "remaining": 416}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11341
+{"started": "incumbent|s1|mixed|40", "remaining": 415}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11534
+{"started": "incumbent|s1|mixed|48", "remaining": 414}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11555
+{"started": "incumbent|s1|mixed|56", "remaining": 413}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11575
+{"started": "incumbent|s1|mixed|64", "remaining": 412}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11629
+{"started": "incumbent|s1|mixed|72", "remaining": 411}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11647
+{"started": "incumbent|s1|mixed|80", "remaining": 410}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11712
+{"started": "incumbent|s1|mixed|88", "remaining": 409}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11872
+{"started": "control|incumbent|s1|mixed", "remaining": 408}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11878
+{"started": "incumbent|s2|scripted|0", "remaining": 407}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11887
+{"started": "incumbent|s2|scripted|8", "remaining": 406}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11905
+{"started": "incumbent|s2|scripted|16", "remaining": 405}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=11964
+{"started": "incumbent|s2|scripted|24", "remaining": 404}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12019
+{"started": "incumbent|s2|scripted|32", "remaining": 403}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12040
+{"started": "incumbent|s2|scripted|40", "remaining": 402}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12083
+{"started": "incumbent|s2|scripted|48", "remaining": 401}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12140
+{"started": "incumbent|s2|scripted|56", "remaining": 400}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12176
+{"started": "incumbent|s2|scripted|64", "remaining": 399}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12189
+{"started": "incumbent|s2|scripted|72", "remaining": 398}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12271
+{"started": "incumbent|s2|scripted|80", "remaining": 397}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12287
+{"started": "incumbent|s2|scripted|88", "remaining": 396}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12400
+{"started": "incumbent|s2|scripted|96", "remaining": 395}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12421
+{"started": "incumbent|s2|scripted|104", "remaining": 394}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12433
+{"started": "incumbent|s2|scripted|112", "remaining": 393}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12455
+{"started": "incumbent|s2|scripted|120", "remaining": 392}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12591
+{"started": "incumbent|s2|scripted|128", "remaining": 391}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12611
+{"started": "incumbent|s2|scripted|136", "remaining": 390}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12742
+{"started": "incumbent|s2|scripted|144", "remaining": 389}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12748
+{"started": "incumbent|s2|scripted|152", "remaining": 388}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12788
+{"started": "incumbent|s2|scripted|160", "remaining": 387}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12814
+{"started": "incumbent|s2|scripted|168", "remaining": 386}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12855
+{"started": "incumbent|s2|scripted|176", "remaining": 385}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12881
+{"started": "incumbent|s2|scripted|184", "remaining": 384}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=12982
+{"started": "control|incumbent|s2|scripted", "remaining": 383}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=13014
+{"started": "incumbent|s2|frozen|0", "remaining": 382}
+OWNED_WORKER pid=13015
+{"started": "incumbent|s2|frozen|8", "remaining": 381}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=13078
+{"started": "incumbent|s2|frozen|16", "remaining": 380}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=13112
+{"started": "incumbent|s2|frozen|24", "remaining": 379}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=13213
+{"started": "incumbent|s2|frozen|32", "remaining": 378}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=13751
+{"started": "incumbent|s2|frozen|40", "remaining": 377}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=14843
+{"started": "incumbent|s2|frozen|48", "remaining": 376}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=14874
+{"started": "incumbent|s2|frozen|56", "remaining": 375}
+OWNED_WORKER pid=14875
+{"started": "incumbent|s2|frozen|64", "remaining": 374}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=15156
+{"started": "incumbent|s2|frozen|72", "remaining": 373}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=15180
+{"started": "incumbent|s2|frozen|80", "remaining": 372}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=15352
+{"started": "incumbent|s2|frozen|88", "remaining": 371}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=15793
+{"started": "control|incumbent|s2|frozen", "remaining": 370}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=15846
+{"started": "incumbent|s2|mixed|0", "remaining": 369}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=15958
+{"started": "incumbent|s2|mixed|8", "remaining": 368}
+OWNED_WORKER pid=15959
+{"started": "incumbent|s2|mixed|16", "remaining": 367}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=16590
+{"started": "incumbent|s2|mixed|24", "remaining": 366}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=16646
+{"started": "incumbent|s2|mixed|32", "remaining": 365}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=17205
+{"started": "incumbent|s2|mixed|40", "remaining": 364}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=17545
+{"started": "incumbent|s2|mixed|48", "remaining": 363}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=17665
+{"started": "incumbent|s2|mixed|56", "remaining": 362}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=17700
+{"started": "incumbent|s2|mixed|64", "remaining": 361}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=18133
+{"started": "incumbent|s2|mixed|72", "remaining": 360}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=18614
+{"started": "incumbent|s2|mixed|80", "remaining": 359}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=18898
+{"started": "incumbent|s2|mixed|88", "remaining": 358}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=19159
+{"started": "control|incumbent|s2|mixed", "remaining": 357}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=19308
+{"started": "incumbent|s3|scripted|0", "remaining": 356}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=19793
+{"started": "incumbent|s3|scripted|8", "remaining": 355}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=19837
+{"started": "incumbent|s3|scripted|16", "remaining": 354}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=19847
+{"started": "incumbent|s3|scripted|24", "remaining": 353}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=20100
+{"started": "incumbent|s3|scripted|32", "remaining": 352}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=20120
+{"started": "incumbent|s3|scripted|40", "remaining": 351}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=20494
+{"started": "incumbent|s3|scripted|48", "remaining": 350}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=20582
+{"started": "incumbent|s3|scripted|56", "remaining": 349}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=20732
+{"started": "incumbent|s3|scripted|64", "remaining": 348}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=20840
+{"started": "incumbent|s3|scripted|72", "remaining": 347}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=21303
+{"started": "incumbent|s3|scripted|80", "remaining": 346}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=21483
+{"started": "incumbent|s3|scripted|88", "remaining": 345}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=21492
+{"started": "incumbent|s3|scripted|96", "remaining": 344}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=21777
+{"started": "incumbent|s3|scripted|104", "remaining": 343}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=21851
+{"started": "incumbent|s3|scripted|112", "remaining": 342}
+OWNED_WORKER pid=21852
+{"started": "incumbent|s3|scripted|120", "remaining": 341}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22099
+{"started": "incumbent|s3|scripted|128", "remaining": 340}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22127
+{"started": "incumbent|s3|scripted|136", "remaining": 339}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22149
+{"started": "incumbent|s3|scripted|144", "remaining": 338}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22298
+{"started": "incumbent|s3|scripted|152", "remaining": 337}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22395
+{"started": "incumbent|s3|scripted|160", "remaining": 336}
+OWNED_WORKER pid=22396
+{"started": "incumbent|s3|scripted|168", "remaining": 335}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22532
+{"started": "incumbent|s3|scripted|176", "remaining": 334}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22575
+{"started": "incumbent|s3|scripted|184", "remaining": 333}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22656
+{"started": "control|incumbent|s3|scripted", "remaining": 332}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22668
+{"started": "incumbent|s3|frozen|0", "remaining": 331}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22686
+{"started": "incumbent|s3|frozen|8", "remaining": 330}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22744
+{"started": "incumbent|s3|frozen|16", "remaining": 329}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22796
+{"started": "incumbent|s3|frozen|24", "remaining": 328}
+OWNED_WORKER pid=22797
+{"started": "incumbent|s3|frozen|32", "remaining": 327}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=22869
+{"started": "incumbent|s3|frozen|40", "remaining": 326}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23068
+{"started": "incumbent|s3|frozen|48", "remaining": 325}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23110
+{"started": "incumbent|s3|frozen|56", "remaining": 324}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23134
+{"started": "incumbent|s3|frozen|64", "remaining": 323}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23213
+{"started": "incumbent|s3|frozen|72", "remaining": 322}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23255
+{"started": "incumbent|s3|frozen|80", "remaining": 321}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23329
+{"started": "incumbent|s3|frozen|88", "remaining": 320}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23526
+{"started": "control|incumbent|s3|frozen", "remaining": 319}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23544
+{"started": "incumbent|s3|mixed|0", "remaining": 318}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23559
+{"started": "incumbent|s3|mixed|8", "remaining": 317}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23616
+{"started": "incumbent|s3|mixed|16", "remaining": 316}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23687
+{"started": "incumbent|s3|mixed|24", "remaining": 315}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23747
+{"started": "incumbent|s3|mixed|32", "remaining": 314}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23817
+{"started": "incumbent|s3|mixed|40", "remaining": 313}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23860
+{"started": "incumbent|s3|mixed|48", "remaining": 312}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23867
+{"started": "incumbent|s3|mixed|56", "remaining": 311}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=23929
+{"started": "incumbent|s3|mixed|64", "remaining": 310}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24094
+{"started": "incumbent|s3|mixed|72", "remaining": 309}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24125
+{"started": "incumbent|s3|mixed|80", "remaining": 308}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24151
+{"started": "incumbent|s3|mixed|88", "remaining": 307}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24233
+{"started": "control|incumbent|s3|mixed", "remaining": 306}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24253
+{"started": "incumbent|s4|scripted|0", "remaining": 305}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24259
+{"started": "incumbent|s4|scripted|8", "remaining": 304}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24272
+{"started": "incumbent|s4|scripted|16", "remaining": 303}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24484
+{"started": "incumbent|s4|scripted|24", "remaining": 302}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24537
+{"started": "incumbent|s4|scripted|32", "remaining": 301}
+OWNED_WORKER pid=24538
+{"started": "incumbent|s4|scripted|40", "remaining": 300}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24555
+{"started": "incumbent|s4|scripted|48", "remaining": 299}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24570
+{"started": "incumbent|s4|scripted|56", "remaining": 298}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24601
+{"started": "incumbent|s4|scripted|64", "remaining": 297}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24835
+{"started": "incumbent|s4|scripted|72", "remaining": 296}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24850
+{"started": "incumbent|s4|scripted|80", "remaining": 295}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24873
+{"started": "incumbent|s4|scripted|88", "remaining": 294}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24888
+{"started": "incumbent|s4|scripted|96", "remaining": 293}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=24906
+{"started": "incumbent|s4|scripted|104", "remaining": 292}
+OWNED_WORKER pid=24907
+{"started": "incumbent|s4|scripted|112", "remaining": 291}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25112
+{"started": "incumbent|s4|scripted|120", "remaining": 290}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25137
+{"started": "incumbent|s4|scripted|128", "remaining": 289}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25213
+{"started": "incumbent|s4|scripted|136", "remaining": 288}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25224
+{"started": "incumbent|s4|scripted|144", "remaining": 287}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25234
+{"started": "incumbent|s4|scripted|152", "remaining": 286}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25240
+{"started": "incumbent|s4|scripted|160", "remaining": 285}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25389
+{"started": "incumbent|s4|scripted|168", "remaining": 284}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25490
+{"started": "incumbent|s4|scripted|176", "remaining": 283}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25496
+{"started": "incumbent|s4|scripted|184", "remaining": 282}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25505
+{"started": "control|incumbent|s4|scripted", "remaining": 281}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25517
+{"started": "incumbent|s4|frozen|0", "remaining": 280}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25533
+{"started": "incumbent|s4|frozen|8", "remaining": 279}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25652
+{"started": "incumbent|s4|frozen|16", "remaining": 278}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25721
+{"started": "incumbent|s4|frozen|24", "remaining": 277}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25839
+{"started": "incumbent|s4|frozen|32", "remaining": 276}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25849
+{"started": "incumbent|s4|frozen|40", "remaining": 275}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25917
+{"started": "incumbent|s4|frozen|48", "remaining": 274}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=25957
+{"started": "incumbent|s4|frozen|56", "remaining": 273}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26064
+{"started": "incumbent|s4|frozen|64", "remaining": 272}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26136
+{"started": "incumbent|s4|frozen|72", "remaining": 271}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26312
+{"started": "incumbent|s4|frozen|80", "remaining": 270}
+OWNED_WORKER pid=26313
+{"started": "incumbent|s4|frozen|88", "remaining": 269}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26321
+{"started": "control|incumbent|s4|frozen", "remaining": 268}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26358
+{"started": "incumbent|s4|mixed|0", "remaining": 267}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26422
+{"started": "incumbent|s4|mixed|8", "remaining": 266}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26472
+{"started": "incumbent|s4|mixed|16", "remaining": 265}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26534
+{"started": "incumbent|s4|mixed|24", "remaining": 264}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26812
+{"started": "incumbent|s4|mixed|32", "remaining": 263}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26827
+{"started": "incumbent|s4|mixed|40", "remaining": 262}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26833
+{"started": "incumbent|s4|mixed|48", "remaining": 261}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26859
+{"started": "incumbent|s4|mixed|56", "remaining": 260}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26938
+{"started": "incumbent|s4|mixed|64", "remaining": 259}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=26998
+{"started": "incumbent|s4|mixed|72", "remaining": 258}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27185
+{"started": "incumbent|s4|mixed|80", "remaining": 257}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27191
+{"started": "incumbent|s4|mixed|88", "remaining": 256}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27265
+{"started": "control|incumbent|s4|mixed", "remaining": 255}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27320
+{"started": "champion|s0|scripted|0", "remaining": 254}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27329
+{"started": "champion|s0|scripted|8", "remaining": 253}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27366
+{"started": "champion|s0|scripted|16", "remaining": 252}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27444
+{"started": "champion|s0|scripted|24", "remaining": 251}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27740
+{"started": "champion|s0|scripted|32", "remaining": 250}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27783
+{"started": "champion|s0|scripted|40", "remaining": 249}
+OWNED_WORKER pid=27784
+{"started": "champion|s0|scripted|48", "remaining": 248}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27795
+{"started": "champion|s0|scripted|56", "remaining": 247}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27801
+{"started": "champion|s0|scripted|64", "remaining": 246}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27874
+{"started": "champion|s0|scripted|72", "remaining": 245}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=27990
+{"started": "champion|s0|scripted|80", "remaining": 244}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28049
+{"started": "champion|s0|scripted|88", "remaining": 243}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28055
+{"started": "champion|s0|scripted|96", "remaining": 242}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28086
+{"started": "champion|s0|scripted|104", "remaining": 241}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28144
+{"started": "champion|s0|scripted|112", "remaining": 240}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28287
+{"started": "champion|s0|scripted|120", "remaining": 239}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28651
+{"started": "champion|s0|scripted|128", "remaining": 238}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28881
+{"started": "champion|s0|scripted|136", "remaining": 237}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28933
+{"started": "champion|s0|scripted|144", "remaining": 236}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28965
+{"started": "champion|s0|scripted|152", "remaining": 235}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=28980
+{"started": "champion|s0|scripted|160", "remaining": 234}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29066
+{"started": "champion|s0|scripted|168", "remaining": 233}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29169
+{"started": "champion|s0|scripted|176", "remaining": 232}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29253
+{"started": "champion|s0|scripted|184", "remaining": 231}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29310
+{"started": "control|champion|s0|scripted", "remaining": 230}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29319
+{"started": "champion|s0|frozen|0", "remaining": 229}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29344
+{"started": "champion|s0|frozen|8", "remaining": 228}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29367
+{"started": "champion|s0|frozen|16", "remaining": 227}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29422
+{"started": "champion|s0|frozen|24", "remaining": 226}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29533
+{"started": "champion|s0|frozen|32", "remaining": 225}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29588
+{"started": "champion|s0|frozen|40", "remaining": 224}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29855
+{"started": "champion|s0|frozen|48", "remaining": 223}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29868
+{"started": "champion|s0|frozen|56", "remaining": 222}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29883
+{"started": "champion|s0|frozen|64", "remaining": 221}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=29946
+{"started": "champion|s0|frozen|72", "remaining": 220}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30153
+{"started": "champion|s0|frozen|80", "remaining": 219}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30258
+{"started": "champion|s0|frozen|88", "remaining": 218}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30433
+{"started": "control|champion|s0|frozen", "remaining": 217}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30464
+{"started": "champion|s0|mixed|0", "remaining": 216}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30538
+{"started": "champion|s0|mixed|8", "remaining": 215}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30552
+{"started": "champion|s0|mixed|16", "remaining": 214}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30636
+{"started": "champion|s0|mixed|24", "remaining": 213}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30733
+{"started": "champion|s0|mixed|32", "remaining": 212}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30803
+{"started": "champion|s0|mixed|40", "remaining": 211}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=30998
+{"started": "champion|s0|mixed|48", "remaining": 210}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=31004
+{"started": "champion|s0|mixed|56", "remaining": 209}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=31099
+{"started": "champion|s0|mixed|64", "remaining": 208}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=31752
+{"started": "champion|s0|mixed|72", "remaining": 207}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=31958
+{"started": "champion|s0|mixed|80", "remaining": 206}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=32180
+{"started": "champion|s0|mixed|88", "remaining": 205}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=32392
+{"started": "control|champion|s0|mixed", "remaining": 204}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=32430
+{"started": "champion|s1|scripted|0", "remaining": 203}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=32474
+{"started": "champion|s1|scripted|8", "remaining": 202}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=32558
+{"started": "champion|s1|scripted|16", "remaining": 201}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=32689
+{"started": "champion|s1|scripted|24", "remaining": 200}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=32706
+{"started": "champion|s1|scripted|32", "remaining": 199}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=32893
+{"started": "champion|s1|scripted|40", "remaining": 198}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33016
+{"started": "champion|s1|scripted|48", "remaining": 197}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33038
+{"started": "champion|s1|scripted|56", "remaining": 196}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33076
+{"started": "champion|s1|scripted|64", "remaining": 195}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33128
+{"started": "champion|s1|scripted|72", "remaining": 194}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33245
+{"started": "champion|s1|scripted|80", "remaining": 193}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33645
+{"started": "champion|s1|scripted|88", "remaining": 192}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33674
+{"started": "champion|s1|scripted|96", "remaining": 191}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33702
+{"started": "champion|s1|scripted|104", "remaining": 190}
+OWNED_WORKER pid=33708
+{"started": "champion|s1|scripted|112", "remaining": 189}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33796
+{"started": "champion|s1|scripted|120", "remaining": 188}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33813
+{"started": "champion|s1|scripted|128", "remaining": 187}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=33962
+{"started": "champion|s1|scripted|136", "remaining": 186}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34019
+{"started": "champion|s1|scripted|144", "remaining": 185}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34113
+{"started": "champion|s1|scripted|152", "remaining": 184}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34164
+{"started": "champion|s1|scripted|160", "remaining": 183}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34194
+{"started": "champion|s1|scripted|168", "remaining": 182}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34254
+{"started": "champion|s1|scripted|176", "remaining": 181}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34488
+{"started": "champion|s1|scripted|184", "remaining": 180}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34679
+{"started": "control|champion|s1|scripted", "remaining": 179}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34869
+{"started": "champion|s1|frozen|0", "remaining": 178}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34904
+{"started": "champion|s1|frozen|8", "remaining": 177}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34930
+{"started": "champion|s1|frozen|16", "remaining": 176}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34963
+{"started": "champion|s1|frozen|24", "remaining": 175}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=34983
+{"started": "champion|s1|frozen|32", "remaining": 174}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=35082
+{"started": "champion|s1|frozen|40", "remaining": 173}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=35244
+{"started": "champion|s1|frozen|48", "remaining": 172}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=35301
+{"started": "champion|s1|frozen|56", "remaining": 171}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=35359
+{"started": "champion|s1|frozen|64", "remaining": 170}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=35416
+{"started": "champion|s1|frozen|72", "remaining": 169}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=36448
+{"started": "champion|s1|frozen|80", "remaining": 168}
+OWNED_WORKER pid=36449
+{"started": "champion|s1|frozen|88", "remaining": 167}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=37677
+{"started": "control|champion|s1|frozen", "remaining": 166}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=38107
+{"started": "champion|s1|mixed|0", "remaining": 165}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=38394
+{"started": "champion|s1|mixed|8", "remaining": 164}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=38504
+{"started": "champion|s1|mixed|16", "remaining": 163}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=38801
+{"started": "champion|s1|mixed|24", "remaining": 162}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=38896
+{"started": "champion|s1|mixed|32", "remaining": 161}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=39009
+{"started": "champion|s1|mixed|40", "remaining": 160}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=39589
+{"started": "champion|s1|mixed|48", "remaining": 159}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=39619
+{"started": "champion|s1|mixed|56", "remaining": 158}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=39625
+{"started": "champion|s1|mixed|64", "remaining": 157}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=39675
+{"started": "champion|s1|mixed|72", "remaining": 156}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=40008
+{"started": "champion|s1|mixed|80", "remaining": 155}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=40042
+{"started": "champion|s1|mixed|88", "remaining": 154}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=40811
+{"started": "control|champion|s1|mixed", "remaining": 153}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=40916
+{"started": "champion|s2|scripted|0", "remaining": 152}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=40944
+{"started": "champion|s2|scripted|8", "remaining": 151}
+OWNED_WORKER pid=40950
+{"started": "champion|s2|scripted|16", "remaining": 150}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=41003
+{"started": "champion|s2|scripted|24", "remaining": 149}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=41149
+{"started": "champion|s2|scripted|32", "remaining": 148}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=41266
+{"started": "champion|s2|scripted|40", "remaining": 147}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=41878
+{"started": "champion|s2|scripted|48", "remaining": 146}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42088
+{"started": "champion|s2|scripted|56", "remaining": 145}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42106
+{"started": "champion|s2|scripted|64", "remaining": 144}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42112
+{"started": "champion|s2|scripted|72", "remaining": 143}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42132
+{"started": "champion|s2|scripted|80", "remaining": 142}
+OWNED_WORKER pid=42133
+{"started": "champion|s2|scripted|88", "remaining": 141}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42466
+{"started": "champion|s2|scripted|96", "remaining": 140}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42497
+{"started": "champion|s2|scripted|104", "remaining": 139}
+OWNED_WORKER pid=42498
+{"started": "champion|s2|scripted|112", "remaining": 138}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42532
+{"started": "champion|s2|scripted|120", "remaining": 137}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42566
+{"started": "champion|s2|scripted|128", "remaining": 136}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42583
+{"started": "champion|s2|scripted|136", "remaining": 135}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42937
+{"started": "champion|s2|scripted|144", "remaining": 134}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=42967
+{"started": "champion|s2|scripted|152", "remaining": 133}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43018
+{"started": "champion|s2|scripted|160", "remaining": 132}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43027
+{"started": "champion|s2|scripted|168", "remaining": 131}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43036
+{"started": "champion|s2|scripted|176", "remaining": 130}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43087
+{"started": "champion|s2|scripted|184", "remaining": 129}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43310
+{"started": "control|champion|s2|scripted", "remaining": 128}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43406
+{"started": "champion|s2|frozen|0", "remaining": 127}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43412
+{"started": "champion|s2|frozen|8", "remaining": 126}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43426
+{"started": "champion|s2|frozen|16", "remaining": 125}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43453
+{"started": "champion|s2|frozen|24", "remaining": 124}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43562
+{"started": "champion|s2|frozen|32", "remaining": 123}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=43660
+{"started": "champion|s2|frozen|40", "remaining": 122}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44057
+{"started": "champion|s2|frozen|48", "remaining": 121}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44069
+{"started": "champion|s2|frozen|56", "remaining": 120}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44090
+{"started": "champion|s2|frozen|64", "remaining": 119}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44099
+{"started": "champion|s2|frozen|72", "remaining": 118}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44189
+{"started": "champion|s2|frozen|80", "remaining": 117}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44273
+{"started": "champion|s2|frozen|88", "remaining": 116}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44503
+{"started": "control|champion|s2|frozen", "remaining": 115}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44527
+{"started": "champion|s2|mixed|0", "remaining": 114}
+OWNED_WORKER pid=44528
+{"started": "champion|s2|mixed|8", "remaining": 113}
+OWNED_WORKER pid=44529
+{"started": "champion|s2|mixed|16", "remaining": 112}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44562
+{"started": "champion|s2|mixed|24", "remaining": 111}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44800
+{"started": "champion|s2|mixed|32", "remaining": 110}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=44989
+{"started": "champion|s2|mixed|40", "remaining": 109}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45152
+{"started": "champion|s2|mixed|48", "remaining": 108}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45246
+{"started": "champion|s2|mixed|56", "remaining": 107}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45349
+{"started": "champion|s2|mixed|64", "remaining": 106}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45358
+{"started": "champion|s2|mixed|72", "remaining": 105}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45468
+{"started": "champion|s2|mixed|80", "remaining": 104}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45485
+{"started": "champion|s2|mixed|88", "remaining": 103}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45858
+{"started": "control|champion|s2|mixed", "remaining": 102}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45866
+{"started": "champion|s3|scripted|0", "remaining": 101}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45889
+{"started": "champion|s3|scripted|8", "remaining": 100}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45901
+{"started": "champion|s3|scripted|16", "remaining": 99}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=45941
+{"started": "champion|s3|scripted|24", "remaining": 98}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46054
+{"started": "champion|s3|scripted|32", "remaining": 97}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46063
+{"started": "champion|s3|scripted|40", "remaining": 96}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46215
+{"started": "champion|s3|scripted|48", "remaining": 95}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46245
+{"started": "champion|s3|scripted|56", "remaining": 94}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46337
+{"started": "champion|s3|scripted|64", "remaining": 93}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46349
+{"started": "champion|s3|scripted|72", "remaining": 92}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46359
+{"started": "champion|s3|scripted|80", "remaining": 91}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46439
+{"started": "champion|s3|scripted|88", "remaining": 90}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46624
+{"started": "champion|s3|scripted|96", "remaining": 89}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46669
+{"started": "champion|s3|scripted|104", "remaining": 88}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46684
+{"started": "champion|s3|scripted|112", "remaining": 87}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46707
+{"started": "champion|s3|scripted|120", "remaining": 86}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46733
+{"started": "champion|s3|scripted|128", "remaining": 85}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46784
+{"started": "champion|s3|scripted|136", "remaining": 84}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=46988
+{"started": "champion|s3|scripted|144", "remaining": 83}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47030
+{"started": "champion|s3|scripted|152", "remaining": 82}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47049
+{"started": "champion|s3|scripted|160", "remaining": 81}
+OWNED_WORKER pid=47057
+{"started": "champion|s3|scripted|168", "remaining": 80}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47084
+{"started": "champion|s3|scripted|176", "remaining": 79}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47207
+{"started": "champion|s3|scripted|184", "remaining": 78}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47436
+{"started": "control|champion|s3|scripted", "remaining": 77}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47491
+{"started": "champion|s3|frozen|0", "remaining": 76}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47505
+{"started": "champion|s3|frozen|8", "remaining": 75}
+OWNED_WORKER pid=47506
+{"started": "champion|s3|frozen|16", "remaining": 74}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47514
+{"started": "champion|s3|frozen|24", "remaining": 73}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47556
+{"started": "champion|s3|frozen|32", "remaining": 72}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47623
+{"started": "champion|s3|frozen|40", "remaining": 71}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=47897
+{"started": "champion|s3|frozen|48", "remaining": 70}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48028
+{"started": "champion|s3|frozen|56", "remaining": 69}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48041
+{"started": "champion|s3|frozen|64", "remaining": 68}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48218
+{"started": "champion|s3|frozen|72", "remaining": 67}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48229
+{"started": "champion|s3|frozen|80", "remaining": 66}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48278
+{"started": "champion|s3|frozen|88", "remaining": 65}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48589
+{"started": "control|champion|s3|frozen", "remaining": 64}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48620
+{"started": "champion|s3|mixed|0", "remaining": 63}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48635
+{"started": "champion|s3|mixed|8", "remaining": 62}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48679
+{"started": "champion|s3|mixed|16", "remaining": 61}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48701
+{"started": "champion|s3|mixed|24", "remaining": 60}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48733
+{"started": "champion|s3|mixed|32", "remaining": 59}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=48859
+{"started": "champion|s3|mixed|40", "remaining": 58}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49037
+{"started": "champion|s3|mixed|48", "remaining": 57}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49044
+{"started": "champion|s3|mixed|56", "remaining": 56}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49103
+{"started": "champion|s3|mixed|64", "remaining": 55}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49109
+{"started": "champion|s3|mixed|72", "remaining": 54}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49124
+{"started": "champion|s3|mixed|80", "remaining": 53}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49191
+{"started": "champion|s3|mixed|88", "remaining": 52}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49416
+{"started": "control|champion|s3|mixed", "remaining": 51}
+OWNED_WORKER pid=49422
+{"started": "champion|s4|scripted|0", "remaining": 50}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49458
+{"started": "champion|s4|scripted|8", "remaining": 49}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49489
+{"started": "champion|s4|scripted|16", "remaining": 48}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49520
+{"started": "champion|s4|scripted|24", "remaining": 47}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49545
+{"started": "champion|s4|scripted|32", "remaining": 46}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49599
+{"started": "champion|s4|scripted|40", "remaining": 45}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49770
+{"started": "champion|s4|scripted|48", "remaining": 44}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49798
+{"started": "champion|s4|scripted|56", "remaining": 43}
+OWNED_WORKER pid=49799
+{"started": "champion|s4|scripted|64", "remaining": 42}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49863
+{"started": "champion|s4|scripted|72", "remaining": 41}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49881
+{"started": "champion|s4|scripted|80", "remaining": 40}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=49978
+{"started": "champion|s4|scripted|88", "remaining": 39}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50157
+{"started": "champion|s4|scripted|96", "remaining": 38}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50166
+{"started": "champion|s4|scripted|104", "remaining": 37}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50200
+{"started": "champion|s4|scripted|112", "remaining": 36}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50233
+{"started": "champion|s4|scripted|120", "remaining": 35}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50239
+{"started": "champion|s4|scripted|128", "remaining": 34}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50268
+{"started": "champion|s4|scripted|136", "remaining": 33}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50467
+{"started": "champion|s4|scripted|144", "remaining": 32}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50473
+{"started": "champion|s4|scripted|152", "remaining": 31}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50503
+{"started": "champion|s4|scripted|160", "remaining": 30}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50540
+{"started": "champion|s4|scripted|168", "remaining": 29}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50556
+{"started": "champion|s4|scripted|176", "remaining": 28}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50571
+{"started": "champion|s4|scripted|184", "remaining": 27}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50750
+{"started": "control|champion|s4|scripted", "remaining": 26}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50780
+{"started": "champion|s4|frozen|0", "remaining": 25}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50796
+{"started": "champion|s4|frozen|8", "remaining": 24}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50818
+{"started": "champion|s4|frozen|16", "remaining": 23}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50871
+{"started": "champion|s4|frozen|24", "remaining": 22}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=50880
+{"started": "champion|s4|frozen|32", "remaining": 21}
+OWNED_WORKER pid=50886
+{"started": "champion|s4|frozen|40", "remaining": 20}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51218
+{"started": "champion|s4|frozen|48", "remaining": 19}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51227
+{"started": "champion|s4|frozen|56", "remaining": 18}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51236
+{"started": "champion|s4|frozen|64", "remaining": 17}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51295
+{"started": "champion|s4|frozen|72", "remaining": 16}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51304
+{"started": "champion|s4|frozen|80", "remaining": 15}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51365
+{"started": "champion|s4|frozen|88", "remaining": 14}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51650
+{"started": "control|champion|s4|frozen", "remaining": 13}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51656
+{"started": "champion|s4|mixed|0", "remaining": 12}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51665
+{"started": "champion|s4|mixed|8", "remaining": 11}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51671
+{"started": "champion|s4|mixed|16", "remaining": 10}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51689
+{"started": "champion|s4|mixed|24", "remaining": 9}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51701
+{"started": "champion|s4|mixed|32", "remaining": 8}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=51798
+{"started": "champion|s4|mixed|40", "remaining": 7}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=52054
+{"started": "champion|s4|mixed|48", "remaining": 6}
+OWNED_WORKER pid=52060
+{"started": "champion|s4|mixed|56", "remaining": 5}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=52078
+{"started": "champion|s4|mixed|64", "remaining": 4}
+OWNED_WORKER pid=52079
+{"started": "champion|s4|mixed|72", "remaining": 3}
+OWNED_WORKER pid=52080
+{"started": "champion|s4|mixed|80", "remaining": 2}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=52140
+{"started": "champion|s4|mixed|88", "remaining": 1}
+🖥️  Using CPU (forced)
+OWNED_WORKER pid=52425
+{"started": "control|champion|s4|mixed", "remaining": 0}
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
+🖥️  Using CPU (forced)
