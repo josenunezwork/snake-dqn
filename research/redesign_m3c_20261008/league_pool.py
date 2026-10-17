@@ -85,7 +85,8 @@ class PoolIdentity:
             actual = sha256_file(path)
             if actual != self.checkpoint_sha256:
                 raise RuntimeError(
-                    f"{self.policy_id}: checkpoint SHA mismatch: {actual} != {self.checkpoint_sha256}"
+                    f"{self.policy_id}: checkpoint SHA mismatch: {actual} != "
+                    f"{self.checkpoint_sha256}"
                 )
         if self.source_sha256s:
             root = Path.cwd() if repo_root is None else Path(repo_root)
