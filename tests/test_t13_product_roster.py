@@ -28,6 +28,14 @@ def _t12_watch12_loader():
         yield
 
 
+@pytest.fixture(autouse=True)
+def restore_global_config(monkeypatch):
+    """Keep the constructor-local Watch12 configuration inside these tests."""
+    from src.core import game_config
+
+    monkeypatch.setattr(game_config, "_current_config", game_config._current_config)
+
+
 def test_selection_restores_environment(monkeypatch):
     monkeypatch.setenv("SNAKE_SERVE_CHECKPOINT", "champion")
     monkeypatch.setenv("SNAKE_SERVE_VETO_VARIANT", "v7")
