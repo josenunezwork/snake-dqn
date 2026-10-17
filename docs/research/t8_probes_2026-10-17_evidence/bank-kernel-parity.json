@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "bank_reference_compiled_exact_states": 505,
+  "feature_values": 9090,
+  "full_states": 19976,
+  "full_worlds": 342,
+  "dtype": "float32"
+}
