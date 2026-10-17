@@ -194,3 +194,62 @@ Any producer or serving-code change requires a sibling erratum, a newly register
 and seed namespace, and a fresh qualification. The frozen qualification source commit is
 `70534958a6363c645d882c539912ef721c070501`; the publication commit is reported by the final
 repository handoff rather than self-referenced here.
+
+## T12B check-4-only repair and amendment (2026-10-17)
+
+The [T12B specification](specs/t12b_check4_fix_spec_2026-10-17.md) authorizes
+repairing and repeating **check 4 only**. The original failed attempts and the original
+audit above remain unchanged. Checks 1–3 and 5–8 are carried forward from that audit;
+they are not repeated. The sibling
+[amendment](../../research/t12b_check4_20261017/protocol_check4.md) is pinned independently
+in its new producer and audit before qualification. B8 remains an explicit environment
+selection; the released default remains `frp3-s12`.
+
+### Diagnosis and repair
+
+Two diagnostic-only Watch12 probes retained 120 paced advancing ticks after 200 warm-up
+frames at the original 24 and 17 fps requests. These intentionally bypass the new scheduling
+cap to investigate the old budgets; they are not additional T12 qualification attempts.
+The 24 fps diagnostic reproduced one overrun: 55.828 ms total, including 16.084 ms in
+`GameState.update`, 39.544 ms in snapshot construction, and 0.195 ms in JSON encoding.
+A 38.855 ms GC pause overlapped that snapshot. B8 forward work was 5.142 ms, v8 flood
+features 1.169 ms, and the advisory mask 0.823 ms within the update. The 17 fps diagnostic
+had no overruns, but its largest 41.059 ms tick contained a 27.816 ms GC pause during
+the update. The respective full-tick p95 values were 18.548 and 23.193 ms. These are
+isolated GC tails above the steady processing cost, not steady forward/flood saturation.
+The diagnostic does not establish the cause of the historical process's individual pauses.
+
+A separate 120-tick diagnostic used the real `Hub.broadcast` with an owned ephemeral
+localhost WebSocket server and client. Serialization plus socket send measured
+0.949 / 1.021 / 1.109 ms (p50/p95/max); delivery through client receipt was
+1.055 / 1.152 / 1.278 ms. The largest full tick was 57.553 ms with a 42.916 ms GC pause
+in the update. Remote network behavior and client rendering are outside this diagnostic.
+Both original JSON timing and loopback timing retain per-tick samples and GC callbacks.
+
+The repair is a scheduling ceiling in `web/backend/serving_speed.py`, applied only to
+ego2s observation contracts: up to six driven AI permits 24 fps; seven through twelve
+permits 12 fps; larger rosters use `max(1, floor(144/n))` conservatively. Dead, respawnable
+AI still count; the Play human does not. The server clamps `set_speed`, recomputes the
+ceiling after a successful roster/mode/checkpoint rebuild, and publishes `speed_ceiling`.
+The slider, presets, number shortcuts, and command palette honor that value. Other
+checkpoints retain the 120 fps server ceiling and existing 60 fps UI range.
+
+The observed GC tails motivate the conservative scheduling headroom. GC settings remain
+unchanged: this repair neither disables process-wide collection nor moves collection cost
+outside the measured tick. No policy/observation math, forward path, or checkpoint bytes
+changed. Ordinary serving remains batched; the existing rowwise identity path is untouched.
+
+### Amended qualification boundary
+
+Each of Watch6, Watch12, Play6, and Play12 must retain 1,500 advancing update and
+step-plus-snapshot samples after 200-frame warm-ups, with update p95 below 66.667 ms.
+Each also receives separate 120-tick paced probes at default 12 fps and at the actual
+server ceiling demonstrated by requesting 120 fps. Both must have zero processing-budget
+overruns. A requested lower speed cannot qualify an unchanged higher server ceiling.
+The measured tick excludes socket transmission and client rendering; achieved cadence is
+reported separately because the server sleeps the entire interval after its work.
+
+Product validation before qualification: 104 backend tests, 15 Controls frontend tests,
+the frontend production build, and flake8 passed. The repair commit is `25b25bf0`, pushed
+to `main` and `t12-20261017`. Qualification results and final evidence follow below once
+the pinned check-4-only run completes; this section alone is not a pass or release.
