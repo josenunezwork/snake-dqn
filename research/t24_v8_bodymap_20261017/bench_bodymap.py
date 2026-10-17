@@ -164,6 +164,12 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
         b8_mask = sim.get_advisory_action_mask()[b8_rows[:, 0], b8_rows[:, 1]]
         return v8_scalars(sim, b8_rows, b8_mask)
 
+    def b8_policy_standalone() -> Any:
+        """Unprimed B8 policy total: raster, v8, CPU forward, and selection."""
+        policy = pool.policies["b8-s3"]
+        policy.clear_frame_cache()
+        return policy.actions(masks[b8_rows[:, 0], b8_rows[:, 1]], sim, b8_rows)
+
     def baseline_b8_dispatch() -> np.ndarray:
         pool.policies["b8-s3"].clear_frame_cache()
         actions = np.ones((sim.E, sim.S), dtype=np.int64)
@@ -207,6 +213,7 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
         "learner_rows": int(len(learner_rows)),
         "frozen_rows": int((~learner).sum()),
         "b8_rows": int(len(b8_rows)),
+        "pool_identities": pool.identity_records(),
         "action_stream_sha256": hashlib.sha256(old_actions.tobytes()).hexdigest(),
         "checks": {
             "learner_v8_bytes_identical": True,
@@ -219,6 +226,7 @@ def _case(worlds: int, length: int, repeats: int, seed: int, checkpoint_dir: Pat
         "timing": {
             "learner_v8_direct_baseline": _timed(direct_learner_v8, repeats),
             "b8_v8_direct_baseline": _timed(direct_b8_v8, repeats),
+            "b8_policy_standalone": _timed(b8_policy_standalone, repeats),
             "learner_plus_b8_v8_shared_candidate": _timed(shared_learner_b8_v8, repeats),
         },
         "forward": {
