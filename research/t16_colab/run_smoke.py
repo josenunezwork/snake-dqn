@@ -26,6 +26,16 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 SCHEMA = "t16-colab-throughput/v1"
 COMMIT_SHA1 = re.compile(r"[0-9a-f]{40}")
+FROZEN_POLICY_IDS = frozenset(
+    {
+        "b8-s3",
+        "frp3-s12",
+        "frp3-s12-v8",
+        "champion-v8",
+        "scripted:greedy_food",
+        "scripted:random_safe",
+    }
+)
 T16_CONFIGS = (
     [
         {"name": f"hero_w128_a{actors}", "worlds": 128, "actors": actors, "self_play": False}
@@ -396,7 +406,17 @@ def measured_rate(
         )
     updates = last["updates"] - first["updates"]
     learn_seconds = last.get("learn_s", 0.0) - first.get("learn_s", 0.0)
-    lag_values = [row.get("policy_lag_mean") for row in window]
+    # Counter deltas use ``last - first``.  The telemetry row at ``first`` describes
+    # work before that boundary, so only later interval summaries belong to the scored
+    # window.  Legacy logs have no histogram and retain their historical mean behavior.
+    scored_intervals = window[1:]
+    histogram_rows = [
+        row for row in scored_intervals if isinstance(row.get("policy_lag_histogram"), dict)
+    ]
+    # Historical suites only carried interval means. Preserve their established
+    # aggregation while using exact boundary-aligned histograms for league rows.
+    lag_rows = scored_intervals if histogram_rows else window
+    lag_values = [row.get("policy_lag_mean") for row in lag_rows]
     finite_lags = [
         float(value)
         for value in lag_values
@@ -404,12 +424,12 @@ def measured_rate(
     ]
     p95_values = [
         float(row["policy_lag_p95"])
-        for row in window
+        for row in lag_rows
         if isinstance(row.get("policy_lag_p95"), (int, float))
         and math.isfinite(row["policy_lag_p95"])
     ]
     lag_histogram: dict[int, int] = {}
-    for row in window:
+    for row in histogram_rows:
         histogram = row.get("policy_lag_histogram")
         if not isinstance(histogram, dict):
             continue
@@ -422,6 +442,7 @@ def measured_rate(
     total_lag_samples = sum(lag_histogram.values())
     lag_p95 = max(p95_values) if p95_values else None
     if total_lag_samples:
+        lag_mean = sum(lag * count for lag, count in lag_histogram.items()) / total_lag_samples
         threshold = math.ceil(total_lag_samples * 0.95)
         cumulative = 0
         for lag in sorted(lag_histogram):
@@ -429,6 +450,8 @@ def measured_rate(
             if cumulative >= threshold:
                 lag_p95 = float(lag)
                 break
+    else:
+        lag_mean = sum(finite_lags) / len(finite_lags) if finite_lags else None
     frozen_gpu_seconds = None
     if all(isinstance(row.get("frozen_forward_gpu_s"), (int, float)) for row in (first, last)):
         frozen_gpu_seconds = last["frozen_forward_gpu_s"] - first["frozen_forward_gpu_s"]
@@ -445,6 +468,8 @@ def measured_rate(
         "transitions_per_second": rate,
         "tail_transitions_per_second": tail_rate,
         "updates_per_second": updates / elapsed,
+        "updates": updates,
+        "measured_updates": updates,
         "transitions_per_update": transitions / updates,
         "learner_decisions": decisions,
         "learner_decisions_per_second": decisions / elapsed,
@@ -452,10 +477,11 @@ def measured_rate(
         "replay_rows_per_second": replay_rows / elapsed,
         "replay_rows_per_update": replay_rows / updates,
         "learn_seconds_per_update": learn_seconds / updates if updates else None,
-        "policy_lag_mean": sum(finite_lags) / len(finite_lags) if finite_lags else None,
+        "policy_lag_mean": lag_mean,
         # Each log row is an interval summary; retaining the maximum protects the
         # tail while avoiding a false claim that concatenated interval p95s are raw samples.
         "policy_lag_p95": lag_p95,
+        "policy_lag_histogram_samples": total_lag_samples,
         "live_rows_by_policy": live_rows_by_policy,
         "frozen_forward_gpu_seconds": frozen_gpu_seconds,
         "frozen_forward_gpu_seconds_per_second": (
@@ -477,16 +503,41 @@ def require_league_metrics(measured: dict) -> None:
     numeric = (
         "learner_decisions",
         "replay_rows",
+        "updates",
         "updates_per_second",
         "replay_rows_per_update",
         "policy_lag_mean",
         "policy_lag_p95",
+        "policy_lag_histogram_samples",
         "frozen_forward_gpu_seconds",
     )
-    missing = [key for key in numeric if not isinstance(measured.get(key), (int, float))]
+    missing = [
+        key
+        for key in numeric
+        if isinstance(measured.get(key), bool)
+        or not isinstance(measured.get(key), (int, float))
+        or not math.isfinite(float(measured[key]))
+        or measured[key] < 0
+    ]
     live_rows = measured.get("live_rows_by_policy")
     if not isinstance(live_rows, dict) or not live_rows:
         missing.append("live_rows_by_policy")
+    elif not any(
+        policy in FROZEN_POLICY_IDS
+        and isinstance(rows, int)
+        and not isinstance(rows, bool)
+        and rows > 0
+        for policy, rows in live_rows.items()
+    ):
+        missing.append("frozen per-policy live rows")
+    histogram_samples = measured.get("policy_lag_histogram_samples")
+    if (
+        isinstance(histogram_samples, bool)
+        or not isinstance(histogram_samples, (int, float))
+        or not math.isfinite(float(histogram_samples))
+        or histogram_samples <= 0
+    ):
+        missing.append("policy_lag_histogram_samples")
     if missing:
         raise ValueError("missing league telemetry: " + ", ".join(missing))
 

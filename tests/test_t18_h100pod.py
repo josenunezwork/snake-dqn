@@ -113,7 +113,7 @@ def test_prepare_refuses_a_runtime_that_fails_the_t16_cuda_contract(tmp_path, mo
     assert not (tmp_path / "in/t16-colab-inputs").exists()
 
 
-def test_commands_cover_the_four_p0_cells_then_smoke_suites():
+def test_commands_cover_the_four_p0_cells_then_smoke03():
     commands = json.loads(
         (
             prepare.Path(__file__).parents[1] / "research/t18_h100pod_20261017/commands.json"
@@ -127,7 +127,6 @@ def test_commands_cover_the_four_p0_cells_then_smoke_suites():
         "p0_pack_g0",
         "p0_pack_g3",
         "smoke03",
-        "n3_static_pool",
     ]
     for row in rows[:4]:
         argv = row["argv"]
@@ -136,9 +135,18 @@ def test_commands_cover_the_four_p0_cells_then_smoke_suites():
         assert argv[argv.index("--configs") + 1] == "t1_k2_c_ro,t1_bf16_k2_c_ro,t1_k4_c_ro"
         assert argv[argv.index("--ring-dir") + 1] == "/dev/shm"
         assert argv[argv.index("--init") + 1] == "{inputs}/init/B8_s3_final.pth"
-    assert "--matrix" in rows[-2]["argv"] and "smoke03" in rows[-2]["argv"]
-    assert "--matrix" in rows[-1]["argv"] and "n3" in rows[-1]["argv"]
-    assert rows[-1]["timeout_s"] == 1800
+    assert "--matrix" in rows[-1]["argv"] and "smoke03" in rows[-1]["argv"]
+
+
+def test_n3_commands_are_isolated_from_the_existing_t18_workload():
+    commands = json.loads(
+        (prepare.Path(__file__).parents[1] / "research/t18_h100pod_20261017/commands_n3.json").read_text()
+    )
+    assert commands["schema"] == "perf-podbench-commands/v1"
+    assert len(commands["commands"]) == 1
+    row = commands["commands"][0]
+    assert row["name"] == "n3_static_pool" and row["timeout_s"] == 1800
+    assert row["argv"][row["argv"].index("--matrix") + 1] == "n3"
 
 
 def test_p0_ring_bytes_match_the_committed_benchmark_defaults():

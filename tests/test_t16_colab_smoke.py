@@ -199,6 +199,7 @@ def test_league_measurement_lifts_counters_lag_tail_policy_rows_and_frozen_gpu_t
             "learn_s": 0.1,
             "policy_lag_mean": 2,
             "policy_lag_p95": 3,
+            "policy_lag_histogram": {"2": 10},
             "frozen_forward_gpu_s": 1.0,
             "live_rows_by_policy": {"b8-s3": 500, "frp3-s12": 500},
         },
@@ -210,6 +211,7 @@ def test_league_measurement_lifts_counters_lag_tail_policy_rows_and_frozen_gpu_t
             "learn_s": 12.1,
             "policy_lag_mean": 4,
             "policy_lag_p95": 7,
+            "policy_lag_histogram": {"3": 5, "7": 5},
             "frozen_forward_gpu_s": 4.0,
             "live_rows_by_policy": {"b8-s3": 128_500, "frp3-s12": 128_500},
         },
@@ -221,6 +223,7 @@ def test_league_measurement_lifts_counters_lag_tail_policy_rows_and_frozen_gpu_t
             "learn_s": 24.1,
             "policy_lag_mean": 6,
             "policy_lag_p95": 9,
+            "policy_lag_histogram": {"5": 19, "7": 1},
             "frozen_forward_gpu_s": 7.0,
             "live_rows_by_policy": {"b8-s3": 256_500, "frp3-s12": 256_500},
         },
@@ -229,8 +232,8 @@ def test_league_measurement_lifts_counters_lag_tail_policy_rows_and_frozen_gpu_t
     assert measured["learner_decisions"] == 256_000
     assert measured["replay_rows"] == 256_000
     assert measured["replay_rows_per_update"] == 256
-    assert measured["policy_lag_mean"] == 5
-    assert measured["policy_lag_p95"] == 9
+    assert measured["policy_lag_mean"] == pytest.approx(5.1)
+    assert measured["policy_lag_p95"] == 5
     assert measured["frozen_forward_gpu_seconds"] == 3.0
     assert measured["live_rows_by_policy"] == {"b8-s3": 128_000, "frp3-s12": 128_000}
     smoke.require_league_metrics(measured)

@@ -1,0 +1,29 @@
+{
+  "schema": "perf-podbench-commands/v1",
+  "commands": [
+    {
+      "name": "n3_static_pool",
+      "timeout_s": 1800,
+      "argv": [
+        "python",
+        "research/t16_colab/run_smoke.py",
+        "--matrix",
+        "n3",
+        "--seconds",
+        "300",
+        "--budget-seconds",
+        "1800",
+        "--scratch-dir",
+        "{scratch}",
+        "--inputs",
+        "{inputs}",
+        "--commit",
+        "{commit}",
+        "--source-archive",
+        "/r/in/repo.tar.gz",
+        "--output",
+        "{out}/n3_static_pool"
+      ]
+    }
+  ]
+}

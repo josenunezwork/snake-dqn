@@ -19,7 +19,11 @@ measurement-only suite and has no comparison or promotion verdict.
 `research/t16_colab/mac_n3_baseline.sh --check` validates and prints the
 prepared MPS N=3 command. Without `--check` it is a bounded 420-second run
 with 120 seconds of warm-up and 300 seconds of scored collection; it refuses
-to overwrite an existing receipt. `research/t18_h100pod_20261017/commands.json`
-contains the corresponding unlaunched 30-minute H100 command.
+to overwrite an existing receipt and writes the rate receipt with the same
+120-second measurement boundary. The script binds the frozen checkpoint root
+with `SNAKE_CKPT_DIR` (defaulting to the established source checkout).
+`research/t18_h100pod_20261017/commands_n3.json` contains the corresponding
+unlaunched 30-minute H100 command. It is separate from the existing T18
+`commands.json`, whose fixed P0/smoke03 workload is unchanged.
 
 No pod, long training, or tmux job was launched while preparing these files.
